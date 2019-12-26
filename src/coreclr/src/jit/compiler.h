@@ -2550,31 +2550,32 @@ public:
                                                  var_types      baseType,
                                                  unsigned       size);
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(
-        var_types type, GenTree* op1, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size);
+        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1);
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(
-        var_types type, GenTree* op1, GenTree* op2, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size);
+        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2);
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
+                                                 NamedIntrinsic hwIntrinsicID,
+                                                 var_types      baseType,
+                                                 unsigned       size,
+                                                 GenTree*       op1,
+                                                 GenTree*       op2,
+                                                 GenTree*       op3);
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
+                                                 NamedIntrinsic hwIntrinsicID,
+                                                 var_types      baseType,
+                                                 unsigned       size,
                                                  GenTree*       op1,
                                                  GenTree*       op2,
                                                  GenTree*       op3,
-                                                 NamedIntrinsic hwIntrinsicID,
-                                                 var_types      baseType,
-                                                 unsigned       size);
-    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
-                                                 GenTree*       op1,
-                                                 GenTree*       op2,
-                                                 GenTree*       op3,
-                                                 GenTree*       op4,
-                                                 NamedIntrinsic hwIntrinsicID,
-                                                 var_types      baseType,
-                                                 unsigned       size);
-    GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types type, GenTree* op1, NamedIntrinsic hwIntrinsicID);
+                                                 GenTree*       op4);
+    GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types      type,
+                                                   NamedIntrinsic hwIntrinsicID,
                                                    GenTree*       op1,
-                                                   GenTree*       op2,
-                                                   NamedIntrinsic hwIntrinsicID);
+                                                   GenTree*       op2);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(
-        var_types type, GenTree* op1, GenTree* op2, GenTree* op3, NamedIntrinsic hwIntrinsicID);
+        var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
+
     GenTree* gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
     CORINFO_CLASS_HANDLE gtGetStructHandleForHWSIMD(var_types simdType, var_types simdBaseType);
 #endif // FEATURE_HW_INTRINSICS

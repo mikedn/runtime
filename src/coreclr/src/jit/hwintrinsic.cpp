@@ -638,7 +638,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                         op1 = op1->gtGetOp1();
                     }
                 }
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
                 break;
             }
 
@@ -653,7 +653,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
                 op1     = getArgForHWIntrinsic(argType, argClass);
 
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, op2, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
                 break;
             }
 
@@ -675,7 +675,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
                 op1     = getArgForHWIntrinsic(argType, argClass);
 
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, op2, op3, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3);
 
 #ifdef _TARGET_XARCH_
                 if (intrinsic == NI_AVX2_GatherVector128 || intrinsic == NI_AVX2_GatherVector256)

@@ -352,8 +352,8 @@ GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impSIMDPopStack(simdType);
             GenTree* tmpOp =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, op2, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16);
-            return gtNewSimdHWIntrinsicNode(simdType, op1, tmpOp, intrinsic, baseType, genTypeSize(simdType));
+                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, op2);
+            return gtNewSimdHWIntrinsicNode(simdType, intrinsic, baseType, genTypeSize(simdType), op1, tmpOp);
         }
 
         default:
@@ -556,7 +556,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             if (compSupports(InstructionSet_SSE2) || (compSupports(InstructionSet_SSE) && (baseType == TYP_FLOAT)))
             {
                 op1     = impPopStack().val;
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
             }
             break;
         }
@@ -568,7 +568,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             if (compSupports(InstructionSet_SSE) && varTypeIsFloating(baseType))
             {
                 op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, 16);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, 16, op1);
             }
             break;
         }
@@ -582,7 +582,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             if (compSupports(InstructionSet_AVX))
             {
                 op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
             }
             break;
         }
@@ -615,7 +615,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             if (compSupports(InstructionSet_AVX))
             {
                 op1     = impPopStack().val;
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
             }
             break;
         }
@@ -627,7 +627,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             if (compSupports(InstructionSet_AVX) && varTypeIsFloating(baseType))
             {
                 op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, 32);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, 32, op1);
             }
             break;
         }
@@ -727,13 +727,13 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                 if (imm8 >= count / 2)
                 {
                     imm8 -= count / 2;
-                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, gtNewIconNode(1), NI_AVX_ExtractVector128,
-                                                        baseType, simdSize);
+                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, baseType, simdSize,
+                                                        vectorOp, gtNewIconNode(1));
                 }
                 else
                 {
                     vectorOp =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, NI_Vector256_GetLower, baseType, simdSize);
+                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_GetLower, baseType, simdSize, vectorOp);
                 }
             }
 
@@ -743,8 +743,8 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             {
                 case TYP_LONG:
                 case TYP_ULONG:
-                    retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, valueOp, immNode, NI_SSE41_X64_Insert,
-                                                       baseType, 16);
+                    retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_X64_Insert, baseType, 16, vectorOp, valueOp,
+                                                       immNode);
                     break;
 
                 case TYP_FLOAT:
@@ -757,10 +757,10 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                             // vector.WithElement(0, value)
                             // =>
                             // movss   xmm0, xmm1 (xmm0 = vector, xmm1 = value)
-                            valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, valueOp, NI_Vector128_CreateScalarUnsafe,
-                                                               TYP_FLOAT, 16);
-                            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, valueOp, NI_SSE_MoveScalar,
-                                                               TYP_FLOAT, 16);
+                            valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT,
+                                                               16, valueOp);
+                            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, TYP_FLOAT, 16, vectorOp,
+                                                               valueOp);
                         }
                         else if (imm8 == 1)
                         {
@@ -768,15 +768,15 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                             // =>
                             // shufps  xmm1, xmm0, 0   (xmm0 = vector, xmm1 = value)
                             // shufps  xmm1, xmm0, 226
-                            GenTree* tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, valueOp,
-                                                                      NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16);
+                            GenTree* tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
+                                                                      TYP_FLOAT, 16, valueOp);
                             GenTree* dupVectorOp = nullptr;
                             vectorOp = impCloneExpr(vectorOp, &dupVectorOp, NO_CLASS_HANDLE, (unsigned)CHECK_SPILL_ALL,
                                                     nullptr DEBUGARG("Clone Vector for Vector128<float>.WithElement"));
-                            tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, tmpOp, vectorOp, gtNewIconNode(0),
-                                                             NI_SSE_Shuffle, TYP_FLOAT, 16);
-                            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, tmpOp, dupVectorOp, gtNewIconNode(226),
-                                                               NI_SSE_Shuffle, TYP_FLOAT, 16);
+                            tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, tmpOp, vectorOp,
+                                                             gtNewIconNode(0));
+                            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, tmpOp,
+                                                               dupVectorOp, gtNewIconNode(226));
                         }
                         else
                         {
@@ -801,23 +801,22 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                             // =>
                             // shufps  xmm1, xmm0, 32   (xmm0 = vector, xmm1 = value)
                             // shufps  xmm0, xmm1, 36
-                            GenTree* tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, valueOp,
-                                                                      NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16);
+                            GenTree* tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
+                                                                      TYP_FLOAT, 16, valueOp);
                             GenTree* dupVectorOp = nullptr;
                             vectorOp = impCloneExpr(vectorOp, &dupVectorOp, NO_CLASS_HANDLE, (unsigned)CHECK_SPILL_ALL,
                                                     nullptr DEBUGARG("Clone Vector for Vector128<float>.WithElement"));
-                            valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, tmpOp, gtNewIconNode(controlBits1),
-                                                               NI_SSE_Shuffle, TYP_FLOAT, 16);
-                            retNode =
-                                gtNewSimdHWIntrinsicNode(TYP_SIMD16, valueOp, dupVectorOp, gtNewIconNode(controlBits2),
-                                                         NI_SSE_Shuffle, TYP_FLOAT, 16);
+                            valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, vectorOp,
+                                                               tmpOp, gtNewIconNode(controlBits1));
+                            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, valueOp,
+                                                               dupVectorOp, gtNewIconNode(controlBits2));
                         }
                         break;
                     }
                     else
                     {
-                        valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, valueOp, NI_Vector128_CreateScalarUnsafe,
-                                                           TYP_FLOAT, 16);
+                        valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16,
+                                                           valueOp);
                         immNode->AsIntCon()->SetIconValue(imm8 * 16);
                         __fallthrough;
                     }
@@ -828,13 +827,13 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                 case TYP_INT:
                 case TYP_UINT:
                     retNode =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, valueOp, immNode, NI_SSE41_Insert, baseType, 16);
+                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_Insert, baseType, 16, vectorOp, valueOp, immNode);
                     break;
 
                 case TYP_SHORT:
                 case TYP_USHORT:
                     retNode =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, valueOp, immNode, NI_SSE2_Insert, baseType, 16);
+                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Insert, baseType, 16, vectorOp, valueOp, immNode);
                     break;
 
                 case TYP_DOUBLE:
@@ -847,9 +846,9 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                     // =>
                     // unpcklpd  xmm0, xmm1  (xmm0 = vector, xmm1 = value)
                     valueOp =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, valueOp, NI_Vector128_CreateScalarUnsafe, TYP_DOUBLE, 16);
+                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_DOUBLE, 16, valueOp);
                     NamedIntrinsic in = (imm8 == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;
-                    retNode           = gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, valueOp, in, TYP_DOUBLE, 16);
+                    retNode           = gtNewSimdHWIntrinsicNode(TYP_SIMD16, in, TYP_DOUBLE, 16, vectorOp, valueOp);
                     break;
                 }
 
@@ -862,8 +861,8 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             {
                 assert(clonedVectorOp);
                 int upperOrLower = (cachedImm8 >= count / 2) ? 1 : 0;
-                retNode = gtNewSimdHWIntrinsicNode(retType, clonedVectorOp, retNode, gtNewIconNode(upperOrLower),
-                                                   NI_AVX_InsertVector128, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, NI_AVX_InsertVector128, baseType, simdSize, clonedVectorOp,
+                                                   retNode, gtNewIconNode(upperOrLower));
             }
 
             break;
@@ -944,13 +943,13 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                 if (imm8 >= count / 2)
                 {
                     imm8 -= count / 2;
-                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, gtNewIconNode(1), NI_AVX_ExtractVector128,
-                                                        baseType, simdSize);
+                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, baseType, simdSize,
+                                                        vectorOp, gtNewIconNode(1));
                 }
                 else
                 {
                     vectorOp =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, NI_Vector256_GetLower, baseType, simdSize);
+                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_GetLower, baseType, simdSize, vectorOp);
                 }
             }
 
@@ -983,7 +982,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                         unreached();
                 }
 
-                return gtNewSimdHWIntrinsicNode(retType, vectorOp, resIntrinsic, baseType, 16);
+                return gtNewSimdHWIntrinsicNode(retType, resIntrinsic, baseType, 16, vectorOp);
             }
 
             GenTree* immNode = gtNewIconNode(imm8);
@@ -992,7 +991,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             {
                 case TYP_LONG:
                 case TYP_ULONG:
-                    retNode = gtNewSimdHWIntrinsicNode(retType, vectorOp, immNode, NI_SSE41_X64_Extract, baseType, 16);
+                    retNode = gtNewSimdHWIntrinsicNode(retType, NI_SSE41_X64_Extract, baseType, 16, vectorOp, immNode);
                     break;
 
                 case TYP_FLOAT:
@@ -1010,9 +1009,9 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                         GenTree* clonedVectorOp = nullptr;
                         vectorOp = impCloneExpr(vectorOp, &clonedVectorOp, NO_CLASS_HANDLE, (unsigned)CHECK_SPILL_ALL,
                                                 nullptr DEBUGARG("Clone Vector for Vector128<float>.GetElement"));
-                        vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, clonedVectorOp, immNode,
-                                                            NI_SSE_Shuffle, TYP_FLOAT, 16);
-                        return gtNewSimdHWIntrinsicNode(retType, vectorOp, NI_Vector128_ToScalar, TYP_FLOAT, 16);
+                        vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, vectorOp,
+                                                            clonedVectorOp, immNode);
+                        return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_ToScalar, TYP_FLOAT, 16, vectorOp);
                     }
                     __fallthrough;
                 }
@@ -1020,19 +1019,19 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                 case TYP_UBYTE:
                 case TYP_INT:
                 case TYP_UINT:
-                    retNode = gtNewSimdHWIntrinsicNode(retType, vectorOp, immNode, NI_SSE41_Extract, baseType, 16);
+                    retNode = gtNewSimdHWIntrinsicNode(retType, NI_SSE41_Extract, baseType, 16, vectorOp, immNode);
                     break;
 
                 case TYP_BYTE:
                     // We do not have SSE41/SSE2 Extract APIs on signed small int, so need a CAST on the result
-                    retNode = gtNewSimdHWIntrinsicNode(TYP_UBYTE, vectorOp, immNode, NI_SSE41_Extract, TYP_UBYTE, 16);
+                    retNode = gtNewSimdHWIntrinsicNode(TYP_UBYTE, NI_SSE41_Extract, TYP_UBYTE, 16, vectorOp, immNode);
                     retNode = gtNewCastNode(TYP_INT, retNode, true, TYP_BYTE);
                     break;
 
                 case TYP_SHORT:
                 case TYP_USHORT:
                     // We do not have SSE41/SSE2 Extract APIs on signed small int, so need a CAST on the result
-                    retNode = gtNewSimdHWIntrinsicNode(TYP_USHORT, vectorOp, immNode, NI_SSE2_Extract, TYP_USHORT, 16);
+                    retNode = gtNewSimdHWIntrinsicNode(TYP_USHORT, NI_SSE2_Extract, TYP_USHORT, 16, vectorOp, immNode);
                     if (baseType == TYP_SHORT)
                     {
                         retNode = gtNewCastNode(TYP_INT, retNode, true, TYP_SHORT);
@@ -1044,9 +1043,9 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                     // vector.GetElement(1)
                     // =>
                     // pshufd xmm1, xmm0, 0xEE (xmm0 = vector)
-                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, vectorOp, gtNewIconNode(0xEE), NI_SSE2_Shuffle,
-                                                        TYP_INT, 16);
-                    retNode = gtNewSimdHWIntrinsicNode(TYP_DOUBLE, vectorOp, NI_Vector128_ToScalar, TYP_DOUBLE, 16);
+                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, vectorOp,
+                                                        gtNewIconNode(0xEE));
+                    retNode = gtNewSimdHWIntrinsicNode(TYP_DOUBLE, NI_Vector128_ToScalar, TYP_DOUBLE, 16, vectorOp);
                     break;
 
                 default:
@@ -1092,7 +1091,7 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic        intrinsic,
             assert(sig->numArgs == 1);
             assert(JITtype2varType(sig->retType) == TYP_VOID);
             op1     = impPopStack().val;
-            retNode = gtNewSimdHWIntrinsicNode(TYP_VOID, op1, intrinsic, TYP_UBYTE, 0);
+            retNode = gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
             break;
         }
 
@@ -1138,12 +1137,12 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic        intrinsic,
             baseType = getBaseTypeOfSIMDType(sig->retTypeSigClass);
             if (baseType == TYP_DOUBLE)
             {
-                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, op1, op2, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, simdSize, op1, op2);
             }
             else
             {
                 retNode =
-                    gtNewSimdHWIntrinsicNode(TYP_SIMD16, op2, op1, NI_SSE2_CompareGreaterThan, baseType, simdSize);
+                    gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareGreaterThan, baseType, simdSize, op2, op1);
             }
             break;
         }
@@ -1165,7 +1164,7 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic        intrinsic,
             assert(JITtype2varType(sig->retType) == TYP_VOID);
             op2     = impPopStack().val;
             op1     = impPopStack().val;
-            retNode = gtNewSimdHWIntrinsicNode(TYP_VOID, op1, op2, NI_SSE2_StoreNonTemporal, op2->TypeGet(), 0);
+            retNode = gtNewSimdHWIntrinsicNode(TYP_VOID, NI_SSE2_StoreNonTemporal, op2->TypeGet(), 0, op1, op2);
             break;
         }
 
@@ -1200,7 +1199,7 @@ GenTree* Compiler::impSSE42Intrinsic(NamedIntrinsic        intrinsic,
             argList = info.compCompHnd->getArgNext(argList);                        // the second argument
             corType = strip(info.compCompHnd->getArgType(sig, argList, &argClass)); // type of the second argument
 
-            retNode = gtNewScalarHWIntrinsicNode(callType, op1, op2, intrinsic);
+            retNode = gtNewScalarHWIntrinsicNode(callType, intrinsic, op1, op2);
 
             // TODO - currently we use the BaseType to bring the type of the second argument
             // to the code generator. May encode the overload info in other way.
@@ -1234,7 +1233,7 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic        intrinsic,
             GenTree* indexVector  = impSIMDPopStack(TYP_SIMD32);
             GenTree* sourceVector = impSIMDPopStack(TYP_SIMD32);
             retNode =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD32, indexVector, sourceVector, NI_AVX2_PermuteVar8x32, baseType, 32);
+                gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, baseType, 32, indexVector, sourceVector);
             break;
         }
 
@@ -1317,7 +1316,7 @@ GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic        intrinsic,
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
 
-            return gtNewScalarHWIntrinsicNode(callType, op1, op2, intrinsic);
+            return gtNewScalarHWIntrinsicNode(callType, intrinsic, op1, op2);
         }
 
         case NI_BMI2_ZeroHighBits:
@@ -1329,7 +1328,7 @@ GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic        intrinsic,
             GenTree* op1 = impPopStack().val;
             // Instruction BZHI requires to encode op2 (3rd register) in VEX.vvvv and op1 maybe memory operand,
             // so swap op1 and op2 to unify the backend code.
-            return gtNewScalarHWIntrinsicNode(callType, op2, op1, intrinsic);
+            return gtNewScalarHWIntrinsicNode(callType, intrinsic, op2, op1);
         }
 
         case NI_BMI1_ExtractLowestSetBit:
@@ -1343,7 +1342,7 @@ GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic        intrinsic,
         {
             assert(sig->numArgs == 1);
             GenTree* op1 = impPopStack().val;
-            return gtNewScalarHWIntrinsicNode(callType, op1, intrinsic);
+            return gtNewScalarHWIntrinsicNode(callType, intrinsic, op1);
         }
 
         case NI_BMI1_BitFieldExtract:
@@ -1360,7 +1359,7 @@ GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic        intrinsic,
             GenTree* op1 = impPopStack().val;
             // Instruction BEXTR requires to encode op2 (3rd register) in VEX.vvvv and op1 maybe memory operand,
             // so swap op1 and op2 to unify the backend code.
-            return gtNewScalarHWIntrinsicNode(callType, op2, op1, intrinsic);
+            return gtNewScalarHWIntrinsicNode(callType, intrinsic, op2, op1);
         }
 
         case NI_BMI2_MultiplyNoFlags:
@@ -1378,11 +1377,11 @@ GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic        intrinsic,
 
             if (sig->numArgs == 3)
             {
-                return gtNewScalarHWIntrinsicNode(callType, op1, op2, op3, intrinsic);
+                return gtNewScalarHWIntrinsicNode(callType, intrinsic, op1, op2, op3);
             }
             else
             {
-                return gtNewScalarHWIntrinsicNode(callType, op1, op2, intrinsic);
+                return gtNewScalarHWIntrinsicNode(callType, intrinsic, op1, op2);
             }
         }
 
@@ -1406,7 +1405,7 @@ GenTree* Compiler::impLZCNTIntrinsic(NamedIntrinsic        intrinsic,
 {
     assert(sig->numArgs == 1);
     var_types callType = JITtype2varType(sig->retType);
-    return gtNewScalarHWIntrinsicNode(callType, impPopStack().val, intrinsic);
+    return gtNewScalarHWIntrinsicNode(callType, intrinsic, impPopStack().val);
 }
 
 GenTree* Compiler::impPCLMULQDQIntrinsic(NamedIntrinsic        intrinsic,
@@ -1424,7 +1423,7 @@ GenTree* Compiler::impPOPCNTIntrinsic(NamedIntrinsic        intrinsic,
 {
     assert(sig->numArgs == 1);
     var_types callType = JITtype2varType(sig->retType);
-    return gtNewScalarHWIntrinsicNode(callType, impPopStack().val, intrinsic);
+    return gtNewScalarHWIntrinsicNode(callType, intrinsic, impPopStack().val);
 }
 
 #endif // FEATURE_HW_INTRINSICS

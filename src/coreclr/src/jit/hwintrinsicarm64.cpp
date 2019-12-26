@@ -376,7 +376,7 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
             assert(numArgs == 1);
             argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
             op1     = getArgForHWIntrinsic(argType, argClass);
-            return gtNewScalarHWIntrinsicNode(baseType, op1, intrinsic);
+            return gtNewScalarHWIntrinsicNode(baseType, intrinsic, op1);
         }
 
         case NI_Crc32_ComputeCrc32:
@@ -393,7 +393,7 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
             argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
             op1     = getArgForHWIntrinsic(argType, argClass);
 
-            retNode                                  = gtNewScalarHWIntrinsicNode(retType, op1, op2, intrinsic);
+            retNode                                  = gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2);
             retNode->AsHWIntrinsic()->gtSIMDBaseType = baseType;
             break;
         }
