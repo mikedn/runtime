@@ -4717,7 +4717,7 @@ struct GenTreeHWIntrinsic : public GenTreeOp
         assert(size < UINT16_MAX);
     }
 
-    GenTreeHWIntrinsic(var_types type, GenTree* op1, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size)
+    GenTreeHWIntrinsic(var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
         : GenTreeOp(GT_HWINTRINSIC, type, op1, nullptr)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
@@ -4733,7 +4733,7 @@ struct GenTreeHWIntrinsic : public GenTreeOp
     }
 
     GenTreeHWIntrinsic(
-        var_types type, GenTree* op1, GenTree* op2, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size)
+        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
         : GenTreeOp(GT_HWINTRINSIC, type, op1, op2)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
