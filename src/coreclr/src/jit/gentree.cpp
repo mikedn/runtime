@@ -304,7 +304,6 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeField)        <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeArgList)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeColon)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCall)         <= TREE_NODE_SZ_LARGE); // *** large node
@@ -2461,123 +2460,6 @@ bool GenTree::gtIsValid64RsltMul()
 
 #endif // DEBUG
 
-//------------------------------------------------------------------------------
-// gtSetListOrder : Figure out the evaluation order for a list of values.
-//
-//
-// Arguments:
-//    list  - List to figure out the evaluation order for
-//    isListCallArgs - True iff the list is a list of call arguments
-//    callArgsInRegs -  True iff the list is a list of call arguments and they are passed in registers
-//
-// Return Value:
-//    True if the operation can be a root of a bitwise rotation tree; false otherwise.
-
-unsigned Compiler::gtSetListOrder(GenTree* list, bool isListCallArgs, bool callArgsInRegs)
-{
-    assert((list != nullptr) && list->OperIsAnyList());
-    assert(!callArgsInRegs || isListCallArgs);
-
-    ArrayStack<GenTree*> listNodes(getAllocator(CMK_ArrayStack));
-
-    do
-    {
-        listNodes.Push(list);
-        list = list->AsOp()->gtOp2;
-    } while ((list != nullptr) && (list->OperIsAnyList()));
-
-    unsigned nxtlvl = (list == nullptr) ? 0 : gtSetEvalOrder(list);
-    while (!listNodes.Empty())
-    {
-        list = listNodes.Pop();
-        assert(list && list->OperIsAnyList());
-        GenTree* next = list->AsOp()->gtOp2;
-
-        unsigned level = 0;
-
-        // TODO: Do we have to compute costs differently for argument lists and
-        // all other lists?
-        // https://github.com/dotnet/coreclr/issues/7095
-        unsigned costSz = (isListCallArgs || (next == nullptr)) ? 0 : 1;
-        unsigned costEx = (isListCallArgs || (next == nullptr)) ? 0 : 1;
-
-        if (next != nullptr)
-        {
-            if (isListCallArgs)
-            {
-                if (level < nxtlvl)
-                {
-                    level = nxtlvl;
-                }
-            }
-            costEx += next->GetCostEx();
-            costSz += next->GetCostSz();
-        }
-
-        GenTree* op1 = list->AsOp()->gtOp1;
-        unsigned lvl = gtSetEvalOrder(op1);
-
-        // Swap the level counts
-        if (list->gtFlags & GTF_REVERSE_OPS)
-        {
-            unsigned tmpl;
-
-            tmpl   = lvl;
-            lvl    = nxtlvl;
-            nxtlvl = tmpl;
-        }
-
-        // TODO: Do we have to compute levels differently for argument lists and
-        // all other lists?
-        // https://github.com/dotnet/coreclr/issues/7095
-        if (isListCallArgs)
-        {
-            if (level < lvl)
-            {
-                level = lvl;
-            }
-        }
-        else
-        {
-            if (lvl < 1)
-            {
-                level = nxtlvl;
-            }
-            else if (lvl == nxtlvl)
-            {
-                level = lvl + 1;
-            }
-            else
-            {
-                level = lvl;
-            }
-        }
-
-        if (op1->GetCostEx() != 0)
-        {
-            costEx += op1->GetCostEx();
-            costEx += (callArgsInRegs || !isListCallArgs) ? 0 : IND_COST_EX;
-        }
-
-        if (op1->GetCostSz() != 0)
-        {
-            costSz += op1->GetCostSz();
-#ifdef _TARGET_XARCH_
-            if (callArgsInRegs) // push is smaller than mov to reg
-#endif
-            {
-                costSz += 1;
-            }
-        }
-
-        list->SetCosts(costEx, costSz);
-
-        nxtlvl = level;
-    }
-
-    return nxtlvl;
-}
-
 unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz)
 {
     unsigned level  = 0;
@@ -3564,7 +3446,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                     break;
 
-                case GT_LIST:
                 case GT_NOP:
                     costEx = 0;
                     costSz = 0;
@@ -3917,13 +3798,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 goto DONE;
 
-            case GT_LIST:
-            {
-                const bool isListCallArgs = false;
-                const bool callArgsInRegs = false;
-                return gtSetListOrder(tree, isListCallArgs, callArgsInRegs);
-            }
-
             case GT_ASG:
                 /* Assignments need a bit of special handling */
                 /* Process the target */
@@ -4205,9 +4079,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     case GT_QMARK:
                     case GT_COLON:
                     case GT_MKREFANY:
-                        break;
-
-                    case GT_LIST:
                         break;
 
                     default:
@@ -5340,22 +5211,6 @@ bool GenTree::TryGetUse(GenTree* def, GenTree*** use)
     }
 }
 
-bool GenTree::TryGetUseList(GenTree* def, GenTree*** use)
-{
-    assert(def != nullptr);
-    assert(use != nullptr);
-
-    for (GenTreeArgList* node = this->AsArgList(); node != nullptr; node = node->Rest())
-    {
-        if (def == node->gtOp1)
-        {
-            *use = &node->gtOp1;
-            return true;
-        }
-    }
-    return false;
-}
-
 bool GenTree::TryGetUseBinOp(GenTree* def, GenTree*** use)
 {
     assert(def != nullptr);
@@ -6388,53 +6243,6 @@ GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTre
     return new (this, CMK_ASTNode) GenTreeCall::Use(node1, gtNewCallArgs(node2, node3, node4));
 }
 
-GenTreeArgList* Compiler::gtNewListNode(GenTree* op1, GenTreeArgList* op2)
-{
-    assert((op1 != nullptr) && (op1->OperGet() != GT_LIST));
-
-    return new (this, GT_LIST) GenTreeArgList(op1, op2);
-}
-
-/*****************************************************************************
- *
- *  Create a list out of one value.
- */
-
-GenTreeArgList* Compiler::gtNewArgList(GenTree* arg)
-{
-    return new (this, GT_LIST) GenTreeArgList(arg);
-}
-
-/*****************************************************************************
- *
- *  Create a list out of the two values.
- */
-
-GenTreeArgList* Compiler::gtNewArgList(GenTree* arg1, GenTree* arg2)
-{
-    return new (this, GT_LIST) GenTreeArgList(arg1, gtNewArgList(arg2));
-}
-
-/*****************************************************************************
- *
- *  Create a list out of the three values.
- */
-
-GenTreeArgList* Compiler::gtNewArgList(GenTree* arg1, GenTree* arg2, GenTree* arg3)
-{
-    return new (this, GT_LIST) GenTreeArgList(arg1, gtNewArgList(arg2, arg3));
-}
-
-/*****************************************************************************
- *
- *  Create a list out of the three values.
- */
-
-GenTreeArgList* Compiler::gtNewArgList(GenTree* arg1, GenTree* arg2, GenTree* arg3, GenTree* arg4)
-{
-    return new (this, GT_LIST) GenTreeArgList(arg1, gtNewArgList(arg2, arg3, arg4));
-}
-
 /*****************************************************************************
  *
  *  Given a GT_CALL node, access the fgArgInfo and find the entry
@@ -7411,12 +7219,6 @@ GenTree* Compiler::gtCloneExpr(
 
             // The nodes below this are not bashed, so they can be allocated at their individual sizes.
 
-            case GT_LIST:
-                assert((tree->AsOp()->gtOp2 == nullptr) || tree->AsOp()->gtOp2->OperIsList());
-                copy                = new (this, GT_LIST) GenTreeArgList(tree->AsOp()->gtOp1);
-                copy->AsOp()->gtOp2 = tree->AsOp()->gtOp2;
-                break;
-
             case GT_INDEX:
             {
                 GenTreeIndex* asInd = tree->AsIndex();
@@ -8003,10 +7805,6 @@ GenTree* Compiler::gtReplaceTree(Statement* stmt, GenTree* tree, GenTree* replac
         // Check to see if the node to be replaced is a call argument and if so,
         // set `treeParent` to the call node.
         GenTree* cursor = treeParent;
-        while ((cursor != nullptr) && (cursor->OperGet() == GT_LIST))
-        {
-            cursor = cursor->gtNext;
-        }
 
         if ((cursor != nullptr) && (cursor->OperGet() == GT_CALL))
         {
@@ -9328,38 +9126,6 @@ void GenTreeUseEdgeIterator::SetEntryStateForBinOp()
         m_edge    = &m_node->AsOp()->gtOp1;
         m_advance = &GenTreeUseEdgeIterator::AdvanceBinOp<false>;
     }
-}
-
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceList: produces the next operand of a variadic node and advances the state.
-//
-// This function does not use `m_state` for anything meaningful; it simply walks the `m_argList` until
-// there are no further entries.
-//
-void GenTreeUseEdgeIterator::AdvanceList()
-{
-    assert(m_state == 0);
-
-    if (m_statePtr == nullptr)
-    {
-        m_state = -1;
-    }
-    else
-    {
-        GenTreeArgList* listNode = static_cast<GenTreeArgList*>(m_statePtr);
-        m_edge                   = &listNode->gtOp1;
-        m_statePtr               = listNode->Rest();
-    }
-}
-
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::SetEntryStateForList: produces the first operand of a list node.
-//
-void GenTreeUseEdgeIterator::SetEntryStateForList(GenTreeArgList* list)
-{
-    m_statePtr = list;
-    m_advance  = &GenTreeUseEdgeIterator::AdvanceList;
-    AdvanceList();
 }
 
 //------------------------------------------------------------------------
@@ -11331,29 +11097,19 @@ void Compiler::gtDispTree(GenTree*     tree,
         {
             if (tree->AsOp()->gtOp1 != nullptr)
             {
-                if (tree->OperIs(GT_PHI))
-                {
-                    for (GenTreeArgList* args = tree->gtGetOp1()->AsArgList(); args != nullptr; args = args->Rest())
-                    {
-                        gtDispChild(args->Current(), indentStack, (args->Rest() == nullptr) ? IIArcBottom : IIArc);
-                    }
-                }
-                else
-                {
-                    // Label the child of the GT_COLON operator
-                    // op1 is the else part
+                // Label the child of the GT_COLON operator
+                // op1 is the else part
 
-                    if (tree->gtOper == GT_COLON)
-                    {
-                        childMsg = "else";
-                    }
-                    else if (tree->gtOper == GT_QMARK)
-                    {
-                        childMsg = "   if";
-                    }
-                    gtDispChild(tree->AsOp()->gtOp1, indentStack,
-                                (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc, childMsg, topOnly);
+                if (tree->gtOper == GT_COLON)
+                {
+                    childMsg = "else";
                 }
+                else if (tree->gtOper == GT_QMARK)
+                {
+                    childMsg = "   if";
+                }
+                gtDispChild(tree->AsOp()->gtOp1, indentStack,
+                            (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc, childMsg, topOnly);
             }
 
             if (tree->gtGetOp2IfPresent())
@@ -12095,39 +11851,16 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
                 fgArgTabEntry* curArgTabEntry = gtArgEntryByNode(call, operand);
                 assert(curArgTabEntry);
 
-                if (operand->OperGet() == GT_LIST)
+                if (!curArgTabEntry->isLateArg())
                 {
-                    int listIndex = 0;
-                    for (GenTreeArgList* element = operand->AsArgList(); element != nullptr; element = element->Rest())
-                    {
-                        operand = element->Current();
-                        if (curArgTabEntry->GetLateArgInx() == (unsigned)-1)
-                        {
-                            gtGetArgMsg(call, operand, curArgTabEntry->argNum, listIndex, buf, sizeof(buf));
-                        }
-                        else
-                        {
-                            gtGetLateArgMsg(call, operand, curArgTabEntry->GetLateArgInx(), listIndex, buf,
-                                            sizeof(buf));
-                        }
-
-                        displayOperand(operand, buf, operandArc, indentStack, prefixIndent);
-                        operandArc = IIArc;
-                    }
+                    gtGetArgMsg(call, operand, curArgTabEntry->argNum, -1, buf, sizeof(buf));
                 }
                 else
                 {
-                    if (!curArgTabEntry->isLateArg())
-                    {
-                        gtGetArgMsg(call, operand, curArgTabEntry->argNum, -1, buf, sizeof(buf));
-                    }
-                    else
-                    {
-                        gtGetLateArgMsg(call, operand, curArgTabEntry->GetLateArgInx(), -1, buf, sizeof(buf));
-                    }
-
-                    displayOperand(operand, buf, operandArc, indentStack, prefixIndent);
+                    gtGetLateArgMsg(call, operand, curArgTabEntry->GetLateArgInx(), -1, buf, sizeof(buf));
                 }
+
+                displayOperand(operand, buf, operandArc, indentStack, prefixIndent);
             }
         }
         else if (node->OperIsDynBlkOp())
@@ -14074,11 +13807,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
     if (tree->gtOper == GT_COMMA)
     {
         return op2;
-    }
-
-    if (tree->OperIsAnyList())
-    {
-        return tree;
     }
 
     switchType = op1->gtType;

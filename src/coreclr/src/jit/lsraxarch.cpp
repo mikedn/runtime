@@ -146,7 +146,6 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = 0;
             break;
 
-        case GT_LIST:
         case GT_ARGPLACE:
         case GT_NO_OP:
         case GT_START_NONGC:
@@ -735,7 +734,7 @@ void LinearScan::getTgtPrefOperands(GenTreeOp* tree, bool& prefOp1, bool& prefOp
 
         // If we have a read-modify-write operation, we want to preference op1 to the target,
         // if it is not contained.
-        if (!op1->isContained() && !op1->OperIs(GT_LIST))
+        if (!op1->isContained())
         {
             prefOp1 = true;
         }

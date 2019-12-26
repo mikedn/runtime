@@ -1172,19 +1172,7 @@ unsigned CodeGenInterface::InferStructOpSizeAlign(GenTree* op, unsigned* alignme
             }
             else
             {
-                opSize       = (unsigned)op2->AsIntCon()->gtIconVal;
-                GenTree* op1 = op->AsOp()->gtOp1;
-                assert(op1->OperGet() == GT_LIST);
-                GenTree* dstAddr = op1->AsOp()->gtOp1;
-                if (dstAddr->OperGet() == GT_ADDR)
-                {
-                    InferStructOpSizeAlign(dstAddr->AsOp()->gtOp1, &alignment);
-                }
-                else
-                {
-                    assert(!"Unhandle dstAddr node");
-                    alignment = TARGET_POINTER_SIZE;
-                }
+                unreached();
             }
         }
         else
