@@ -18382,6 +18382,27 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
         GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, gtNewArgList(op1, op2, op3, op4));
 }
 
+GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
+                                                       NamedIntrinsic hwIntrinsicID,
+                                                       var_types      baseType,
+                                                       unsigned       size,
+                                                       GenTree*       op1,
+                                                       GenTree*       op2,
+                                                       GenTree*       op3,
+                                                       GenTree*       op4,
+                                                       GenTree*       op5)
+{
+    SetOpLclRelatedToSIMDIntrinsic(op1);
+    SetOpLclRelatedToSIMDIntrinsic(op2);
+    SetOpLclRelatedToSIMDIntrinsic(op3);
+    SetOpLclRelatedToSIMDIntrinsic(op4);
+    SetOpLclRelatedToSIMDIntrinsic(op5);
+
+    return new (this, GT_HWINTRINSIC)
+        GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size,
+                           new (this, GT_LIST) GenTreeArgList(op1, gtNewArgList(op2, op3, op4, op5)));
+}
+
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
 {
     SetOpLclRelatedToSIMDIntrinsic(op1);
