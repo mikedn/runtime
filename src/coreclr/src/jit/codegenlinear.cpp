@@ -1399,16 +1399,15 @@ void CodeGen::genConsumeRegs(GenTree* tree)
             // Only load/store HW intrinsics can be contained (and the address may also be contained).
             HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(tree->AsHWIntrinsic()->gtHWIntrinsicId);
             assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
-            int numArgs = HWIntrinsicInfo::lookupNumArgs(tree->AsHWIntrinsic());
-            genConsumeAddress(tree->gtGetOp1());
+            genConsumeAddress(tree->AsHWIntrinsic()->GetOp(0));
             if (category == HW_Category_MemoryStore)
             {
-                assert((numArgs == 2) && !tree->gtGetOp2()->isContained());
-                genConsumeReg(tree->gtGetOp2());
+                assert(tree->AsHWIntrinsic()->IsBinary());
+                genConsumeReg(tree->AsHWIntrinsic()->GetOp(1));
             }
             else
             {
-                assert(numArgs == 1);
+                assert(tree->AsHWIntrinsic()->IsUnary());
             }
         }
 #endif // FEATURE_HW_INTRINSICS
@@ -1468,38 +1467,9 @@ void CodeGen::genConsumeOperands(GenTreeOp* tree)
 
 void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
 {
-    int      numArgs = HWIntrinsicInfo::lookupNumArgs(node);
-    GenTree* op1     = node->gtGetOp1();
-    if (op1 == nullptr)
+    for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
-        assert((numArgs == 0) && (node->gtGetOp2() == nullptr));
-        return;
-    }
-    if (op1->OperIs(GT_LIST))
-    {
-        int foundArgs = 0;
-        assert(node->gtGetOp2() == nullptr);
-        for (GenTreeArgList* list = op1->AsArgList(); list != nullptr; list = list->Rest())
-        {
-            GenTree* operand = list->Current();
-            genConsumeRegs(operand);
-            foundArgs++;
-        }
-        assert(foundArgs == numArgs);
-    }
-    else
-    {
-        genConsumeRegs(op1);
-        GenTree* op2 = node->gtGetOp2();
-        if (op2 != nullptr)
-        {
-            genConsumeRegs(op2);
-            assert(numArgs == 2);
-        }
-        else
-        {
-            assert(numArgs == 1);
-        }
+        genConsumeRegs(use.GetNode());
     }
 }
 #endif // FEATURE_HW_INTRINSICS

@@ -10047,6 +10047,35 @@ public:
                 break;
 #endif
 
+#ifdef FEATURE_HW_INTRINSICS
+            case GT_HWINTRINSIC:
+                if (TVisitor::UseExecutionOrder && node->AsHWIntrinsic()->IsBinary() && node->IsReverseOp())
+                {
+                    result = WalkTree(&node->AsHWIntrinsic()->GetUse(1).NodeRef(), node);
+                    if (result == fgWalkResult::WALK_ABORT)
+                    {
+                        return result;
+                    }
+                    result = WalkTree(&node->AsHWIntrinsic()->GetUse(0).NodeRef(), node);
+                    if (result == fgWalkResult::WALK_ABORT)
+                    {
+                        return result;
+                    }
+                }
+                else
+                {
+                    for (GenTreeHWIntrinsic::Use& use : node->AsHWIntrinsic()->Uses())
+                    {
+                        result = WalkTree(&use.NodeRef(), node);
+                        if (result == fgWalkResult::WALK_ABORT)
+                        {
+                            return result;
+                        }
+                    }
+                }
+                break;
+#endif
+
             case GT_CMPXCHG:
             {
                 GenTreeCmpXchg* const cmpXchg = node->AsCmpXchg();

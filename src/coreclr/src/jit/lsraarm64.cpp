@@ -985,60 +985,38 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
     var_types           baseType    = intrinsicTree->gtSIMDBaseType;
     InstructionSet      isa         = HWIntrinsicInfo::lookupIsa(intrinsicId);
     HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
-    int                 numArgs     = HWIntrinsicInfo::lookupNumArgs(intrinsicTree);
-
-    GenTree* op1    = intrinsicTree->gtGetOp1();
-    GenTree* op2    = intrinsicTree->gtGetOp2();
-    GenTree* op3    = nullptr;
-    GenTree* lastOp = nullptr;
+    int                 numArgs     = intrinsicTree->GetNumOps();
 
     int srcCount = 0;
     int dstCount = intrinsicTree->IsValue() ? 1 : 0;
 
-    if (op1 == nullptr)
+    if (numArgs > 0)
     {
-        assert(op2 == nullptr);
-        assert(numArgs == 0);
-    }
-    else
-    {
-        if (op1->OperIsList())
+        GenTree* op1 = nullptr;
+        GenTree* op2 = nullptr;
+        GenTree* op3 = nullptr;
+
+        switch (numArgs)
         {
-            assert(op2 == nullptr);
-            assert(numArgs >= 3);
-
-            GenTreeArgList* argList = op1->AsArgList();
-
-            op1     = argList->Current();
-            argList = argList->Rest();
-
-            op2     = argList->Current();
-            argList = argList->Rest();
-
-            op3 = argList->Current();
-
-            while (argList->Rest() != nullptr)
-            {
-                argList = argList->Rest();
-            }
-
-            lastOp  = argList->Current();
-            argList = argList->Rest();
-
-            assert(argList == nullptr);
-        }
-        else if (op2 != nullptr)
-        {
-            assert(numArgs == 2);
-            lastOp = op2;
-        }
-        else
-        {
-            assert(numArgs == 1);
-            lastOp = op1;
+            case 1:
+                op1 = intrinsicTree->GetOp(0);
+                break;
+            case 2:
+                op1 = intrinsicTree->GetOp(0);
+                op2 = intrinsicTree->GetOp(1);
+                break;
+            case 3:
+            case 4:
+            case 5:
+                op1 = intrinsicTree->GetOp(0);
+                op2 = intrinsicTree->GetOp(1);
+                op3 = intrinsicTree->GetOp(2);
+                break;
+            default:
+                unreached();
         }
 
-        assert(lastOp != nullptr);
+        GenTree* lastOp = intrinsicTree->GetLastOp();
 
         bool buildUses = true;
 

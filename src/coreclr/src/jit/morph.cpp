@@ -14628,6 +14628,25 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             break;
 #endif // FEATURE_SIMD
 
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            tree->gtFlags &= ~GTF_ALL_EFFECT;
+            if (tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+            {
+                tree->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+                if (tree->AsHWIntrinsic()->OperIsMemoryStore())
+                {
+                    tree->gtFlags |= GTF_ASG;
+                }
+            }
+            for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
+            {
+                use.SetNode(fgMorphTree(use.GetNode()));
+                tree->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+            }
+            break;
+#endif // FEATURE_SIMD
+
         case GT_CMPXCHG:
             tree->AsCmpXchg()->gtOpLocation  = fgMorphTree(tree->AsCmpXchg()->gtOpLocation);
             tree->AsCmpXchg()->gtOpValue     = fgMorphTree(tree->AsCmpXchg()->gtOpValue);

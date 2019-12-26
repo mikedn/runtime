@@ -819,8 +819,8 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
         bool op1SupportsRegOptional = false;
         bool op2SupportsRegOptional = false;
 
-        if (!IsContainableHWIntrinsicOp(node, node->gtGetOp2(), &op2SupportsRegOptional) &&
-            IsContainableHWIntrinsicOp(node, node->gtGetOp1(), &op1SupportsRegOptional))
+        if (!IsContainableHWIntrinsicOp(node, node->GetOp(1), &op2SupportsRegOptional) &&
+            IsContainableHWIntrinsicOp(node, node->GetOp(0), &op1SupportsRegOptional))
         {
             // Swap operands if op2 cannot be contained but op1 can.
             swapOperands = true;
@@ -829,7 +829,7 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
 
     if (swapOperands)
     {
-        std::swap(node->gtOp1, node->gtOp2);
+        std::swap(node->GetUse(0).NodeRef(), node->GetUse(1).NodeRef());
 
         if (cc != nullptr)
         {
@@ -861,46 +861,42 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
 void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
 {
     assert(node->gtHWIntrinsicId == NI_FMA_MultiplyAddScalar);
-    GenTreeArgList*     argList = node->gtGetOp1()->AsArgList();
-    GenTreeHWIntrinsic* createScalarOps[3];
+    assert(node->IsTernary());
 
-    for (GenTreeHWIntrinsic*& createScalarOp : createScalarOps)
+    GenTreeHWIntrinsic::Use* uses[3];
+    unsigned                 useCount = 0;
+
+    for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
-        GenTree*& current = argList->Current();
-        assert(current != nullptr);
-        if (!current->OperIsHWIntrinsic())
+        if (!use.GetNode()->OperIsHWIntrinsic() ||
+            (use.GetNode()->AsHWIntrinsic()->gtHWIntrinsicId != NI_Vector128_CreateScalarUnsafe))
         {
-            return; // Math(F).FusedMultiplyAdd is expected to emit three NI_Vector128_CreateScalarUnsafe
-                    // but it's also possible to use NI_FMA_MultiplyAddScalar directly with any operands
-        }
-        GenTreeHWIntrinsic* hwArg = current->AsHWIntrinsic();
-        if (hwArg->gtHWIntrinsicId != NI_Vector128_CreateScalarUnsafe)
-        {
+            // Math(F).FusedMultiplyAdd is expected to emit three NI_Vector128_CreateScalarUnsafe
+            // but it's also possible to use NI_FMA_MultiplyAddScalar directly with any operands
             return;
         }
-        createScalarOp = hwArg;
-        argList        = argList->Rest();
-    }
-    assert(argList == nullptr);
 
-    GenTree* argX = createScalarOps[0]->gtGetOp1();
-    GenTree* argY = createScalarOps[1]->gtGetOp1();
-    GenTree* argZ = createScalarOps[2]->gtGetOp1();
+        uses[useCount++] = &use.GetNode()->AsHWIntrinsic()->GetUse(0);
+    }
+
+    GenTree* argX = uses[0]->GetNode();
+    GenTree* argY = uses[1]->GetNode();
+    GenTree* argZ = uses[2]->GetNode();
 
     const bool negMul = argX->OperIs(GT_NEG) != argY->OperIs(GT_NEG);
     if (argX->OperIs(GT_NEG))
     {
-        createScalarOps[0]->gtOp1 = argX->gtGetOp1();
+        uses[0]->SetNode(argX->gtGetOp1());
         BlockRange().Remove(argX);
     }
     if (argY->OperIs(GT_NEG))
     {
-        createScalarOps[1]->gtOp1 = argY->gtGetOp1();
+        uses[1]->SetNode(argY->gtGetOp1());
         BlockRange().Remove(argY);
     }
     if (argZ->OperIs(GT_NEG))
     {
-        createScalarOps[2]->gtOp1 = argZ->gtGetOp1();
+        uses[2]->SetNode(argZ->gtGetOp1());
         BlockRange().Remove(argZ);
         node->gtHWIntrinsicId = negMul ? NI_FMA_MultiplySubtractNegatedScalar : NI_FMA_MultiplySubtractScalar;
     }
@@ -2702,24 +2698,11 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
                         assert(supportsGeneralLoads == false);
                         assert(supportsSIMDScalarLoads == false);
 
-                        GenTree* op1 = containingNode->gtGetOp1();
-                        GenTree* op2 = nullptr;
-                        GenTree* op3 = nullptr;
-
-                        assert(op1->OperIsList());
-                        assert(containingNode->gtGetOp2() == nullptr);
-
-                        GenTreeArgList* argList = op1->AsArgList();
-
-                        op1     = argList->Current();
-                        argList = argList->Rest();
-
-                        op2     = argList->Current();
-                        argList = argList->Rest();
+                        GenTree* op1 = containingNode->GetOp(0);
+                        GenTree* op2 = containingNode->GetOp(1);
+                        GenTree* op3 = containingNode->GetOp(2);
 
                         assert(node == op2);
-
-                        op3 = argList->Current();
 
                         // The upper two bits of the immediate value are ignored if
                         // op2 comes from memory. In order to support using the upper
@@ -2957,21 +2940,15 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic      intrinsicId = node->gtHWIntrinsicId;
     HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
-    int                 numArgs     = HWIntrinsicInfo::lookupNumArgs(node);
+    int                 numArgs     = node->GetNumOps();
     var_types           baseType    = node->gtSIMDBaseType;
-
-    GenTree* op1 = node->gtGetOp1();
-    GenTree* op2 = node->gtGetOp2();
-    GenTree* op3 = nullptr;
 
     if (!HWIntrinsicInfo::SupportsContainment(intrinsicId))
     {
         // AVX2 gather are not containable and always have constant IMM argument
         if (HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsicId))
         {
-            GenTree* lastOp = HWIntrinsicInfo::lookupLastOp(node);
-            assert(lastOp != nullptr);
-            MakeSrcContained(node, lastOp);
+            MakeSrcContained(node, node->GetLastOp());
         }
         // Exit early if containment isn't supported
         return;
@@ -2986,13 +2963,10 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         // One argument intrinsics cannot be commutative
         assert(!isCommutative);
 
-        assert(!op1->OperIsList());
-        assert(op2 == nullptr);
-
         switch (category)
         {
             case HW_Category_MemoryLoad:
-                ContainCheckHWIntrinsicAddr(node, node->gtGetOp1());
+                ContainCheckHWIntrinsicAddr(node, node->GetOp(0));
                 break;
 
             case HW_Category_SimpleSIMD:
@@ -3045,9 +3019,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_ConvertToVector256Int16:
                     case NI_AVX2_ConvertToVector256Int32:
                     case NI_AVX2_ConvertToVector256Int64:
-                        if (!varTypeIsSIMD(op1->gtType))
+                        if (!varTypeIsSIMD(node->GetOp(0)->TypeGet()))
                         {
-                            ContainCheckHWIntrinsicAddr(node, node->gtGetOp1());
+                            ContainCheckHWIntrinsicAddr(node, node->GetOp(0));
                             return;
                         }
                         break;
@@ -3060,13 +3034,13 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 bool supportsRegOptional = false;
 
-                if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
+                if (IsContainableHWIntrinsicOp(node, node->GetOp(0), &supportsRegOptional))
                 {
-                    MakeSrcContained(node, op1);
+                    MakeSrcContained(node, node->GetOp(0));
                 }
                 else if (supportsRegOptional)
                 {
-                    op1->SetRegOptional();
+                    node->GetOp(0)->SetRegOptional();
                 }
                 break;
             }
@@ -3082,25 +3056,24 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         if (numArgs == 2)
         {
-            assert(!op1->OperIsList());
-            assert(op2 != nullptr);
-            assert(!op2->OperIsList());
+            GenTree* op1 = node->GetOp(0);
+            GenTree* op2 = node->GetOp(1);
 
             switch (category)
             {
                 case HW_Category_MemoryLoad:
                     if ((intrinsicId == NI_AVX_MaskLoad) || (intrinsicId == NI_AVX2_MaskLoad))
                     {
-                        ContainCheckHWIntrinsicAddr(node, node->gtGetOp1());
+                        ContainCheckHWIntrinsicAddr(node, op1);
                     }
                     else
                     {
-                        ContainCheckHWIntrinsicAddr(node, node->gtGetOp2());
+                        ContainCheckHWIntrinsicAddr(node, op2);
                     }
                     break;
 
                 case HW_Category_MemoryStore:
-                    ContainCheckHWIntrinsicAddr(node, node->gtGetOp1());
+                    ContainCheckHWIntrinsicAddr(node, node->GetOp(0));
 
                     if (((intrinsicId == NI_SSE_Store) || (intrinsicId == NI_SSE2_Store)) && op2->OperIsHWIntrinsic() &&
                         ((op2->AsHWIntrinsic()->gtHWIntrinsicId == NI_AVX_ExtractVector128) ||
@@ -3128,8 +3101,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         MakeSrcContained(node, op1);
 
                         // Swap the operands here to make the containment checks in codegen significantly simpler
-                        node->gtOp1 = op2;
-                        node->gtOp2 = op1;
+                        node->SetOp(0, op2);
+                        node->SetOp(1, op1);
                     }
                     else if (supportsRegOptional)
                     {
@@ -3273,25 +3246,14 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             // three argument intrinsics should not be marked commutative
             assert(!isCommutative);
 
-            assert(op1->OperIsList());
-            assert(op2 == nullptr);
-
-            GenTreeArgList* argList         = op1->AsArgList();
-            GenTreeArgList* originalArgList = argList;
-
-            op1     = argList->Current();
-            argList = argList->Rest();
-
-            op2     = argList->Current();
-            argList = argList->Rest();
-
-            op3 = argList->Current();
-            assert(argList->Rest() == nullptr);
+            GenTree* op1 = node->GetOp(0);
+            GenTree* op2 = node->GetOp(1);
+            GenTree* op3 = node->GetOp(2);
 
             switch (category)
             {
                 case HW_Category_MemoryStore:
-                    ContainCheckHWIntrinsicAddr(node, node->gtGetOp1()->AsOp()->gtGetOp1());
+                    ContainCheckHWIntrinsicAddr(node, op1);
                     break;
 
                 case HW_Category_SimpleSIMD:
@@ -3368,8 +3330,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                                     MakeSrcContained(node, op1);
                                     // MultiplyNoFlags is a Commutative operation, so swap the first two operands here
                                     // to make the containment checks in codegen significantly simpler
-                                    *(originalArgList->pCurrent())         = op2;
-                                    *(originalArgList->Rest()->pCurrent()) = op1;
+                                    node->SetOp(0, op2);
+                                    node->SetOp(1, op1);
                                 }
                                 else if (supportsRegOptional)
                                 {
@@ -3447,7 +3409,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
         if (HWIntrinsicInfo::lookupCategory(intrinsicId) == HW_Category_IMM)
         {
-            GenTree* lastOp = HWIntrinsicInfo::lookupLastOp(node);
+            GenTree* lastOp = node->GetLastOp();
             assert(lastOp != nullptr);
 
             if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && lastOp->IsCnsIntOrI())

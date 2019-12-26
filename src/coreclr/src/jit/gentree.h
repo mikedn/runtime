@@ -1580,9 +1580,6 @@ public:
             case GT_LEA:
             case GT_RETFILT:
             case GT_NOP:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-#endif // FEATURE_HW_INTRINSICS
                 return true;
             case GT_RETURN:
                 return gtType == TYP_VOID;
@@ -1603,14 +1600,9 @@ public:
             case GT_LIST:
             case GT_INTRINSIC:
             case GT_LEA:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-#endif // FEATURE_HW_INTRINSICS
-
 #if defined(_TARGET_ARM_)
             case GT_PUTARG_REG:
 #endif // defined(_TARGET_ARM_)
-
                 return true;
             default:
                 return false;
@@ -2618,6 +2610,10 @@ class GenTreeUseEdgeIterator final
 #ifdef FEATURE_SIMD
     void AdvanceSIMD();
     void AdvanceSIMDReverseOp();
+#endif
+#ifdef FEATURE_HW_INTRINSICS
+    void AdvanceHWIntrinsic();
+    void AdvanceHWIntrinsicReverseOp();
 #endif
 
     template <bool ReverseOperands>
@@ -4483,6 +4479,7 @@ struct GenTreeIntrinsic : public GenTreeOp
 class GenTreeUse
 {
     friend struct GenTreeSIMD;
+    friend struct GenTreeHWIntrinsic;
 
     GenTree* m_node;
 
@@ -4696,33 +4693,42 @@ public:
 
 #ifdef FEATURE_HW_INTRINSICS
 
-// Note that HW Instrinsic instructions are a sub class of GenTreeOp which only supports two operands
-// However there are HW Instrinsic instructions that have 3 or even 4 operands and this is
-// supported using a single op1 and using an ArgList for it:  gtNewArgList(op1, op2, op3)
-
-struct GenTreeHWIntrinsic : public GenTreeOp
+struct GenTreeHWIntrinsic : public GenTree
 {
+    using Use = GenTreeUse;
+
     NamedIntrinsic gtHWIntrinsicId;
     var_types      gtSIMDBaseType;  // SIMD vector base type
     var_types      gtIndexBaseType; // for AVX2 Gather* intrinsics
     uint16_t       gtSIMDSize;      // SIMD vector size in bytes, use 0 for scalar intrinsics
 
+private:
+    uint16_t m_numOps;
+    union {
+        Use  m_inlineUses[3];
+        Use* m_uses;
+    };
+
+public:
     GenTreeHWIntrinsic(var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size)
-        : GenTreeOp(GT_HWINTRINSIC, type, nullptr, nullptr)
+        : GenTree(GT_HWINTRINSIC, type)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
         , gtIndexBaseType(TYP_UNKNOWN)
         , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_numOps(0)
     {
         assert(size < UINT16_MAX);
     }
 
     GenTreeHWIntrinsic(var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
-        : GenTreeOp(GT_HWINTRINSIC, type, op1, nullptr)
+        : GenTree(GT_HWINTRINSIC, type)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
         , gtIndexBaseType(TYP_UNKNOWN)
         , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_numOps(1)
+        , m_inlineUses{op1}
     {
         assert(size < UINT16_MAX);
 
@@ -4730,15 +4736,19 @@ struct GenTreeHWIntrinsic : public GenTreeOp
         {
             gtFlags |= (GTF_GLOB_REF | GTF_ASG);
         }
+
+        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
     }
 
     GenTreeHWIntrinsic(
         var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
-        : GenTreeOp(GT_HWINTRINSIC, type, op1, op2)
+        : GenTree(GT_HWINTRINSIC, type)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
         , gtIndexBaseType(TYP_UNKNOWN)
         , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_numOps(2)
+        , m_inlineUses{op1, op2}
     {
         assert(size < UINT16_MAX);
 
@@ -4746,11 +4756,132 @@ struct GenTreeHWIntrinsic : public GenTreeOp
         {
             gtFlags |= (GTF_GLOB_REF | GTF_ASG);
         }
+
+        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
+        gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
+    }
+
+    GenTreeHWIntrinsic(var_types      type,
+                       NamedIntrinsic hwIntrinsicID,
+                       var_types      baseType,
+                       unsigned       size,
+                       GenTree*       op1,
+                       GenTree*       op2,
+                       GenTree*       op3)
+        : GenTree(GT_HWINTRINSIC, type)
+        , gtHWIntrinsicId(hwIntrinsicID)
+        , gtSIMDBaseType(baseType)
+        , gtIndexBaseType(TYP_UNKNOWN)
+        , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_numOps(3)
+        , m_inlineUses{op1, op2, op3}
+    {
+        assert(size < UINT16_MAX);
+
+        if (OperIsMemoryStore())
+        {
+            gtFlags |= (GTF_GLOB_REF | GTF_ASG);
+        }
+
+        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
+        gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
+        gtFlags |= op3->gtFlags & GTF_ALL_EFFECT;
+    }
+
+    unsigned GetNumOps() const
+    {
+        return m_numOps;
+    }
+
+    void SetNumOps(unsigned numOps, CompAllocator alloc)
+    {
+        assert(numOps < UINT16_MAX);
+        assert(m_numOps == 0);
+
+        m_numOps = static_cast<uint16_t>(numOps);
+
+        if (HasInlineUses())
+        {
+            new (m_inlineUses) Use[numOps]();
+        }
+        else
+        {
+            m_uses = new (alloc) Use[numOps]();
+        }
+    }
+
+    bool IsUnary() const
+    {
+        return m_numOps == 1;
+    }
+
+    bool IsBinary() const
+    {
+        return m_numOps == 2;
+    }
+
+    bool IsTernary() const
+    {
+        return m_numOps == 3;
+    }
+
+    GenTree* GetOp(unsigned index) const
+    {
+        return GetUse(index).GetNode();
+    }
+
+    GenTree* GetLastOp() const
+    {
+        return m_numOps == 0 ? nullptr : GetOp(m_numOps - 1);
+    }
+
+    void SetOp(unsigned index, GenTree* node)
+    {
+        assert(node != nullptr);
+        GetUse(index).SetNode(node);
+    }
+
+    const Use& GetUse(unsigned index) const
+    {
+        assert(index < m_numOps);
+        return GetUses()[index];
+    }
+
+    Use& GetUse(unsigned index)
+    {
+        assert(index < m_numOps);
+        return GetUses()[index];
+    }
+
+    IteratorPair<Use*> Uses()
+    {
+        Use* uses = GetUses();
+        return MakeIteratorPair(uses, uses + GetNumOps());
     }
 
     bool isSIMD() const
     {
         return gtSIMDSize != 0;
+    }
+
+    static bool Equals(GenTreeHWIntrinsic* simd1, GenTreeHWIntrinsic* simd2)
+    {
+        if ((simd1->TypeGet() != simd2->TypeGet()) || (simd1->gtHWIntrinsicId != simd2->gtHWIntrinsicId) ||
+            (simd1->gtSIMDBaseType != simd2->gtSIMDBaseType) || (simd1->gtSIMDSize != simd2->gtSIMDSize) ||
+            (simd1->gtIndexBaseType != simd2->gtIndexBaseType) || (simd1->m_numOps != simd2->m_numOps))
+        {
+            return false;
+        }
+
+        for (unsigned i = 0; i < simd1->m_numOps; i++)
+        {
+            if (!Compare(simd1->GetOp(i), simd2->GetOp(i)))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     bool OperIsMemoryLoad();        // Returns true for the HW Instrinsic instructions that have MemoryLoad semantics,
@@ -4760,8 +4891,35 @@ struct GenTreeHWIntrinsic : public GenTreeOp
     bool OperIsMemoryLoadOrStore(); // Returns true for the HW Instrinsic instructions that have MemoryLoad or
                                     // MemoryStore semantics, false otherwise
 
+    // Delete some functions inherited from GenTree to avoid accidental use, at least
+    // when the node object is accessed via GenTreeSIMD* rather than GenTree*.
+    GenTree*           gtGetOp1() const          = delete;
+    GenTree*           gtGetOp2() const          = delete;
+    GenTree*           gtGetOp2IfPresent() const = delete;
+    GenTreeUnOp*       AsUnOp()                  = delete;
+    const GenTreeUnOp* AsUnOp() const            = delete;
+    GenTreeOp*         AsOp()                    = delete;
+    const GenTreeOp*   AsOp() const              = delete;
+
+private:
+    bool HasInlineUses() const
+    {
+        return m_numOps <= _countof(m_inlineUses);
+    }
+
+    Use* GetUses()
+    {
+        return HasInlineUses() ? m_inlineUses : m_uses;
+    }
+
+    const Use* GetUses() const
+    {
+        return HasInlineUses() ? m_inlineUses : m_uses;
+    }
+
+public:
 #if DEBUGGABLE_GENTREE
-    GenTreeHWIntrinsic() : GenTreeOp()
+    GenTreeHWIntrinsic() : GenTree()
     {
     }
 #endif

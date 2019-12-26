@@ -18830,6 +18830,23 @@ void Compiler::fgSetTreeSeqHelper(GenTree* tree, bool isLIR)
             break;
 #endif
 
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            if (tree->AsHWIntrinsic()->IsBinary() && tree->IsReverseOp())
+            {
+                fgSetTreeSeqHelper(tree->AsHWIntrinsic()->GetOp(1), isLIR);
+                fgSetTreeSeqHelper(tree->AsHWIntrinsic()->GetOp(0), isLIR);
+            }
+            else
+            {
+                for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
+                {
+                    fgSetTreeSeqHelper(use.GetNode(), isLIR);
+                }
+            }
+            break;
+#endif
+
         case GT_CMPXCHG:
             // Evaluate the trees left to right
             fgSetTreeSeqHelper(tree->AsCmpXchg()->gtOpLocation, isLIR);
@@ -19199,6 +19216,12 @@ GenTree* Compiler::fgGetFirstNode(GenTree* tree)
         }
 #ifdef FEATURE_SIMD
         else if (child->OperIsSIMD() && child->AsSIMD()->IsBinary() && child->IsReverseOp())
+        {
+            child = child->GetChild(1);
+        }
+#endif
+#ifdef FEATURE_HW_INTRINSICS
+        else if (child->OperIsHWIntrinsic() && child->AsHWIntrinsic()->IsBinary() && child->IsReverseOp())
         {
             child = child->GetChild(1);
         }
@@ -21437,6 +21460,20 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 break;
 #endif
 
+#ifdef FEATURE_HW_INTRINSICS
+            case GT_HWINTRINSIC:
+                if (tree->OperRequiresAsgFlag())
+                {
+                    chkFlags |= GTF_ASG;
+                }
+                for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
+                {
+                    fgDebugCheckFlags(use.GetNode());
+                    chkFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+                }
+                break;
+#endif
+
             case GT_CMPXCHG:
 
                 chkFlags |= (GTF_GLOB_REF | GTF_ASG);
@@ -21516,7 +21553,7 @@ void Compiler::fgDebugCheckFlagsHelper(GenTree* tree, unsigned treeFlags, unsign
         if ((treeFlags & ~chkFlags & ~GTF_GLOB_REF & ~GTF_ORDER_SIDEEFF) != 0)
         {
             // Print the tree so we can see it in the log.
-            printf("Extra flags on parent tree [%X]: ", tree);
+            printf("Extra flags on parent tree [%06d]: ", dspTreeID(tree));
             GenTree::gtDispFlags(treeFlags & ~chkFlags, GTF_DEBUG_NONE);
             printf("\n");
             gtDispTree(tree);
@@ -21524,7 +21561,7 @@ void Compiler::fgDebugCheckFlagsHelper(GenTree* tree, unsigned treeFlags, unsign
             noway_assert(!"Extra flags on tree");
 
             // Print the tree again so we can see it right after we hook up the debugger.
-            printf("Extra flags on parent tree [%X]: ", tree);
+            printf("Extra flags on parent tree [%06d]: ", dspTreeID(tree));
             GenTree::gtDispFlags(treeFlags & ~chkFlags, GTF_DEBUG_NONE);
             printf("\n");
             gtDispTree(tree);
