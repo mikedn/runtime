@@ -1157,31 +1157,6 @@ unsigned CodeGenInterface::InferStructOpSizeAlign(GenTree* op, unsigned* alignme
             alignment = TARGET_POINTER_SIZE;
         }
     }
-    else if (op->OperIsCopyBlkOp())
-    {
-        GenTree* op2 = op->AsOp()->gtOp2;
-
-        if (op2->OperGet() == GT_CNS_INT)
-        {
-            if (op2->IsIconHandle(GTF_ICON_CLASS_HDL))
-            {
-                CORINFO_CLASS_HANDLE clsHnd = (CORINFO_CLASS_HANDLE)op2->AsIntCon()->gtIconVal;
-                opSize = roundUp(compiler->info.compCompHnd->getClassSize(clsHnd), TARGET_POINTER_SIZE);
-                alignment =
-                    roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
-            }
-            else
-            {
-                unreached();
-            }
-        }
-        else
-        {
-            noway_assert(!"Variable sized COPYBLK register arg!");
-            opSize    = 0;
-            alignment = TARGET_POINTER_SIZE;
-        }
-    }
     else if (op->gtOper == GT_MKREFANY)
     {
         opSize    = TARGET_POINTER_SIZE * 2;
