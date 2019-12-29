@@ -8412,8 +8412,6 @@ GenTree* GenTree::GetChild(unsigned childNum)
             }
             return AsOp()->gtOp2;
         }
-        // TODO-Cleanup: Consider handling ReverseOps here, and then we wouldn't have to handle it in
-        // fgGetFirstNode().  However, it seems that it causes loop hoisting behavior to change.
         if (childNum == 0)
         {
             return AsOp()->gtOp1;

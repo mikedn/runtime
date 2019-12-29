@@ -19173,31 +19173,15 @@ void Compiler::fgSetBlockOrder(BasicBlock* block)
 /* static */
 GenTree* Compiler::fgGetFirstNode(GenTree* tree)
 {
-    GenTree* child = tree;
-    while (child->NumChildren() > 0)
+    GenTreeOperandIterator i = tree->OperandsBegin();
+
+    while (i != tree->OperandsEnd())
     {
-        if (child->OperIsBinary() && child->IsReverseOp())
-        {
-            child = child->GetChild(1);
-        }
-#ifdef FEATURE_SIMD
-        else if (child->OperIsSIMD() && child->AsSIMD()->IsBinary() && child->IsReverseOp())
-        {
-            child = child->GetChild(1);
-        }
-#endif
-#ifdef FEATURE_HW_INTRINSICS
-        else if (child->OperIsHWIntrinsic() && child->AsHWIntrinsic()->IsBinary() && child->IsReverseOp())
-        {
-            child = child->GetChild(1);
-        }
-#endif
-        else
-        {
-            child = child->GetChild(0);
-        }
+        tree = *i;
+        i    = tree->OperandsBegin();
     }
-    return child;
+
+    return tree;
 }
 
 // Examine the bbStmtList and return the estimated code size for this block
