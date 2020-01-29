@@ -5334,7 +5334,7 @@ public:
         , gtSIMDSize(static_cast<uint16_t>(size))
         , m_numOps(0)
     {
-        assert(size < UINT16_MAX);
+        assert(size <= UINT16_MAX);
     }
 
     GenTreeSIMD(var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
@@ -5345,7 +5345,7 @@ public:
         , m_numOps(1)
         , m_inlineUses{op1}
     {
-        assert(size < UINT16_MAX);
+        assert(size <= UINT16_MAX);
 
         gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
     }
@@ -5359,10 +5359,43 @@ public:
         , m_numOps(2)
         , m_inlineUses{op1, op2}
     {
-        assert(size < UINT16_MAX);
+        assert(size <= UINT16_MAX);
 
         gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
         gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
+    }
+
+    SIMDIntrinsicID GetIntrinsic() const
+    {
+        return gtSIMDIntrinsicID;
+    }
+
+    void SetIntrinsic(SIMDIntrinsicID intrinsic)
+    {
+        assert((SIMDIntrinsicNone < intrinsic) && (intrinsic < SIMDIntrinsicInvalid));
+        gtSIMDIntrinsicID = intrinsic;
+    }
+
+    var_types GetSIMDBaseType() const
+    {
+        return gtSIMDBaseType;
+    }
+
+    void SetSIMDBaseType(var_types type)
+    {
+        assert(varTypeIsIntegral(type) || varTypeIsFloating(type));
+        gtSIMDBaseType = type;
+    }
+
+    unsigned GetSIMDSize() const
+    {
+        return gtSIMDSize;
+    }
+
+    void SetSIMDSize(unsigned size)
+    {
+        assert(size <= UINT16_MAX);
+        gtSIMDSize = static_cast<uint16_t>(size);
     }
 
     unsigned GetNumOps() const
@@ -5370,10 +5403,21 @@ public:
         return m_numOps;
     }
 
+    void SetNumOps(unsigned numOps)
+    {
+        assert(numOps < _countof(m_inlineUses));
+        assert((m_numOps == 0) || (numOps == 0));
+
+        m_numOps = static_cast<uint16_t>(numOps);
+
+        assert(HasInlineUses());
+        new (m_inlineUses) Use[numOps]();
+    }
+
     void SetNumOps(unsigned numOps, CompAllocator alloc)
     {
         assert(numOps < UINT16_MAX);
-        assert(m_numOps == 0);
+        assert((m_numOps == 0) || (numOps == 0));
 
         m_numOps = static_cast<uint16_t>(numOps);
 
@@ -5385,6 +5429,14 @@ public:
         {
             m_uses = new (alloc) Use[numOps]();
         }
+    }
+
+    void SetIntrinsic(SIMDIntrinsicID intrinsic, var_types simdBaseType, unsigned simdSize, unsigned numOps)
+    {
+        SetIntrinsic(intrinsic);
+        SetSIMDBaseType(simdBaseType);
+        SetSIMDSize(simdSize);
+        SetNumOps(numOps);
     }
 
     bool IsUnary() const

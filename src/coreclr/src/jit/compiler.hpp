@@ -1499,6 +1499,11 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             AsMultiRegOp()->ClearOtherRegFlags();
             break;
 #endif
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            AsSIMD()->SetNumOps(0);
+            break;
+#endif
         default:
             break;
     }
