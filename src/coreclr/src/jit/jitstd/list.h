@@ -472,7 +472,7 @@ template <typename T, typename Allocator>
 typename list<T, Allocator>::iterator
     list<T, Allocator>::insert(iterator position, const T& val)
 {
-    Node* pNewNode = new (m_nodeAllocator.allocate(1), placement_t()) Node(val);
+    Node* pNewNode = new (m_nodeAllocator.allocate(1)) Node(val);
     insert_new_node_helper(position.m_pNode, pNewNode);
     return iterator(pNewNode);
 }
@@ -482,7 +482,7 @@ template <typename... Args>
 typename list<T, Allocator>::iterator
     list<T, Allocator>::emplace(iterator position, Args&&... args)
 {
-    Node* pNewNode = new (m_nodeAllocator.allocate(1), placement_t()) Node(std::forward<Args>(args)...);
+    Node* pNewNode = new (m_nodeAllocator.allocate(1)) Node(std::forward<Args>(args)...);
     insert_new_node_helper(position.m_pNode, pNewNode);
     return iterator(pNewNode);
 }

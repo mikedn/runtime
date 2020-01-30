@@ -4582,7 +4582,7 @@ public:
 
         if (HasInlineUses())
         {
-            new (m_inlineUses, jitstd::placement_t()) Use[numOps]();
+            new (m_inlineUses) Use[numOps]();
         }
         else
         {

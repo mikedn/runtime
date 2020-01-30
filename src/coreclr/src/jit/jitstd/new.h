@@ -4,21 +4,12 @@
 
 #pragma once
 
-namespace jitstd
-{
-
-struct placement_t
-{
-};
-
-}
-
-inline void* __cdecl operator new(size_t sz, void* p, const jitstd::placement_t& /* syntax_difference */)
+inline void* __cdecl operator new(size_t sz, void* p)
 {
     return p;
 }
 
-inline void* __cdecl operator new[](size_t sz, void* p, const jitstd::placement_t& /* syntax_difference */)
+inline void* __cdecl operator new[](size_t sz, void* p)
 {
     return p;
 }

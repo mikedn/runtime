@@ -11586,8 +11586,8 @@ CodeGenInterface::VariableLiveKeeper::VariableLiveKeeper(unsigned int  totalLoca
 
         for (unsigned int varNum = 0; varNum < m_LiveDscCount; varNum++)
         {
-            new (m_vlrLiveDsc + varNum, jitstd::placement_t()) VariableLiveDescriptor(allocator);
-            new (m_vlrLiveDscForProlog + varNum, jitstd::placement_t()) VariableLiveDescriptor(allocator);
+            new (m_vlrLiveDsc + varNum) VariableLiveDescriptor(allocator);
+            new (m_vlrLiveDscForProlog + varNum) VariableLiveDescriptor(allocator);
         }
     }
 }

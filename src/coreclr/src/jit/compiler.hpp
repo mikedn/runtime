@@ -1575,7 +1575,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
 
         for (unsigned i = lvaCount; i < newLvaTableCnt; i++)
         {
-            new (&newLvaTable[i], jitstd::placement_t()) LclVarDsc(); // call the constructor.
+            new (&newLvaTable[i]) LclVarDsc(); // call the constructor.
         }
 
 #ifdef DEBUG
@@ -1669,7 +1669,7 @@ inline unsigned Compiler::lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason)
         memset(newLvaTable + lvaCount, 0, (newLvaTableCnt - lvaCount) * sizeof(*lvaTable));
         for (unsigned i = lvaCount; i < newLvaTableCnt; i++)
         {
-            new (&newLvaTable[i], jitstd::placement_t()) LclVarDsc(); // call the constructor.
+            new (&newLvaTable[i]) LclVarDsc(); // call the constructor.
         }
 
 #ifdef DEBUG
