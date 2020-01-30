@@ -4482,17 +4482,18 @@ struct GenTreeIntrinsic : public GenTreeOp
 
 class GenTreeUse
 {
+    friend struct GenTreeSIMD;
+
     GenTree* m_node;
 
-public:
-    GenTreeUse(GenTree* node) : m_node(node)
+    GenTreeUse(GenTree* node = nullptr) : m_node(node)
     {
-        assert(node != nullptr);
     }
 
     GenTreeUse(const GenTreeUse&) = delete;
     GenTreeUse& operator=(const GenTreeUse&) = delete;
 
+public:
     GenTree*& NodeRef()
     {
         return m_node;
@@ -4529,35 +4530,64 @@ private:
     };
 
 public:
-    GenTreeSIMD(var_types       type,
-                SIMDIntrinsicID simdIntrinsicID,
-                var_types       baseType,
-                unsigned        size,
-                unsigned        numOps,
-                Use*            uses = nullptr)
+    GenTreeSIMD(var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size)
         : GenTree(GT_SIMD, type)
         , gtSIMDIntrinsicID(simdIntrinsicID)
         , gtSIMDBaseType(baseType)
         , gtSIMDSize(static_cast<uint16_t>(size))
-        , m_numOps(static_cast<uint16_t>(numOps))
+        , m_numOps(0)
     {
         assert(size < UINT16_MAX);
-        assert(numOps < UINT16_MAX);
+    }
 
-        if (HasInlineUses())
-        {
-            assert(uses == nullptr);
-        }
-        else
-        {
-            assert(uses != nullptr);
-            m_uses = uses;
-        }
+    GenTreeSIMD(var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
+        : GenTree(GT_SIMD, type)
+        , gtSIMDIntrinsicID(simdIntrinsicID)
+        , gtSIMDBaseType(baseType)
+        , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_numOps(1)
+        , m_inlineUses{op1}
+    {
+        assert(size < UINT16_MAX);
+
+        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
+    }
+
+    GenTreeSIMD(
+        var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
+        : GenTree(GT_SIMD, type)
+        , gtSIMDIntrinsicID(simdIntrinsicID)
+        , gtSIMDBaseType(baseType)
+        , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_numOps(2)
+        , m_inlineUses{op1, op2}
+    {
+        assert(size < UINT16_MAX);
+
+        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
+        gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
     }
 
     unsigned GetNumOps() const
     {
         return m_numOps;
+    }
+
+    void SetNumOps(unsigned numOps, CompAllocator alloc)
+    {
+        assert(numOps < UINT16_MAX);
+        assert(m_numOps == 0);
+
+        m_numOps = static_cast<uint16_t>(numOps);
+
+        if (HasInlineUses())
+        {
+            new (m_inlineUses, jitstd::placement_t()) Use[numOps]();
+        }
+        else
+        {
+            m_uses = new (alloc) Use[numOps]();
+        }
     }
 
     bool IsUnary() const

@@ -7630,16 +7630,11 @@ GenTree* Compiler::gtCloneExpr(
 #ifdef FEATURE_SIMD
         case GT_SIMD:
         {
-            GenTreeSIMD*      simdOp = tree->AsSIMD();
-            GenTreeSIMD::Use* uses   = nullptr;
+            GenTreeSIMD* simdOp = tree->AsSIMD();
 
-            if (simdOp->GetNumOps() > 3)
-            {
-                uses = getAllocator(CMK_ASTNode).allocate<GenTreeSIMD::Use>(simdOp->GetNumOps());
-            }
-
-            copy = new (this, GT_SIMD) GenTreeSIMD(simdOp->TypeGet(), simdOp->gtSIMDIntrinsicID, simdOp->gtSIMDBaseType,
-                                                   simdOp->gtSIMDSize, simdOp->GetNumOps(), uses);
+            copy = new (this, GT_SIMD)
+                GenTreeSIMD(simdOp->TypeGet(), simdOp->gtSIMDIntrinsicID, simdOp->gtSIMDBaseType, simdOp->gtSIMDSize);
+            copy->AsSIMD()->SetNumOps(simdOp->GetNumOps(), getAllocator(CMK_ASTNode));
 
             for (unsigned i = 0; i < simdOp->GetNumOps(); i++)
             {
@@ -18175,10 +18170,7 @@ GenTreeSIMD* Compiler::gtNewSIMDNode(
     var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
 {
     SetOpLclRelatedToSIMDIntrinsic(op1);
-    GenTreeSIMD* node = new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, 1);
-    node->SetOp(0, op1);
-    node->gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
-    return node;
+    return new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, op1);
 }
 
 GenTreeSIMD* Compiler::gtNewSIMDNode(
@@ -18186,22 +18178,14 @@ GenTreeSIMD* Compiler::gtNewSIMDNode(
 {
     SetOpLclRelatedToSIMDIntrinsic(op1);
     SetOpLclRelatedToSIMDIntrinsic(op2);
-    GenTreeSIMD* node = new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, 2);
-    node->SetOp(0, op1);
-    node->SetOp(1, op2);
-    node->gtFlags |= (op1->gtFlags | op2->gtFlags) & GTF_ALL_EFFECT;
-    return node;
+    return new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, op1, op2);
 }
 
 GenTreeSIMD* Compiler::gtNewSIMDNode(
     var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, unsigned numOps, GenTree** ops)
 {
-    GenTreeSIMD::Use* uses = nullptr;
-    if (numOps > 3)
-    {
-        uses = getAllocator(CMK_ASTNode).allocate<GenTreeSIMD::Use>(numOps);
-    }
-    GenTreeSIMD* node = new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, numOps, uses);
+    GenTreeSIMD* node = new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size);
+    node->SetNumOps(numOps, getAllocator(CMK_ASTNode));
     for (unsigned i = 0; i < numOps; i++)
     {
         SetOpLclRelatedToSIMDIntrinsic(ops[i]);
