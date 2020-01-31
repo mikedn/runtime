@@ -169,7 +169,7 @@ T* allocator<T>::allocate(size_type count, allocator<void>::const_pointer hint)
 template <typename T>
 void allocator<T>::construct(pointer ptr, const_reference val)
 {
-    new (ptr, placement_t()) value_type(val);
+    new (ptr) value_type(val);
 }
 
 template <typename T>

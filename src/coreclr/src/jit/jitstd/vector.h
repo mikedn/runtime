@@ -319,7 +319,7 @@ vector<T, Allocator>::vector(const vector<Alt, AltAllocator>& vec)
     ensure_capacity(vec.m_nSize);
     for (size_type i = 0, j = 0; i < vec.m_nSize; ++i, ++j)
     {
-        new (m_pArray + i, placement_t()) T((T) vec.m_pArray[j]);
+        new (m_pArray + i) T((T) vec.m_pArray[j]);
     }
 
     m_nSize = vec.m_nSize;
@@ -335,7 +335,7 @@ vector<T, Allocator>::vector(const vector<T, Allocator>& vec)
     ensure_capacity(vec.m_nSize);
     for (size_type i = 0, j = 0; i < vec.m_nSize; ++i, ++j)
     {
-        new (m_pArray + i, placement_t()) T(vec.m_pArray[j]);
+        new (m_pArray + i) T(vec.m_pArray[j]);
     }
 
     m_nSize = vec.m_nSize;
@@ -587,7 +587,7 @@ vector<T, Allocator>& vector<T, Allocator>::operator=(const vector<T, Allocator>
     m_nSize = vec.m_nSize;
     for (size_type i = 0; i < m_nSize; ++i)
     {
-        new (m_pArray + i, placement_t()) T(vec.m_pArray[i]);
+        new (m_pArray + i) T(vec.m_pArray[i]);
     }
     return *this;
 }
@@ -617,7 +617,7 @@ template <typename T, typename Allocator>
 void vector<T, Allocator>::push_back(const T& value)
 {
     ensure_capacity(m_nSize + 1);
-    new (m_pArray + m_nSize, placement_t()) T(value);
+    new (m_pArray + m_nSize) T(value);
     ++m_nSize;
 }
 
@@ -666,7 +666,7 @@ void vector<T, Allocator>::resize(
     ensure_capacity(sz);
     for (; m_nSize < sz; m_nSize++)
     {
-        new (m_pArray + m_nSize, placement_t()) T(c);
+        new (m_pArray + m_nSize) T(c);
     }
 }
 
@@ -695,7 +695,7 @@ void vector<T, Allocator>::construct_helper(size_type size, const T& value)
 
     for (size_type i = 0; i < size; ++i)
     {
-        new (m_pArray + i, placement_t()) T(value);
+        new (m_pArray + i) T(value);
     }
 
     m_nSize = size;
@@ -718,7 +718,7 @@ void vector<T, Allocator>::construct_helper(InputIterator first, InputIterator l
     ensure_capacity(size);
     for (size_type i = 0; i < size; ++i)
     {
-        new (m_pArray + i, placement_t()) T(*first);
+        new (m_pArray + i) T(*first);
         first++;
     }
 
@@ -747,7 +747,7 @@ void vector<T, Allocator>::insert_elements_helper(iterator iter, size_type size,
 
     for (size_type i = 0; i < size; ++i)
     {
-        new (m_pArray + pos + i, placement_t()) T(value);
+        new (m_pArray + pos + i) T(value);
     }
 
     m_nSize += size;
@@ -838,7 +838,7 @@ bool vector<T, Allocator>::ensure_capacity(size_type newCap)
     // Copy over.
     for (size_type i = 0; i < m_nSize; ++i)
     {
-        new (ptr + i, placement_t()) T(m_pArray[i]);
+        new (ptr + i) T(m_pArray[i]);
     }
 
     // Deallocate currently allocated space.

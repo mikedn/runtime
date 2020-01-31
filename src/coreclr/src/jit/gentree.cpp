@@ -1434,16 +1434,6 @@ AGAIN:
                         return false;
                     }
                     break;
-#ifdef FEATURE_SIMD
-                case GT_SIMD:
-                    if ((op1->AsSIMD()->gtSIMDIntrinsicID != op2->AsSIMD()->gtSIMDIntrinsicID) ||
-                        (op1->AsSIMD()->gtSIMDBaseType != op2->AsSIMD()->gtSIMDBaseType) ||
-                        (op1->AsSIMD()->gtSIMDSize != op2->AsSIMD()->gtSIMDSize))
-                    {
-                        return false;
-                    }
-                    break;
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
                 case GT_HWINTRINSIC:
@@ -1573,6 +1563,11 @@ AGAIN:
 
         case GT_FIELD_LIST:
             return GenTreeFieldList::Equals(op1->AsFieldList(), op2->AsFieldList());
+
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            return GenTreeSIMD::Equals(op1->AsSIMD(), op2->AsSIMD());
+#endif
 
         case GT_CMPXCHG:
             return Compare(op1->AsCmpXchg()->gtOpLocation, op2->AsCmpXchg()->gtOpLocation) &&
@@ -1809,6 +1804,18 @@ AGAIN:
                 }
             }
             break;
+
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
+            {
+                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                {
+                    return true;
+                }
+            }
+            break;
+#endif // FEATURE_SIMD
 
         case GT_CMPXCHG:
             if (gtHasRef(tree->AsCmpXchg()->gtOpLocation, lclNum, defOnly))
@@ -2107,14 +2114,6 @@ AGAIN:
                 case GT_INDEX_ADDR:
                     break;
 
-#ifdef FEATURE_SIMD
-                case GT_SIMD:
-                    hash += tree->AsSIMD()->gtSIMDIntrinsicID;
-                    hash += tree->AsSIMD()->gtSIMDBaseType;
-                    hash += tree->AsSIMD()->gtSIMDSize;
-                    break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
                 case GT_HWINTRINSIC:
                     hash += tree->AsHWIntrinsic()->gtHWIntrinsicId;
@@ -2232,6 +2231,18 @@ AGAIN:
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
             break;
+
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            hash += tree->AsSIMD()->gtSIMDIntrinsicID;
+            hash += tree->AsSIMD()->gtSIMDBaseType;
+            hash += tree->AsSIMD()->gtSIMDSize;
+            for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
+            {
+                hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
+            }
+            break;
+#endif // FEATURE_SIMD
 
         case GT_CMPXCHG:
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsCmpXchg()->gtOpLocation));
@@ -4431,6 +4442,57 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
             break;
 
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            if (tree->AsSIMD()->IsBinary())
+            {
+                GenTree* op1 = tree->AsSIMD()->GetOp(0);
+                GenTree* op2 = tree->AsSIMD()->GetOp(1);
+
+                if (tree->IsReverseOp())
+                {
+                    std::swap(op1, op2);
+                }
+
+                level = gtSetEvalOrder(op1);
+                lvl2  = gtSetEvalOrder(op2);
+
+                if ((fgOrder == FGOrderTree) && (level < lvl2) && gtCanSwapOrder(op1, op2))
+                {
+                    tree->gtFlags ^= GTF_REVERSE_OPS;
+                    std::swap(level, lvl2);
+                }
+
+                if (level == 0)
+                {
+                    level = lvl2;
+                }
+                else if (level == lvl2)
+                {
+                    level += 1;
+                }
+
+                costEx = op1->GetCostEx() + op2->GetCostEx() + 1;
+                costSz = op1->GetCostSz() + op2->GetCostSz() + 1;
+            }
+            else
+            {
+                level  = 0;
+                costEx = tree->AsSIMD()->GetNumOps();
+                costSz = tree->AsSIMD()->GetNumOps();
+
+                for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
+                {
+                    level = max(level, gtSetEvalOrder(use.GetNode()));
+                    costEx += use.GetNode()->GetCostEx();
+                    costSz += use.GetNode()->GetCostSz();
+                }
+
+                level++;
+            }
+            break;
+#endif // FEATURE_SIMD
+
         case GT_CMPXCHG:
 
             level  = gtSetEvalOrder(tree->AsCmpXchg()->gtOpLocation);
@@ -4745,6 +4807,18 @@ GenTree** GenTree::gtGetChildPointer(GenTree* parent) const
             }
             break;
 
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            for (GenTreeSIMD::Use& use : parent->AsSIMD()->Uses())
+            {
+                if (this == use.GetNode())
+                {
+                    return &use.NodeRef();
+                }
+            }
+            break;
+#endif // FEATURE_SIMD
+
         case GT_CMPXCHG:
             if (this == parent->AsCmpXchg()->gtOpLocation)
             {
@@ -4977,17 +5051,6 @@ bool GenTree::TryGetUse(GenTree* def, GenTree*** use)
             return false;
 #endif // FEATURE_ARG_SPLIT
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            if (this->AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInitN)
-            {
-                assert(this->AsSIMD()->gtOp1 != nullptr);
-                return this->AsSIMD()->gtOp1->TryGetUseList(def, use);
-            }
-
-            return TryGetUseBinOp(def, use);
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             if ((this->AsHWIntrinsic()->gtOp1 != nullptr) && this->AsHWIntrinsic()->gtOp1->OperIsList())
@@ -5020,6 +5083,19 @@ bool GenTree::TryGetUse(GenTree* def, GenTree*** use)
                 }
             }
             return false;
+
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            for (GenTreeSIMD::Use& simdUse : AsSIMD()->Uses())
+            {
+                if (simdUse.GetNode() == def)
+                {
+                    *use = &simdUse.NodeRef();
+                    return true;
+                }
+            }
+            return false;
+#endif // FEATURE_SIMD
 
         case GT_CMPXCHG:
         {
@@ -5993,7 +6069,7 @@ GenTree* Compiler::gtNewSIMDVectorZero(var_types simdType, var_types baseType, u
     baseType         = genActualType(baseType);
     GenTree* initVal = gtNewZeroConNode(baseType);
     initVal->gtType  = baseType;
-    return gtNewSIMDNode(simdType, initVal, nullptr, SIMDIntrinsicInit, baseType, size);
+    return gtNewSIMDNode(simdType, SIMDIntrinsicInit, baseType, size, initVal);
 }
 
 //---------------------------------------------------------------------
@@ -6027,7 +6103,7 @@ GenTree* Compiler::gtNewSIMDVectorOne(var_types simdType, var_types baseType, un
 
     baseType        = genActualType(baseType);
     initVal->gtType = baseType;
-    return gtNewSIMDNode(simdType, initVal, nullptr, SIMDIntrinsicInit, baseType, size);
+    return gtNewSIMDNode(simdType, SIMDIntrinsicInit, baseType, size, initVal);
 }
 #endif // FEATURE_SIMD
 
@@ -7380,16 +7456,6 @@ GenTree* Compiler::gtCloneExpr(
             }
             break;
 
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-            {
-                GenTreeSIMD* simdOp = tree->AsSIMD();
-                copy                = gtNewSIMDNode(simdOp->TypeGet(), simdOp->gtGetOp1(), simdOp->gtGetOp2IfPresent(),
-                                     simdOp->gtSIMDIntrinsicID, simdOp->gtSIMDBaseType, simdOp->gtSIMDSize);
-            }
-            break;
-#endif
-
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
             {
@@ -7560,6 +7626,24 @@ GenTree* Compiler::gtCloneExpr(
                                               use.GetOffset(), use.GetType());
             }
             break;
+
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+        {
+            GenTreeSIMD* simdOp = tree->AsSIMD();
+
+            copy = new (this, GT_SIMD)
+                GenTreeSIMD(simdOp->TypeGet(), simdOp->gtSIMDIntrinsicID, simdOp->gtSIMDBaseType, simdOp->gtSIMDSize);
+            copy->AsSIMD()->SetNumOps(simdOp->GetNumOps(), getAllocator(CMK_ASTNode));
+
+            for (unsigned i = 0; i < simdOp->GetNumOps(); i++)
+            {
+                copy->AsSIMD()->SetOp(i, gtCloneExpr(simdOp->GetOp(i), addFlags, deepVarNum, deepVarVal));
+                copy->gtFlags |= (copy->AsSIMD()->GetOp(i)->gtFlags & GTF_ALL_EFFECT);
+            }
+        }
+        break;
+#endif // FEATURE_SIMD
 
         case GT_CMPXCHG:
             copy = new (this, GT_CMPXCHG)
@@ -8355,6 +8439,11 @@ unsigned GenTree::NumChildren()
                 return count;
             }
 
+#ifdef FEATURE_SIMD
+            case GT_SIMD:
+                return AsSIMD()->GetNumOps();
+#endif // FEATURE_SIMD
+
             case GT_CMPXCHG:
                 return 3;
 
@@ -8489,6 +8578,12 @@ GenTree* GenTree::GetChild(unsigned childNum)
                     childNum--;
                 }
                 unreached();
+
+#ifdef FEATURE_SIMD
+            case GT_SIMD:
+                noway_assert(childNum < AsSIMD()->GetNumOps());
+                return AsSIMD()->GetOp(childNum);
+#endif // FEATURE_SIMD
 
             case GT_CMPXCHG:
                 switch (childNum)
@@ -8745,19 +8840,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
 // Variadic nodes
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            if (m_node->AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInitN)
-            {
-                SetEntryStateForList(m_node->AsSIMD()->gtOp1->AsArgList());
-            }
-            else
-            {
-                SetEntryStateForBinOp();
-            }
-            return;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             if (m_node->AsHWIntrinsic()->gtOp1 == nullptr)
@@ -8795,6 +8877,22 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             m_advance  = &GenTreeUseEdgeIterator::AdvanceFieldList;
             AdvanceFieldList();
             return;
+
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            if (m_node->AsSIMD()->IsBinary() && m_node->IsReverseOp())
+            {
+                m_edge    = &m_node->AsSIMD()->GetUse(1).NodeRef();
+                m_advance = &GenTreeUseEdgeIterator::AdvanceSIMDReverseOp;
+            }
+            else
+            {
+                m_statePtr = m_node->AsSIMD()->Uses().begin();
+                m_advance  = &GenTreeUseEdgeIterator::AdvanceSIMD;
+                AdvanceSIMD();
+            }
+            return;
+#endif // FEATURE_SIMD
 
         case GT_PHI:
             m_statePtr = m_node->AsPhi()->gtUses;
@@ -9030,6 +9128,36 @@ void GenTreeUseEdgeIterator::AdvanceFieldList()
         m_statePtr                        = currentUse->GetNext();
     }
 }
+
+#ifdef FEATURE_SIMD
+//------------------------------------------------------------------------
+// GenTreeUseEdgeIterator::AdvanceSIMD: produces the next operand of a SIMD node and advances the state.
+//
+void GenTreeUseEdgeIterator::AdvanceSIMD()
+{
+    assert(m_state == 0);
+
+    if (m_statePtr == m_node->AsSIMD()->Uses().end())
+    {
+        m_state = -1;
+    }
+    else
+    {
+        GenTreeSIMD::Use* currentUse = static_cast<GenTreeSIMD::Use*>(m_statePtr);
+        m_edge                       = &currentUse->NodeRef();
+        m_statePtr                   = currentUse + 1;
+    }
+}
+
+void GenTreeUseEdgeIterator::AdvanceSIMDReverseOp()
+{
+    assert(m_state == 0);
+    assert(m_edge == &m_node->AsSIMD()->GetUse(1).NodeRef());
+
+    m_edge    = &m_node->AsSIMD()->GetUse(0).NodeRef();
+    m_advance = &GenTreeUseEdgeIterator::Terminate;
+}
+#endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
 // GenTreeUseEdgeIterator::AdvancePhi: produces the next operand of a Phi node and advances the state.
@@ -11091,14 +11219,6 @@ void Compiler::gtDispTree(GenTree*     tree,
             }
         }
 
-#ifdef FEATURE_SIMD
-        if (tree->gtOper == GT_SIMD)
-        {
-            printf(" %s %s", varTypeName(tree->AsSIMD()->gtSIMDBaseType),
-                   simdIntrinsicNames[tree->AsSIMD()->gtSIMDIntrinsicID]);
-        }
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         if (tree->gtOper == GT_HWINTRINSIC)
         {
@@ -11188,6 +11308,24 @@ void Compiler::gtDispTree(GenTree*     tree,
                 }
             }
             break;
+
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            printf(" %s %s", varTypeName(tree->AsSIMD()->gtSIMDBaseType),
+                   simdIntrinsicNames[tree->AsSIMD()->gtSIMDIntrinsicID]);
+
+            gtDispCommonEndLine(tree);
+
+            if (!topOnly)
+            {
+                for (unsigned i = 0; i < tree->AsSIMD()->GetNumOps(); i++)
+                {
+                    gtDispChild(tree->AsSIMD()->GetOp(i), indentStack,
+                                (i == tree->AsSIMD()->GetNumOps() - 1) ? IIArcBottom : IIArc);
+                }
+            }
+            break;
+#endif // FEATURE_SIMD
 
         case GT_PHI:
             gtDispCommonEndLine(tree);
@@ -18029,24 +18167,32 @@ bool FieldSeqNode::IsPseudoField() const
 
 #ifdef FEATURE_SIMD
 GenTreeSIMD* Compiler::gtNewSIMDNode(
-    var_types type, GenTree* op1, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size)
+    var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
 {
-    assert(op1 != nullptr);
     SetOpLclRelatedToSIMDIntrinsic(op1);
-
-    GenTreeSIMD* simdNode = new (this, GT_SIMD) GenTreeSIMD(type, op1, simdIntrinsicID, baseType, size);
-    return simdNode;
+    return new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, op1);
 }
 
 GenTreeSIMD* Compiler::gtNewSIMDNode(
-    var_types type, GenTree* op1, GenTree* op2, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size)
+    var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
 {
-    assert(op1 != nullptr);
     SetOpLclRelatedToSIMDIntrinsic(op1);
     SetOpLclRelatedToSIMDIntrinsic(op2);
+    return new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, op1, op2);
+}
 
-    GenTreeSIMD* simdNode = new (this, GT_SIMD) GenTreeSIMD(type, op1, op2, simdIntrinsicID, baseType, size);
-    return simdNode;
+GenTreeSIMD* Compiler::gtNewSIMDNode(
+    var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, unsigned numOps, GenTree** ops)
+{
+    GenTreeSIMD* node = new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size);
+    node->SetNumOps(numOps, getAllocator(CMK_ASTNode));
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        SetOpLclRelatedToSIMDIntrinsic(ops[i]);
+        node->SetOp(i, ops[i]);
+        node->gtFlags |= ops[i]->gtFlags & GTF_ALL_EFFECT;
+    }
+    return node;
 }
 
 //-------------------------------------------------------------------
@@ -18074,7 +18220,6 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
 
 bool GenTree::isCommutativeSIMDIntrinsic()
 {
-    assert(gtOper == GT_SIMD);
     switch (AsSIMD()->gtSIMDIntrinsicID)
     {
         case SIMDIntrinsicAdd:

@@ -6295,7 +6295,7 @@ struct WrapICorJitInfo : public ICorJitInfo
                 // an abstract class, it's very likely that the wrapper bodies
                 // in ICorJitInfo_API_wrapper.hpp are no longer in sync with
                 // the EE interface; please be kind and update the header file.
-                wrap = new (inst, jitstd::placement_t()) WrapICorJitInfo();
+                wrap = new (inst) WrapICorJitInfo();
 
                 wrap->wrapComp = compiler;
 

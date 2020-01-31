@@ -225,7 +225,7 @@ void Compiler::lvaInitTypeRef()
     memset(lvaTable, 0, tableSize);
     for (unsigned i = 0; i < lvaTableCnt; i++)
     {
-        new (&lvaTable[i], jitstd::placement_t()) LclVarDsc(); // call the constructor.
+        new (&lvaTable[i]) LclVarDsc(); // call the constructor.
     }
 
     //-------------------------------------------------------------------------

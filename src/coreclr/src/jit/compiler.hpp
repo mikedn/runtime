@@ -1575,7 +1575,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
 
         for (unsigned i = lvaCount; i < newLvaTableCnt; i++)
         {
-            new (&newLvaTable[i], jitstd::placement_t()) LclVarDsc(); // call the constructor.
+            new (&newLvaTable[i]) LclVarDsc(); // call the constructor.
         }
 
 #ifdef DEBUG
@@ -1669,7 +1669,7 @@ inline unsigned Compiler::lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason)
         memset(newLvaTable + lvaCount, 0, (newLvaTableCnt - lvaCount) * sizeof(*lvaTable));
         for (unsigned i = lvaCount; i < newLvaTableCnt; i++)
         {
-            new (&newLvaTable[i], jitstd::placement_t()) LclVarDsc(); // call the constructor.
+            new (&newLvaTable[i]) LclVarDsc(); // call the constructor.
         }
 
 #ifdef DEBUG
@@ -4267,20 +4267,6 @@ void GenTree::VisitOperands(TVisitor visitor)
             return;
 
 // Variadic nodes
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            if (this->AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInitN)
-            {
-                assert(this->AsSIMD()->gtOp1 != nullptr);
-                this->AsSIMD()->gtOp1->VisitListOperands(visitor);
-            }
-            else
-            {
-                VisitBinOpOperands<TVisitor>(visitor);
-            }
-            return;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             if ((this->AsHWIntrinsic()->gtOp1 != nullptr) && this->AsHWIntrinsic()->gtOp1->OperIsList())
@@ -4314,6 +4300,18 @@ void GenTree::VisitOperands(TVisitor visitor)
                 }
             }
             return;
+
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+            for (GenTreeSIMD::Use& use : AsSIMD()->Uses())
+            {
+                if (visitor(use.GetNode()) == VisitResult::Abort)
+                {
+                    break;
+                }
+            }
+            return;
+#endif // FEATURE_SIMD
 
         case GT_CMPXCHG:
         {
@@ -4511,11 +4509,6 @@ inline void* __cdecl operator new(size_t sz, Compiler* compiler, CompMemKind cmk
 inline void* __cdecl operator new[](size_t sz, Compiler* compiler, CompMemKind cmk)
 {
     return compiler->getAllocator(cmk).allocate<char>(sz);
-}
-
-inline void* __cdecl operator new(size_t sz, void* p, const jitstd::placement_t& /* syntax_difference */)
-{
-    return p;
 }
 
 /*****************************************************************************/

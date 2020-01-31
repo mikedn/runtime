@@ -105,7 +105,6 @@ class Compiler;
 // caused these to be ambiguous with the global placement new operators.
 void* __cdecl operator new(size_t n, Compiler* context, CompMemKind cmk);
 void* __cdecl operator new[](size_t n, Compiler* context, CompMemKind cmk);
-void* __cdecl operator new(size_t n, void* p, const jitstd::placement_t& syntax_difference);
 
 // Requires the definitions of "operator new" so including "LoopCloning.h" after the definitions.
 #include "loopcloning.h"
@@ -2533,9 +2532,15 @@ public:
 
 #ifdef FEATURE_SIMD
     GenTreeSIMD* gtNewSIMDNode(
-        var_types type, GenTree* op1, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size);
+        var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1);
     GenTreeSIMD* gtNewSIMDNode(
-        var_types type, GenTree* op1, GenTree* op2, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size);
+        var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2);
+    GenTreeSIMD* gtNewSIMDNode(var_types       type,
+                               SIMDIntrinsicID simdIntrinsicID,
+                               var_types       baseType,
+                               unsigned        size,
+                               unsigned        numOps,
+                               GenTree**       ops);
     void SetOpLclRelatedToSIMDIntrinsic(GenTree* op);
 #endif
 
@@ -10002,6 +10007,35 @@ public:
                     }
                 }
                 break;
+
+#ifdef FEATURE_SIMD
+            case GT_SIMD:
+                if (TVisitor::UseExecutionOrder && node->AsSIMD()->IsBinary() && node->IsReverseOp())
+                {
+                    result = WalkTree(&node->AsSIMD()->GetUse(1).NodeRef(), node);
+                    if (result == fgWalkResult::WALK_ABORT)
+                    {
+                        return result;
+                    }
+                    result = WalkTree(&node->AsSIMD()->GetUse(0).NodeRef(), node);
+                    if (result == fgWalkResult::WALK_ABORT)
+                    {
+                        return result;
+                    }
+                }
+                else
+                {
+                    for (GenTreeSIMD::Use& use : node->AsSIMD()->Uses())
+                    {
+                        result = WalkTree(&use.NodeRef(), node);
+                        if (result == fgWalkResult::WALK_ABORT)
+                        {
+                            return result;
+                        }
+                    }
+                }
+                break;
+#endif
 
             case GT_CMPXCHG:
             {
