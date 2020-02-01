@@ -19,7 +19,11 @@
 struct HWIntrinsic final
 {
     HWIntrinsic(const GenTreeHWIntrinsic* node)
-        : op1(nullptr), op2(nullptr), op3(nullptr), numOperands(0), baseType(TYP_UNDEF)
+        : numOperands(node->GetNumOps())
+        , op1(numOperands >= 1 ? node->GetOp(0) : nullptr)
+        , op2(numOperands >= 2 ? node->GetOp(1) : nullptr)
+        , op3(numOperands >= 3 ? node->GetOp(2) : nullptr)
+        , baseType(TYP_UNDEF)
     {
         assert(node != nullptr);
 
@@ -28,7 +32,6 @@ struct HWIntrinsic final
 
         assert(HWIntrinsicInfo::RequiresCodegen(id));
 
-        InitializeOperands(node);
         InitializeBaseType(node);
     }
 
@@ -43,45 +46,13 @@ struct HWIntrinsic final
 
     NamedIntrinsic      id;
     HWIntrinsicCategory category;
+    unsigned            numOperands;
     GenTree*            op1;
     GenTree*            op2;
     GenTree*            op3;
-    int                 numOperands;
     var_types           baseType;
 
 private:
-    void InitializeOperands(const GenTreeHWIntrinsic* node)
-    {
-        op1 = node->gtGetOp1();
-        op2 = node->gtGetOp2();
-
-        assert(op1 != nullptr);
-
-        if (op1->OperIsList())
-        {
-            assert(op2 == nullptr);
-
-            GenTreeArgList* list = op1->AsArgList();
-            op1                  = list->Current();
-            list                 = list->Rest();
-            op2                  = list->Current();
-            list                 = list->Rest();
-            op3                  = list->Current();
-
-            assert(list->Rest() == nullptr);
-
-            numOperands = 3;
-        }
-        else if (op2 != nullptr)
-        {
-            numOperands = 2;
-        }
-        else
-        {
-            numOperands = 1;
-        }
-    }
-
     void InitializeBaseType(const GenTreeHWIntrinsic* node)
     {
         baseType = node->gtSIMDBaseType;

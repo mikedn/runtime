@@ -269,93 +269,6 @@ unsigned HWIntrinsicInfo::lookupSimdSize(Compiler* comp, NamedIntrinsic id, CORI
 }
 
 //------------------------------------------------------------------------
-// lookupNumArgs: Gets the number of args for a given HWIntrinsic node
-//
-// Arguments:
-//    node -- The HWIntrinsic node to get the number of args for
-//
-// Return Value:
-//    The number of args for the HWIntrinsic associated with node
-int HWIntrinsicInfo::lookupNumArgs(const GenTreeHWIntrinsic* node)
-{
-    assert(node != nullptr);
-
-    NamedIntrinsic id      = node->gtHWIntrinsicId;
-    int            numArgs = lookupNumArgs(id);
-
-    if (numArgs >= 0)
-    {
-        return numArgs;
-    }
-
-    assert(numArgs == -1);
-
-    GenTree* op1 = node->gtGetOp1();
-
-    if (op1 == nullptr)
-    {
-        return 0;
-    }
-
-    if (op1->OperIsList())
-    {
-        GenTreeArgList* list = op1->AsArgList();
-        numArgs              = 0;
-
-        do
-        {
-            numArgs++;
-            list = list->Rest();
-        } while (list != nullptr);
-
-        return numArgs;
-    }
-
-    GenTree* op2 = node->gtGetOp2();
-
-    return (op2 == nullptr) ? 1 : 2;
-}
-
-//------------------------------------------------------------------------
-// lookupLastOp: Gets the last operand for a given HWIntrinsic node
-//
-// Arguments:
-//    node   -- The HWIntrinsic node to get the last operand for
-//
-// Return Value:
-//     The last operand for node
-GenTree* HWIntrinsicInfo::lookupLastOp(const GenTreeHWIntrinsic* node)
-{
-    assert(node != nullptr);
-
-    NamedIntrinsic id  = node->gtHWIntrinsicId;
-    GenTree*       op1 = node->gtGetOp1();
-
-    if (op1 == nullptr)
-    {
-        return nullptr;
-    }
-
-    if (op1->OperIsList())
-    {
-        GenTreeArgList* list = op1->AsArgList();
-        GenTree*        last;
-
-        do
-        {
-            last = list->Current();
-            list = list->Rest();
-        } while (list != nullptr);
-
-        return last;
-    }
-
-    GenTree* op2 = node->gtGetOp2();
-
-    return (op2 == nullptr) ? op1 : op2;
-}
-
-//------------------------------------------------------------------------
 // isImmOp: Checks whether the HWIntrinsic node has an imm operand
 //
 // Arguments:
@@ -638,7 +551,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                         op1 = op1->gtGetOp1();
                     }
                 }
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
                 break;
             }
 
@@ -653,7 +566,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
                 op1     = getArgForHWIntrinsic(argType, argClass);
 
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, op2, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
                 break;
             }
 
@@ -675,7 +588,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
                 op1     = getArgForHWIntrinsic(argType, argClass);
 
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, op2, op3, intrinsic, baseType, simdSize);
+                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3);
 
 #ifdef _TARGET_XARCH_
                 if (intrinsic == NI_AVX2_GatherVector128 || intrinsic == NI_AVX2_GatherVector256)

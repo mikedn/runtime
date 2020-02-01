@@ -209,7 +209,7 @@ GTNODE(SIMD             , GenTreeSIMD        ,0,GTK_SPECIAL)     // SIMD functio
 #endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
-GTNODE(HWINTRINSIC      , GenTreeHWIntrinsic ,0,(GTK_BINOP|GTK_EXOP))               // hardware intrinsics
+GTNODE(HWINTRINSIC      , GenTreeHWIntrinsic ,0,GTK_SPECIAL)               // hardware intrinsics
 #endif // FEATURE_HW_INTRINSICS
 
 //-----------------------------------------------------------------------------

@@ -4266,20 +4266,6 @@ void GenTree::VisitOperands(TVisitor visitor)
             visitor(this->AsUnOp()->gtOp1);
             return;
 
-// Variadic nodes
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            if ((this->AsHWIntrinsic()->gtOp1 != nullptr) && this->AsHWIntrinsic()->gtOp1->OperIsList())
-            {
-                this->AsHWIntrinsic()->gtOp1->VisitListOperands(visitor);
-            }
-            else
-            {
-                VisitBinOpOperands<TVisitor>(visitor);
-            }
-            return;
-#endif // FEATURE_HW_INTRINSICS
-
         // Special nodes
         case GT_PHI:
             for (GenTreePhi::Use& use : AsPhi()->Uses())
@@ -4312,6 +4298,18 @@ void GenTree::VisitOperands(TVisitor visitor)
             }
             return;
 #endif // FEATURE_SIMD
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            for (GenTreeHWIntrinsic::Use& use : AsHWIntrinsic()->Uses())
+            {
+                if (visitor(use.GetNode()) == VisitResult::Abort)
+                {
+                    break;
+                }
+            }
+            return;
+#endif // FEATURE_HW_INTRINSICS
 
         case GT_CMPXCHG:
         {

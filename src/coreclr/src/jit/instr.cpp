@@ -1009,11 +1009,11 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
             {
 #if defined(FEATURE_HW_INTRINSICS)
                 assert(rmOp->AsHWIntrinsic()->OperIsMemoryLoad());
-                assert(HWIntrinsicInfo::lookupNumArgs(rmOp->AsHWIntrinsic()) == 1);
-                addr = rmOp->gtGetOp1();
+                assert(rmOp->AsHWIntrinsic()->IsUnary());
+                addr = rmOp->AsHWIntrinsic()->GetOp(0);
 #else
                 unreached();
-#endif // FEATURE_HW_INTRINSICS
+#endif
             }
 
             switch (addr->OperGet())
@@ -1136,8 +1136,8 @@ void CodeGen::inst_RV_RV_TT(
             {
 #if defined(FEATURE_HW_INTRINSICS)
                 assert(op2->AsHWIntrinsic()->OperIsMemoryLoad());
-                assert(HWIntrinsicInfo::lookupNumArgs(op2->AsHWIntrinsic()) == 1);
-                addr = op2->gtGetOp1();
+                assert(op2->AsHWIntrinsic()->IsUnary());
+                addr = op2->AsHWIntrinsic()->GetOp(0);
 #else
                 unreached();
 #endif // FEATURE_HW_INTRINSICS

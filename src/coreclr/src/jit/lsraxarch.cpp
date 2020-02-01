@@ -2399,7 +2399,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
     var_types           baseType    = intrinsicTree->gtSIMDBaseType;
     InstructionSet      isa         = HWIntrinsicInfo::lookupIsa(intrinsicId);
     HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
-    int                 numArgs     = HWIntrinsicInfo::lookupNumArgs(intrinsicTree);
+    int                 numArgs     = intrinsicTree->GetNumOps();
 
     // Set the AVX Flags if this instruction may use VEX encoding for SIMD operations.
     // Note that this may be true even if the ISA is not AVX (e.g. for platform-agnostic intrinsics
@@ -2409,8 +2409,8 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         SetContainsAVXFlags(intrinsicTree->gtSIMDSize);
     }
 
-    GenTree* op1    = intrinsicTree->gtGetOp1();
-    GenTree* op2    = intrinsicTree->gtGetOp2();
+    GenTree* op1    = nullptr;
+    GenTree* op2    = nullptr;
     GenTree* op3    = nullptr;
     GenTree* lastOp = nullptr;
 
@@ -2419,50 +2419,29 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
     regMaskTP dstCandidates = RBM_NONE;
 
-    if (op1 == nullptr)
+    if (numArgs > 0)
     {
-        assert(op2 == nullptr);
-        assert(numArgs == 0);
-    }
-    else
-    {
-        if (op1->OperIsList())
+        switch (numArgs)
         {
-            assert(op2 == nullptr);
-            assert(numArgs >= 3);
-
-            GenTreeArgList* argList = op1->AsArgList();
-
-            op1     = argList->Current();
-            argList = argList->Rest();
-
-            op2     = argList->Current();
-            argList = argList->Rest();
-
-            op3 = argList->Current();
-
-            while (argList->Rest() != nullptr)
-            {
-                argList = argList->Rest();
-            }
-
-            lastOp  = argList->Current();
-            argList = argList->Rest();
-
-            assert(argList == nullptr);
-        }
-        else if (op2 != nullptr)
-        {
-            assert(numArgs == 2);
-            lastOp = op2;
-        }
-        else
-        {
-            assert(numArgs == 1);
-            lastOp = op1;
+            case 1:
+                op1 = intrinsicTree->GetOp(0);
+                break;
+            case 2:
+                op1 = intrinsicTree->GetOp(0);
+                op2 = intrinsicTree->GetOp(1);
+                break;
+            case 3:
+            case 4:
+            case 5:
+                op1 = intrinsicTree->GetOp(0);
+                op2 = intrinsicTree->GetOp(1);
+                op3 = intrinsicTree->GetOp(2);
+                break;
+            default:
+                unreached();
         }
 
-        assert(lastOp != nullptr);
+        GenTree* lastOp = intrinsicTree->GetLastOp();
 
         bool buildUses = true;
 
@@ -2741,11 +2720,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 srcCount += BuildOperandUses(op1);
                 srcCount += BuildOperandUses(op2);
                 srcCount += BuildDelayFreeUses(op3);
-
-                assert(intrinsicTree->gtGetOp1()->OperIsList());
-                GenTreeArgList* argList = intrinsicTree->gtGetOp1()->AsArgList();
-                GenTree*        op4     = argList->Rest()->Rest()->Rest()->Current();
-                srcCount += BuildDelayFreeUses(op4);
+                srcCount += BuildDelayFreeUses(intrinsicTree->GetOp(3));
 
                 // get a tmp register for mask that will be cleared by gather instructions
                 buildInternalFloatRegisterDefForNode(intrinsicTree, allSIMDRegs());
@@ -2779,7 +2754,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             {
                 if (op2->OperIs(GT_HWINTRINSIC) && op2->AsHWIntrinsic()->OperIsMemoryLoad() && op2->isContained())
                 {
-                    srcCount += BuildAddrUses(op2->gtGetOp1());
+                    srcCount += BuildAddrUses(op2->AsHWIntrinsic()->GetOp(0));
                 }
                 else if (isRMW)
                 {

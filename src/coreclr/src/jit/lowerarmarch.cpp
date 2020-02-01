@@ -855,20 +855,6 @@ void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
 //
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic      intrinsicId = node->gtHWIntrinsicId;
-    HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
-    int                 numArgs     = HWIntrinsicInfo::lookupNumArgs(node);
-    var_types           baseType    = node->gtSIMDBaseType;
-
-    GenTree* op1 = node->gtGetOp1();
-    GenTree* op2 = node->gtGetOp2();
-    GenTree* op3 = nullptr;
-
-    if (!HWIntrinsicInfo::SupportsContainment(intrinsicId))
-    {
-        // Exit early if containment isn't supported
-        return;
-    }
 }
 #endif // FEATURE_HW_INTRINSICS
 

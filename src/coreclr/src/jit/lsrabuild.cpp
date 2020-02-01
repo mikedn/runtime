@@ -2763,9 +2763,9 @@ int LinearScan::BuildOperandUses(GenTree* node, regMaskTP candidates)
     {
         if (node->AsHWIntrinsic()->OperIsMemoryLoad())
         {
-            return BuildAddrUses(node->gtGetOp1());
+            return BuildAddrUses(node->AsHWIntrinsic()->GetOp(0));
         }
-        BuildUse(node->gtGetOp1(), candidates);
+        BuildUse(node->AsHWIntrinsic()->GetOp(0), candidates);
         return 1;
     }
 #endif // FEATURE_HW_INTRINSICS
