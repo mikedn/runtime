@@ -18598,40 +18598,6 @@ void Compiler::fgSetTreeSeqHelper(GenTree* tree, bool isLIR)
         GenTree* op1 = tree->AsOp()->gtOp1;
         GenTree* op2 = tree->gtGetOp2IfPresent();
 
-        // Special handling for GT_LIST
-        if (tree->OperGet() == GT_LIST)
-        {
-            // First, handle the list items, which will be linked in forward order.
-            // As we go, we will link the GT_LIST nodes in reverse order - we will number
-            // them and update fgTreeSeqList in a subsequent traversal.
-            GenTree* nextList = tree;
-            GenTree* list     = nullptr;
-            while (nextList != nullptr && nextList->OperGet() == GT_LIST)
-            {
-                list              = nextList;
-                GenTree* listItem = list->AsOp()->gtOp1;
-                fgSetTreeSeqHelper(listItem, isLIR);
-                nextList = list->AsOp()->gtOp2;
-                if (nextList != nullptr)
-                {
-                    nextList->gtNext = list;
-                }
-                list->gtPrev = nextList;
-            }
-            // Next, handle the GT_LIST nodes.
-            // Note that fgSetTreeSeqFinish() sets the gtNext to null, so we need to capture the nextList
-            // before we call that method.
-            nextList = list;
-            do
-            {
-                assert(list != nullptr);
-                list     = nextList;
-                nextList = list->gtNext;
-                fgSetTreeSeqFinish(list, isLIR);
-            } while (list != tree);
-            return;
-        }
-
         /* Special handling for AddrMode */
         if (tree->OperIsAddrMode())
         {
@@ -18898,7 +18864,7 @@ void Compiler::fgSetTreeSeqFinish(GenTree* tree, bool isLIR)
     {
         tree->gtFlags &= ~GTF_REVERSE_OPS;
 
-        if (tree->OperIs(GT_LIST, GT_ARGPLACE))
+        if (tree->OperIs(GT_ARGPLACE))
         {
             return;
         }
@@ -21216,32 +21182,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 {
                     noway_assert((op1->gtOper == GT_CNS_INT) &&
                                  ((op1->AsIntCon()->gtIconVal == 0) || (op1->AsIntCon()->gtIconVal == 1)));
-                }
-                break;
-
-            case GT_LIST:
-                if ((op2 != nullptr) && op2->OperIsAnyList())
-                {
-                    ArrayStack<GenTree*> stack(getAllocator(CMK_DebugOnly));
-                    while ((tree->gtGetOp2() != nullptr) && tree->gtGetOp2()->OperIsAnyList())
-                    {
-                        stack.Push(tree);
-                        tree = tree->gtGetOp2();
-                    }
-
-                    fgDebugCheckFlags(tree);
-
-                    while (!stack.Empty())
-                    {
-                        tree = stack.Pop();
-                        assert((tree->gtFlags & GTF_REVERSE_OPS) == 0);
-                        fgDebugCheckFlags(tree->AsOp()->gtOp1);
-                        chkFlags |= (tree->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
-                        chkFlags |= (tree->gtGetOp2()->gtFlags & GTF_ALL_EFFECT);
-                        fgDebugCheckFlagsHelper(tree, (tree->gtFlags & GTF_ALL_EFFECT), chkFlags);
-                    }
-
-                    return;
                 }
                 break;
 

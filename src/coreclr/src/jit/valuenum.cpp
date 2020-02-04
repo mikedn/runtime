@@ -7978,7 +7978,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     ValueNumPair op2VNPair;
                     if (tree->AsOp()->gtOp2 == nullptr)
                     {
-                        // Handle any GT_LIST nodes as they can have a nullptr for op2.
+                        // Handle any GT_LEA nodes as they can have a nullptr for op2.
                         op2VNPair.SetBoth(ValueNumStore::VNForNull());
                     }
                     else
@@ -8101,7 +8101,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
 
                     case GT_JTRUE:
-                    case GT_LIST:
                         // These nodes never need to have a ValueNumber
                         tree->gtVNPair.SetBoth(ValueNumStore::NoVN);
                         break;

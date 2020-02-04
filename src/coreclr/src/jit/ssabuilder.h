@@ -30,11 +30,10 @@ public:
     // Requires stmt nodes to be already sequenced in evaluation order. Analyzes the graph
     // for introduction of phi-nodes as GT_PHI tree nodes at the beginning of each block.
     // Each GT_LCL_VAR is given its ssa number through its GetSsaNum() field in the node.
-    // Each GT_PHI node will have gtOp1 set to lhs of the phi node and the gtOp2 to be a
-    // GT_LIST of GT_PHI_ARG. Each use or def is denoted by the corresponding GT_LCL_VAR
-    // tree. For example, to get all uses of a particular variable fully defined by its
-    // lclNum and ssaNum, one would use m_uses and look up all the uses. Similarly, a single
-    // def of an SSA variable can be looked up similarly using m_defs member.
+    // Each use or def is denoted by the corresponding GT_LCL_VAR tree. For example, to get
+    // all uses of a particular variable fully defined by its lclNum and ssaNum, one would
+    // use m_uses and look up all the uses. Similarly, a single def of an SSA variable can
+    // be looked up similarly using m_defs member.
     void Build();
 
 private:
@@ -70,8 +69,7 @@ private:
 
     // Requires "postOrder" to hold the blocks of the flowgraph in topologically sorted order. Requires
     // count to be the valid entries in the "postOrder" array. Inserts GT_PHI nodes at the beginning
-    // of basic blocks that require them like so:
-    // GT_ASG(GT_LCL_VAR, GT_PHI(GT_PHI_ARG(GT_LCL_VAR, Block*), GT_LIST(GT_PHI_ARG(GT_LCL_VAR, Block*), NULL));
+    // of basic blocks that require them.
     void InsertPhiFunctions(BasicBlock** postOrder, int count);
 
     // Rename all definitions and uses within the compiled method.

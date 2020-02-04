@@ -4459,20 +4459,6 @@ void GenTree::VisitOperands(TVisitor visitor)
 }
 
 template <typename TVisitor>
-GenTree::VisitResult GenTree::VisitListOperands(TVisitor visitor)
-{
-    for (GenTreeArgList* node = this->AsArgList(); node != nullptr; node = node->Rest())
-    {
-        if (visitor(node->gtOp1) == VisitResult::Abort)
-        {
-            return VisitResult::Abort;
-        }
-    }
-
-    return VisitResult::Continue;
-}
-
-template <typename TVisitor>
 void GenTree::VisitBinOpOperands(TVisitor visitor)
 {
     assert(this->OperIsBinary());
