@@ -8219,8 +8219,6 @@ BasicBlock* dbBlock;
 
 GenTree* dFindTree(GenTree* tree, unsigned id)
 {
-    GenTree* child;
-
     if (tree == nullptr)
     {
         return nullptr;
@@ -8232,10 +8230,8 @@ GenTree* dFindTree(GenTree* tree, unsigned id)
         return tree;
     }
 
-    unsigned childCount = tree->NumChildren();
-    for (unsigned childIndex = 0; childIndex < childCount; childIndex++)
+    for (GenTree* child : tree->Operands())
     {
-        child = tree->GetChild(childIndex);
         child = dFindTree(child, id);
         if (child != nullptr)
         {
