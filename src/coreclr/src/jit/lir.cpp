@@ -129,9 +129,7 @@ void LIR::Use::AssertIsValid() const
     assert(m_range->Contains(m_user));
     assert(Def() != nullptr);
 
-    GenTree** useEdge = nullptr;
-    assert(m_user->TryGetUse(Def(), &useEdge));
-    assert(useEdge == m_edge);
+    assert(m_user->FindUse(Def()) == m_edge);
 }
 
 //------------------------------------------------------------------------
@@ -1168,8 +1166,8 @@ bool LIR::Range::TryGetUse(GenTree* node, Use* use)
     {
         for (GenTree* n : ReadOnlyRange(node->gtNext, m_lastNode))
         {
-            GenTree** edge;
-            if (n->TryGetUse(node, &edge))
+            GenTree** edge = n->FindUse(node);
+            if (edge != nullptr)
             {
                 *use = Use(*this, edge, n);
                 return true;
@@ -1604,8 +1602,8 @@ bool LIR::Range::CheckLIR(Compiler* compiler, bool checkUnusedValues) const
                 for (GenTree* prev = *node; prev != nullptr; prev = prev->gtPrev)
                 {
                     // TODO: dump the users and the def
-                    GenTree** earlierUseEdge;
-                    bool      foundEarlierUse = prev->TryGetUse(def, &earlierUseEdge) && earlierUseEdge != useEdge;
+                    GenTree** earlierUseEdge  = prev->FindUse(def);
+                    bool      foundEarlierUse = (earlierUseEdge != nullptr) && (earlierUseEdge != useEdge);
                     assert(!foundEarlierUse && "found multiply-used LIR node");
                 }
 

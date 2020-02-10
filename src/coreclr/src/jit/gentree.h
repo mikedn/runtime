@@ -1625,12 +1625,11 @@ public:
     // The returned pointer might be nullptr if the node is not binary, or if non-null op2 is not required.
     inline GenTree* gtGetOp2IfPresent() const;
 
-    // Given a tree node, if this node uses that node, return the use as an out parameter and return true.
-    // Otherwise, return false.
-    bool TryGetUse(GenTree* def, GenTree*** use);
+    // Find the use of a node within this node.
+    GenTree** FindUse(GenTree* def);
 
-    // Get the parent of this node, and optionally capture the pointer to the child so that it can be modified.
-    GenTree* gtGetParent(GenTree*** parentChildPtrPtr);
+    // Find the user of this node, and optionally capture the use so that it can be modified.
+    GenTree* FindUser(GenTree*** use = nullptr);
 
     void ReplaceOperand(GenTree** useEdge, GenTree* replacement);
 

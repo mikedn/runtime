@@ -1054,7 +1054,7 @@ void GenTreeCall::ReplaceCallOperand(GenTree** useEdge, GenTree* replacement)
 {
     assert(useEdge != nullptr);
     assert(replacement != nullptr);
-    assert(TryGetUse(*useEdge, &useEdge));
+    assert(FindUse(*useEdge) == useEdge);
 
     GenTree* originalOperand = *useEdge;
     *useEdge                 = replacement;
@@ -4663,23 +4663,31 @@ bool GenTree::IsAddWithI32Const(GenTree** addr, int* offset)
     return false;
 }
 
-bool GenTree::TryGetUse(GenTree* def, GenTree*** use)
+//------------------------------------------------------------------------
+// FindUse: Find the use of a node within this node.
+//
+// Arguments:
+//    def - The definition node for which to find the corresponding use.
+//
+// Return Value:
+//    The use edge that corresponds to the definition node, if one exists.
+//
+GenTree** GenTree::FindUse(GenTree* def)
 {
     assert(def != nullptr);
-    assert(use != nullptr);
 
-    *use = nullptr;
+    GenTree** use = nullptr;
 
-    VisitOperands([def, use](GenTree*& op) {
+    VisitOperands([def, &use](GenTree*& op) {
         if (op == def)
         {
-            *use = &op;
+            use = &op;
             return VisitResult::Abort;
         }
         return VisitResult::Continue;
     });
 
-    return *use != nullptr;
+    return use;
 }
 
 //------------------------------------------------------------------------
@@ -4696,7 +4704,7 @@ void GenTree::ReplaceOperand(GenTree** useEdge, GenTree* replacement)
 {
     assert(useEdge != nullptr);
     assert(replacement != nullptr);
-    assert(TryGetUse(*useEdge, &useEdge));
+    assert(FindUse(*useEdge) == useEdge);
 
     if (OperGet() == GT_CALL)
     {
@@ -4709,41 +4717,36 @@ void GenTree::ReplaceOperand(GenTree** useEdge, GenTree* replacement)
 }
 
 //------------------------------------------------------------------------
-// gtGetParent: Get the parent of this node, and optionally capture the
-//    pointer to the child so that it can be modified.
+// FindUser: Find the user of a node, and optionally capture the use so
+//    that it can be modified.
 //
 // Arguments:
-
-//    parentChildPointer - A pointer to a GenTree** (yes, that's three
-//                         levels, i.e. GenTree ***), which if non-null,
-//                         will be set to point to the field in the parent
-//                         that points to this node.
+//    useEdge - An optional pointer used to return the user's use edge
+//              that points to this node.
 //
-//    Return value       - The parent of this node.
+// Return Value:
+//    The user of this node, if one exists.
 //
-//    Notes:
+// Notes:
+//    This requires that the execution order must be defined
+//    (i.e. gtSetEvalOrder() has been called).
 //
-//    This requires that the execution order must be defined (i.e. gtSetEvalOrder() has been called).
-//    To enable the child to be replaced, it accepts an argument, parentChildPointer that, if non-null,
-//    will be set to point to the child pointer in the parent that points to this node.
-
-GenTree* GenTree::gtGetParent(GenTree*** parentChildPtrPtr)
+GenTree* GenTree::FindUser(GenTree*** useEdge)
 {
-    // Find the parent node; it must be after this node in the execution order.
-    GenTree** parentChildPtr = nullptr;
-    GenTree*  parent;
-    for (parent = gtNext; parent != nullptr; parent = parent->gtNext)
+    for (GenTree* user = gtNext; user != nullptr; user = user->gtNext)
     {
-        if (parent->TryGetUse(this, &parentChildPtr))
+        GenTree** u = user->FindUse(this);
+        if (u != nullptr)
         {
-            break;
+            if (useEdge != nullptr)
+            {
+                *useEdge = u;
+            }
+            return user;
         }
     }
-    if (parentChildPtrPtr != nullptr)
-    {
-        *parentChildPtrPtr = parentChildPtr;
-    }
-    return parent;
+
+    return nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -7242,7 +7245,7 @@ void Compiler::gtUpdateTreeAncestorsSideEffects(GenTree* tree)
     while (tree != nullptr)
     {
         gtUpdateNodeSideEffects(tree);
-        tree = tree->gtGetParent(nullptr);
+        tree = tree->FindUser();
     }
 }
 

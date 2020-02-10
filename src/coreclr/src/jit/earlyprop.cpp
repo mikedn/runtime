@@ -325,7 +325,7 @@ GenTree* Compiler::optEarlyPropRewriteTree(GenTree* tree, LocalNumberToNullCheck
                     ssize_t checkConstVal = check->gtIndex->AsIntCon()->IconValue();
                     if ((checkConstVal >= 0) && (checkConstVal < actualConstVal))
                     {
-                        GenTree* comma = check->gtGetParent(nullptr);
+                        GenTree* comma = check->FindUser();
                         if ((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->gtGetOp1() == check))
                         {
                             optRemoveRangeCheck(comma, compCurStmt);
@@ -704,8 +704,7 @@ bool Compiler::optIsNullCheckFoldingLegal(GenTree*    tree,
     assert(fgStmtListThreaded);
     while (canRemoveNullCheck && (currentTree != tree) && (currentTree != nullptr))
     {
-        GenTree** nullCheckTreeUse;
-        if ((*nullCheckParent == nullptr) && currentTree->TryGetUse(nullCheckTree, &nullCheckTreeUse))
+        if ((*nullCheckParent == nullptr) && (currentTree->FindUse(nullCheckTree) != nullptr))
         {
             *nullCheckParent = currentTree;
         }
@@ -773,7 +772,7 @@ bool Compiler::optIsNullCheckFoldingLegal(GenTree*    tree,
 
     if (canRemoveNullCheck && (*nullCheckParent == nullptr))
     {
-        *nullCheckParent = nullCheckTree->gtGetParent(nullptr);
+        *nullCheckParent = nullCheckTree->FindUser();
     }
 
     return canRemoveNullCheck;
