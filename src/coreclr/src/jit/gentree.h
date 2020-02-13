@@ -1625,20 +1625,11 @@ public:
     // The returned pointer might be nullptr if the node is not binary, or if non-null op2 is not required.
     inline GenTree* gtGetOp2IfPresent() const;
 
-    // Given a tree node, if this is a child of that node, return the pointer to the child node so that it
-    // can be modified; otherwise, return null.
-    GenTree** gtGetChildPointer(GenTree* parent) const;
+    // Find the use of a node within this node.
+    GenTree** FindUse(GenTree* def);
 
-    // Given a tree node, if this node uses that node, return the use as an out parameter and return true.
-    // Otherwise, return false.
-    bool TryGetUse(GenTree* def, GenTree*** use);
-
-private:
-    bool TryGetUseBinOp(GenTree* def, GenTree*** use);
-
-public:
-    // Get the parent of this node, and optionally capture the pointer to the child so that it can be modified.
-    GenTree* gtGetParent(GenTree*** parentChildPtrPtr) const;
+    // Find the user of this node, and optionally capture the use so that it can be modified.
+    GenTree* FindUser(GenTree*** use = nullptr);
 
     void ReplaceOperand(GenTree** useEdge, GenTree* replacement);
 
@@ -1987,12 +1978,6 @@ public:
     GenTree()
     {
     }
-
-    // Returns the number of children of the current node.
-    unsigned NumChildren();
-
-    // Requires "childNum < NumChildren()".  Returns the "n"th child of "this."
-    GenTree* GetChild(unsigned childNum);
 
     // Returns an iterator that will produce the use edge to each operand of this node. Differs
     // from the sequence of nodes produced by a loop over `GetChild` in its handling of call, phi,

@@ -4252,6 +4252,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_BLK:
         case GT_BOX:
         case GT_ALLOCOBJ:
+        case GT_RUNTIMELOOKUP:
         case GT_INIT_VAL:
         case GT_JTRUE:
         case GT_SWITCH:
@@ -4270,7 +4271,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_PHI:
             for (GenTreePhi::Use& use : AsPhi()->Uses())
             {
-                if (visitor(use.GetNode()) == VisitResult::Abort)
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
                     break;
                 }
@@ -4280,7 +4281,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_FIELD_LIST:
             for (GenTreeFieldList::Use& field : AsFieldList()->Uses())
             {
-                if (visitor(field.GetNode()) == VisitResult::Abort)
+                if (visitor(field.NodeRef()) == VisitResult::Abort)
                 {
                     break;
                 }
@@ -4291,7 +4292,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_SIMD:
             for (GenTreeSIMD::Use& use : AsSIMD()->Uses())
             {
-                if (visitor(use.GetNode()) == VisitResult::Abort)
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
                     break;
                 }
@@ -4303,7 +4304,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_HWINTRINSIC:
             for (GenTreeHWIntrinsic::Use& use : AsHWIntrinsic()->Uses())
             {
-                if (visitor(use.GetNode()) == VisitResult::Abort)
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
                     break;
                 }
@@ -4411,14 +4412,14 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CALL:
         {
             GenTreeCall* const call = this->AsCall();
-            if ((call->gtCallThisArg != nullptr) && (visitor(call->gtCallThisArg->GetNode()) == VisitResult::Abort))
+            if ((call->gtCallThisArg != nullptr) && (visitor(call->gtCallThisArg->NodeRef()) == VisitResult::Abort))
             {
                 return;
             }
 
             for (GenTreeCall::Use& use : call->Args())
             {
-                if (visitor(use.GetNode()) == VisitResult::Abort)
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
                     return;
                 }
@@ -4426,7 +4427,7 @@ void GenTree::VisitOperands(TVisitor visitor)
 
             for (GenTreeCall::Use& use : call->LateArgs())
             {
-                if (visitor(use.GetNode()) == VisitResult::Abort)
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
                     return;
                 }
@@ -4465,16 +4466,14 @@ void GenTree::VisitBinOpOperands(TVisitor visitor)
 
     GenTreeOp* const op = this->AsOp();
 
-    GenTree* const op1 = op->gtOp1;
-    if ((op1 != nullptr) && (visitor(op1) == VisitResult::Abort))
+    if ((op->gtOp1 != nullptr) && (visitor(op->gtOp1) == VisitResult::Abort))
     {
         return;
     }
 
-    GenTree* const op2 = op->gtOp2;
-    if (op2 != nullptr)
+    if (op->gtOp2 != nullptr)
     {
-        visitor(op2);
+        visitor(op->gtOp2);
     }
 }
 

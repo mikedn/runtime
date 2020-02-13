@@ -526,7 +526,7 @@ void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
     phi->SetCosts(0, 0);
     GenTree* asg = m_pCompiler->gtNewAssignNode(lhs, phi);
     // Evaluate the assignment RHS (the PHI node) first. This way the LHS will end up right
-    // in front of the assignment in the linear order, that ensures that using gtGetParent
+    // in front of the assignment in the linear order, that ensures that using FindUser
     // on the LHS to find the assignment doesn't have to traverse the PHI and its args.
     asg->gtFlags |= GTF_REVERSE_OPS;
     asg->SetCosts(0, 0);

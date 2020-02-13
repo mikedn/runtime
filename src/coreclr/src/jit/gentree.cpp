@@ -1054,7 +1054,7 @@ void GenTreeCall::ReplaceCallOperand(GenTree** useEdge, GenTree* replacement)
 {
     assert(useEdge != nullptr);
     assert(replacement != nullptr);
-    assert(TryGetUse(*useEdge, &useEdge));
+    assert(FindUse(*useEdge) == useEdge);
 
     GenTree* originalOperand = *useEdge;
     *useEdge                 = replacement;
@@ -4664,571 +4664,30 @@ bool GenTree::IsAddWithI32Const(GenTree** addr, int* offset)
 }
 
 //------------------------------------------------------------------------
-// gtGetChildPointer: If 'parent' is the parent of this node, return the pointer
-//    to the child node so that it can be modified; otherwise, return nullptr.
+// FindUse: Find the use of a node within this node.
 //
 // Arguments:
-//    parent - The possible parent of this node
+//    def - The definition node for which to find the corresponding use.
 //
 // Return Value:
-//    If "child" is a child of "parent", returns a pointer to the child node in the parent
-//    (i.e. a pointer to a GenTree pointer).
-//    Otherwise, returns nullptr.
+//    The use edge that corresponds to the definition node, if one exists.
 //
-// Assumptions:
-//    'parent' must be non-null
-//
-// Notes:
-//    When FEATURE_MULTIREG_ARGS is defined we can get here with GT_OBJ tree.
-//    This happens when we have a struct that is passed in multiple registers.
-//
-//    Also note that when UNIX_AMD64_ABI is defined the GT_LDOBJ
-//    later gets converted to a GT_FIELD_LIST with two GT_LCL_FLDs in Lower/LowerXArch.
-//
-
-GenTree** GenTree::gtGetChildPointer(GenTree* parent) const
-
-{
-    switch (parent->OperGet())
-    {
-        default:
-            if (!parent->OperIsSimple())
-            {
-                return nullptr;
-            }
-            if (this == parent->AsOp()->gtOp1)
-            {
-                return &(parent->AsOp()->gtOp1);
-            }
-            if (this == parent->AsOp()->gtOp2)
-            {
-                return &(parent->AsOp()->gtOp2);
-            }
-            break;
-
-        case GT_PHI:
-            for (GenTreePhi::Use& use : parent->AsPhi()->Uses())
-            {
-                if (use.GetNode() == this)
-                {
-                    return &use.NodeRef();
-                }
-            }
-            break;
-
-        case GT_FIELD_LIST:
-            for (GenTreeFieldList::Use& use : parent->AsFieldList()->Uses())
-            {
-                if (this == use.GetNode())
-                {
-                    return &use.NodeRef();
-                }
-            }
-            break;
-
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            for (GenTreeSIMD::Use& use : parent->AsSIMD()->Uses())
-            {
-                if (this == use.GetNode())
-                {
-                    return &use.NodeRef();
-                }
-            }
-            break;
-#endif // FEATURE_SIMD
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            for (GenTreeHWIntrinsic::Use& use : parent->AsHWIntrinsic()->Uses())
-            {
-                if (this == use.GetNode())
-                {
-                    return &use.NodeRef();
-                }
-            }
-            break;
-#endif // FEATURE_HW_INTRINSICS
-
-        case GT_CMPXCHG:
-            if (this == parent->AsCmpXchg()->gtOpLocation)
-            {
-                return &(parent->AsCmpXchg()->gtOpLocation);
-            }
-            if (this == parent->AsCmpXchg()->gtOpValue)
-            {
-                return &(parent->AsCmpXchg()->gtOpValue);
-            }
-            if (this == parent->AsCmpXchg()->gtOpComparand)
-            {
-                return &(parent->AsCmpXchg()->gtOpComparand);
-            }
-            break;
-
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            if (this == parent->AsBoundsChk()->gtIndex)
-            {
-                return &(parent->AsBoundsChk()->gtIndex);
-            }
-            if (this == parent->AsBoundsChk()->gtArrLen)
-            {
-                return &(parent->AsBoundsChk()->gtArrLen);
-            }
-            break;
-
-        case GT_ARR_ELEM:
-            if (this == parent->AsArrElem()->gtArrObj)
-            {
-                return &(parent->AsArrElem()->gtArrObj);
-            }
-            for (int i = 0; i < GT_ARR_MAX_RANK; i++)
-            {
-                if (this == parent->AsArrElem()->gtArrInds[i])
-                {
-                    return &(parent->AsArrElem()->gtArrInds[i]);
-                }
-            }
-            break;
-
-        case GT_ARR_OFFSET:
-            if (this == parent->AsArrOffs()->gtOffset)
-            {
-                return &(parent->AsArrOffs()->gtOffset);
-            }
-            if (this == parent->AsArrOffs()->gtIndex)
-            {
-                return &(parent->AsArrOffs()->gtIndex);
-            }
-            if (this == parent->AsArrOffs()->gtArrObj)
-            {
-                return &(parent->AsArrOffs()->gtArrObj);
-            }
-            break;
-
-        case GT_STORE_DYN_BLK:
-        case GT_DYN_BLK:
-            if (this == parent->AsDynBlk()->gtOp1)
-            {
-                return &(parent->AsDynBlk()->gtOp1);
-            }
-            if (this == parent->AsDynBlk()->gtOp2)
-            {
-                return &(parent->AsDynBlk()->gtOp2);
-            }
-            if (this == parent->AsDynBlk()->gtDynamicSize)
-            {
-                return &(parent->AsDynBlk()->gtDynamicSize);
-            }
-            break;
-
-        case GT_FIELD:
-            if (this == parent->AsField()->gtFldObj)
-            {
-                return &(parent->AsField()->gtFldObj);
-            }
-            break;
-
-        case GT_RET_EXPR:
-            if (this == parent->AsRetExpr()->gtInlineCandidate)
-            {
-                return &(parent->AsRetExpr()->gtInlineCandidate);
-            }
-            break;
-
-        case GT_CALL:
-        {
-            GenTreeCall* call = parent->AsCall();
-
-            if ((call->gtCallThisArg != nullptr) && (this == call->gtCallThisArg->GetNode()))
-            {
-                return &call->gtCallThisArg->NodeRef();
-            }
-            for (GenTreeCall::Use& use : call->Args())
-            {
-                if (this == use.GetNode())
-                {
-                    return &use.NodeRef();
-                }
-            }
-            for (GenTreeCall::Use& use : call->LateArgs())
-            {
-                if (this == use.GetNode())
-                {
-                    return &use.NodeRef();
-                }
-            }
-            if (this == call->gtControlExpr)
-            {
-                return &(call->gtControlExpr);
-            }
-            if (call->gtCallType == CT_INDIRECT)
-            {
-                if (this == call->gtCallCookie)
-                {
-                    return &(call->gtCallCookie);
-                }
-                if (this == call->gtCallAddr)
-                {
-                    return &(call->gtCallAddr);
-                }
-            }
-        }
-        break;
-    }
-
-    return nullptr;
-}
-
-bool GenTree::TryGetUse(GenTree* def, GenTree*** use)
+GenTree** GenTree::FindUse(GenTree* def)
 {
     assert(def != nullptr);
-    assert(use != nullptr);
 
-    switch (OperGet())
-    {
-        // Leaf nodes
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
-        case GT_CATCH_ARG:
-        case GT_LABEL:
-        case GT_FTN_ADDR:
-        case GT_RET_EXPR:
-        case GT_CNS_INT:
-        case GT_CNS_LNG:
-        case GT_CNS_DBL:
-        case GT_CNS_STR:
-        case GT_MEMORYBARRIER:
-        case GT_JMP:
-        case GT_JCC:
-        case GT_SETCC:
-        case GT_NO_OP:
-        case GT_START_NONGC:
-        case GT_START_PREEMPTGC:
-        case GT_PROF_HOOK:
-#if !defined(FEATURE_EH_FUNCLETS)
-        case GT_END_LFIN:
-#endif // !FEATURE_EH_FUNCLETS
-        case GT_PHI_ARG:
-        case GT_JMPTABLE:
-        case GT_CLS_VAR:
-        case GT_CLS_VAR_ADDR:
-        case GT_ARGPLACE:
-        case GT_PHYSREG:
-        case GT_EMITNOP:
-        case GT_PINVOKE_PROLOG:
-        case GT_PINVOKE_EPILOG:
-        case GT_IL_OFFSET:
-            return false;
+    GenTree** use = nullptr;
 
-        // Standard unary operators
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
-        case GT_NOT:
-        case GT_NEG:
-        case GT_COPY:
-        case GT_RELOAD:
-        case GT_ARR_LENGTH:
-        case GT_CAST:
-        case GT_BITCAST:
-        case GT_CKFINITE:
-        case GT_LCLHEAP:
-        case GT_ADDR:
-        case GT_IND:
-        case GT_OBJ:
-        case GT_BLK:
-        case GT_BOX:
-        case GT_ALLOCOBJ:
-        case GT_RUNTIMELOOKUP:
-        case GT_INIT_VAL:
-        case GT_JTRUE:
-        case GT_SWITCH:
-        case GT_NULLCHECK:
-        case GT_PUTARG_REG:
-        case GT_PUTARG_STK:
-        case GT_RETURNTRAP:
-        case GT_NOP:
-        case GT_RETURN:
-        case GT_RETFILT:
-        case GT_BSWAP:
-        case GT_BSWAP16:
-        case GT_KEEPALIVE:
-            if (def == this->AsUnOp()->gtOp1)
-            {
-                *use = &this->AsUnOp()->gtOp1;
-                return true;
-            }
-            return false;
-
-// Variadic nodes
-#if FEATURE_ARG_SPLIT
-        case GT_PUTARG_SPLIT:
-            if (this->AsUnOp()->gtOp1->gtOper == GT_FIELD_LIST)
-            {
-                return this->AsUnOp()->gtOp1->TryGetUse(def, use);
-            }
-            if (def == this->AsUnOp()->gtOp1)
-            {
-                *use = &this->AsUnOp()->gtOp1;
-                return true;
-            }
-            return false;
-#endif // FEATURE_ARG_SPLIT
-
-        // Special nodes
-        case GT_PHI:
-            for (GenTreePhi::Use& phiUse : AsPhi()->Uses())
-            {
-                if (phiUse.GetNode() == def)
-                {
-                    *use = &phiUse.NodeRef();
-                    return true;
-                }
-            }
-            return false;
-
-        case GT_FIELD_LIST:
-            for (GenTreeFieldList::Use& fieldUse : AsFieldList()->Uses())
-            {
-                if (fieldUse.GetNode() == def)
-                {
-                    *use = &fieldUse.NodeRef();
-                    return true;
-                }
-            }
-            return false;
-
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            for (GenTreeSIMD::Use& simdUse : AsSIMD()->Uses())
-            {
-                if (simdUse.GetNode() == def)
-                {
-                    *use = &simdUse.NodeRef();
-                    return true;
-                }
-            }
-            return false;
-#endif // FEATURE_SIMD
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            for (GenTreeHWIntrinsic::Use& intrinsicUse : AsHWIntrinsic()->Uses())
-            {
-                if (intrinsicUse.GetNode() == def)
-                {
-                    *use = &intrinsicUse.NodeRef();
-                    return true;
-                }
-            }
-            return false;
-#endif // FEATURE_HW_INTRINSICS
-
-        case GT_CMPXCHG:
+    VisitOperands([def, &use](GenTree*& op) {
+        if (op == def)
         {
-            GenTreeCmpXchg* const cmpXchg = this->AsCmpXchg();
-            if (def == cmpXchg->gtOpLocation)
-            {
-                *use = &cmpXchg->gtOpLocation;
-                return true;
-            }
-            if (def == cmpXchg->gtOpValue)
-            {
-                *use = &cmpXchg->gtOpValue;
-                return true;
-            }
-            if (def == cmpXchg->gtOpComparand)
-            {
-                *use = &cmpXchg->gtOpComparand;
-                return true;
-            }
-            return false;
+            use = &op;
+            return VisitResult::Abort;
         }
+        return VisitResult::Continue;
+    });
 
-        case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-        {
-            GenTreeBoundsChk* const boundsChk = this->AsBoundsChk();
-            if (def == boundsChk->gtIndex)
-            {
-                *use = &boundsChk->gtIndex;
-                return true;
-            }
-            if (def == boundsChk->gtArrLen)
-            {
-                *use = &boundsChk->gtArrLen;
-                return true;
-            }
-            return false;
-        }
-
-        case GT_FIELD:
-            if (def == this->AsField()->gtFldObj)
-            {
-                *use = &this->AsField()->gtFldObj;
-                return true;
-            }
-            return false;
-
-        case GT_ARR_ELEM:
-        {
-            GenTreeArrElem* const arrElem = this->AsArrElem();
-            if (def == arrElem->gtArrObj)
-            {
-                *use = &arrElem->gtArrObj;
-                return true;
-            }
-            for (unsigned i = 0; i < arrElem->gtArrRank; i++)
-            {
-                if (def == arrElem->gtArrInds[i])
-                {
-                    *use = &arrElem->gtArrInds[i];
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        case GT_ARR_OFFSET:
-        {
-            GenTreeArrOffs* const arrOffs = this->AsArrOffs();
-            if (def == arrOffs->gtOffset)
-            {
-                *use = &arrOffs->gtOffset;
-                return true;
-            }
-            if (def == arrOffs->gtIndex)
-            {
-                *use = &arrOffs->gtIndex;
-                return true;
-            }
-            if (def == arrOffs->gtArrObj)
-            {
-                *use = &arrOffs->gtArrObj;
-                return true;
-            }
-            return false;
-        }
-
-        case GT_DYN_BLK:
-        {
-            GenTreeDynBlk* const dynBlock = this->AsDynBlk();
-            if (def == dynBlock->gtOp1)
-            {
-                *use = &dynBlock->gtOp1;
-                return true;
-            }
-            if (def == dynBlock->gtDynamicSize)
-            {
-                *use = &dynBlock->gtDynamicSize;
-                return true;
-            }
-            return false;
-        }
-
-        case GT_STORE_DYN_BLK:
-        {
-            GenTreeDynBlk* const dynBlock = this->AsDynBlk();
-            if (def == dynBlock->gtOp1)
-            {
-                *use = &dynBlock->gtOp1;
-                return true;
-            }
-            if (def == dynBlock->gtOp2)
-            {
-                *use = &dynBlock->gtOp2;
-                return true;
-            }
-            if (def == dynBlock->gtDynamicSize)
-            {
-                *use = &dynBlock->gtDynamicSize;
-                return true;
-            }
-            return false;
-        }
-
-        case GT_CALL:
-        {
-            GenTreeCall* const call = this->AsCall();
-            if ((call->gtCallThisArg != nullptr) && (def == call->gtCallThisArg->GetNode()))
-            {
-                *use = &call->gtCallThisArg->NodeRef();
-                return true;
-            }
-            if (def == call->gtControlExpr)
-            {
-                *use = &call->gtControlExpr;
-                return true;
-            }
-            if (call->gtCallType == CT_INDIRECT)
-            {
-                if (def == call->gtCallCookie)
-                {
-                    *use = &call->gtCallCookie;
-                    return true;
-                }
-                if (def == call->gtCallAddr)
-                {
-                    *use = &call->gtCallAddr;
-                    return true;
-                }
-            }
-            for (GenTreeCall::Use& argUse : call->Args())
-            {
-                if (argUse.GetNode() == def)
-                {
-                    *use = &argUse.NodeRef();
-                    return true;
-                }
-            }
-            for (GenTreeCall::Use& argUse : call->LateArgs())
-            {
-                if (argUse.GetNode() == def)
-                {
-                    *use = &argUse.NodeRef();
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        // Binary nodes
-        default:
-            assert(this->OperIsBinary());
-            return TryGetUseBinOp(def, use);
-    }
-}
-
-bool GenTree::TryGetUseBinOp(GenTree* def, GenTree*** use)
-{
-    assert(def != nullptr);
-    assert(use != nullptr);
-    assert(this->OperIsBinary());
-
-    GenTreeOp* const binOp = this->AsOp();
-    if (def == binOp->gtOp1)
-    {
-        *use = &binOp->gtOp1;
-        return true;
-    }
-    if (def == binOp->gtOp2)
-    {
-        *use = &binOp->gtOp2;
-        return true;
-    }
-    return false;
+    return use;
 }
 
 //------------------------------------------------------------------------
@@ -5245,7 +4704,7 @@ void GenTree::ReplaceOperand(GenTree** useEdge, GenTree* replacement)
 {
     assert(useEdge != nullptr);
     assert(replacement != nullptr);
-    assert(TryGetUse(*useEdge, &useEdge));
+    assert(FindUse(*useEdge) == useEdge);
 
     if (OperGet() == GT_CALL)
     {
@@ -5258,42 +4717,36 @@ void GenTree::ReplaceOperand(GenTree** useEdge, GenTree* replacement)
 }
 
 //------------------------------------------------------------------------
-// gtGetParent: Get the parent of this node, and optionally capture the
-//    pointer to the child so that it can be modified.
+// FindUser: Find the user of a node, and optionally capture the use so
+//    that it can be modified.
 //
 // Arguments:
-
-//    parentChildPointer - A pointer to a GenTree** (yes, that's three
-//                         levels, i.e. GenTree ***), which if non-null,
-//                         will be set to point to the field in the parent
-//                         that points to this node.
+//    useEdge - An optional pointer used to return the user's use edge
+//              that points to this node.
 //
-//    Return value       - The parent of this node.
+// Return Value:
+//    The user of this node, if one exists.
 //
-//    Notes:
+// Notes:
+//    This requires that the execution order must be defined
+//    (i.e. gtSetEvalOrder() has been called).
 //
-//    This requires that the execution order must be defined (i.e. gtSetEvalOrder() has been called).
-//    To enable the child to be replaced, it accepts an argument, parentChildPointer that, if non-null,
-//    will be set to point to the child pointer in the parent that points to this node.
-
-GenTree* GenTree::gtGetParent(GenTree*** parentChildPtrPtr) const
+GenTree* GenTree::FindUser(GenTree*** useEdge)
 {
-    // Find the parent node; it must be after this node in the execution order.
-    GenTree** parentChildPtr = nullptr;
-    GenTree*  parent;
-    for (parent = gtNext; parent != nullptr; parent = parent->gtNext)
+    for (GenTree* user = gtNext; user != nullptr; user = user->gtNext)
     {
-        parentChildPtr = gtGetChildPointer(parent);
-        if (parentChildPtr != nullptr)
+        GenTree** u = user->FindUse(this);
+        if (u != nullptr)
         {
-            break;
+            if (useEdge != nullptr)
+            {
+                *useEdge = u;
+            }
+            return user;
         }
     }
-    if (parentChildPtrPtr != nullptr)
-    {
-        *parentChildPtrPtr = parentChildPtr;
-    }
-    return parent;
+
+    return nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -7758,102 +7211,6 @@ GenTreeCall* Compiler::gtCloneCandidateCall(GenTreeCall* call)
 }
 
 //------------------------------------------------------------------------
-// gtReplaceTree: Replace a tree with a new tree.
-//
-// Arguments:
-//    stmt            - The top-level root stmt of the tree being replaced.
-//                      Must not be null.
-//    tree            - The tree being replaced. Must not be null.
-//    replacementTree - The replacement tree. Must not be null.
-//
-// Return Value:
-//    The tree node that replaces the old tree.
-//
-// Assumptions:
-//    The sequencing of the stmt has been done.
-//
-// Notes:
-//    The caller must ensure that the original statement has been sequenced,
-//    and the side effect flags are updated on the statement nodes,
-//    but this method will sequence 'replacementTree', and insert it into the
-//    proper place in the statement sequence.
-
-GenTree* Compiler::gtReplaceTree(Statement* stmt, GenTree* tree, GenTree* replacementTree)
-{
-    assert(fgStmtListThreaded);
-    assert(tree != nullptr);
-    assert(stmt != nullptr);
-    assert(replacementTree != nullptr);
-
-    GenTree** treePtr    = nullptr;
-    GenTree*  treeParent = tree->gtGetParent(&treePtr);
-
-    assert(treeParent != nullptr || tree == stmt->GetRootNode());
-
-    if (treePtr == nullptr)
-    {
-        // Replace the stmt expr and rebuild the linear order for "stmt".
-        assert(treeParent == nullptr);
-        assert(fgOrder != FGOrderLinear);
-        stmt->SetRootNode(tree);
-        fgSetStmtSeq(stmt);
-    }
-    else
-    {
-        assert(treeParent != nullptr);
-
-        // Check to see if the node to be replaced is a call argument and if so,
-        // set `treeParent` to the call node.
-        GenTree* cursor = treeParent;
-
-        if ((cursor != nullptr) && (cursor->OperGet() == GT_CALL))
-        {
-            treeParent = cursor;
-        }
-
-#ifdef DEBUG
-        GenTree** useEdge;
-        assert(treeParent->TryGetUse(tree, &useEdge));
-        assert(useEdge == treePtr);
-#endif // DEBUG
-
-        GenTree* treeFirstNode = fgGetFirstNode(tree);
-        GenTree* treeLastNode  = tree;
-        GenTree* treePrevNode  = treeFirstNode->gtPrev;
-        GenTree* treeNextNode  = treeLastNode->gtNext;
-
-        treeParent->ReplaceOperand(treePtr, replacementTree);
-
-        // Build the linear order for "replacementTree".
-        fgSetTreeSeq(replacementTree, treePrevNode);
-
-        // Restore linear-order Prev and Next for "replacementTree".
-        if (treePrevNode != nullptr)
-        {
-            treeFirstNode         = fgGetFirstNode(replacementTree);
-            treeFirstNode->gtPrev = treePrevNode;
-            treePrevNode->gtNext  = treeFirstNode;
-        }
-        else
-        {
-            // Update the linear oder start of "stmt" if treeFirstNode
-            // appears to have replaced the original first node.
-            assert(treeFirstNode == stmt->GetTreeList());
-            stmt->SetTreeList(fgGetFirstNode(replacementTree));
-        }
-
-        if (treeNextNode != nullptr)
-        {
-            treeLastNode         = replacementTree;
-            treeLastNode->gtNext = treeNextNode;
-            treeNextNode->gtPrev = treeLastNode;
-        }
-    }
-
-    return replacementTree;
-}
-
-//------------------------------------------------------------------------
 // gtUpdateSideEffects: Update the side effects of a tree and its ancestors
 //
 // Arguments:
@@ -7888,7 +7245,7 @@ void Compiler::gtUpdateTreeAncestorsSideEffects(GenTree* tree)
     while (tree != nullptr)
     {
         gtUpdateNodeSideEffects(tree);
-        tree = tree->gtGetParent(nullptr);
+        tree = tree->FindUser();
     }
 }
 
@@ -7962,15 +7319,10 @@ void Compiler::gtUpdateNodeOperSideEffects(GenTree* tree)
 void Compiler::gtUpdateNodeSideEffects(GenTree* tree)
 {
     gtUpdateNodeOperSideEffects(tree);
-    unsigned nChildren = tree->NumChildren();
-    for (unsigned childNum = 0; childNum < nChildren; childNum++)
-    {
-        GenTree* child = tree->GetChild(childNum);
-        if (child != nullptr)
-        {
-            tree->gtFlags |= (child->gtFlags & GTF_ALL_EFFECT);
-        }
-    }
+    tree->VisitOperands([tree](GenTree* op) {
+        tree->gtFlags |= (op->gtFlags & GTF_ALL_EFFECT);
+        return GenTree::VisitResult::Continue;
+    });
 }
 
 //------------------------------------------------------------------------
@@ -8218,398 +7570,6 @@ bool GenTree::gtRequestSetFlags()
     // this method returns true.
     //
     return result;
-}
-
-unsigned GenTree::NumChildren()
-{
-    if (OperIsConst() || OperIsLeaf())
-    {
-        return 0;
-    }
-    else if (OperIsUnary())
-    {
-        if (OperGet() == GT_NOP || OperGet() == GT_RETURN || OperGet() == GT_RETFILT)
-        {
-            if (AsOp()->gtOp1 == nullptr)
-            {
-                return 0;
-            }
-            else
-            {
-                return 1;
-            }
-        }
-        else
-        {
-            return 1;
-        }
-    }
-    else if (OperIsBinary())
-    {
-        // All binary operators except LEA have at least one arg; the second arg may sometimes be null, however.
-        if (OperGet() == GT_LEA)
-        {
-            unsigned childCount = 0;
-            if (AsOp()->gtOp1 != nullptr)
-            {
-                childCount++;
-            }
-            if (AsOp()->gtOp2 != nullptr)
-            {
-                childCount++;
-            }
-            return childCount;
-        }
-#ifdef FEATURE_HW_INTRINSICS
-        // GT_HWINTRINSIC require special handling
-        if (OperGet() == GT_HWINTRINSIC)
-        {
-            if (AsOp()->gtOp1 == nullptr)
-            {
-                return 0;
-            }
-        }
-#endif
-        assert(AsOp()->gtOp1 != nullptr);
-        if (AsOp()->gtOp2 == nullptr)
-        {
-            return 1;
-        }
-        else
-        {
-            return 2;
-        }
-    }
-    else
-    {
-        // Special
-        switch (OperGet())
-        {
-            case GT_PHI:
-            {
-                unsigned count = 0;
-                for (GenTreePhi::Use& use : AsPhi()->Uses())
-                {
-                    count++;
-                }
-                return count;
-            }
-
-            case GT_FIELD_LIST:
-            {
-                unsigned count = 0;
-                for (GenTreeFieldList::Use& use : AsFieldList()->Uses())
-                {
-                    count++;
-                }
-                return count;
-            }
-
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-                return AsSIMD()->GetNumOps();
-#endif // FEATURE_SIMD
-
-#ifdef FEATURE_SIMD
-            case GT_HWINTRINSIC:
-                return AsHWIntrinsic()->GetNumOps();
-#endif // FEATURE_SIMD
-
-            case GT_CMPXCHG:
-                return 3;
-
-            case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-                return 2;
-
-            case GT_FIELD:
-                return 1;
-
-            case GT_ARR_ELEM:
-                return 1 + AsArrElem()->gtArrRank;
-
-            case GT_DYN_BLK:
-                return 2;
-
-            case GT_ARR_OFFSET:
-            case GT_STORE_DYN_BLK:
-                return 3;
-
-            case GT_CALL:
-            {
-                GenTreeCall* call = AsCall();
-                unsigned     res  = 0;
-                if (call->gtCallThisArg != nullptr)
-                {
-                    res++;
-                }
-                for (GenTreeCall::Use& use : call->Args())
-                {
-                    res++;
-                }
-                for (GenTreeCall::Use& use : call->LateArgs())
-                {
-                    res++;
-                }
-                if (call->gtControlExpr != nullptr)
-                {
-                    res++;
-                }
-
-                if (call->gtCallType == CT_INDIRECT)
-                {
-                    if (call->gtCallCookie != nullptr)
-                    {
-                        res++;
-                    }
-                    if (call->gtCallAddr != nullptr)
-                    {
-                        res++;
-                    }
-                }
-                return res;
-            }
-            case GT_NONE:
-                return 0;
-            default:
-                unreached();
-        }
-    }
-}
-
-GenTree* GenTree::GetChild(unsigned childNum)
-{
-    assert(childNum < NumChildren()); // Precondition.
-    assert(!(OperIsConst() || OperIsLeaf()));
-    if (OperIsUnary())
-    {
-        return AsUnOp()->gtOp1;
-    }
-    // Special case for assignment of dynamic block.
-    // This code is here to duplicate the former case where the size may be evaluated prior to the
-    // source and destination addresses. In order to do this, we treat the size as a child of the
-    // assignment.
-    // TODO-1stClassStructs: Revisit the need to duplicate former behavior, so that we can remove
-    // these special cases.
-    if ((OperGet() == GT_ASG) && (AsOp()->gtOp1->OperGet() == GT_DYN_BLK) && (childNum == 2))
-    {
-        return AsOp()->gtOp1->AsDynBlk()->gtDynamicSize;
-    }
-    else if (OperIsBinary())
-    {
-        if (OperIsAddrMode())
-        {
-            // If this is the first (0th) child, only return op1 if it is non-null
-            // Otherwise, we return gtOp2.
-            if (childNum == 0 && AsOp()->gtOp1 != nullptr)
-            {
-                return AsOp()->gtOp1;
-            }
-            return AsOp()->gtOp2;
-        }
-        // TODO-Cleanup: Consider handling ReverseOps here, and then we wouldn't have to handle it in
-        // fgGetFirstNode().  However, it seems that it causes loop hoisting behavior to change.
-        if (childNum == 0)
-        {
-            return AsOp()->gtOp1;
-        }
-        else
-        {
-            return AsOp()->gtOp2;
-        }
-    }
-    else
-    {
-        // Special
-        switch (OperGet())
-        {
-            case GT_PHI:
-                for (GenTreePhi::Use& use : AsPhi()->Uses())
-                {
-                    if (childNum == 0)
-                    {
-                        return use.GetNode();
-                    }
-                    childNum--;
-                }
-                unreached();
-
-            case GT_FIELD_LIST:
-                for (GenTreeFieldList::Use& use : AsFieldList()->Uses())
-                {
-                    if (childNum == 0)
-                    {
-                        return use.GetNode();
-                    }
-                    childNum--;
-                }
-                unreached();
-
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-                noway_assert(childNum < AsSIMD()->GetNumOps());
-                return AsSIMD()->GetOp(childNum);
-#endif // FEATURE_SIMD
-
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-                noway_assert(childNum < AsHWIntrinsic()->GetNumOps());
-                return AsHWIntrinsic()->GetOp(childNum);
-#endif // FEATURE_SIMD
-
-            case GT_CMPXCHG:
-                switch (childNum)
-                {
-                    case 0:
-                        return AsCmpXchg()->gtOpLocation;
-                    case 1:
-                        return AsCmpXchg()->gtOpValue;
-                    case 2:
-                        return AsCmpXchg()->gtOpComparand;
-                    default:
-                        unreached();
-                }
-            case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-                switch (childNum)
-                {
-                    case 0:
-                        return AsBoundsChk()->gtIndex;
-                    case 1:
-                        return AsBoundsChk()->gtArrLen;
-                    default:
-                        unreached();
-                }
-
-            case GT_STORE_DYN_BLK:
-                switch (childNum)
-                {
-                    case 0:
-                        return AsDynBlk()->Addr();
-                    case 1:
-                        return AsDynBlk()->Data();
-                    case 2:
-                        return AsDynBlk()->gtDynamicSize;
-                    default:
-                        unreached();
-                }
-            case GT_DYN_BLK:
-                switch (childNum)
-                {
-                    case 0:
-                        return AsDynBlk()->gtEvalSizeFirst ? AsDynBlk()->gtDynamicSize : AsDynBlk()->Addr();
-                    case 1:
-                        return AsDynBlk()->gtEvalSizeFirst ? AsDynBlk()->Addr() : AsDynBlk()->gtDynamicSize;
-                    default:
-                        unreached();
-                }
-
-            case GT_FIELD:
-                return AsField()->gtFldObj;
-
-            case GT_ARR_ELEM:
-                if (childNum == 0)
-                {
-                    return AsArrElem()->gtArrObj;
-                }
-                else
-                {
-                    return AsArrElem()->gtArrInds[childNum - 1];
-                }
-
-            case GT_ARR_OFFSET:
-                switch (childNum)
-                {
-                    case 0:
-                        return AsArrOffs()->gtOffset;
-                    case 1:
-                        return AsArrOffs()->gtIndex;
-                    case 2:
-                        return AsArrOffs()->gtArrObj;
-                    default:
-                        unreached();
-                }
-
-            case GT_CALL:
-            {
-                GenTreeCall* call = AsCall();
-
-                if (call->gtCallThisArg != nullptr)
-                {
-                    if (childNum == 0)
-                    {
-                        return call->gtCallThisArg->GetNode();
-                    }
-
-                    childNum--;
-                }
-
-                for (GenTreeCall::Use& use : call->Args())
-                {
-                    if (childNum == 0)
-                    {
-                        return use.GetNode();
-                    }
-
-                    childNum--;
-                }
-
-                for (GenTreeCall::Use& use : call->LateArgs())
-                {
-                    if (childNum == 0)
-                    {
-                        return use.GetNode();
-                    }
-
-                    childNum--;
-                }
-
-                if (call->gtControlExpr != nullptr)
-                {
-                    if (childNum == 0)
-                    {
-                        return call->gtControlExpr;
-                    }
-
-                    childNum--;
-                }
-
-                if ((call->gtCallType == CT_INDIRECT) && (call->gtCallCookie != nullptr))
-                {
-                    if (childNum == 0)
-                    {
-                        return call->gtCallCookie;
-                    }
-
-                    childNum--;
-                }
-
-                if (call->gtCallAddr != nullptr)
-                {
-                    if (childNum == 0)
-                    {
-                        return call->gtCallAddr;
-                    }
-                }
-
-                unreached();
-            }
-            case GT_NONE:
-                unreached();
-            default:
-                unreached();
-        }
-    }
 }
 
 GenTreeUseEdgeIterator::GenTreeUseEdgeIterator()
@@ -11235,13 +10195,6 @@ void Compiler::gtDispTree(GenTree*     tree,
         case GT_CALL:
         {
             GenTreeCall* call = tree->AsCall();
-            assert(call->gtFlags & GTF_CALL);
-            unsigned numChildren = call->NumChildren();
-            GenTree* lastChild   = nullptr;
-            if (numChildren != 0)
-            {
-                lastChild = call->GetChild(numChildren - 1);
-            }
 
             if (call->gtCallType != CT_INDIRECT)
             {
@@ -11268,28 +10221,47 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             if (!topOnly)
             {
-                char  buf[64];
+                char  buf[256];
                 char* bufp;
 
                 bufp = &buf[0];
 
-                if ((call->gtCallThisArg != nullptr) && !call->gtCallThisArg->GetNode()->OperIs(GT_NOP, GT_ARGPLACE))
+                GenTree* lastChild = nullptr;
+                call->VisitOperands([&lastChild](GenTree* op) {
+                    lastChild = op;
+                    return GenTree::VisitResult::Continue;
+                });
+
+                unsigned argnum = 0;
+
+                if (call->gtCallThisArg != nullptr)
                 {
-                    if (call->gtCallThisArg->GetNode()->OperIs(GT_ASG))
+                    if (!call->gtCallThisArg->GetNode()->OperIs(GT_NOP, GT_ARGPLACE))
                     {
-                        sprintf_s(bufp, sizeof(buf), "this SETUP%c", 0);
+                        if (call->gtCallThisArg->GetNode()->OperIs(GT_ASG))
+                        {
+                            sprintf_s(bufp, sizeof(buf), "this SETUP%c", argnum);
+                        }
+                        else
+                        {
+                            sprintf_s(bufp, sizeof(buf), "this in %s%c", compRegVarName(REG_ARG_0), argnum);
+                        }
+                        gtDispChild(call->gtCallThisArg->GetNode(), indentStack,
+                                    (call->gtCallThisArg->GetNode() == lastChild) ? IIArcBottom : IIArc, bufp, topOnly);
                     }
-                    else
-                    {
-                        sprintf_s(bufp, sizeof(buf), "this in %s%c", compRegVarName(REG_ARG_0), 0);
-                    }
-                    gtDispChild(call->gtCallThisArg->GetNode(), indentStack,
-                                (call->gtCallThisArg->GetNode() == lastChild) ? IIArcBottom : IIArc, bufp, topOnly);
+
+                    argnum++;
                 }
 
-                if (call->gtCallArgs)
+                for (GenTreeCall::Use& use : call->Args())
                 {
-                    gtDispArgList(call, indentStack);
+                    GenTree* argNode = use.GetNode();
+                    if (!argNode->IsNothingNode() && !argNode->IsArgPlaceHolderNode())
+                    {
+                        gtGetArgMsg(call, argNode, argnum, -1, buf, sizeof(buf));
+                        gtDispChild(argNode, indentStack, (argNode == lastChild) ? IIArcBottom : IIArc, buf, false);
+                    }
+                    argnum++;
                 }
 
                 if (call->gtCallType == CT_INDIRECT)
@@ -11646,41 +10618,6 @@ void Compiler::gtGetLateArgMsg(
                 sprintf_s(bufp, bufLength, "arg%d in %s%c", curArgTabEntry->argNum, compRegVarName(argReg), 0);
             }
         }
-    }
-}
-
-//------------------------------------------------------------------------
-// gtDispArgList: Dump the tree for a call arg list
-//
-// Arguments:
-//    call         - The call to dump arguments for
-//    indentStack  - the specification for the current level of indentation & arcs
-//
-// Return Value:
-//    None.
-//
-void Compiler::gtDispArgList(GenTreeCall* call, IndentStack* indentStack)
-{
-    unsigned numChildren = call->NumChildren();
-    GenTree* lastArgNode = call->GetChild(numChildren - 1);
-
-    unsigned argnum = 0;
-
-    if (call->gtCallThisArg != nullptr)
-    {
-        argnum++;
-    }
-
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        GenTree* argNode = use.GetNode();
-        if (!argNode->IsNothingNode() && !argNode->IsArgPlaceHolderNode())
-        {
-            char buf[256];
-            gtGetArgMsg(call, argNode, argnum, -1, buf, sizeof(buf));
-            gtDispChild(argNode, indentStack, (argNode == lastArgNode) ? IIArcBottom : IIArc, buf, false);
-        }
-        argnum++;
     }
 }
 
