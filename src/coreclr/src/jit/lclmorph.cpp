@@ -1105,12 +1105,11 @@ private:
             {
                 node->ChangeOper(GT_LCL_VAR);
                 node->AsLclVar()->SetLclNum(lclNum);
-                node->gtFlags &= GTF_NODE_MASK;
+                node->gtFlags = 0;
 
                 if (user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == node))
                 {
-                    node->gtFlags |= GTF_VAR_DEF;
-                    node->gtFlags |= GTF_DONT_CSE;
+                    node->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
                 }
 
                 JITDUMP("Replaced the field in normed struct with local var V%02u\n", lclNum);
@@ -1179,16 +1178,14 @@ private:
 
         node->SetOper(GT_LCL_VAR);
         node->AsLclVar()->SetLclNum(fieldLclIndex);
-        node->gtType = fieldDsc->TypeGet();
-        node->gtFlags &= GTF_NODE_MASK;
-        node->gtFlags &= ~GTF_GLOB_REF;
+        node->gtType  = fieldDsc->TypeGet();
+        node->gtFlags = 0;
 
         if (user->OperIs(GT_ASG))
         {
             if (user->AsOp()->gtGetOp1() == node)
             {
-                node->gtFlags |= GTF_VAR_DEF;
-                node->gtFlags |= GTF_DONT_CSE;
+                node->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
             }
             else
             {
@@ -1287,8 +1284,7 @@ private:
 
         if (user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == node))
         {
-            node->gtFlags |= GTF_VAR_DEF;
-            node->gtFlags |= GTF_DONT_CSE;
+            node->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
         }
 
         JITDUMP("Replaced the GT_LCL_FLD in promoted struct with local var V%02u\n", fieldLclIndex);
