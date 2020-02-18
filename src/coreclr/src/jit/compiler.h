@@ -5564,8 +5564,6 @@ private:
 #endif
 
     void fgPromoteStructs();
-    void fgMorphStructField(GenTree* tree, GenTree* parent);
-    void fgMorphLocalField(GenTree* tree, GenTree* parent);
 
     // Reset the refCount for implicit byrefs.
     void fgResetImplicitByRefRefCount();
