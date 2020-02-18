@@ -1051,173 +1051,166 @@ private:
     //
     void MorphStructField(GenTree* node, GenTree* user)
     {
-        assert(node->OperIs(GT_FIELD));
-        fgMorphStructField(node, user);
-        INDEBUG(m_stmtModified |= node->OperIs(GT_LCL_VAR);)
-    }
+        GenTreeField* field = node->AsField();
 
-    void fgMorphStructField(GenTree* tree, GenTree* parent)
-    {
-        noway_assert(tree->OperGet() == GT_FIELD);
-
-        GenTreeField* field  = tree->AsField();
-        GenTree*      objRef = field->gtFldObj;
-        GenTree*      obj    = ((objRef != nullptr) && (objRef->gtOper == GT_ADDR)) ? objRef->AsOp()->gtOp1 : nullptr;
-        noway_assert((tree->gtFlags & GTF_GLOB_REF) || ((obj != nullptr) && (obj->gtOper == GT_LCL_VAR)));
-
-        /* Is this an instance data member? */
-
-        if ((obj != nullptr) && (obj->gtOper == GT_LCL_VAR))
+        if ((field->gtFldObj == nullptr) || !field->gtFldObj->OperIs(GT_ADDR))
         {
-            unsigned         lclNum = obj->AsLclVarCommon()->GetLclNum();
-            const LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
+            return;
+        }
 
-            if (varTypeIsStruct(obj))
+        GenTree* obj = field->gtFldObj->AsUnOp()->gtGetOp1();
+
+        if (!obj->OperIs(GT_LCL_VAR))
+        {
+            return;
+        }
+
+        unsigned   lclNum = obj->AsLclVar()->GetLclNum();
+        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
+
+        if (varTypeIsStruct(obj->TypeGet()))
+        {
+            if (varDsc->lvPromoted)
             {
-                if (varDsc->lvPromoted)
-                {
-                    // Promoted struct
-                    unsigned fldOffset     = field->gtFldOffset;
-                    unsigned fieldLclIndex = m_compiler->lvaGetFieldLocal(varDsc, fldOffset);
+                // Promoted struct
+                unsigned fldOffset     = field->gtFldOffset;
+                unsigned fieldLclIndex = m_compiler->lvaGetFieldLocal(varDsc, fldOffset);
 
-                    if (fieldLclIndex == BAD_VAR_NUM)
+                if (fieldLclIndex == BAD_VAR_NUM)
+                {
+                    // Access a promoted struct's field with an offset that doesn't correspond to any field.
+                    // It can happen if the struct was cast to another struct with different offsets.
+                    return;
+                }
+
+                const LclVarDsc* fieldDsc = m_compiler->lvaGetDesc(fieldLclIndex);
+
+                // promoted LCL_VAR can't have a struct type.
+                assert(fieldDsc->TypeGet() != TYP_STRUCT);
+
+                if (node->TypeGet() != fieldDsc->TypeGet())
+                {
+                    if (node->TypeGet() != TYP_STRUCT)
                     {
-                        // Access a promoted struct's field with an offset that doesn't correspond to any field.
-                        // It can happen if the struct was cast to another struct with different offsets.
+                        // This is going to be an incorrect instruction promotion.
+                        // For example when we try to read int as long.
                         return;
                     }
 
-                    const LclVarDsc* fieldDsc  = m_compiler->lvaGetDesc(fieldLclIndex);
-                    var_types        fieldType = fieldDsc->TypeGet();
-
-                    assert(fieldType != TYP_STRUCT); // promoted LCL_VAR can't have a struct type.
-                    if (tree->TypeGet() != fieldType)
+                    if (field->gtFldHnd != fieldDsc->lvFieldHnd)
                     {
-                        if (tree->TypeGet() != TYP_STRUCT)
+                        CORINFO_CLASS_HANDLE fieldClass = nullptr;
+                        CorInfoType          fieldType =
+                            m_compiler->info.compCompHnd->getFieldType(field->gtFldHnd, &fieldClass);
+                        CORINFO_CLASS_HANDLE fieldDscClass = nullptr;
+                        CorInfoType          fieldDscType =
+                            m_compiler->info.compCompHnd->getFieldType(fieldDsc->lvFieldHnd, &fieldDscClass);
+
+                        if ((fieldType != fieldDscType) || (fieldClass != fieldDscClass))
                         {
-                            // This is going to be an incorrect instruction promotion.
-                            // For example when we try to read int as long.
+                            // Access the promoted field with a different class handle, can't check that types
+                            // match.
                             return;
                         }
 
-                        if (field->gtFldHnd != fieldDsc->lvFieldHnd)
-                        {
-                            CORINFO_CLASS_HANDLE fieldTreeClass = nullptr, fieldDscClass = nullptr;
-
-                            CorInfoType fieldTreeType =
-                                m_compiler->info.compCompHnd->getFieldType(field->gtFldHnd, &fieldTreeClass);
-                            CorInfoType fieldDscType =
-                                m_compiler->info.compCompHnd->getFieldType(fieldDsc->lvFieldHnd, &fieldDscClass);
-                            if (fieldTreeType != fieldDscType || fieldTreeClass != fieldDscClass)
-                            {
-                                // Access the promoted field with a different class handle, can't check that types
-                                // match.
-                                return;
-                            }
-                            // Access the promoted field as a field of a non-promoted struct with the same class handle.
-                        }
-#ifdef DEBUG
-                        else if (tree->TypeGet() == TYP_STRUCT)
-                        {
-                            // The field tree accesses it as a struct, but the promoted lcl var for the field
-                            // says that it has another type. It can happen only if struct promotion faked
-                            // field type for a struct of single field of scalar type aligned at their natural boundary.
-                            assert(m_compiler->structPromotionHelper != nullptr);
-                            m_compiler->structPromotionHelper->CheckRetypedAsScalar(field->gtFldHnd, fieldType);
-                        }
-#endif // DEBUG
-                    }
-
-                    tree->SetOper(GT_LCL_VAR);
-                    tree->AsLclVarCommon()->SetLclNum(fieldLclIndex);
-                    tree->gtType = fieldType;
-                    tree->gtFlags &= GTF_NODE_MASK;
-                    tree->gtFlags &= ~GTF_GLOB_REF;
-
-                    if (parent->gtOper == GT_ASG)
-                    {
-                        if (parent->AsOp()->gtOp1 == tree)
-                        {
-                            tree->gtFlags |= GTF_VAR_DEF;
-                            tree->gtFlags |= GTF_DONT_CSE;
-                        }
-
-                        // Promotion of struct containing struct fields where the field
-                        // is a struct with a single pointer sized scalar type field: in
-                        // this case struct promotion uses the type  of the underlying
-                        // scalar field as the type of struct field instead of recursively
-                        // promoting. This can lead to a case where we have a block-asgn
-                        // with its RHS replaced with a scalar type.  Mark RHS value as
-                        // DONT_CSE so that assertion prop will not do const propagation.
-                        // The reason this is required is that if RHS of a block-asg is a
-                        // constant, then it is interpreted as init-block incorrectly.
-                        //
-                        // TODO - This can also be avoided if we implement recursive struct
-                        // promotion, tracked by #10019.
-                        if (varTypeIsStruct(parent) && parent->AsOp()->gtOp2 == tree && !varTypeIsStruct(tree))
-                        {
-                            tree->gtFlags |= GTF_DONT_CSE;
-                        }
+                        // Access the promoted field as a field of a non-promoted struct with the same class handle.
                     }
 #ifdef DEBUG
-                    if (m_compiler->verbose)
+                    else if (node->TypeIs(TYP_STRUCT))
                     {
-                        printf("Replacing the field in promoted struct with local var V%02u\n", fieldLclIndex);
+                        // The field tree accesses it as a struct, but the promoted lcl var for the field
+                        // says that it has another type. It can happen only if struct promotion faked
+                        // field type for a struct of single field of scalar type aligned at their natural boundary.
+                        assert(m_compiler->structPromotionHelper != nullptr);
+                        m_compiler->structPromotionHelper->CheckRetypedAsScalar(field->gtFldHnd, fieldDsc->TypeGet());
                     }
 #endif // DEBUG
                 }
-            }
-            else
-            {
-                // Normed struct
-                // A "normed struct" is a struct that the VM tells us is a basic type. This can only happen if
-                // the struct contains a single element, and that element is 4 bytes (on x64 it can also be 8
-                // bytes). Normally, the type of the local var and the type of GT_FIELD are equivalent. However,
-                // there is one extremely rare case where that won't be true. An enum type is a special value type
-                // that contains exactly one element of a primitive integer type (that, for CLS programs is named
-                // "value__"). The VM tells us that a local var of that enum type is the primitive type of the
-                // enum's single field. It turns out that it is legal for IL to access this field using ldflda or
-                // ldfld. For example:
-                //
-                //  .class public auto ansi sealed mynamespace.e_t extends [mscorlib]System.Enum
-                //  {
-                //    .field public specialname rtspecialname int16 value__
-                //    .field public static literal valuetype mynamespace.e_t one = int16(0x0000)
-                //  }
-                //  .method public hidebysig static void  Main() cil managed
-                //  {
-                //     .locals init (valuetype mynamespace.e_t V_0)
-                //     ...
-                //     ldloca.s   V_0
-                //     ldflda     int16 mynamespace.e_t::value__
-                //     ...
-                //  }
-                //
-                // Normally, compilers will not generate the ldflda, since it is superfluous.
-                //
-                // In the example, the lclVar is short, but the JIT promotes all trees using this local to the
-                // "actual type", that is, INT. But the GT_FIELD is still SHORT. So, in the case of a type
-                // mismatch like this, don't do this morphing. The local var may end up getting marked as
-                // address taken, and the appropriate SHORT load will be done from memory in that case.
 
-                if (tree->TypeGet() == obj->TypeGet())
+                node->SetOper(GT_LCL_VAR);
+                node->AsLclVar()->SetLclNum(fieldLclIndex);
+                node->gtType = fieldDsc->TypeGet();
+                node->gtFlags &= GTF_NODE_MASK;
+                node->gtFlags &= ~GTF_GLOB_REF;
+
+                if (node->OperIs(GT_ASG))
                 {
-                    tree->ChangeOper(GT_LCL_VAR);
-                    tree->AsLclVarCommon()->SetLclNum(lclNum);
-                    tree->gtFlags &= GTF_NODE_MASK;
+                    if (user->AsOp()->gtGetOp1() == node)
+                    {
+                        node->gtFlags |= GTF_VAR_DEF;
+                        node->gtFlags |= GTF_DONT_CSE;
+                    }
 
-                    if ((parent->gtOper == GT_ASG) && (parent->AsOp()->gtOp1 == tree))
+                    // Promotion of struct containing struct fields where the field
+                    // is a struct with a single pointer sized scalar type field: in
+                    // this case struct promotion uses the type  of the underlying
+                    // scalar field as the type of struct field instead of recursively
+                    // promoting. This can lead to a case where we have a block-asgn
+                    // with its RHS replaced with a scalar type.  Mark RHS value as
+                    // DONT_CSE so that assertion prop will not do const propagation.
+                    // The reason this is required is that if RHS of a block-asg is a
+                    // constant, then it is interpreted as init-block incorrectly.
+                    //
+                    // TODO - This can also be avoided if we implement recursive struct
+                    // promotion, tracked by #10019.
+                    if (varTypeIsStruct(user->TypeGet()) && (user->AsOp()->gtOp2 == node) &&
+                        !varTypeIsStruct(node->TypeGet()))
                     {
-                        tree->gtFlags |= GTF_VAR_DEF;
-                        tree->gtFlags |= GTF_DONT_CSE;
+                        node->gtFlags |= GTF_DONT_CSE;
                     }
-#ifdef DEBUG
-                    if (m_compiler->verbose)
-                    {
-                        printf("Replacing the field in normed struct with local var V%02u\n", lclNum);
-                    }
-#endif // DEBUG
                 }
+
+                JITDUMP("Replaced the field in promoted struct with local var V%02u\n", fieldLclIndex);
+                INDEBUG(m_stmtModified = true;)
+            }
+        }
+        else
+        {
+            // Normed struct
+            // A "normed struct" is a struct that the VM tells us is a basic type. This can only happen if
+            // the struct contains a single element, and that element is 4 bytes (on x64 it can also be 8
+            // bytes). Normally, the type of the local var and the type of GT_FIELD are equivalent. However,
+            // there is one extremely rare case where that won't be true. An enum type is a special value type
+            // that contains exactly one element of a primitive integer type (that, for CLS programs is named
+            // "value__"). The VM tells us that a local var of that enum type is the primitive type of the
+            // enum's single field. It turns out that it is legal for IL to access this field using ldflda or
+            // ldfld. For example:
+            //
+            //  .class public auto ansi sealed mynamespace.e_t extends [mscorlib]System.Enum
+            //  {
+            //    .field public specialname rtspecialname int16 value__
+            //    .field public static literal valuetype mynamespace.e_t one = int16(0x0000)
+            //  }
+            //  .method public hidebysig static void  Main() cil managed
+            //  {
+            //     .locals init (valuetype mynamespace.e_t V_0)
+            //     ...
+            //     ldloca.s   V_0
+            //     ldflda     int16 mynamespace.e_t::value__
+            //     ...
+            //  }
+            //
+            // Normally, compilers will not generate the ldflda, since it is superfluous.
+            //
+            // In the example, the lclVar is short, but the JIT promotes all trees using this local to the
+            // "actual type", that is, INT. But the GT_FIELD is still SHORT. So, in the case of a type
+            // mismatch like this, don't do this morphing. The local var may end up getting marked as
+            // address taken, and the appropriate SHORT load will be done from memory in that case.
+
+            if (node->TypeGet() == obj->TypeGet())
+            {
+                node->ChangeOper(GT_LCL_VAR);
+                node->AsLclVar()->SetLclNum(lclNum);
+                node->gtFlags &= GTF_NODE_MASK;
+
+                if (user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == node))
+                {
+                    node->gtFlags |= GTF_VAR_DEF;
+                    node->gtFlags |= GTF_DONT_CSE;
+                }
+
+                JITDUMP("Replaced the field in normed struct with local var V%02u\n", lclNum);
+                INDEBUG(m_stmtModified = true;)
             }
         }
     }
@@ -1239,77 +1232,70 @@ private:
     //
     void MorphLocalField(GenTree* node, GenTree* user)
     {
-        assert(node->OperIs(GT_LCL_FLD));
-        fgMorphLocalField(node, user);
-        INDEBUG(m_stmtModified |= node->OperIs(GT_LCL_VAR);)
-    }
-
-    void fgMorphLocalField(GenTree* tree, GenTree* parent)
-    {
-        noway_assert(tree->OperGet() == GT_LCL_FLD);
-
-        unsigned   lclNum = tree->AsLclFld()->GetLclNum();
+        unsigned   lclNum = node->AsLclFld()->GetLclNum();
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
 
-        if (varTypeIsStruct(varDsc))
+        if (!varTypeIsStruct(varDsc->TypeGet()))
         {
-            if (varDsc->lvPromoted)
+            return;
+        }
+
+        if (varDsc->lvPromoted)
+        {
+            // Promoted struct
+            unsigned   fldOffset     = node->AsLclFld()->GetLclOffs();
+            unsigned   fieldLclIndex = 0;
+            LclVarDsc* fldVarDsc     = nullptr;
+
+            if (fldOffset != BAD_VAR_NUM)
             {
-                // Promoted struct
-                unsigned   fldOffset     = tree->AsLclFld()->GetLclOffs();
-                unsigned   fieldLclIndex = 0;
-                LclVarDsc* fldVarDsc     = nullptr;
-
-                if (fldOffset != BAD_VAR_NUM)
-                {
-                    fieldLclIndex = m_compiler->lvaGetFieldLocal(varDsc, fldOffset);
-                    noway_assert(fieldLclIndex != BAD_VAR_NUM);
-                    fldVarDsc = m_compiler->lvaGetDesc(fieldLclIndex);
-                }
-
-                var_types treeType  = tree->TypeGet();
-                var_types fieldType = fldVarDsc->TypeGet();
-                if (fldOffset != BAD_VAR_NUM && (genTypeSize(fieldType) == genTypeSize(treeType)))
-                {
-                    // There is an existing sub-field we can use.
-                    tree->AsLclFld()->SetLclNum(fieldLclIndex);
-
-                    // The field must be an enregisterable type; otherwise it would not be a promoted field.
-                    // The tree type may not match, e.g. for return types that have been morphed, but both
-                    // must be enregisterable types.
-                    assert(varTypeIsEnregisterable(treeType) && varTypeIsEnregisterable(fieldType));
-
-                    tree->ChangeOper(GT_LCL_VAR);
-                    assert(tree->AsLclVarCommon()->GetLclNum() == fieldLclIndex);
-                    tree->gtType = fldVarDsc->TypeGet();
-
-                    if ((parent->gtOper == GT_ASG) && (parent->AsOp()->gtOp1 == tree))
-                    {
-                        tree->gtFlags |= GTF_VAR_DEF;
-                        tree->gtFlags |= GTF_DONT_CSE;
-                    }
-                    JITDUMP("Replacing the GT_LCL_FLD in promoted struct with local var V%02u\n", fieldLclIndex);
-                }
-                else
-                {
-                    // There is no existing field that has all the parts that we need
-                    // So we must ensure that the struct lives in memory.
-                    m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LocalField));
-
-#ifdef DEBUG
-                    // We can't convert this guy to a float because he really does have his
-                    // address taken..
-                    varDsc->lvKeepType = 1;
-#endif // DEBUG
-                }
+                fieldLclIndex = m_compiler->lvaGetFieldLocal(varDsc, fldOffset);
+                noway_assert(fieldLclIndex != BAD_VAR_NUM);
+                fldVarDsc = m_compiler->lvaGetDesc(fieldLclIndex);
             }
-            else if (varTypeIsSIMD(varDsc) && (genTypeSize(tree->TypeGet()) == genTypeSize(varDsc)))
+
+            if ((fldOffset != BAD_VAR_NUM) && (genTypeSize(fldVarDsc->TypeGet()) == genTypeSize(node->TypeGet())))
             {
-                assert(tree->AsLclFld()->GetLclOffs() == 0);
-                tree->gtType = varDsc->TypeGet();
-                tree->ChangeOper(GT_LCL_VAR);
-                JITDUMP("Replacing GT_LCL_FLD of struct with local var V%02u\n", lclNum);
+                // There is an existing sub-field we can use.
+
+                // The field must be an enregisterable type; otherwise it would not be a promoted field.
+                // The tree type may not match, e.g. for return types that have been morphed, but both
+                // must be enregisterable types.
+                assert(varTypeIsEnregisterable(node->TypeGet()) && varTypeIsEnregisterable(fldVarDsc->TypeGet()));
+
+                node->ChangeOper(GT_LCL_VAR);
+                node->AsLclVar()->SetLclNum(fieldLclIndex);
+                node->gtType = fldVarDsc->TypeGet();
+
+                if (user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == node))
+                {
+                    node->gtFlags |= GTF_VAR_DEF;
+                    node->gtFlags |= GTF_DONT_CSE;
+                }
+
+                JITDUMP("Replaced the GT_LCL_FLD in promoted struct with local var V%02u\n", fieldLclIndex);
+                INDEBUG(m_stmtModified = true;)
             }
+            else
+            {
+                // There is no existing field that has all the parts that we need
+                // So we must ensure that the struct lives in memory.
+                m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_LocalField));
+
+                // We can't convert this guy to a float because he really does have his
+                // address taken..
+                INDEBUG(varDsc->lvKeepType = 1;)
+            }
+        }
+        else if (varTypeIsSIMD(varDsc->TypeGet()) && (genTypeSize(node->TypeGet()) == genTypeSize(varDsc->TypeGet())))
+        {
+            assert(node->AsLclFld()->GetLclOffs() == 0);
+
+            node->ChangeOper(GT_LCL_VAR);
+            node->gtType = varDsc->TypeGet();
+
+            JITDUMP("Replaced GT_LCL_FLD of struct with local var V%02u\n", lclNum);
+            INDEBUG(m_stmtModified = true;)
         }
     }
 
