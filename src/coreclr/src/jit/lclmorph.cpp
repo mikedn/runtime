@@ -1242,19 +1242,12 @@ private:
 
         if (varDsc->lvPromoted)
         {
-            // Promoted struct
-            unsigned   fldOffset     = node->AsLclFld()->GetLclOffs();
-            unsigned   fieldLclIndex = 0;
-            LclVarDsc* fldVarDsc     = nullptr;
+            unsigned fldOffset     = node->AsLclFld()->GetLclOffs();
+            unsigned fieldLclIndex = m_compiler->lvaGetFieldLocal(varDsc, fldOffset);
+            noway_assert(fieldLclIndex != BAD_VAR_NUM);
+            LclVarDsc* fldVarDsc = m_compiler->lvaGetDesc(fieldLclIndex);
 
-            if (fldOffset != BAD_VAR_NUM)
-            {
-                fieldLclIndex = m_compiler->lvaGetFieldLocal(varDsc, fldOffset);
-                noway_assert(fieldLclIndex != BAD_VAR_NUM);
-                fldVarDsc = m_compiler->lvaGetDesc(fieldLclIndex);
-            }
-
-            if ((fldOffset != BAD_VAR_NUM) && (genTypeSize(fldVarDsc->TypeGet()) == genTypeSize(node->TypeGet())))
+            if (genTypeSize(fldVarDsc->TypeGet()) == genTypeSize(node->TypeGet()))
             {
                 // There is an existing sub-field we can use.
 
