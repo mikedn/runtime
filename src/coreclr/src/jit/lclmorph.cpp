@@ -880,15 +880,40 @@ private:
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
 
-        if (varDsc->TypeGet() != TYP_STRUCT)
+        if (!varTypeIsStruct(varDsc->TypeGet()))
         {
-            // TODO-ADDR: Skip integral/floating point variables for now, they're more
-            // complicated to transform. We can always turn an indirect access of such
-            // a variable into a LCL_FLD but that blocks enregistration so we need to
-            // detect those case where we can use LCL_VAR instead, perhaps in conjuction
-            // with CAST and/or BITCAST.
-            // Also skip SIMD variables for now, fgMorphFieldAssignToSIMDIntrinsicSet and
-            // others need to be updated to recognize LCL_FLDs.
+            if ((indir->TypeGet() == varDsc->TypeGet()) && (val.Offset() == 0))
+            {
+                indir->ChangeOper(GT_LCL_VAR);
+                indir->AsLclVar()->SetLclNum(val.LclNum());
+                indir->gtFlags = 0;
+
+                if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == indir))
+                {
+                    indir->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+                }
+
+                INDEBUG(m_stmtModified = true;)
+            }
+
+            // TODO-MIKE: Handle type mismatches to prevent blocking enregistration:
+            //   - float/int and double/long can be handled by using BITCAST (trouble: what to do about
+            //     double/long on 32 bit targets?)
+            //   - integer sign mismatches can be handled by inserting a CAST node (trouble: CAST is a
+            //     large node so we can't simply convert the indir node into a cast node)
+            //   - many (all?) integer size mismatches can also be handled by inserting casts
+            //   - non zero offsets can be handled by inserting bit shifts and casts
+            // Alternatively - use LCL_FLD and delay setting DNER_LocalField until lowering, then either
+            // apply the above solutions in lowering or teach codegen to handle such LCL_FLDs without
+            // requiring the variable to be in memory.
+
+            return;
+        }
+
+        if (varTypeIsSIMD(varDsc->TypeGet()))
+        {
+            // TODO-ADDR: Skip SIMD variables for now, fgMorphFieldAssignToSIMDIntrinsicSet
+            // and others need to be updated to recognize LCL_FLDs.
             return;
         }
 
