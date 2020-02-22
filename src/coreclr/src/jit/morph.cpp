@@ -16626,18 +16626,9 @@ bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
             setLclRelatedToSIMDIntrinsic(localDst);
         }
 
-        if (simdStructNode->TypeGet() == TYP_BYREF)
-        {
-            assert(simdStructNode->OperIsLocal());
-            assert(lvaIsImplicitByRefLocal(simdStructNode->AsLclVarCommon()->GetLclNum()));
-            simdStructNode = gtNewIndir(simdType, simdStructNode);
-        }
-        else
-        {
-            assert(varTypeIsSIMD(simdStructNode));
-        }
-
         dstNode = gtNewOperNode(GT_IND, simdType, copyBlkDst);
+
+        assert(varTypeIsSIMD(simdStructNode->TypeGet()));
     }
 
 #ifdef DEBUG
