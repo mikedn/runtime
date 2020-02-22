@@ -10046,7 +10046,7 @@ GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
         return nullptr;
     }
 
-    GenTree* obj = addr->AsUnOp()->GetOp1();
+    GenTree* obj = addr->AsUnOp()->GetOp(0);
 
     if (!isSIMDTypeLocal(obj))
     {
@@ -16608,25 +16608,7 @@ bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
     }
     else
     {
-        GenTree* copyBlkDst = createAddressNodeForSIMDInit(originalLHS, simdSize);
-        if (simdStructNode->OperIsLocal())
-        {
-            setLclRelatedToSIMDIntrinsic(simdStructNode);
-        }
-        GenTree* copyBlkAddr = copyBlkDst;
-        if (copyBlkAddr->gtOper == GT_LEA)
-        {
-            copyBlkAddr = copyBlkAddr->AsAddrMode()->Base();
-        }
-        GenTreeLclVarCommon* localDst        = nullptr;
-        unsigned             localDstLclOffs = 0;
-        // TODO-MIKE-Review: How come this doesn't crash due to null outFieldSeq?!
-        if (copyBlkAddr->IsLocalAddrExpr(this, &localDst, &localDstLclOffs, nullptr))
-        {
-            setLclRelatedToSIMDIntrinsic(localDst);
-        }
-
-        dstNode = gtNewOperNode(GT_IND, simdType, copyBlkDst);
+        dstNode = gtNewOperNode(GT_IND, simdType, createAddressNodeForSIMDInit(originalLHS, simdSize));
 
         assert(varTypeIsSIMD(simdStructNode->TypeGet()));
     }
