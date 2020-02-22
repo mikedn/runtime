@@ -16503,97 +16503,84 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
 
 //-----------------------------------------------------------------------------------
 // fgMorphCombineSIMDFieldAssignments:
-//  If the RHS of the input stmt is a read for simd vector X Field, then this function
-//  will keep reading next few stmts based on the vector size(2, 3, 4).
-//  If the next stmts LHS are located contiguous and RHS are also located
-//  contiguous, then we replace those statements with a copyblk.
+//    If the RHS of the input stmt is a read for simd vector X Field, then this function
+//    will keep reading next few stmts based on the vector size(2, 3, 4).
+//    If the next stmts LHS are located contiguous and RHS are also located
+//    contiguous, then we replace those statements with a copyblk.
 //
 // Argument:
-//  block - BasicBlock*. block which stmt belongs to
-//  stmt  - Statement*. the stmt node we want to check
+//    block - block which stmt belongs to
+//    stmt  - the stmt node we want to check
 //
-// return value:
-//  if this funciton successfully optimized the stmts, then return true. Otherwise
-//  return false;
-
-bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt)
+void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt)
 {
-    GenTree* tree = stmt->GetRootNode();
-    assert(tree->OperGet() == GT_ASG);
+    GenTreeOp* asg = stmt->GetRootNode()->AsOp();
+    assert(asg->OperIs(GT_ASG));
 
-    GenTree*  originalLHS    = tree->AsOp()->gtOp1;
-    GenTree*  prevLHS        = tree->AsOp()->gtOp1;
-    GenTree*  prevRHS        = tree->AsOp()->gtOp2;
-    unsigned  index          = 0;
-    var_types baseType       = TYP_UNKNOWN;
-    unsigned  simdSize       = 0;
-    GenTree*  simdStructNode = getSIMDStructFromField(prevRHS, &baseType, &index, &simdSize);
+    unsigned  index;
+    var_types baseType;
+    unsigned  simdSize;
+    GenTree*  simdStructNode = getSIMDStructFromField(asg->GetOp(1), &baseType, &index, &simdSize);
 
-    if (simdStructNode == nullptr || index != 0 || baseType != TYP_FLOAT)
+    if ((simdStructNode == nullptr) || (index != 0) || (baseType != TYP_FLOAT))
     {
         // if the RHS is not from a SIMD vector field X, then there is no need to check further.
-        return false;
+        return;
     }
 
-    var_types  simdType             = getSIMDTypeForSize(simdSize);
-    int        assignmentsCount     = simdSize / genTypeSize(baseType) - 1;
-    int        remainingAssignments = assignmentsCount;
-    Statement* curStmt              = stmt->GetNextStmt();
-    Statement* lastStmt             = stmt;
+    assert(simdStructNode->OperIs(GT_LCL_VAR) && varTypeIsSIMD(simdStructNode->TypeGet()));
 
-    while (curStmt != nullptr && remainingAssignments > 0)
+    unsigned   assignmentsCount = simdSize / genTypeSize(baseType);
+    GenTreeOp* prevAsg          = asg;
+    Statement* nextStmt         = stmt->GetNextStmt();
+
+    for (unsigned i = 1; i < assignmentsCount; i++, nextStmt = nextStmt->GetNextStmt())
     {
-        GenTree* exp = curStmt->GetRootNode();
-        if (exp->OperGet() != GT_ASG)
+        if (nextStmt == nullptr)
         {
-            break;
-        }
-        GenTree* curLHS = exp->gtGetOp1();
-        GenTree* curRHS = exp->gtGetOp2();
-
-        if (!areArgumentsContiguous(prevLHS, curLHS) || !areArgumentsContiguous(prevRHS, curRHS))
-        {
-            break;
+            return;
         }
 
-        remainingAssignments--;
-        prevLHS = curLHS;
-        prevRHS = curRHS;
+        GenTree* nextAsg = nextStmt->GetRootNode();
 
-        lastStmt = curStmt;
-        curStmt  = curStmt->GetNextStmt();
+        if (!nextAsg->OperIs(GT_ASG))
+        {
+            return;
+        }
+
+        if (!areArgumentsContiguous(prevAsg->GetOp(0), nextAsg->AsOp()->GetOp(0)) ||
+            !areArgumentsContiguous(prevAsg->GetOp(1), nextAsg->AsOp()->GetOp(1)))
+        {
+            return;
+        }
+
+        prevAsg = nextAsg->AsOp();
     }
 
-    if (remainingAssignments > 0)
-    {
-        // if the left assignments number is bigger than zero, then this means
-        // that the assignments are not assgining to the contiguously memory
-        // locations from same vector.
-        return false;
-    }
+    var_types simdType = getSIMDTypeForSize(simdSize);
+
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nFound contiguous assignments from a SIMD vector to memory.\n");
-        printf("From " FMT_BB ", stmt ", block->bbNum);
-        printStmtID(stmt);
-        printf(" to stmt");
-        printStmtID(lastStmt);
-        printf("\n");
+        printf("\nFound %u contiguous assignments from a %s local to memory in " FMT_BB ":\n", assignmentsCount,
+               varTypeName(simdType), block->bbNum);
+        for (Statement* s = stmt; s != nextStmt; s = s->GetNextStmt())
+        {
+            gtDispStmt(s);
+        }
     }
 #endif
 
-    for (int i = 0; i < assignmentsCount; i++)
+    for (unsigned i = 1; i < assignmentsCount; i++)
     {
         fgRemoveStmt(block, stmt->GetNextStmt());
     }
 
-    GenTree* dstNode;
+    GenTree* dstNode = asg->GetOp(0);
 
-    if (originalLHS->OperIs(GT_LCL_FLD))
+    if (dstNode->OperIs(GT_LCL_FLD))
     {
-        dstNode         = originalLHS;
-        dstNode->gtType = simdType;
+        dstNode->SetType(simdType);
         dstNode->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
 
         // This may have changed a partial local field into full local field
@@ -16608,27 +16595,10 @@ bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
     }
     else
     {
-        dstNode = gtNewOperNode(GT_IND, simdType, createAddressNodeForSIMDInit(originalLHS, simdSize));
-
-        assert(varTypeIsSIMD(simdStructNode->TypeGet()));
+        dstNode = gtNewOperNode(GT_IND, simdType, createAddressNodeForSIMDInit(asg->GetOp(0), simdSize));
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n" FMT_BB " stmt ", block->bbNum);
-        printStmtID(stmt);
-        printf("(before)\n");
-        gtDispStmt(stmt);
-    }
-#endif
-
-    assert(!simdStructNode->CanCSE());
-    simdStructNode->ClearDoNotCSE();
-
-    tree = gtNewAssignNode(dstNode, simdStructNode);
-
-    stmt->SetRootNode(tree);
+    stmt->SetRootNode(gtNewAssignNode(dstNode, simdStructNode));
 
     // Since we generated a new address node which didn't exist before,
     // we should expose this address manually here.
@@ -16641,13 +16611,11 @@ bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nReplaced " FMT_BB " stmt", block->bbNum);
-        printStmtID(stmt);
-        printf("(after)\n");
+        printf("Changed to a single %s assignment:\n", varTypeName(simdType));
         gtDispStmt(stmt);
+        printf("\n");
     }
 #endif
-    return true;
 }
 
 #endif // FEATURE_SIMD

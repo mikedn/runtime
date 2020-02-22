@@ -4927,7 +4927,7 @@ private:
 
 #ifdef FEATURE_SIMD
     GenTree* getSIMDStructFromField(GenTree* tree, var_types* baseTypeOut, unsigned* indexOut, unsigned* simdSizeOut);
-    bool fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt);
+    void fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt);
     void impMarkContiguousSIMDFieldAssignments(Statement* stmt);
 
     // fgPreviousCandidateSIMDFieldAsgStmt is only used for tracking previous simd field assignment
