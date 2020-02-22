@@ -4926,11 +4926,7 @@ private:
     static MorphAddrContext s_CopyBlockMAC;
 
 #ifdef FEATURE_SIMD
-    GenTree* getSIMDStructFromField(GenTree*   tree,
-                                    var_types* baseTypeOut,
-                                    unsigned*  indexOut,
-                                    unsigned*  simdSizeOut,
-                                    bool       ignoreUsedInSIMDIntrinsic = false);
+    GenTree* getSIMDStructFromField(GenTree* tree, var_types* baseTypeOut, unsigned* indexOut, unsigned* simdSizeOut);
     bool fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt);
     void impMarkContiguousSIMDFieldAssignments(Statement* stmt);
 

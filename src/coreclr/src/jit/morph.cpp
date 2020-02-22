@@ -10013,11 +10013,6 @@ GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 // getSIMDStructFromField:
 //   Checking whether the field belongs to a simd struct or not. If it is, return the GenTree* for
 //   the struct node, also base type, field index and simd size. If it is not, just return  nullptr.
-//   Usually if the tree node is from a simd lclvar which is not used in any SIMD intrinsic, then we
-//   should return nullptr, since in this case we should treat SIMD struct as a regular struct.
-//   However if no matter what, you just want get simd struct node, you can set the ignoreUsedInSIMDIntrinsic
-//   as true. Then there will be no IsUsedInSIMDIntrinsic checking, and it will return SIMD struct node
-//   if the struct is a SIMD struct.
 //
 // Arguments:
 //       tree - GentreePtr. This node will be checked to see this is a field which belongs to a simd
@@ -10028,8 +10023,6 @@ GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 //                  equals to the index number of this field.
 //       simdSizeOut - unsigned pointer, if the tree is used for simd intrinsic, set the *simdSizeOut
 //                     equals to the simd struct size which this tree belongs to.
-//      ignoreUsedInSIMDIntrinsic - bool. If this is set to true, then this function will ignore
-//                                  the UsedInSIMDIntrinsic check.
 //
 // return value:
 //       A GenTree* which points the simd lclvar tree belongs to. If the tree is not the simd
@@ -10039,8 +10032,7 @@ GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
                                           var_types* pBaseTypeOut,
                                           unsigned*  indexOut,
-                                          unsigned*  simdSizeOut,
-                                          bool       ignoreUsedInSIMDIntrinsic /*false*/)
+                                          unsigned*  simdSizeOut)
 {
     if (!tree->OperIs(GT_FIELD))
     {
@@ -10060,27 +10052,18 @@ GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
     {
         obj = addr->AsUnOp()->GetOp1();
     }
-    else if (ignoreUsedInSIMDIntrinsic)
-    {
-        obj = addr;
-    }
     else
     {
-        return nullptr;
+        obj = addr;
     }
 
     GenTree* ret = nullptr;
 
     if (isSIMDTypeLocal(obj))
     {
-        unsigned   lclNum = obj->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
-        if (varDsc->lvIsUsedInSIMDIntrinsic() || ignoreUsedInSIMDIntrinsic)
-        {
-            ret           = obj;
-            *simdSizeOut  = varDsc->lvExactSize;
-            *pBaseTypeOut = getBaseTypeOfSIMDLocal(obj);
-        }
+        ret           = obj;
+        *simdSizeOut  = lvaGetDesc(obj->AsLclVarCommon())->lvExactSize;
+        *pBaseTypeOut = getBaseTypeOfSIMDLocal(obj);
     }
     else if (obj->OperIs(GT_SIMD))
     {
@@ -16575,7 +16558,7 @@ bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
     unsigned  index          = 0;
     var_types baseType       = TYP_UNKNOWN;
     unsigned  simdSize       = 0;
-    GenTree*  simdStructNode = getSIMDStructFromField(prevRHS, &baseType, &index, &simdSize, true);
+    GenTree*  simdStructNode = getSIMDStructFromField(prevRHS, &baseType, &index, &simdSize);
 
     if (simdStructNode == nullptr || index != 0 || baseType != TYP_FLOAT)
     {

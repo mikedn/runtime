@@ -1639,7 +1639,7 @@ void Compiler::impMarkContiguousSIMDFieldAssignments(Statement* stmt)
         unsigned  index             = 0;
         var_types baseType          = TYP_UNKNOWN;
         unsigned  simdSize          = 0;
-        GenTree*  srcSimdStructNode = getSIMDStructFromField(curSrc, &baseType, &index, &simdSize, true);
+        GenTree*  srcSimdStructNode = getSIMDStructFromField(curSrc, &baseType, &index, &simdSize);
         if (srcSimdStructNode == nullptr || baseType != TYP_FLOAT)
         {
             fgPreviousCandidateSIMDFieldAsgStmt = nullptr;
