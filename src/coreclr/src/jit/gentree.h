@@ -3586,6 +3586,7 @@ public:
     {
         if (obj != nullptr)
         {
+            assert(obj->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
             gtFlags |= (obj->gtFlags & GTF_ALL_EFFECT);
         }
     }

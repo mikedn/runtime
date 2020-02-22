@@ -10041,22 +10041,12 @@ GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
 
     GenTree* addr = tree->AsField()->GetAddr();
 
-    if (addr == nullptr)
+    if ((addr == nullptr) || !addr->OperIs(GT_ADDR))
     {
         return nullptr;
     }
 
-    GenTree* obj = nullptr;
-
-    if (addr->OperIs(GT_ADDR))
-    {
-        obj = addr->AsUnOp()->GetOp1();
-    }
-    else
-    {
-        obj = addr;
-    }
-
+    GenTree* obj = addr->AsUnOp()->GetOp1();
     GenTree* ret = nullptr;
 
     if (isSIMDTypeLocal(obj))
