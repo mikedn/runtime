@@ -3590,6 +3590,11 @@ public:
         }
     }
 
+    GenTree* GetAddr() const
+    {
+        return gtFldObj;
+    }
+
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
         return gtFldHnd;

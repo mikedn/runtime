@@ -10042,60 +10042,68 @@ GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
                                           unsigned*  simdSizeOut,
                                           bool       ignoreUsedInSIMDIntrinsic /*false*/)
 {
-    GenTree* ret = nullptr;
-    if (tree->OperGet() == GT_FIELD)
+    if (!tree->OperIs(GT_FIELD))
     {
-        GenTree* objRef = tree->AsField()->gtFldObj;
-        if (objRef != nullptr)
-        {
-            GenTree* obj = nullptr;
-            if (objRef->gtOper == GT_ADDR)
-            {
-                obj = objRef->AsOp()->gtOp1;
-            }
-            else if (ignoreUsedInSIMDIntrinsic)
-            {
-                obj = objRef;
-            }
-            else
-            {
-                return nullptr;
-            }
+        return nullptr;
+    }
 
-            if (isSIMDTypeLocal(obj))
-            {
-                unsigned   lclNum = obj->AsLclVarCommon()->GetLclNum();
-                LclVarDsc* varDsc = &lvaTable[lclNum];
-                if (varDsc->lvIsUsedInSIMDIntrinsic() || ignoreUsedInSIMDIntrinsic)
-                {
-                    *simdSizeOut  = varDsc->lvExactSize;
-                    *pBaseTypeOut = getBaseTypeOfSIMDLocal(obj);
-                    ret           = obj;
-                }
-            }
-            else if (obj->OperGet() == GT_SIMD)
-            {
-                ret                   = obj;
-                GenTreeSIMD* simdNode = obj->AsSIMD();
-                *simdSizeOut          = simdNode->gtSIMDSize;
-                *pBaseTypeOut         = simdNode->gtSIMDBaseType;
-            }
-#ifdef FEATURE_HW_INTRINSICS
-            else if (obj->OperIsHWIntrinsic())
-            {
-                ret                          = obj;
-                GenTreeHWIntrinsic* simdNode = obj->AsHWIntrinsic();
-                *simdSizeOut                 = simdNode->gtSIMDSize;
-                *pBaseTypeOut                = simdNode->gtSIMDBaseType;
-            }
-#endif // FEATURE_HW_INTRINSICS
+    GenTree* addr = tree->AsField()->GetAddr();
+
+    if (addr == nullptr)
+    {
+        return nullptr;
+    }
+
+    GenTree* obj = nullptr;
+
+    if (addr->OperIs(GT_ADDR))
+    {
+        obj = addr->AsUnOp()->GetOp1();
+    }
+    else if (ignoreUsedInSIMDIntrinsic)
+    {
+        obj = addr;
+    }
+    else
+    {
+        return nullptr;
+    }
+
+    GenTree* ret = nullptr;
+
+    if (isSIMDTypeLocal(obj))
+    {
+        unsigned   lclNum = obj->AsLclVarCommon()->GetLclNum();
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        if (varDsc->lvIsUsedInSIMDIntrinsic() || ignoreUsedInSIMDIntrinsic)
+        {
+            ret           = obj;
+            *simdSizeOut  = varDsc->lvExactSize;
+            *pBaseTypeOut = getBaseTypeOfSIMDLocal(obj);
         }
     }
+    else if (obj->OperIs(GT_SIMD))
+    {
+        ret                   = obj;
+        GenTreeSIMD* simdNode = obj->AsSIMD();
+        *simdSizeOut          = simdNode->gtSIMDSize;
+        *pBaseTypeOut         = simdNode->gtSIMDBaseType;
+    }
+#ifdef FEATURE_HW_INTRINSICS
+    else if (obj->OperIs(GT_HWINTRINSIC))
+    {
+        ret                          = obj;
+        GenTreeHWIntrinsic* simdNode = obj->AsHWIntrinsic();
+        *simdSizeOut                 = simdNode->gtSIMDSize;
+        *pBaseTypeOut                = simdNode->gtSIMDBaseType;
+    }
+#endif // FEATURE_HW_INTRINSICS
+
     if (ret != nullptr)
     {
-        unsigned BaseTypeSize = genTypeSize(*pBaseTypeOut);
-        *indexOut             = tree->AsField()->gtFldOffset / BaseTypeSize;
+        *indexOut = tree->AsField()->GetOffset() / genTypeSize(*pBaseTypeOut);
     }
+
     return ret;
 }
 
