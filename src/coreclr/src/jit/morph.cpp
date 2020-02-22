@@ -10047,37 +10047,16 @@ GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
     }
 
     GenTree* obj = addr->AsUnOp()->GetOp1();
-    GenTree* ret = nullptr;
 
-    if (isSIMDTypeLocal(obj))
+    if (!isSIMDTypeLocal(obj))
     {
-        ret           = obj;
-        *simdSizeOut  = lvaGetDesc(obj->AsLclVarCommon())->lvExactSize;
-        *pBaseTypeOut = getBaseTypeOfSIMDLocal(obj);
-    }
-    else if (obj->OperIs(GT_SIMD))
-    {
-        ret                   = obj;
-        GenTreeSIMD* simdNode = obj->AsSIMD();
-        *simdSizeOut          = simdNode->gtSIMDSize;
-        *pBaseTypeOut         = simdNode->gtSIMDBaseType;
-    }
-#ifdef FEATURE_HW_INTRINSICS
-    else if (obj->OperIs(GT_HWINTRINSIC))
-    {
-        ret                          = obj;
-        GenTreeHWIntrinsic* simdNode = obj->AsHWIntrinsic();
-        *simdSizeOut                 = simdNode->gtSIMDSize;
-        *pBaseTypeOut                = simdNode->gtSIMDBaseType;
-    }
-#endif // FEATURE_HW_INTRINSICS
-
-    if (ret != nullptr)
-    {
-        *indexOut = tree->AsField()->GetOffset() / genTypeSize(*pBaseTypeOut);
+        return nullptr;
     }
 
-    return ret;
+    *simdSizeOut  = lvaGetDesc(obj->AsLclVarCommon())->lvExactSize;
+    *pBaseTypeOut = getBaseTypeOfSIMDLocal(obj);
+    *indexOut     = tree->AsField()->GetOffset() / genTypeSize(*pBaseTypeOut);
+    return obj;
 }
 
 #endif // FEATURE_SIMD
