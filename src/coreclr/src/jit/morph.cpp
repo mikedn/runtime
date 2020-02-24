@@ -10789,6 +10789,18 @@ GenTree* Compiler::fgMorphFieldAssignToSIMDIntrinsicSet(GenTree* tree)
     GenTree* op1 = tree->gtGetOp1();
     GenTree* op2 = tree->gtGetOp2();
 
+    // If the field of an implicit byref arg gets set and the arg isn't
+    // promoted then we'll end up "inserting" into a memory location:
+    //    vmovupd   xmm0, xmmword ptr[rdx]
+    //    vinsertps xmm0, xmm1, 16
+    //    vmovupd   xmmword ptr[rdx], xmm0
+    // There's no point in having this instead of a simple float store:
+    //    vmovss   dword ptr[rdx+4], xmm0
+    // so we need morph the implicit byref arg before deciding if we're
+    // going to use insert.
+
+    fgMorphImplicitByRefArgs(op1->AsField()->gtFldObj);
+
     unsigned  index         = 0;
     var_types baseType      = TYP_UNKNOWN;
     unsigned  simdSize      = 0;
@@ -10824,19 +10836,6 @@ GenTree* Compiler::fgMorphFieldAssignToSIMDIntrinsicSet(GenTree* tree)
 
         tree->AsOp()->gtOp1 = target;
         tree->AsOp()->gtOp2 = simdTree;
-
-        // fgMorphTree has already called fgMorphImplicitByRefArgs() on this assignment, but the source
-        // and target have not yet been morphed.
-        // Therefore, in case the source and/or target are now implicit byrefs, we need to call it again.
-        if (fgMorphImplicitByRefArgs(tree))
-        {
-            if (tree->gtGetOp1()->OperIsBlk())
-            {
-                assert(tree->gtGetOp1()->TypeGet() == simdType);
-                tree->gtGetOp1()->SetOper(GT_IND);
-                tree->gtGetOp1()->gtType = simdType;
-            }
-        }
 #ifdef DEBUG
         tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
 #endif
@@ -10904,10 +10903,11 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             op2 = tree->AsOp()->gtOp2;
 
 #ifdef FEATURE_SIMD
+            if (fgGlobalMorph && op1->OperIs(GT_FIELD) && (op1->AsField()->gtFldObj != nullptr))
             {
                 // We should check whether op2 should be assigned to a SIMD field or not.
                 // If it is, we should tranlate the tree to simd intrinsic.
-                assert(!fgGlobalMorph || ((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0));
+                assert((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0);
                 GenTree* newTree = fgMorphFieldAssignToSIMDIntrinsicSet(tree);
                 typ              = tree->TypeGet();
                 op1              = tree->gtGetOp1();
@@ -17039,6 +17039,7 @@ GenTree* Compiler::fgMorphImplicitByRefArgs(GenTree* tree, bool isAddr)
 {
     assert((tree->gtOper == GT_LCL_VAR) || ((tree->gtOper == GT_ADDR) && (tree->AsOp()->gtOp1->gtOper == GT_LCL_VAR)));
     assert(isAddr == (tree->gtOper == GT_ADDR));
+    assert(fgGlobalMorph);
 
     GenTree*   lclVarTree = isAddr ? tree->AsOp()->gtOp1 : tree;
     unsigned   lclNum     = lclVarTree->AsLclVarCommon()->GetLclNum();
