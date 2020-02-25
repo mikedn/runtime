@@ -5710,9 +5710,9 @@ GenTree* Compiler::fgMorphStackArgForVarArgs(unsigned lclNum, var_types varType,
 
         // Access the argument through the local
         GenTree* tree;
-        if (varTypeIsStruct(varType))
+        if (varType == TYP_STRUCT)
         {
-            tree = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, ptrArg, typGetBlkLayout(varDsc->lvExactSize));
+            tree = new (this, GT_BLK) GenTreeBlk(GT_BLK, varType, ptrArg, typGetBlkLayout(varDsc->lvExactSize));
         }
         else
         {
