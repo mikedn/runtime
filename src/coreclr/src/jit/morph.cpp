@@ -5712,7 +5712,7 @@ GenTree* Compiler::fgMorphStackArgForVarArgs(unsigned lclNum, var_types varType,
         GenTree* tree;
         if (varType == TYP_STRUCT)
         {
-            tree = new (this, GT_BLK) GenTreeBlk(GT_BLK, varType, ptrArg, typGetBlkLayout(varDsc->lvExactSize));
+            tree = gtNewObjNode(varDsc->lvVerTypeInfo.GetClassHandle(), ptrArg);
         }
         else
         {
