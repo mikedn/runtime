@@ -5756,10 +5756,6 @@ GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
         GenTree* newTree = fgMorphStackArgForVarArgs(lclNum, varType, 0);
         if (newTree != nullptr)
         {
-            if (newTree->OperIsBlk() && ((tree->gtFlags & GTF_VAR_DEF) == 0))
-            {
-                newTree->SetOper(GT_IND);
-            }
             return newTree;
         }
     }
@@ -8482,10 +8478,6 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
                                                          tree->AsLclFld()->GetLclOffs());
             if (newTree != nullptr)
             {
-                if (newTree->OperIsBlk() && ((tree->gtFlags & GTF_VAR_DEF) == 0))
-                {
-                    newTree->SetOper(GT_IND);
-                }
                 return newTree;
             }
         }
