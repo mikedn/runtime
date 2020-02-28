@@ -5599,9 +5599,11 @@ private:
     // promoted, create new promoted struct temps.
     void fgRetypeImplicitByRefArgs();
 
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection).
     bool fgMorphImplicitByRefArgs(GenTree* tree);
     GenTree* fgMorphImplicitByRefArgs(GenTree* tree, bool isAddr);
+#endif
 
     // Clear up annotations for any struct promotion temps created for implicit byrefs.
     void fgMarkDemotedImplicitByRefArgs();
