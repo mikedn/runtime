@@ -397,6 +397,17 @@ struct GenTree
         return gtType;
     }
 
+    var_types GetType() const
+    {
+        return gtType;
+    }
+
+    void SetType(var_types type)
+    {
+        assert((TYP_UNDEF < type) && (type < TYP_UNKNOWN));
+        gtType = type;
+    }
+
 #ifdef DEBUG
     genTreeOps gtOperSave; // Only used to save gtOper when we destroy a node, to aid debugging.
 #endif
@@ -2682,6 +2693,19 @@ protected:
         }
     }
 
+public:
+    GenTree* GetOp1() const
+    {
+        assert(gtOp1 != nullptr);
+        return gtOp1;
+    }
+
+    void SetOp1(GenTree* op1)
+    {
+        assert(op1 != nullptr);
+        gtOp1 = op1;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeUnOp() : GenTree(), gtOp1(nullptr)
     {
@@ -2717,6 +2741,18 @@ struct GenTreeOp : public GenTreeUnOp
     {
         // Unary operators with optional arguments:
         assert(oper == GT_NOP || oper == GT_RETURN || oper == GT_RETFILT || OperIsBlk(oper));
+    }
+
+    GenTree* GetOp2() const
+    {
+        assert(gtOp2 != nullptr);
+        return gtOp2;
+    }
+
+    void SetOp2(GenTree* op2)
+    {
+        assert(op2 != nullptr);
+        gtOp2 = op2;
     }
 
 #if DEBUGGABLE_GENTREE

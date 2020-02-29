@@ -802,10 +802,10 @@ private:
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
 
-        if (varDsc->lvPromoted || varDsc->lvIsStructField || m_compiler->lvaIsImplicitByRefLocal(val.LclNum()))
+        if (varDsc->lvPromoted || varDsc->lvIsStructField)
         {
-            // TODO-ADDR: For now we ignore promoted and "implict by ref" variables,
-            // they require additional changes in subsequent phases.
+            // TODO-ADDR: For now we ignore promoted variables, they require additional
+            // changes in subsequent phases.
             return;
         }
 
@@ -1443,6 +1443,11 @@ public:
 
         switch (node->OperGet())
         {
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
+                MorphImplicitByRefArgAddr(node->AsLclVarCommon());
+                return Compiler::WALK_SKIP_SUBTREES;
+
             case GT_ADDR:
                 if (node->AsUnOp()->gtGetOp1()->OperIs(GT_LCL_VAR))
                 {
@@ -1467,6 +1472,56 @@ public:
             default:
                 return Compiler::WALK_CONTINUE;
         }
+    }
+
+    void MorphImplicitByRefArgAddr(GenTreeLclVarCommon* lclAddrNode)
+    {
+        assert(lclAddrNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+
+        if (!m_compiler->lvaIsImplicitByRefLocal(lclAddrNode->GetLclNum()))
+        {
+            // Make sure LocalAddressVisitor didn't create LCL_VAR|FLD_ADDR nodes for
+            // promoted args, they're not currently supported.
+            assert(!m_compiler->lvaGetDesc(lclAddrNode)->lvIsStructField);
+            return;
+        }
+
+        LclVarDsc* lclVarDsc = m_compiler->lvaGetDesc(lclAddrNode);
+
+        // Can't assert lvAddrExposed/lvDoNotEnregister because fgRetypeImplicitByRefArgs
+        // already cleared both of them.
+        // assert(lclVarDsc->lvAddrExposed);
+        // assert(lclVarDsc->lvDoNotEnregister);
+
+        // Locals referenced by GT_LCL_VAR|FLD_ADDR cannot be enregistered and currently
+        // fgRetypeImplicitByRefArgs undoes promotion of such arguments.
+        assert(!lclVarDsc->lvPromoted);
+        assert(lclVarDsc->lvFieldCnt == 0);
+
+        if (lclAddrNode->OperIs(GT_LCL_FLD_ADDR))
+        {
+            unsigned      lclNum   = lclAddrNode->GetLclNum();
+            unsigned      lclOffs  = lclAddrNode->AsLclFld()->GetLclOffs();
+            FieldSeqNode* fieldSeq = lclAddrNode->AsLclFld()->GetFieldSeq();
+
+            // LocalAddressVisitor should not create unnecessary LCL_FLD_ADDR nodes.
+            assert((lclOffs != 0) || (fieldSeq != FieldSeqStore::NotAField()));
+
+            GenTree* add = lclAddrNode;
+            add->ChangeOper(GT_ADD);
+            add->SetType(TYP_BYREF);
+            add->gtFlags = 0;
+            add->AsOp()->SetOp1(m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
+            add->AsOp()->SetOp2(m_compiler->gtNewIconNode(lclOffs, fieldSeq));
+        }
+        else
+        {
+            lclAddrNode->ChangeOper(GT_LCL_VAR);
+            lclAddrNode->SetType(TYP_BYREF);
+            lclAddrNode->gtFlags = 0;
+        }
+
+        INDEBUG(m_stmtModified = true;)
     }
 
     GenTree* MorphImplicitByRefArg(GenTree* tree)
