@@ -5601,8 +5601,7 @@ private:
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection).
-    bool fgMorphImplicitByRefArgs(GenTree* tree);
-    GenTree* fgMorphImplicitByRefArgsWorker(GenTree* tree);
+    void fgMorphImplicitByRefArgs(Statement* stmt);
 #endif
 
     // Clear up annotations for any struct promotion temps created for implicit byrefs.

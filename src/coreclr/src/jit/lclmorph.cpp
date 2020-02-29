@@ -1389,3 +1389,183 @@ void Compiler::fgMarkAddressExposedLocals(Statement* stmt)
     LocalAddressVisitor visitor(this);
     visitor.VisitStmt(stmt);
 }
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+
+class IndirectArgMorphVisitor final : public GenTreeVisitor<IndirectArgMorphVisitor>
+{
+    INDEBUG(bool m_stmtModified = false;)
+
+public:
+    enum
+    {
+        DoPreOrder        = true,
+        DoPostOrder       = false,
+        ComputeStack      = false,
+        DoLclVarsOnly     = false,
+        UseExecutionOrder = false,
+    };
+
+    IndirectArgMorphVisitor(Compiler* comp) : GenTreeVisitor<IndirectArgMorphVisitor>(comp)
+    {
+    }
+
+    void VisitStmt(Statement* stmt)
+    {
+#ifdef DEBUG
+        if (m_compiler->verbose)
+        {
+            printf("IndirectArgMorphVisitor visiting statement:\n");
+            m_compiler->gtDispStmt(stmt);
+            m_stmtModified = false;
+        }
+#endif
+
+        WalkTree(stmt->GetRootNodePointer(), nullptr);
+
+#ifdef DEBUG
+        if (m_compiler->verbose)
+        {
+            if (m_stmtModified)
+            {
+                printf("IndirectArgMorphVisitor modified statement:\n");
+                m_compiler->gtDispStmt(stmt);
+            }
+
+            printf("\n");
+        }
+#endif
+    }
+
+    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    {
+        GenTree* node = *use;
+
+        switch (node->OperGet())
+        {
+            case GT_ADDR:
+                if (node->AsUnOp()->gtGetOp1()->OperIs(GT_LCL_VAR))
+                {
+                    GenTree* newTree = MorphImplicitByRefArg(node);
+                    INDEBUG(m_stmtModified |= (newTree != nullptr);)
+                    assert((newTree == nullptr) || (newTree == node));
+                    return Compiler::WALK_SKIP_SUBTREES;
+                }
+                return Compiler::WALK_CONTINUE;
+
+            case GT_LCL_VAR:
+            {
+                GenTree* newTree = MorphImplicitByRefArg(node);
+                INDEBUG(m_stmtModified |= (newTree != nullptr);)
+                if (newTree != nullptr)
+                {
+                    *use = newTree;
+                }
+            }
+                return Compiler::WALK_SKIP_SUBTREES;
+
+            default:
+                return Compiler::WALK_CONTINUE;
+        }
+    }
+
+    GenTree* MorphImplicitByRefArg(GenTree* tree)
+    {
+        assert(tree->OperIs(GT_LCL_VAR) || (tree->OperIs(GT_ADDR) && tree->AsUnOp()->gtGetOp1()->OperIs(GT_LCL_VAR)));
+
+        GenTreeLclVar* lclNode   = tree->OperIs(GT_ADDR) ? tree->AsUnOp()->gtGetOp1()->AsLclVar() : tree->AsLclVar();
+        LclVarDsc*     lclVarDsc = m_compiler->lvaGetDesc(lclNode);
+
+        if (m_compiler->lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
+        {
+            // fgRetypeImplicitByRefArgs creates LCL_VAR nodes that reference
+            // implicit byref args and are already TYP_BYREF, ignore them.
+            if (lclNode->TypeIs(TYP_BYREF))
+            {
+                return nullptr;
+            }
+
+            assert(varTypeIsStruct(lclNode->TypeGet()));
+
+            if (lclVarDsc->lvPromoted)
+            {
+                // fgRetypeImplicitByRefArgs created a new promoted struct local to represent this
+                // arg.  Rewrite this to refer to the new local.
+                assert(lclVarDsc->lvFieldLclStart != 0);
+                lclNode->SetLclNum(lclVarDsc->lvFieldLclStart);
+                return tree;
+            }
+
+            if (tree->OperIs(GT_ADDR))
+            {
+                // Change ADDR<BYREF|I_IMPL>(LCL_VAR<STRUCT>(arg)) into LCL_VAR<BYREF>(arg)
+                tree->ChangeOper(GT_LCL_VAR);
+                tree->gtType  = TYP_BYREF;
+                tree->gtFlags = 0;
+                tree->AsLclVar()->SetLclNum(lclNode->GetLclNum());
+                return tree;
+            }
+
+            lclNode->gtType  = TYP_BYREF;
+            lclNode->gtFlags = 0;
+
+            // Change LCL_VAR<STRUCT>(arg) into OBJ<STRUCT>(LCL_VAR<BYREF>(arg))
+            tree = m_compiler->gtNewObjNode(lclVarDsc->lvVerTypeInfo.GetClassHandle(), lclNode);
+            m_compiler->gtSetObjGcInfo(tree->AsObj());
+            // TODO-CQ: If the VM ever stops violating the ABI and passing heap references we could remove TGTANYWHERE
+            tree->gtFlags |= GTF_IND_TGTANYWHERE;
+            return tree;
+        }
+
+        if (lclVarDsc->lvIsStructField && m_compiler->lvaIsImplicitByRefLocal(lclVarDsc->lvParentLcl))
+        {
+            // This was a field reference to an implicit-by-reference struct parameter that was
+            // dependently promoted and now it is being demoted; update it to a field reference
+            // off the original argument.
+
+            assert(lclVarDsc->TypeGet() != TYP_STRUCT);
+            assert(lclVarDsc->lvFieldHnd != nullptr);
+
+            var_types fieldType = lclNode->TypeGet();
+
+            lclNode->SetLclNum(lclVarDsc->lvParentLcl);
+            lclNode->gtType  = TYP_BYREF;
+            lclNode->gtFlags = 0;
+
+            GenTreeField* field =
+                m_compiler->gtNewFieldRef(fieldType, lclVarDsc->lvFieldHnd, lclNode, lclVarDsc->lvFldOffset);
+
+            if (tree->OperIs(GT_ADDR))
+            {
+                // Change ADDR(LCL_VAR(argPromotedField)) into ADDR(FIELD(LCL_VAR<BYREF>(arg), offset))
+                tree->AsUnOp()->gtOp1 = field;
+                return tree;
+            }
+
+            // Change LCL_VAR<fieldType>(argPromotedField) into FIELD<fieldType>(LCL_VAR<BYREF>(arg), offset)
+            tree = field;
+            // TODO-CQ: If the VM ever stops violating the ABI and passing heap references we could remove TGTANYWHERE
+            tree->gtFlags |= GTF_IND_TGTANYWHERE;
+            return tree;
+        }
+
+        return nullptr;
+    }
+};
+
+//------------------------------------------------------------------------
+// fgMorphImplicitByRefArgs: Traverse the entire statement tree and morph
+//    implicit-by-ref argument references in it.
+//
+// Arguments:
+//    stmt - the statement to traverse
+//
+void Compiler::fgMorphImplicitByRefArgs(Statement* stmt)
+{
+    assert(fgGlobalMorph);
+
+    IndirectArgMorphVisitor visitor(this);
+    visitor.VisitStmt(stmt);
+}
+
+#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
