@@ -1512,8 +1512,6 @@ public:
             // Change LCL_VAR<STRUCT>(arg) into OBJ<STRUCT>(LCL_VAR<BYREF>(arg))
             tree = m_compiler->gtNewObjNode(lclVarDsc->lvVerTypeInfo.GetClassHandle(), lclNode);
             m_compiler->gtSetObjGcInfo(tree->AsObj());
-            // TODO-CQ: If the VM ever stops violating the ABI and passing heap references we could remove TGTANYWHERE
-            tree->gtFlags |= GTF_IND_TGTANYWHERE;
             return tree;
         }
 
