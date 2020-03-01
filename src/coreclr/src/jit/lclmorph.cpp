@@ -1613,27 +1613,9 @@ public:
                 return Compiler::WALK_SKIP_SUBTREES;
 #elif defined(TARGET_X86)
             case GT_LCL_VAR:
-            {
-                GenTree* newTree = MorphVarargsStackArg(node->AsLclVar()->GetLclNum(), node->GetType(), 0);
-                INDEBUG(m_stmtModified |= (newTree != nullptr);)
-                if (newTree != nullptr)
-                {
-                    *use = newTree;
-                }
-                return Compiler::WALK_SKIP_SUBTREES;
-            }
-
             case GT_LCL_FLD:
-            {
-                GenTree* newTree = MorphVarargsStackArg(node->AsLclFld()->GetLclNum(), node->GetType(),
-                                                        node->AsLclFld()->GetLclOffs());
-                INDEBUG(m_stmtModified |= (newTree != nullptr);)
-                if (newTree != nullptr)
-                {
-                    *use = newTree;
-                }
+                MorphVarargsStackArg(node->AsLclVarCommon());
                 return Compiler::WALK_SKIP_SUBTREES;
-            }
 #endif
 
             default:
@@ -1871,45 +1853,43 @@ public:
         INDEBUG(m_stmtModified = true;)
     }
 #elif defined(TARGET_X86)
-    GenTree* MorphVarargsStackArg(unsigned lclNum, var_types varType, unsigned lclOffs)
+    void MorphVarargsStackArg(GenTreeLclVarCommon* lclNode)
     {
+        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+
+        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNode);
+
         // For the fixed stack arguments of a varargs function, we need to go through
         // the varargs cookies to access them, except for the cookie itself.
-
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-
-        if (varDsc->lvIsParam && !varDsc->lvIsRegArg && (lclNum != m_compiler->lvaVarargsHandleArg))
+        if (!varDsc->lvIsParam || varDsc->lvIsRegArg || (lclNode->GetLclNum() == m_compiler->lvaVarargsHandleArg))
         {
-            // Create a node representing the local pointing to the base of the args
-            GenTree* ptrArg =
-                m_compiler->gtNewOperNode(GT_SUB, TYP_I_IMPL,
-                                          m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL),
-                                          m_compiler->gtNewIconNode(
-                                              varDsc->lvStkOffs -
-                                              m_compiler->codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES -
-                                              lclOffs));
-
-            // Access the argument through the local
-            GenTree* tree;
-            if (varType == TYP_STRUCT)
-            {
-                tree = m_compiler->gtNewObjNode(varDsc->lvVerTypeInfo.GetClassHandle(), ptrArg);
-            }
-            else
-            {
-                tree = m_compiler->gtNewOperNode(GT_IND, varType, ptrArg);
-            }
-            tree->gtFlags |= GTF_IND_TGTANYWHERE;
-
-            if (varDsc->lvAddrExposed)
-            {
-                tree->gtFlags |= GTF_GLOB_REF;
-            }
-
-            return tree;
+            return;
         }
 
-        return nullptr;
+        int      stkOffs = varDsc->lvStkOffs - m_compiler->codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
+        uint16_t lclOffs = lclNode->OperIs(GT_LCL_VAR) ? 0 : lclNode->AsLclFld()->GetLclOffs();
+
+        GenTree* addr =
+            m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL,
+                                      m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL),
+                                      m_compiler->gtNewIconNode(-stkOffs + lclOffs, TYP_I_IMPL));
+
+        GenTree* indir = lclNode;
+
+        if (lclNode->OperIs(GT_LCL_VAR) && lclNode->TypeIs(TYP_STRUCT))
+        {
+            indir->ChangeOper(GT_OBJ);
+            indir->AsObj()->SetLayout(varDsc->GetLayout());
+        }
+        else
+        {
+            indir->ChangeOper(GT_IND);
+        }
+
+        indir->AsIndir()->SetAddr(addr);
+        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_TGTANYWHERE;
+
+        INDEBUG(m_stmtModified = true;)
     }
 #endif // !TARGET_X86
 };
