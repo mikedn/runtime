@@ -854,15 +854,6 @@ private:
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
 
-#ifdef TARGET_X86
-        if (m_compiler->info.compIsVarArgs && varDsc->lvIsParam && !varDsc->lvIsRegArg)
-        {
-            // TODO-ADDR: For now we ignore all stack parameters of varargs methods,
-            // fgMorphStackArgForVarArgs does not handle LCL_VAR|FLD_ADDR nodes.
-            return;
-        }
-#endif
-
         GenTree* addr = val.Node();
 
         if (val.Offset() > UINT16_MAX)
@@ -1612,6 +1603,11 @@ public:
                 MorphImplicitByRefArg(node);
                 return Compiler::WALK_SKIP_SUBTREES;
 #elif defined(TARGET_X86)
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
+                MorphVarargsStackArgAddr(node->AsLclVarCommon());
+                return Compiler::WALK_SKIP_SUBTREES;
+
             case GT_LCL_VAR:
             case GT_LCL_FLD:
                 MorphVarargsStackArg(node->AsLclVarCommon());
@@ -1853,28 +1849,40 @@ public:
         INDEBUG(m_stmtModified = true;)
     }
 #elif defined(TARGET_X86)
-    void MorphVarargsStackArg(GenTreeLclVarCommon* lclNode)
+    void MorphVarargsStackArgAddr(GenTreeLclVarCommon* lclNode)
     {
-        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(lclNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
 
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNode);
-
-        // For the fixed stack arguments of a varargs function, we need to go through
-        // the varargs cookies to access them, except for the cookie itself.
-        if (!varDsc->lvIsParam || varDsc->lvIsRegArg || (lclNode->GetLclNum() == m_compiler->lvaVarargsHandleArg))
+        if (!IsVarargsStackArg(lclNode))
         {
             return;
         }
 
-        int      stkOffs = varDsc->lvStkOffs - m_compiler->codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
-        uint16_t lclOffs = lclNode->OperIs(GT_LCL_VAR) ? 0 : lclNode->AsLclFld()->GetLclOffs();
+        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
+        GenTree* offset = GetVarargsStackArgOffset(lclNode);
+        GenTree* addr   = lclNode;
 
-        GenTree* addr =
-            m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL,
-                                      m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL),
-                                      m_compiler->gtNewIconNode(-stkOffs + lclOffs, TYP_I_IMPL));
+        addr->ChangeOper(GT_ADD);
+        addr->SetType(TYP_I_IMPL);
+        addr->AsOp()->SetOp(0, base);
+        addr->AsOp()->SetOp(1, offset);
 
-        GenTree* indir = lclNode;
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    void MorphVarargsStackArg(GenTreeLclVarCommon* lclNode)
+    {
+        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+
+        if (!IsVarargsStackArg(lclNode))
+        {
+            return;
+        }
+
+        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
+        GenTree* offset = GetVarargsStackArgOffset(lclNode);
+        GenTree* addr   = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, base, offset);
+        GenTree* indir  = lclNode;
 
         if (lclNode->OperIs(GT_LCL_VAR) && lclNode->TypeIs(TYP_STRUCT))
         {
@@ -1890,6 +1898,20 @@ public:
         indir->gtFlags |= GTF_GLOB_REF | GTF_IND_TGTANYWHERE;
 
         INDEBUG(m_stmtModified = true;)
+    }
+
+    bool IsVarargsStackArg(GenTreeLclVarCommon* lclNode) const
+    {
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNode);
+        return lcl->lvIsParam && !lcl->lvIsRegArg && (lclNode->GetLclNum() != m_compiler->lvaVarargsHandleArg);
+    }
+
+    GenTreeIntCon* GetVarargsStackArgOffset(GenTreeLclVarCommon* lclNode) const
+    {
+        int stkOffs = m_compiler->lvaGetDesc(lclNode)->lvStkOffs;
+        stkOffs -= static_cast<int>(m_compiler->codeGen->intRegState.rsCalleeRegArgCount) * REGSIZE_BYTES;
+        int lclOffs = lclNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR) ? 0 : lclNode->AsLclFld()->GetLclOffs();
+        return m_compiler->gtNewIconNode(-stkOffs + lclOffs, TYP_I_IMPL);
     }
 #endif // !TARGET_X86
 };
