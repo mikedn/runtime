@@ -1540,7 +1540,7 @@ void Compiler::fgMarkAddressExposedLocals(Statement* stmt)
     visitor.VisitStmt(stmt);
 }
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
 
 class IndirectArgMorphVisitor final : public GenTreeVisitor<IndirectArgMorphVisitor>
 {
@@ -1593,6 +1593,7 @@ public:
 
         switch (node->OperGet())
         {
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
             case GT_LCL_VAR_ADDR:
             case GT_LCL_FLD_ADDR:
                 MorphImplicitByRefArgAddr(node->AsLclVarCommon());
@@ -1610,12 +1611,37 @@ public:
             case GT_LCL_FLD:
                 MorphImplicitByRefArg(node);
                 return Compiler::WALK_SKIP_SUBTREES;
+#elif defined(TARGET_X86)
+            case GT_LCL_VAR:
+            {
+                GenTree* newTree = MorphVarargsStackArg(node->AsLclVar()->GetLclNum(), node->GetType(), 0);
+                INDEBUG(m_stmtModified |= (newTree != nullptr);)
+                if (newTree != nullptr)
+                {
+                    *use = newTree;
+                }
+                return Compiler::WALK_SKIP_SUBTREES;
+            }
+
+            case GT_LCL_FLD:
+            {
+                GenTree* newTree = MorphVarargsStackArg(node->AsLclFld()->GetLclNum(), node->GetType(),
+                                                        node->AsLclFld()->GetLclOffs());
+                INDEBUG(m_stmtModified |= (newTree != nullptr);)
+                if (newTree != nullptr)
+                {
+                    *use = newTree;
+                }
+                return Compiler::WALK_SKIP_SUBTREES;
+            }
+#endif
 
             default:
                 return Compiler::WALK_CONTINUE;
         }
     }
 
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     void MorphImplicitByRefArgAddr(GenTreeLclVarCommon* lclAddrNode)
     {
         assert(lclAddrNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
@@ -1844,21 +1870,70 @@ public:
 
         INDEBUG(m_stmtModified = true;)
     }
+#elif defined(TARGET_X86)
+    GenTree* MorphVarargsStackArg(unsigned lclNum, var_types varType, unsigned lclOffs)
+    {
+        // For the fixed stack arguments of a varargs function, we need to go through
+        // the varargs cookies to access them, except for the cookie itself.
+
+        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
+
+        if (varDsc->lvIsParam && !varDsc->lvIsRegArg && (lclNum != m_compiler->lvaVarargsHandleArg))
+        {
+            // Create a node representing the local pointing to the base of the args
+            GenTree* ptrArg =
+                m_compiler->gtNewOperNode(GT_SUB, TYP_I_IMPL,
+                                          m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL),
+                                          m_compiler->gtNewIconNode(
+                                              varDsc->lvStkOffs -
+                                              m_compiler->codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES -
+                                              lclOffs));
+
+            // Access the argument through the local
+            GenTree* tree;
+            if (varType == TYP_STRUCT)
+            {
+                tree = m_compiler->gtNewObjNode(varDsc->lvVerTypeInfo.GetClassHandle(), ptrArg);
+            }
+            else
+            {
+                tree = m_compiler->gtNewOperNode(GT_IND, varType, ptrArg);
+            }
+            tree->gtFlags |= GTF_IND_TGTANYWHERE;
+
+            if (varDsc->lvAddrExposed)
+            {
+                tree->gtFlags |= GTF_GLOB_REF;
+            }
+
+            return tree;
+        }
+
+        return nullptr;
+    }
+#endif // !TARGET_X86
 };
 
 //------------------------------------------------------------------------
-// fgMorphImplicitByRefArgs: Traverse the entire statement tree and morph
-//    implicit-by-ref argument references in it.
+// fgMorphIndirectArgs: Traverse the entire statement tree and morph
+//    implicit-by-ref or x86 vararg stack argument references in it.
 //
 // Arguments:
 //    stmt - the statement to traverse
 //
-void Compiler::fgMorphImplicitByRefArgs(Statement* stmt)
+void Compiler::fgMorphIndirectArgs(Statement* stmt)
 {
     assert(fgGlobalMorph);
+
+#if defined(TARGET_X86)
+    if (!info.compIsVarArgs)
+    {
+        return;
+    }
+#endif
 
     IndirectArgMorphVisitor visitor(this);
     visitor.VisitStmt(stmt);
 }
 
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
+#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64 || TARGET_X86

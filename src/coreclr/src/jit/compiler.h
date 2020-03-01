@@ -5227,8 +5227,6 @@ private:
 
     GenTree* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs = true);
 
-    GenTree* fgMorphStackArgForVarArgs(unsigned lclNum, var_types varType, unsigned lclOffs);
-
     // A "MorphAddrContext" carries information from the surrounding context.  If we are evaluating a byref address,
     // it is useful to know whether the address will be immediately dereferenced, or whether the address value will
     // be used, perhaps by passing it as an argument to a called method.  This affects how null checking is done:
@@ -5475,9 +5473,10 @@ private:
     // promoted, create new promoted struct temps.
     void fgRetypeImplicitByRefArgs();
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
-    // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection).
-    void fgMorphImplicitByRefArgs(Statement* stmt);
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
+    // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection)
+    // or stack args of x86 varargs methods.
+    void fgMorphIndirectArgs(Statement* stmt);
 #endif
 
     // Clear up annotations for any struct promotion temps created for implicit byrefs.
