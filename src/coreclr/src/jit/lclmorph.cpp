@@ -987,15 +987,6 @@ private:
             return;
         }
 
-#ifdef TARGET_X86
-        if (m_compiler->info.compIsVarArgs && varDsc->lvIsParam && !varDsc->lvIsRegArg)
-        {
-            // TODO-ADDR: For now we ignore all stack parameters of varargs methods,
-            // fgMorphStackArgForVarArgs does not handle LCL_FLD nodes.
-            return;
-        }
-#endif
-
         ClassLayout*  structLayout = nullptr;
         FieldSeqNode* fieldSeq     = val.FieldSeq();
 
@@ -1884,10 +1875,16 @@ public:
         GenTree* addr   = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, base, offset);
         GenTree* indir  = lclNode;
 
-        if (lclNode->OperIs(GT_LCL_VAR) && lclNode->TypeIs(TYP_STRUCT))
+        if (lclNode->TypeIs(TYP_STRUCT))
         {
+            ClassLayout* layout = lclNode->OperIs(GT_LCL_VAR) ? m_compiler->lvaGetDesc(lclNode)->GetLayout()
+                                                              : lclNode->AsLclFld()->GetLayout(m_compiler);
+
             indir->ChangeOper(GT_OBJ);
-            indir->AsObj()->SetLayout(varDsc->GetLayout());
+            indir->AsObj()->SetLayout(layout);
+            // TODO-Cleanup: This should not be needed, OBJ is an unary operator and nobody
+            // is supposed to try to access gtOp2. OperIsBlkOp does it.
+            indir->AsObj()->SetData(nullptr);
         }
         else
         {
