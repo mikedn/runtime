@@ -1190,7 +1190,7 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
  *  A little helper to create a data member reference node.
  */
 
-inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj, DWORD offset)
+inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* addr, DWORD offset)
 {
     if (typ == TYP_STRUCT)
     {
@@ -1198,22 +1198,41 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE
         (void)info.compCompHnd->getFieldType(fldHnd, &fieldClass);
         typ = impNormStructType(fieldClass);
     }
-    GenTreeField* tree = new (this, GT_FIELD) GenTreeField(typ, obj, fldHnd, offset);
 
-    // If "obj" is the address of a local, note that a field of that struct local has been accessed.
-    if (obj != nullptr && obj->OperGet() == GT_ADDR && varTypeIsStruct(obj->AsOp()->gtOp1) &&
-        obj->AsOp()->gtOp1->OperGet() == GT_LCL_VAR)
+    GenTreeField* tree = new (this, GT_FIELD) GenTreeField(typ, addr, fldHnd, offset);
+
+    // If "addr" is the address of a local, note that a field of that struct local has been accessed.
+    if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
     {
-        unsigned lclNum                  = obj->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-        lvaTable[lclNum].lvFieldAccessed = 1;
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        // These structs are passed by reference; we should probably be able to treat these
-        // as non-global refs, but downstream logic expects these to be marked this way.
-        if (lvaTable[lclNum].lvIsParam)
+        unsigned   lclNum = addr->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
+        varDsc->lvFieldAccessed = 1;
+
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
+        // Some arguments may end up being accessed via indirections:
+        //   - implicit-by-ref struct arguments on win-x64 and arm64
+        //   - stack args of varargs methods on x86
+        // The resulting indirection trees are not recognized as local accesses
+        // by DefinesLocalAddr & co. so it's probably safer to add GTF_GLOB_REF
+        // to such indirections. Though the arguments can't really alias global
+        // memory nor themselves so this might be overly conservative.
+        // This is definitely unnecessary for implicit-by-ref args that end up
+        // being promoted, in that case the indirect access will happen only
+        // once, at the start of the method, to copy the arg value to a local.
+        // However, GTF_GLOB_REF will be discarded during the actual promotion
+        // so this may be a problem only between import and promote phases.
+        if (varDsc->lvIsParam
+#if defined(TARGET_X86)
+            && info.compIsVarArgs && !varDsc->lvIsRegArg && (lclNum != lvaVarargsHandleArg)
+#else
+            && varTypeIsStruct(addr->AsUnOp()->GetOp(0)->GetType())
+#endif
+                )
         {
             tree->gtFlags |= GTF_GLOB_REF;
         }
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#endif
     }
     else
     {
