@@ -1449,24 +1449,15 @@ public:
                 return Compiler::WALK_SKIP_SUBTREES;
 
             case GT_ADDR:
-                if (node->AsUnOp()->gtGetOp1()->OperIs(GT_LCL_VAR))
+                if (node->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
                 {
-                    GenTree* newTree = MorphImplicitByRefArg(node);
-                    INDEBUG(m_stmtModified |= (newTree != nullptr);)
-                    assert((newTree == nullptr) || (newTree == node));
+                    MorphImplicitByRefArg(node);
                     return Compiler::WALK_SKIP_SUBTREES;
                 }
                 return Compiler::WALK_CONTINUE;
 
             case GT_LCL_VAR:
-            {
-                GenTree* newTree = MorphImplicitByRefArg(node);
-                INDEBUG(m_stmtModified |= (newTree != nullptr);)
-                if (newTree != nullptr)
-                {
-                    *use = newTree;
-                }
-            }
+                MorphImplicitByRefArg(node);
                 return Compiler::WALK_SKIP_SUBTREES;
 
             default:
@@ -1511,8 +1502,8 @@ public:
             add->ChangeOper(GT_ADD);
             add->SetType(TYP_BYREF);
             add->gtFlags = 0;
-            add->AsOp()->SetOp1(m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
-            add->AsOp()->SetOp2(m_compiler->gtNewIconNode(lclOffs, fieldSeq));
+            add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
+            add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
         }
         else
         {
@@ -1524,20 +1515,21 @@ public:
         INDEBUG(m_stmtModified = true;)
     }
 
-    GenTree* MorphImplicitByRefArg(GenTree* tree)
+    void MorphImplicitByRefArg(GenTree* tree)
     {
-        assert(tree->OperIs(GT_LCL_VAR) || (tree->OperIs(GT_ADDR) && tree->AsUnOp()->gtGetOp1()->OperIs(GT_LCL_VAR)));
+        assert(tree->OperIs(GT_LCL_VAR) || (tree->OperIs(GT_ADDR) && tree->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR)));
 
-        GenTreeLclVar* lclNode   = tree->OperIs(GT_ADDR) ? tree->AsUnOp()->gtGetOp1()->AsLclVar() : tree->AsLclVar();
+        GenTreeLclVar* lclNode   = tree->OperIs(GT_ADDR) ? tree->AsUnOp()->GetOp(0)->AsLclVar() : tree->AsLclVar();
+        unsigned       lclNum    = lclNode->GetLclNum();
         LclVarDsc*     lclVarDsc = m_compiler->lvaGetDesc(lclNode);
 
-        if (m_compiler->lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
+        if (m_compiler->lvaIsImplicitByRefLocal(lclNum))
         {
             // fgRetypeImplicitByRefArgs creates LCL_VAR nodes that reference
             // implicit byref args and are already TYP_BYREF, ignore them.
             if (lclNode->TypeIs(TYP_BYREF))
             {
-                return nullptr;
+                return;
             }
 
             assert(varTypeIsStruct(lclNode->TypeGet()));
@@ -1548,29 +1540,28 @@ public:
                 // arg.  Rewrite this to refer to the new local.
                 assert(lclVarDsc->lvFieldLclStart != 0);
                 lclNode->SetLclNum(lclVarDsc->lvFieldLclStart);
-                return tree;
             }
-
-            if (tree->OperIs(GT_ADDR))
+            else if (tree->OperIs(GT_ADDR))
             {
                 // Change ADDR<BYREF|I_IMPL>(LCL_VAR<STRUCT>(arg)) into LCL_VAR<BYREF>(arg)
                 tree->ChangeOper(GT_LCL_VAR);
-                tree->gtType  = TYP_BYREF;
+                tree->SetType(TYP_BYREF);
+                tree->AsLclVar()->SetLclNum(lclNum);
                 tree->gtFlags = 0;
-                tree->AsLclVar()->SetLclNum(lclNode->GetLclNum());
-                return tree;
             }
-
-            lclNode->gtType  = TYP_BYREF;
-            lclNode->gtFlags = 0;
-
-            // Change LCL_VAR<STRUCT>(arg) into OBJ<STRUCT>(LCL_VAR<BYREF>(arg))
-            tree = m_compiler->gtNewObjNode(lclVarDsc->lvVerTypeInfo.GetClassHandle(), lclNode);
-            m_compiler->gtSetObjGcInfo(tree->AsObj());
-            return tree;
+            else
+            {
+                // Change LCL_VAR<STRUCT>(arg) into OBJ<STRUCT>(LCL_VAR<BYREF>(arg))
+                tree->ChangeOper(GT_OBJ);
+                tree->AsObj()->SetLayout(m_compiler->typGetObjLayout(lclVarDsc->lvVerTypeInfo.GetClassHandle()));
+                tree->AsObj()->SetAddr(m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
+                // TODO-Cleanup: This should not be needed, OBJ is an unary operator and nobody
+                // is supposed to try to access gtOp2. OperIsBlkOp does it.
+                tree->AsObj()->SetData(nullptr);
+                tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
+            }
         }
-
-        if (lclVarDsc->lvIsStructField && m_compiler->lvaIsImplicitByRefLocal(lclVarDsc->lvParentLcl))
+        else if (lclVarDsc->lvIsStructField && m_compiler->lvaIsImplicitByRefLocal(lclVarDsc->lvParentLcl))
         {
             // This was a field reference to an implicit-by-reference struct parameter that was
             // dependently promoted and now it is being demoted; update it to a field reference
@@ -1579,30 +1570,37 @@ public:
             assert(lclVarDsc->TypeGet() != TYP_STRUCT);
             assert(lclVarDsc->lvFieldHnd != nullptr);
 
-            var_types fieldType = lclNode->TypeGet();
-
-            lclNode->SetLclNum(lclVarDsc->lvParentLcl);
-            lclNode->gtType  = TYP_BYREF;
-            lclNode->gtFlags = 0;
-
-            GenTreeField* field =
-                m_compiler->gtNewFieldRef(fieldType, lclVarDsc->lvFieldHnd, lclNode, lclVarDsc->lvFldOffset);
+            unsigned       lclNum   = lclVarDsc->lvParentLcl;
+            unsigned       lclOffs  = lclVarDsc->lvFldOffset;
+            FieldSeqNode*  fieldSeq = m_compiler->GetFieldSeqStore()->CreateSingleton(lclVarDsc->lvFieldHnd);
+            GenTreeIntCon* offset   = m_compiler->gtNewIconNode(lclOffs, fieldSeq);
 
             if (tree->OperIs(GT_ADDR))
             {
-                // Change ADDR(LCL_VAR(argPromotedField)) into ADDR(FIELD(LCL_VAR<BYREF>(arg), offset))
-                tree->AsUnOp()->gtOp1 = field;
-                return tree;
-            }
+                // Change ADDR(LCL_VAR(argPromotedField)) into ADD(LCL_VAR<BYREF>(arg), offset)
+                lclNode->SetLclNum(lclNum);
+                lclNode->SetType(TYP_BYREF);
+                lclNode->gtFlags = 0;
 
-            // Change LCL_VAR<fieldType>(argPromotedField) into FIELD<fieldType>(LCL_VAR<BYREF>(arg), offset)
-            tree = field;
-            // TODO-CQ: If the VM ever stops violating the ABI and passing heap references we could remove TGTANYWHERE
-            tree->gtFlags |= GTF_IND_TGTANYWHERE;
-            return tree;
+                tree->ChangeOper(GT_ADD);
+                tree->AsOp()->SetOp(0, lclNode);
+                tree->AsOp()->SetOp(1, offset);
+                tree->gtFlags = 0;
+            }
+            else
+            {
+                // Change LCL_VAR<fieldType>(argPromotedField) into IND<fieldType>(ADD(LCL_VAR<BYREF>(arg), offset))
+                lclNode = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
+
+                tree->ChangeOper(GT_IND);
+                tree->AsIndir()->SetAddr(m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, lclNode, offset));
+                // TODO-CQ: If the VM ever stops violating the ABI and passing heap references we could remove
+                // TGTANYWHERE
+                tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGTANYWHERE;
+            }
         }
 
-        return nullptr;
+        INDEBUG(m_stmtModified = true;)
     }
 };
 

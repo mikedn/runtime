@@ -5584,8 +5584,11 @@ GenTreeCall* Compiler::gtNewCallNode(
     return node;
 }
 
-GenTree* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
+GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
+    // Cannot have this assert because the inliner uses this function to add temporaries
+    // assert(lnum < lvaCount);
+
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
@@ -5604,17 +5607,11 @@ GenTree* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSE
                (lvaIsImplicitByRefLocal(lnum) && fgGlobalMorph && (varDsc->lvType == TYP_BYREF)) ||
                ((varDsc->lvType == TYP_STRUCT) && (genTypeSize(type) == varDsc->lvExactSize)));
     }
-    GenTree* node = new (this, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(ILoffs));
 
-    /* Cannot have this assert because the inliner uses this function
-     * to add temporaries */
-
-    // assert(lnum < lvaCount);
-
-    return node;
+    return new (this, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(ILoffs));
 }
 
-GenTree* Compiler::gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
+GenTreeLclVar* Compiler::gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
@@ -5626,11 +5623,12 @@ GenTree* Compiler::gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSE
         assert(type == lvaTable[lnum].lvType ||
                (lvaIsImplicitByRefLocal(lnum) && fgGlobalMorph && (lvaTable[lnum].lvType == TYP_BYREF)));
     }
+
     // This local variable node may later get transformed into a large node
     assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_VAR]);
-    GenTree* node =
-        new (this, LargeOpOpcode()) GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(ILoffs) DEBUGARG(/*largeNode*/ true));
-    return node;
+
+    return new (this, LargeOpOpcode())
+        GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(ILoffs) DEBUGARG(/*largeNode*/ true));
 }
 
 GenTreeLclVar* Compiler::gtNewLclVarAddrNode(unsigned lclNum, var_types type)

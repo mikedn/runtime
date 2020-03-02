@@ -2694,16 +2694,30 @@ protected:
     }
 
 public:
-    GenTree* GetOp1() const
+    GenTree* GetOp(unsigned index) const
     {
-        assert(gtOp1 != nullptr);
-        return gtOp1;
+        switch (index)
+        {
+            case 0:
+                assert(gtOp1 != nullptr);
+                return gtOp1;
+            default:
+                unreached();
+        }
     }
 
-    void SetOp1(GenTree* op1)
+    void SetOp(unsigned index, GenTree* op)
     {
-        assert(op1 != nullptr);
-        gtOp1 = op1;
+        assert(op != nullptr);
+
+        switch (index)
+        {
+            case 0:
+                gtOp1 = op;
+                return;
+            default:
+                unreached();
+        }
     }
 
 #if DEBUGGABLE_GENTREE
@@ -2743,16 +2757,36 @@ struct GenTreeOp : public GenTreeUnOp
         assert(oper == GT_NOP || oper == GT_RETURN || oper == GT_RETFILT || OperIsBlk(oper));
     }
 
-    GenTree* GetOp2() const
+    GenTree* GetOp(unsigned index) const
     {
-        assert(gtOp2 != nullptr);
-        return gtOp2;
+        switch (index)
+        {
+            case 0:
+                assert(gtOp1 != nullptr);
+                return gtOp1;
+            case 1:
+                assert(gtOp2 != nullptr);
+                return gtOp2;
+            default:
+                unreached();
+        }
     }
 
-    void SetOp2(GenTree* op2)
+    void SetOp(unsigned index, GenTree* op)
     {
-        assert(op2 != nullptr);
-        gtOp2 = op2;
+        assert(op != nullptr);
+
+        switch (index)
+        {
+            case 0:
+                gtOp1 = op;
+                return;
+            case 1:
+                gtOp2 = op;
+                return;
+            default:
+                unreached();
+        }
     }
 
 #if DEBUGGABLE_GENTREE
