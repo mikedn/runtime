@@ -1481,6 +1481,7 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             Compiler*     compiler     = JitTls::GetCompiler();
             bool          isZeroOffset = compiler->GetZeroOffsetFieldMap()->Lookup(this, &zeroFieldSeq);
 
+            AsLclFld()->SetLayoutNum(0);
             AsLclFld()->SetLclOffs(0);
             AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
 
