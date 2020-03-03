@@ -1005,10 +1005,24 @@ private:
             else
             {
                 structLayout = indir->AsBlk()->GetLayout();
-            }
 
-            // We're not going to produce a TYP_STRUCT LCL_FLD so we don't need the field sequence.
-            fieldSeq = nullptr;
+                if (structLayout->IsBlockLayout())
+                {
+                    fieldSeq = nullptr;
+                }
+                else if (fieldSeq != nullptr)
+                {
+                    CORINFO_CLASS_HANDLE fieldClassHandle;
+                    CorInfoType          corType =
+                        m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle(),
+                                                                   &fieldClassHandle);
+
+                    if ((corType != CORINFO_TYPE_VALUECLASS) || (fieldClassHandle != structLayout->GetClassHandle()))
+                    {
+                        fieldSeq = nullptr;
+                    }
+                }
+            }
         }
 
         // We're only processing TYP_STRUCT variables now so the layout should never be null,
@@ -1020,12 +1034,17 @@ private:
             indir->ChangeOper(GT_LCL_VAR);
             indir->AsLclVar()->SetLclNum(val.LclNum());
         }
-        else if (!varTypeIsStruct(indir->TypeGet()))
+        else if (!varTypeIsStruct(indir->TypeGet()) || m_compiler->lvaIsImplicitByRefLocal(val.LclNum()))
         {
             indir->ChangeOper(GT_LCL_FLD);
             indir->AsLclFld()->SetLclNum(val.LclNum());
             indir->AsLclFld()->SetLclOffs(val.Offset());
             indir->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
+
+            if (structLayout != nullptr)
+            {
+                indir->AsLclFld()->SetLayoutNum(m_compiler->typGetLayoutNum(structLayout));
+            }
 
             // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
             // later transformed into a LCL_VAR and the variable cannot be enregistered.
@@ -1033,7 +1052,9 @@ private:
         }
         else
         {
-            // TODO-ADDR: Add TYP_STRUCT support to LCL_FLD.
+            // TODO-ADDR: Add TYP_STRUCT support to LCL_FLD. Currently these are generated
+            // only for unpromoted implicit-by-ref args, that are converted back to indirs
+            // by IndirectArgMorphVisitor.
             return;
         }
 
@@ -1045,11 +1066,10 @@ private:
 
             if (indir->OperIs(GT_LCL_FLD))
             {
-                // Currently we don't generate TYP_STRUCT LCL_FLDs so we do not need to
-                // bother to find out the size of the LHS for "partial definition" purposes.
-                assert(!varTypeIsStruct(indir->TypeGet()));
+                unsigned indirSize =
+                    (structLayout == nullptr) ? genTypeSize(indir->GetType()) : structLayout->GetSize();
 
-                if (genTypeSize(indir->TypeGet()) < m_compiler->lvaLclExactSize(val.LclNum()))
+                if (indirSize < m_compiler->lvaLclExactSize(val.LclNum()))
                 {
                     flags |= GTF_VAR_USEASG;
                 }
@@ -1593,13 +1613,23 @@ public:
 
                     if (lclNode->TypeIs(TYP_STRUCT))
                     {
-                        assert(lclNode->OperIs(GT_LCL_VAR));
+                        ClassLayout* layout;
 
-                        // Change LCL_VAR<STRUCT>(arg) into OBJ<STRUCT>(LCL_VAR<BYREF>(arg))
+                        if (lclNode->OperIs(GT_LCL_VAR))
+                        {
+                            layout = m_compiler->typGetObjLayout(lclVarDsc->lvVerTypeInfo.GetClassHandle());
+                        }
+                        else
+                        {
+                            layout = m_compiler->typGetLayoutByNum(lclNode->AsLclFld()->GetLayoutNum());
+                        }
+
+                        // Change LCL_VAR|FLD<STRUCT>(arg) into OBJ<STRUCT>(LCL_VAR<BYREF>(arg))
                         tree->ChangeOper(GT_OBJ);
-                        tree->AsObj()->SetLayout(
-                            m_compiler->typGetObjLayout(lclVarDsc->lvVerTypeInfo.GetClassHandle()));
+                        tree->AsObj()->SetLayout(layout);
                         tree->AsObj()->SetAddr(addr);
+                        tree->AsObj()->gtBlkOpGcUnsafe = false;
+                        tree->AsObj()->gtBlkOpKind     = GenTreeBlk::BlkOpKindInvalid;
                         // TODO-Cleanup: This should not be needed, OBJ is an unary operator and nobody
                         // is supposed to try to access gtOp2. OperIsBlkOp does it.
                         tree->AsObj()->SetData(nullptr);
