@@ -324,6 +324,7 @@ ClassLayout* ClassLayout::Create(Compiler* compiler, CORINFO_CLASS_HANDLE classH
 
     if (isValueClass)
     {
+        assert(compiler->info.compCompHnd->getTypeForPrimitiveValueClass(classHandle) == CORINFO_TYPE_UNDEF);
         size = compiler->info.compCompHnd->getClassSize(classHandle);
     }
     else
