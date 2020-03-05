@@ -11983,6 +11983,9 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
             (options == BR_MAKE_LOCAL_COPY) ? "make local unboxed version" : "remove side effects", dspTreeID(op),
             asgStmt->GetID(), copyStmt->GetID());
 
+    DISPSTMT(asgStmt);
+    DISPSTMT(copyStmt);
+
     // If we don't recognize the form of the assign, bail.
     GenTree* asg = asgStmt->GetRootNode();
     if (asg->gtOper != GT_ASG)
@@ -12056,15 +12059,15 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
     if (options == BR_MAKE_LOCAL_COPY)
     {
         // Drill into the box to get at the box temp local and the box type
-        GenTree* boxTemp = box->BoxOp();
-        assert(boxTemp->IsLocal());
-        const unsigned boxTempLcl = boxTemp->AsLclVar()->GetLclNum();
-        assert(lvaTable[boxTempLcl].lvType == TYP_REF);
-        CORINFO_CLASS_HANDLE boxClass = lvaTable[boxTempLcl].lvClassHnd;
-        assert(boxClass != nullptr);
+        GenTreeLclVar* boxTemp = box->BoxOp()->AsLclVar();
+        assert(boxTemp->OperIs(GT_LCL_VAR));
+        const unsigned boxTempLclNum = boxTemp->GetLclNum();
+        LclVarDsc*     boxTempLclDsc = lvaGetDesc(boxTempLclNum);
+        assert(boxTempLclDsc->TypeGet() == TYP_REF);
+        assert(boxTempLclDsc->lvClassHnd != nullptr);
 
         // Verify that the copyDst has the expected shape
-        // (blk|obj|ind (add (boxTempLcl, ptr-size)))
+        // (blk|obj|ind (add (boxTempLclNum, ptr-size)))
         //
         // The shape here is constrained to the patterns we produce
         // over in impImportAndPushBox for the inlined box case.
@@ -12084,7 +12087,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
         }
 
         GenTree* copyDstAddrOp1 = copyDstAddr->AsOp()->gtOp1;
-        if ((copyDstAddrOp1->OperGet() != GT_LCL_VAR) || (copyDstAddrOp1->AsLclVarCommon()->GetLclNum() != boxTempLcl))
+        if ((copyDstAddrOp1->OperGet() != GT_LCL_VAR) || (copyDstAddrOp1->AsLclVar()->GetLclNum() != boxTempLclNum))
         {
             JITDUMP("Unexpected copy dest address 1st addend\n");
             return nullptr;
@@ -12099,25 +12102,34 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
 
         // Screening checks have all passed. Do the transformation.
         //
-        // Retype the box temp to be a struct
-        JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLcl, eeGetClassName(boxClass));
-        lvaTable[boxTempLcl].lvType   = TYP_UNDEF;
-        const bool isUnsafeValueClass = false;
-        lvaSetStruct(boxTempLcl, boxClass, isUnsafeValueClass);
-        var_types boxTempType = lvaTable[boxTempLcl].lvType;
 
         // Remove the newobj and assigment to box temp
         JITDUMP("Bashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
         asg->gtBashToNOP();
 
-        // Update the copy from the value to be boxed to the box temp
-        GenTree* newDst        = gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(boxTempLcl, boxTempType));
-        copyDst->AsOp()->gtOp1 = newDst;
+        if (varTypeIsStruct(copyDst->TypeGet()))
+        {
+            JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclNum, eeGetClassName(boxTempLclDsc->lvClassHnd));
+            boxTempLclDsc->lvType         = TYP_UNDEF;
+            const bool isUnsafeValueClass = false;
+            lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, isUnsafeValueClass);
+        }
+        else
+        {
+            assert(copyDst->TypeGet() == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
+            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclNum, varTypeName(copyDst->TypeGet()));
+            boxTempLclDsc->lvType = copyDst->TypeGet();
+        }
+
+        copyDst->ChangeOper(GT_LCL_VAR);
+        copyDst->gtFlags |= GTF_VAR_DEF;
+        copyDst->gtFlags &= ~GTF_ALL_EFFECT;
+        copyDst->AsLclVar()->SetLclNum(boxTempLclNum);
+
+        DISPSTMT(copyStmt);
 
         // Return the address of the now-struct typed box temp
-        GenTree* retValue = gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(boxTempLcl, boxTempType));
-
-        return retValue;
+        return gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(boxTempLclNum, boxTempLclDsc->TypeGet()));
     }
 
     // If the copy is a struct copy, make sure we know how to isolate
