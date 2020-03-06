@@ -139,14 +139,6 @@ GenTree* Compiler::fgMorphCast(GenTree* tree)
 
     GenTree* oper = tree->AsCast()->CastOp();
 
-    if (fgGlobalMorph && (oper->gtOper == GT_ADDR))
-    {
-        // Make sure we've checked if 'oper' is an address of an implicit-byref parameter.
-        // If it is, fgMorphImplicitByRefArgs will change its type, and we want the cast
-        // morphing code to see that type.
-        fgMorphImplicitByRefArgs(oper);
-    }
-
     var_types srcType = genActualType(oper->TypeGet());
 
     var_types dstType = tree->CastToType();
@@ -5837,14 +5829,6 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     bool                 fieldMayOverlap = false;
     bool                 objIsLocal      = false;
 
-    if (fgGlobalMorph && (objRef != nullptr) && (objRef->gtOper == GT_ADDR))
-    {
-        // Make sure we've checked if 'objRef' is an address of an implicit-byref parameter.
-        // If it is, fgMorphImplicitByRefArgs may change it do a different opcode, which the
-        // simd field rewrites are sensitive to.
-        fgMorphImplicitByRefArgs(objRef);
-    }
-
     noway_assert(((objRef != nullptr) && (objRef->IsLocalAddrExpr() != nullptr)) ||
                  ((tree->gtFlags & GTF_GLOB_REF) != 0));
 
@@ -10609,18 +10593,6 @@ GenTree* Compiler::fgMorphFieldAssignToSIMDIntrinsicSet(GenTree* tree)
     GenTree* op1 = tree->gtGetOp1();
     GenTree* op2 = tree->gtGetOp2();
 
-    // If the field of an implicit byref arg gets set and the arg isn't
-    // promoted then we'll end up "inserting" into a memory location:
-    //    vmovupd   xmm0, xmmword ptr[rdx]
-    //    vinsertps xmm0, xmm1, 16
-    //    vmovupd   xmmword ptr[rdx], xmm0
-    // There's no point in having this instead of a simple float store:
-    //    vmovss   dword ptr[rdx+4], xmm0
-    // so we need morph the implicit byref arg before deciding if we're
-    // going to use insert.
-
-    fgMorphImplicitByRefArgs(op1->AsField()->gtFldObj);
-
     unsigned  index         = 0;
     var_types baseType      = TYP_UNKNOWN;
     unsigned  simdSize      = 0;
@@ -14237,23 +14209,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
     }
 #endif
 
-    if (fgGlobalMorph)
-    {
-        // Apply any rewrites for implicit byref arguments before morphing the
-        // tree.
-
-        if (fgMorphImplicitByRefArgs(tree))
-        {
-#ifdef DEBUG
-            if (verbose && treesBeforeAfterMorph)
-            {
-                printf("\nfgMorphTree (%d), after implicit-byref rewrite:\n", thisMorphNum);
-                gtDispTree(tree);
-            }
-#endif
-        }
-    }
-
 /*-------------------------------------------------------------------------
  * fgMorphTree() can potentially replace a tree with another, and the
  * caller has to store the return value correctly.
@@ -15238,12 +15193,19 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
         }
 #endif
 
-        fgMorphStmt      = stmt;
-        compCurStmt      = stmt;
+        fgMorphStmt = stmt;
+        compCurStmt = stmt;
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+        if (fgGlobalMorph)
+        {
+            fgMorphImplicitByRefArgs(stmt);
+        }
+#endif
+
         GenTree* oldTree = stmt->GetRootNode();
 
 #ifdef DEBUG
-
         unsigned oldHash = verbose ? gtHashValue(oldTree) : DUMMY_INIT(~0);
 
         if (verbose)
@@ -16797,180 +16759,6 @@ void Compiler::fgMarkDemotedImplicitByRefArgs()
     }
 
 #endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
-}
-
-/*****************************************************************************
- *
- *  Morph irregular parameters
- *    for x64 and ARM64 this means turning them into byrefs, adding extra indirs.
- */
-bool Compiler::fgMorphImplicitByRefArgs(GenTree* tree)
-{
-#if (!defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)) && !defined(TARGET_ARM64)
-
-    return false;
-
-#else  // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
-
-    bool changed = false;
-
-    // Implicit byref morphing needs to know if the reference to the parameter is a
-    // child of GT_ADDR or not, so this method looks one level down and does the
-    // rewrite whenever a child is a reference to an implicit byref parameter.
-    if (tree->gtOper == GT_ADDR)
-    {
-        if (tree->AsOp()->gtOp1->gtOper == GT_LCL_VAR)
-        {
-            GenTree* morphedTree = fgMorphImplicitByRefArgs(tree, true);
-            changed              = (morphedTree != nullptr);
-            assert(!changed || (morphedTree == tree));
-        }
-    }
-    else
-    {
-        for (GenTree** pTree : tree->UseEdges())
-        {
-            GenTree* childTree = *pTree;
-            if (childTree->gtOper == GT_LCL_VAR)
-            {
-                GenTree* newChildTree = fgMorphImplicitByRefArgs(childTree, false);
-                if (newChildTree != nullptr)
-                {
-                    changed = true;
-                    *pTree  = newChildTree;
-                }
-            }
-        }
-    }
-
-    return changed;
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
-}
-
-GenTree* Compiler::fgMorphImplicitByRefArgs(GenTree* tree, bool isAddr)
-{
-    assert((tree->gtOper == GT_LCL_VAR) || ((tree->gtOper == GT_ADDR) && (tree->AsOp()->gtOp1->gtOper == GT_LCL_VAR)));
-    assert(isAddr == (tree->gtOper == GT_ADDR));
-    assert(fgGlobalMorph);
-
-    GenTree*   lclVarTree = isAddr ? tree->AsOp()->gtOp1 : tree;
-    unsigned   lclNum     = lclVarTree->AsLclVarCommon()->GetLclNum();
-    LclVarDsc* lclVarDsc  = &lvaTable[lclNum];
-
-    CORINFO_FIELD_HANDLE fieldHnd;
-    unsigned             fieldOffset  = 0;
-    var_types            fieldRefType = TYP_UNKNOWN;
-
-    if (lvaIsImplicitByRefLocal(lclNum))
-    {
-        // The SIMD transformation to coalesce contiguous references to SIMD vector fields will
-        // re-invoke the traversal to mark address-taken locals.
-        // So, we may encounter a tree that has already been transformed to TYP_BYREF.
-        // If we do, leave it as-is.
-        if (!varTypeIsStruct(lclVarTree))
-        {
-            assert(lclVarTree->TypeGet() == TYP_BYREF);
-
-            return nullptr;
-        }
-        else if (lclVarDsc->lvPromoted)
-        {
-            // fgRetypeImplicitByRefArgs created a new promoted struct local to represent this
-            // arg.  Rewrite this to refer to the new local.
-            assert(lclVarDsc->lvFieldLclStart != 0);
-            lclVarTree->AsLclVarCommon()->SetLclNum(lclVarDsc->lvFieldLclStart);
-            return tree;
-        }
-
-        fieldHnd = nullptr;
-    }
-    else if (lclVarDsc->lvIsStructField && lvaIsImplicitByRefLocal(lclVarDsc->lvParentLcl))
-    {
-        // This was a field reference to an implicit-by-reference struct parameter that was
-        // dependently promoted; update it to a field reference off the pointer.
-        // Grab the field handle from the struct field lclVar.
-        fieldHnd    = lclVarDsc->lvFieldHnd;
-        fieldOffset = lclVarDsc->lvFldOffset;
-        assert(fieldHnd != nullptr);
-        // Update lclNum/lclVarDsc to refer to the parameter
-        lclNum       = lclVarDsc->lvParentLcl;
-        lclVarDsc    = &lvaTable[lclNum];
-        fieldRefType = lclVarTree->TypeGet();
-    }
-    else
-    {
-        // We only need to tranform the 'marked' implicit by ref parameters
-        return nullptr;
-    }
-
-    // This is no longer a def of the lclVar, even if it WAS a def of the struct.
-    lclVarTree->gtFlags &= ~(GTF_LIVENESS_MASK);
-
-    if (isAddr)
-    {
-        if (fieldHnd == nullptr)
-        {
-            // change &X into just plain X
-            tree->ReplaceWith(lclVarTree, this);
-            tree->gtType = TYP_BYREF;
-        }
-        else
-        {
-            // change &(X.f) [i.e. GT_ADDR of local for promoted arg field]
-            // into &(X, f) [i.e. GT_ADDR of GT_FIELD off ptr param]
-            lclVarTree->AsLclVarCommon()->SetLclNum(lclNum);
-            lclVarTree->gtType  = TYP_BYREF;
-            tree->AsOp()->gtOp1 = gtNewFieldRef(fieldRefType, fieldHnd, lclVarTree, fieldOffset);
-        }
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Replacing address of implicit by ref struct parameter with byref:\n");
-        }
-#endif // DEBUG
-    }
-    else
-    {
-        // Change X into OBJ(X) or FIELD(X, f)
-        var_types structType = tree->gtType;
-        tree->gtType         = TYP_BYREF;
-
-        if (fieldHnd)
-        {
-            tree->AsLclVarCommon()->SetLclNum(lclNum);
-            tree = gtNewFieldRef(fieldRefType, fieldHnd, tree, fieldOffset);
-        }
-        else
-        {
-            tree = gtNewObjNode(lclVarDsc->lvVerTypeInfo.GetClassHandle(), tree);
-
-            if (structType == TYP_STRUCT)
-            {
-                gtSetObjGcInfo(tree->AsObj());
-            }
-        }
-
-        // TODO-CQ: If the VM ever stops violating the ABI and passing heap references
-        // we could remove TGTANYWHERE
-        tree->gtFlags = ((tree->gtFlags & GTF_COMMON_MASK) | GTF_IND_TGTANYWHERE);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Replacing value of implicit by ref struct parameter with indir of parameter:\n");
-        }
-#endif // DEBUG
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        gtDispTree(tree);
-    }
-#endif // DEBUG
-
-    return tree;
 }
 
 //------------------------------------------------------------------------

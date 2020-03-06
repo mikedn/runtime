@@ -397,6 +397,22 @@ struct GenTree
         return gtType;
     }
 
+    genTreeOps GetOper() const
+    {
+        return gtOper;
+    }
+
+    var_types GetType() const
+    {
+        return gtType;
+    }
+
+    void SetType(var_types type)
+    {
+        assert((TYP_UNDEF < type) && (type < TYP_UNKNOWN));
+        gtType = type;
+    }
+
 #ifdef DEBUG
     genTreeOps gtOperSave; // Only used to save gtOper when we destroy a node, to aid debugging.
 #endif
@@ -2682,6 +2698,33 @@ protected:
         }
     }
 
+public:
+    GenTree* GetOp(unsigned index) const
+    {
+        switch (index)
+        {
+            case 0:
+                assert(gtOp1 != nullptr);
+                return gtOp1;
+            default:
+                unreached();
+        }
+    }
+
+    void SetOp(unsigned index, GenTree* op)
+    {
+        assert(op != nullptr);
+
+        switch (index)
+        {
+            case 0:
+                gtOp1 = op;
+                return;
+            default:
+                unreached();
+        }
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeUnOp() : GenTree(), gtOp1(nullptr)
     {
@@ -2717,6 +2760,38 @@ struct GenTreeOp : public GenTreeUnOp
     {
         // Unary operators with optional arguments:
         assert(oper == GT_NOP || oper == GT_RETURN || oper == GT_RETFILT || OperIsBlk(oper));
+    }
+
+    GenTree* GetOp(unsigned index) const
+    {
+        switch (index)
+        {
+            case 0:
+                assert(gtOp1 != nullptr);
+                return gtOp1;
+            case 1:
+                assert(gtOp2 != nullptr);
+                return gtOp2;
+            default:
+                unreached();
+        }
+    }
+
+    void SetOp(unsigned index, GenTree* op)
+    {
+        assert(op != nullptr);
+
+        switch (index)
+        {
+            case 0:
+                gtOp1 = op;
+                return;
+            case 1:
+                gtOp2 = op;
+                return;
+            default:
+                unreached();
+        }
     }
 
 #if DEBUGGABLE_GENTREE
@@ -2998,8 +3073,16 @@ struct GenTreeStrCon : public GenTree
 struct GenTreeLclVarCommon : public GenTreeUnOp
 {
 private:
-    unsigned _gtLclNum; // The local number. An index into the Compiler::lvaTable array.
-    unsigned _gtSsaNum; // The SSA number.
+    unsigned m_lclNum; // The local number. An index into the Compiler::lvaTable array.
+    unsigned m_ssaNum; // The SSA number.
+
+protected:
+    GenTreeLclVarCommon(GenTreeLclVarCommon* copyFrom)
+        : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType())
+        , m_lclNum(copyFrom->m_lclNum)
+        , m_ssaNum(copyFrom->m_ssaNum)
+    {
+    }
 
 public:
     GenTreeLclVarCommon(genTreeOps oper, var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
@@ -3010,28 +3093,28 @@ public:
 
     unsigned GetLclNum() const
     {
-        return _gtLclNum;
+        return m_lclNum;
     }
 
     void SetLclNum(unsigned lclNum)
     {
-        _gtLclNum = lclNum;
-        _gtSsaNum = SsaConfig::RESERVED_SSA_NUM;
+        m_lclNum = lclNum;
+        m_ssaNum = SsaConfig::RESERVED_SSA_NUM;
     }
 
     unsigned GetSsaNum() const
     {
-        return _gtSsaNum;
+        return m_ssaNum;
     }
 
     void SetSsaNum(unsigned ssaNum)
     {
-        _gtSsaNum = ssaNum;
+        m_ssaNum = ssaNum;
     }
 
     bool HasSsaName()
     {
-        return (GetSsaNum() != SsaConfig::RESERVED_SSA_NUM);
+        return (m_ssaNum != SsaConfig::RESERVED_SSA_NUM);
     }
 
 #if DEBUGGABLE_GENTREE
@@ -3041,8 +3124,7 @@ public:
 #endif
 };
 
-// gtLclVar -- load/store/addr of local variable
-
+// GenTreeLclVar - load/store/addr of local variable
 struct GenTreeLclVar : public GenTreeLclVarCommon
 {
     INDEBUG(IL_OFFSET gtLclILoffs;) // instr offset of ref (only for JIT dumps)
@@ -3055,6 +3137,14 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
         assert(OperIsLocal(oper) || OperIsLocalAddr(oper));
     }
 
+    GenTreeLclVar(GenTreeLclVar* copyFrom)
+        : GenTreeLclVarCommon(copyFrom)
+#ifdef DEBUG
+        , gtLclILoffs(copyFrom->gtLclILoffs)
+#endif
+    {
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeLclVar() : GenTreeLclVarCommon()
     {
@@ -3062,19 +3152,30 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
 #endif
 };
 
-// gtLclFld -- load/store/addr of local variable field
-
+// GenTreeLclFld - load/store/addr of local variable field
 struct GenTreeLclFld : public GenTreeLclVarCommon
 {
 private:
-    uint16_t      m_lclOffs;  // offset into the variable to access
-    FieldSeqNode* m_fieldSeq; // This LclFld node represents some sequences of accesses.
+    uint16_t      m_lclOffs;   // offset into the variable to access
+    uint16_t      m_layoutNum; // the class layout number for struct typed nodes
+    FieldSeqNode* m_fieldSeq;  // This LclFld node represents some sequences of accesses.
 
 public:
     GenTreeLclFld(genTreeOps oper, var_types type, unsigned lclNum, unsigned lclOffs)
-        : GenTreeLclVarCommon(oper, type, lclNum), m_lclOffs(static_cast<uint16_t>(lclOffs)), m_fieldSeq(nullptr)
+        : GenTreeLclVarCommon(oper, type, lclNum)
+        , m_lclOffs(static_cast<uint16_t>(lclOffs))
+        , m_layoutNum(0)
+        , m_fieldSeq(nullptr)
     {
         assert(lclOffs <= UINT16_MAX);
+    }
+
+    GenTreeLclFld(GenTreeLclFld* copyFrom)
+        : GenTreeLclVarCommon(copyFrom)
+        , m_lclOffs(copyFrom->m_lclOffs)
+        , m_layoutNum(copyFrom->m_layoutNum)
+        , m_fieldSeq(copyFrom->m_fieldSeq)
+    {
     }
 
     uint16_t GetLclOffs() const
@@ -3088,6 +3189,18 @@ public:
         m_lclOffs = static_cast<uint16_t>(lclOffs);
     }
 
+    uint16_t GetLayoutNum() const
+    {
+        return varTypeIsStruct(GetType()) ? m_layoutNum : 0;
+    }
+
+    void SetLayoutNum(unsigned layoutNum)
+    {
+        assert(layoutNum <= UINT16_MAX);
+        assert((layoutNum == 0) || varTypeIsStruct(GetType()));
+        m_layoutNum = static_cast<uint16_t>(layoutNum);
+    }
+
     FieldSeqNode* GetFieldSeq() const
     {
         return m_fieldSeq;
@@ -3096,6 +3209,13 @@ public:
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
         m_fieldSeq = fieldSeq;
+    }
+
+    static bool Equals(GenTreeLclFld* f1, GenTreeLclFld* f2)
+    {
+        assert((f1->OperGet() == f2->OperGet()) && (f1->GetType() == f2->GetType()));
+        return (f1->GetLclNum() == f2->GetLclNum()) && (f1->m_lclOffs == f2->m_lclOffs) &&
+               ((f1->m_layoutNum == f2->m_layoutNum) || !varTypeIsStruct(f1->GetType()));
     }
 
 #if DEBUGGABLE_GENTREE
