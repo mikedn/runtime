@@ -6340,32 +6340,25 @@ GenTree* Compiler::impTransformThis(GenTree*                thisPtr,
             // method from System.Object or System.ValueType.  The EE does not provide us with
             // "unboxed" versions of these methods.
 
-            GenTree* obj = thisPtr;
+            assert(thisPtr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-            assert(obj->TypeGet() == TYP_BYREF || obj->TypeGet() == TYP_I_IMPL);
-            obj = gtNewObjNode(pConstrainedResolvedToken->hClass, obj);
-            obj->gtFlags |= GTF_EXCEPT;
+            var_types type = JITtype2varType(info.compCompHnd->asCorInfoType(pConstrainedResolvedToken->hClass));
+            GenTree*  indir;
 
-            CorInfoType jitTyp  = info.compCompHnd->asCorInfoType(pConstrainedResolvedToken->hClass);
-            var_types   objType = JITtype2varType(jitTyp);
-            if (impIsPrimitive(jitTyp))
+            if (varTypeIsStruct(type))
             {
-                if (obj->OperIsBlk())
-                {
-                    obj->ChangeOperUnchecked(GT_IND);
-
-                    // Obj could point anywhere, example a boxed class static int
-                    obj->gtFlags |= GTF_IND_TGTANYWHERE;
-                    obj->AsOp()->gtOp2 = nullptr; // must be zero for tree walkers
-                }
-
-                obj->gtType = JITtype2varType(jitTyp);
-                assert(varTypeIsArithmetic(obj->gtType));
+                indir = gtNewObjNode(pConstrainedResolvedToken->hClass, thisPtr);
             }
+            else
+            {
+                indir = gtNewOperNode(GT_IND, type, thisPtr);
+            }
+
+            indir->gtFlags |= GTF_EXCEPT;
 
             // This pushes on the dereferenced byref
             // This is then used immediately to box.
-            impPushOnStack(obj, verMakeTypeInfo(pConstrainedResolvedToken->hClass).NormaliseForStack());
+            impPushOnStack(indir, verMakeTypeInfo(pConstrainedResolvedToken->hClass).NormaliseForStack());
 
             // This pops off the byref-to-a-value-type remaining on the stack and
             // replaces it with a boxed object.
@@ -6376,8 +6369,7 @@ GenTree* Compiler::impTransformThis(GenTree*                thisPtr,
                 return nullptr;
             }
 
-            obj = impPopStack().val;
-            return obj;
+            return impPopStack().val;
         }
         case CORINFO_NO_THIS_TRANSFORM:
         default:
