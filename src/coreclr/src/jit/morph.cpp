@@ -10185,19 +10185,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
                 noway_assert(destLclNum != BAD_VAR_NUM);
                 unsigned dstFieldLclNum = lvaTable[destLclNum].lvFieldLclStart + i;
                 dstFld                  = gtNewLclvNode(dstFieldLclNum, lvaTable[dstFieldLclNum].TypeGet());
-                // If it had been labeled a "USEASG", assignments to the the individual promoted fields are not.
-                if (destAddr != nullptr)
-                {
-                    noway_assert(destAddr->AsOp()->gtOp1->gtOper == GT_LCL_VAR);
-                    dstFld->gtFlags |= destAddr->AsOp()->gtOp1->gtFlags & ~(GTF_NODE_MASK | GTF_VAR_USEASG);
-                }
-                else
-                {
-                    noway_assert(lclVarTree != nullptr);
-                    dstFld->gtFlags |= lclVarTree->gtFlags & ~(GTF_NODE_MASK | GTF_VAR_USEASG);
-                }
-                // Don't CSE the lhs of an assignment.
-                dstFld->gtFlags |= GTF_DONT_CSE;
+                dstFld->gtFlags |= lvaTable[dstFieldLclNum].lvAddrExposed ? GTF_GLOB_REF : 0;
             }
             else
             {
@@ -10210,6 +10198,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
                     noway_assert(addrSpill == nullptr);
 
                     dstFld = gtNewLclvNode(destLclNum, destLclVar->TypeGet());
+                    dstFld->gtFlags |= lvaTable[destLclNum].lvAddrExposed ? GTF_GLOB_REF : 0;
                 }
                 else
                 {
@@ -10273,9 +10262,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
                 noway_assert(srcLclNum != BAD_VAR_NUM);
                 unsigned srcFieldLclNum = lvaTable[srcLclNum].lvFieldLclStart + i;
                 srcFld                  = gtNewLclvNode(srcFieldLclNum, lvaTable[srcFieldLclNum].TypeGet());
-
-                noway_assert(srcLclVarTree != nullptr);
-                srcFld->gtFlags |= srcLclVarTree->gtFlags & ~GTF_NODE_MASK;
+                srcFld->gtFlags |= lvaTable[srcFieldLclNum].lvAddrExposed ? GTF_GLOB_REF : 0;
             }
             else
             {
@@ -10290,6 +10277,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
                     noway_assert(addrSpill == nullptr);
 
                     srcFld = gtNewLclvNode(srcLclNum, lvaGetDesc(srcLclNum)->TypeGet());
+                    srcFld->gtFlags |= lvaTable[srcLclNum].lvAddrExposed ? GTF_GLOB_REF : 0;
                 }
                 else
                 {
