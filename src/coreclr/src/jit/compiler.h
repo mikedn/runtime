@@ -539,6 +539,11 @@ public:
     unsigned char lvFldOffset;
     unsigned char lvFldOrdinal;
 
+    bool IsPromoted() const
+    {
+        return lvPromoted;
+    }
+
     unsigned GetPromotedFieldCount() const
     {
         assert(lvPromoted);

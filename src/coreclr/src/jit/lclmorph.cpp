@@ -721,38 +721,22 @@ private:
             return;
         }
 
-        if (varTypeIsStruct(varDsc->GetType()) && varDsc->lvPromoted)
+        if (varTypeIsStruct(varDsc->GetType()) && varDsc->IsPromoted())
         {
             // If this is a promoted variable then we can use a promoted field if it completly
             // overlaps the indirection. With a lot of work, we could also handle cases where
             // the indirection spans multiple fields (e.g. reading two consecutive INT fields
             // as LONG) which would prevent dependent promotion.
 
-            unsigned fieldLclNum = BAD_VAR_NUM;
-
-            for (unsigned n = varDsc->lvFieldLclStart; n < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; n++)
-            {
-                LclVarDsc* fieldLclDsc = m_compiler->lvaGetDesc(n);
-                assert(fieldLclDsc->lvIsStructField);
-                assert(fieldLclDsc->lvParentLcl == val.LclNum());
-
-                if ((val.Offset() >= fieldLclDsc->lvFldOffset) &&
-                    (val.Offset() - fieldLclDsc->lvFldOffset + indirSize <= m_compiler->lvaLclExactSize(n)))
-                {
-                    fieldLclNum = n;
-                    break;
-                }
-            }
+            unsigned fieldLclNum = FindPromotedField(varDsc, val.Offset(), indirSize);
 
             if (fieldLclNum != BAD_VAR_NUM)
             {
-                LclVarDsc*    fieldLclDsc = m_compiler->lvaGetDesc(fieldLclNum);
-                unsigned      fieldOffset = val.Offset();
+                LclVarDsc*    fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+                unsigned      fieldOffset = val.Offset() - fieldLcl->GetPromotedFieldOffset();
                 FieldSeqNode* fieldSeq    = val.FieldSeq();
 
-                fieldOffset = val.Offset() - fieldLclDsc->lvFldOffset;
-
-                if ((fieldSeq != nullptr) && (fieldSeq->m_fieldHnd == fieldLclDsc->lvFieldHnd))
+                if ((fieldSeq != nullptr) && (fieldSeq->m_fieldHnd == fieldLcl->GetPromotedFieldHandle()))
                 {
                     fieldSeq = fieldSeq->m_next;
                 }
@@ -770,6 +754,38 @@ private:
         }
 
         MorphLocalIndir(val, user);
+    }
+
+    //------------------------------------------------------------------------
+    // FindPromotedField: Find a promoted struct field that completly overlaps
+    //     a location of specified size at the specified offset.
+    //
+    // Arguments:
+    //    lcl - the promoted local variable
+    //    offset - the location offset
+    //    size - the location size
+    //
+    // Return Value:
+    //    The overlapping promoted struct field local number or BAD_VAR_NUM if
+    //    no overlapping field exists.
+    //
+    unsigned FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        {
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
+            LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+
+            assert(fieldLcl->GetType() != TYP_STRUCT);
+
+            if ((offset >= fieldLcl->GetPromotedFieldOffset()) &&
+                (offset - fieldLcl->GetPromotedFieldOffset() + size <= genTypeSize(fieldLcl->GetType())))
+            {
+                return fieldLclNum;
+            }
+        }
+
+        return BAD_VAR_NUM;
     }
 
     //------------------------------------------------------------------------
