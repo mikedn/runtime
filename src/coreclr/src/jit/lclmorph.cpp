@@ -40,7 +40,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         unsigned      m_lclNum;
         unsigned      m_offset;
         bool          m_address;
-        INDEBUG(bool m_consumed;)
+        INDEBUG(mutable bool m_consumed;)
 
     public:
         // Produce an unknown value associated with the specified node.
@@ -156,6 +156,15 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             m_lclNum   = lclFld->GetLclNum();
             m_offset   = lclFld->GetLclOffs();
             m_fieldSeq = lclFld->GetFieldSeq();
+        }
+
+        void Location(unsigned lclNum, unsigned lclOffs, FieldSeqNode* fieldSeq)
+        {
+            assert(!IsLocation() && !IsAddress());
+
+            m_lclNum   = lclNum;
+            m_offset   = lclOffs;
+            m_fieldSeq = fieldSeq;
         }
 
         //------------------------------------------------------------------------
@@ -298,7 +307,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         }
 
 #ifdef DEBUG
-        void Consume()
+        void Consume() const
         {
             assert(!m_consumed);
             // Mark the value as consumed so that PopValue can ensure that values
@@ -306,7 +315,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             m_consumed = true;
         }
 
-        bool IsConsumed()
+        bool IsConsumed() const
         {
             return m_consumed;
         }
@@ -641,83 +650,126 @@ private:
     //    with the value as address exposed. This is needed only if the indirection
     //    is wider than the lclvar.
     //
-    void EscapeLocation(Value& val, GenTree* user)
+    void EscapeLocation(const Value& val, GenTree* user)
     {
         assert(val.IsLocation());
+        INDEBUG(val.Consume();)
 
-        GenTree* node = val.Node();
-
-        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (val.Node()->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             // If the location is accessed directly then we don't need to do anything.
 
-            assert(node->AsLclVarCommon()->GetLclNum() == val.LclNum());
+            assert(val.Node()->AsLclVarCommon()->GetLclNum() == val.LclNum());
+            return;
+        }
+
+        // Otherwise it must be accessed through some kind of indirection. Usually this is
+        // something like IND(ADDR(LCL_VAR)), global morph will change it to GT_LCL_VAR or
+        // GT_LCL_FLD so the lclvar does not need to be address exposed.
+        //
+        // However, it is possible for the indirection to be wider than the lclvar
+        // (e.g. *(long*)&int32Var) or to have a field offset that pushes the indirection
+        // past the end of the lclvar memory location. In such cases morph doesn't do
+        // anything so the lclvar needs to be address exposed.
+        //
+        // More importantly, if the lclvar is a promoted struct field then the parent lclvar
+        // also needs to be address exposed so we get dependent struct promotion. Code like
+        // *(long*)&int32Var has undefined behavior and it's practically useless but reading,
+        // say, 2 consecutive Int32 struct fields as Int64 has more practical value.
+
+        LclVarDsc* varDsc    = m_compiler->lvaGetDesc(val.LclNum());
+        unsigned   indirSize = GetIndirSize(val.Node(), user);
+        bool       isWide;
+
+        if (indirSize == 0)
+        {
+            // If we can't figure out the indirection size then treat it as a wide indirection.
+            isWide = true;
         }
         else
         {
-            // Otherwise it must be accessed through some kind of indirection. Usually this is
-            // something like IND(ADDR(LCL_VAR)), global morph will change it to GT_LCL_VAR or
-            // GT_LCL_FLD so the lclvar does not need to be address exposed.
-            //
-            // However, it is possible for the indirection to be wider than the lclvar
-            // (e.g. *(long*)&int32Var) or to have a field offset that pushes the indirection
-            // past the end of the lclvar memory location. In such cases morph doesn't do
-            // anything so the lclvar needs to be address exposed.
-            //
-            // More importantly, if the lclvar is a promoted struct field then the parent lclvar
-            // also needs to be address exposed so we get dependent struct promotion. Code like
-            // *(long*)&int32Var has undefined behavior and it's practically useless but reading,
-            // say, 2 consecutive Int32 struct fields as Int64 has more practical value.
+            ClrSafeInt<unsigned> endOffset = ClrSafeInt<unsigned>(val.Offset()) + ClrSafeInt<unsigned>(indirSize);
 
-            LclVarDsc* varDsc    = m_compiler->lvaGetDesc(val.LclNum());
-            unsigned   indirSize = GetIndirSize(node, user);
-            bool       isWide;
-
-            if (indirSize == 0)
+            if (endOffset.IsOverflow())
             {
-                // If we can't figure out the indirection size then treat it as a wide indirection.
                 isWide = true;
             }
-            else
+            else if (varDsc->TypeGet() == TYP_STRUCT)
             {
-                ClrSafeInt<unsigned> endOffset = ClrSafeInt<unsigned>(val.Offset()) + ClrSafeInt<unsigned>(indirSize);
-
-                if (endOffset.IsOverflow())
-                {
-                    isWide = true;
-                }
-                else if (varDsc->TypeGet() == TYP_STRUCT)
-                {
-                    isWide = (endOffset.Value() > varDsc->lvExactSize);
-                }
-                else
-                {
-                    // For small int types use the real type size, not the stack slot size.
-                    // Morph does manage to transform `*(int*)&byteVar` into just byteVar where
-                    // the LCL_VAR node has type TYP_INT. But such code is simply bogus and
-                    // there's no reason to attempt to optimize it. It makes more sense to
-                    // mark the variable address exposed in such circumstances.
-                    //
-                    // Same for "small" SIMD types - SIMD8/12 have 8/12 bytes, even if the
-                    // stack location may have 16 bytes.
-                    //
-                    // For TYP_BLK variables the type size is 0 so they're always address
-                    // exposed.
-                    isWide = (endOffset.Value() > genTypeSize(varDsc->TypeGet()));
-                }
-            }
-
-            if (isWide)
-            {
-                m_compiler->lvaSetVarAddrExposed(varDsc->lvIsStructField ? varDsc->lvParentLcl : val.LclNum());
+                isWide = (endOffset.Value() > varDsc->lvExactSize);
             }
             else
             {
-                MorphLocalIndir(val, user);
+                // For small int types use the real type size, not the stack slot size.
+                // Morph does manage to transform `*(int*)&byteVar` into just byteVar where
+                // the LCL_VAR node has type TYP_INT. But such code is simply bogus and
+                // there's no reason to attempt to optimize it. It makes more sense to
+                // mark the variable address exposed in such circumstances.
+                //
+                // Same for "small" SIMD types - SIMD8/12 have 8/12 bytes, even if the
+                // stack location may have 16 bytes.
+                //
+                // For TYP_BLK variables the type size is 0 so they're always address
+                // exposed.
+                isWide = (endOffset.Value() > genTypeSize(varDsc->TypeGet()));
             }
         }
 
-        INDEBUG(val.Consume();)
+        if (isWide)
+        {
+            m_compiler->lvaSetVarAddrExposed(varDsc->lvIsStructField ? varDsc->lvParentLcl : val.LclNum());
+            return;
+        }
+
+        if (varTypeIsStruct(varDsc->GetType()) && varDsc->lvPromoted)
+        {
+            // If this is a promoted variable then we can use a promoted field if it completly
+            // overlaps the indirection. With a lot of work, we could also handle cases where
+            // the indirection spans multiple fields (e.g. reading two consecutive INT fields
+            // as LONG) which would prevent dependent promotion.
+
+            unsigned fieldLclNum = BAD_VAR_NUM;
+
+            for (unsigned n = varDsc->lvFieldLclStart; n < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; n++)
+            {
+                LclVarDsc* fieldLclDsc = m_compiler->lvaGetDesc(n);
+                assert(fieldLclDsc->lvIsStructField);
+                assert(fieldLclDsc->lvParentLcl == val.LclNum());
+
+                if ((val.Offset() >= fieldLclDsc->lvFldOffset) &&
+                    (val.Offset() - fieldLclDsc->lvFldOffset + indirSize <= m_compiler->lvaLclExactSize(n)))
+                {
+                    fieldLclNum = n;
+                    break;
+                }
+            }
+
+            if (fieldLclNum != BAD_VAR_NUM)
+            {
+                LclVarDsc*    fieldLclDsc = m_compiler->lvaGetDesc(fieldLclNum);
+                unsigned      fieldOffset = val.Offset();
+                FieldSeqNode* fieldSeq    = val.FieldSeq();
+
+                fieldOffset = val.Offset() - fieldLclDsc->lvFldOffset;
+
+                if ((fieldSeq != nullptr) && (fieldSeq->m_fieldHnd == fieldLclDsc->lvFieldHnd))
+                {
+                    fieldSeq = fieldSeq->m_next;
+                }
+                else
+                {
+                    fieldSeq = nullptr;
+                }
+
+                Value fieldVal(val.Node());
+                fieldVal.Location(fieldLclNum, fieldOffset, fieldSeq);
+                MorphLocalIndir(fieldVal, user);
+
+                return;
+            }
+        }
+
+        MorphLocalIndir(val, user);
     }
 
     //------------------------------------------------------------------------
@@ -937,7 +989,7 @@ private:
             return;
         }
 
-        if (varDsc->lvPromoted || varDsc->lvIsStructField)
+        if (varDsc->lvPromoted)
         {
             // TODO-ADDR: For now we ignore promoted variables, they may require
             // additional changes in subsequent phases.
