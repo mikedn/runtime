@@ -9886,15 +9886,34 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
             // Are both dest and src promoted structs?
             if (destDoFldAsg && srcDoFldAsg)
             {
-                // Both structs should be of the same type, or each have a single field of the same type.
-                // If not we will use a copy block.
-                if (lvaTable[destLclNum].lvVerTypeInfo.GetClassHandle() !=
-                    lvaTable[srcLclNum].lvVerTypeInfo.GetClassHandle())
+                // Both structs should be of the same type, or each have the same number of fields, each having
+                // the same type and offset. Actually, the destination could have less fields than the source
+                // but there doesn't appear to be any such case in the entire FX. Copies between variables of
+                // different types but same layout do occur though - Memory's implicit operator ReadOnlyMemory
+                // uses Unsafe.As to perform the conversion, instead of copying the struct field by field.
+                if (destLclVar->lvVerTypeInfo.GetClassHandle() != srcLclVar->lvVerTypeInfo.GetClassHandle())
                 {
-                    unsigned destFieldNum = lvaTable[destLclNum].lvFieldLclStart;
-                    unsigned srcFieldNum  = lvaTable[srcLclNum].lvFieldLclStart;
-                    if ((lvaTable[destLclNum].lvFieldCnt != 1) || (lvaTable[srcLclNum].lvFieldCnt != 1) ||
-                        (lvaTable[destFieldNum].lvType != lvaTable[srcFieldNum].lvType))
+                    bool sameLayout = destLclVar->lvFieldCnt == srcLclVar->lvFieldCnt;
+
+                    if (sameLayout)
+                    {
+                        for (unsigned i = 0; i < destLclVar->lvFieldCnt; i++)
+                        {
+                            LclVarDsc* destFieldDesc = lvaGetDesc(destLclVar->lvFieldLclStart + i);
+                            LclVarDsc* srcFieldDesc  = lvaGetDesc(srcLclVar->lvFieldLclStart + i);
+
+                            assert(destFieldDesc->TypeGet() != TYP_STRUCT);
+
+                            if ((destFieldDesc->lvFldOffset != srcFieldDesc->lvFldOffset) ||
+                                (destFieldDesc->TypeGet() != srcFieldDesc->TypeGet()))
+                            {
+                                sameLayout = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!sameLayout)
                     {
                         requiresCopyBlock = true; // Mismatched types, leave as a CopyBlock
                         JITDUMP(" with mismatched types");
