@@ -821,7 +821,7 @@ private:
             addr->AsOp()->gtOp1 = m_compiler->gtNewLclVarAddrNode(val.LclNum());
             addr->AsOp()->gtOp2 = m_compiler->gtNewIconNode(val.Offset(), val.FieldSeq());
         }
-        else if ((val.Offset() != 0) || (val.FieldSeq() != nullptr))
+        else if ((val.Offset() != 0) || ((val.FieldSeq() != nullptr) && (val.FieldSeq() != FieldSeqStore::NotAField())))
         {
             addr->ChangeOper(GT_LCL_FLD_ADDR);
             addr->AsLclFld()->SetLclNum(val.LclNum());
