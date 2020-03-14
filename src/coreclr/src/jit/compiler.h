@@ -866,6 +866,17 @@ public:
     Statement* lvDefStmt;          // Pointer to the statement with the single definition
     void       lvaDisqualifyVar(); // Call to disqualify a local variable from use in optAddCopies
 #endif
+    var_types GetType() const
+    {
+        return lvType;
+    }
+
+    void SetType(var_types type)
+    {
+        assert((TYP_UNDEF < type) && (type < TYP_UNKNOWN) && !varTypeIsStruct(type));
+        lvType = type;
+    }
+
     var_types TypeGet() const
     {
         return (var_types)lvType;
@@ -2471,7 +2482,7 @@ public:
     GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool doSimplifications = TRUE);
 
     // For binary opers.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
+    GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
 
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* colon);
 
@@ -2644,7 +2655,7 @@ public:
     fgArgTabEntry* gtArgEntryByLateArgIndex(GenTreeCall* call, unsigned lateArgInx);
     static GenTree* gtArgNodeByLateArgInx(GenTreeCall* call, unsigned lateArgInx);
 
-    GenTree* gtNewAssignNode(GenTree* dst, GenTree* src);
+    GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
 
     GenTree* gtNewTempAssign(unsigned    tmp,
                              GenTree*    val,

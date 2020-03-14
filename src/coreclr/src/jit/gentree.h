@@ -5409,6 +5409,11 @@ struct GenTreeIndir : public GenTreeOp
         return gtOp1;
     }
 
+    GenTree* GetAddr() const
+    {
+        return gtOp1;
+    }
+
     void SetAddr(GenTree* addr)
     {
         assert(addr != nullptr);
