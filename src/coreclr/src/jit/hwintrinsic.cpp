@@ -644,7 +644,9 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                         op1 = op1->gtGetOp1();
                     }
                 }
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+
+                retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1)
+                                   : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
                 break;
             }
 
@@ -659,7 +661,23 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
                 op1     = getArgForHWIntrinsic(argType, argClass);
 
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
+                retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2)
+                                   : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
+#ifdef TARGET_XARCH
+                if (intrinsic == NI_SSE42_Crc32 || intrinsic == NI_SSE42_X64_Crc32)
+#endif
+#ifdef TARGET_ARM64
+                    if (intrinsic == NI_Crc32_ComputeCrc32 || intrinsic == NI_Crc32_ComputeCrc32C ||
+                        intrinsic == NI_Crc32_Arm64_ComputeCrc32 || intrinsic == NI_Crc32_Arm64_ComputeCrc32C)
+#endif
+                    {
+                        // type of the second argument
+                        CorInfoType corType = strip(info.compCompHnd->getArgType(sig, arg2, &argClass));
+
+                        // TODO - currently we use the BaseType to bring the type of the second argument
+                        // to the code generator. May encode the overload info in other way.
+                        retNode->AsHWIntrinsic()->gtSIMDBaseType = JITtype2varType(corType);
+                    }
                 break;
             }
 
@@ -681,7 +699,8 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
                 op1     = getArgForHWIntrinsic(argType, argClass);
 
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3);
+                retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2, op3)
+                                   : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3);
 
 #ifdef TARGET_XARCH
                 if (intrinsic == NI_AVX2_GatherVector128 || intrinsic == NI_AVX2_GatherVector256)

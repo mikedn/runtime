@@ -8054,14 +8054,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 #ifdef FEATURE_SIMD
         else if (tree->OperGet() == GT_SIMD)
         {
-            fgValueNumberSimd(tree);
+            fgValueNumberSimd(tree->AsSIMD());
         }
 #endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
         else if (tree->OperGet() == GT_HWINTRINSIC)
         {
-            fgValueNumberHWIntrinsic(tree);
+            fgValueNumberHWIntrinsic(tree->AsHWIntrinsic());
         }
 #endif // FEATURE_HW_INTRINSICS
 
@@ -8419,29 +8419,24 @@ void Compiler::fgValueNumberIntrinsic(GenTree* tree)
 
 #ifdef FEATURE_SIMD
 // Does value-numbering for a GT_SIMD node.
-void Compiler::fgValueNumberSimd(GenTree* tree)
+void Compiler::fgValueNumberSimd(GenTreeSIMD* simdNode)
 {
-    assert(tree->OperGet() == GT_SIMD);
-    GenTreeSIMD* simdNode = tree->AsSIMD();
-    assert(simdNode != nullptr);
     ValueNumPair excSetPair;
     ValueNumPair normalPair;
 
     // There are some SIMD operations that have zero args, i.e.  NI_Vector128_Zero
-    if (tree->AsOp()->gtOp1 == nullptr)
+    if (simdNode->GetNumOps() == 0)
     {
         excSetPair = ValueNumStore::VNPForEmptyExcSet();
-        normalPair = vnStore->VNPairForFunc(tree->TypeGet(), GetVNFuncForNode(tree));
+        normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), GetVNFuncForNode(simdNode));
     }
-    else if (tree->AsOp()->gtOp1->OperIs(GT_LIST))
+    else if (simdNode->GetNumOps() > 2)
     {
-        assert(tree->AsOp()->gtOp2 == nullptr);
-
-        // We have a SIMD node in the GT_LIST form with 3 or more args
+        // We have a SIMD node with 3 or more args
         // For now we will generate a unique value number for this case.
 
         // Generate a unique VN
-        tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+        simdNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, simdNode->TypeGet()));
         return;
     }
     else // SIMD unary or binary operator.
@@ -8449,16 +8444,16 @@ void Compiler::fgValueNumberSimd(GenTree* tree)
         ValueNumPair resvnp = ValueNumPair();
         ValueNumPair op1vnp;
         ValueNumPair op1Xvnp;
-        vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1vnp, &op1Xvnp);
+        vnStore->VNPUnpackExc(simdNode->GetOp(0)->gtVNPair, &op1vnp, &op1Xvnp);
 
         if (simdNode->gtSIMDIntrinsicID == SIMDIntrinsicInitArray)
         {
             // rationalize rewrites this as an explicit load with op1 as the base address
 
             ValueNumPair op2vnp;
-            if (tree->AsOp()->gtOp2 == nullptr)
+            if (simdNode->IsUnary())
             {
-                // a nullptr for op2 means that we have an impicit index of zero
+                // If it's unary then we have an implicit index of zero
                 op2vnp = ValueNumPair(vnStore->VNZeroForType(TYP_INT), vnStore->VNZeroForType(TYP_INT));
 
                 excSetPair = op1Xvnp;
@@ -8466,13 +8461,13 @@ void Compiler::fgValueNumberSimd(GenTree* tree)
             else // We have an explicit index in op2
             {
                 ValueNumPair op2Xvnp;
-                vnStore->VNPUnpackExc(tree->AsOp()->gtOp2->gtVNPair, &op2vnp, &op2Xvnp);
+                vnStore->VNPUnpackExc(simdNode->GetOp(1)->gtVNPair, &op2vnp, &op2Xvnp);
 
                 excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
             }
 
             ValueNum addrVN =
-                vnStore->VNForFunc(TYP_BYREF, GetVNFuncForNode(tree), op1vnp.GetLiberal(), op2vnp.GetLiberal());
+                vnStore->VNForFunc(TYP_BYREF, GetVNFuncForNode(simdNode), op1vnp.GetLiberal(), op2vnp.GetLiberal());
 #ifdef DEBUG
             if (verbose)
             {
@@ -8483,11 +8478,11 @@ void Compiler::fgValueNumberSimd(GenTree* tree)
 
             // The address points into the heap, so it is an ByrefExposed load.
             //
-            ValueNum loadVN = fgValueNumberByrefExposedLoad(tree->TypeGet(), addrVN);
-            tree->gtVNPair.SetLiberal(loadVN);
-            tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-            tree->gtVNPair = vnStore->VNPWithExc(tree->gtVNPair, excSetPair);
-            fgValueNumberAddExceptionSetForIndirection(tree, tree->AsOp()->gtOp1);
+            ValueNum loadVN = fgValueNumberByrefExposedLoad(simdNode->TypeGet(), addrVN);
+            simdNode->gtVNPair.SetLiberal(loadVN);
+            simdNode->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, simdNode->TypeGet()));
+            simdNode->gtVNPair = vnStore->VNPWithExc(simdNode->gtVNPair, excSetPair);
+            fgValueNumberAddExceptionSetForIndirection(simdNode, simdNode->GetOp(0));
             return;
         }
 
@@ -8510,20 +8505,20 @@ void Compiler::fgValueNumberSimd(GenTree* tree)
 #endif
         }
 
-        VNFunc simdFunc = GetVNFuncForNode(tree);
+        VNFunc simdFunc = GetVNFuncForNode(simdNode);
 
-        if (tree->AsOp()->gtOp2 == nullptr)
+        if (simdNode->IsUnary())
         {
             // Unary SIMD nodes have a nullptr for op2.
             excSetPair = op1Xvnp;
             if (encodeResultType)
             {
-                normalPair = vnStore->VNPairForFunc(tree->TypeGet(), simdFunc, op1vnp, resvnp);
+                normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc, op1vnp, resvnp);
                 assert(vnStore->VNFuncArity(simdFunc) == 2);
             }
             else
             {
-                normalPair = vnStore->VNPairForFunc(tree->TypeGet(), simdFunc, op1vnp);
+                normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc, op1vnp);
                 assert(vnStore->VNFuncArity(simdFunc) == 1);
             }
         }
@@ -8531,63 +8526,59 @@ void Compiler::fgValueNumberSimd(GenTree* tree)
         {
             ValueNumPair op2vnp;
             ValueNumPair op2Xvnp;
-            vnStore->VNPUnpackExc(tree->AsOp()->gtOp2->gtVNPair, &op2vnp, &op2Xvnp);
+            vnStore->VNPUnpackExc(simdNode->GetOp(1)->gtVNPair, &op2vnp, &op2Xvnp);
 
             excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
             if (encodeResultType)
             {
-                normalPair = vnStore->VNPairForFunc(tree->TypeGet(), simdFunc, op1vnp, op2vnp, resvnp);
+                normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc, op1vnp, op2vnp, resvnp);
                 assert(vnStore->VNFuncArity(simdFunc) == 3);
             }
             else
             {
-                normalPair = vnStore->VNPairForFunc(tree->TypeGet(), simdFunc, op1vnp, op2vnp);
+                normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc, op1vnp, op2vnp);
                 assert(vnStore->VNFuncArity(simdFunc) == 2);
             }
         }
     }
-    tree->gtVNPair = vnStore->VNPWithExc(normalPair, excSetPair);
+    simdNode->gtVNPair = vnStore->VNPWithExc(normalPair, excSetPair);
 }
 #endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
 // Does value-numbering for a GT_HWINTRINSIC node
-void Compiler::fgValueNumberHWIntrinsic(GenTree* tree)
+void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
 {
-    assert(tree->OperGet() == GT_HWINTRINSIC);
-    GenTreeHWIntrinsic* hwIntrinsicNode = tree->AsHWIntrinsic();
-    assert(hwIntrinsicNode != nullptr);
-
     // For safety/correctness we must mutate the global heap valuenumber
     //  for any HW intrinsic that performs a memory store operation
     if (hwIntrinsicNode->OperIsMemoryStore())
     {
-        fgMutateGcHeap(tree DEBUGARG("HWIntrinsic - MemoryStore"));
+        fgMutateGcHeap(hwIntrinsicNode DEBUGARG("HWIntrinsic - MemoryStore"));
     }
 
     int      lookupNumArgs = HWIntrinsicInfo::lookupNumArgs(hwIntrinsicNode->gtHWIntrinsicId);
-    VNFunc   func          = GetVNFuncForNode(tree);
+    VNFunc   func          = GetVNFuncForNode(hwIntrinsicNode);
     unsigned fixedArity    = vnStore->VNFuncArity(func);
 
     ValueNumPair excSetPair = ValueNumStore::VNPForEmptyExcSet();
     ValueNumPair normalPair;
 
     // There are some HWINTRINSICS operations that have zero args, i.e.  NI_Vector128_Zero
-    if (tree->AsOp()->gtOp1 == nullptr)
+    if (hwIntrinsicNode->GetNumOps() == 0)
     {
         assert(fixedArity == 0);
 
-        normalPair = vnStore->VNPairForFunc(tree->TypeGet(), func);
+        normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func);
         assert(lookupNumArgs == 0);
     }
-    else if (tree->AsOp()->gtOp1->OperIs(GT_LIST) || (lookupNumArgs == -1))
+    else if ((hwIntrinsicNode->GetNumOps() > 2) || (lookupNumArgs == -1))
     {
-        // We have a HWINTRINSIC node in the GT_LIST form with 3 or more args
+        // We have a HWINTRINSIC node with 3 or more args
         // Or the numArgs was specified as -1 in the numArgs column in "hwinstrinsiclistxarch.h"
         // For now we will generate a unique value number for this case.
 
         // Generate unique VN
-        tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+        hwIntrinsicNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, hwIntrinsicNode->TypeGet()));
         return;
     }
     else // HWINTRINSIC unary or binary operator.
@@ -8613,20 +8604,20 @@ void Compiler::fgValueNumberHWIntrinsic(GenTree* tree)
         }
         ValueNumPair op1vnp;
         ValueNumPair op1Xvnp;
-        vnStore->VNPUnpackExc(tree->AsOp()->gtOp1->gtVNPair, &op1vnp, &op1Xvnp);
+        vnStore->VNPUnpackExc(hwIntrinsicNode->GetOp(0)->gtVNPair, &op1vnp, &op1Xvnp);
 
-        if (tree->AsOp()->gtOp2 == nullptr)
+        if (hwIntrinsicNode->IsUnary())
         {
             excSetPair = op1Xvnp;
 
             if (encodeResultType)
             {
-                normalPair = vnStore->VNPairForFunc(tree->TypeGet(), func, op1vnp, resvnp);
+                normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, resvnp);
                 assert(vnStore->VNFuncArity(func) == 2);
             }
             else
             {
-                normalPair = vnStore->VNPairForFunc(tree->TypeGet(), func, op1vnp);
+                normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp);
                 assert(vnStore->VNFuncArity(func) == 1);
             }
         }
@@ -8634,22 +8625,22 @@ void Compiler::fgValueNumberHWIntrinsic(GenTree* tree)
         {
             ValueNumPair op2vnp;
             ValueNumPair op2Xvnp;
-            vnStore->VNPUnpackExc(tree->AsOp()->gtOp2->gtVNPair, &op2vnp, &op2Xvnp);
+            vnStore->VNPUnpackExc(hwIntrinsicNode->GetOp(1)->gtVNPair, &op2vnp, &op2Xvnp);
 
             excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
             if (encodeResultType)
             {
-                normalPair = vnStore->VNPairForFunc(tree->TypeGet(), func, op1vnp, op2vnp, resvnp);
+                normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, op2vnp, resvnp);
                 assert(vnStore->VNFuncArity(func) == 3);
             }
             else
             {
-                normalPair = vnStore->VNPairForFunc(tree->TypeGet(), func, op1vnp, op2vnp);
+                normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->TypeGet(), func, op1vnp, op2vnp);
                 assert(vnStore->VNFuncArity(func) == 2);
             }
         }
     }
-    tree->gtVNPair = vnStore->VNPWithExc(normalPair, excSetPair);
+    hwIntrinsicNode->gtVNPair = vnStore->VNPWithExc(normalPair, excSetPair);
 }
 #endif // FEATURE_HW_INTRINSICS
 

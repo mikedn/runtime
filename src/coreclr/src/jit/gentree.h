@@ -4687,6 +4687,9 @@ public:
         return true;
     }
 
+    bool OperIsMemoryLoad() const; // Returns true for the SIMD Instrinsic instructions that have MemoryLoad semantics,
+                                   // false otherwise
+
     // Delete some functions inherited from GenTree to avoid accidental use, at least
     // when the node object is accessed via GenTreeSIMD* rather than GenTree*.
     GenTree*           gtGetOp1() const          = delete;
@@ -4712,9 +4715,6 @@ private:
     {
         return HasInlineUses() ? m_inlineUses : m_uses;
     }
-
-    bool OperIsMemoryLoad() const; // Returns true for the SIMD Instrinsic instructions that have MemoryLoad semantics,
-                                   // false otherwise
 
 #if DEBUGGABLE_GENTREE
 public:
