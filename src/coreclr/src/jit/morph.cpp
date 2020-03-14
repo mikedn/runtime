@@ -9888,7 +9888,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
     }
     else
     {
-        unsigned             destSize;
+        unsigned             destSize     = 0;
         bool                 destHasSize  = false;
         GenTreeLclVarCommon* destLclNode  = nullptr;
         unsigned             destLclNum   = BAD_VAR_NUM;
@@ -9902,7 +9902,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
         JITDUMP("block assignment to morph:\n");
         DISPTREE(asg);
 
-        if (dest->IsLocal())
+        if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             destHasSize = true;
             destOnStack = true;
@@ -9947,27 +9947,21 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
 
                 destSize    = genTypeSize(effectiveDest->GetType());
                 destHasSize = true;
-
-                if ((dest == effectiveDest) && ((dest->gtFlags & GTF_IND_ARR_INDEX) == 0))
-                {
-                    destAddr = dest->AsIndir()->GetAddr();
-                }
+            }
+            else if (effectiveDest->OperIs(GT_OBJ, GT_BLK))
+            {
+                destSize    = effectiveDest->AsBlk()->GetLayout()->GetSize();
+                destHasSize = true;
             }
             else
             {
-                assert(effectiveDest->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK));
-
-                destSize    = effectiveDest->AsBlk()->Size();
-                destHasSize = !effectiveDest->OperIs(GT_DYN_BLK);
-
-                if ((dest == effectiveDest) && ((dest->gtFlags & GTF_IND_ARR_INDEX) == 0))
-                {
-                    destAddr = dest->AsBlk()->GetAddr();
-                }
+                effectiveDest->OperIs(GT_DYN_BLK);
             }
 
-            if (destAddr != nullptr)
+            if ((dest == effectiveDest) && ((dest->gtFlags & GTF_IND_ARR_INDEX) == 0))
             {
+                destAddr = dest->AsIndir()->GetAddr();
+
                 noway_assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
                 if (destAddr->IsLocalAddrExpr(this, &destLclNode, &destFieldSeq))
@@ -9982,33 +9976,12 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
         }
 
 #if LOCAL_ASSERTION_PROP
-        // Kill everything about modifiedLclNum (and its field locals)
+        // Kill everything about killedLclNum (and its field locals)
         if (optLocalAssertionProp && (killedLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
         {
             fgKillDependentAssertions(killedLclNum DEBUGARG(tree));
         }
 #endif
-
-        if (destLclVar != nullptr)
-        {
-            if (destLclVar->lvPromoted && destHasSize)
-            {
-                noway_assert(varTypeIsStruct(destLclVar->GetType()));
-                noway_assert(!opts.MinOpts());
-
-                if (destSize == destLclVar->lvExactSize)
-                {
-                    // We may decide later that a copyblk is required when this struct has holes
-                    destPromote = true;
-
-                    JITDUMP(" (destPromote=true)");
-                }
-                else
-                {
-                    JITDUMP(" with mismatched dest size");
-                }
-            }
-        }
 
         GenTreeLclVarCommon* srcLclNode  = nullptr;
         unsigned             srcLclNum   = BAD_VAR_NUM;
@@ -10017,10 +9990,11 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
         GenTree*             srcAddr     = nullptr;
         bool                 srcPromote  = false;
 
-        if (src->IsLocal())
+        if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             srcLclNode = src->AsLclVarCommon();
             srcLclNum  = srcLclNode->GetLclNum();
+            srcLclVar  = lvaGetDesc(srcLclNum);
 
             if (src->OperIs(GT_LCL_FLD))
             {
@@ -10032,33 +10006,11 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
             if (src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcFieldSeq))
             {
                 srcLclNum = srcLclNode->GetLclNum();
+                srcLclVar = lvaGetDesc(srcLclNum);
             }
             else
             {
                 srcAddr = src->AsIndir()->GetAddr();
-            }
-        }
-
-        if (srcLclNum != BAD_VAR_NUM)
-        {
-            srcLclVar = lvaGetDesc(srcLclNum);
-
-            if (srcLclVar->lvPromoted && destHasSize)
-            {
-                noway_assert(varTypeIsStruct(srcLclVar->GetType()));
-                noway_assert(!opts.MinOpts());
-
-                if (destSize == srcLclVar->lvExactSize)
-                {
-                    // We may decide later that a copyblk is required when this struct has holes
-                    srcPromote = true;
-
-                    JITDUMP(" (srcPromote=true)");
-                }
-                else
-                {
-                    JITDUMP(" with mismatched src size");
-                }
             }
         }
 
@@ -10073,168 +10025,175 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
             return nop;
         }
 
-        // Check to see if we are required to do a copy block because the struct contains holes
-        // and either the src or dest is externally visible
-        //
+        if ((destLclVar != nullptr) && destLclVar->lvPromoted && destHasSize)
+        {
+            noway_assert(varTypeIsStruct(destLclVar->GetType()));
+            noway_assert(!opts.MinOpts());
+
+            if (destSize == destLclVar->lvExactSize)
+            {
+                // We may decide later that a copyblk is required when this struct has holes
+                destPromote = true;
+
+                JITDUMP(" (destPromote=true)");
+            }
+            else
+            {
+                JITDUMP(" with mismatched dest size");
+            }
+        }
+
+        if ((srcLclVar != nullptr) && srcLclVar->lvPromoted && destHasSize)
+        {
+            noway_assert(varTypeIsStruct(srcLclVar->GetType()));
+            noway_assert(!opts.MinOpts());
+
+            if (destSize == srcLclVar->lvExactSize)
+            {
+                // We may decide later that a copyblk is required when this struct has holes
+                srcPromote = true;
+
+                JITDUMP(" (srcPromote=true)");
+            }
+            else
+            {
+                JITDUMP(" with mismatched src size");
+            }
+        }
+
         bool requiresCopyBlock   = false;
         bool srcSingleLclVarAsg  = false;
         bool destSingleLclVarAsg = false;
 
-        // If either src or dest is a reg-sized non-field-addressed struct, keep the copyBlock.
-        if (((destLclVar != nullptr) && destLclVar->lvRegStruct) || ((srcLclVar != nullptr) && srcLclVar->lvRegStruct))
+        if (!destPromote && !srcPromote)
         {
+            JITDUMP(" with no promoted structs");
             requiresCopyBlock = true;
         }
-
-        // Can we use field by field assignment for the dest?
-        if (destPromote && destLclVar->lvCustomLayout && destLclVar->lvContainsHoles)
+        else if (((destLclVar != nullptr) && destLclVar->lvRegStruct) ||
+                 ((srcLclVar != nullptr) && srcLclVar->lvRegStruct))
         {
-            JITDUMP(" dest contains custom layout and contains holes");
-            // C++ style CopyBlock with holes
+            JITDUMP(" dest or src are register structs");
             requiresCopyBlock = true;
         }
-
-        // Can we use field by field assignment for the src?
-        if (srcPromote && srcLclVar->lvCustomLayout && srcLclVar->lvContainsHoles)
+        else if (destPromote && destLclVar->lvCustomLayout && destLclVar->lvContainsHoles)
         {
-            JITDUMP(" src contains custom layout and contains holes");
-            // C++ style CopyBlock with holes
+            JITDUMP(" dest has custom layout and contains holes");
             requiresCopyBlock = true;
         }
-
+        else if (srcPromote && srcLclVar->lvCustomLayout && srcLclVar->lvContainsHoles)
+        {
+            JITDUMP(" src has custom layout and contains holes");
+            requiresCopyBlock = true;
+        }
+        else if (src->OperIs(GT_CALL))
+        {
+            JITDUMP(" src is a call");
+            requiresCopyBlock = true;
+        }
 #if defined(TARGET_ARM)
-        if (src->OperIsIndir() && ((src->gtFlags & GTF_IND_UNALIGNED) != 0))
+        else if (src->OperIsIndir() && ((src->gtFlags & GTF_IND_UNALIGNED) != 0))
         {
             JITDUMP(" src is unaligned");
             requiresCopyBlock = true;
         }
-
-        if ((asg->gtFlags & GTF_BLK_UNALIGNED) != 0)
+        else if ((asg->gtFlags & GTF_BLK_UNALIGNED) != 0)
         {
             JITDUMP(" asg is unaligned");
             requiresCopyBlock = true;
         }
 #endif // TARGET_ARM
-
-        // Can't use field by field assignment if the src is a call.
-        if (src->OperIs(GT_CALL))
+        else if (destPromote && srcPromote)
         {
-            JITDUMP(" src is a call");
-            // C++ style CopyBlock with holes
-            requiresCopyBlock = true;
-        }
-
-        // If we passed the above checks, then we will check these two
-        if (!requiresCopyBlock)
-        {
-            // Are both dest and src promoted structs?
-            if (destPromote && srcPromote)
+            // Both structs should be of the same type, or each have the same number of fields, each having
+            // the same type and offset. Actually, the destination could have less fields than the source
+            // but there doesn't appear to be any such case in the entire FX. Copies between variables of
+            // different types but same layout do occur though - Memory's implicit operator ReadOnlyMemory
+            // uses Unsafe.As to perform the conversion, instead of copying the struct field by field.
+            if (destLclVar->lvVerTypeInfo.GetClassHandle() != srcLclVar->lvVerTypeInfo.GetClassHandle())
             {
-                // Both structs should be of the same type, or each have the same number of fields, each having
-                // the same type and offset. Actually, the destination could have less fields than the source
-                // but there doesn't appear to be any such case in the entire FX. Copies between variables of
-                // different types but same layout do occur though - Memory's implicit operator ReadOnlyMemory
-                // uses Unsafe.As to perform the conversion, instead of copying the struct field by field.
-                if (destLclVar->lvVerTypeInfo.GetClassHandle() != srcLclVar->lvVerTypeInfo.GetClassHandle())
+                bool sameLayout = destLclVar->lvFieldCnt == srcLclVar->lvFieldCnt;
+
+                if (sameLayout)
                 {
-                    bool sameLayout = destLclVar->lvFieldCnt == srcLclVar->lvFieldCnt;
-
-                    if (sameLayout)
+                    for (unsigned i = 0; i < destLclVar->lvFieldCnt; i++)
                     {
-                        for (unsigned i = 0; i < destLclVar->lvFieldCnt; i++)
+                        LclVarDsc* destFieldVar = lvaGetDesc(destLclVar->lvFieldLclStart + i);
+                        LclVarDsc* srcFieldVar  = lvaGetDesc(srcLclVar->lvFieldLclStart + i);
+
+                        assert(destFieldVar->TypeGet() != TYP_STRUCT);
+
+                        if ((destFieldVar->lvFldOffset != srcFieldVar->lvFldOffset) ||
+                            (destFieldVar->TypeGet() != srcFieldVar->TypeGet()))
                         {
-                            LclVarDsc* destFieldVar = lvaGetDesc(destLclVar->lvFieldLclStart + i);
-                            LclVarDsc* srcFieldVar  = lvaGetDesc(srcLclVar->lvFieldLclStart + i);
-
-                            assert(destFieldVar->TypeGet() != TYP_STRUCT);
-
-                            if ((destFieldVar->lvFldOffset != srcFieldVar->lvFldOffset) ||
-                                (destFieldVar->TypeGet() != srcFieldVar->TypeGet()))
-                            {
-                                sameLayout = false;
-                                break;
-                            }
+                            sameLayout = false;
+                            break;
                         }
                     }
-
-                    if (!sameLayout)
-                    {
-                        requiresCopyBlock = true; // Mismatched types, leave as a CopyBlock
-                        JITDUMP(" with mismatched types");
-                    }
                 }
-            }
-            // Are neither dest or src promoted structs?
-            else if (!destPromote && !srcPromote)
-            {
-                requiresCopyBlock = true; // Leave as a CopyBlock
-                JITDUMP(" with no promoted structs");
-            }
-            else if (destPromote)
-            {
-                // Match the following kinds of trees:
-                //  fgMorphTree BB01, stmt 9 (before)
-                //   [000052] ------------        const     int    8
-                //   [000053] -A--G-------     copyBlk   void
-                //   [000051] ------------           addr      byref
-                //   [000050] ------------              lclVar    long   V07 loc5
-                //   [000054] --------R---        <list>    void
-                //   [000049] ------------           addr      byref
-                //   [000048] ------------              lclVar    struct(P) V06 loc4
-                //                                              long   V06.h (offs=0x00) -> V17 tmp9
-                // Yields this transformation
-                //  fgMorphCopyBlock (after):
-                //   [000050] ------------        lclVar    long   V07 loc5
-                //   [000085] -A----------     =         long
-                //   [000083] D------N----        lclVar    long   V17 tmp9
-                //
-                if (destHasSize && (destLclVar->lvFieldCnt == 1) && (srcLclVar != nullptr) &&
-                    (destSize == genTypeSize(srcLclVar->GetType())))
+
+                if (!sameLayout)
                 {
-                    // Reject the following tree:
-                    //  - seen on x86chk    jit\jit64\hfa\main\hfa_sf3E_r.exe
-                    //
-                    //  fgMorphTree BB01, stmt 6 (before)
-                    //   [000038] -------------        const     int    4
-                    //   [000039] -A--G--------     copyBlk   void
-                    //   [000037] -------------           addr      byref
-                    //   [000036] -------------              lclVar    int    V05 loc3
-                    //   [000040] --------R----        <list>    void
-                    //   [000035] -------------           addr      byref
-                    //   [000034] -------------              lclVar    struct(P) V04 loc2
-                    //                                          float  V04.f1 (offs=0x00) -> V13 tmp6
-                    // As this would framsform into
-                    //   float V13 = int V05
-                    //
-                    if (srcLclVar->GetType() == lvaGetDesc(destLclVar->lvFieldLclStart)->GetType())
-                    {
-                        srcSingleLclVarAsg = true;
-                    }
+                    requiresCopyBlock = true;
+                    JITDUMP(" with mismatched types");
                 }
             }
-            else
-            {
-                assert(srcPromote);
+        }
+        else if (destPromote)
+        {
+            // Match the following kinds of trees:
+            //  fgMorphTree BB01, stmt 9 (before)
+            //   [000052] ------------        const     int    8
+            //   [000053] -A--G-------     copyBlk   void
+            //   [000051] ------------           addr      byref
+            //   [000050] ------------              lclVar    long   V07 loc5
+            //   [000054] --------R---        <list>    void
+            //   [000049] ------------           addr      byref
+            //   [000048] ------------              lclVar    struct(P) V06 loc4
+            //                                              long   V06.h (offs=0x00) -> V17 tmp9
+            // Yields this transformation
+            //  fgMorphCopyBlock (after):
+            //   [000050] ------------        lclVar    long   V07 loc5
+            //   [000085] -A----------     =         long
+            //   [000083] D------N----        lclVar    long   V17 tmp9
+            //
 
-                // Check for the symmetric case (which happens for the _pointer field of promoted spans):
-                //
-                //               [000240] -----+------             /--*  lclVar    struct(P) V18 tmp9
-                //                                                  /--*    byref  V18._value (offs=0x00) -> V30 tmp21
-                //               [000245] -A------R---             *  =         struct (copy)
-                //               [000244] -----+------             \--*  obj(8)    struct
-                //               [000243] -----+------                \--*  addr      byref
-                //               [000242] D----+-N----                   \--*  lclVar    byref  V28 tmp19
-                //
+            // Reject the following tree:
+            //  - seen on x86chk    jit\jit64\hfa\main\hfa_sf3E_r.exe
+            //
+            //  fgMorphTree BB01, stmt 6 (before)
+            //   [000038] -------------        const     int    4
+            //   [000039] -A--G--------     copyBlk   void
+            //   [000037] -------------           addr      byref
+            //   [000036] -------------              lclVar    int    V05 loc3
+            //   [000040] --------R----        <list>    void
+            //   [000035] -------------           addr      byref
+            //   [000034] -------------              lclVar    struct(P) V04 loc2
+            //                                          float  V04.f1 (offs=0x00) -> V13 tmp6
+            // As this would framsform into
+            //   float V13 = int V05
 
-                if (destHasSize && (srcLclVar->lvFieldCnt == 1) && (destLclVar != nullptr) &&
-                    (destSize == genTypeSize(destLclVar->GetType())))
-                {
-                    if (destLclVar->GetType() == lvaGetDesc(srcLclVar->lvFieldLclStart)->GetType())
-                    {
-                        destSingleLclVarAsg = true;
-                    }
-                }
-            }
+            srcSingleLclVarAsg = (destHasSize && (destLclVar->lvFieldCnt == 1) && (srcLclVar != nullptr) &&
+                                  (destSize == genTypeSize(srcLclVar->GetType())) &&
+                                  (srcLclVar->GetType() == lvaGetDesc(destLclVar->lvFieldLclStart)->GetType()));
+        }
+        else
+        {
+            assert(srcPromote);
+
+            // Check for the symmetric case (which happens for the _pointer field of promoted spans):
+            //
+            //               [000240] -----+------             /--*  lclVar    struct(P) V18 tmp9
+            //                                                  /--*    byref  V18._value (offs=0x00) -> V30 tmp21
+            //               [000245] -A------R---             *  =         struct (copy)
+            //               [000244] -----+------             \--*  obj(8)    struct
+            //               [000243] -----+------                \--*  addr      byref
+            //               [000242] D----+-N----                   \--*  lclVar    byref  V28 tmp19
+            //
+
+            destSingleLclVarAsg = (destHasSize && (srcLclVar->lvFieldCnt == 1) && (destLclVar != nullptr) &&
+                                   (destSize == genTypeSize(destLclVar->GetType())) &&
+                                   (destLclVar->GetType() == lvaGetDesc(srcLclVar->lvFieldLclStart)->GetType()));
         }
 
         // If we require a copy block the set both of the field assign bools to false
@@ -10248,7 +10207,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
         JITDUMP(requiresCopyBlock ? " this requires a CopyBlock.\n" : " using field by field assignments.\n");
 
         // Mark the dest/src structs as DoNotEnreg when they are not being fully referenced as the same type.
-        //
         if (!destPromote && (destLclVar != nullptr) && !destSingleLclVarAsg)
         {
             if (!destLclVar->lvRegStruct || (destLclVar->GetType() != dest->GetType()))
