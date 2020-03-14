@@ -10449,187 +10449,172 @@ GenTree* Compiler::fgMorphCopyBlock(GenTree* tree)
             }
         }
 
+        assert(destPromote || srcPromote);
+        assert(!destPromote || (destLclNum != BAD_VAR_NUM) && (destLclVar != nullptr));
+        assert(!srcPromote || (srcLclNum != BAD_VAR_NUM) && (srcLclVar != nullptr));
+
+        // If we spilled the address, and we didn't do individual field assignments to promoted fields,
+        // and it was of a local, ensure that the destination local variable has been marked as address
+        // exposed. Neither liveness nor SSA are able to track this kind of indirect assignments.
+        if ((addrSpill != nullptr) && !destPromote && (destLclNum != BAD_VAR_NUM))
+        {
+            noway_assert(destLclVar->lvAddrExposed);
+        }
+
         for (unsigned i = 0; i < fieldCount; ++i)
         {
             GenTree* destField;
 
             if (destPromote)
             {
-                noway_assert(destLclNum != BAD_VAR_NUM);
-
                 unsigned   destFieldLclNum = destLclVar->lvFieldLclStart + i;
                 LclVarDsc* destFieldLclVar = lvaGetDesc(destFieldLclNum);
 
                 destField = gtNewLclvNode(destFieldLclNum, destFieldLclVar->GetType());
                 destField->gtFlags |= destFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
             }
+            else if (destSingleLclVarAsg)
+            {
+                noway_assert(fieldCount == 1);
+                noway_assert(destLclVar != nullptr);
+                noway_assert(addrSpill == nullptr);
+
+                destField = gtNewLclvNode(destLclNum, destLclVar->GetType());
+                destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+            }
             else
             {
-                noway_assert(srcPromote);
+                GenTree* destFieldAddr;
 
-                if (destSingleLclVarAsg)
+                if (addrSpill != nullptr)
                 {
-                    noway_assert(fieldCount == 1);
-                    noway_assert(destLclVar != nullptr);
-                    noway_assert(addrSpill == nullptr);
+                    assert(addrSpillLclNum != BAD_VAR_NUM);
 
-                    destField = gtNewLclvNode(destLclNum, destLclVar->GetType());
-                    destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+                    destFieldAddr = gtNewLclvNode(addrSpillLclNum, TYP_BYREF);
                 }
                 else
                 {
-                    if (addrSpill != nullptr)
+                    destFieldAddr = gtCloneExpr(destAddr);
+
+                    noway_assert(destFieldAddr != nullptr);
+
+                    // Is the address of a local?
+                    GenTreeLclVarCommon* lclVarTree = nullptr;
+                    bool                 isEntire   = false;
+                    if (destFieldAddr->DefinesLocalAddr(this, destSize, &lclVarTree, destHasSize ? &isEntire : nullptr))
                     {
-                        assert(addrSpillLclNum != BAD_VAR_NUM);
-
-                        destField = gtNewLclvNode(addrSpillLclNum, TYP_BYREF);
-                    }
-                    else
-                    {
-                        destField = gtCloneExpr(destAddr);
-
-                        noway_assert(destField != nullptr);
-
-                        // Is the address of a local?
-                        GenTreeLclVarCommon* lclVarTree = nullptr;
-                        bool                 isEntire   = false;
-                        if (destField->DefinesLocalAddr(this, destSize, &lclVarTree, destHasSize ? &isEntire : nullptr))
+                        lclVarTree->gtFlags |= GTF_VAR_DEF;
+                        if (!isEntire)
                         {
-                            lclVarTree->gtFlags |= GTF_VAR_DEF;
-                            if (!isEntire)
-                            {
-                                lclVarTree->gtFlags |= GTF_VAR_USEASG;
-                            }
+                            lclVarTree->gtFlags |= GTF_VAR_USEASG;
                         }
                     }
-
-                    unsigned      srcFieldLclNum = srcLclVar->lvFieldLclStart + i;
-                    LclVarDsc*    srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
-                    FieldSeqNode* srcFieldSeq    = GetFieldSeqStore()->CreateSingleton(
-                        info.compCompHnd->getFieldInClass(srcLclVar->lvVerTypeInfo.GetClassHandle(),
-                                                          srcFieldLclVar->lvFldOrdinal));
-
-                    if (srcFieldLclVar->lvFldOffset == 0)
-                    {
-                        fgAddFieldSeqForZeroOffset(destField, srcFieldSeq);
-                    }
-                    else
-                    {
-                        destField = gtNewOperNode(GT_ADD, TYP_BYREF, destField,
-                                                  gtNewIconNode(srcFieldLclVar->lvFldOffset, srcFieldSeq));
-                    }
-
-                    destField = gtNewIndir(srcFieldLclVar->GetType(), destField);
-
-                    // !!! The destination could be on stack. !!!
-                    // This flag will let us choose the correct write barrier.
-                    destField->gtFlags |= GTF_IND_TGTANYWHERE;
                 }
+
+                unsigned      srcFieldLclNum = srcLclVar->lvFieldLclStart + i;
+                LclVarDsc*    srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
+                FieldSeqNode* srcFieldSeq    = GetFieldSeqStore()->CreateSingleton(
+                    info.compCompHnd->getFieldInClass(srcLclVar->lvVerTypeInfo.GetClassHandle(),
+                                                      srcFieldLclVar->lvFldOrdinal));
+
+                if (srcFieldLclVar->lvFldOffset == 0)
+                {
+                    fgAddFieldSeqForZeroOffset(destFieldAddr, srcFieldSeq);
+                }
+                else
+                {
+                    destFieldAddr = gtNewOperNode(GT_ADD, TYP_BYREF, destFieldAddr,
+                                                  gtNewIconNode(srcFieldLclVar->lvFldOffset, srcFieldSeq));
+                }
+
+                destField = gtNewIndir(srcFieldLclVar->GetType(), destFieldAddr);
+
+                // !!! The destination could be on stack. !!!
+                // This flag will let us choose the correct write barrier.
+                destField->gtFlags |= GTF_IND_TGTANYWHERE;
             }
 
-            GenTree* srcField;
+            GenTree* srcField = nullptr;
 
             if (srcPromote)
             {
-                noway_assert(srcLclNum != BAD_VAR_NUM);
-
                 unsigned   srcFieldLclNum = srcLclVar->lvFieldLclStart + i;
                 LclVarDsc* srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
 
                 srcField = gtNewLclvNode(srcFieldLclNum, srcFieldLclVar->GetType());
                 srcField->gtFlags |= srcFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
             }
+            else if (srcSingleLclVarAsg)
+            {
+                noway_assert(fieldCount == 1);
+                noway_assert(srcLclNum != BAD_VAR_NUM);
+                noway_assert(addrSpill == nullptr);
+
+                srcField = gtNewLclvNode(srcLclNum, srcLclVar->GetType());
+                srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+            }
             else
             {
-                noway_assert(destPromote);
-                noway_assert(destLclNum != BAD_VAR_NUM);
+                GenTree* srcFieldAddr = nullptr;
 
-                unsigned   destFieldLclNum = destLclVar->lvFieldLclStart + i;
-                LclVarDsc* destFieldLclVar = lvaGetDesc(destFieldLclNum);
-
-                if (srcSingleLclVarAsg)
+                if (addrSpill != nullptr)
                 {
-                    noway_assert(fieldCount == 1);
-                    noway_assert(srcLclNum != BAD_VAR_NUM);
-                    noway_assert(addrSpill == nullptr);
+                    assert(addrSpillLclNum != BAD_VAR_NUM);
 
-                    srcField = gtNewLclvNode(srcLclNum, srcLclVar->GetType());
-                    srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+                    srcFieldAddr = gtNewLclvNode(addrSpillLclNum, TYP_BYREF);
                 }
                 else
                 {
-                    if (addrSpill != nullptr)
-                    {
-                        assert(addrSpillLclNum != BAD_VAR_NUM);
+                    srcFieldAddr = gtCloneExpr(srcAddr);
 
-                        srcField = gtNewLclvNode(addrSpillLclNum, TYP_BYREF);
+                    noway_assert(srcFieldAddr != nullptr);
+                }
+
+                unsigned      destFieldLclNum = destLclVar->lvFieldLclStart + i;
+                LclVarDsc*    destFieldLclVar = lvaGetDesc(destFieldLclNum);
+                FieldSeqNode* destFieldSeq    = GetFieldSeqStore()->CreateSingleton(
+                    info.compCompHnd->getFieldInClass(destLclVar->lvVerTypeInfo.GetClassHandle(),
+                                                      destFieldLclVar->lvFldOrdinal));
+
+                if ((destFieldLclVar->lvFldOffset == 0) && (srcLclNum != BAD_VAR_NUM))
+                {
+                    noway_assert(srcLclNode != nullptr);
+                    assert(destFieldLclVar->GetType() != TYP_STRUCT);
+
+                    unsigned srcSize = (srcLclVar->GetType() == TYP_STRUCT) ? srcLclVar->lvExactSize
+                                                                            : genTypeSize(srcLclVar->GetType());
+
+                    // If this is a full-width use of the src via a different type, we need to create a GT_LCL_FLD.
+                    // (Note that if it was the same type, 'srcSingleLclVarAsg' would be true.)
+                    if (genTypeSize(destFieldLclVar->GetType()) == srcSize)
+                    {
+                        srcLclNode->ChangeOper(GT_LCL_FLD);
+                        srcLclNode->SetType(destFieldLclVar->GetType());
+                        srcLclNode->AsLclFld()->SetFieldSeq(srcFieldSeq);
+
+                        srcField = srcLclNode;
+                    }
+                }
+
+                if (srcField == nullptr)
+                {
+                    if (destFieldLclVar->lvFldOffset == 0)
+                    {
+                        fgAddFieldSeqForZeroOffset(srcFieldAddr, destFieldSeq);
                     }
                     else
                     {
-                        srcField = gtCloneExpr(srcAddr);
-
-                        noway_assert(srcField != nullptr);
+                        srcFieldAddr = gtNewOperNode(GT_ADD, TYP_BYREF, srcFieldAddr,
+                                                     gtNewIconNode(destFieldLclVar->lvFldOffset, destFieldSeq));
                     }
 
-                    FieldSeqNode* srcFieldSeq = GetFieldSeqStore()->CreateSingleton(
-                        info.compCompHnd->getFieldInClass(destLclVar->lvVerTypeInfo.GetClassHandle(),
-                                                          destFieldLclVar->lvFldOrdinal));
-
-                    bool done = false;
-
-                    if (destFieldLclVar->lvFldOffset == 0)
-                    {
-                        // If this is a full-width use of the src via a different type, we need to create a GT_LCL_FLD.
-                        // (Note that if it was the same type, 'srcSingleLclVarAsg' would be true.)
-                        if (srcLclNum != BAD_VAR_NUM)
-                        {
-                            noway_assert(srcLclNode != nullptr);
-                            assert(destFieldLclVar->GetType() != TYP_STRUCT);
-
-                            unsigned destSize = genTypeSize(destFieldLclVar->GetType());
-                            unsigned srcSize  = (srcLclVar->GetType() == TYP_STRUCT) ? srcLclVar->lvExactSize
-                                                                                    : genTypeSize(srcLclVar->GetType());
-
-                            if (destSize == srcSize)
-                            {
-                                srcLclNode->ChangeOper(GT_LCL_FLD);
-                                srcLclNode->SetType(destFieldLclVar->GetType());
-                                srcLclNode->AsLclFld()->SetFieldSeq(srcFieldSeq);
-                                srcField = srcLclNode;
-
-                                done = true;
-                            }
-                        }
-                    }
-
-                    if (!done)
-                    {
-                        if (destFieldLclVar->lvFldOffset == 0)
-                        {
-                            fgAddFieldSeqForZeroOffset(srcField, srcFieldSeq);
-                        }
-                        else
-                        {
-                            srcField = gtNewOperNode(GT_ADD, TYP_BYREF, srcField,
-                                                     gtNewIconNode(destFieldLclVar->lvFldOffset, srcFieldSeq));
-                        }
-
-                        srcField = gtNewIndir(destFieldLclVar->GetType(), srcField);
-                    }
+                    srcField = gtNewIndir(destFieldLclVar->GetType(), srcFieldAddr);
                 }
             }
 
             noway_assert(destField->GetType() == srcField->GetType());
 
             GenTreeOp* asgField = gtNewAssignNode(destField, srcField);
-
-            // If we spilled the address, and we didn't do individual field assignments to promoted fields,
-            // and it was of a local, ensure that the destination local variable has been marked as address
-            // exposed. Neither liveness nor SSA are able to track this kind of indirect assignments.
-            if ((addrSpill != nullptr) && !destPromote && (destLclNum != BAD_VAR_NUM))
-            {
-                noway_assert(lvaGetDesc(destLclNum)->lvAddrExposed);
-            }
 
 #if LOCAL_ASSERTION_PROP
             if (optLocalAssertionProp)
