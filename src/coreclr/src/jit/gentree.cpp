@@ -4847,11 +4847,16 @@ bool GenTree::OperIsImplicitIndir() const
         case GT_ARR_ELEM:
         case GT_ARR_OFFSET:
             return true;
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+        {
+            return AsSIMD()->OperIsMemoryLoad();
+        }
+#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
         {
-            GenTreeHWIntrinsic* hwIntrinsicNode = (const_cast<GenTree*>(this))->AsHWIntrinsic();
-            return hwIntrinsicNode->OperIsMemoryLoadOrStore();
+            return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
         }
 #endif // FEATURE_HW_INTRINSICS
         default:
@@ -8707,18 +8712,6 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
             case GT_INDEX:
             case GT_INDEX_ADDR:
-
-                if ((tree->gtFlags & (GTF_IND_VOLATILE | GTF_IND_UNALIGNED)) == 0) // We prefer printing V or U over R
-                {
-                    if (tree->gtFlags & GTF_INX_REFARR_LAYOUT)
-                    {
-                        printf("R");
-                        --msgLength;
-                        break;
-                    } // R means RefArray
-                }
-                __fallthrough;
-
             case GT_FIELD:
             case GT_CLS_VAR:
                 if (tree->gtFlags & GTF_IND_VOLATILE)
@@ -11398,6 +11391,39 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     else
     {
         objOp = opOther->AsCall()->gtCallThisArg->GetNode();
+    }
+
+    bool                 pIsExact   = false;
+    bool                 pIsNonNull = false;
+    CORINFO_CLASS_HANDLE objCls     = gtGetClassHandle(objOp, &pIsExact, &pIsNonNull);
+
+    // if both classes are "final" (e.g. System.String[]) we can replace the comparison
+    // with `true/false` + null check.
+    if ((objCls != NO_CLASS_HANDLE) && (pIsExact || impIsClassExact(objCls)))
+    {
+        TypeCompareState tcs = info.compCompHnd->compareTypesForEquality(objCls, clsHnd);
+        if (tcs != TypeCompareState::May)
+        {
+            const bool operatorIsEQ  = oper == GT_EQ;
+            const bool typesAreEqual = tcs == TypeCompareState::Must;
+            GenTree*   compareResult = gtNewIconNode((operatorIsEQ ^ typesAreEqual) ? 0 : 1);
+
+            if (!pIsNonNull)
+            {
+                // we still have to emit a null-check
+                // obj.GetType == typeof() -> (nullcheck) true/false
+                GenTree* nullcheck = gtNewNullCheck(objOp, compCurBB);
+                return gtNewOperNode(GT_COMMA, tree->TypeGet(), nullcheck, compareResult);
+            }
+            else if (objOp->gtFlags & GTF_ALL_EFFECT)
+            {
+                return gtNewOperNode(GT_COMMA, tree->TypeGet(), objOp, compareResult);
+            }
+            else
+            {
+                return compareResult;
+            }
+        }
     }
 
     GenTree* const objMT = gtNewOperNode(GT_IND, TYP_I_IMPL, objOp);
@@ -15103,6 +15129,55 @@ bool GenTree::IsLocalAddrExpr(Compiler* comp, GenTreeLclVarCommon** pLclVarTree,
 }
 
 //------------------------------------------------------------------------
+// IsImplicitByrefParameterValue: determine if this tree is the entire
+//     value of a local implicit byref parameter
+//
+// Arguments:
+//    compiler -- compiler instance
+//
+// Return Value:
+//    GenTreeLclVar node for the local, or nullptr.
+//
+GenTreeLclVar* GenTree::IsImplicitByrefParameterValue(Compiler* compiler)
+{
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+
+    GenTreeLclVar* lcl = nullptr;
+
+    if (OperIs(GT_LCL_VAR))
+    {
+        lcl = AsLclVar();
+    }
+    else if (OperIs(GT_OBJ))
+    {
+        GenTree* addr = AsIndir()->Addr();
+
+        if (addr->OperIs(GT_LCL_VAR))
+        {
+            lcl = addr->AsLclVar();
+        }
+        else if (addr->OperIs(GT_ADDR))
+        {
+            GenTree* base = addr->AsOp()->gtOp1;
+
+            if (base->OperIs(GT_LCL_VAR))
+            {
+                lcl = base->AsLclVar();
+            }
+        }
+    }
+
+    if ((lcl != nullptr) && compiler->lvaIsImplicitByRefLocal(lcl->GetLclNum()))
+    {
+        return lcl;
+    }
+
+#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+
+    return nullptr;
+}
+
+//------------------------------------------------------------------------
 // IsLclVarUpdateTree: Determine whether this is an assignment tree of the
 //                     form Vn = Vn 'oper' 'otherTree' where Vn is a lclVar
 //
@@ -17140,6 +17215,16 @@ bool GenTree::isCommutativeSIMDIntrinsic()
             return false;
     }
 }
+
+// Returns true for the SIMD Instrinsic instructions that have MemoryLoad semantics, false otherwise
+bool GenTreeSIMD::OperIsMemoryLoad() const
+{
+    if (gtSIMDIntrinsicID == SIMDIntrinsicInitArray)
+    {
+        return true;
+    }
+    return false;
+}
 #endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -17365,7 +17450,7 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
 }
 
 // Returns true for the HW Instrinsic instructions that have MemoryLoad semantics, false otherwise
-bool GenTreeHWIntrinsic::OperIsMemoryLoad()
+bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
 {
 #ifdef TARGET_XARCH
     // Some xarch instructions have MemoryLoad sematics
@@ -17407,7 +17492,7 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoad()
 }
 
 // Returns true for the HW Instrinsic instructions that have MemoryStore semantics, false otherwise
-bool GenTreeHWIntrinsic::OperIsMemoryStore()
+bool GenTreeHWIntrinsic::OperIsMemoryStore() const
 {
 #ifdef TARGET_XARCH
     // Some xarch instructions have MemoryStore sematics
@@ -17442,7 +17527,7 @@ bool GenTreeHWIntrinsic::OperIsMemoryStore()
 }
 
 // Returns true for the HW Instrinsic instructions that have MemoryLoad semantics, false otherwise
-bool GenTreeHWIntrinsic::OperIsMemoryLoadOrStore()
+bool GenTreeHWIntrinsic::OperIsMemoryLoadOrStore() const
 {
 #ifdef TARGET_XARCH
     return OperIsMemoryLoad() || OperIsMemoryStore();
