@@ -10129,21 +10129,17 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             bool sameLayout = destLclVar->GetPromotedFieldCount() == srcLclVar->GetPromotedFieldCount();
 
-            if (sameLayout)
+            for (unsigned i = 0; sameLayout && i < destLclVar->GetPromotedFieldCount(); i++)
             {
-                for (unsigned i = 0; i < destLclVar->GetPromotedFieldCount(); i++)
+                LclVarDsc* destFieldLclVar = lvaGetDesc(destLclVar->GetPromotedFieldLclNum(i));
+                LclVarDsc* srcFieldLclVar  = lvaGetDesc(srcLclVar->GetPromotedFieldLclNum(i));
+
+                assert(destFieldLclVar->GetType() != TYP_STRUCT);
+
+                if ((destFieldLclVar->GetPromotedFieldOffset() != srcFieldLclVar->GetPromotedFieldOffset()) ||
+                    (destFieldLclVar->GetType() != srcFieldLclVar->GetType()))
                 {
-                    LclVarDsc* destFieldLclVar = lvaGetDesc(destLclVar->GetPromotedFieldLclNum(i));
-                    LclVarDsc* srcFieldLclVar  = lvaGetDesc(srcLclVar->GetPromotedFieldLclNum(i));
-
-                    assert(destFieldLclVar->GetType() != TYP_STRUCT);
-
-                    if ((destFieldLclVar->lvFldOffset != srcFieldLclVar->lvFldOffset) ||
-                        (destFieldLclVar->GetType() != srcFieldLclVar->GetType()))
-                    {
-                        sameLayout = false;
-                        break;
-                    }
+                    sameLayout = false;
                 }
             }
 
@@ -10156,36 +10152,32 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     }
     else if (destPromote)
     {
-        // Match the following kinds of trees:
-        //  fgMorphTree BB01, stmt 9 (before)
-        //   [000052] ------------        const     int    8
-        //   [000053] -A--G-------     copyBlk   void
-        //   [000051] ------------           addr      byref
-        //   [000050] ------------              lclVar    long   V07 loc5
-        //   [000054] --------R---        <list>    void
-        //   [000049] ------------           addr      byref
-        //   [000048] ------------              lclVar    struct(P) V06 loc4
-        //                                              long   V06.h (offs=0x00) -> V17 tmp9
-        // Yields this transformation
-        //  fgMorphCopyBlock (after):
-        //   [000050] ------------        lclVar    long   V07 loc5
-        //   [000085] -A----------     =         long
-        //   [000083] D------N----        lclVar    long   V17 tmp9
-
-        // Reject the following tree:
-        //  - seen on x86chk    jit\jit64\hfa\main\hfa_sf3E_r.exe
+        // Allow promotion when copying from a non-TYP_STRUCT variable to a promoted struct variable containing
+        // a single field having the same type as the source variable.
         //
-        //  fgMorphTree BB01, stmt 6 (before)
-        //   [000038] -------------        const     int    4
-        //   [000039] -A--G--------     copyBlk   void
-        //   [000037] -------------           addr      byref
-        //   [000036] -------------              lclVar    int    V05 loc3
-        //   [000040] --------R----        <list>    void
-        //   [000035] -------------           addr      byref
-        //   [000034] -------------              lclVar    struct(P) V04 loc2
-        //                                          float  V04.f1 (offs=0x00) -> V13 tmp6
-        // As this would framsform into
-        //   float V13 = int V05
+        // Such trees are unlikely to be generated from valid IL. Instead, they appear as the result
+        // of (or rather lack of) recursive struct promotion morphing trees like:
+        //
+        //  [000265] -A--G-------  *  ASG       struct (copy)
+        //  [000263] D-----------  +--*  LCL_VAR   struct<System.DateTime, 8>(P) V04 loc1
+        //                         +--*    long   V04._dateData (offs=0x00) -> V47 tmp39
+        //  [000262] ----G-------  \--*  FIELD     struct End
+        //  [000261] ------------     \--*  ADDR      byref
+        //  [000260] ------------        \--*  LCL_VAR   struct<System.Globalization.DaylightTimeStruct, 24>(P) V02 arg2
+        //                               \--*    long   V02.Start (offs=0x00) -> V44 tmp36
+        //                               \--*    long   V02.End (offs=0x08) -> V45 tmp37
+        //                               \--*    long   V02.Delta (offs=0x10) -> V46 tmp38
+        //
+        // fgMorphCopyBlock input:
+        //
+        //  [000265] -A--G-------  *  ASG       struct (copy)
+        //  [000263] D-----------  +--*  LCL_VAR   struct<System.DateTime, 8>(P) V04 loc1
+        //                         +--*    long   V04._dateData (offs=0x00) -> V47 tmp39
+        //  [000262] -------N----  \--*  LCL_VAR   long   V45 tmp37
+        //
+        // Obviously, the entire tree is a simple V47 = V45 assignment but unfortunately this transformation
+        // requires 2 steps - first LocalAddressVisitor::MorphStructField replaces FIELD(ADDR(LCL_VAR)) with
+        // the promoted field LCL_VAR and then fgMorphCopyBlock takes care of the rest.
 
         srcSingleLclVarAsg = (destHasSize && (destLclVar->GetPromotedFieldCount() == 1) && (srcLclVar != nullptr) &&
                               (destSize == genTypeSize(srcLclVar->GetType())) &&
@@ -10197,12 +10189,25 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         // Check for the symmetric case (which happens for the _pointer field of promoted spans):
         //
-        // [000240] -----+------             /--*  lclVar    struct(P) V18 tmp9
-        //                                    /--*    byref  V18._value (offs=0x00) -> V30 tmp21
-        // [000245] -A------R---             *  =         struct (copy)
-        // [000244] -----+------             \--*  obj(8)    struct
-        // [000243] -----+------                \--*  addr      byref
-        // [000242] D----+-N----                   \--*  lclVar    byref  V28 tmp19
+        // [000261] -A----------  *  ASG       struct (copy)
+        // [000260] n----+------  +--*  OBJ       struct<System.ByReference`1[Char], 8>
+        // [000259] -----+------  |  \--*  ADDR      byref
+        // [000258] D----+-N----  |     \--*  LCL_VAR   byref  V129 tmp116
+        // [000257] -----+------  \--*  LCL_VAR   struct<System.ByReference`1[Char], 8>(P) V27 tmp14
+        //                        \--*    byref  V27._value (offs=0x00) -> V137 tmp124
+        //
+        // fgMorphCopyBlock input:
+        //
+        // [000261] -A----------  *  ASG       struct (copy)
+        // [000260] ------------  +--*  OBJ       struct<System.ByReference`1[Char], 8>
+        // [000259] ------------  |  \--*  ADDR      byref
+        // [000258] ------------  |     \--*  FIELD     struct _pointer
+        // [000250] ------------  |        \--*  ADDR      byref
+        // [000251] ------------  |           \--*  LCL_VAR   struct<System.Span`1[Char], 16>(P) V16 tmp3
+        //                        |           \--*    byref  V16._pointer (offs=0x00) -> V129 tmp116
+        //                        |           \--*    int    V16._length (offs=0x08) -> V130 tmp117
+        // [000257] ------------  \--*  LCL_VAR   struct<System.ByReference`1[Char], 8>(P) V27 tmp14
+        //                        \--*    byref  V27._value (offs=0x00) -> V137 tmp124
 
         destSingleLclVarAsg = (destHasSize && (srcLclVar->GetPromotedFieldCount() == 1) && (destLclVar != nullptr) &&
                                (destSize == genTypeSize(destLclVar->GetType())) &&
