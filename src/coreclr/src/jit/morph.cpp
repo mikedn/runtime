@@ -9711,62 +9711,59 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 
 GenTree* Compiler::fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigned blockSize, bool isBlockRequired)
 {
-    // TODO-Review: Can `tree` be really be a COMMA tree? The rest of the code uses only
-    // effectiveVal and returns it, or a part of it. COMMA's first operand, if any, will
-    // always be dropped on the floor.
-
-    GenTree* effectiveVal = tree->gtEffectiveVal();
+    // fgMorphBlkNode should have wrapped COMMA nodes in indirections
+    assert(!tree->OperIs(GT_COMMA));
 
     if (asgType != TYP_STRUCT)
     {
-        if (effectiveVal->OperIsIndir())
+        if (tree->OperIsIndir())
         {
             if (isBlockRequired)
             {
-                effectiveVal->SetType(asgType);
-                return effectiveVal;
+                tree->SetType(asgType);
+                return tree;
             }
 
-            GenTree* addr = effectiveVal->AsIndir()->GetAddr();
+            GenTree* addr = tree->AsIndir()->GetAddr();
 
             if (addr->OperIs(GT_ADDR) && (addr->AsUnOp()->GetOp(0)->GetType() == asgType))
             {
                 return addr->AsUnOp()->GetOp(0);
             }
 
-            if (effectiveVal->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
+            if (tree->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
             {
-                effectiveVal->SetOper(GT_IND);
-                effectiveVal->SetType(asgType);
+                tree->SetOper(GT_IND);
+                tree->SetType(asgType);
             }
 
-            return effectiveVal;
+            return tree;
         }
 
-        if (effectiveVal->GetType() == asgType)
+        if (tree->GetType() == asgType)
         {
-            return effectiveVal;
+            return tree;
         }
 
-        return gtNewIndir(asgType, gtNewOperNode(GT_ADDR, TYP_BYREF, effectiveVal));
+        return gtNewIndir(asgType, gtNewOperNode(GT_ADDR, TYP_BYREF, tree));
     }
 
     GenTreeIndir*  indirTree = nullptr;
     GenTreeLclVar* lclNode   = nullptr;
 
-    if (effectiveVal->OperIsIndir())
+    if (tree->OperIsIndir())
     {
-        indirTree     = effectiveVal->AsIndir();
-        GenTree* addr = effectiveVal->AsIndir()->GetAddr();
+        indirTree     = tree->AsIndir();
+        GenTree* addr = tree->AsIndir()->GetAddr();
 
         if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
             lclNode = addr->AsUnOp()->GetOp(0)->AsLclVar();
         }
     }
-    else if (effectiveVal->OperIs(GT_LCL_VAR))
+    else if (tree->OperIs(GT_LCL_VAR))
     {
-        lclNode = effectiveVal->AsLclVar();
+        lclNode = tree->AsLclVar();
     }
 
     if (lclNode != nullptr)
@@ -9775,7 +9772,7 @@ GenTree* Compiler::fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigne
 
         if (varTypeIsStruct(varDsc->GetType()) && (varDsc->lvExactSize == blockSize) && (varDsc->GetType() == asgType))
         {
-            if (effectiveVal != lclNode)
+            if (tree != lclNode)
             {
                 JITDUMP("Replacing block node [%06d] with lclVar V%02u\n", dspTreeID(tree), lclNode->GetLclNum());
             }
@@ -9784,7 +9781,7 @@ GenTree* Compiler::fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigne
         }
 
         // This may be a lclVar that was determined to be address-exposed.
-        effectiveVal->gtFlags |= (lclNode->gtFlags & GTF_ALL_EFFECT);
+        tree->gtFlags |= (lclNode->gtFlags & GTF_ALL_EFFECT);
     }
 
     if (indirTree != nullptr)
@@ -9794,21 +9791,21 @@ GenTree* Compiler::fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigne
 
         if (!isBlockRequired && indirTree->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
         {
-            effectiveVal->SetOper(GT_IND);
-            effectiveVal->SetType(asgType);
+            tree->SetOper(GT_IND);
+            tree->SetType(asgType);
         }
 
-        return effectiveVal;
+        return tree;
     }
 
-    GenTree* addr = gtNewOperNode(GT_ADDR, TYP_BYREF, effectiveVal);
+    GenTree* addr = gtNewOperNode(GT_ADDR, TYP_BYREF, tree);
 
     if (!isBlockRequired)
     {
         return gtNewIndir(asgType, addr);
     }
 
-    CORINFO_CLASS_HANDLE clsHnd = gtGetStructHandleIfPresent(effectiveVal);
+    CORINFO_CLASS_HANDLE clsHnd = gtGetStructHandleIfPresent(tree);
 
     if (clsHnd == NO_CLASS_HANDLE)
     {
