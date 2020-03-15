@@ -10459,9 +10459,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             unsigned      srcFieldLclNum = srcLclVar->GetPromotedFieldLclNum(i);
             LclVarDsc*    srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
-            FieldSeqNode* srcFieldSeq    = GetFieldSeqStore()->CreateSingleton(
-                info.compCompHnd->getFieldInClass(srcLclVar->lvVerTypeInfo.GetClassHandle(),
-                                                  srcFieldLclVar->GetPromotedFieldOrdinal()));
+            FieldSeqNode* srcFieldSeq = GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle());
 
             if (srcFieldLclVar->GetPromotedFieldOffset() == 0)
             {
@@ -10518,9 +10516,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             unsigned      destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
             LclVarDsc*    destFieldLclVar = lvaGetDesc(destFieldLclNum);
-            FieldSeqNode* destFieldSeq    = GetFieldSeqStore()->CreateSingleton(
-                info.compCompHnd->getFieldInClass(destLclVar->lvVerTypeInfo.GetClassHandle(),
-                                                  destFieldLclVar->GetPromotedFieldOrdinal()));
+            FieldSeqNode* destFieldSeq = GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle());
 
             if ((destFieldLclVar->GetPromotedFieldOffset() == 0) && (srcLclNum != BAD_VAR_NUM))
             {
