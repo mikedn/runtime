@@ -9965,7 +9965,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         }
         else
         {
-            effectiveDest->OperIs(GT_DYN_BLK);
+            assert(effectiveDest->OperIs(GT_DYN_BLK));
+            assert(!destHasSize);
         }
 
         if ((dest == effectiveDest) && ((dest->gtFlags & GTF_IND_ARR_INDEX) == 0))
