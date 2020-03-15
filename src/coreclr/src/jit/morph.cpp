@@ -9579,6 +9579,7 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 {
     GenTree* handleTree = nullptr;
     GenTree* addr       = nullptr;
+
     if (tree->OperIs(GT_COMMA))
     {
         // In order to CSE and value number array index expressions and bounds checks,
@@ -9590,44 +9591,44 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         //   before: [3] comma struct <- [2] comma struct <- [1] LCL_VAR struct
         //   after: [3] comma byref <- [2] comma byref <- [4] addr byref <- [1] LCL_VAR struct
 
-        addr                  = tree;
         GenTree* effectiveVal = tree->gtEffectiveVal();
 
-        GenTreePtrStack commas(getAllocator(CMK_ArrayStack));
-        for (GenTree* comma = tree; comma != nullptr && comma->gtOper == GT_COMMA; comma = comma->gtGetOp2())
+        ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
+        for (GenTree* comma = tree; (comma != nullptr) && comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
         {
-            commas.Push(comma);
+            commas.Push(comma->AsOp());
         }
 
-        GenTree* lastComma = commas.Top();
-        noway_assert(lastComma->gtGetOp2() == effectiveVal);
+        noway_assert(commas.Top()->GetOp(1) == effectiveVal);
+
         GenTree* effectiveValAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, effectiveVal);
-#ifdef DEBUG
-        effectiveValAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
-        lastComma->AsOp()->gtOp2 = effectiveValAddr;
+        INDEBUG(effectiveValAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        commas.Top()->SetOp(1, effectiveValAddr);
 
         while (!commas.Empty())
         {
             GenTree* comma = commas.Pop();
-            comma->gtType  = TYP_BYREF;
+            comma->SetType(TYP_BYREF);
             gtUpdateNodeSideEffects(comma);
         }
 
         handleTree = effectiveVal;
+        addr       = tree;
     }
-    else if (tree->OperIs(GT_IND) && tree->AsIndir()->Addr()->OperIs(GT_INDEX_ADDR))
+    else if (tree->OperIs(GT_IND) && tree->AsIndir()->GetAddr()->OperIs(GT_INDEX_ADDR))
     {
         handleTree = tree;
-        addr       = tree->AsIndir()->Addr();
+        addr       = tree->AsIndir()->GetAddr();
     }
 
     if (addr != nullptr)
     {
-        var_types structType = handleTree->TypeGet();
+        var_types structType = handleTree->GetType();
+
         if (structType == TYP_STRUCT)
         {
             CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(handleTree);
+
             if (structHnd == NO_CLASS_HANDLE)
             {
                 tree = gtNewOperNode(GT_IND, structType, addr);
@@ -9644,44 +9645,44 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         }
 
         gtUpdateNodeSideEffects(tree);
-#ifdef DEBUG
-        tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+        INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
     }
 
-    if (!tree->OperIsBlk())
+    if (!tree->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
     {
         return tree;
     }
-    GenTreeBlk* blkNode = tree->AsBlk();
-    if (blkNode->OperGet() == GT_DYN_BLK)
+
+    if (tree->OperIs(GT_DYN_BLK))
     {
-        if (blkNode->AsDynBlk()->gtDynamicSize->IsCnsIntOrI())
-        {
-            unsigned size = (unsigned)blkNode->AsDynBlk()->gtDynamicSize->AsIntConCommon()->IconValue();
-            // A GT_BLK with size of zero is not supported,
-            // so if we encounter such a thing we just leave it as a GT_DYN_BLK
-            if (size != 0)
-            {
-                blkNode->AsDynBlk()->gtDynamicSize = nullptr;
-                blkNode->ChangeOper(GT_BLK);
-                blkNode->SetLayout(typGetBlkLayout(size));
-            }
-            else
-            {
-                return tree;
-            }
-        }
-        else
+        if (!tree->AsDynBlk()->gtDynamicSize->OperIs(GT_CNS_INT))
         {
             return tree;
         }
+
+        unsigned size = static_cast<unsigned>(tree->AsDynBlk()->gtDynamicSize->AsIntCon()->IconValue());
+
+        // A GT_BLK with size of zero is not supported, so if we encounter
+        // such a thing we just leave it as a GT_DYN_BLK
+        //
+        // TODO-Cleanup: zero sized blocks are actually supported...
+        if (size == 0)
+        {
+            return tree;
+        }
+
+        tree->ChangeOper(GT_BLK);
+        tree->AsBlk()->SetLayout(typGetBlkLayout(size));
     }
-    if ((blkNode->TypeGet() != TYP_STRUCT) && (blkNode->Addr()->OperGet() == GT_ADDR) &&
-        (blkNode->Addr()->gtGetOp1()->OperGet() == GT_LCL_VAR))
+
+    addr = tree->AsBlk()->GetAddr();
+
+    if (!tree->TypeIs(TYP_STRUCT) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
     {
-        GenTreeLclVarCommon* lclVarNode = blkNode->Addr()->gtGetOp1()->AsLclVarCommon();
-        if ((genTypeSize(blkNode) != genTypeSize(lclVarNode)) || (!isDest && !varTypeIsStruct(lclVarNode)))
+        GenTreeLclVarCommon* lclVarNode = addr->AsUnOp()->GetOp(0)->AsLclVar();
+
+        if ((genTypeSize(tree->GetType()) != genTypeSize(lclVarNode->GetType())) ||
+            (!isDest && !varTypeIsStruct(lclVarNode->GetType())))
         {
             lvaSetVarDoNotEnregister(lclVarNode->GetLclNum() DEBUG_ARG(DNER_VMNeedsStackAddr));
         }
