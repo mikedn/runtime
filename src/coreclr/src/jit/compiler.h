@@ -5506,6 +5506,8 @@ private:
 public:
     GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
 
+    INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
+
 private:
 #if LOCAL_ASSERTION_PROP
     void fgKillDependentAssertionsSingle(unsigned lclNum DEBUGARG(GenTree* tree));

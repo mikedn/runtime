@@ -10287,17 +10287,15 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             srcAddr = fgMorphGetStructAddr(&src, destLclVar->lvVerTypeInfo.GetClassHandle(), true /* rValue */);
         }
 
-        if (gtClone(srcAddr))
+        if (gtClone(srcAddr) != nullptr)
         {
             // srcAddr is simple expression. No need to spill.
             noway_assert((srcAddr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
         }
-        else if (destLclVar->GetPromotedFieldCount() > 1)
+        else if (fieldCount > 1)
         {
-            // srcAddr is a complex expression and we need to use it multiple time, clone and spill it.
-            addrSpill = gtCloneExpr(srcAddr);
-
-            noway_assert(addrSpill != nullptr);
+            // srcAddr is a complex expression and we need to use it multiple times, spill it.
+            addrSpill = srcAddr;
         }
     }
     else
@@ -10325,17 +10323,17 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             destLclNode->gtFlags &= ~(GTF_VAR_DEF | GTF_VAR_USEASG);
         }
 
-        if (gtClone(destAddr))
+        // TODO-Cleanup: destAddr is always ADDR(...) and gtClone(complexOK = false)
+        // doesn't handle that so the below check is useless...
+        if (gtClone(destAddr) != nullptr)
         {
             // destAddr is simple expression. No need to spill
             noway_assert((destAddr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
         }
-        else if (srcLclVar->GetPromotedFieldCount() > 1)
+        else if (fieldCount > 1)
         {
-            // destAddr is a complex expression and we need to use it multiple time, clone and spill it.
-            addrSpill = gtCloneExpr(destAddr);
-
-            noway_assert(addrSpill != nullptr);
+            // destAddr is a complex expression and we need to use it multiple times, spill it.
+            addrSpill = destAddr;
         }
 
         // TODO-CQ: this should be based on a more general "BaseAddress" method, that handles fields of
@@ -10360,7 +10358,10 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
     if (addrSpill != nullptr)
     {
-        // Simplify the address if possible, and mark as DONT_CSE as needed..
+        // A part of the address tree was already morphed and we're morphing
+        // it again, GTF_DEBUG_NODE_MORPHED seems pretty useless...
+        INDEBUG(fgMorphClearDebugNodeMorphed(addrSpill);)
+        // Simplify the address if possible, and mark as DONT_CSE as needed.
         addrSpill = fgMorphTree(addrSpill);
 
         // Spill the (complex) address to a BYREF temp.
@@ -10403,14 +10404,14 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             srcLclVar = lvaGetDesc(srcLclNum);
         }
-    }
 
-    // If we spilled the address, and we didn't do individual field assignments to promoted fields,
-    // and it was of a local, ensure that the destination local variable has been marked as address
-    // exposed. Neither liveness nor SSA are able to track this kind of indirect assignments.
-    if ((addrSpill != nullptr) && !destPromote && (destLclNum != BAD_VAR_NUM))
-    {
-        noway_assert(destLclVar->lvAddrExposed);
+        // If we spilled the address, and we didn't do individual field assignments to promoted fields,
+        // and it was of a local, ensure that the destination local variable has been marked as address
+        // exposed. Neither liveness nor SSA are able to track this kind of indirect assignments.
+        if (!destPromote && (destLclVar != nullptr))
+        {
+            noway_assert(destLclVar->lvAddrExposed);
+        }
     }
 
     for (unsigned i = 0; i < fieldCount; ++i)
@@ -10438,15 +10439,13 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             GenTree* destFieldAddr;
 
-            if (addrSpill != nullptr)
+            if (addrSpillLclNum != BAD_VAR_NUM)
             {
-                assert(addrSpillLclNum != BAD_VAR_NUM);
-
                 destFieldAddr = gtNewLclvNode(addrSpillLclNum, TYP_BYREF);
             }
             else
             {
-                destFieldAddr = gtCloneExpr(destAddr);
+                destFieldAddr = (i == 0) ? destAddr : gtClone(destAddr);
 
                 noway_assert(destFieldAddr != nullptr);
 
@@ -10507,15 +10506,13 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             GenTree* srcFieldAddr = nullptr;
 
-            if (addrSpill != nullptr)
+            if (addrSpillLclNum != BAD_VAR_NUM)
             {
-                assert(addrSpillLclNum != BAD_VAR_NUM);
-
                 srcFieldAddr = gtNewLclvNode(addrSpillLclNum, TYP_BYREF);
             }
             else
             {
-                srcFieldAddr = gtCloneExpr(srcAddr);
+                srcFieldAddr = (i == 0) ? srcAddr : gtClone(srcAddr);
 
                 noway_assert(srcFieldAddr != nullptr);
             }
@@ -14365,6 +14362,17 @@ GenTree* Compiler::fgMorphToEmulatedFP(GenTree* tree)
             break;
     }
     return tree;
+}
+#endif
+
+#ifdef DEBUG
+void Compiler::fgMorphClearDebugNodeMorphed(GenTree* tree)
+{
+    tree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
+    tree->VisitOperands([this](GenTree* child) {
+        fgMorphClearDebugNodeMorphed(child);
+        return GenTree::VisitResult::Continue;
+    });
 }
 #endif
 
