@@ -9876,38 +9876,36 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     }
     else
     {
-        GenTree* effectiveDest = dest->gtEffectiveVal();
-
-        if (effectiveDest->OperIs(GT_IND))
+        if (dest->OperIs(GT_IND))
         {
             assert(!dest->TypeIs(TYP_STRUCT));
 
-            destSize    = genTypeSize(effectiveDest->GetType());
+            destSize    = genTypeSize(dest->GetType());
             destHasSize = true;
         }
-        else if (effectiveDest->OperIs(GT_OBJ, GT_BLK))
+        else if (dest->OperIs(GT_OBJ, GT_BLK))
         {
-            destSize    = effectiveDest->AsBlk()->GetLayout()->GetSize();
+            destSize    = dest->AsBlk()->GetLayout()->GetSize();
             destHasSize = true;
         }
         else
         {
-            assert(effectiveDest->OperIs(GT_DYN_BLK));
+            assert(dest->OperIs(GT_DYN_BLK));
             assert(!destHasSize);
         }
 
-        if ((dest == effectiveDest) && ((dest->gtFlags & GTF_IND_ARR_INDEX) == 0))
+        noway_assert(dest->AsIndir()->GetAddr()->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+        if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destFieldSeq))
         {
-            noway_assert(dest->AsIndir()->GetAddr()->TypeIs(TYP_BYREF, TYP_I_IMPL));
+            // If it's a local address expression it cannot also be an array element.
+            assert((dest->gtFlags & GTF_IND_ARR_INDEX) == 0);
 
-            if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destFieldSeq))
-            {
-                destLclNum  = destLclNode->GetLclNum();
-                destLclVar  = lvaGetDesc(destLclNum);
-                destOnStack = true;
+            destLclNum  = destLclNode->GetLclNum();
+            destLclVar  = lvaGetDesc(destLclNum);
+            destOnStack = true;
 
-                killedLclNum = destLclNum;
-            }
+            killedLclNum = destLclNum;
         }
     }
 
@@ -9936,13 +9934,13 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             srcFieldSeq = src->AsLclFld()->GetFieldSeq();
         }
     }
-    else if (src->OperIsIndir())
+    else if (src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcFieldSeq))
     {
-        if (src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcFieldSeq))
-        {
-            srcLclNum = srcLclNode->GetLclNum();
-            srcLclVar = lvaGetDesc(srcLclNum);
-        }
+        // If it's a local address expression it cannot also be an array element.
+        assert((src->gtFlags & GTF_IND_ARR_INDEX) == 0);
+
+        srcLclNum = srcLclNode->GetLclNum();
+        srcLclVar = lvaGetDesc(srcLclNum);
     }
 
     // Check to see if we are doing a copy to/from the same local block.
