@@ -9495,76 +9495,6 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenT
 }
 
 //------------------------------------------------------------------------
-// fgMorphGetStructAddr: Gets the address of a struct object
-//
-// Arguments:
-//    pTree    - the parent's pointer to the struct object node
-//    clsHnd   - the class handle for the struct type
-//    isRValue - true if this is a source (not dest)
-//
-// Return Value:
-//    Returns the address of the struct value, possibly modifying the existing tree to
-//    sink the address below any comma nodes (this is to canonicalize for value numbering).
-//    If this is a source, it will morph it to an GT_IND before taking its address,
-//    since it may not be remorphed (and we don't want blk nodes as rvalues).
-
-GenTree* Compiler::fgMorphGetStructAddr(GenTree** pTree, CORINFO_CLASS_HANDLE clsHnd, bool isRValue)
-{
-    GenTree* addr;
-    GenTree* tree = *pTree;
-    // If this is an indirection, we can return its op1, unless it's a GTF_IND_ARR_INDEX, in which case we
-    // need to hang onto that for the purposes of value numbering.
-    if (tree->OperIsIndir())
-    {
-        if ((tree->gtFlags & GTF_IND_ARR_INDEX) == 0)
-        {
-            addr = tree->AsOp()->gtOp1;
-        }
-        else
-        {
-            if (isRValue && tree->OperIsBlk())
-            {
-                tree->ChangeOper(GT_IND);
-            }
-            addr = gtNewOperNode(GT_ADDR, TYP_BYREF, tree);
-        }
-    }
-    else if (tree->gtOper == GT_COMMA)
-    {
-        // If this is a comma, we're going to "sink" the GT_ADDR below it.
-        (void)fgMorphGetStructAddr(&(tree->AsOp()->gtOp2), clsHnd, isRValue);
-        tree->gtType = TYP_BYREF;
-        addr         = tree;
-    }
-    else
-    {
-        switch (tree->gtOper)
-        {
-            case GT_LCL_FLD:
-            case GT_LCL_VAR:
-            case GT_INDEX:
-            case GT_FIELD:
-            case GT_ARR_ELEM:
-                addr = gtNewOperNode(GT_ADDR, TYP_BYREF, tree);
-                break;
-            case GT_INDEX_ADDR:
-                addr = tree;
-                break;
-            default:
-            {
-                // TODO: Consider using lvaGrabTemp and gtNewTempAssign instead, since we're
-                // not going to use "temp"
-                GenTree* temp = fgInsertCommaFormTemp(pTree, clsHnd);
-                addr          = fgMorphGetStructAddr(pTree, clsHnd, isRValue);
-                break;
-            }
-        }
-    }
-    *pTree = addr;
-    return addr;
-}
-
-//------------------------------------------------------------------------
 // fgMorphBlkNode: Morph a block node preparatory to morphing a block assignment
 //
 // Arguments:
@@ -9906,7 +9836,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     unsigned             destLclNum   = BAD_VAR_NUM;
     LclVarDsc*           destLclVar   = nullptr;
     FieldSeqNode*        destFieldSeq = nullptr;
-    GenTree*             destAddr     = nullptr;
     bool                 destOnStack  = false;
     bool                 destPromote  = false;
     unsigned             killedLclNum = BAD_VAR_NUM;
@@ -9942,7 +9871,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             assert(!dest->TypeIs(TYP_STRUCT));
 
             destSize     = genTypeSize(dest->GetType());
-            destAddr     = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
     }
@@ -9970,11 +9898,9 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if ((dest == effectiveDest) && ((dest->gtFlags & GTF_IND_ARR_INDEX) == 0))
         {
-            destAddr = dest->AsIndir()->GetAddr();
+            noway_assert(dest->AsIndir()->GetAddr()->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-            noway_assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
-
-            if (destAddr->IsLocalAddrExpr(this, &destLclNode, &destFieldSeq))
+            if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destFieldSeq))
             {
                 destLclNum  = destLclNode->GetLclNum();
                 destLclVar  = lvaGetDesc(destLclNum);
@@ -9997,7 +9923,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     unsigned             srcLclNum   = BAD_VAR_NUM;
     LclVarDsc*           srcLclVar   = nullptr;
     FieldSeqNode*        srcFieldSeq = nullptr;
-    GenTree*             srcAddr     = nullptr;
     bool                 srcPromote  = false;
 
     if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
@@ -10017,10 +9942,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             srcLclNum = srcLclNode->GetLclNum();
             srcLclVar = lvaGetDesc(srcLclNum);
-        }
-        else
-        {
-            srcAddr = src->AsIndir()->GetAddr();
         }
     }
 
@@ -10262,6 +10183,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     assert(!srcPromote || (srcLclNum != BAD_VAR_NUM) && (srcLclVar != nullptr));
 
     GenTree* asgFieldCommaTree    = nullptr;
+    GenTree* destAddr             = nullptr;
+    GenTree* srcAddr              = nullptr;
     GenTree* addrSpill            = nullptr;
     unsigned addrSpillLclNum      = BAD_VAR_NUM;
     bool     addrSpillIsStackDest = false; // true if 'addrSpill' represents the address in our local stack frame
@@ -10279,11 +10202,15 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     {
         fieldCount = destLclVar->GetPromotedFieldCount();
 
-        src = fgMorphBlockOperand(src, dest->GetType(), destSize, false /*isBlkReqd*/);
-
-        if (srcAddr == nullptr)
+        if (src->OperIsIndir() && ((src->gtFlags & GTF_IND_ARR_INDEX) == 0))
         {
-            srcAddr = fgMorphGetStructAddr(&src, destLclVar->lvVerTypeInfo.GetClassHandle(), true /* rValue */);
+            srcAddr = src->AsIndir()->GetAddr();
+        }
+        else
+        {
+            assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_BLK));
+
+            srcAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, src);
         }
 
         if (gtClone(srcAddr) != nullptr)
@@ -10301,15 +10228,16 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     {
         fieldCount = srcLclVar->GetPromotedFieldCount();
 
-        dest = fgMorphBlockOperand(dest, dest->GetType(), destSize, false /*isBlkReqd*/);
-
-        if (dest->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
+        if (dest->OperIsIndir() && ((src->gtFlags & GTF_IND_ARR_INDEX) == 0))
         {
-            dest->SetOper(GT_IND);
-            dest->SetType(TYP_STRUCT);
+            destAddr = dest->AsIndir()->GetAddr();
         }
+        else
+        {
+            assert(dest->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_BLK));
 
-        destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
+            destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
+        }
 
         // If we're doing field-wise stores, to an address within a local, and we copy
         // the address into "addrSpill", do *not* declare the original local var node in the
@@ -10322,8 +10250,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             destLclNode->gtFlags &= ~(GTF_VAR_DEF | GTF_VAR_USEASG);
         }
 
-        // TODO-Cleanup: destAddr is always ADDR(...) and gtClone(complexOK = false)
-        // doesn't handle that so the below check is useless...
         if (gtClone(destAddr) != nullptr)
         {
             // destAddr is simple expression. No need to spill
