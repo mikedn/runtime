@@ -9249,8 +9249,9 @@ GenTree* Compiler::fgMorphInitBlock(GenTree* tree)
         {
             blockSize = dest->AsBlk()->Size();
 
-            FieldSeqNode* destFldSeq = nullptr;
-            if (dest->AsIndir()->Addr()->IsLocalAddrExpr(this, &destLclNode, &destFldSeq))
+            FieldSeqNode* destFldSeq  = nullptr;
+            unsigned      destLclOffs = 0;
+            if (dest->AsIndir()->Addr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFldSeq))
             {
                 destLclNum = destLclNode->GetLclNum();
                 destLclVar = lvaGetDesc(destLclNum);
@@ -9835,6 +9836,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     GenTreeLclVarCommon* destLclNode  = nullptr;
     unsigned             destLclNum   = BAD_VAR_NUM;
     LclVarDsc*           destLclVar   = nullptr;
+    unsigned             destLclOffs  = 0;
     FieldSeqNode*        destFieldSeq = nullptr;
     bool                 destOnStack  = false;
     bool                 destPromote  = false;
@@ -9871,6 +9873,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             assert(!dest->TypeIs(TYP_STRUCT));
 
             destSize     = genTypeSize(dest->GetType());
+            destLclOffs  = dest->AsLclFld()->GetLclOffs();
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
     }
@@ -9896,7 +9899,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         noway_assert(dest->AsIndir()->GetAddr()->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-        if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destFieldSeq))
+        if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
         {
             // If it's a local address expression it cannot also be an array element.
             assert((dest->gtFlags & GTF_IND_ARR_INDEX) == 0);
@@ -9920,6 +9923,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     GenTreeLclVarCommon* srcLclNode  = nullptr;
     unsigned             srcLclNum   = BAD_VAR_NUM;
     LclVarDsc*           srcLclVar   = nullptr;
+    unsigned             srcLclOffs  = 0;
     FieldSeqNode*        srcFieldSeq = nullptr;
     bool                 srcPromote  = false;
 
@@ -9931,10 +9935,11 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (src->OperIs(GT_LCL_FLD))
         {
+            srcLclOffs  = src->AsLclFld()->GetLclOffs();
             srcFieldSeq = src->AsLclFld()->GetFieldSeq();
         }
     }
-    else if (src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcFieldSeq))
+    else if (src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcLclOffs, &srcFieldSeq))
     {
         // If it's a local address expression it cannot also be an array element.
         assert((src->gtFlags & GTF_IND_ARR_INDEX) == 0);
@@ -9945,8 +9950,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
     // Check to see if we are doing a copy to/from the same local block.
     // If so, morph it to a nop.
-    if ((destLclVar != nullptr) && (srcLclVar == destLclVar) && (destFieldSeq == srcFieldSeq) &&
-        (destFieldSeq != FieldSeqStore::NotAField()))
+    if ((destLclVar != nullptr) && (srcLclVar == destLclVar) && (destLclOffs == srcLclOffs))
     {
         JITDUMP("Self-copy; replaced with a NOP.\n");
         GenTree* nop = gtNewNothingNode();
@@ -9959,7 +9963,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         noway_assert(varTypeIsStruct(destLclVar->GetType()));
         noway_assert(!opts.MinOpts());
 
-        if (destSize == destLclVar->lvExactSize)
+        if ((destLclOffs == 0) && (destSize == destLclVar->lvExactSize))
         {
             // We may decide later that a copyblk is required when this struct has holes
             destPromote = true;
@@ -9968,7 +9972,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         }
         else
         {
-            JITDUMP(" with mismatched dest size");
+            JITDUMP(" with mismatched dest offset/size");
         }
     }
 
@@ -9977,7 +9981,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         noway_assert(varTypeIsStruct(srcLclVar->GetType()));
         noway_assert(!opts.MinOpts());
 
-        if (destSize == srcLclVar->lvExactSize)
+        if ((srcLclOffs == 0) && (destSize == srcLclVar->lvExactSize))
         {
             // We may decide later that a copyblk is required when this struct has holes
             srcPromote = true;
@@ -9986,7 +9990,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         }
         else
         {
-            JITDUMP(" with mismatched src size");
+            JITDUMP(" with mismatched src offset/size");
         }
     }
 
@@ -17158,8 +17162,10 @@ bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
         {
             copyBlkAddr = copyBlkAddr->AsAddrMode()->Base();
         }
-        GenTreeLclVarCommon* localDst = nullptr;
-        if (copyBlkAddr->IsLocalAddrExpr(this, &localDst, nullptr))
+        GenTreeLclVarCommon* localDst        = nullptr;
+        unsigned             localDstLclOffs = 0;
+        // TODO-MIKE-Review: How come this doesn't crash due to null outFieldSeq?!
+        if (copyBlkAddr->IsLocalAddrExpr(this, &localDst, &localDstLclOffs, nullptr))
         {
             setLclRelatedToSIMDIntrinsic(localDst);
         }

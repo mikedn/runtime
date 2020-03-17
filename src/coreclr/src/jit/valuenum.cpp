@@ -6654,7 +6654,8 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
                 {
                     GenTree*  srcAddr = rhs->AsIndir()->Addr();
                     VNFuncApp srcAddrFuncApp;
-                    if (srcAddr->IsLocalAddrExpr(this, &rhsLclVarTree, &rhsFldSeq))
+                    unsigned  rhsLclOffs = 0;
+                    if (srcAddr->IsLocalAddrExpr(this, &rhsLclVarTree, &rhsLclOffs, &rhsFldSeq))
                     {
                         unsigned rhsLclNum = rhsLclVarTree->GetLclNum();
                         rhsVarDsc          = &lvaTable[rhsLclNum];
@@ -7907,11 +7908,13 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             // We will "evaluate" this as part of the assignment.
             else if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
             {
-                FieldSeqNode* localFldSeq = nullptr;
+                FieldSeqNode* localFldSeq  = nullptr;
+                unsigned      localLclOffs = 0;
                 VNFuncApp     funcApp;
 
                 // Is it a local or a heap address?
-                if (addr->IsLocalAddrExpr(this, &lclVarTree, &localFldSeq) && lvaInSsa(lclVarTree->GetLclNum()))
+                if (addr->IsLocalAddrExpr(this, &lclVarTree, &localLclOffs, &localFldSeq) &&
+                    lvaInSsa(lclVarTree->GetLclNum()))
                 {
                     unsigned   lclNum = lclVarTree->GetLclNum();
                     unsigned   ssaNum = lclVarTree->GetSsaNum();
