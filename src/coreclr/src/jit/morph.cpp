@@ -10204,81 +10204,83 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     {
         fieldCount = destLclVar->GetPromotedFieldCount();
 
-        if (src->OperIsIndir() && ((src->gtFlags & GTF_IND_ARR_INDEX) == 0))
+        if (srcLclVar == nullptr)
         {
-            srcAddr = src->AsIndir()->GetAddr();
-        }
-        else
-        {
-            assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_BLK));
+            if (src->OperIsIndir() && ((src->gtFlags & GTF_IND_ARR_INDEX) == 0))
+            {
+                srcAddr = src->AsIndir()->GetAddr();
+            }
+            else
+            {
+                srcAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, src);
+            }
 
-            srcAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, src);
-        }
-
-        if (gtClone(srcAddr) != nullptr)
-        {
-            // srcAddr is simple expression. No need to spill.
-            noway_assert((srcAddr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
-        }
-        else if (fieldCount > 1)
-        {
-            // srcAddr is a complex expression and we need to use it multiple times, spill it.
-            addrSpill = srcAddr;
+            if (gtClone(srcAddr) != nullptr)
+            {
+                // srcAddr is simple expression. No need to spill.
+                noway_assert((srcAddr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
+            }
+            else if (fieldCount > 1)
+            {
+                // srcAddr is a complex expression and we need to use it multiple times, spill it.
+                addrSpill = srcAddr;
+            }
         }
     }
     else
     {
         fieldCount = srcLclVar->GetPromotedFieldCount();
 
-        if (dest->OperIsIndir() && ((src->gtFlags & GTF_IND_ARR_INDEX) == 0))
+        if (destLclVar == nullptr)
         {
-            destAddr = dest->AsIndir()->GetAddr();
-        }
-        else
-        {
-            assert(dest->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_IND, GT_OBJ, GT_BLK));
-
-            destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
-        }
-
-        // If we're doing field-wise stores, to an address within a local, and we copy
-        // the address into "addrSpill", do *not* declare the original local var node in the
-        // field address as GTF_VAR_DEF and GTF_VAR_USEASG; we will declare each of the
-        // field-wise assignments as an "indirect" assignment to the local.
-        // ("lclVarTree" is a subtree of "destAddr"; make sure we remove the flags before
-        // we clone it.)
-        if (destLclNode != nullptr)
-        {
-            destLclNode->gtFlags &= ~(GTF_VAR_DEF | GTF_VAR_USEASG);
-        }
-
-        if (gtClone(destAddr) != nullptr)
-        {
-            // destAddr is simple expression. No need to spill
-            noway_assert((destAddr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
-        }
-        else if (fieldCount > 1)
-        {
-            // destAddr is a complex expression and we need to use it multiple times, spill it.
-            addrSpill = destAddr;
-        }
-
-        // TODO-CQ: this should be based on a more general "BaseAddress" method, that handles fields of
-        // structs, before or after morphing.
-        if ((addrSpill != nullptr) && addrSpill->OperIs(GT_ADDR))
-        {
-            GenTree* location = addrSpill->AsUnOp()->GetOp(0);
-
-            if (location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            if (dest->OperIsIndir() && (dest->gtFlags & GTF_IND_ARR_INDEX) == 0)
             {
-                assert(lvaGetPromotionType(location->AsLclVarCommon()->GetLclNum()) != PROMOTION_TYPE_INDEPENDENT);
+                destAddr = dest->AsIndir()->GetAddr();
+            }
+            else
+            {
+                destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
+            }
 
-                // We will *not* consider this to define the local, but rather have each individual field
-                // assign be a definition.
-                location->gtFlags &= ~GTF_LIVENESS_MASK;
+            // If we're doing field-wise stores, to an address within a local, and we copy
+            // the address into "addrSpill", do *not* declare the original local var node in the
+            // field address as GTF_VAR_DEF and GTF_VAR_USEASG; we will declare each of the
+            // field-wise assignments as an "indirect" assignment to the local.
+            // ("lclVarTree" is a subtree of "destAddr"; make sure we remove the flags before
+            // we clone it.)
+            if (destLclNode != nullptr)
+            {
+                destLclNode->gtFlags &= ~(GTF_VAR_DEF | GTF_VAR_USEASG);
+            }
 
-                // addrSpill represents the address of LclVar[varNum] in our local stack frame
-                addrSpillIsStackDest = true;
+            if (gtClone(destAddr) != nullptr)
+            {
+                // destAddr is simple expression. No need to spill
+                noway_assert((destAddr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0);
+            }
+            else if (fieldCount > 1)
+            {
+                // destAddr is a complex expression and we need to use it multiple times, spill it.
+                addrSpill = destAddr;
+            }
+
+            // TODO-CQ: this should be based on a more general "BaseAddress" method, that handles fields of
+            // structs, before or after morphing.
+            if ((addrSpill != nullptr) && addrSpill->OperIs(GT_ADDR))
+            {
+                GenTree* location = addrSpill->AsUnOp()->GetOp(0);
+
+                if (location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                {
+                    assert(lvaGetPromotionType(location->AsLclVarCommon()->GetLclNum()) != PROMOTION_TYPE_INDEPENDENT);
+
+                    // We will *not* consider this to define the local, but rather have each individual field
+                    // assign be a definition.
+                    location->gtFlags &= ~GTF_LIVENESS_MASK;
+
+                    // addrSpill represents the address of LclVar[varNum] in our local stack frame
+                    addrSpillIsStackDest = true;
+                }
             }
         }
     }
@@ -10362,6 +10364,29 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             destField = gtNewLclvNode(destLclNum, destLclVar->GetType());
             destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
         }
+        else if (destAddr == nullptr)
+        {
+            unsigned   srcFieldLclNum = srcLclVar->GetPromotedFieldLclNum(i);
+            LclVarDsc* srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
+
+            destField = gtNewLclFldNode(destLclNum, srcFieldLclVar->GetType(),
+                                        destLclOffs + srcFieldLclVar->GetPromotedFieldOffset());
+
+            // We don't have a field sequence for the destination field but one can be obtained from
+            // the source field if the destination and source have the same type. Of course, other
+            // cases could be handled by querying the VM for destination fields and trying to find
+            // ones that are suitable for the current offset and type but this should be a rare case.
+            //
+            // TODO-MIKE-CQ: Currently this is only done if the destination is not itself a field,
+            // otherwise we could combine the two field sequences if they match. Doesn't seem to be
+            // worth the trouble, even the currently implemented trivial case has only a minor impact.
+            if ((destLclOffs == 0) && (destFieldSeq == nullptr) && varTypeIsStruct(destLclVar->GetType()) &&
+                (destLclVar->lvVerTypeInfo.GetClassHandle() == srcLclVar->lvVerTypeInfo.GetClassHandle()))
+            {
+                destField->AsLclFld()->SetFieldSeq(
+                    GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle()));
+            }
+        }
         else
         {
             GenTree* destFieldAddr;
@@ -10389,8 +10414,11 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 }
             }
 
-            unsigned      srcFieldLclNum = srcLclVar->GetPromotedFieldLclNum(i);
-            LclVarDsc*    srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
+            unsigned   srcFieldLclNum = srcLclVar->GetPromotedFieldLclNum(i);
+            LclVarDsc* srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
+
+            // TODO-MIKE-Review: This looks fishy - it's only correct if the destination has the same type as the
+            // source. If reinterpretation has ocurred then it would likely be wiser to use NotAField.
             FieldSeqNode* srcFieldSeq = GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle());
 
             if (srcFieldLclVar->GetPromotedFieldOffset() == 0)
@@ -10428,6 +10456,23 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             srcField = gtNewLclvNode(srcLclNum, srcLclVar->GetType());
             srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+        }
+        else if (srcAddr == nullptr)
+        {
+            unsigned   destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
+            LclVarDsc* destFieldLclVar = lvaGetDesc(destFieldLclNum);
+
+            srcField = gtNewLclFldNode(srcLclNum, destFieldLclVar->GetType(),
+                                       srcLclOffs + destFieldLclVar->GetPromotedFieldOffset());
+
+            // We don't have a field sequence for the source field but one can be obtained from
+            // the destination field if the destination and source have the same type.
+            if ((srcLclOffs == 0) && (srcFieldSeq == nullptr) && varTypeIsStruct(srcLclVar->GetType()) &&
+                (srcLclVar->lvVerTypeInfo.GetClassHandle() == destLclVar->lvVerTypeInfo.GetClassHandle()))
+            {
+                srcField->AsLclFld()->SetFieldSeq(
+                    GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle()));
+            }
         }
         else
         {
