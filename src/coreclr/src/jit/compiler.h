@@ -3311,6 +3311,8 @@ public:
 
     bool lvaHaveManyLocals() const;
 
+    unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
+
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason));
     unsigned lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG(const char* reason));
