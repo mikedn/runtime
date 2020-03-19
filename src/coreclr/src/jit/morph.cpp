@@ -9647,36 +9647,36 @@ GenTree* Compiler::fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigne
 
     if (asgType != TYP_STRUCT)
     {
-        if (tree->OperIsIndir())
+        if (!tree->OperIsIndir())
         {
-            if (isBlockRequired)
+            if (tree->GetType() != asgType)
             {
-                tree->SetType(asgType);
-                return tree;
-            }
-
-            GenTree* addr = tree->AsIndir()->GetAddr();
-
-            if (addr->OperIs(GT_ADDR) && (addr->AsUnOp()->GetOp(0)->GetType() == asgType))
-            {
-                return addr->AsUnOp()->GetOp(0);
-            }
-
-            if (tree->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
-            {
-                tree->SetOper(GT_IND);
-                tree->SetType(asgType);
+                tree = gtNewIndir(asgType, gtNewOperNode(GT_ADDR, TYP_BYREF, tree));
             }
 
             return tree;
         }
 
-        if (tree->GetType() == asgType)
+        if (isBlockRequired)
         {
+            tree->SetType(asgType);
             return tree;
         }
 
-        return gtNewIndir(asgType, gtNewOperNode(GT_ADDR, TYP_BYREF, tree));
+        GenTree* addr = tree->AsIndir()->GetAddr();
+
+        if (addr->OperIs(GT_ADDR) && (addr->AsUnOp()->GetOp(0)->GetType() == asgType))
+        {
+            return addr->AsUnOp()->GetOp(0);
+        }
+
+        if (tree->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
+        {
+            tree->SetOper(GT_IND);
+        }
+
+        tree->SetType(asgType);
+        return tree;
     }
 
     GenTreeIndir*  indirTree = nullptr;
