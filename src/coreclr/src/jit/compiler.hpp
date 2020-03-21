@@ -1555,6 +1555,13 @@ inline bool Compiler::lvaHaveManyLocals() const
     return (lvaCount >= lclMAX_TRACKED);
 }
 
+inline unsigned Compiler::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
+{
+    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    lvaGetDesc(lclNum)->SetType(type);
+    return lclNum;
+}
+
 /*****************************************************************************
  *
  *  Allocate a temporary variable or a set of temp variables.

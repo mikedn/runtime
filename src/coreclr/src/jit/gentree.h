@@ -1793,9 +1793,12 @@ public:
     bool DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire = nullptr);
 
     // Returns true if "this" represents the address of a local, or a field of a local.  If returns true, sets
-    // "*pLclVarTree" to the node indicating the local variable.  If the address is that of a field of this node,
-    // sets "*pFldSeq" to the field sequence representing that field, else null.
-    bool IsLocalAddrExpr(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, FieldSeqNode** pFldSeq);
+    // "*outLclNode" to the node indicating the local variable.  If the address is that of a field of this node,
+    // sets "*outLclOffs" and "*outFieldSeq" to the field offset and field sequence representing that field, else null.
+    bool IsLocalAddrExpr(Compiler*             comp,
+                         GenTreeLclVarCommon** outLclNode,
+                         unsigned*             outLclOffs,
+                         FieldSeqNode**        outFieldSeq);
 
     // Simpler variant of the above which just returns the local node if this is an expression that
     // yields an address into a local
@@ -2931,6 +2934,16 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         , gtFieldSeq(fields)
     {
         assert(fields != nullptr);
+    }
+
+    ssize_t GetValue() const
+    {
+        return gtIconVal;
+    }
+
+    FieldSeqNode* GetFieldSeq() const
+    {
+        return gtFieldSeq;
     }
 
     void FixupInitBlkValue(var_types asgType);
@@ -5405,6 +5418,11 @@ struct GenTreeIndir : public GenTreeOp
     // Since GenTreeDynBlk derives from this, but is an "EXOP" (i.e. it has extra fields),
     // we can't access Op1 and Op2 in the normal manner if we may have a DynBlk.
     GenTree*& Addr()
+    {
+        return gtOp1;
+    }
+
+    GenTree* GetAddr() const
     {
         return gtOp1;
     }

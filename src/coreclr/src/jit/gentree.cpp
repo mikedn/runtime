@@ -5110,7 +5110,7 @@ void GenTree::SetVtableForOper(genTreeOps oper)
 }
 #endif // DEBUGGABLE_GENTREE
 
-GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
+GenTreeOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
 {
     assert(op1 != nullptr);
     assert(op2 != nullptr);
@@ -5119,9 +5119,7 @@ GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, 
     // should call the appropriate constructor for the extended type.
     assert(!GenTree::IsExOp(GenTree::OperKind(oper)));
 
-    GenTree* node = new (this, oper) GenTreeOp(oper, type, op1, op2);
-
-    return node;
+    return new (this, oper) GenTreeOp(oper, type, op1, op2);
 }
 
 GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* colon)
@@ -5817,7 +5815,7 @@ GenTree* Compiler::gtArgNodeByLateArgInx(GenTreeCall* call, unsigned lateArgInx)
  *  Create a node that will assign 'src' to 'dst'.
  */
 
-GenTree* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
+GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 {
     /* Mark the target as being assigned */
 
@@ -5834,7 +5832,7 @@ GenTree* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 
     /* Create the assignment node */
 
-    GenTree* asg = gtNewOperNode(GT_ASG, dst->TypeGet(), dst, src);
+    GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->TypeGet(), dst, src);
 
     /* Mark the expression as containing an assignment */
 
@@ -9488,36 +9486,36 @@ void Compiler::gtDispConst(GenTree* tree)
     }
 }
 
-void Compiler::gtDispFieldSeq(FieldSeqNode* pfsn)
+void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
 {
-    if (pfsn == FieldSeqStore::NotAField() || (pfsn == nullptr))
+    if (fieldSeq == nullptr)
     {
         return;
     }
 
-    // Otherwise...
     printf(" Fseq[");
-    while (pfsn != nullptr)
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->m_next)
     {
-        assert(pfsn != FieldSeqStore::NotAField()); // Can't exist in a field sequence list except alone
-        CORINFO_FIELD_HANDLE fldHnd = pfsn->m_fieldHnd;
-        // First check the "pseudo" field handles...
-        if (fldHnd == FieldSeqStore::FirstElemPseudoField)
+        if (fieldSeq == FieldSeqStore::NotAField())
+        {
+            printf("N/A");
+        }
+        else if (fieldSeq->m_fieldHnd == FieldSeqStore::FirstElemPseudoField)
         {
             printf("#FirstElem");
         }
-        else if (fldHnd == FieldSeqStore::ConstantIndexPseudoField)
+        else if (fieldSeq->m_fieldHnd == FieldSeqStore::ConstantIndexPseudoField)
         {
             printf("#ConstantIndex");
         }
         else
         {
-            printf("%s", eeGetFieldName(fldHnd));
+            printf("%s", eeGetFieldName(fieldSeq->m_fieldHnd));
         }
-        pfsn = pfsn->m_next;
-        if (pfsn != nullptr)
+
+        if (fieldSeq->m_next != nullptr)
         {
-            printf(", ");
+            printf(".");
         }
     }
     printf("]");
@@ -15071,60 +15069,78 @@ GenTreeLclVarCommon* GenTree::IsLocalAddrExpr()
     return nullptr;
 }
 
-bool GenTree::IsLocalAddrExpr(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, FieldSeqNode** pFldSeq)
+bool GenTree::IsLocalAddrExpr(Compiler*             comp,
+                              GenTreeLclVarCommon** outLclNode,
+                              unsigned*             outLclOffs,
+                              FieldSeqNode**        outFieldSeq)
 {
-    if (OperGet() == GT_ADDR)
+    if (OperIs(GT_ADD))
     {
-        assert(!comp->compRationalIRForm);
-        GenTree* addrArg = AsOp()->gtOp1;
-        if (addrArg->IsLocal()) // Note that this covers "GT_LCL_FLD."
+        GenTree* op1 = AsOp()->GetOp(0);
+        GenTree* op2 = AsOp()->GetOp(1);
+
+        if (op1->OperIs(GT_CNS_INT))
         {
-            *pLclVarTree = addrArg->AsLclVarCommon();
-            if (addrArg->OperGet() == GT_LCL_FLD)
-            {
-                // Otherwise, prepend this field to whatever we've already accumulated outside in.
-                *pFldSeq = comp->GetFieldSeqStore()->Append(addrArg->AsLclFld()->GetFieldSeq(), *pFldSeq);
-            }
-            return true;
+            std::swap(op1, op2);
         }
-        else
+
+        if (!op2->OperIs(GT_CNS_INT))
         {
             return false;
         }
-    }
-    else if (OperIsLocalAddr())
-    {
-        *pLclVarTree = this->AsLclVarCommon();
-        if (this->OperGet() == GT_LCL_FLD_ADDR)
+
+        // TODO-MIKE-Review: This is inconsistent with the IsLocalAddrExpr() overload above and
+        // DefinesLocalAddr, they both ignore the field sequence (or the lack of it). Though it
+        // probably doesn't matter since IntCon nodes get NotAField by default. And eventually
+        // all this should go away...
+        if (op2->AsIntCon()->GetFieldSeq() == nullptr)
         {
-            *pFldSeq = comp->GetFieldSeqStore()->Append(this->AsLclFld()->GetFieldSeq(), *pFldSeq);
+            return false;
         }
+
+        *outLclOffs += static_cast<int>(op2->AsIntCon()->GetValue());
+        // TODO-MIKE-Review: Is there anything the prevents the JIT from reordering an ADD(ADD(ADD...))
+        // sequence such that the field sequence no longer reflects the original field access sequence?
+        *outFieldSeq = comp->GetFieldSeqStore()->Append(op2->AsIntCon()->GetFieldSeq(), *outFieldSeq);
+
+        return op1->IsLocalAddrExpr(comp, outLclNode, outLclOffs, outFieldSeq);
+    }
+
+    if (OperIs(GT_ADDR))
+    {
+        assert(!comp->compRationalIRForm);
+
+        GenTree* location = AsUnOp()->GetOp(0);
+
+        if (!location->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            return false;
+        }
+
+        *outLclNode = location->AsLclVarCommon();
+
+        if (location->OperIs(GT_LCL_FLD))
+        {
+            *outLclOffs += location->AsLclFld()->GetLclOffs();
+            *outFieldSeq = comp->GetFieldSeqStore()->Append(location->AsLclFld()->GetFieldSeq(), *outFieldSeq);
+        }
+
         return true;
     }
-    else if (OperGet() == GT_ADD)
+
+    if (OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
-        if (AsOp()->gtOp1->OperGet() == GT_CNS_INT)
+        *outLclNode = AsLclVarCommon();
+
+        if (OperIs(GT_LCL_FLD_ADDR))
         {
-            if (AsOp()->gtOp1->AsIntCon()->gtFieldSeq == nullptr)
-            {
-                return false;
-            }
-            // Otherwise, prepend this field to whatever we've already accumulated outside in.
-            *pFldSeq = comp->GetFieldSeqStore()->Append(AsOp()->gtOp1->AsIntCon()->gtFieldSeq, *pFldSeq);
-            return AsOp()->gtOp2->IsLocalAddrExpr(comp, pLclVarTree, pFldSeq);
+            *outLclOffs += AsLclFld()->GetLclOffs();
+            *outFieldSeq = comp->GetFieldSeqStore()->Append(AsLclFld()->GetFieldSeq(), *outFieldSeq);
         }
-        else if (AsOp()->gtOp2->OperGet() == GT_CNS_INT)
-        {
-            if (AsOp()->gtOp2->AsIntCon()->gtFieldSeq == nullptr)
-            {
-                return false;
-            }
-            // Otherwise, prepend this field to whatever we've already accumulated outside in.
-            *pFldSeq = comp->GetFieldSeqStore()->Append(AsOp()->gtOp2->AsIntCon()->gtFieldSeq, *pFldSeq);
-            return AsOp()->gtOp1->IsLocalAddrExpr(comp, pLclVarTree, pFldSeq);
-        }
+
+        return true;
     }
-    // Otherwise...
+
     return false;
 }
 

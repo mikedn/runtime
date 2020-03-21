@@ -527,6 +527,42 @@ public:
     unsigned char lvFldOffset;
     unsigned char lvFldOrdinal;
 
+    unsigned GetPromotedFieldCount() const
+    {
+        assert(lvPromoted);
+        return lvFieldCnt;
+    }
+
+    unsigned GetPromotedFieldLclNum(unsigned ordinal) const
+    {
+        assert(lvPromoted && (ordinal < lvFieldCnt));
+        return lvFieldLclStart + ordinal;
+    }
+
+    unsigned GetPromotedFieldParentLclNum() const
+    {
+        assert(lvIsStructField);
+        return lvParentLcl;
+    }
+
+    unsigned GetPromotedFieldOrdinal() const
+    {
+        assert(lvIsStructField);
+        return lvFldOrdinal;
+    }
+
+    unsigned GetPromotedFieldOffset() const
+    {
+        assert(lvIsStructField);
+        return lvFldOffset;
+    }
+
+    CORINFO_FIELD_HANDLE GetPromotedFieldHandle() const
+    {
+        assert(lvIsStructField);
+        return lvFieldHnd;
+    }
+
 #if FEATURE_MULTIREG_ARGS
     regNumber lvRegNumForSlot(unsigned slotNum)
     {
@@ -866,6 +902,17 @@ public:
     Statement* lvDefStmt;          // Pointer to the statement with the single definition
     void       lvaDisqualifyVar(); // Call to disqualify a local variable from use in optAddCopies
 #endif
+    var_types GetType() const
+    {
+        return lvType;
+    }
+
+    void SetType(var_types type)
+    {
+        assert((TYP_UNDEF < type) && (type < TYP_UNKNOWN) && !varTypeIsStruct(type));
+        lvType = type;
+    }
+
     var_types TypeGet() const
     {
         return (var_types)lvType;
@@ -2471,7 +2518,7 @@ public:
     GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool doSimplifications = TRUE);
 
     // For binary opers.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
+    GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
 
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* colon);
 
@@ -2644,7 +2691,7 @@ public:
     fgArgTabEntry* gtArgEntryByLateArgIndex(GenTreeCall* call, unsigned lateArgInx);
     static GenTree* gtArgNodeByLateArgInx(GenTreeCall* call, unsigned lateArgInx);
 
-    GenTree* gtNewAssignNode(GenTree* dst, GenTree* src);
+    GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
 
     GenTree* gtNewTempAssign(unsigned    tmp,
                              GenTree*    val,
@@ -3263,6 +3310,8 @@ public:
     unsigned lvaLclExactSize(unsigned varNum);
 
     bool lvaHaveManyLocals() const;
+
+    unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
 
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason));
@@ -5444,10 +5493,9 @@ private:
     GenTree* fgMorphOneAsgBlockOp(GenTree* tree);
     GenTree* fgMorphInitBlock(GenTree* tree);
     GenTree* fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenTree* initVal, unsigned blockSize);
-    GenTree* fgMorphGetStructAddr(GenTree** pTree, CORINFO_CLASS_HANDLE clsHnd, bool isRValue = false);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
     GenTree* fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigned blockWidth, bool isDest);
-    GenTree* fgMorphCopyBlock(GenTree* tree);
+    GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
@@ -5458,6 +5506,8 @@ private:
 
 public:
     GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
+
+    INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
 
 private:
 #if LOCAL_ASSERTION_PROP
