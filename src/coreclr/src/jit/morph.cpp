@@ -10308,6 +10308,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             destField = gtNewLclFldNode(destLclNum, srcFieldLclVar->GetType(),
                                         destLclOffs + srcFieldLclVar->GetPromotedFieldOffset());
+            destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
 
             // We don't have a field sequence for the destination field but one can be obtained from
             // the source field if the destination and source have the same type. Of course, other
@@ -10373,7 +10374,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             }
 
             destField = gtNewIndir(srcFieldLclVar->GetType(), destFieldAddr);
-
+            destField->gtFlags |= GTF_GLOB_REF;
             // !!! The destination could be on stack. !!!
             // This flag will let us choose the correct write barrier.
             destField->gtFlags |= GTF_IND_TGTANYWHERE;
@@ -10405,6 +10406,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             srcField = gtNewLclFldNode(srcLclNum, destFieldLclVar->GetType(),
                                        srcLclOffs + destFieldLclVar->GetPromotedFieldOffset());
+            srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
 
             // We don't have a field sequence for the source field but one can be obtained from
             // the destination field if the destination and source have the same type.
@@ -10445,6 +10447,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             }
 
             srcField = gtNewIndir(destFieldLclVar->GetType(), srcFieldAddr);
+            srcField->gtFlags |= GTF_GLOB_REF;
         }
 
         noway_assert(destField->GetType() == srcField->GetType());
