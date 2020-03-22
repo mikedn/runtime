@@ -9788,14 +9788,12 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     LclVarDsc*           destLclVar   = nullptr;
     unsigned             destLclOffs  = 0;
     FieldSeqNode*        destFieldSeq = nullptr;
-    bool                 destOnStack  = false;
     bool                 destPromote  = false;
     unsigned             killedLclNum = BAD_VAR_NUM;
 
     if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         destHasSize = true;
-        destOnStack = true;
 
         killedLclNum = dest->AsLclVarCommon()->GetLclNum();
 
@@ -9856,7 +9854,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             destLclNum  = destLclNode->GetLclNum();
             destLclVar  = lvaGetDesc(destLclNum);
-            destOnStack = true;
 
             killedLclNum = destLclNum;
         }
