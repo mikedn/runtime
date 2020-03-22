@@ -5494,7 +5494,7 @@ private:
     GenTree* fgMorphLeaf(GenTree* tree);
     void fgAssignSetVarDef(GenTree* tree);
     GenTree* fgMorphOneAsgBlockOp(GenTree* tree);
-    GenTree* fgMorphInitBlock(GenTree* tree);
+    GenTree* fgMorphInitBlock(GenTreeOp* asg);
     GenTree* fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenTree* initVal, unsigned blockSize);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
     GenTree* fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigned blockWidth, bool isDest);

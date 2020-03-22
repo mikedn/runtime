@@ -8142,7 +8142,7 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
                         const bool isVolatile  = false;
                         const bool isCopyBlock = false;
                         init                   = gtNewBlkOpNode(lcl, gtNewIconNode(0), isVolatile, isCopyBlock);
-                        init                   = fgMorphInitBlock(init);
+                        init                   = fgMorphInitBlock(init->AsOp());
                     }
                     else
                     {
@@ -9192,41 +9192,39 @@ GenTree* Compiler::fgMorphOneAsgBlockOp(GenTree* tree)
 // Assumptions:
 //    GT_ASG's children have already been morphed.
 //
-GenTree* Compiler::fgMorphInitBlock(GenTree* tree)
+GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 {
-    JITDUMPTREE(tree, "\nfgMorphInitBlock (before):\n");
+    JITDUMPTREE(asg, "\nfgMorphInitBlock (before):\n");
 
-    noway_assert((tree->OperGet() == GT_ASG) && tree->OperIsInitBlkOp());
+    noway_assert(asg->OperIs(GT_ASG) && asg->OperIsInitBlkOp());
 
-    GenTree* src      = tree->gtGetOp2();
-    GenTree* origDest = tree->gtGetOp1();
+    GenTree* dest = asg->GetOp(0);
+    GenTree* src  = asg->GetOp(1);
 
-    GenTree* dest = fgMorphBlkNode(origDest, true);
-    if (dest != origDest)
-    {
-        tree->AsOp()->gtOp1 = dest;
-    }
-    tree->gtType = dest->TypeGet();
+    dest = fgMorphBlkNode(dest, true);
+    asg->SetOp(0, dest);
+    asg->SetType(dest->GetType());
 
     // (Constant propagation may cause a TYP_STRUCT lclVar to be changed to GT_CNS_INT, and its
     // type will be the type of the original lclVar, in which case we will change it to TYP_INT).
-    if ((src->OperGet() == GT_CNS_INT) && varTypeIsStruct(src))
+    if (src->OperIs(GT_CNS_INT) && varTypeIsStruct(src->GetType()))
     {
-        src->gtType = TYP_INT;
+        src->SetType(TYP_INT);
     }
 
-    JITDUMPTREE(tree, "fgMorphInitBlock (after fgMorphBlkNode):\n");
+    GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
 
-    if (fgMorphOneAsgBlockOp(tree) != nullptr)
+    JITDUMPTREE(asg, "fgMorphInitBlock (after fgMorphBlkNode):\n");
+
+    if (fgMorphOneAsgBlockOp(asg) != nullptr)
     {
-        JITDUMPTREE(tree, "fgMorphInitBlock (after fgMorphOneAsgBlockOp):\n");
-        return tree;
+        JITDUMPTREE(asg, "fgMorphInitBlock (after fgMorphOneAsgBlockOp):\n");
+        return asg;
     }
 
     GenTreeLclVarCommon* destLclNode = nullptr;
     unsigned             destLclNum  = BAD_VAR_NUM;
     LclVarDsc*           destLclVar  = nullptr;
-    GenTree*             initVal     = src->OperIsInitVal() ? src->gtGetOp1() : src;
     unsigned             blockSize   = 0;
 
     if (dest->IsLocal())
@@ -9252,12 +9250,11 @@ GenTree* Compiler::fgMorphInitBlock(GenTree* tree)
     if (destLclNum != BAD_VAR_NUM)
     {
 #if LOCAL_ASSERTION_PROP
-        // Kill everything about destLclNum (and its field locals)
         if (optLocalAssertionProp && (optAssertionCount > 0))
         {
-            fgKillDependentAssertions(destLclNum DEBUGARG(tree));
+            fgKillDependentAssertions(destLclNum DEBUGARG(asg));
         }
-#endif // LOCAL_ASSERTION_PROP
+#endif
 
         if (destLclVar->lvPromoted)
         {
@@ -9270,19 +9267,17 @@ GenTree* Compiler::fgMorphInitBlock(GenTree* tree)
             }
         }
 
-        // If destLclVar is not a reg-sized non-field-addressed struct, set it as DoNotEnregister.
         if (!destLclVar->lvRegStruct)
         {
             lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
         }
     }
 
-    // For an InitBlock we always require a block operand.
-    dest                = fgMorphBlockOperand(dest, dest->TypeGet(), blockSize, true /*isBlkReqd*/);
-    tree->AsOp()->gtOp1 = dest;
-    tree->gtFlags |= (dest->gtFlags & GTF_ALL_EFFECT);
+    dest = fgMorphBlockOperand(dest, dest->TypeGet(), blockSize, true /*isBlkReqd*/);
+    asg->SetOp(0, dest);
+    asg->gtFlags |= (dest->gtFlags & GTF_ALL_EFFECT);
 
-    return tree;
+    return asg;
 }
 
 //------------------------------------------------------------------------
