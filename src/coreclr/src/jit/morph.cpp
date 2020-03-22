@@ -9212,8 +9212,6 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
         src->SetType(TYP_INT);
     }
 
-    GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
-
     JITDUMPTREE(asg, "fgMorphInitBlock (after fgMorphBlkNode):\n");
 
     if (fgMorphOneAsgBlockOp(asg) != nullptr)
@@ -9222,58 +9220,85 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
         return asg;
     }
 
-    GenTreeLclVarCommon* destLclNode = nullptr;
-    unsigned             destLclNum  = BAD_VAR_NUM;
-    LclVarDsc*           destLclVar  = nullptr;
-    unsigned             blockSize   = 0;
+    unsigned             destSize     = 0;
+    GenTreeLclVarCommon* destLclNode  = nullptr;
+    unsigned             destLclNum   = BAD_VAR_NUM;
+    LclVarDsc*           destLclVar   = nullptr;
+    unsigned             destLclOffs  = 0;
+    FieldSeqNode*        destFieldSeq = nullptr;
 
-    if (dest->IsLocal())
+    if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         destLclNode = dest->AsLclVarCommon();
         destLclNum  = destLclNode->GetLclNum();
         destLclVar  = lvaGetDesc(destLclNum);
-        blockSize   = varTypeIsStruct(destLclVar) ? destLclVar->lvExactSize : genTypeSize(destLclVar->TypeGet());
+
+        if (dest->OperIs(GT_LCL_VAR))
+        {
+            if (destLclNode->TypeIs(TYP_STRUCT))
+            {
+                destSize = destLclVar->lvExactSize;
+            }
+            else
+            {
+                destSize = genTypeSize(destLclVar->GetType());
+            }
+        }
+        else
+        {
+            assert(!dest->TypeIs(TYP_STRUCT));
+
+            destSize     = genTypeSize(dest->GetType());
+            destLclOffs  = dest->AsLclFld()->GetLclOffs();
+            destFieldSeq = dest->AsLclFld()->GetFieldSeq();
+        }
     }
     else
     {
-        blockSize = dest->AsBlk()->Size();
+        destSize = dest->AsBlk()->Size();
 
-        FieldSeqNode* destFldSeq  = nullptr;
-        unsigned      destLclOffs = 0;
-        if (dest->AsIndir()->Addr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFldSeq))
+        if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
         {
+            // If it's a local address expression it cannot also be an array element.
+            assert((dest->gtFlags & GTF_IND_ARR_INDEX) == 0);
+
             destLclNum = destLclNode->GetLclNum();
             destLclVar = lvaGetDesc(destLclNum);
         }
     }
 
-    if (destLclNum != BAD_VAR_NUM)
-    {
 #if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp && (optAssertionCount > 0))
-        {
-            fgKillDependentAssertions(destLclNum DEBUGARG(asg));
-        }
+    if (optLocalAssertionProp && (destLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
+    {
+        fgKillDependentAssertions(destLclNum DEBUGARG(asg));
+    }
 #endif
 
-        if (destLclVar->lvPromoted)
-        {
-            GenTree* promotedTree = fgMorphPromoteLocalInitBlock(destLclNode->AsLclVar(), initVal, blockSize);
+    GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
 
-            if (promotedTree != nullptr)
-            {
-                JITDUMPTREE(promotedTree, "fgMorphInitBlock (after promotion):\n");
-                return promotedTree;
-            }
-        }
+    if ((destLclVar != nullptr) && destLclVar->lvPromoted && (destLclOffs == 0) &&
+        (destLclVar->lvExactSize == destSize))
+    {
+        assert(varTypeIsStruct(destLclVar->GetType()));
+        assert(destSize > 0);
 
-        if (!destLclVar->lvRegStruct)
+        GenTree* promotedTree = fgMorphPromoteLocalInitBlock(destLclVar, initVal);
+
+        if (promotedTree != nullptr)
         {
-            lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+            promotedTree->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
+            INDEBUG(promotedTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+            JITDUMPTREE(promotedTree, "fgMorphInitBlock (after promotion):\n");
+            return promotedTree;
         }
     }
 
-    dest = fgMorphBlockOperand(dest, dest->TypeGet(), blockSize, true /*isBlkReqd*/);
+    if ((destLclVar != nullptr) && !destLclVar->lvRegStruct)
+    {
+        lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+    }
+
+    dest = fgMorphBlockOperand(dest, dest->TypeGet(), destSize, true /*isBlkReqd*/);
     asg->SetOp(0, dest);
     asg->gtFlags |= (dest->gtFlags & GTF_ALL_EFFECT);
 
@@ -9285,9 +9310,8 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 // to a tree of promoted field initialization assignments.
 //
 // Arguments:
-//    destLclNode - The destination LclVar node
+//    destLclVar - The destination LclVar
 //    initVal - The initialization value
-//    blockSize - The amount of bytes to initialize
 //
 // Return Value:
 //    A tree that performs field by field initialization of the destination
@@ -9321,19 +9345,10 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 //       +--*  LCL_VAR   float  V08 tmp5
 //       \--*  CNS_DBL   float  1.5113661732714390e-13
 //
-GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenTree* initVal, unsigned blockSize)
+GenTree* Compiler::fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* initVal)
 {
-    assert(destLclNode->OperIs(GT_LCL_VAR));
-
-    LclVarDsc* destLclVar = lvaGetDesc(destLclNode);
-    assert(varTypeIsStruct(destLclVar->TypeGet()));
+    assert(varTypeIsStruct(destLclVar->GetType()));
     assert(destLclVar->lvPromoted);
-
-    if (blockSize == 0)
-    {
-        JITDUMP(" size is zero or unknown.\n");
-        return nullptr;
-    }
 
     if (destLclVar->lvAddrExposed && destLclVar->lvContainsHoles)
     {
@@ -9347,12 +9362,6 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenT
         return nullptr;
     }
 
-    if (destLclVar->lvExactSize != blockSize)
-    {
-        JITDUMP(" dest size mismatch.\n");
-        return nullptr;
-    }
-
     if (!initVal->OperIs(GT_CNS_INT))
     {
         JITDUMP(" source is not constant.\n");
@@ -9363,11 +9372,12 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenT
 
     if (initPattern != 0)
     {
-        for (unsigned i = 0; i < destLclVar->lvFieldCnt; ++i)
+        for (unsigned i = 0; i < destLclVar->GetPromotedFieldCount(); ++i)
         {
-            LclVarDsc* fieldDesc = lvaGetDesc(destLclVar->lvFieldLclStart + i);
+            unsigned   destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
+            LclVarDsc* destFieldLclVar = lvaGetDesc(destFieldLclNum);
 
-            if (varTypeIsSIMD(fieldDesc->TypeGet()) || varTypeIsGC(fieldDesc->TypeGet()))
+            if (varTypeIsSIMD(destFieldLclVar->GetType()) || varTypeIsGC(destFieldLclVar->GetType()))
             {
                 // Cannot initialize GC or SIMD types with a non-zero constant.
                 // The former is completly bogus. The later restriction could be
@@ -9384,17 +9394,17 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenT
 
     GenTree* tree = nullptr;
 
-    for (unsigned i = 0; i < destLclVar->lvFieldCnt; ++i)
+    for (unsigned i = 0; i < destLclVar->GetPromotedFieldCount(); ++i)
     {
-        unsigned   fieldLclNum = destLclVar->lvFieldLclStart + i;
-        LclVarDsc* fieldDesc   = lvaGetDesc(fieldLclNum);
-        GenTree*   dest        = gtNewLclvNode(fieldLclNum, fieldDesc->TypeGet());
-        // If it had been labeled a "USEASG", assignments to the individual promoted fields are not.
-        dest->gtFlags |= (destLclNode->gtFlags & ~(GTF_NODE_MASK | GTF_VAR_USEASG));
+        unsigned   destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
+        LclVarDsc* destFieldLclVar = lvaGetDesc(destFieldLclNum);
+
+        GenTree* destField = gtNewLclvNode(destFieldLclNum, destFieldLclVar->GetType());
+        destField->gtFlags |= destFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
 
         GenTree* src;
 
-        switch (dest->TypeGet())
+        switch (destFieldLclVar->GetType())
         {
             case TYP_BOOL:
             case TYP_BYTE:
@@ -9403,27 +9413,30 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenT
             case TYP_USHORT:
                 // Promoted fields are expected to be "normalize on load". If that changes then
                 // we may need to adjust this code to widen the constant correctly.
-                assert(fieldDesc->lvNormalizeOnLoad());
+                assert(destFieldLclVar->lvNormalizeOnLoad());
                 __fallthrough;
             case TYP_INT:
-            {
-                int64_t mask = (int64_t(1) << (genTypeSize(dest->TypeGet()) * 8)) - 1;
-                src          = gtNewIconNode(static_cast<int32_t>(initPattern & mask));
+                int64_t mask;
+                mask = (int64_t(1) << (genTypeSize(destField->GetType()) * 8)) - 1;
+                src  = gtNewIconNode(static_cast<int32_t>(initPattern & mask));
                 break;
-            }
+
             case TYP_LONG:
                 src = gtNewLconNode(initPattern);
                 break;
+
             case TYP_FLOAT:
                 float floatPattern;
                 memcpy(&floatPattern, &initPattern, sizeof(floatPattern));
-                src = gtNewDconNode(floatPattern, dest->TypeGet());
+                src = gtNewDconNode(floatPattern, destField->GetType());
                 break;
+
             case TYP_DOUBLE:
                 double doublePattern;
                 memcpy(&doublePattern, &initPattern, sizeof(doublePattern));
-                src = gtNewDconNode(doublePattern, dest->TypeGet());
+                src = gtNewDconNode(doublePattern, destField->GetType());
                 break;
+
             case TYP_REF:
             case TYP_BYREF:
 #ifdef FEATURE_SIMD
@@ -9433,20 +9446,21 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenT
             case TYP_SIMD32:
 #endif // FEATURE_SIMD
                 assert(initPattern == 0);
-                src = gtNewIconNode(0, dest->TypeGet());
+                src = gtNewIconNode(0, destField->GetType());
                 break;
+
             default:
                 unreached();
         }
 
-        GenTree* asg = gtNewAssignNode(dest, src);
+        GenTree* asg = gtNewAssignNode(destField, src);
 
 #if LOCAL_ASSERTION_PROP
         if (optLocalAssertionProp)
         {
             optAssertionGen(asg);
         }
-#endif // LOCAL_ASSERTION_PROP
+#endif
 
         if (tree != nullptr)
         {
@@ -9457,8 +9471,6 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenT
             tree = asg;
         }
     }
-
-    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
     return tree;
 }
@@ -9852,15 +9864,14 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             // If it's a local address expression it cannot also be an array element.
             assert((dest->gtFlags & GTF_IND_ARR_INDEX) == 0);
 
-            destLclNum  = destLclNode->GetLclNum();
-            destLclVar  = lvaGetDesc(destLclNum);
+            destLclNum = destLclNode->GetLclNum();
+            destLclVar = lvaGetDesc(destLclNum);
 
             killedLclNum = destLclNum;
         }
     }
 
 #if LOCAL_ASSERTION_PROP
-    // Kill everything about killedLclNum (and its field locals)
     if (optLocalAssertionProp && (killedLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
     {
         fgKillDependentAssertions(killedLclNum DEBUGARG(asg));
@@ -9905,40 +9916,35 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         return nop;
     }
 
-    if ((destLclVar != nullptr) && destLclVar->lvPromoted && destHasSize)
+    if ((destLclVar != nullptr) && destLclVar->lvPromoted && (destLclOffs == 0) &&
+        (destLclVar->lvExactSize == destSize))
     {
-        noway_assert(varTypeIsStruct(destLclVar->GetType()));
-        noway_assert(!opts.MinOpts());
+        assert(varTypeIsStruct(destLclVar->GetType()));
+        assert(destHasSize);
 
-        if ((destLclOffs == 0) && (destSize == destLclVar->lvExactSize))
-        {
-            // We may decide later that a copyblk is required when this struct has holes
-            destPromote = true;
+        // We may decide later that a copyblk is required when this struct has holes
+        destPromote = true;
 
-            JITDUMP(" (destPromote=true)");
-        }
-        else
-        {
-            JITDUMP(" with mismatched dest offset/size");
-        }
+        JITDUMP(" (destPromote=true)");
+    }
+    else
+    {
+        JITDUMP(" with mismatched dest offset/size");
     }
 
-    if ((srcLclVar != nullptr) && srcLclVar->lvPromoted && destHasSize)
+    if ((srcLclVar != nullptr) && srcLclVar->lvPromoted && (srcLclOffs == 0) && (srcLclVar->lvExactSize == destSize))
     {
-        noway_assert(varTypeIsStruct(srcLclVar->GetType()));
-        noway_assert(!opts.MinOpts());
+        assert(varTypeIsStruct(srcLclVar->GetType()));
+        assert(destHasSize);
 
-        if ((srcLclOffs == 0) && (destSize == srcLclVar->lvExactSize))
-        {
-            // We may decide later that a copyblk is required when this struct has holes
-            srcPromote = true;
+        // We may decide later that a copyblk is required when this struct has holes
+        srcPromote = true;
 
-            JITDUMP(" (srcPromote=true)");
-        }
-        else
-        {
-            JITDUMP(" with mismatched src offset/size");
-        }
+        JITDUMP(" (srcPromote=true)");
+    }
+    else
+    {
+        JITDUMP(" with mismatched src offset/size");
     }
 
     bool requiresCopyBlock   = false;
