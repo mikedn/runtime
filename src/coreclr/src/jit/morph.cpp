@@ -9255,7 +9255,16 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
     }
     else
     {
-        destSize = dest->AsBlk()->Size();
+        if (dest->OperIs(GT_IND))
+        {
+            assert(!dest->TypeIs(TYP_STRUCT));
+
+            destSize = genTypeSize(dest->GetType());
+        }
+        else
+        {
+            destSize = dest->AsBlk()->Size();
+        }
 
         if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
         {
@@ -9291,6 +9300,21 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             JITDUMPTREE(promotedTree, "fgMorphInitBlock (after promotion):\n");
             return promotedTree;
         }
+    }
+
+    if (varTypeIsSIMD(dest->GetType()) && initVal->IsIntegralConst(0))
+    {
+        // GT_DYN_BLK should have type TYP_STRUCT
+        assert(!dest->OperIs(GT_DYN_BLK));
+
+        if (dest->OperIs(GT_OBJ, GT_BLK))
+        {
+            dest->SetOper(GT_IND);
+        }
+
+        // TODO-MIKE-Cleanup: Ideally we should use the correct type, not just one that happens to work.
+        src = gtNewSIMDNode(dest->GetType(), SIMDIntrinsicInit, TYP_FLOAT, genTypeSize(dest->GetType()), initVal);
+        asg->SetOp(1, src);
     }
 
     if ((destLclVar != nullptr) && !destLclVar->lvRegStruct)
