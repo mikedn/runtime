@@ -9197,9 +9197,6 @@ GenTree* Compiler::fgMorphInitBlock(GenTree* tree)
     JITDUMPTREE(tree, "\nfgMorphInitBlock (before):\n");
 
     noway_assert((tree->OperGet() == GT_ASG) && tree->OperIsInitBlkOp());
-#ifdef DEBUG
-    bool morphed = false;
-#endif // DEBUG
 
     GenTree* src      = tree->gtGetOp2();
     GenTree* origDest = tree->gtGetOp1();
@@ -9252,8 +9249,6 @@ GenTree* Compiler::fgMorphInitBlock(GenTree* tree)
         }
     }
 
-    bool destDoFldAsg = false;
-
     if (destLclNum != BAD_VAR_NUM)
     {
 #if LOCAL_ASSERTION_PROP
@@ -9266,43 +9261,26 @@ GenTree* Compiler::fgMorphInitBlock(GenTree* tree)
 
         if (destLclVar->lvPromoted)
         {
-            GenTree* newTree = fgMorphPromoteLocalInitBlock(destLclNode->AsLclVar(), initVal, blockSize);
+            GenTree* promotedTree = fgMorphPromoteLocalInitBlock(destLclNode->AsLclVar(), initVal, blockSize);
 
-            if (newTree != nullptr)
+            if (promotedTree != nullptr)
             {
-                tree         = newTree;
-                destDoFldAsg = true;
-                INDEBUG(morphed = true);
+                JITDUMPTREE(promotedTree, "fgMorphInitBlock (after promotion):\n");
+                return promotedTree;
             }
         }
 
         // If destLclVar is not a reg-sized non-field-addressed struct, set it as DoNotEnregister.
-        if (!destDoFldAsg && !destLclVar->lvRegStruct)
+        if (!destLclVar->lvRegStruct)
         {
             lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
         }
     }
 
-    if (!destDoFldAsg)
-    {
-        // For an InitBlock we always require a block operand.
-        dest                = fgMorphBlockOperand(dest, dest->TypeGet(), blockSize, true /*isBlkReqd*/);
-        tree->AsOp()->gtOp1 = dest;
-        tree->gtFlags |= (dest->gtFlags & GTF_ALL_EFFECT);
-    }
-
-#ifdef DEBUG
-    if (morphed)
-    {
-        tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-
-        if (verbose)
-        {
-            printf("fgMorphInitBlock (after):\n");
-            gtDispTree(tree);
-        }
-    }
-#endif
+    // For an InitBlock we always require a block operand.
+    dest                = fgMorphBlockOperand(dest, dest->TypeGet(), blockSize, true /*isBlkReqd*/);
+    tree->AsOp()->gtOp1 = dest;
+    tree->gtFlags |= (dest->gtFlags & GTF_ALL_EFFECT);
 
     return tree;
 }
@@ -9484,6 +9462,8 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenT
             tree = asg;
         }
     }
+
+    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
     return tree;
 }
