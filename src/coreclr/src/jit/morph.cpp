@@ -9317,14 +9317,14 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
         asg->SetOp(1, src);
     }
 
-    if ((destLclVar != nullptr) && !destLclVar->lvRegStruct)
-    {
-        lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
-    }
-
     dest = fgMorphBlockOperand(dest, dest->TypeGet(), destSize, true /*isBlkReqd*/);
     asg->SetOp(0, dest);
     asg->gtFlags |= (dest->gtFlags & GTF_ALL_EFFECT);
+
+    if (destLclVar != nullptr)
+    {
+        lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+    }
 
     return asg;
 }
