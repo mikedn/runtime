@@ -9180,11 +9180,11 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
     JITDUMPTREE(asg, "fgMorphInitBlock (after fgMorphBlkNode):\n");
 
-    if (fgMorphOneAsgBlockOp(asg))
-    {
-        JITDUMPTREE(asg, "fgMorphInitBlock (after fgMorphOneAsgBlockOp):\n");
-        return asg;
-    }
+    // if (fgMorphOneAsgBlockOp(asg))
+    //{
+    //    JITDUMPTREE(asg, "fgMorphInitBlock (after fgMorphOneAsgBlockOp):\n");
+    //    return asg;
+    //}
 
     unsigned             destSize     = 0;
     GenTreeLclVarCommon* destLclNode  = nullptr;
@@ -9266,6 +9266,96 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             JITDUMPTREE(promotedTree, "fgMorphInitBlock (after promotion):\n");
             return promotedTree;
         }
+    }
+
+    if ((destLclVar != nullptr) && (destLclVar->GetType() != TYP_STRUCT) && initVal->OperIs(GT_CNS_INT) &&
+        (destLclOffs == 0) && (destSize == genTypeSize(destLclVar->GetType())))
+    {
+        var_types type = destLclVar->GetType();
+
+        destLclNode->ChangeOper(GT_LCL_VAR);
+        destLclNode->SetType(type);
+        destLclNode->gtFlags = GTF_DONT_CSE | GTF_VAR_DEF | (destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0);
+
+        int64_t initPattern = (initVal->AsIntCon()->GetValue() & 0xFF) * 0x0101010101010101LL;
+
+        var_types initPatternType = type;
+
+        if (varTypeIsSIMD(initPatternType))
+        {
+            initPatternType = destLclVar->lvBaseType;
+
+            if (initPatternType == TYP_LONG)
+            {
+                initPatternType = TYP_INT;
+            }
+        }
+
+        unsigned initPatternSize = genTypeSize(initPatternType);
+
+        if (initPatternSize <= 4)
+        {
+            initPattern &= (int64_t(1) << (initPatternSize * 8)) - 1;
+        }
+
+        if (destLclVar->lvNormalizeOnStore())
+        {
+            if (initPatternType == TYP_BYTE)
+            {
+                initPattern = static_cast<int8_t>(initPattern);
+            }
+            else if (initPatternType == TYP_SHORT)
+            {
+                initPattern = static_cast<int16_t>(initPattern);
+            }
+        }
+
+        if (initPatternType == TYP_FLOAT)
+        {
+            float floatPattern;
+            memcpy(&floatPattern, &initPattern, 4);
+            initVal->ChangeOperConst(GT_CNS_DBL);
+            initVal->SetType(initPatternType);
+            initVal->AsDblCon()->SetValue(floatPattern);
+        }
+        else if (initPatternType == TYP_DOUBLE)
+        {
+            double doublePatern;
+            memcpy(&doublePatern, &initPattern, 8);
+            initVal->ChangeOperConst(GT_CNS_DBL);
+            initVal->SetType(initPatternType);
+            initVal->AsDblCon()->SetValue(doublePatern);
+        }
+#ifndef TARGET_64BIT
+        else if (initPatternType == TYP_LONG)
+        {
+            initVal->ChangeOperConst(GT_CNS_LNG);
+            initVal->SetType(initPatternType);
+            initVal->AsLngCon()->SetValue(initPattern);
+        }
+#endif
+        else
+        {
+#ifndef TARGET_64BIT
+            initVal->AsIntCon()->SetValue(static_cast<int32_t>(initPattern));
+#else
+            initVal->AsIntCon()->SetValue(initPattern);
+#endif
+            initVal->SetType(genActualType(initPatternType));
+        }
+
+        if (varTypeIsSIMD(type))
+        {
+            initVal = gtNewSIMDNode(type, SIMDIntrinsicInit, initPatternType, genTypeSize(type), initVal);
+        }
+
+        asg->SetType(type);
+        asg->SetOp(0, destLclNode);
+        asg->SetOp(1, initVal);
+        asg->gtFlags &= ~GTF_ALL_EFFECT;
+        asg->gtFlags |= GTF_ASG | (destLclNode->gtFlags | initVal->gtFlags) & GTF_ALL_EFFECT;
+
+        return asg;
     }
 
     if (varTypeIsSIMD(dest->GetType()) && initVal->IsIntegralConst(0))

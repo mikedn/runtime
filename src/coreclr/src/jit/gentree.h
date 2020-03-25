@@ -2942,6 +2942,18 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return gtIconVal;
     }
 
+    void SetValue(ssize_t value)
+    {
+        gtIconVal  = value;
+        gtFieldSeq = FieldSeqStore::NotAField();
+    }
+
+    void SetValue(unsigned offset, FieldSeqNode* fieldSeq)
+    {
+        gtIconVal  = offset;
+        gtFieldSeq = fieldSeq;
+    }
+
     FieldSeqNode* GetFieldSeq() const
     {
         return gtFieldSeq;
@@ -2989,6 +3001,17 @@ struct GenTreeLngCon : public GenTreeIntConCommon
     {
         SetLngValue(val);
     }
+
+    int64_t GetValue() const
+    {
+        return gtLconVal;
+    }
+
+    void SetValue(int64_t value)
+    {
+        gtLconVal = value;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeLngCon() : GenTreeIntConCommon()
     {
