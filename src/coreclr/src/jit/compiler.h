@@ -3548,7 +3548,7 @@ public:
 protected:
     //---------------- Local variable ref-counting ----------------------------
 
-    void lvaMarkLclRefs(GenTree* tree, BasicBlock* block, Statement* stmt, bool isRecompute);
+    void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt, bool isRecompute);
     bool IsDominatedByExceptionalEntry(BasicBlock* block);
     void SetVolatileHint(LclVarDsc* varDsc);
 
