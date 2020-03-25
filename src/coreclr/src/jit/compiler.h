@@ -4118,7 +4118,7 @@ private:
     static LONG jitNestingLevel;
 #endif // DEBUG
 
-    static BOOL impIsAddressInLocal(GenTree* tree, GenTree** lclVarTreeOut);
+    static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
 
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
 
@@ -5493,7 +5493,7 @@ private:
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
     GenTree* fgMorphLeaf(GenTree* tree);
     void fgAssignSetVarDef(GenTree* tree);
-    GenTree* fgMorphOneAsgBlockOp(GenTree* tree);
+    bool fgMorphOneAsgBlockOp(GenTreeOp* asg);
     GenTree* fgMorphInitBlock(GenTreeOp* asg);
     GenTree* fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
@@ -7478,7 +7478,7 @@ public:
 
     // If "tree" is a indirection (GT_IND, or GT_OBJ) whose arg is an ADDR, whose arg is a LCL_VAR, return that LCL_VAR
     // node, else NULL.
-    static GenTree* fgIsIndirOfAddrOfLocal(GenTree* tree);
+    static GenTreeLclVar* fgIsIndirOfAddrOfLocal(GenTree* tree);
 
     // This map is indexed by GT_OBJ nodes that are address of promoted struct variables, which
     // have been annotated with the GTF_VAR_DEATH flag.  If such a node is *not* mapped in this

@@ -7004,9 +7004,9 @@ bool Compiler::fgIsCommaThrow(GenTree* tree, bool forFolding /* = false */)
 //    whose arg in turn is a LCL_VAR, return that LCL_VAR node, else nullptr.
 //
 // static
-GenTree* Compiler::fgIsIndirOfAddrOfLocal(GenTree* tree)
+GenTreeLclVar* Compiler::fgIsIndirOfAddrOfLocal(GenTree* tree)
 {
-    GenTree* res = nullptr;
+    GenTreeLclVar* res = nullptr;
     if (tree->OperIsIndir())
     {
         GenTree* addr = tree->AsIndir()->Addr();
@@ -7039,12 +7039,12 @@ GenTree* Compiler::fgIsIndirOfAddrOfLocal(GenTree* tree)
             GenTree* lclvar = addr->AsOp()->gtOp1;
             if (lclvar->OperGet() == GT_LCL_VAR)
             {
-                res = lclvar;
+                res = lclvar->AsLclVar();
             }
         }
         else if (addr->OperGet() == GT_LCL_VAR_ADDR)
         {
-            res = addr;
+            res = addr->AsLclVar();
         }
     }
     return res;
