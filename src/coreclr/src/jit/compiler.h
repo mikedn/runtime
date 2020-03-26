@@ -5496,6 +5496,10 @@ private:
     bool fgMorphOneAsgBlockOp(GenTreeOp* asg);
     GenTree* fgMorphInitBlock(GenTreeOp* asg);
     GenTree* fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* fgMorphInitBlockConstant(GenTreeIntCon* initVal,
+                                      var_types      type,
+                                      bool           extendToActualType,
+                                      var_types      simdBaseType);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
     GenTree* fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigned blockWidth, bool isDest);
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
