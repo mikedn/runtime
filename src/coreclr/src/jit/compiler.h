@@ -505,6 +505,15 @@ public:
 #endif                                       // FEATURE_SIMD
     unsigned char lvRegStruct : 1;           // This is a reg-sized non-field-addressed struct.
 
+    var_types GetSIMDBaseType()
+    {
+#ifdef FEATURE_SIMD
+        return lvBaseType;
+#else
+        return TYP_UNDEF;
+#endif
+    }
+
     unsigned char lvClassIsExact : 1; // lvClassHandle is the exact type
 
 #ifdef DEBUG

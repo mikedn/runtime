@@ -9180,12 +9180,6 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
     JITDUMPTREE(asg, "fgMorphInitBlock (after fgMorphBlkNode):\n");
 
-    // if (fgMorphOneAsgBlockOp(asg))
-    //{
-    //    JITDUMPTREE(asg, "fgMorphInitBlock (after fgMorphOneAsgBlockOp):\n");
-    //    return asg;
-    //}
-
     unsigned             destSize     = 0;
     GenTreeLclVarCommon* destLclNode  = nullptr;
     unsigned             destLclNum   = BAD_VAR_NUM;
@@ -9251,12 +9245,14 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
     GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
 
-    if (destLclVar != nullptr)
+    if ((destLclVar != nullptr) && (destSize != 0) && (destLclVar->GetType() != TYP_BLK))
     {
-        if (destLclVar->lvPromoted && (destLclOffs == 0) && (destSize == destLclVar->lvExactSize))
+        unsigned destLclVarSize = lvaLclExactSize(destLclNum);
+
+        if (destLclVar->lvPromoted && (destLclOffs == 0) && (destSize == destLclVarSize))
         {
             assert(varTypeIsStruct(destLclVar->GetType()));
-            
+
             GenTree* promotedTree = fgMorphPromoteLocalInitBlock(destLclVar, initVal);
 
             if (promotedTree != nullptr)
@@ -9268,41 +9264,93 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             }
         }
 
-        if (destLclVar->GetType() != TYP_STRUCT)
+        if (initVal->OperIs(GT_CNS_INT))
         {
-            if (initVal->OperIs(GT_CNS_INT) && (destLclOffs == 0) && (destSize == genTypeSize(destLclVar->GetType())))
+            unsigned destFlags = dest->gtFlags & GTF_COLON_COND;
+
+            var_types initType     = TYP_UNDEF;
+            var_types initBaseType = TYP_UNDEF;
+
+            if ((destFieldSeq != nullptr) && (destFieldSeq != FieldSeqStore::NotAField()) &&
+                !destFieldSeq->IsPseudoField())
             {
-                destLclNode->ChangeOper(GT_LCL_VAR);
-                destLclNode->SetType(destLclVar->GetType());
-                destLclNode->gtFlags = GTF_DONT_CSE | GTF_VAR_DEF | (destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0);
+                CORINFO_CLASS_HANDLE fieldClassHandle;
+                var_types            fieldBaseType = TYP_UNKNOWN;
+                var_types            fieldType     = JITtype2varType(
+                    info.compCompHnd->getFieldType(destFieldSeq->GetTail()->GetFieldHandle(), &fieldClassHandle));
 
-                GenTree* src = fgMorphInitBlockConstant(initVal->AsIntCon(), destLclVar->GetType(),
-                                                        destLclVar->lvNormalizeOnStore(), destLclVar->lvBaseType);
+                assert(!varTypeIsSIMD(fieldType));
 
-                asg->SetType(destLclNode->GetType());
+                if (fieldType == TYP_STRUCT)
+                {
+                    fieldType = impNormStructType(fieldClassHandle, &fieldBaseType);
+                }
+
+                if (destSize == genTypeSize(fieldType))
+                {
+                    initType     = fieldType;
+                    initBaseType = fieldBaseType;
+
+                    destLclNode->ChangeOper(GT_LCL_FLD);
+                    destLclNode->AsLclFld()->SetLclOffs(destLclOffs);
+                    destLclNode->AsLclFld()->SetFieldSeq(destFieldSeq);
+                }
+            }
+
+            if (initType == TYP_UNDEF)
+            {
+                if ((destLclOffs == 0) && (destSize == destLclVarSize))
+                {
+                    initType     = destLclVar->GetType();
+                    initBaseType = destLclVar->GetSIMDBaseType();
+
+                    destLclNode->ChangeOper(GT_LCL_VAR);
+                }
+            }
+
+            if (initType != TYP_UNDEF)
+            {
+                destLclNode->SetType(initType);
+                destLclNode->AsLclVarCommon()->SetLclNum(destLclNum);
+
+                destFlags |= GTF_DONT_CSE | GTF_VAR_DEF | (destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0);
+
+                if (destLclNode->OperIs(GT_LCL_FLD))
+                {
+                    lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_LocalField));
+
+                    if ((destLclNode->AsLclFld()->GetLclOffs() > 0) ||
+                        (genTypeSize(destLclNode->GetType()) < destLclVarSize))
+                    {
+                        destFlags |= GTF_VAR_USEASG;
+                    }
+                }
+
+                destLclNode->gtFlags = destFlags;
+
+                if (initType == TYP_STRUCT)
+                {
+                    lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+                }
+                else
+                {
+                    initVal =
+                        fgMorphInitBlockConstant(initVal->AsIntCon(), initType,
+                                                 destLclNode->OperIs(GT_LCL_VAR) && destLclVar->lvNormalizeOnStore(),
+                                                 initBaseType);
+                }
+
+                asg->SetType(initType);
                 asg->SetOp(0, destLclNode);
-                asg->SetOp(1, src);
+                asg->SetOp(1, initVal);
                 asg->gtFlags &= ~GTF_ALL_EFFECT;
-                asg->gtFlags |= GTF_ASG | ((destLclNode->gtFlags | src->gtFlags) & GTF_ALL_EFFECT);
+                asg->gtFlags |= GTF_ASG | ((asg->GetOp(0)->gtFlags | asg->GetOp(1)->gtFlags) & GTF_ALL_EFFECT);
+
+                JITDUMPTREE(asg, "fgMorphInitBlock (after converting to scalar init):\n");
 
                 return asg;
             }
         }
-    }
-
-    if (varTypeIsSIMD(dest->GetType()) && initVal->IsIntegralConst(0))
-    {
-        // GT_DYN_BLK should have type TYP_STRUCT
-        assert(!dest->OperIs(GT_DYN_BLK));
-
-        if (dest->OperIs(GT_OBJ, GT_BLK))
-        {
-            dest->SetOper(GT_IND);
-        }
-
-        // TODO-MIKE-Cleanup: Ideally we should use the correct type, not just one that happens to work.
-        src = gtNewSIMDNode(dest->GetType(), SIMDIntrinsicInit, TYP_FLOAT, genTypeSize(dest->GetType()), initVal);
-        asg->SetOp(1, src);
     }
 
     dest = fgMorphBlockOperand(dest, dest->TypeGet(), destSize, true /*isBlkReqd*/);
@@ -9412,10 +9460,12 @@ GenTree* Compiler::fgMorphInitBlockConstant(GenTreeIntCon* initVal,
         initVal->SetType(genActualType(initPatternType));
     }
 
+#ifdef FEATURE_SIMD
     if (varTypeIsSIMD(type))
     {
         return gtNewSIMDNode(type, SIMDIntrinsicInit, initPatternType, genTypeSize(type), initVal);
     }
+#endif
 
     return initVal;
 }
@@ -9514,7 +9564,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* 
             gtNewAssignNode(destField,
                             fgMorphInitBlockConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()),
                                                      destFieldLclVar->GetType(), destFieldLclVar->lvNormalizeOnStore(),
-                                                     destFieldLclVar->lvBaseType));
+                                                     destFieldLclVar->GetSIMDBaseType()));
 
 #if LOCAL_ASSERTION_PROP
         if (optLocalAssertionProp)
