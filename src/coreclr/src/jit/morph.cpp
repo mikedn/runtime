@@ -8987,14 +8987,16 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
         }
     }
 
-    dest = fgMorphBlockOperand(dest, dest->TypeGet(), destSize, true /*isBlkReqd*/);
-    asg->SetOp(0, dest);
-    asg->gtFlags |= (dest->gtFlags & GTF_ALL_EFFECT);
+
+    asg->gtFlags &= ~GTF_ALL_EFFECT;
+    asg->gtFlags |= GTF_ASG | ((asg->GetOp(0)->gtFlags | asg->GetOp(1)->gtFlags) & GTF_ALL_EFFECT);
 
     if (destLclVar != nullptr)
     {
         lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
     }
+
+    JITDUMPTREE(asg, "fgMorphInitBlock (after):\n");
 
     return asg;
 }
