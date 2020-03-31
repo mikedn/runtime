@@ -8772,322 +8772,6 @@ void Compiler::fgAssignSetVarDef(GenTree* tree)
 }
 
 //------------------------------------------------------------------------
-// fgMorphOneAsgBlockOp: Attempt to replace a block assignment with a scalar assignment
-//
-// Arguments:
-//    asg - The copy block assignment to be possibly morphed
-//
-// Return Value:
-//    true if the assignment tree was modified, false otherwise.
-//
-bool Compiler::fgMorphOneAsgBlockOp(GenTreeOp* asg)
-{
-    assert(asg->OperIsCopyBlkOp());
-
-    var_types asgType = asg->GetType();
-    GenTree*  dest    = asg->GetOp(0);
-    GenTree*  src     = asg->GetOp(1);
-
-    // fgMorphBlkNode should have wrapped COMMA nodes in indirections
-    assert(!dest->OperIs(GT_COMMA));
-    assert(!src->OperIs(GT_COMMA));
-
-    LclVarDsc*           destLclVar      = nullptr;
-    GenTreeLclVarCommon* destLclNode     = nullptr;
-    unsigned             destSize        = 0;
-    CORINFO_CLASS_HANDLE destClassHandle = NO_CLASS_HANDLE;
-
-    if (dest->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
-    {
-        destSize = dest->AsBlk()->Size();
-
-        destLclNode = impIsAddressInLocal(dest->AsIndir()->GetAddr());
-
-        if (destLclNode != nullptr)
-        {
-            destLclVar = lvaGetDesc(destLclNode);
-        }
-
-        if (dest->OperIs(GT_OBJ))
-        {
-            destClassHandle = dest->AsObj()->GetLayout()->GetClassHandle();
-        }
-    }
-    else
-    {
-        // Is this an enregisterable struct that is already a simple assignment?
-        // This can happen if we are re-morphing.
-        // Note that we won't do this straightaway if this is a SIMD type, since it
-        // may be a promoted lclVar (sometimes we promote the individual float fields of
-        // fixed-size SIMD).
-        if (dest->OperIs(GT_IND))
-        {
-            noway_assert(asgType != TYP_STRUCT);
-
-            if (varTypeIsSIMD(asgType))
-            {
-                destLclNode = fgIsIndirOfAddrOfLocal(dest);
-            }
-
-            if ((destLclNode == nullptr) && !src->OperIs(GT_LCL_VAR))
-            {
-                fgMorphBlockOperand(src, asgType, genTypeSize(asgType), false /*isBlkReqd*/);
-                return true;
-            }
-        }
-        else
-        {
-            noway_assert(dest->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
-            destLclNode = dest->AsLclVarCommon();
-        }
-
-        if (destLclNode != nullptr)
-        {
-            destLclVar = lvaGetDesc(destLclNode);
-
-            if (asgType == TYP_STRUCT)
-            {
-                destClassHandle = destLclVar->lvVerTypeInfo.GetClassHandle();
-                destSize        = destLclVar->lvExactSize;
-            }
-        }
-
-        if (asgType != TYP_STRUCT)
-        {
-            destSize = genTypeSize(asgType);
-        }
-    }
-
-    if (destSize == 0)
-    {
-        return false;
-    }
-
-    if ((destLclVar != nullptr) && varTypeIsStruct(destLclNode->GetType()) && destLclVar->lvPromoted)
-    {
-        // Let fgMorphCopyBlock/fgMorphInitBlock handle it.
-        return false;
-    }
-
-    if ((destLclVar != nullptr) && !varTypeIsStruct(destLclVar->GetType()) && (asgType == TYP_STRUCT))
-    {
-        //  See if we can do a simple transformation:
-        //
-        //          GT_ASG <TYP_size>
-        //          /   \.
-        //      GT_IND GT_IND or CNS_INT
-        //         |      |
-        //       [dest] [src]
-
-        // It is possible to use `initobj` to init a primitive type on the stack,
-        // like `ldloca.s 1; initobj 1B000003` where `V01` has type `ref`;
-        // in this case we generate `ASG struct(BLK<8> struct(ADDR byref(LCL_VAR ref)), 0)`
-        // and this code path transforms it into `ASG ref(LCL_VARref, 0)` because it is not a real
-        // struct assignment.
-
-        switch (destSize)
-        {
-            case 1:
-                asgType = TYP_BYTE;
-                break;
-
-            case 2:
-                asgType = TYP_SHORT;
-                break;
-
-#ifdef TARGET_64BIT
-            case 4:
-                asgType = TYP_INT;
-                break;
-#endif
-
-            case REGSIZE_BYTES:
-                if (destClassHandle == NO_CLASS_HANDLE)
-                {
-                    // A register-sized cpblk can be treated as an integer asignment.
-                    asgType = TYP_I_IMPL;
-                }
-                else
-                {
-                    BYTE gcPtr;
-                    info.compCompHnd->getClassGClayout(destClassHandle, &gcPtr);
-                    asgType = getJitGCType(gcPtr);
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    if (asgType == TYP_STRUCT)
-    {
-        return false;
-    }
-
-    noway_assert((destSize <= REGSIZE_BYTES) || varTypeIsSIMD(asgType));
-
-    GenTreeLclVar* srcLclNode = nullptr;
-    LclVarDsc*     srcLclVar  = nullptr;
-
-    if (src->OperIs(GT_LCL_VAR))
-    {
-        srcLclNode = src->AsLclVar();
-    }
-    else if (src->OperIsIndir())
-    {
-        srcLclNode = impIsAddressInLocal(src->AsIndir()->GetAddr());
-    }
-
-    if (srcLclNode != nullptr)
-    {
-        srcLclVar = lvaGetDesc(srcLclNode);
-
-        if (varTypeIsStruct(srcLclNode->GetType()) && srcLclVar->lvPromoted)
-        {
-            // Let fgMorphCopyBlock handle it.
-            return false;
-        }
-    }
-
-    if (destLclVar != nullptr)
-    {
-#if LOCAL_ASSERTION_PROP
-        if (optLocalAssertionProp && (optAssertionCount > 0))
-        {
-            fgKillDependentAssertions(destLclNode->GetLclNum() DEBUGARG(asg));
-        }
-#endif
-
-        if (!varTypeIsFloating(destLclNode->GetType()) && (destSize == genTypeSize(destLclVar->GetType())))
-        {
-            // Use the dest local var directly, as well as its type.
-            dest    = destLclNode;
-            asgType = destLclVar->GetType();
-
-            // If the block operation had been a write to a local var of a small int type,
-            // of the exact size of the small int type, and the var is NormalizeOnStore,
-            // we would have labeled it GTF_VAR_USEASG, because the block operation wouldn't
-            // have done that normalization.  If we're now making it into an assignment,
-            // the NormalizeOnStore will work, and it can be a full def.
-            if (destLclVar->lvNormalizeOnStore())
-            {
-                dest->gtFlags &= ~GTF_VAR_USEASG;
-            }
-        }
-        else
-        {
-            // Could be a non-promoted struct, or a floating point type local, or
-            // an int subject to a partial write.  Don't enregister.
-            lvaSetVarDoNotEnregister(destLclNode->GetLclNum() DEBUGARG(DNER_LocalField));
-
-            destLclNode->gtFlags |= GTF_VAR_DEF;
-
-            if (destSize < destLclVar->lvExactSize)
-            {
-                destLclNode->gtFlags |= GTF_VAR_USEASG;
-            }
-
-            if (dest == destLclNode)
-            {
-                dest = gtNewIndir(asgType, gtNewOperNode(GT_ADDR, TYP_BYREF, dest));
-            }
-        }
-    }
-
-    // Check to ensure we don't have a reducible *(& ... )
-    if (dest->OperIsIndir() && dest->AsIndir()->GetAddr()->OperIs(GT_ADDR))
-    {
-        GenTree* location = dest->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
-
-        if (varTypeIsIntegralOrI(location->GetType()) && (destSize == genTypeSize(location->GetType())))
-        {
-            dest    = location;
-            asgType = location->GetType();
-        }
-    }
-
-    if (dest->OperIsIndir())
-    {
-        // If we have no information about the destination, we have to assume it could
-        // live anywhere (not just in the GC heap).
-        // Mark the GT_IND node so that we use the correct write barrier helper in case
-        // the field is a GC ref.
-
-        if (!fgIsIndirOfAddrOfLocal(dest))
-        {
-            dest->gtFlags |= (GTF_GLOB_REF | GTF_IND_TGTANYWHERE);
-            asg->gtFlags |= GTF_GLOB_REF;
-        }
-
-        dest->SetIndirExceptionFlags(this);
-        asg->gtFlags |= (dest->gtFlags & GTF_EXCEPT);
-    }
-
-    if (srcLclVar != nullptr)
-    {
-        // Handled above.
-        assert(!varTypeIsStruct(srcLclNode->GetType()) || !srcLclVar->lvPromoted);
-
-        if (!varTypeIsFloating(srcLclNode->GetType()) &&
-            (destSize == genTypeSize(genActualType(srcLclNode->GetType()))))
-        {
-            // Use the src local var directly.
-            src = srcLclNode;
-        }
-        else
-        {
-            // The source argument of the copyblk can potentially be accessed only through indir(addr(lclVar))
-            // or indir(lclVarAddr) so it must be on the stack.
-            lvaSetVarDoNotEnregister(srcLclNode->GetLclNum() DEBUGARG(DNER_BlockOp));
-
-            if (src == srcLclNode)
-            {
-                src = gtNewOperNode(GT_IND, asgType, gtNewOperNode(GT_ADDR, TYP_BYREF, src));
-            }
-            else
-            {
-                assert(src->OperIsIndir());
-            }
-        }
-    }
-
-    if (src->OperIsIndir())
-    {
-        if (!fgIsIndirOfAddrOfLocal(src))
-        {
-            // If we have no information about the src, we have to assume it could
-            // live anywhere (not just in the GC heap).
-            // Mark the GT_IND node so that we use the correct write barrier helper in case
-            // the field is a GC ref.
-            src->gtFlags |= (GTF_GLOB_REF | GTF_IND_TGTANYWHERE);
-        }
-
-        src->SetIndirExceptionFlags(this);
-    }
-
-    if (dest->OperIsIndir())
-    {
-        dest = fgMorphBlockOperand(dest, asgType, destSize, false /*isBlkReqd*/);
-    }
-
-    src = fgMorphBlockOperand(src, asgType, destSize, false /*isBlkReqd*/);
-
-    dest->gtFlags |= GTF_DONT_CSE;
-
-    asg->AsOp()->SetOp(0, dest);
-    asg->AsOp()->SetOp(1, src);
-    asg->SetType(asgType);
-    asg->gtFlags &= ~GTF_EXCEPT;
-    asg->gtFlags |= ((dest->gtFlags | src->gtFlags) & GTF_ALL_EFFECT);
-    // Un-set GTF_REVERSE_OPS, and it will be set later if appropriate.
-    asg->gtFlags &= ~GTF_REVERSE_OPS;
-
-    return true;
-}
-
-//------------------------------------------------------------------------
 // fgMorphInitBlock: Morph a block initialization assignment tree.
 //
 // Arguments:
@@ -9790,19 +9474,18 @@ GenTree* Compiler::fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigne
 }
 
 //------------------------------------------------------------------------
-// fgMorphCopyBlock: Perform the Morphing of block copy
+// fgMorphCopyBlock: Morph a block copy.
 //
 // Arguments:
-//    asg - a block copy (i.e. an assignment with a block op on the lhs).
+//    asg - a block copy (i.e. an assignment with a struct typed destination).
 //
 // Return Value:
-//    We can return the orginal block copy unmodified (least desirable, but always correct)
-//    We can return a single assignment, when fgMorphOneAsgBlockOp transforms it (most desirable).
-//    If we have performed struct promotion of the Source() or the Dest() then we will try to
-//    perform a field by field assignment for each of the promoted struct fields.
+//    The original assignment, possibly changed to a scalar assignment,
+//    or a tree of assignments that performs field by field copying of
+//    promoted structs to avoid dependent promotion.
 //
 // Assumptions:
-//    The child nodes for tree have already been Morphed.
+//    The source and destination have already been morphed.
 //
 // Notes:
 //    If we leave it as a block copy we will call lvaSetVarDoNotEnregister() on both Source() and Dest().
@@ -9810,7 +9493,7 @@ GenTree* Compiler::fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigne
 //    and in such cases we will call lvaSetVarDoNotEnregister() on the one treated as a blob of bytes.
 //    if the Source() or Dest() is a a struct that has a "CustomLayout" and "ConstainsHoles" then we
 //    can not use a field by field assignment and must leave the orginal block copy unmodified.
-
+//
 GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 {
     JITDUMPTREE(asg, "\nfgMorphCopyBlock: (before)\n");
@@ -9847,12 +9530,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     asg->SetOp(1, src);
 
     JITDUMPTREE(asg, "fgMorphCopyBlock: (after fgMorphBlkNode)\n");
-
-    if (fgMorphOneAsgBlockOp(asg))
-    {
-        JITDUMPTREE(asg, "fgMorphCopyBlock: (after fgMorphOneAsgBlockOp)\n");
-        return asg;
-    }
 
     unsigned             destSize     = 0;
     bool                 destHasSize  = false;
@@ -9953,13 +9630,21 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             srcFieldSeq = src->AsLclFld()->GetFieldSeq();
         }
     }
-    else if (src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcLclOffs, &srcFieldSeq))
+    else if (src->OperIsIndir())
     {
-        // If it's a local address expression it cannot also be an array element.
-        assert((src->gtFlags & GTF_IND_ARR_INDEX) == 0);
+        if (src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcLclOffs, &srcFieldSeq))
+        {
+            // If it's a local address expression it cannot also be an array element.
+            assert((src->gtFlags & GTF_IND_ARR_INDEX) == 0);
 
-        srcLclNum = srcLclNode->GetLclNum();
-        srcLclVar = lvaGetDesc(srcLclNum);
+            srcLclNum = srcLclNode->GetLclNum();
+            srcLclVar = lvaGetDesc(srcLclNum);
+        }
+    }
+    else
+    {
+        // For SIMD copies the source can be any SIMD typed tree.
+        assert(varTypeIsSIMD(src->GetType()));
     }
 
     // Check to see if we are doing a copy to/from the same local block.
@@ -10149,40 +9834,67 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     {
         JITDUMP(" this requires a CopyBlock.\n");
 
-        destPromote = false;
-        srcPromote  = false;
-    }
-
-    // Mark the dest/src structs as DoNotEnreg when they are not being fully referenced as the same type.
-    if (!destPromote && (destLclVar != nullptr) && !destSingleLclVarAsg)
-    {
-        if (!destLclVar->lvRegStruct || (destLclVar->GetType() != dest->GetType()))
+        if (destLclVar != nullptr)
         {
-            lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
-        }
-    }
+            if (varTypeIsSIMD(dest->GetType()) && (destLclVar->GetType() == dest->GetType()) && (destLclOffs == 0))
+            {
+                dest->ChangeOper(GT_LCL_VAR);
+                dest->AsLclVar()->SetLclNum(destLclNum);
+                dest->gtFlags = GTF_DONT_CSE | GTF_VAR_DEF;
 
-    if (!srcPromote && (srcLclVar != nullptr) && !srcSingleLclVarAsg)
-    {
-        if (!srcLclVar->lvRegStruct || (srcLclVar->GetType() != dest->GetType()))
+                if (!destLclVar->lvPromoted)
+                {
+                    destSingleLclVarAsg = true;
+                }
+            }
+
+            if (!destSingleLclVarAsg && !destLclVar->lvRegStruct || (destLclVar->GetType() != dest->GetType()))
+            {
+                lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+            }
+        }
+
+        if (srcLclVar != nullptr)
         {
-            lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_BlockOp));
-        }
-    }
+            if (varTypeIsSIMD(src->GetType()) && (srcLclVar->GetType() == dest->GetType()) && (srcLclOffs == 0))
+            {
+                src->ChangeOper(GT_LCL_VAR);
+                src->AsLclVar()->SetLclNum(srcLclNum);
+                src->gtFlags = 0;
 
-    if (requiresCopyBlock)
-    {
+                if (!srcLclVar->lvPromoted)
+                {
+                    srcSingleLclVarAsg = true;
+                }
+            }
+
+            if (!srcSingleLclVarAsg && !srcLclVar->lvRegStruct || (srcLclVar->GetType() != dest->GetType()))
+            {
+                lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_BlockOp));
+            }
+        }
+
         var_types asgType = dest->GetType();
 
         bool isBlkReqd = (asgType == TYP_STRUCT);
         dest           = fgMorphBlockOperand(dest, asgType, destSize, isBlkReqd);
         asg->SetOp(0, dest);
-        asg->gtFlags |= (dest->gtFlags & GTF_ALL_EFFECT);
 
         // Eliminate the "OBJ or BLK" node on the src.
         isBlkReqd = false;
         src       = fgMorphBlockOperand(src, asgType, destSize, isBlkReqd);
+
+        if (src->OperIsIndir() && ((srcLclVar == nullptr) || srcLclVar->lvAddrExposed))
+        {
+            src->gtFlags |= GTF_GLOB_REF;
+        }
+
         asg->SetOp(1, src);
+
+        asg->gtFlags &= ~GTF_ALL_EFFECT;
+        asg->gtFlags |= GTF_ASG | ((src->gtFlags | dest->gtFlags) & GTF_ALL_EFFECT);
+
+        JITDUMPTREE(asg, "fgMorphCopyBlock: (after)\n");
 
         return asg;
     }
@@ -10333,6 +10045,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 destField->AsLclFld()->SetFieldSeq(
                     GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle()));
             }
+
+            lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_LocalField));
         }
         else
         {
@@ -10425,6 +10139,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 srcField->AsLclFld()->SetFieldSeq(
                     GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle()));
             }
+
+            lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_LocalField));
         }
         else
         {

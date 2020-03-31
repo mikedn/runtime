@@ -5502,7 +5502,6 @@ private:
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
     GenTree* fgMorphLeaf(GenTree* tree);
     void fgAssignSetVarDef(GenTree* tree);
-    bool fgMorphOneAsgBlockOp(GenTreeOp* asg);
     GenTree* fgMorphInitBlock(GenTreeOp* asg);
     GenTree* fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitBlockConstant(GenTreeIntCon* initVal,
