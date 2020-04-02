@@ -2226,10 +2226,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             assert(simdTree->GetOp(1)->isContainedIntOrIImmed());
             break;
 
-        case SIMDIntrinsicGetX:
-        case SIMDIntrinsicGetY:
-        case SIMDIntrinsicGetZ:
-        case SIMDIntrinsicGetW:
         case SIMDIntrinsicGetOne:
         case SIMDIntrinsicGetZero:
         case SIMDIntrinsicGetCount:

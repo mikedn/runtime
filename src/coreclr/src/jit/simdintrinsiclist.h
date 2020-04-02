@@ -65,10 +65,6 @@ SIMD_INTRINSIC("CopyTo",                    true,        CopyToArrayX,          
 
 // Get operations
 SIMD_INTRINSIC("get_Item",                  true,        GetItem,                  "get[i]",                 TYP_UNKNOWN,    2,      {TYP_BYREF, TYP_INT,     TYP_UNDEF},   {TYP_INT, TYP_FLOAT, TYP_DOUBLE, TYP_LONG, TYP_USHORT, TYP_UBYTE, TYP_BYTE, TYP_SHORT, TYP_UINT, TYP_ULONG})
-SIMD_INTRINSIC("get_X",                     true,        GetX,                     "getX",                   TYP_UNKNOWN,    1,      {TYP_BYREF, TYP_UNDEF,   TYP_UNDEF},   {TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
-SIMD_INTRINSIC("get_Y",                     true,        GetY,                     "getY",                   TYP_UNKNOWN,    1,      {TYP_BYREF, TYP_UNDEF,   TYP_UNDEF},   {TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
-SIMD_INTRINSIC("get_Z",                     true,        GetZ,                     "getZ",                   TYP_UNKNOWN,    1,      {TYP_BYREF, TYP_UNDEF,   TYP_UNDEF},   {TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
-SIMD_INTRINSIC("get_W",                     true,        GetW,                     "getW",                   TYP_UNKNOWN,    1,      {TYP_BYREF, TYP_UNDEF,   TYP_UNDEF},   {TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
 
 // Set operations
 SIMD_INTRINSIC("set_X",                     true,        SetX,                     "setX",                   TYP_VOID,       2,      {TYP_BYREF, TYP_UNKNOWN,   TYP_UNDEF},   {TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})

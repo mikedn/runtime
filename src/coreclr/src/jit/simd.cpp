@@ -1188,28 +1188,6 @@ GenTree* Compiler::impSIMDPopStack(var_types type, bool expectAddr, CORINFO_CLAS
     return tree;
 }
 
-// impSIMDGetFixed: Create a GT_SIMD tree for a Get property of SIMD vector with a fixed index.
-//
-// Arguments:
-//    baseType - The base (element) type of the SIMD vector.
-//    simdSize - The total size in bytes of the SIMD vector.
-//    index    - The index of the field to get.
-//
-// Return Value:
-//    Returns a GT_SIMD node with the SIMDIntrinsicGetItem intrinsic id.
-//
-GenTreeSIMD* Compiler::impSIMDGetFixed(var_types simdType, var_types baseType, unsigned simdSize, int index)
-{
-    assert(simdSize >= ((index + 1) * genTypeSize(baseType)));
-
-    // op1 is a SIMD source.
-    GenTree* op1 = impSIMDPopStack(simdType, true);
-
-    GenTree*     op2      = gtNewIconNode(index);
-    GenTreeSIMD* simdTree = gtNewSIMDNode(baseType, SIMDIntrinsicGetItem, baseType, simdSize, op1, op2);
-    return simdTree;
-}
-
 #ifdef TARGET_XARCH
 // impSIMDLongRelOpEqual: transforms operands and returns the SIMD intrinsic to be applied on
 // transformed operands to obtain == comparison result.
@@ -3112,53 +3090,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             op1    = impSIMDPopStack(simdType);
             retVal = impSIMDAbs(clsHnd, baseType, size, op1);
             break;
-
-        case SIMDIntrinsicGetW:
-            retVal = impSIMDGetFixed(simdType, baseType, size, 3);
-            break;
-
-        case SIMDIntrinsicGetZ:
-            retVal = impSIMDGetFixed(simdType, baseType, size, 2);
-            break;
-
-        case SIMDIntrinsicGetY:
-            retVal = impSIMDGetFixed(simdType, baseType, size, 1);
-            break;
-
-        case SIMDIntrinsicGetX:
-            retVal = impSIMDGetFixed(simdType, baseType, size, 0);
-            break;
-
-        case SIMDIntrinsicSetW:
-        case SIMDIntrinsicSetZ:
-        case SIMDIntrinsicSetY:
-        case SIMDIntrinsicSetX:
-        {
-            // op2 is the value to be set at indexTemp position
-            // op1 is SIMD vector that is going to be modified, which is a byref
-
-            // If op1 has a side-effect, then don't make it an intrinsic.
-            // It would be in-efficient to read the entire vector into xmm reg,
-            // modify it and write back entire xmm reg.
-            //
-            // TODO-CQ: revisit this later.
-            op1 = impStackTop(1).val;
-            if ((op1->gtFlags & GTF_SIDE_EFFECT) != 0)
-            {
-                return nullptr;
-            }
-
-            op2 = impSIMDPopStack(baseType);
-            op1 = impSIMDPopStack(simdType, instMethod);
-
-            GenTree* src = gtCloneExpr(op1);
-            assert(src != nullptr);
-            simdTree = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, src, op2);
-
-            copyBlkDst = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
-            doCopyBlk  = true;
-        }
-        break;
 
         // Unary operators that take and return a Vector.
         case SIMDIntrinsicCast:
