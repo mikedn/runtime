@@ -2482,11 +2482,6 @@ void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
         }
         break;
 
-        case SIMDIntrinsicInitArray:
-            // We have an array and an index, which may be contained.
-            CheckImmedAndMakeContained(simdNode, simdNode->GetOp(1));
-            break;
-
         case SIMDIntrinsicOpEquality:
         case SIMDIntrinsicOpInEquality:
             // On SSE4/AVX, we can generate optimal code for (in)equality

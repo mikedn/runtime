@@ -2771,35 +2771,45 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 op2 = gtNewOperNode(GT_COMMA, op2->TypeGet(), argRngChk, op2);
             }
 
-            if (simdIntrinsicID == SIMDIntrinsicInitArray || simdIntrinsicID == SIMDIntrinsicInitArrayX)
+            if (op3 == nullptr)
             {
-                op1 = getOp1ForConstructor(opcode, newobjThis, clsHnd);
-                if (op3 == nullptr)
-                {
-                    simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicInitArray, baseType, size, op2);
-                }
-                else
-                {
-                    simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicInitArray, baseType, size, op2, op3);
-                }
-                copyBlkDst = op1;
-                doCopyBlk  = true;
+                op3 = gtNewIconNode(OFFSETOF__CORINFO_Array__data, TYP_I_IMPL);
             }
             else
             {
-                assert(simdIntrinsicID == SIMDIntrinsicCopyToArray || simdIntrinsicID == SIMDIntrinsicCopyToArrayX);
+#ifdef TARGET_64BIT
+                op3 = gtNewCastNode(TYP_I_IMPL, op3, false, TYP_I_IMPL);
+#endif
+                op3 = gtNewOperNode(GT_MUL, TYP_I_IMPL, op3, gtNewIconNode(genTypeSize(baseType), TYP_I_IMPL));
+                // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
+                // from the previous implementation that imported SIMDIntrinsicInitArray
+                // as is, hiding the address mode and thus blocking CSE.
+                op3->gtFlags |= GTF_DONT_CSE;
+                op3 = gtNewOperNode(GT_ADD, TYP_I_IMPL, op3, gtNewIconNode(OFFSETOF__CORINFO_Array__data, TYP_I_IMPL));
+                op3->gtFlags |= GTF_DONT_CSE;
+            }
+
+            op2 = gtNewOperNode(GT_ADD, TYP_BYREF, op2, op3);
+            op2->gtFlags |= GTF_DONT_CSE;
+
+            if ((simdIntrinsicID == SIMDIntrinsicInitArray) || (simdIntrinsicID == SIMDIntrinsicInitArrayX))
+            {
+                op1      = getOp1ForConstructor(opcode, newobjThis, clsHnd);
+                simdTree = gtNewOperNode(GT_IND, simdType, op2);
+                simdTree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+                copyBlkDst = op1;
+            }
+            else
+            {
+                assert((simdIntrinsicID == SIMDIntrinsicCopyToArray) || (simdIntrinsicID == SIMDIntrinsicCopyToArrayX));
+
                 op1 = impSIMDPopStack(simdType, instMethod);
                 assert(op1->TypeGet() == simdType);
-
-                // copy vector (op1) to array (op2) starting at index (op3)
-                simdTree = op1;
-
-                // TODO-Cleanup: Though it happens to just work fine front-end phases are not aware of GT_LEA node.
-                // Therefore, convert these to use GT_ADDR .
-                copyBlkDst = new (this, GT_LEA)
-                    GenTreeAddrMode(TYP_BYREF, op2, op3, genTypeSize(baseType), OFFSETOF__CORINFO_Array__data);
-                doCopyBlk = true;
+                simdTree   = op1;
+                copyBlkDst = op2;
             }
+
+            doCopyBlk = true;
         }
         break;
 

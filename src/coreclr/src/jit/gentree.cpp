@@ -4847,12 +4847,6 @@ bool GenTree::OperIsImplicitIndir() const
         case GT_ARR_ELEM:
         case GT_ARR_OFFSET:
             return true;
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-        {
-            return AsSIMD()->OperIsMemoryLoad();
-        }
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
         {
@@ -17258,16 +17252,6 @@ bool GenTree::isCommutativeSIMDIntrinsic()
         default:
             return false;
     }
-}
-
-// Returns true for the SIMD Instrinsic instructions that have MemoryLoad semantics, false otherwise
-bool GenTreeSIMD::OperIsMemoryLoad() const
-{
-    if (gtSIMDIntrinsicID == SIMDIntrinsicInitArray)
-    {
-        return true;
-    }
-    return false;
 }
 #endif // FEATURE_SIMD
 

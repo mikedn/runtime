@@ -712,43 +712,16 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, Compiler::Ge
                 assert(genTypeSize(simdNode->gtSIMDBaseType) == 4);
                 simdNode->gtType = TYP_SIMD8;
             }
-            // Certain SIMD trees require rationalizing.
-            if (simdNode->AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInitArray)
+
+            // This code depends on the fact that NONE of the SIMD intrinsics take vector operands
+            // of a different width.  If that assumption changes, we will EITHER have to make these type
+            // transformations during importation, and plumb the types all the way through the JIT,
+            // OR add a lot of special handling here.
+            for (GenTreeSIMD::Use& use : simdNode->Uses())
             {
-                // Rewrite this as an explicit load.
-                JITDUMP("Rewriting GT_SIMD array init as an explicit load:\n");
-                assert(simdNode->IsUnary() || simdNode->IsBinary());
-
-                GenTreeAddrMode* address = new (comp, GT_LEA)
-                    GenTreeAddrMode(TYP_BYREF, simdNode->GetOp(0), nullptr, 0, OFFSETOF__CORINFO_Array__data);
-
-                if (simdNode->IsBinary())
+                if (use.GetNode()->TypeGet() == TYP_STRUCT)
                 {
-                    address->SetIndex(simdNode->GetOp(1));
-                    address->SetScale(genTypeSize(simdNode->gtSIMDBaseType));
-                }
-
-                GenTree* ind = comp->gtNewOperNode(GT_IND, simdType, address);
-
-                BlockRange().InsertBefore(simdNode, address, ind);
-                use.ReplaceWith(comp, ind);
-                BlockRange().Remove(simdNode);
-
-                DISPTREERANGE(BlockRange(), use.Def());
-                JITDUMP("\n");
-            }
-            else
-            {
-                // This code depends on the fact that NONE of the SIMD intrinsics take vector operands
-                // of a different width.  If that assumption changes, we will EITHER have to make these type
-                // transformations during importation, and plumb the types all the way through the JIT,
-                // OR add a lot of special handling here.
-                for (GenTreeSIMD::Use& use : simdNode->Uses())
-                {
-                    if (use.GetNode()->TypeGet() == TYP_STRUCT)
-                    {
-                        use.GetNode()->gtType = simdType;
-                    }
+                    use.GetNode()->gtType = simdType;
                 }
             }
         }
