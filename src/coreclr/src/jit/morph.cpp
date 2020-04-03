@@ -8900,6 +8900,44 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
         if (initVal->OperIs(GT_CNS_INT))
         {
+            // TODO-MIKE-Cleanup/CQ Attempting to convert block init into scalar/SIMD init
+            // results in all sorts of diffs. One may expect that not blocking enregistration
+            // due to the use block init would be an improvement but it turns out that there
+            // are all sorts of issues in the backend that produce diffs and CQ issues:
+            //   - `byte_location = 0;` generates
+            //         mov byte ptr [rsi], 0
+            //     but block init produces
+            //         xor eax, eax
+            //         mov byte ptr [rsi], al
+            //     Block init is worse, unless a register happens to already contain 0,
+            //     then scalar init is worse due to the extra immediate.
+            //   - `float_location = 0;` generates
+            //         xorps xmm0, xmm0
+            //         movss [rsi], xmm0
+            //     but block init generates
+            //         xor eax, eax
+            //         mov [rsi], eax
+            //     which is smaller. Either version can be better depending on the availabily
+            //     of a zero in an integer or float register.
+            //   - Vector3 block init generates
+            //         xor eax, eax
+            //         mov [rsi], rax
+            //         mov [rsi+8], eax
+            //     but SIMD init generates
+            //         xorps xmm0, xmm0
+            //         movsd [rsi], xmm0
+            //         pshufd xmm1, xmm0, 2
+            //         movss [rsi], xmm1
+            //     Removing the extra suffle should be easy but then we hit again the float/int
+            //     constant issue - what's better depends on what kind of zero register happens
+            //     to be available.
+            //   - Integer 0 and REF/BYREF 0 aren't the same thing for LSRA and thus block init
+            //     of a GC pointer location tends to generate better code by reusing a 0 register.
+            //   - On 32 bit targets there are also differences between long scalar init and
+            //     block init. Scalar init usually produces better code but not always it seems.
+            //
+            //     So to sum it up - this is pretty much restricted to INT now to minimize diffs.
+
             unsigned destFlags = dest->gtFlags & GTF_COLON_COND;
 
             var_types initType     = TYP_UNDEF;
@@ -8920,7 +8958,12 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
                     fieldType = impNormStructType(fieldClassHandle, &fieldBaseType);
                 }
 
-                if (destSize == genTypeSize(fieldType))
+                if ((destSize == genTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsSIMD(fieldType) &&
+                    !varTypeIsFloating(fieldType) && !varTypeIsGC(fieldType)
+#ifndef TARGET_64BIT
+                    && !varTypeIsLong(fieldType)
+#endif
+                        )
                 {
                     initType     = fieldType;
                     initBaseType = fieldBaseType;
@@ -8933,7 +8976,11 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
             if (initType == TYP_UNDEF)
             {
-                if ((destLclOffs == 0) && (destSize == destLclVarSize))
+                if ((destLclOffs == 0) && (destSize == destLclVarSize) && !varTypeIsFloating(destLclVar->GetType())
+#ifndef TARGET_64BIT
+                    && !varTypeIsLong(destLclVar->GetType())
+#endif
+                        )
                 {
                     initType     = destLclVar->GetType();
                     initBaseType = destLclVar->GetSIMDBaseType();
@@ -8987,7 +9034,6 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
         }
     }
 
-
     asg->gtFlags &= ~GTF_ALL_EFFECT;
     asg->gtFlags |= GTF_ASG | ((asg->GetOp(0)->gtFlags | asg->GetOp(1)->gtFlags) & GTF_ALL_EFFECT);
 
@@ -9033,8 +9079,13 @@ GenTree* Compiler::fgMorphInitBlockConstant(GenTreeIntCon* initVal,
         }
         else
         {
+#ifdef TARGET_ARM64
+            // TODO-MIKE-ARM64-CQ Codegen doesn't properly recognize zero if the base type is float.
+            initPatternType = TYP_INT;
+#else
             // SSE2 codegen does not support small int base type for SIMDIntrinsicInit
             initPatternType = genActualType(simdBaseType);
+#endif
         }
     }
     else
@@ -9795,7 +9846,9 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (src == srcLclNode)
         {
-            if (src->GetType() != dest->GetType())
+            // TODO-MIKE-Cleanup: Stop wrapping struct LCL_FLDs in indirs, it's done only to minimize diffs.
+            if ((src->GetType() != dest->GetType()) ||
+                (srcLclNode->OperIs(GT_LCL_FLD) && srcLclNode->TypeIs(TYP_STRUCT)))
             {
                 src = gtNewIndir(dest->GetType(), gtNewOperNode(GT_ADDR, TYP_I_IMPL, srcLclNode));
                 src->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
