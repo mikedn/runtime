@@ -557,10 +557,12 @@ void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
 {
 #ifdef TARGET_ARM64
     GenTree* src = node->AsOp()->gtOp2;
-    if (!varTypeIsFloating(src->TypeGet()) && src->IsIntegralConst(0))
+    // TODO-MIKE-CQ-ARM64: SIMD 0 is problematic to contain because for SIMD16 we need
+    // stp xzr, xzr, [...] but emitInsLoadStoreOp does not support stp. Currently
+    // STORE_BLK.struct<16> works better than STOREIND.simd16 because of this.
+    if (src->IsIntegralConst(0) || src->IsDblConPositiveZero())
     {
-        // an integer zero for 'src' can be contained.
-        MakeSrcContained(node, src);
+        src->SetContained();
     }
 #endif // TARGET_ARM64
     ContainCheckIndir(node);
@@ -720,17 +722,14 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
             return;
         }
     }
-#ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(storeLoc))
+
+#ifdef TARGET_ARM64
+    if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->IsSIMDZero())
     {
-        if (op1->IsIntegralConst(0))
-        {
-            // For an InitBlk we want op1 to be contained
-            MakeSrcContained(storeLoc, op1);
-        }
+        op1->SetContained();
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     // If the source is a containable immediate, make it contained, unless it is
     // an int-size or larger store of zero to memory, because we can generate smaller code
