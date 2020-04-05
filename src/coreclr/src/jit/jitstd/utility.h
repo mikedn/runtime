@@ -11,6 +11,16 @@
 namespace jitstd
 {
 
+    template<class To, class From>
+    To bit_cast(const From& from)
+    {
+        static_assert_no_msg(sizeof(To) == sizeof(From));
+
+        To to;
+        memcpy(&to, &from, sizeof(to));
+        return to;
+    }
+
 namespace utility
 {
     // Template class for scoped execution of a lambda.

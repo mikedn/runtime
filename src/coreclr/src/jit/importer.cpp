@@ -12960,7 +12960,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 tiRetVal        = se.seTypeInfo;
                 op1             = tree;
 
-                if (!opts.compDbgCode && !op1->IsIntegralConst(0) && !op1->IsFPZero() && !op1->IsLocal())
+                if (!opts.compDbgCode && !op1->IsIntegralConst(0) && !op1->IsDblConPositiveZero() && !op1->IsLocal())
                 {
                     const unsigned tmpNum = lvaGrabTemp(true DEBUGARG("dup spill"));
                     impAssignTempGen(tmpNum, op1, tiRetVal.GetClassHandle(), (unsigned)CHECK_SPILL_ALL);

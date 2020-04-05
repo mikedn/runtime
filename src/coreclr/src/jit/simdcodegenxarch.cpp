@@ -828,7 +828,7 @@ void CodeGen::genSIMDIntrinsicInit(GenTreeSIMD* simdNode)
 #endif // !defined(TARGET_64BIT)
         if (op1->isContained())
     {
-        if (op1->IsIntegralConst(0) || op1->IsFPZero())
+        if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero())
         {
             genSIMDZero(targetType, baseType, targetReg);
         }

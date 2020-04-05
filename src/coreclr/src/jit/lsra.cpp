@@ -2711,16 +2711,10 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
                 }
                 break;
             case GT_CNS_DBL:
-            {
                 // For floating point constants, the values must be identical, not simply compare
                 // equal.  So we compare the bits.
-                if (refPosition->treeNode->AsDblCon()->isBitwiseEqual(otherTreeNode->AsDblCon()) &&
-                    (refPosition->treeNode->TypeGet() == otherTreeNode->TypeGet()))
-                {
-                    return true;
-                }
-                break;
-            }
+                return (refPosition->treeNode->GetType() == otherTreeNode->GetType()) &&
+                       (refPosition->treeNode->AsDblCon()->GetBits() == otherTreeNode->AsDblCon()->GetBits());
             default:
                 break;
         }
