@@ -4719,7 +4719,8 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* tree)
             // zero in the target register, because an xor is smaller than a copy. Note that we could
             // potentially handle this in the register allocator, but we can't always catch it there
             // because the target may not have a register allocated for it yet.
-            if (op1->isUsedFromReg() && (op1->GetRegNum() != targetReg) && (op1->IsIntegralConst(0) || op1->IsFPZero()))
+            if (op1->isUsedFromReg() && (op1->GetRegNum() != targetReg) &&
+                (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero()))
             {
                 op1->SetRegNum(REG_NA);
                 op1->ResetReuseRegVal();

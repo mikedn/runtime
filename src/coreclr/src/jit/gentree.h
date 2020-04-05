@@ -1622,7 +1622,7 @@ public:
     bool IsValidCallArgument();
 #endif // DEBUG
 
-    inline bool IsFPZero();
+    inline bool IsDblConPositiveZero();
     inline bool IsIntegralConst(ssize_t constVal);
     inline bool IsIntegralConstVector(ssize_t constVal);
 
@@ -3046,17 +3046,31 @@ struct GenTreeDblCon : public GenTree
 {
     double gtDconVal;
 
-    bool isBitwiseEqual(GenTreeDblCon* other)
-    {
-        unsigned __int64 bits      = *(unsigned __int64*)(&gtDconVal);
-        unsigned __int64 otherBits = *(unsigned __int64*)(&(other->gtDconVal));
-        return (bits == otherBits);
-    }
-
     GenTreeDblCon(double val, var_types type = TYP_DOUBLE) : GenTree(GT_CNS_DBL, type), gtDconVal(val)
     {
         assert(varTypeIsFloating(type));
     }
+
+    double GetValue() const
+    {
+        return gtDconVal;
+    }
+
+    uint64_t GetBits() const
+    {
+        return jitstd::bit_cast<uint64_t>(gtDconVal);
+    }
+
+    void SetValue(double value)
+    {
+        gtDconVal = value;
+    }
+
+    bool IsPositiveZero() const
+    {
+        return GetBits() == 0;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeDblCon() : GenTree()
     {
@@ -6889,18 +6903,14 @@ inline bool GenTree::OperIsCopyBlkOp()
 }
 
 //------------------------------------------------------------------------
-// IsFPZero: Checks whether this is a floating point constant with value 0.0
+// IsDblConPositiveZero: Checks whether this is a floating point constant with value +0.0
 //
 // Return Value:
-//    Returns true iff the tree is an GT_CNS_DBL, with value of 0.0.
+//    Returns true iff the tree is an GT_CNS_DBL, with value of +0.0.
 
-inline bool GenTree::IsFPZero()
+inline bool GenTree::IsDblConPositiveZero()
 {
-    if ((gtOper == GT_CNS_DBL) && (AsDblCon()->gtDconVal == 0.0))
-    {
-        return true;
-    }
-    return false;
+    return OperIs(GT_CNS_DBL) && AsDblCon()->IsPositiveZero();
 }
 
 //------------------------------------------------------------------------

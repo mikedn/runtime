@@ -2465,7 +2465,7 @@ void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
             }
             else
 #endif // !TARGET_64BIT
-                if (op1->IsFPZero() || op1->IsIntegralConst(0) ||
+                if (op1->IsDblConPositiveZero() || op1->IsIntegralConst(0) ||
                     (varTypeIsIntegral(simdNode->gtSIMDBaseType) && op1->IsIntegralConst(-1)))
             {
                 MakeSrcContained(simdNode, op1);
