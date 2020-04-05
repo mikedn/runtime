@@ -812,7 +812,7 @@ void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
 
         case SIMDIntrinsicInit:
             op1 = simdNode->GetOp(0);
-            if (op1->IsIntegralConst(0))
+            if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero())
             {
                 MakeSrcContained(simdNode, op1);
             }

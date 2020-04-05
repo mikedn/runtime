@@ -4080,37 +4080,39 @@ void CodeGen::genSIMDIntrinsicInit(GenTreeSIMD* simdNode)
     assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicInit);
 
     GenTree*  op1       = simdNode->GetOp(0);
-    var_types baseType  = simdNode->gtSIMDBaseType;
     regNumber targetReg = simdNode->GetRegNum();
-    assert(targetReg != REG_NA);
-    var_types targetType = simdNode->TypeGet();
-
-    genConsumeRegs(op1);
-    regNumber op1Reg = op1->IsIntegralConst(0) ? REG_ZR : op1->GetRegNum();
-
-    // TODO-ARM64-CQ Add LD1R to allow SIMDIntrinsicInit from contained memory
-    // TODO-ARM64-CQ Add MOVI to allow SIMDIntrinsicInit from contained immediate small constants
-
-    assert(op1->isContained() == op1->IsIntegralConst(0));
-    assert(!op1->isUsedFromMemory());
+    emitAttr  attr      = simdNode->gtSIMDSize > 8 ? EA_16BYTE : EA_8BYTE;
+    insOpts   opt       = genGetSimdInsOpt(attr, simdNode->gtSIMDBaseType);
 
     assert(genIsValidFloatReg(targetReg));
-    assert(genIsValidIntReg(op1Reg) || genIsValidFloatReg(op1Reg));
 
-    emitAttr attr = (simdNode->gtSIMDSize > 8) ? EA_16BYTE : EA_8BYTE;
-    insOpts  opt  = genGetSimdInsOpt(attr, baseType);
+    if (op1->isContained())
+    {
+        assert(op1->IsIntegralConst(0) || op1->IsDblConPositiveZero());
 
-    if (opt == INS_OPTS_1D)
-    {
-        GetEmitter()->emitIns_R_R(INS_mov, attr, targetReg, op1Reg);
-    }
-    else if (genIsValidIntReg(op1Reg))
-    {
-        GetEmitter()->emitIns_R_R(INS_dup, attr, targetReg, op1Reg, opt);
+        GetEmitter()->emitIns_R_I(INS_movi, attr, targetReg, 0, opt);
     }
     else
     {
-        GetEmitter()->emitIns_R_R_I(INS_dup, attr, targetReg, op1Reg, 0, opt);
+        regNumber op1Reg = genConsumeReg(op1);
+
+        // TODO-ARM64-CQ Add LD1R to allow SIMDIntrinsicInit from contained memory
+        // TODO-ARM64-CQ Add MOVI to allow SIMDIntrinsicInit from contained immediate small constants
+
+        assert(genIsValidIntReg(op1Reg) || genIsValidFloatReg(op1Reg));
+
+        if (opt == INS_OPTS_1D)
+        {
+            GetEmitter()->emitIns_R_R(INS_mov, attr, targetReg, op1Reg);
+        }
+        else if (genIsValidIntReg(op1Reg))
+        {
+            GetEmitter()->emitIns_R_R(INS_dup, attr, targetReg, op1Reg, opt);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_R_I(INS_dup, attr, targetReg, op1Reg, 0, opt);
+        }
     }
 
     genProduceReg(simdNode);
