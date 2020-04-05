@@ -1891,24 +1891,29 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
     GenTree* data = tree->gtOp1;
     genConsumeRegs(data);
 
-    regNumber dataReg = REG_NA;
-    if (data->isContainedIntOrIImmed())
+    regNumber dataReg;
+
+    if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
     {
-        assert(data->IsIntegralConst(0));
+        assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero());
         dataReg = REG_ZR;
     }
     else
     {
         assert(!data->isContained());
         dataReg = data->GetRegNum();
+        assert(dataReg != REG_NA);
     }
-    assert(dataReg != REG_NA);
 
-    instruction ins = ins_Store(targetType);
-
-    emitAttr attr = emitActualTypeSize(targetType);
-
-    emit->emitIns_S_R(ins, attr, dataReg, varNum, offset);
+    if ((dataReg == REG_ZR) && (targetType == TYP_SIMD16))
+    {
+        emit->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, dataReg, dataReg, varNum, offset);
+    }
+    else
+    {
+        assert(genTypeSize(targetType) <= REGSIZE_BYTES);
+        emit->emitIns_S_R(ins_Store(targetType), emitActualTypeSize(targetType), dataReg, varNum, offset);
+    }
 
     genUpdateLife(tree);
 
@@ -1953,28 +1958,18 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* tree)
         genConsumeRegs(data);
 
         regNumber dataReg = REG_NA;
-        if (data->isContainedIntOrIImmed())
+        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
         {
             // This is only possible for a zero-init.
-            assert(data->IsIntegralConst(0));
-
-            if (varTypeIsSIMD(targetType))
-            {
-                assert(targetType == TYP_SIMD16);
-                assert(targetReg != REG_NA);
-                emit->emitIns_R_I(INS_movi, EA_16BYTE, targetReg, 0x00, INS_OPTS_16B);
-                genProduceReg(tree);
-                return;
-            }
-
+            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero());
             dataReg = REG_ZR;
         }
         else
         {
             assert(!data->isContained());
             dataReg = data->GetRegNum();
+            assert(dataReg != REG_NA);
         }
-        assert(dataReg != REG_NA);
 
         if (targetReg == REG_NA) // store into stack based LclVar
         {
@@ -1983,7 +1978,15 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* tree)
             instruction ins  = ins_Store(targetType);
             emitAttr    attr = emitActualTypeSize(targetType);
 
-            emit->emitIns_S_R(ins, attr, dataReg, varNum, /* offset */ 0);
+            if ((dataReg == REG_ZR) && (targetType == TYP_SIMD16))
+            {
+                emit->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, dataReg, dataReg, varNum, 0);
+            }
+            else
+            {
+                assert((dataReg != REG_ZR) || (genTypeSize(targetType) <= REGSIZE_BYTES));
+                emit->emitIns_S_R(ins, attr, dataReg, varNum, /* offset */ 0);
+            }
 
             genUpdateLife(tree);
 
@@ -1993,9 +1996,16 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* tree)
         {
             if (dataReg != targetReg)
             {
-                // Assign into targetReg when dataReg (from op1) is not the same register
-                inst_RV_RV(ins_Copy(targetType), targetReg, dataReg, targetType);
+                if ((dataReg == REG_ZR) && genIsValidFloatReg(targetReg))
+                {
+                    emit->emitIns_R_I(INS_movi, EA_16BYTE, targetReg, 0x00, INS_OPTS_16B);
+                }
+                else
+                {
+                    inst_RV_RV(ins_Copy(targetType), targetReg, dataReg, targetType);
+                }
             }
+
             genProduceReg(tree);
         }
     }
@@ -3128,9 +3138,9 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         }
 
         regNumber dataReg;
-        if (data->isContainedIntOrIImmed())
+        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL))
         {
-            assert(data->IsIntegralConst(0));
+            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero());
             dataReg = REG_ZR;
         }
         else // data is not contained, so evaluate it into a register
@@ -3142,7 +3152,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
         var_types   type = tree->TypeGet();
         instruction ins  = ins_Store(type);
 
-        if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
+        if (tree->IsVolatile())
         {
             bool addrIsInReg   = addr->isUsedFromReg();
             bool addrIsAligned = ((tree->gtFlags & GTF_IND_UNALIGNED) == 0);
@@ -4986,6 +4996,17 @@ void CodeGen::genStoreLclTypeSIMD12(GenTree* treeNode)
     }
 
     GenTree* op1 = treeNode->AsOp()->gtOp1;
+
+    if (op1->isContained() && op1->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
+    {
+        assert(op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->IsSIMDZero());
+
+        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, REG_ZR, varNum, offs);
+        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, REG_ZR, varNum, offs + 8);
+
+        return;
+    }
+
     assert(!op1->isContained());
     regNumber operandReg = genConsumeReg(op1);
 

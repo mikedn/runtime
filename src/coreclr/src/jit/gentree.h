@@ -1622,9 +1622,10 @@ public:
     bool IsValidCallArgument();
 #endif // DEBUG
 
-    inline bool IsDblConPositiveZero();
-    inline bool IsIntegralConst(ssize_t constVal);
-    inline bool IsIntegralConstVector(ssize_t constVal);
+    bool IsDblConPositiveZero() const;
+    bool IsSIMDZero() const;
+    bool IsIntegralConst(ssize_t constVal);
+    bool IsIntegralConstVector(ssize_t constVal);
 
     inline bool IsBoxedValue();
 
@@ -6908,9 +6909,15 @@ inline bool GenTree::OperIsCopyBlkOp()
 // Return Value:
 //    Returns true iff the tree is an GT_CNS_DBL, with value of +0.0.
 
-inline bool GenTree::IsDblConPositiveZero()
+inline bool GenTree::IsDblConPositiveZero() const
 {
     return OperIs(GT_CNS_DBL) && AsDblCon()->IsPositiveZero();
+}
+
+inline bool GenTree::IsSIMDZero() const
+{
+    return OperIs(GT_SIMD) && (AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInit) &&
+           (AsSIMD()->GetOp(0)->IsIntegralConst(0) || AsSIMD()->GetOp(0)->IsDblConPositiveZero());
 }
 
 //------------------------------------------------------------------------
