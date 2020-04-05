@@ -6916,8 +6916,12 @@ inline bool GenTree::IsDblConPositiveZero() const
 
 inline bool GenTree::IsSIMDZero() const
 {
+#ifdef FEATURE_SIMD
     return OperIs(GT_SIMD) && (AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInit) &&
            (AsSIMD()->GetOp(0)->IsIntegralConst(0) || AsSIMD()->GetOp(0)->IsDblConPositiveZero());
+#else
+    return false;
+#endif
 }
 
 //------------------------------------------------------------------------
