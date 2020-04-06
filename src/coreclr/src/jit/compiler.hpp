@@ -1475,6 +1475,7 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     switch (oper)
     {
         case GT_LCL_FLD:
+        case GT_STORE_LCL_FLD:
         {
             // The original GT_LCL_VAR might be annotated with a zeroOffset field.
             FieldSeqNode* zeroFieldSeq = nullptr;
