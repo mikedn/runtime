@@ -26,6 +26,10 @@ ValueNumFuncDef(InitVal, 1, false, false, false)    // An input arg, or init val
 
 
 
+ValueNumFuncDef(BitCast, 2, false, false, false)        // VNF_BitCast: Bitcast operation retypes values without changing them.
+                                                        //           Args: 0: Source for the bit cast operation.
+                                                        //                 1: Constant integer representing the operation .
+                                                        //                    Use VNForBitCastOper() to construct.
 ValueNumFuncDef(Cast, 2, false, false, false)           // VNF_Cast: Cast Operation changes the representations size and unsigned-ness.
                                                         //           Args: 0: Source for the cast operation.
                                                         //                 1: Constant integer representing the operation .

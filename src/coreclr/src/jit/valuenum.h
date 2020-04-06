@@ -279,6 +279,8 @@ public:
     }
 #endif
 
+    ValueNum VNForBitCastOper(var_types castToType);
+
     ValueNum VNForCastOper(var_types castToType, bool srcIsUnsigned = false);
 
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
@@ -542,6 +544,8 @@ public:
                             VNApplySelectorsAssign(VNK_Conservative, map.GetConservative(), fieldSeq,
                                                    rhs.GetConservative(), indType, block));
     }
+
+    ValueNum VNForBitCast(ValueNum src, var_types toType, var_types fromType);
 
     // Compute the normal ValueNumber for a cast with no exceptions
     ValueNum VNForCast(ValueNum srcVN, var_types castToType, var_types castFromType, bool srcIsUnsigned = false);
