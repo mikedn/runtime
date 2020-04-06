@@ -894,7 +894,8 @@ private:
                 }
                 else if (genTypeSize(indir->GetType()) == genTypeSize(varDsc->GetType()))
                 {
-                    if (varTypeIsFloating(indir->GetType()) != varTypeIsFloating(varDsc->GetType()))
+                    if ((varTypeIsFloating(indir->GetType()) != varTypeIsFloating(varDsc->GetType())) &&
+                        (genTypeSize(indir->GetType()) <= REGSIZE_BYTES))
                     {
                         if (isDef)
                         {
