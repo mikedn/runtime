@@ -2568,7 +2568,7 @@ public:
 
     GenTree* gtNewPutArgReg(var_types type, GenTree* arg, regNumber argReg);
 
-    GenTree* gtNewBitCastNode(var_types type, GenTree* arg);
+    GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
 protected:
     void gtBlockOpInit(GenTree* result, GenTree* dst, GenTree* srcOrFillVal, bool isVolatile);

@@ -875,23 +875,49 @@ private:
 
         if (!varTypeIsStruct(varDsc->TypeGet()))
         {
-            if ((indir->TypeGet() == varDsc->TypeGet()) && (val.Offset() == 0))
+            const bool isDef = (user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
+
+            if (val.Offset() == 0)
             {
-                indir->ChangeOper(GT_LCL_VAR);
-                indir->AsLclVar()->SetLclNum(val.LclNum());
-                indir->gtFlags = 0;
-
-                if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == indir))
+                if (indir->TypeGet() == varDsc->TypeGet())
                 {
-                    indir->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-                }
+                    indir->ChangeOper(GT_LCL_VAR);
+                    indir->AsLclVar()->SetLclNum(val.LclNum());
+                    indir->gtFlags = 0;
 
-                INDEBUG(m_stmtModified = true;)
+                    if (isDef)
+                    {
+                        indir->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+                    }
+
+                    INDEBUG(m_stmtModified = true;)
+                }
+                else if (genTypeSize(indir->GetType()) == genTypeSize(varDsc->GetType()))
+                {
+                    if (varTypeIsFloating(indir->GetType()) != varTypeIsFloating(varDsc->GetType()))
+                    {
+                        if (isDef)
+                        {
+                            user->AsOp()->SetOp(1, NewBitCastNode(varDsc->GetType(), user->AsOp()->GetOp(1)));
+
+                            indir->ChangeOper(GT_LCL_VAR);
+                            indir->SetType(varDsc->GetType());
+                            indir->AsLclVar()->SetLclNum(val.LclNum());
+                            indir->gtFlags = GTF_VAR_DEF | GTF_DONT_CSE;
+                        }
+                        else
+                        {
+                            indir->ChangeOper(GT_BITCAST);
+                            indir->AsUnOp()->SetOp(0, NewLclVarNode(varDsc->GetType(), val.LclNum()));
+                            indir->gtFlags = 0;
+                        }
+
+                        INDEBUG(m_stmtModified = true;)
+                    }
+                }
             }
 
             // TODO-MIKE: Handle type mismatches to prevent blocking enregistration:
-            //   - float/int and double/long can be handled by using BITCAST (trouble: what to do about
-            //     double/long on 32 bit targets?)
             //   - integer sign mismatches can be handled by inserting a CAST node (trouble: CAST is a
             //     large node so we can't simply convert the indir node into a cast node)
             //   - many (all?) integer size mismatches can also be handled by inserting casts
@@ -1406,6 +1432,19 @@ private:
                     varDsc->lvRefCntWtd(RCS_EARLY), varDsc->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
             varDsc->incLvRefCntWtd(1, RCS_EARLY);
         }
+    }
+
+    GenTreeUnOp* NewBitCastNode(var_types type, GenTree* op)
+    {
+        return m_compiler->gtNewBitCastNode(type, op);
+    }
+
+    GenTreeLclVar* NewLclVarNode(var_types type, unsigned lclNum)
+    {
+        assert((type == m_compiler->lvaGetDesc(lclNum)->GetType()) ||
+               (genActualType(type) == genActualType(m_compiler->lvaGetDesc(lclNum)->GetType())));
+
+        return m_compiler->gtNewLclvNode(lclNum, type);
     }
 };
 

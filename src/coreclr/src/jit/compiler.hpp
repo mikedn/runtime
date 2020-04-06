@@ -1495,6 +1495,12 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             }
             break;
         }
+#ifdef TARGET_ARM
+        case GT_BITCAST:
+            AsMultiRegOp()->gtOtherReg = REG_NA;
+            AsMultiRegOp()->ClearOtherRegFlags();
+            break;
+#endif
         default:
             break;
     }
