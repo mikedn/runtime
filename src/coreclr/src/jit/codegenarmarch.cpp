@@ -1069,40 +1069,35 @@ void CodeGen::genPutArgReg(GenTreeOp* tree)
     genProduceReg(tree);
 }
 
-//----------------------------------------------------------------------
-// genCodeForBitCast - Generate code for a GT_BITCAST that is not contained
-//
-// Arguments
-//    treeNode - the GT_BITCAST for which we're generating code
-//
-void CodeGen::genCodeForBitCast(GenTreeOp* treeNode)
+void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 {
-    regNumber targetReg  = treeNode->GetRegNum();
-    var_types targetType = treeNode->TypeGet();
-    GenTree*  op1        = treeNode->gtGetOp1();
-    genConsumeRegs(op1);
-    if (op1->isContained())
+    GenTree*  src     = bitcast->GetOp(0);
+    var_types dstType = bitcast->GetType();
+    regNumber dstReg  = bitcast->GetRegNum();
+
+    genConsumeRegs(src);
+
+    if (src->isContained())
     {
-        assert(op1->IsLocal() || op1->isIndir());
-        op1->gtType = treeNode->TypeGet();
-        op1->SetRegNum(targetReg);
-        op1->ClearContained();
-        JITDUMP("Changing type of BITCAST source to load directly.");
-        genCodeForTreeNode(op1);
+        unsigned    lclNum = src->AsLclVar()->GetLclNum();
+        instruction ins    = ins_Load(dstType, compiler->isSIMDTypeLocalAligned(lclNum));
+        GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
     }
-    else if (varTypeIsFloating(treeNode) != varTypeIsFloating(op1))
+    else if (varTypeIsFloating(dstType) != varTypeIsFloating(src->GetType()))
     {
-        regNumber srcReg = op1->GetRegNum();
-        assert(genTypeSize(op1->TypeGet()) == genTypeSize(targetType));
+        assert(genTypeSize(src->GetType()) == genTypeSize(dstType));
+
+        regNumber srcReg = src->GetRegNum();
+
 #ifdef TARGET_ARM
-        if (genTypeSize(targetType) == 8)
+        if (genTypeSize(dstType) == 8)
         {
             // Converting between long and double on ARM is a special case.
-            if (targetType == TYP_LONG)
+            if (dstType == TYP_LONG)
             {
-                regNumber otherReg = treeNode->AsMultiRegOp()->gtOtherReg;
+                regNumber otherReg = bitcast->AsMultiRegOp()->gtOtherReg;
                 assert(otherReg != REG_NA);
-                inst_RV_RV_RV(INS_vmov_d2i, targetReg, otherReg, srcReg, EA_8BYTE);
+                inst_RV_RV_RV(INS_vmov_d2i, dstReg, otherReg, srcReg, EA_8BYTE);
             }
             else
             {
@@ -1112,14 +1107,15 @@ void CodeGen::genCodeForBitCast(GenTreeOp* treeNode)
         else
 #endif // TARGET_ARM
         {
-            instruction ins = ins_Copy(srcReg, targetType);
-            inst_RV_RV(ins, targetReg, srcReg, targetType);
+            inst_RV_RV(ins_Copy(srcReg, dstType), dstReg, srcReg, dstType);
         }
     }
     else
     {
-        inst_RV_RV(ins_Copy(targetType), targetReg, genConsumeReg(op1), targetType);
+        inst_RV_RV(ins_Copy(dstType), dstReg, src->GetRegNum(), dstType);
     }
+
+    genProduceReg(bitcast);
 }
 
 #if FEATURE_ARG_SPLIT
