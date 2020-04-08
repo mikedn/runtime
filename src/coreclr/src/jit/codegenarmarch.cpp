@@ -1069,6 +1069,46 @@ void CodeGen::genPutArgReg(GenTreeOp* tree)
     genProduceReg(tree);
 }
 
+void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)
+{
+    assert(!varTypeIsSmall(dstType));
+    assert(!varTypeIsSmall(srcType));
+
+    const bool srcIsFloat = varTypeUsesFloatReg(srcType);
+    assert(srcIsFloat == genIsValidFloatReg(srcReg));
+
+    const bool dstIsFloat = varTypeUsesFloatReg(dstType);
+    assert(dstIsFloat == genIsValidFloatReg(dstReg));
+
+    instruction ins = INS_none;
+
+    if (dstIsFloat && !srcIsFloat)
+    {
+#ifdef TARGET_ARM64
+        ins = INS_fmov;
+#else
+        ins = INS_vmov_i2f;
+#endif
+    }
+    else if (!dstIsFloat && srcIsFloat)
+    {
+#ifdef TARGET_ARM64
+        ins = INS_fmov;
+#else
+        ins = INS_vmov_f2i;
+#endif
+    }
+    else if (dstReg != srcReg)
+    {
+        ins = INS_mov;
+    }
+
+    if (ins != INS_none)
+    {
+        GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(dstType), dstReg, srcReg);
+    }
+}
+
 void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 {
     GenTree*  src     = bitcast->GetOp(0);
@@ -1080,39 +1120,24 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     if (src->isContained())
     {
         unsigned    lclNum = src->AsLclVar()->GetLclNum();
-        instruction ins    = ins_Load(dstType, compiler->isSIMDTypeLocalAligned(lclNum));
+        instruction ins    = ins_Load(dstType);
         GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
     }
-    else if (varTypeIsFloating(dstType) != varTypeIsFloating(src->GetType()))
-    {
-        assert(genTypeSize(src->GetType()) == genTypeSize(dstType));
-
-        regNumber srcReg = src->GetRegNum();
-
 #ifdef TARGET_ARM
-        if (genTypeSize(dstType) == 8)
-        {
-            // Converting between long and double on ARM is a special case.
-            if (dstType == TYP_LONG)
-            {
-                regNumber otherReg = bitcast->AsMultiRegOp()->gtOtherReg;
-                assert(otherReg != REG_NA);
-                inst_RV_RV_RV(INS_vmov_d2i, dstReg, otherReg, srcReg, EA_8BYTE);
-            }
-            else
-            {
-                NYI_ARM("Converting from long to double");
-            }
-        }
-        else
-#endif // TARGET_ARM
-        {
-            inst_RV_RV(ins_Copy(srcReg, dstType), dstReg, srcReg, dstType);
-        }
+    else if (varTypeIsLong(dstType) && src->TypeIs(TYP_DOUBLE))
+    {
+        regNumber otherReg = bitcast->AsMultiRegOp()->gtOtherReg;
+        assert(otherReg != REG_NA);
+        inst_RV_RV_RV(INS_vmov_d2i, dstReg, otherReg, src->GetRegNum(), EA_8BYTE);
     }
+    else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
+    {
+        NYI_ARM("Converting to/from long/SIMD");
+    }
+#endif
     else
     {
-        inst_RV_RV(ins_Copy(dstType), dstReg, src->GetRegNum(), dstType);
+        inst_BitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
     }
 
     genProduceReg(bitcast);

@@ -4702,7 +4702,7 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* tree)
             }
             else
             {
-                genBitCast(targetType, targetReg, srcType, bitCastSrc->GetRegNum());
+                inst_BitCast(targetType, targetReg, srcType, bitCastSrc->GetRegNum());
             }
         }
         else if (targetReg == REG_NA)
@@ -7437,8 +7437,11 @@ void CodeGen::genIntrinsic(GenTree* treeNode)
     genProduceReg(treeNode);
 }
 
-void CodeGen::genBitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)
+void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)
 {
+    assert(!varTypeIsSmall(dstType));
+    assert(!varTypeIsSmall(srcType));
+
     const bool srcIsFloat = varTypeUsesFloatReg(srcType);
     assert(srcIsFloat == genIsValidFloatReg(srcReg));
 
@@ -7483,7 +7486,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     }
     else
     {
-        genBitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
+        inst_BitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
     }
 
     genProduceReg(bitcast);

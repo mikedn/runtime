@@ -865,7 +865,7 @@ protected:
     void genCodeForBitCast(GenTreeUnOp* bitcast);
 
     // Generate the instruction to move a value between register files
-    void genBitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg);
+    void inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg);
 
     struct GenIntCastDesc
     {
