@@ -2568,7 +2568,7 @@ public:
 
     GenTree* gtNewPutArgReg(var_types type, GenTree* arg, regNumber argReg);
 
-    GenTree* gtNewBitCastNode(var_types type, GenTree* arg);
+    GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
 protected:
     void gtBlockOpInit(GenTree* result, GenTree* dst, GenTree* srcOrFillVal, bool isVolatile);
@@ -4690,6 +4690,9 @@ public:
 
     // Does value-numbering for a cast tree.
     void fgValueNumberCastTree(GenTree* tree);
+
+    // Does value-numbering for a bitcast tree.
+    void fgValueNumberBitCastTree(GenTreeUnOp* tree);
 
     // Does value-numbering for an intrinsic tree.
     void fgValueNumberIntrinsic(GenTree* tree);

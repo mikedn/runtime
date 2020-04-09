@@ -1676,6 +1676,24 @@ ValueNum ValueNumStore::VNForByrefCon(size_t cnsVal)
     return VnForConst(cnsVal, GetByrefCnsMap(), TYP_BYREF);
 }
 
+ValueNum ValueNumStore::VNForBitCastOper(var_types castToType)
+{
+    assert(castToType != TYP_STRUCT);
+    INT32 cnsVal = INT32(castToType) << INT32(VCA_BitCount);
+    assert((cnsVal & INT32(VCA_ReservedBits)) == 0);
+
+    ValueNum result = VNForIntCon(cnsVal);
+
+#ifdef DEBUG
+    if (m_pComp->verbose)
+    {
+        printf("    VNForBitCastOper(%s) is " FMT_VN "\n", varTypeName(castToType), result);
+    }
+#endif
+
+    return result;
+}
+
 ValueNum ValueNumStore::VNForCastOper(var_types castToType, bool srcIsUnsigned /*=false*/)
 {
     assert(castToType != TYP_STRUCT);
@@ -8049,6 +8067,10 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         {
             fgValueNumberCastTree(tree);
         }
+        else if (tree->OperIs(GT_BITCAST))
+        {
+            fgValueNumberBitCastTree(tree->AsUnOp());
+        }
         else if (tree->OperGet() == GT_INTRINSIC)
         {
             fgValueNumberIntrinsic(tree);
@@ -8647,6 +8669,20 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
 }
 #endif // FEATURE_HW_INTRINSICS
 
+void Compiler::fgValueNumberBitCastTree(GenTreeUnOp* bitcast)
+{
+    assert(bitcast->OperIs(GT_BITCAST));
+
+    GenTree*  src      = bitcast->GetOp(0);
+    var_types toType   = bitcast->GetType();
+    var_types fromType = src->GetType();
+
+    assert(genTypeSize(toType) == genTypeSize(fromType));
+
+    bitcast->SetVN(VNK_Liberal, vnStore->VNForBitCast(src->GetVN(VNK_Liberal), toType, fromType));
+    bitcast->SetVN(VNK_Conservative, vnStore->VNForBitCast(src->GetVN(VNK_Conservative), toType, fromType));
+}
+
 void Compiler::fgValueNumberCastTree(GenTree* tree)
 {
     assert(tree->OperGet() == GT_CAST);
@@ -8696,6 +8732,42 @@ ValueNum ValueNumStore::VNForCast(ValueNum  srcVN,
 #endif
 
     return resultVN;
+}
+
+ValueNum ValueNumStore::VNForBitCast(ValueNum src, var_types toType, var_types fromType)
+{
+    ValueNum srcVal;
+    ValueNum srcExc;
+    VNUnpackExc(src, &srcVal, &srcExc);
+
+    ValueNum resultVal = NoVN;
+
+    if (IsVNConstant(srcVal))
+    {
+        if ((fromType == TYP_FLOAT) && (toType == TYP_INT))
+        {
+            resultVal = VNForIntCon(jitstd::bit_cast<INT32>(ConstantValue<float>(srcVal)));
+        }
+        else if ((fromType == TYP_DOUBLE) && (toType == TYP_LONG))
+        {
+            resultVal = VNForLongCon(jitstd::bit_cast<INT64>(ConstantValue<double>(srcVal)));
+        }
+        else if ((fromType == TYP_INT) && (toType == TYP_FLOAT))
+        {
+            resultVal = VNForFloatCon(jitstd::bit_cast<float>(ConstantValue<int>(srcVal)));
+        }
+        else if ((fromType == TYP_LONG) && (toType == TYP_DOUBLE))
+        {
+            resultVal = VNForDoubleCon(jitstd::bit_cast<double>(ConstantValue<INT64>(srcVal)));
+        }
+    }
+
+    if (resultVal == NoVN)
+    {
+        resultVal = VNForFunc(toType, VNF_BitCast, srcVal, VNForBitCastOper(toType));
+    }
+
+    return VNWithExc(resultVal, srcExc);
 }
 
 // Compute the ValueNumberPair for a cast operation

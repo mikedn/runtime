@@ -143,21 +143,16 @@ const char* getRegName(regNumber reg, bool isFloat)
         return "NA";
     }
 
+    static const char* const regNames[] = {
 #if defined(TARGET_ARM64)
-    static const char* const regNames[] = {
 #define REGDEF(name, rnum, mask, xname, wname) xname,
-#include "register.h"
-    };
-    assert(reg < ArrLen(regNames));
-    return regNames[reg];
 #else
-    static const char* const regNames[] = {
 #define REGDEF(name, rnum, mask, sname) sname,
+#endif
 #include "register.h"
     };
-    assert(reg < ArrLen(regNames));
-    return regNames[reg];
-#endif
+
+    return reg < _countof(regNames) ? regNames[reg] : "???";
 }
 
 const char* getRegName(unsigned reg,

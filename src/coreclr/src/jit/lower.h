@@ -86,7 +86,6 @@ private:
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeOp* node);
 
-    void ContainCheckBitCast(GenTree* node);
     void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
     void ContainCheckStoreIndir(GenTreeIndir* indirNode);
@@ -290,6 +289,7 @@ private:
     bool TryLowerSwitchToBitTest(
         BasicBlock* jumpTable[], unsigned jumpCount, unsigned targetCount, BasicBlock* bbSwitch, GenTree* switchValue);
 
+    GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     void LowerCast(GenTree* node);
 
 #if !CPU_LOAD_STORE_ARCH

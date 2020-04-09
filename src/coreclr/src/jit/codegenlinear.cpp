@@ -1404,13 +1404,11 @@ void CodeGen::genConsumeRegs(GenTree* tree)
         {
             genConsumeAddress(tree);
         }
-#ifdef TARGET_XARCH
-        else if (tree->OperIsLocalRead())
+        else if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             // A contained lcl var must be living on stack and marked as reg optional, or not be a
             // register candidate.
-            unsigned   varNum = tree->AsLclVarCommon()->GetLclNum();
-            LclVarDsc* varDsc = compiler->lvaTable + varNum;
+            LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVarCommon());
 
             noway_assert(varDsc->GetRegNum() == REG_STK);
             noway_assert(tree->IsRegOptional() || !varDsc->lvLRACandidate);
@@ -1436,7 +1434,6 @@ void CodeGen::genConsumeRegs(GenTree* tree)
             }
         }
 #endif // FEATURE_HW_INTRINSICS
-#endif // TARGET_XARCH
         else if (tree->OperIs(GT_BITCAST))
         {
             genConsumeReg(tree->gtGetOp1());

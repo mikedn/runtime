@@ -6239,19 +6239,16 @@ GenTree* Compiler::gtNewPutArgReg(var_types type, GenTree* arg, regNumber argReg
 // Notes:
 //    The node is generated as GenTreeMultiRegOp on RyuJIT/arm, as GenTreeOp on all the other archs.
 //
-GenTree* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
+GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
 {
     assert(arg != nullptr);
 
-    GenTree* node = nullptr;
 #if defined(TARGET_ARM)
     // A BITCAST could be a MultiRegOp on arm since we could move a double register to two int registers.
-    node = new (this, GT_BITCAST) GenTreeMultiRegOp(GT_BITCAST, type, arg, nullptr);
+    return new (this, GT_BITCAST) GenTreeMultiRegOp(GT_BITCAST, type, arg, nullptr);
 #else
-    node          = gtNewOperNode(GT_BITCAST, type, arg);
+    return gtNewOperNode(GT_BITCAST, type, arg)->AsUnOp();
 #endif
-
-    return node;
 }
 
 //------------------------------------------------------------------------
@@ -12511,6 +12508,14 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         i1 = ((i1 >> 8) & 0xFF) | ((i1 << 8) & 0xFF00);
                         break;
 
+                    case GT_BITCAST:
+                        if (tree->TypeIs(TYP_FLOAT))
+                        {
+                            d1 = jitstd::bit_cast<float>(static_cast<int>(i1));
+                            goto CNS_DOUBLE;
+                        }
+                        return tree;
+
                     case GT_CAST:
                         // assert (genActualType(tree->CastToType()) == tree->gtType);
                         switch (tree->CastToType())
@@ -12657,6 +12662,14 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 ((lval1 << 56) & 0xFF00000000000000);
                         break;
 
+                    case GT_BITCAST:
+                        if (tree->TypeIs(TYP_DOUBLE))
+                        {
+                            d1 = jitstd::bit_cast<double>(lval1);
+                            goto CNS_DOUBLE;
+                        }
+                        return tree;
+
                     case GT_CAST:
                         assert(genActualType(tree->CastToType()) == tree->gtType);
                         switch (tree->CastToType())
@@ -12760,6 +12773,21 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     case GT_NEG:
                         d1 = -d1;
                         break;
+
+                    case GT_BITCAST:
+                        if (tree->TypeIs(TYP_INT) && op1->TypeIs(TYP_FLOAT))
+                        {
+                            i1 = jitstd::bit_cast<int>(static_cast<float>(d1));
+                            goto CNS_INT;
+                        }
+
+                        if (tree->TypeIs(TYP_LONG) && op1->TypeIs(TYP_DOUBLE))
+                        {
+                            lval1 = jitstd::bit_cast<INT64>(d1);
+                            goto CNS_LONG;
+                        }
+
+                        return tree;
 
                     case GT_CAST:
 

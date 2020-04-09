@@ -82,7 +82,7 @@ void Rationalizer::RewriteSIMDIndir(LIR::Use& use)
         }
         else
         {
-            addr->SetOper(GT_LCL_FLD);
+            addr->ChangeOper(GT_LCL_FLD);
             addr->AsLclFld()->SetLclOffs(0);
             addr->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
 
@@ -282,7 +282,7 @@ static void RewriteAssignmentIntoStoreLclCore(GenTreeOp* assignment,
     JITDUMP("rewriting asg(%s, X) to %s(X)\n", GenTree::OpName(locationOp), GenTree::OpName(storeOp));
 #endif // DEBUG
 
-    assignment->SetOper(storeOp);
+    assignment->ChangeOper(storeOp);
     GenTreeLclVarCommon* store = assignment->AsLclVarCommon();
 
     GenTreeLclVarCommon* var = location->AsLclVarCommon();

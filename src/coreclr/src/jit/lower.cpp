@@ -209,6 +209,9 @@ GenTree* Lowering::LowerNode(GenTree* node)
             ContainCheckReturnTrap(node->AsOp());
             break;
 
+        case GT_BITCAST:
+            return LowerBitCast(node->AsUnOp());
+
         case GT_CAST:
             LowerCast(node);
             break;
@@ -309,7 +312,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
                     store->gtOp1         = bitcast;
                     src                  = store->gtGetOp1();
                     BlockRange().InsertBefore(store, bitcast);
-                    ContainCheckBitCast(bitcast);
+                    LowerBitCast(bitcast);
                 }
                 else
                 {
@@ -3022,7 +3025,7 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
         GenTreeUnOp* bitcast = new (comp, GT_BITCAST) GenTreeOp(GT_BITCAST, ret->TypeGet(), ret->gtGetOp1(), nullptr);
         ret->gtOp1           = bitcast;
         BlockRange().InsertBefore(ret, bitcast);
-        ContainCheckBitCast(bitcast);
+        LowerBitCast(bitcast);
     }
 
     // Method doing PInvokes has exactly one return block unless it has tail calls.
@@ -5776,37 +5779,70 @@ void Lowering::ContainCheckJTrue(GenTreeOp* node)
     cmp->gtFlags |= GTF_SET_FLAGS;
 }
 
-//------------------------------------------------------------------------
-// ContainCheckBitCast: determine whether the source of a BITCAST should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckBitCast(GenTree* node)
+GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
 {
-    GenTree* const op1 = node->AsOp()->gtOp1;
-    if (op1->isMemoryOp())
+    assert(bitcast->OperIs(GT_BITCAST));
+    assert(!bitcast->TypeIs(TYP_STRUCT));
+
+    auto CanRetypeIndir = [](GenTreeIndir* indir, var_types type) {
+#ifdef TARGET_ARMARCH
+        // For simplicity and safety recognize only the typical int <-> float case.
+        return (type == TYP_INT) || ((type == TYP_FLOAT) && indir->TypeIs(TYP_INT) && !indir->IsUnaligned());
+#else
+        return true;
+#endif
+    };
+
+    auto CanRetypeLclFld = [](GenTreeLclFld* lclFld, var_types type) {
+#ifdef TARGET_ARMARCH
+        // For simplicity and safety recognize only the typical int <-> float case.
+        return (type == TYP_INT) || ((type == TYP_FLOAT) && ((lclFld->GetLclOffs() % 4) == 0));
+#else
+        return true;
+#endif
+    };
+
+    GenTree* next   = bitcast->gtNext;
+    GenTree* src    = bitcast->GetOp(0);
+    bool     remove = false;
+
+    if ((src->OperIs(GT_IND) && CanRetypeIndir(src->AsIndir(), bitcast->GetType())) ||
+        (src->OperIs(GT_LCL_FLD) && CanRetypeLclFld(src->AsLclFld(), bitcast->GetType())))
     {
-        op1->SetContained();
+        src->SetType(bitcast->GetType());
+        remove = true;
     }
-    else if (op1->OperIs(GT_LCL_VAR))
+    else if (src->OperIs(GT_LCL_VAR))
     {
-        if (!m_lsra->willEnregisterLocalVars())
+        if (!m_lsra->isRegCandidate(comp->lvaGetDesc(src->AsLclVar())))
         {
-            op1->SetContained();
-        }
-        LclVarDsc* varDsc = &comp->lvaTable[op1->AsLclVar()->GetLclNum()];
-        if (!m_lsra->isRegCandidate(varDsc))
-        {
-            op1->SetContained();
+            // If it's not a register candidate then we can turn it into a LCL_FLD and retype it.
+            src->ChangeOper(GT_LCL_FLD);
+            src->SetType(bitcast->GetType());
+            comp->lvaSetVarDoNotEnregister(src->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+            remove = true;
         }
         else
         {
-            op1->SetRegOptional();
+            src->SetRegOptional();
         }
     }
-    else if (op1->IsLocal())
+
+    if (remove)
     {
-        op1->SetContained();
+        LIR::Use use;
+
+        if (BlockRange().TryGetUse(bitcast, &use))
+        {
+            use.ReplaceWith(comp, src);
+        }
+        else
+        {
+            src->SetUnusedValue();
+        }
+
+        BlockRange().Remove(bitcast);
     }
+
+    return next;
 }

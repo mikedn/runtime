@@ -1069,57 +1069,78 @@ void CodeGen::genPutArgReg(GenTreeOp* tree)
     genProduceReg(tree);
 }
 
-//----------------------------------------------------------------------
-// genCodeForBitCast - Generate code for a GT_BITCAST that is not contained
-//
-// Arguments
-//    treeNode - the GT_BITCAST for which we're generating code
-//
-void CodeGen::genCodeForBitCast(GenTreeOp* treeNode)
+void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)
 {
-    regNumber targetReg  = treeNode->GetRegNum();
-    var_types targetType = treeNode->TypeGet();
-    GenTree*  op1        = treeNode->gtGetOp1();
-    genConsumeRegs(op1);
-    if (op1->isContained())
+    assert(!varTypeIsSmall(dstType));
+    assert(!varTypeIsSmall(srcType));
+
+    const bool srcIsFloat = varTypeUsesFloatReg(srcType);
+    assert(srcIsFloat == genIsValidFloatReg(srcReg));
+
+    const bool dstIsFloat = varTypeUsesFloatReg(dstType);
+    assert(dstIsFloat == genIsValidFloatReg(dstReg));
+
+    instruction ins = INS_none;
+
+    if (dstIsFloat && !srcIsFloat)
     {
-        assert(op1->IsLocal() || op1->isIndir());
-        op1->gtType = treeNode->TypeGet();
-        op1->SetRegNum(targetReg);
-        op1->ClearContained();
-        JITDUMP("Changing type of BITCAST source to load directly.");
-        genCodeForTreeNode(op1);
+#ifdef TARGET_ARM64
+        ins = INS_fmov;
+#else
+        ins = INS_vmov_i2f;
+#endif
     }
-    else if (varTypeIsFloating(treeNode) != varTypeIsFloating(op1))
+    else if (!dstIsFloat && srcIsFloat)
     {
-        regNumber srcReg = op1->GetRegNum();
-        assert(genTypeSize(op1->TypeGet()) == genTypeSize(targetType));
+#ifdef TARGET_ARM64
+        ins = INS_fmov;
+#else
+        ins = INS_vmov_f2i;
+#endif
+    }
+    else if (dstReg != srcReg)
+    {
+        ins = INS_mov;
+    }
+
+    if (ins != INS_none)
+    {
+        GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(dstType), dstReg, srcReg);
+    }
+}
+
+void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
+{
+    GenTree*  src     = bitcast->GetOp(0);
+    var_types dstType = bitcast->GetType();
+    regNumber dstReg  = bitcast->GetRegNum();
+
+    genConsumeRegs(src);
+
+    if (src->isContained())
+    {
+        unsigned    lclNum = src->AsLclVar()->GetLclNum();
+        instruction ins    = ins_Load(dstType);
+        GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
+    }
 #ifdef TARGET_ARM
-        if (genTypeSize(targetType) == 8)
-        {
-            // Converting between long and double on ARM is a special case.
-            if (targetType == TYP_LONG)
-            {
-                regNumber otherReg = treeNode->AsMultiRegOp()->gtOtherReg;
-                assert(otherReg != REG_NA);
-                inst_RV_RV_RV(INS_vmov_d2i, targetReg, otherReg, srcReg, EA_8BYTE);
-            }
-            else
-            {
-                NYI_ARM("Converting from long to double");
-            }
-        }
-        else
-#endif // TARGET_ARM
-        {
-            instruction ins = ins_Copy(srcReg, targetType);
-            inst_RV_RV(ins, targetReg, srcReg, targetType);
-        }
+    else if (varTypeIsLong(dstType) && src->TypeIs(TYP_DOUBLE))
+    {
+        regNumber otherReg = bitcast->AsMultiRegOp()->gtOtherReg;
+        assert(otherReg != REG_NA);
+        inst_RV_RV_RV(INS_vmov_d2i, dstReg, otherReg, src->GetRegNum(), EA_8BYTE);
     }
+    else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
+    {
+        NYI_ARM("Converting to/from long/SIMD");
+    }
+#endif
     else
     {
-        inst_RV_RV(ins_Copy(targetType), targetReg, genConsumeReg(op1), targetType);
+        inst_BitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
     }
+
+    genProduceReg(bitcast);
 }
 
 #if FEATURE_ARG_SPLIT

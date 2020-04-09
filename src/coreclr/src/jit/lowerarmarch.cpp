@@ -710,6 +710,7 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
     assert(storeLoc->OperIsLocalStore());
     GenTree* op1 = storeLoc->gtGetOp1();
 
+#ifdef TARGET_XARCH
     if (op1->OperIs(GT_BITCAST))
     {
         // If we know that the source of the bitcast will be in a register, then we can make
@@ -722,6 +723,7 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
             return;
         }
     }
+#endif
 
 #ifdef TARGET_ARM64
     if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->IsSIMDZero())
