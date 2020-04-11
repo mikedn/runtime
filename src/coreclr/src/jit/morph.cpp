@@ -9801,20 +9801,17 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     unsigned             destLclOffs  = 0;
     FieldSeqNode*        destFieldSeq = nullptr;
     bool                 destPromote  = false;
-    unsigned             killedLclNum = BAD_VAR_NUM;
 
     if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         destHasSize = true;
 
-        killedLclNum = dest->AsLclVarCommon()->GetLclNum();
+        destLclNode = dest->AsLclVarCommon();
+        destLclNum  = destLclNode->GetLclNum();
+        destLclVar  = lvaGetDesc(destLclNum);
 
         if (dest->OperIs(GT_LCL_VAR))
         {
-            destLclNode = dest->AsLclVar();
-            destLclNum  = destLclNode->GetLclNum();
-            destLclVar  = lvaGetDesc(destLclNum);
-
             if (destLclNode->TypeIs(TYP_STRUCT))
             {
                 // It would be nice if lvExactSize always corresponded to the size of the struct,
@@ -9866,15 +9863,13 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             destLclNum = destLclNode->GetLclNum();
             destLclVar = lvaGetDesc(destLclNum);
-
-            killedLclNum = destLclNum;
         }
     }
 
 #if LOCAL_ASSERTION_PROP
-    if (optLocalAssertionProp && (killedLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
+    if (optLocalAssertionProp && (destLclNum != BAD_VAR_NUM) && (optAssertionCount > 0))
     {
-        fgKillDependentAssertions(killedLclNum DEBUGARG(asg));
+        fgKillDependentAssertions(destLclNum DEBUGARG(asg));
     }
 #endif
 
