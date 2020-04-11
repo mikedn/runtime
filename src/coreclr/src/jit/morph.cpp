@@ -11780,6 +11780,19 @@ DONE_MORPHING_CHILDREN:
             {
                 op1->gtFlags |= GTF_DONT_CSE;
             }
+
+            if (varTypeIsStruct(typ) && !op2->OperIs(GT_PHI))
+            {
+                if (tree->OperIsCopyBlkOp())
+                {
+                    return fgMorphCopyBlock(tree->AsOp());
+                }
+                else
+                {
+                    return fgMorphInitBlock(tree->AsOp());
+                }
+            }
+
             break;
 
         case GT_EQ:
@@ -13496,18 +13509,6 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
     switch (oper)
     {
         case GT_ASG:
-            if (varTypeIsStruct(typ) && !tree->IsPhiDefn())
-            {
-                if (tree->OperIsCopyBlkOp())
-                {
-                    return fgMorphCopyBlock(tree);
-                }
-                else
-                {
-                    return fgMorphInitBlock(tree);
-                }
-            }
-
             if (typ == TYP_LONG)
             {
                 break;
