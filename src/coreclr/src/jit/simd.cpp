@@ -2489,13 +2489,11 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
         callType = simdType;
     }
 
-    GenTree* simdTree   = nullptr;
-    GenTree* op1        = nullptr;
-    GenTree* op2        = nullptr;
-    GenTree* op3        = nullptr;
-    GenTree* retVal     = nullptr;
-    GenTree* copyBlkDst = nullptr;
-    bool     doCopyBlk  = false;
+    GenTree* simdTree = nullptr;
+    GenTree* op1      = nullptr;
+    GenTree* op2      = nullptr;
+    GenTree* op3      = nullptr;
+    GenTree* retVal   = nullptr;
 
     switch (simdIntrinsicID)
     {
@@ -2594,8 +2592,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicInit, baseType, size, op2);
             }
 
-            copyBlkDst = op1;
-            doCopyBlk  = true;
+            retVal = impAssignSIMDAddr(op1, simdTree);
         }
         break;
 
@@ -2650,8 +2647,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicInitN, baseType, size, initCount, args);
             }
 
-            copyBlkDst = op1;
-            doCopyBlk  = true;
+            retVal = impAssignSIMDAddr(op1, simdTree);
         }
         break;
 
@@ -2797,7 +2793,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 op1      = getOp1ForConstructor(opcode, newobjThis, clsHnd);
                 simdTree = gtNewOperNode(GT_IND, simdType, op2);
                 simdTree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-                copyBlkDst = op1;
+                retVal = impAssignSIMDAddr(op1, simdTree);
             }
             else
             {
@@ -2805,11 +2801,10 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
                 op1 = impSIMDPopStack(simdType, instMethod);
                 assert(op1->TypeGet() == simdType);
-                simdTree   = op1;
-                copyBlkDst = op2;
+                retVal = gtNewOperNode(GT_IND, simdType, op2);
+                retVal->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+                retVal = gtNewAssignNode(retVal, op1);
             }
-
-            doCopyBlk = true;
         }
         break;
 
@@ -2860,8 +2855,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicSetW, baseType, size, simdTree, op4);
             }
 
-            copyBlkDst = op1;
-            doCopyBlk  = true;
+            retVal = impAssignSIMDAddr(op1, simdTree);
         }
         break;
 
@@ -3148,27 +3142,11 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             CORINFO_CLASS_HANDLE op1Handle = gtGetStructHandle(op1);
             GenTree*             dupOp1    = fgInsertCommaFormTemp(&op1, op1Handle);
 
-            // Widen the lower half and assign it to dstAddrLo.
-            simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicWidenLo, baseType, size, op1);
-            // TODO-1stClassStructs: With the introduction of ClassLayout it would be preferrable to use
-            // GT_OBJ instead of GT_BLK nodes to avoid losing information about the actual vector type.
-            GenTree* loDest = new (this, GT_BLK)
-                GenTreeBlk(GT_BLK, simdType, dstAddrLo, typGetBlkLayout(getSIMDTypeSizeInBytes(clsHnd)));
-            GenTree* loAsg = gtNewBlkOpNode(loDest, simdTree,
-                                            false, // not volatile
-                                            true); // copyBlock
-            loAsg->gtFlags |= ((simdTree->gtFlags | dstAddrLo->gtFlags) & GTF_ALL_EFFECT);
-
-            // Widen the upper half and assign it to dstAddrHi.
-            simdTree        = gtNewSIMDNode(simdType, SIMDIntrinsicWidenHi, baseType, size, dupOp1);
-            GenTree* hiDest = new (this, GT_BLK)
-                GenTreeBlk(GT_BLK, simdType, dstAddrHi, typGetBlkLayout(getSIMDTypeSizeInBytes(clsHnd)));
-            GenTree* hiAsg = gtNewBlkOpNode(hiDest, simdTree,
-                                            false, // not volatile
-                                            true); // copyBlock
-            hiAsg->gtFlags |= ((simdTree->gtFlags | dstAddrHi->gtFlags) & GTF_ALL_EFFECT);
-
-            retVal = gtNewOperNode(GT_COMMA, simdType, loAsg, hiAsg);
+            GenTree* wideLo = gtNewSIMDNode(simdType, SIMDIntrinsicWidenLo, baseType, size, op1);
+            GenTree* asgLo  = impAssignSIMDAddr(dstAddrLo, wideLo);
+            GenTree* wideHi = gtNewSIMDNode(simdType, SIMDIntrinsicWidenHi, baseType, size, dupOp1);
+            GenTree* asgHi  = impAssignSIMDAddr(dstAddrHi, wideHi);
+            retVal          = gtNewOperNode(GT_COMMA, simdType, asgLo, asgHi);
         }
         break;
 
@@ -3194,22 +3172,40 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
     compFloatingPointUsed = true;
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
 
-    // At this point, we have a tree that we are going to store into a destination.
-    // TODO-1stClassStructs: This should be a simple store or assignment, and should not require
-    // GTF_ALL_EFFECT for the dest. This is currently emulating the previous behavior of
-    // block ops.
-    if (doCopyBlk)
+    return retVal;
+}
+
+GenTreeOp* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
+{
+    assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+    assert(src->OperIs(GT_SIMD, GT_IND));
+    assert(varTypeIsSIMD(src->GetType()));
+
+    // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
+    // from the previous implementation that did this (in gtNewBlkOpNode).
+    src->gtFlags |= GTF_DONT_CSE;
+
+    GenTree* dest;
+
+    if (destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR) &&
+        (destAddr->AsUnOp()->GetOp(0)->GetType() == src->GetType()))
     {
-        GenTree* dest = new (this, GT_BLK)
-            GenTreeBlk(GT_BLK, simdType, copyBlkDst, typGetBlkLayout(getSIMDTypeSizeInBytes(clsHnd)));
+        dest = destAddr->AsUnOp()->GetOp(0);
+
+        if (src->OperIs(GT_SIMD))
+        {
+            setLclRelatedToSIMDIntrinsic(dest->AsLclVar());
+        }
+
+        assert(lvaGetDesc(dest->AsLclVar())->GetType() == src->GetType());
+    }
+    else
+    {
+        dest = gtNewIndir(src->GetType(), destAddr);
         dest->gtFlags |= GTF_GLOB_REF;
-        retVal = gtNewBlkOpNode(dest, simdTree,
-                                false, // not volatile
-                                true); // copyBlock
-        retVal->gtFlags |= ((simdTree->gtFlags | copyBlkDst->gtFlags) & GTF_ALL_EFFECT);
     }
 
-    return retVal;
+    return gtNewAssignNode(dest, src);
 }
 
 #endif // FEATURE_SIMD

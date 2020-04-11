@@ -8053,6 +8053,8 @@ private:
                               unsigned              methodFlags,
                               int                   memberRef);
 
+    GenTreeOp* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
+
     GenTree* getOp1ForConstructor(OPCODE opcode, GenTree* newobjThis, CORINFO_CLASS_HANDLE clsHnd);
 
     // Whether SIMD vector occupies part of SIMD register.
