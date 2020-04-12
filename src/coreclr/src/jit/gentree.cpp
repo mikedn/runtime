@@ -4847,12 +4847,6 @@ bool GenTree::OperIsImplicitIndir() const
         case GT_ARR_ELEM:
         case GT_ARR_OFFSET:
             return true;
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-        {
-            return AsSIMD()->OperIsMemoryLoad();
-        }
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
         {
@@ -9766,7 +9760,7 @@ void Compiler::gtDispChild(GenTree*             child,
 #ifdef FEATURE_SIMD
 // Intrinsic Id to name map
 extern const char* const simdIntrinsicNames[] = {
-#define SIMD_INTRINSIC(mname, inst, id, name, r, ac, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10) name,
+#define SIMD_INTRINSIC(mname, inst, id, r, ac, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10) #id,
 #include "simdintrinsiclist.h"
 };
 #endif // FEATURE_SIMD
@@ -10104,8 +10098,8 @@ void Compiler::gtDispTree(GenTree*     tree,
 
 #ifdef FEATURE_SIMD
         case GT_SIMD:
-            printf(" %s %s", varTypeName(tree->AsSIMD()->gtSIMDBaseType),
-                   simdIntrinsicNames[tree->AsSIMD()->gtSIMDIntrinsicID]);
+            printf(" %s %s %u", simdIntrinsicNames[tree->AsSIMD()->gtSIMDIntrinsicID],
+                   varTypeName(tree->AsSIMD()->gtSIMDBaseType), tree->AsSIMD()->gtSIMDSize);
 
             gtDispCommonEndLine(tree);
 
@@ -17258,16 +17252,6 @@ bool GenTree::isCommutativeSIMDIntrinsic()
         default:
             return false;
     }
-}
-
-// Returns true for the SIMD Instrinsic instructions that have MemoryLoad semantics, false otherwise
-bool GenTreeSIMD::OperIsMemoryLoad() const
-{
-    if (gtSIMDIntrinsicID == SIMDIntrinsicInitArray)
-    {
-        return true;
-    }
-    return false;
 }
 #endif // FEATURE_SIMD
 

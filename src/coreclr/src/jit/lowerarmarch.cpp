@@ -819,11 +819,6 @@ void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
             }
             break;
 
-        case SIMDIntrinsicInitArray:
-            // We have an array and an index, which may be contained.
-            CheckImmedAndMakeContained(simdNode, simdNode->GetOp(1));
-            break;
-
         case SIMDIntrinsicOpEquality:
         case SIMDIntrinsicOpInEquality:
             // TODO-ARM64-CQ Support containing 0

@@ -1943,10 +1943,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             buildUses = false;
             break;
 
-        case SIMDIntrinsicInitArray:
-            // We have an array and an index, which may be contained.
-            break;
-
         case SIMDIntrinsicDiv:
             // SSE2 has no instruction support for division on integer vectors
             noway_assert(varTypeIsFloating(simdTree->gtSIMDBaseType));
@@ -2226,19 +2222,7 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             assert(simdTree->GetOp(1)->isContainedIntOrIImmed());
             break;
 
-        case SIMDIntrinsicGetX:
-        case SIMDIntrinsicGetY:
-        case SIMDIntrinsicGetZ:
-        case SIMDIntrinsicGetW:
-        case SIMDIntrinsicGetOne:
-        case SIMDIntrinsicGetZero:
-        case SIMDIntrinsicGetCount:
-        case SIMDIntrinsicGetAllOnes:
-            assert(!"Get intrinsics should not be seen during Lowering.");
-            unreached();
-
         default:
-            noway_assert(!"Unimplemented SIMD node type.");
             unreached();
     }
     if (buildUses)

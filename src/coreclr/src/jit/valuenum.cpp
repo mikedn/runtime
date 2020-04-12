@@ -8471,46 +8471,6 @@ void Compiler::fgValueNumberSimd(GenTreeSIMD* simdNode)
         ValueNumPair op1Xvnp;
         vnStore->VNPUnpackExc(simdNode->GetOp(0)->gtVNPair, &op1vnp, &op1Xvnp);
 
-        if (simdNode->gtSIMDIntrinsicID == SIMDIntrinsicInitArray)
-        {
-            // rationalize rewrites this as an explicit load with op1 as the base address
-
-            ValueNumPair op2vnp;
-            if (simdNode->IsUnary())
-            {
-                // If it's unary then we have an implicit index of zero
-                op2vnp = ValueNumPair(vnStore->VNZeroForType(TYP_INT), vnStore->VNZeroForType(TYP_INT));
-
-                excSetPair = op1Xvnp;
-            }
-            else // We have an explicit index in op2
-            {
-                ValueNumPair op2Xvnp;
-                vnStore->VNPUnpackExc(simdNode->GetOp(1)->gtVNPair, &op2vnp, &op2Xvnp);
-
-                excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
-            }
-
-            ValueNum addrVN =
-                vnStore->VNForFunc(TYP_BYREF, GetVNFuncForNode(simdNode), op1vnp.GetLiberal(), op2vnp.GetLiberal());
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Treating GT_SIMD InitArray as a ByrefExposed load , addrVN is ");
-                vnPrint(addrVN, 0);
-            }
-#endif // DEBUG
-
-            // The address points into the heap, so it is an ByrefExposed load.
-            //
-            ValueNum loadVN = fgValueNumberByrefExposedLoad(simdNode->TypeGet(), addrVN);
-            simdNode->gtVNPair.SetLiberal(loadVN);
-            simdNode->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, simdNode->TypeGet()));
-            simdNode->gtVNPair = vnStore->VNPWithExc(simdNode->gtVNPair, excSetPair);
-            fgValueNumberAddExceptionSetForIndirection(simdNode, simdNode->GetOp(0));
-            return;
-        }
-
         bool encodeResultType = vnEncodesResultTypeForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID);
 
         if (encodeResultType)

@@ -45,7 +45,7 @@ extern const char* const simdIntrinsicNames[];
 
 enum SIMDIntrinsicID : uint16_t
 {
-#define SIMD_INTRINSIC(m, i, id, n, r, ac, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10) SIMDIntrinsic##id,
+#define SIMD_INTRINSIC(m, i, id, r, ac, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10) SIMDIntrinsic##id,
 #include "simdintrinsiclist.h"
 };
 

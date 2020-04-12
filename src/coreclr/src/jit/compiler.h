@@ -7978,9 +7978,6 @@ private:
     // Normalizes TYP_STRUCT value in case of GT_CALL, GT_RET_EXPR and arg nodes.
     GenTree* impSIMDPopStack(var_types type, bool expectAddr = false, CORINFO_CLASS_HANDLE structType = nullptr);
 
-    // Create a GT_SIMD tree for a Get property of SIMD vector with a fixed index.
-    GenTreeSIMD* impSIMDGetFixed(var_types simdType, var_types baseType, unsigned simdSize, int index);
-
     // Creates a GT_SIMD tree for Select operation
     GenTree* impSIMDSelect(CORINFO_CLASS_HANDLE typeHnd,
                            var_types            baseType,
@@ -8055,6 +8052,8 @@ private:
                               CORINFO_SIG_INFO*     sig,
                               unsigned              methodFlags,
                               int                   memberRef);
+
+    GenTreeOp* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
 
     GenTree* getOp1ForConstructor(OPCODE opcode, GenTree* newobjThis, CORINFO_CLASS_HANDLE clsHnd);
 

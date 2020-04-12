@@ -895,10 +895,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             buildUses = false;
             break;
 
-        case SIMDIntrinsicInitArray:
-            // We have an array and an index, which may be contained.
-            break;
-
         case SIMDIntrinsicOpEquality:
         case SIMDIntrinsicOpInEquality:
             buildInternalFloatRegisterDefForNode(simdTree);
@@ -916,28 +912,7 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             buildInternalFloatRegisterDefForNode(simdTree);
             break;
 
-        case SIMDIntrinsicInitArrayX:
-        case SIMDIntrinsicInitFixed:
-        case SIMDIntrinsicCopyToArray:
-        case SIMDIntrinsicCopyToArrayX:
-        case SIMDIntrinsicNone:
-        case SIMDIntrinsicGetCount:
-        case SIMDIntrinsicGetOne:
-        case SIMDIntrinsicGetZero:
-        case SIMDIntrinsicGetAllOnes:
-        case SIMDIntrinsicGetX:
-        case SIMDIntrinsicGetY:
-        case SIMDIntrinsicGetZ:
-        case SIMDIntrinsicGetW:
-        case SIMDIntrinsicInstEquals:
-        case SIMDIntrinsicHWAccel:
-        case SIMDIntrinsicWiden:
-        case SIMDIntrinsicInvalid:
-            assert(!"These intrinsics should not be seen during register allocation");
-            __fallthrough;
-
         default:
-            noway_assert(!"Unimplemented SIMD node type.");
             unreached();
     }
     if (buildUses)
