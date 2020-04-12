@@ -34,8 +34,7 @@
 
 // Intrinsic Id to intrinsic info map
 const SIMDIntrinsicInfo simdIntrinsicInfoArray[] = {
-#define SIMD_INTRINSIC(mname, inst, id, name, retType, argCount, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, \
-                       t10)                                                                                            \
+#define SIMD_INTRINSIC(mname, inst, id, retType, argCount, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10)  \
     {SIMDIntrinsic##id, mname, inst, retType, argCount, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10},
 #include "simdintrinsiclist.h"
 };
