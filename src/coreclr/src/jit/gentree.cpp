@@ -10098,8 +10098,8 @@ void Compiler::gtDispTree(GenTree*     tree,
 
 #ifdef FEATURE_SIMD
         case GT_SIMD:
-            printf(" %s %s", varTypeName(tree->AsSIMD()->gtSIMDBaseType),
-                   simdIntrinsicNames[tree->AsSIMD()->gtSIMDIntrinsicID]);
+            printf(" %s %s %u", simdIntrinsicNames[tree->AsSIMD()->gtSIMDIntrinsicID],
+                   varTypeName(tree->AsSIMD()->gtSIMDBaseType), tree->AsSIMD()->gtSIMDSize);
 
             gtDispCommonEndLine(tree);
 
