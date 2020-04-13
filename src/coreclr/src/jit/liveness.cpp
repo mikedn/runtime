@@ -1891,10 +1891,11 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
                     if (isDeadStore)
                     {
                         LIR::Use addrUse;
-                        if (blockRange.TryGetUse(node, &addrUse) && (addrUse.User()->OperGet() == GT_STOREIND))
+                        if (blockRange.TryGetUse(node, &addrUse) &&
+                            addrUse.User()->OperIs(GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ))
                         {
                             // Remove the store. DCE will iteratively clean up any ununsed operands.
-                            GenTreeStoreInd* const store = addrUse.User()->AsStoreInd();
+                            GenTreeIndir* const store = addrUse.User()->AsIndir();
 
                             JITDUMP("Removing dead indirect store:\n");
                             DISPNODE(store);
@@ -1902,7 +1903,15 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
                             assert(store->Addr() == node);
                             blockRange.Delete(this, block, node);
 
-                            store->Data()->SetUnusedValue();
+                            GenTree* value = store->GetOp(1);
+
+                            if (value->TypeIs(TYP_STRUCT) && value->OperIsIndir())
+                            {
+                                value->SetOper(GT_IND);
+                                value->SetType(TYP_BYTE);
+                            }
+
+                            value->SetUnusedValue();
 
                             blockRange.Remove(store);
 
