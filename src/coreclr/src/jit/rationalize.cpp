@@ -326,41 +326,12 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
     GenTree* location = assignment->gtGetOp1();
     GenTree* value    = assignment->gtGetOp2();
 
-    genTreeOps locationOp = location->OperGet();
-
-    if (assignment->OperIsBlkOp())
-    {
-#ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(location) && assignment->OperIsInitBlkOp())
-        {
-            if (location->OperGet() == GT_LCL_VAR)
-            {
-                var_types simdType = location->TypeGet();
-                GenTree*  initVal  = assignment->AsOp()->gtOp2;
-                var_types baseType = comp->getBaseTypeOfSIMDLocal(location);
-                if (baseType != TYP_UNKNOWN)
-                {
-                    GenTreeSIMD* simdTree =
-                        comp->gtNewSIMDNode(simdType, SIMDIntrinsicInit, baseType, genTypeSize(simdType), initVal);
-                    assignment->AsOp()->gtOp2 = simdTree;
-                    value                     = simdTree;
-                    initVal->gtNext           = simdTree;
-                    simdTree->gtPrev          = initVal;
-
-                    simdTree->gtNext = location;
-                    location->gtPrev = simdTree;
-                }
-            }
-        }
-#endif // FEATURE_SIMD
-    }
-
-    switch (locationOp)
+    switch (location->GetOper())
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         case GT_PHI_ARG:
-            RewriteAssignmentIntoStoreLclCore(assignment, location, value, locationOp);
+            RewriteAssignmentIntoStoreLclCore(assignment, location, value, location->GetOper());
             BlockRange().Remove(location);
             break;
 

@@ -505,6 +505,15 @@ public:
 #endif                                       // FEATURE_SIMD
     unsigned char lvRegStruct : 1;           // This is a reg-sized non-field-addressed struct.
 
+    var_types GetSIMDBaseType()
+    {
+#ifdef FEATURE_SIMD
+        return lvBaseType;
+#else
+        return TYP_UNDEF;
+#endif
+    }
+
     unsigned char lvClassIsExact : 1; // lvClassHandle is the exact type
 
 #ifdef DEBUG
@@ -3548,7 +3557,7 @@ public:
 protected:
     //---------------- Local variable ref-counting ----------------------------
 
-    void lvaMarkLclRefs(GenTree* tree, BasicBlock* block, Statement* stmt, bool isRecompute);
+    void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt, bool isRecompute);
     bool IsDominatedByExceptionalEntry(BasicBlock* block);
     void SetVolatileHint(LclVarDsc* varDsc);
 
@@ -4118,7 +4127,7 @@ private:
     static LONG jitNestingLevel;
 #endif // DEBUG
 
-    static BOOL impIsAddressInLocal(GenTree* tree, GenTree** lclVarTreeOut);
+    static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
 
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
 
@@ -5493,11 +5502,13 @@ private:
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
     GenTree* fgMorphLeaf(GenTree* tree);
     void fgAssignSetVarDef(GenTree* tree);
-    GenTree* fgMorphOneAsgBlockOp(GenTree* tree);
-    GenTree* fgMorphInitBlock(GenTree* tree);
-    GenTree* fgMorphPromoteLocalInitBlock(GenTreeLclVar* destLclNode, GenTree* initVal, unsigned blockSize);
+    GenTree* fgMorphInitBlock(GenTreeOp* asg);
+    GenTree* fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* fgMorphInitBlockConstant(GenTreeIntCon* initVal,
+                                      var_types      type,
+                                      bool           extendToActualType,
+                                      var_types      simdBaseType);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
-    GenTree* fgMorphBlockOperand(GenTree* tree, var_types asgType, unsigned blockWidth, bool isDest);
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
@@ -7478,7 +7489,7 @@ public:
 
     // If "tree" is a indirection (GT_IND, or GT_OBJ) whose arg is an ADDR, whose arg is a LCL_VAR, return that LCL_VAR
     // node, else NULL.
-    static GenTree* fgIsIndirOfAddrOfLocal(GenTree* tree);
+    static GenTreeLclVar* fgIsIndirOfAddrOfLocal(GenTree* tree);
 
     // This map is indexed by GT_OBJ nodes that are address of promoted struct variables, which
     // have been annotated with the GTF_VAR_DEATH flag.  If such a node is *not* mapped in this

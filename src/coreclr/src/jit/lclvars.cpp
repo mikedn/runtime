@@ -3557,6 +3557,7 @@ var_types LclVarDsc::lvaArgType()
 //
 // Arguments:
 //     tree - some node in a tree
+//     user - the user of the node
 //     block - block that the tree node belongs to
 //     stmt - stmt that the tree node belongs to
 //     isRecompute - true if we should just recompute counts
@@ -3584,7 +3585,7 @@ var_types LclVarDsc::lvaArgType()
 //     Verifies that local accesses are consistenly typed.
 //     Verifies that casts remain in bounds.
 
-void Compiler::lvaMarkLclRefs(GenTree* tree, BasicBlock* block, Statement* stmt, bool isRecompute)
+void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt, bool isRecompute)
 {
     const BasicBlock::weight_t weight = block->getBBWeight(this);
 
@@ -3723,18 +3724,20 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, BasicBlock* block, Statement* stmt,
         {
             if (tree->gtFlags & GTF_VAR_DEF) // Is this is a def of our variable
             {
-                /*
-                   If we have one of these cases:
-                       1.    We have already seen a definition (i.e lvSingleDef is true)
-                       2. or info.CompInitMem is true (thus this would be the second definition)
-                       3. or we have an assignment inside QMARK-COLON trees
-                       4. or we have an update form of assignment (i.e. +=, -=, *=)
-                   Then we must disqualify this variable for use in optAddCopies()
+                // If we have one of these cases:
+                //     1.    We have already seen a definition (i.e lvSingleDef is true)
+                //     2. or info.CompInitMem is true (thus this would be the second definition)
+                //     3. or we have an assignment inside QMARK-COLON trees
+                //     4. or we have an update form of assignment (i.e. +=, -=, *=)
+                //     5. the user is not ASG, optAddCopiesCallback does not recognize indirect
+                //        local definitions (e.g. BLK(ADDR(LCL_VAR)))
+                //
+                // Then we must disqualify this variable for use in optAddCopies()
+                //
+                // Note that all parameters start out with lvSingleDef set to true
 
-                   Note that all parameters start out with lvSingleDef set to true
-                */
-                if ((varDsc->lvSingleDef == true) || (info.compInitMem == true) || (tree->gtFlags & GTF_COLON_COND) ||
-                    (tree->gtFlags & GTF_VAR_USEASG))
+                if (varDsc->lvSingleDef || info.compInitMem || ((tree->gtFlags & GTF_COLON_COND) != 0) ||
+                    ((tree->gtFlags & GTF_VAR_USEASG) != 0) || !user->OperIs(GT_ASG))
                 {
                     varDsc->lvaDisqualifyVar();
                 }
@@ -3856,7 +3859,7 @@ void Compiler::lvaMarkLocalVars(BasicBlock* block, bool isRecompute)
 
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            m_compiler->lvaMarkLclRefs(*use, m_block, m_stmt, m_isRecompute);
+            m_compiler->lvaMarkLclRefs(*use, user, m_block, m_stmt, m_isRecompute);
             return WALK_CONTINUE;
         }
     };

@@ -2413,11 +2413,9 @@ inline void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLev
     {
         GenTree* tree = verCurrentState.esStack[i].val;
 
-        GenTree* lclVarTree;
-
         if ((tree->gtFlags & spillFlags) != 0 ||
-            (spillGlobEffects &&                        // Only consider the following when  spillGlobEffects == TRUE
-             !impIsAddressInLocal(tree, &lclVarTree) && // No need to spill the GT_ADDR node on a local.
+            (spillGlobEffects &&                       // Only consider the following when  spillGlobEffects == TRUE
+             (impIsAddressInLocal(tree) == nullptr) && // No need to spill the GT_ADDR node on a local.
              gtHasLocalsWithAddrOp(tree))) // Spill if we still see GT_LCL_VAR that contains lvHasLdAddrOp or
                                            // lvAddrTaken flag.
         {
@@ -10791,11 +10789,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Catches ADDR(FIELD(... ADDR(LCL_VAR)))
                         if (lclVar == nullptr)
                         {
-                            GenTree* lclTree = nullptr;
-                            if (impIsAddressInLocal(addr, &lclTree))
-                            {
-                                lclVar = lclTree->AsLclVarCommon();
-                            }
+                            lclVar = impIsAddressInLocal(addr);
                         }
                     }
                     if (lclVar != nullptr)
@@ -18026,11 +18020,11 @@ bool Compiler::impIsValueType(typeInfo* pTypeInfo)
 
  */
 
-BOOL Compiler::impIsAddressInLocal(GenTree* tree, GenTree** lclVarTreeOut)
+GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
 {
     if (tree->gtOper != GT_ADDR)
     {
-        return FALSE;
+        return nullptr;
     }
 
     GenTree* op = tree->AsOp()->gtOp1;
@@ -18043,18 +18037,17 @@ BOOL Compiler::impIsAddressInLocal(GenTree* tree, GenTree** lclVarTreeOut)
         }
         else
         {
-            return false;
+            return nullptr;
         }
     }
 
     if (op->gtOper == GT_LCL_VAR)
     {
-        *lclVarTreeOut = op;
-        return TRUE;
+        return op->AsLclVar();
     }
     else
     {
-        return FALSE;
+        return nullptr;
     }
 }
 
@@ -18504,10 +18497,9 @@ void Compiler::impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
 
     inlCurArgInfo->argNode = curArgVal;
 
-    GenTree* lclVarTree;
+    GenTreeLclVarCommon* lclVarTree = impIsAddressInLocal(curArgVal);
 
-    const bool isAddressInLocal = impIsAddressInLocal(curArgVal, &lclVarTree);
-    if (isAddressInLocal && varTypeIsStruct(lclVarTree))
+    if ((lclVarTree != nullptr) && varTypeIsStruct(lclVarTree))
     {
         inlCurArgInfo->argIsByRefToStructLocal = true;
 #ifdef FEATURE_SIMD
@@ -18532,7 +18524,7 @@ void Compiler::impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
         INDEBUG(curArgVal->AsLclVar()->gtLclILoffs = argNum;)
     }
 
-    if ((curArgVal->OperKind() & GTK_CONST) || isAddressInLocal)
+    if ((curArgVal->OperKind() & GTK_CONST) || (lclVarTree != nullptr))
     {
         inlCurArgInfo->argIsInvariant = true;
         if (inlCurArgInfo->argIsThis && (curArgVal->gtOper == GT_CNS_INT) && (curArgVal->AsIntCon()->gtIconVal == 0))
