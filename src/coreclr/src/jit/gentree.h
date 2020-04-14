@@ -3255,6 +3255,9 @@ public:
         m_layoutNum = static_cast<uint16_t>(layoutNum);
     }
 
+    ClassLayout* GetLayout(Compiler* compiler) const;
+    void SetLayout(ClassLayout* layout, Compiler* compiler);
+
     FieldSeqNode* GetFieldSeq() const
     {
         return m_fieldSeq;

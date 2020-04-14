@@ -297,6 +297,30 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_STORE_LCL_FLD:
         {
+            if (node->OperIs(GT_STORE_LCL_FLD) && node->TypeIs(TYP_STRUCT))
+            {
+                GenTreeLclFld* addr = node->AsLclFld();
+                addr = comp->gtNewLclFldAddrNode(addr->GetLclNum(), addr->GetLclOffs(), FieldSeqStore::NotAField());
+                BlockRange().InsertBefore(node, addr);
+
+                ClassLayout* layout = node->AsLclFld()->GetLayout(comp);
+                GenTree*     src    = node->AsLclFld()->GetOp(0);
+
+                node->ChangeOper(GT_STORE_OBJ);
+
+                GenTreeObj* store = node->AsObj();
+                store->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+#ifndef JIT32_GCENCODER
+                store->gtBlkOpGcUnsafe = false;
+#endif
+                store->gtBlkOpKind = GenTreeObj::BlkOpKindInvalid;
+                store->SetLayout(layout);
+                store->SetAddr(addr);
+                store->SetData(src);
+                LowerBlockStore(store->AsObj());
+                break;
+            }
+
             GenTreeLclVarCommon* const store = node->AsLclVarCommon();
             GenTree*                   src   = store->gtGetOp1();
             if ((varTypeUsesFloatReg(store) != varTypeUsesFloatReg(src)) && !store->IsPhiDefn() &&

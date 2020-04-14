@@ -278,9 +278,7 @@ static void RewriteAssignmentIntoStoreLclCore(GenTreeOp* assignment,
 
     genTreeOps storeOp = storeForm(locationOp);
 
-#ifdef DEBUG
     JITDUMP("rewriting asg(%s, X) to %s(X)\n", GenTree::OpName(locationOp), GenTree::OpName(storeOp));
-#endif // DEBUG
 
     assignment->ChangeOper(storeOp);
     GenTreeLclVarCommon* store = assignment->AsLclVarCommon();
@@ -293,6 +291,7 @@ static void RewriteAssignmentIntoStoreLclCore(GenTreeOp* assignment,
     {
         store->AsLclFld()->SetLclOffs(var->AsLclFld()->GetLclOffs());
         store->AsLclFld()->SetFieldSeq(var->AsLclFld()->GetFieldSeq());
+        store->AsLclFld()->SetLayoutNum(var->AsLclFld()->GetLayoutNum());
     }
 
     copyFlags(store, var, GTF_LIVENESS_MASK);

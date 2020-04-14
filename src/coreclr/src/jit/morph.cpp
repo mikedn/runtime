@@ -8773,9 +8773,8 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
         }
         else
         {
-            assert(!dest->TypeIs(TYP_STRUCT));
-
-            destSize     = genTypeSize(dest->GetType());
+            destSize =
+                dest->TypeIs(TYP_STRUCT) ? dest->AsLclFld()->GetLayout(this)->GetSize() : genTypeSize(dest->GetType());
             destLclOffs  = dest->AsLclFld()->GetLclOffs();
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
@@ -9431,9 +9430,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         }
         else
         {
-            assert(!dest->TypeIs(TYP_STRUCT));
-
-            destSize     = genTypeSize(dest->GetType());
+            destSize =
+                dest->TypeIs(TYP_STRUCT) ? dest->AsLclFld()->GetLayout(this)->GetSize() : genTypeSize(dest->GetType());
             destLclOffs  = dest->AsLclFld()->GetLclOffs();
             destFieldSeq = dest->AsLclFld()->GetFieldSeq();
         }
@@ -9785,9 +9783,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (src == srcLclNode)
         {
-            // TODO-MIKE-Cleanup: Stop wrapping struct LCL_FLDs in indirs, it's done only to minimize diffs.
-            if ((src->GetType() != dest->GetType()) ||
-                (srcLclNode->OperIs(GT_LCL_FLD) && srcLclNode->TypeIs(TYP_STRUCT)))
+            if (src->GetType() != dest->GetType())
             {
                 src = gtNewIndir(dest->GetType(), gtNewOperNode(GT_ADDR, TYP_I_IMPL, srcLclNode));
                 src->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;

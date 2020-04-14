@@ -14870,7 +14870,13 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bo
             *pLclVarTree                    = lclVarTree;
             if (pIsEntire != nullptr)
             {
-                if (lclVarTree->IsPartialLclFld(comp))
+                if (lclVarTree->OperIs(GT_LCL_FLD) && lclVarTree->TypeIs(TYP_STRUCT))
+                {
+                    *pIsEntire = (lclVarTree->AsLclFld()->GetLclOffs() == 0) &&
+                                 (lclVarTree->AsLclFld()->GetLayout(comp)->GetSize() >=
+                                  comp->lvaLclExactSize(lclVarTree->GetLclNum()));
+                }
+                else if (lclVarTree->IsPartialLclFld(comp))
                 {
                     *pIsEntire = false;
                 }
@@ -15546,6 +15552,17 @@ bool GenTreeIntConCommon::AddrNeedsReloc(Compiler* comp)
     return comp->opts.compReloc && IsIconHandle();
 }
 #endif // TARGET_X86
+
+ClassLayout* GenTreeLclFld::GetLayout(Compiler* compiler) const
+{
+    unsigned layoutNum = GetLayoutNum();
+    return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);
+}
+
+void GenTreeLclFld::SetLayout(ClassLayout* layout, Compiler* compiler)
+{
+    SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
+}
 
 bool GenTree::IsFieldAddr(Compiler* comp, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq)
 {

@@ -1054,7 +1054,8 @@ private:
             indir->ChangeOper(GT_LCL_VAR);
             indir->AsLclVar()->SetLclNum(val.LclNum());
         }
-        else if (!varTypeIsStruct(indir->TypeGet()) || m_compiler->lvaIsImplicitByRefLocal(val.LclNum()))
+        else if (!varTypeIsStruct(indir->GetType()) || m_compiler->lvaIsImplicitByRefLocal(val.LclNum()) ||
+                 ((user != nullptr) && user->OperIs(GT_ASG)))
         {
             indir->ChangeOper(GT_LCL_FLD);
             indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1063,7 +1064,7 @@ private:
 
             if (structLayout != nullptr)
             {
-                indir->AsLclFld()->SetLayoutNum(m_compiler->typGetLayoutNum(structLayout));
+                indir->AsLclFld()->SetLayout(structLayout, m_compiler);
             }
 
             // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
