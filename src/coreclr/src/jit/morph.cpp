@@ -1903,30 +1903,29 @@ GenTree* Compiler::fgMakeTmpArgNode(CallArgInfo* argInfo)
     }
 #endif
 
+    lvaSetVarAddrExposed(argInfo->GetTempLclNum());
+
+#if defined(TARGET_ARM64) || (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI))
+#if defined(TARGET_ARM64)
+    if (!lvaIsMultiregStruct(varDsc, argInfo->IsVararg()))
+#endif
+    {
+        return gtNewLclVarAddrNode(argInfo->GetTempLclNum());
+    }
+#endif
+
+#if defined(TARGET_ARM64) || defined(TARGET_ARM) || defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
     GenTree* arg = gtNewLclvNode(argInfo->GetTempLclNum(), varDsc->GetType());
     arg->gtFlags |= GTF_DONT_CSE;
     arg = gtNewOperNode(GT_ADDR, TYP_BYREF, arg);
-    lvaSetVarAddrExposed(argInfo->GetTempLclNum());
-
-#if defined(TARGET_ARM64) || defined(TARGET_ARM) || defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
-#if defined(TARGET_ARM64)
-    if (lvaIsMultiregStruct(varDsc, argInfo->IsVararg()))
-#endif
-    {
-        // ToDo-ARM64: Consider using:  arg->ChangeOper(GT_LCL_FLD);
-        // as that is how UNIX_AMD64_ABI works.
-        // We will create a GT_OBJ for the argument below.
-        // This will be passed by value in two registers.
-        arg = gtNewObjNode(lvaGetStruct(argInfo->GetTempLclNum()), arg);
-    }
-#elif defined(TARGET_AMD64)
-// Return the address as is. On win-x64 struct args that aren't passed
-// as primitive types are always passed by ref
-#else
+    // ToDo-ARM64: Consider using:  arg->ChangeOper(GT_LCL_FLD);
+    // as that is how UNIX_AMD64_ABI works.
+    // We will create a GT_OBJ for the argument below.
+    // This will be passed by value in two registers.
+    return gtNewObjNode(lvaGetStruct(argInfo->GetTempLclNum()), arg);
+#elif !defined(TARGET_AMD64)
 #error Unknown ABI
 #endif
-
-    return arg;
 }
 
 //------------------------------------------------------------------------------
