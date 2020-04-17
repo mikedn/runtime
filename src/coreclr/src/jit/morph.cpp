@@ -1859,129 +1859,73 @@ void fgArgInfo::Dump(Compiler* compiler)
 #endif
 
 //------------------------------------------------------------------------------
-// fgMakeTmpArgNode : This function creates a tmp var only if needed.
-//                    We need this to be done in order to enforce ordering
-//                    of the evaluation of arguments.
+// fgMakeTmpArgNode: Create a tree for a call arg that requires a temp.
 //
-// Arguments:
-//    curArgTabEntry
-//
-// Return Value:
-//    the newly created temp var tree.
-
-GenTree* Compiler::fgMakeTmpArgNode(fgArgTabEntry* curArgTabEntry)
+GenTree* Compiler::fgMakeTmpArgNode(CallArgInfo* argInfo)
 {
-    unsigned   tmpVarNum = curArgTabEntry->tmpNum;
-    LclVarDsc* varDsc    = &lvaTable[tmpVarNum];
+    LclVarDsc* varDsc = lvaGetDesc(argInfo->GetTempLclNum());
     assert(varDsc->lvIsTemp);
-    var_types type = varDsc->TypeGet();
 
-    // Create a copy of the temp to go into the late argument list
-    GenTree* arg      = gtNewLclvNode(tmpVarNum, type);
-    GenTree* addrNode = nullptr;
-
-    if (varTypeIsStruct(type))
+    if (!varTypeIsStruct(varDsc->GetType()))
     {
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-
-        // Can this type be passed as a primitive type?
-        // If so, the following call will return the corresponding primitive type.
-        // Otherwise, it will return TYP_UNKNOWN and we will pass it as a struct type.
-
-        bool passedAsPrimitive = false;
-        if (curArgTabEntry->isSingleRegOrSlot())
-        {
-            CORINFO_CLASS_HANDLE clsHnd = varDsc->lvVerTypeInfo.GetClassHandle();
-            var_types            structBaseType =
-                getPrimitiveTypeForStruct(lvaLclExactSize(tmpVarNum), clsHnd, curArgTabEntry->IsVararg());
-
-            if (structBaseType != TYP_UNKNOWN)
-            {
-                passedAsPrimitive = true;
-#if defined(UNIX_AMD64_ABI)
-                // TODO-Cleanup: This is inelegant, but eventually we'll track this in the fgArgTabEntry,
-                // and otherwise we'd have to either modify getPrimitiveTypeForStruct() to take
-                // a structDesc or call eeGetSystemVAmd64PassStructInRegisterDescriptor yet again.
-                //
-                if (genIsValidFloatReg(curArgTabEntry->GetRegNum()))
-                {
-                    if (structBaseType == TYP_INT)
-                    {
-                        structBaseType = TYP_FLOAT;
-                    }
-                    else
-                    {
-                        assert(structBaseType == TYP_LONG);
-                        structBaseType = TYP_DOUBLE;
-                    }
-                }
-#endif
-                type = structBaseType;
-            }
-        }
-
-        // If it is passed in registers, don't get the address of the var. Make it a
-        // field instead. It will be loaded in registers with putarg_reg tree in lower.
-        if (passedAsPrimitive)
-        {
-            arg->ChangeOper(GT_LCL_FLD);
-            arg->gtType = type;
-        }
-        else
-        {
-            var_types addrType = TYP_BYREF;
-            arg                = gtNewOperNode(GT_ADDR, addrType, arg);
-            addrNode           = arg;
-
-#if FEATURE_MULTIREG_ARGS
-#ifdef TARGET_ARM64
-            assert(varTypeIsStruct(type));
-            if (lvaIsMultiregStruct(varDsc, curArgTabEntry->IsVararg()))
-            {
-                // ToDo-ARM64: Consider using:  arg->ChangeOper(GT_LCL_FLD);
-                // as that is how UNIX_AMD64_ABI works.
-                // We will create a GT_OBJ for the argument below.
-                // This will be passed by value in two registers.
-                assert(addrNode != nullptr);
-
-                // Create an Obj of the temp to use it as a call argument.
-                arg = gtNewObjNode(lvaGetStruct(tmpVarNum), arg);
-            }
-#else
-            // Always create an Obj of the temp to use it as a call argument.
-            arg = gtNewObjNode(lvaGetStruct(tmpVarNum), arg);
-#endif // !TARGET_ARM64
-#endif // FEATURE_MULTIREG_ARGS
-        }
-
-#else // not (TARGET_AMD64 or TARGET_ARM64 or TARGET_ARM)
-
-        // other targets, we pass the struct by value
-        assert(varTypeIsStruct(type));
-
-        addrNode = gtNewOperNode(GT_ADDR, TYP_BYREF, arg);
-
-        // Get a new Obj node temp to use it as a call argument.
-        // gtNewObjNode will set the GTF_EXCEPT flag if this is not a local stack object.
-        arg = gtNewObjNode(lvaGetStruct(tmpVarNum), addrNode);
-
-#endif // not (TARGET_AMD64 or TARGET_ARM64 or TARGET_ARM)
-
-    } // (varTypeIsStruct(type))
-
-    if (addrNode != nullptr)
-    {
-        assert(addrNode->gtOper == GT_ADDR);
-
-        // This will prevent this LclVar from being optimized away
-        lvaSetVarAddrExposed(tmpVarNum);
-
-        // the child of a GT_ADDR is required to have this flag set
-        addrNode->AsOp()->gtOp1->gtFlags |= GTF_DONT_CSE;
+        return gtNewLclvNode(argInfo->GetTempLclNum(), varDsc->GetType());
     }
 
-    return arg;
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
+    if (argInfo->isSingleRegOrSlot())
+    {
+        var_types passedAsPrimitiveType =
+            getPrimitiveTypeForStruct(lvaLclExactSize(argInfo->GetTempLclNum()), varDsc->lvVerTypeInfo.GetClassHandle(),
+                                      argInfo->IsVararg());
+
+        if (passedAsPrimitiveType != TYP_UNKNOWN)
+        {
+#if defined(UNIX_AMD64_ABI)
+            // TODO-Cleanup: This is inelegant, but eventually we'll track this in the fgArgTabEntry,
+            // and otherwise we'd have to either modify getPrimitiveTypeForStruct() to take
+            // a structDesc or call eeGetSystemVAmd64PassStructInRegisterDescriptor yet again.
+            if (genIsValidFloatReg(argInfo->GetRegNum()))
+            {
+                if (passedAsPrimitiveType == TYP_INT)
+                {
+                    passedAsPrimitiveType = TYP_FLOAT;
+                }
+                else
+                {
+                    assert(passedAsPrimitiveType == TYP_LONG);
+                    passedAsPrimitiveType = TYP_DOUBLE;
+                }
+            }
+#endif
+            // TODO-MIKE-Cleanup: Why doesn't this code set DNER_LocalField?
+            return gtNewLclFldNode(argInfo->GetTempLclNum(), passedAsPrimitiveType, 0);
+        }
+    }
+#endif
+
+    lvaSetVarAddrExposed(argInfo->GetTempLclNum());
+
+#if defined(TARGET_ARM64) || (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI))
+#if defined(TARGET_ARM64)
+    if (!lvaIsMultiregStruct(varDsc, argInfo->IsVararg()))
+#endif
+    {
+        return gtNewLclVarAddrNode(argInfo->GetTempLclNum());
+    }
+#endif
+
+#if defined(TARGET_ARM64) || defined(TARGET_ARM) || defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
+    GenTree* arg = gtNewLclvNode(argInfo->GetTempLclNum(), varDsc->GetType());
+    arg->gtFlags |= GTF_DONT_CSE;
+    arg = gtNewOperNode(GT_ADDR, TYP_BYREF, arg);
+    // ToDo-ARM64: Consider using:  arg->ChangeOper(GT_LCL_FLD);
+    // as that is how UNIX_AMD64_ABI works.
+    // We will create a GT_OBJ for the argument below.
+    // This will be passed by value in two registers.
+    return gtNewObjNode(lvaGetStruct(argInfo->GetTempLclNum()), arg);
+#elif !defined(TARGET_AMD64)
+#error Unknown ABI
+#endif
 }
 
 //------------------------------------------------------------------------------

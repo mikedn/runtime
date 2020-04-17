@@ -1506,6 +1506,12 @@ public:
     {
         _lateArgInx = inx;
     }
+
+    unsigned GetTempLclNum() const
+    {
+        return tmpNum;
+    }
+
     regNumber GetRegNum()
     {
         return (regNumber)regNums[0];
@@ -1831,6 +1837,8 @@ public:
     void Dump();
 #endif
 };
+
+typedef fgArgTabEntry CallArgInfo;
 
 //-------------------------------------------------------------------------
 //
@@ -5144,7 +5152,7 @@ public:
 
     bool fgCastNeeded(GenTree* tree, var_types toType);
     GenTree* fgDoNormalizeOnStore(GenTree* tree);
-    GenTree* fgMakeTmpArgNode(fgArgTabEntry* curArgTabEntry);
+    GenTree* fgMakeTmpArgNode(CallArgInfo* argInfo);
 
     // The following check for loops that don't execute calls
     bool fgLoopCallMarked;
