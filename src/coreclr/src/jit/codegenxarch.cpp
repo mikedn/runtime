@@ -6551,24 +6551,57 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
 //    cast - The GT_CAST node
 //
 // Assumptions:
-//    The cast node is not a contained node and must have an assigned register.
 //    Neither the source nor target type can be a floating point type.
-//    On x86 casts to (U)BYTE require that the source be in a byte register.
-//
-// TODO-XArch-CQ: Allow castOp to be a contained node without an assigned register.
+//    On x86 casts to (U)BYTE require that the source be in a byte register if not contained.
 //
 void CodeGen::genIntToIntCast(GenTreeCast* cast)
 {
-    genConsumeRegs(cast->gtGetOp1());
+    GenTree* src = cast->GetOp(0);
 
-    const regNumber srcReg = cast->gtGetOp1()->GetRegNum();
+    genConsumeRegs(src);
+
+    regNumber       srcReg = src->GetRegNum();
     const regNumber dstReg = cast->GetRegNum();
-    emitter*        emit   = GetEmitter();
 
-    assert(genIsValidIntReg(srcReg));
     assert(genIsValidIntReg(dstReg));
 
     GenIntCastDesc desc(cast);
+
+    if (src->isUsedFromMemory())
+    {
+        instruction ins;
+
+        switch (desc.LoadKind())
+        {
+            case GenIntCastDesc::LOAD_ZERO_EXTEND_SMALL_INT:
+                ins = INS_movzx;
+                break;
+            case GenIntCastDesc::LOAD_SIGN_EXTEND_SMALL_INT:
+                ins = INS_movsx;
+                break;
+#ifdef TARGET_64BIT
+            case GenIntCastDesc::LOAD_SIGN_EXTEND_INT:
+                ins = INS_movsxd;
+                break;
+#endif
+            default:
+                assert(desc.LoadKind() == GenIntCastDesc::LOAD);
+                ins = INS_mov;
+                break;
+        }
+
+        // Note that we load directly into the destination register, this avoids the
+        // need for a temporary register but assumes that enregistered variables are
+        // not live in exception handlers. This works with EHWriteThru because the
+        // register will be written only in genProduceReg, after the actual cast is
+        // performed.
+
+        GetEmitter()->emitInsBinary(ins, EA_ATTR(desc.LoadSrcSize()), cast, src);
+
+        srcReg = dstReg;
+    }
+
+    assert(genIsValidIntReg(srcReg));
 
     if (desc.CheckKind() != GenIntCastDesc::CHECK_NONE)
     {
@@ -6579,7 +6612,6 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
     {
         instruction ins;
         unsigned    insSize;
-        bool        canSkip = false;
 
         switch (desc.ExtendKind())
         {
@@ -6594,13 +6626,19 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 #ifdef TARGET_64BIT
             case GenIntCastDesc::ZERO_EXTEND_INT:
                 // We can skip emitting this zero extending move if the previous instruction zero extended implicitly
-                if ((srcReg == dstReg) && compiler->opts.OptimizationEnabled())
+                if ((srcReg == dstReg) && compiler->opts.OptimizationEnabled() &&
+                    GetEmitter()->AreUpper32BitsZero(srcReg))
                 {
-                    canSkip = emit->AreUpper32BitsZero(srcReg);
-                }
+                    JITDUMP("\n -- suppressing emission as previous instruction already properly extends.\n");
 
-                ins     = INS_mov;
-                insSize = 4;
+                    ins     = INS_none;
+                    insSize = 0;
+                }
+                else
+                {
+                    ins     = INS_mov;
+                    insSize = 4;
+                }
                 break;
             case GenIntCastDesc::SIGN_EXTEND_INT:
                 ins     = INS_movsxd;
@@ -6615,13 +6653,9 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
                 break;
         }
 
-        if (canSkip)
+        if (ins != INS_none)
         {
-            JITDUMP("\n -- suppressing emission as previous instruction already properly extends.\n");
-        }
-        else
-        {
-            emit->emitIns_R_R(ins, EA_ATTR(insSize), dstReg, srcReg);
+            GetEmitter()->emitIns_R_R(ins, EA_ATTR(insSize), dstReg, srcReg);
         }
     }
 

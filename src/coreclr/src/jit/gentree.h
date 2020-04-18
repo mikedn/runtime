@@ -3294,6 +3294,12 @@ struct GenTreeCast : public GenTreeOp
     {
         gtFlags |= fromUnsigned ? GTF_UNSIGNED : 0;
     }
+
+    var_types GetCastType() const
+    {
+        return gtCastType;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeCast() : GenTreeOp()
     {

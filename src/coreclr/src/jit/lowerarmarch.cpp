@@ -750,25 +750,49 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
 #endif // TARGET_ARM
 }
 
-//------------------------------------------------------------------------
-// ContainCheckCast: determine whether the source of a CAST node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckCast(GenTreeCast* node)
+void Lowering::ContainCheckCast(GenTreeCast* cast)
 {
-#ifdef TARGET_ARM
-    GenTree*  castOp     = node->CastOp();
-    var_types castToType = node->CastToType();
-    var_types srcType    = castOp->TypeGet();
+    GenTree* src = cast->GetOp(0);
 
-    if (varTypeIsLong(castOp))
+#if !defined(TARGET_64BIT)
+    if (src->OperIs(GT_LONG))
     {
-        assert(castOp->OperGet() == GT_LONG);
-        MakeSrcContained(node, castOp);
+        src->SetContained();
+        return;
     }
-#endif // TARGET_ARM
+#endif
+
+    var_types castType = cast->GetCastType();
+    var_types srcType  = src->GetType();
+
+    if (varTypeIsIntegral(castType) && varTypeIsIntegral(srcType))
+    {
+        // TODO-MIKE-CQ: Indirs with contained address mode are problematic. They may
+        // end up requiring a temp register and if the indir itself is made contained
+        // then nobody's going to reserve such a temp register, as this is normally
+        // done in LSRA's BuildIndir.
+        // Perhaps it would be better to not contain the indir and instead retype it
+        // and remove the cast. Unfortunately there's at least on case where this is
+        // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
+
+        if ((!src->OperIs(GT_IND) || !src->AsIndir()->GetAddr()->isContained()) && IsContainableMemoryOp(src) &&
+            (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
+        {
+            // If this isn't an overflow checking cast then we can move it
+            // right after the source node to avoid the interference check.
+            if (!cast->gtOverflow() && (cast->gtPrev != src))
+            {
+                BlockRange().Remove(cast);
+                BlockRange().InsertAfter(src, cast);
+            }
+
+            src->SetContained();
+        }
+        else
+        {
+            src->SetRegOptional();
+        }
+    }
 }
 
 //------------------------------------------------------------------------

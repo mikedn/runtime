@@ -2570,6 +2570,8 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
                 cmp->SetOperRaw(cmpEq ? GT_TEST_EQ : GT_TEST_NE);
                 op2->SetIconValue(0xff);
                 op2->gtType = castOp->gtType;
+                // CAST may have a contained memory operand but ARM compare/test nodes do not.
+                castOp->ClearContained();
 #else
                 castOp->gtType        = castToType;
                 op2->gtType           = castToType;

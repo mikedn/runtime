@@ -1961,57 +1961,69 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
 #endif // TARGET_X86
 }
 
-//------------------------------------------------------------------------
-// ContainCheckCast: determine whether the source of a CAST node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckCast(GenTreeCast* node)
+void Lowering::ContainCheckCast(GenTreeCast* cast)
 {
-    GenTree*  castOp     = node->CastOp();
-    var_types castToType = node->CastToType();
-    var_types srcType    = castOp->TypeGet();
+    GenTree* src = cast->GetOp(0);
 
-    // force the srcType to unsigned if GT_UNSIGNED flag is set
-    if (node->gtFlags & GTF_UNSIGNED)
+#if !defined(TARGET_64BIT)
+    if (src->OperIs(GT_LONG))
     {
-        srcType = genUnsignedType(srcType);
+        src->SetContained();
+        return;
     }
+#endif
 
-    if (!node->gtOverflow() && (varTypeIsFloating(castToType) || varTypeIsFloating(srcType)))
+    var_types castType = cast->GetCastType();
+    var_types srcType  = src->GetType();
+
+    if (varTypeIsIntegral(castType) && varTypeIsIntegral(srcType))
+    {
+        if (IsContainableMemoryOp(src) && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
+        {
+            // If this isn't an overflow checking cast then we can move it
+            // right after the source node to avoid the interference check.
+            if (!cast->gtOverflow() && (cast->gtPrev != src))
+            {
+                BlockRange().Remove(cast);
+                BlockRange().InsertAfter(src, cast);
+            }
+
+            src->SetContained();
+        }
+        else
+        {
+            src->SetRegOptional();
+        }
+    }
+    else if (!cast->gtOverflow() && (varTypeIsFloating(castType) || varTypeIsFloating(srcType)))
     {
 #ifdef DEBUG
         // If converting to float/double, the operand must be 4 or 8 byte in size.
-        if (varTypeIsFloating(castToType))
+        if (varTypeIsFloating(castType))
         {
             unsigned opSize = genTypeSize(srcType);
             assert(opSize == 4 || opSize == 8);
         }
 #endif // DEBUG
 
+        if (cast->IsUnsigned())
+        {
+            srcType = genUnsignedType(srcType);
+        }
+
         // U8 -> R8 conversion requires that the operand be in a register.
         if (srcType != TYP_ULONG)
         {
-            if (IsContainableMemoryOp(castOp) || castOp->IsCnsNonZeroFltOrDbl())
+            if (IsContainableMemoryOp(src) || src->IsCnsNonZeroFltOrDbl())
             {
-                MakeSrcContained(node, castOp);
+                src->SetContained();
             }
             else
             {
-                // Mark castOp as reg optional to indicate codegen
-                // can still generate code if it is on stack.
-                castOp->SetRegOptional();
+                src->SetRegOptional();
             }
         }
     }
-#if !defined(TARGET_64BIT)
-    if (varTypeIsLong(srcType))
-    {
-        noway_assert(castOp->OperGet() == GT_LONG);
-        castOp->SetContained();
-    }
-#endif // !defined(TARGET_64BIT)
 }
 
 //------------------------------------------------------------------------
