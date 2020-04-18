@@ -3702,7 +3702,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                         unsigned   lclNum = argObj->AsLclVarCommon()->GetLclNum();
                         LclVarDsc* varDsc = &lvaTable[lclNum];
 
-                        if (varDsc->lvPromoted)
+                        if (varDsc->lvPromoted && !varDsc->lvDoNotEnregister)
                         {
                             if (varDsc->lvFieldCnt == 1)
                             {
