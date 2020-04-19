@@ -3332,9 +3332,20 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                             }
                             else
                             {
-                                // The struct fits into a single register, but it has been promoted into its
-                                // constituent fields, and so we have to re-assemble it
-                                copyBlkClass = objClass;
+                                GenTree* newArg = abiMorphPromotedRegisterCallArg(varDsc, structBaseType);
+
+                                if (newArg != nullptr)
+                                {
+                                    argObj = newArg;
+                                    args->SetNode(newArg);
+                                    argx = newArg;
+                                }
+                                else
+                                {
+                                    // The struct fits into a single register, but it has been promoted into its
+                                    // constituent fields, and so we have to re-assemble it
+                                    copyBlkClass = objClass;
+                                }
                             }
                         }
                         else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(structBaseType))
@@ -3773,6 +3784,90 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
     }
 }
 
+// Attempt to pack the fields of a promoted struct arg into a single value of call argument's type.
+//
+GenTree* Compiler::abiMorphPromotedRegisterCallArg(LclVarDsc* lcl, var_types argType)
+{
+    assert(lcl->IsPromoted());
+
+    if ((argType != TYP_BYTE) && (argType != TYP_SHORT) && (argType != TYP_INT) && (argType != TYP_LONG))
+    {
+        return nullptr;
+    }
+
+    if (lcl->lvExactSize > varTypeSize(argType))
+    {
+        return nullptr;
+    }
+
+    argType = varActualType(argType);
+
+    GenTree* arg = nullptr;
+
+    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+    {
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
+        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+        GenTree*   field       = gtNewLclvNode(fieldLclNum, fieldLcl->GetType());
+
+        if (varTypeIsSmall(fieldLcl->GetType()))
+        {
+            // Promoted fields are always normalize on load currently.
+            assert(fieldLcl->lvNormalizeOnLoad());
+
+            // Signed types need to be zero extended, otherwise the sign bits will overwrite subsequent fields.
+            var_types type = genUnsignedType(field->GetType());
+
+            if (!optLocalAssertionProp || (optAssertionIsSubrange(field, TYP_INT, type, apFull) == NO_ASSERTION_INDEX))
+            {
+                field->SetType(TYP_INT);
+                field = gtNewCastNode(TYP_INT, field, false, type);
+            }
+        }
+        else if (fieldLcl->GetType() == TYP_FLOAT)
+        {
+            field = gtNewBitCastNode(TYP_INT, field);
+        }
+        else if ((fieldLcl->GetType() == TYP_DOUBLE) && (argType == TYP_LONG))
+        {
+            // TODO-MIKE-Cleanup: Handle this separately since we never need to pack a double
+            // field with any other field. Also, the LONG BITCAST doesn't work on 32 bit targets.
+            field = gtNewBitCastNode(TYP_LONG, field);
+        }
+
+        if (field == nullptr)
+        {
+            // This shouldn't really happen. The only potential case that isn't handled
+            // above is SIMD8 but that would have to be a struct with a single field and
+            // that case is currently handled by the caller.
+            return nullptr;
+        }
+
+        if ((argType == TYP_LONG) && (field->GetType() != TYP_LONG))
+        {
+            field = gtNewCastNode(TYP_LONG, field, true, TYP_LONG);
+        }
+
+        if (fieldLcl->GetPromotedFieldOffset() != 0)
+        {
+            // TODO-MIKE-CQ: On ARMARCH OR + LSH should produced a single ORR with shifted register
+            // instruction but lowering/codegen doesn't know that.
+            field = gtNewOperNode(GT_LSH, argType, field, gtNewIconNode(fieldLcl->GetPromotedFieldOffset() * 8));
+        }
+
+        if (arg == nullptr)
+        {
+            arg = field;
+        }
+        else
+        {
+            arg = gtNewOperNode(GT_OR, argType, arg, field);
+        }
+    }
+
+    return arg;
+}
+
 #if FEATURE_MULTIREG_ARGS
 //-----------------------------------------------------------------------------
 // fgMorphMultiregStructArgs:  Locate the TYP_STRUCT arguments and
@@ -3964,7 +4059,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
 
         if (reg * REGSIZE_BYTES != fieldOffset)
         {
-            // TODO-MIKE-CQ: Use MorphPromotedRegisterCallArg to handle the case of multiple
+            // TODO-MIKE-CQ: Use abiMorphPromotedRegisterCallArg to handle the case of multiple
             // small int, INT or FLOAT fields being passed in a single register.
             return false;
         }
