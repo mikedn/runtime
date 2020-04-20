@@ -323,6 +323,19 @@ inline bool varTypeIsValidHfaType(T vt)
 #endif // !FEATURE_HFA
 }
 
+extern const BYTE genTypeSizes[TYP_COUNT];
+
+inline unsigned varTypeSize(var_types type)
+{
+    assert(type < _countof(genTypeSizes));
+    return genTypeSizes[type];
+}
+
+inline unsigned varTypeBitSize(var_types type)
+{
+    return varTypeSize(type) * 8;
+}
+
 /*****************************************************************************/
 #endif // _VARTYPE_H_
 /*****************************************************************************/
