@@ -249,11 +249,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_LSH:
         case GT_RSH:
         case GT_RSZ:
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
             LowerShift(node->AsOp());
-#else
-            ContainCheckShiftRotate(node->AsOp());
-#endif
             break;
 
         case GT_STORE_BLK:
@@ -4993,44 +4989,147 @@ GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
 // Arguments:
 //    shift - the shift node (GT_LSH, GT_RSH or GT_RSZ)
 //
-// Notes:
-//    Remove unnecessary shift count masking, xarch shift instructions
-//    mask the shift count to 5 bits (or 6 bits for 64 bit operations).
-
 void Lowering::LowerShift(GenTreeOp* shift)
 {
     assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ));
 
-    size_t mask = 0x1f;
-#ifdef TARGET_64BIT
-    if (varTypeIsLong(shift->TypeGet()))
+    GenTree* shiftBy = shift->GetOp(1);
+
+    if (shiftBy->OperIs(GT_CNS_INT))
     {
-        mask = 0x3f;
-    }
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+        size_t mask = varTypeIsLong(shift->GetType()) ? 0x3f : 0x1f;
+#elif defined(TARGET_X86) || defined(TARGET_ARM)
+        size_t mask = 0x1f;
 #else
-    assert(!varTypeIsLong(shift->TypeGet()));
+#error Unknown target
 #endif
 
-    for (GenTree* andOp = shift->gtGetOp2(); andOp->OperIs(GT_AND); andOp = andOp->gtGetOp1())
-    {
-        GenTree* maskOp = andOp->gtGetOp2();
+        unsigned shiftByBits = static_cast<unsigned>(shiftBy->AsIntCon()->GetValue()) & mask;
+        shiftBy->AsIntCon()->SetValue(shiftByBits);
 
-        if (!maskOp->IsCnsIntOrI())
+        if ((shiftByBits >= 24) && shift->OperIs(GT_LSH) && comp->opts.OptimizationEnabled())
         {
-            break;
-        }
+            // Remove source casts if the shift discards the produced sign/zero bits.
+            //
+            // Some of this would probably be better done during morph or some sort
+            // of tree narrowing phase. The problem is that this removes INT to LONG
+            // casts, transforming
+            //     LSH.long(CAST.long(x.int), 32)
+            // into
+            //     LSH.long(x.int, 32)
+            //
+            // While there's nothing intrinsically wrong about having a node with
+            // different source and destination types, it is possible that some
+            // frontend phases might get confused by such a shift node.
 
-        if ((static_cast<size_t>(maskOp->AsIntCon()->IconValue()) & mask) != mask)
-        {
-            break;
-        }
+            unsigned consumedBits = varTypeBitSize(shift->GetType());
 
-        shift->gtOp2 = andOp->gtGetOp1();
-        BlockRange().Remove(andOp);
-        BlockRange().Remove(maskOp);
-        // The parent was replaced, clear contain and regOpt flag.
-        shift->gtOp2->ClearContained();
+            assert((consumedBits == 32) || (consumedBits == 64));
+            assert(shiftByBits < consumedBits);
+
+            consumedBits -= shiftByBits;
+
+            GenTree* src = shift->GetOp(0);
+
+            while (src->OperIs(GT_CAST) && !src->gtOverflow())
+            {
+                GenTreeCast* cast = src->AsCast();
+
+                if (!varTypeIsIntegral(cast->GetOp(0)->GetType()))
+                {
+                    break;
+                }
+
+                var_types castType = cast->GetCastType();
+
+                // A (U)LONG - (U)LONG cast would normally produce 64 bits but since it
+                // has no effect we make it produce 32 bits to keep the check simple.
+                // Anyway such a cast should have been removed earlier.
+                unsigned producedBits = varTypeIsSmall(castType) ? varTypeBitSize(castType) : 32;
+
+                if (consumedBits > producedBits)
+                {
+                    break;
+                }
+
+                JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->gtTreeID,
+                        producedBits, shift->gtTreeID, consumedBits);
+
+                BlockRange().Remove(src);
+                src = cast->GetOp(0);
+                src->ClearContained();
+
+#if !defined(TARGET_64BIT)
+                if (src->OperIs(GT_LONG))
+                {
+                    // We're run into a long to int cast on a 32 bit target. The LONG node
+                    // needs to be removed since the shift wouldn't know what to do with it.
+                    // TODO-MIKE-Cleanup: Why doesn't CAST lowering deal with this?!
+
+                    BlockRange().Remove(src);
+                    src->AsOp()->GetOp(1)->SetUnusedValue();
+                    src = src->AsOp()->GetOp(0);
+                }
+#endif
+            }
+
+#if defined(TARGET_XARCH)
+            // If the source is a small signed int memory operand then we can make it unsigned
+            // if the sign bits aren't consumed, movzx has smaller encoding than movsx.
+
+            if (src->OperIs(GT_LCL_FLD, GT_IND) && varTypeIsSmall(src->GetType()) &&
+                (consumedBits <= varTypeBitSize(src->GetType())))
+            {
+                src->SetType(genUnsignedType(src->GetType()));
+            }
+#endif
+
+            shift->SetOp(0, src);
+        }
     }
+    else
+    {
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+        size_t mask = varTypeIsLong(shift->GetType()) ? 0x3f : 0x1f;
+#elif defined(TARGET_X86)
+        size_t mask = 0x1f;
+#elif defined(TARGET_ARM)
+        size_t mask = 0xff;
+#elif
+#error Unknown target
+#endif
+
+#if !defined(TARGET_ARM)
+        // Remove unnecessary shift count masking. x64/x86/ARM64 shift instructions mask the shift count
+        // to 5 bits (or 6 bits for 64 bit operations). ARM32 only masks 8 bits so this isn't likely to
+        // be very useful since the main goal is to remove the masking done by the C# compiler.
+
+        while (shiftBy->OperIs(GT_AND))
+        {
+            GenTree* maskOp = shiftBy->AsOp()->GetOp(1);
+
+            if (!maskOp->OperIs(GT_CNS_INT))
+            {
+                break;
+            }
+
+            if ((static_cast<size_t>(maskOp->AsIntCon()->GetValue()) & mask) != mask)
+            {
+                break;
+            }
+
+            BlockRange().Remove(shiftBy);
+            BlockRange().Remove(maskOp);
+
+            shiftBy = shiftBy->AsOp()->GetOp(0);
+            shiftBy->ClearContained();
+        }
+
+        shift->SetOp(1, shiftBy);
+#endif
+    }
+
     ContainCheckShiftRotate(shift);
 }
 
