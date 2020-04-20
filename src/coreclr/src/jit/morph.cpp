@@ -1719,7 +1719,7 @@ void fgArgInfo::SortArgs()
             {
                 GenTree* argx = curArgTabEntry->GetNode();
 
-                if ((argx->gtOper == GT_LCL_VAR) || (argx->gtOper == GT_LCL_FLD))
+                if (argx->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !argx->TypeIs(TYP_STRUCT))
                 {
                     noway_assert(curInx <= endTab);
 
@@ -1764,9 +1764,8 @@ void fgArgInfo::SortArgs()
                 GenTree* argx = curArgTabEntry->GetNode();
 
                 // We should have already handled these kinds of args
-                assert(argx->gtOper != GT_LCL_VAR);
-                assert(argx->gtOper != GT_LCL_FLD);
-                assert(argx->gtOper != GT_CNS_INT);
+                assert(!argx->OperIs(GT_LCL_VAR, GT_LCL_FLD) || argx->TypeIs(TYP_STRUCT));
+                assert(!argx->OperIs(GT_CNS_INT));
 
                 // This arg should either have no persistent side effects or be the last one in our table
                 // assert(((argx->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0) || (curInx == (argCount-1)));
@@ -1783,8 +1782,23 @@ void fgArgInfo::SortArgs()
                 {
                     if (!costsPrepared)
                     {
-                        /* We call gtPrepareCost to measure the cost of evaluating this tree */
-                        compiler->gtPrepareCost(argx);
+                        // Try to keep STRUCT typed LCL_VAR args in the same position they were when wrapped in OBJs
+                        // by setting the same costs an OBJ(ADDR(LCL_VAR|FLD)) tree would have.
+                        // TODO-MIKE-Cleanup: These should probably be moved to gtSetEvalOrder, they're here only to
+                        // keep diffs small. That said, what do costs have to do with call arg evaluation *order*!?
+                        if (argx->OperIs(GT_LCL_VAR))
+                        {
+                            argx->SetCosts(9, 7);
+                        }
+                        else if (argx->OperIs(GT_LCL_FLD))
+                        {
+                            argx->SetCosts(9, 9);
+                        }
+                        else
+                        {
+                            /* We call gtPrepareCost to measure the cost of evaluating this tree */
+                            compiler->gtPrepareCost(argx);
+                        }
                     }
 
                     if (argx->GetCostEx() > expensiveArgCost)
@@ -2895,6 +2909,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     case GT_LCL_VAR:
                         structSize = lvaGetDesc(actualArg->AsLclVarCommon())->lvExactSize;
                         break;
+                    case GT_LCL_FLD:
+                        structSize = actualArg->AsLclFld()->GetLayout(this)->GetSize();
+                        break;
                     case GT_MKREFANY:
                         structSize = info.compCompHnd->getClassSize(objClass);
                         break;
@@ -3531,6 +3548,11 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     originalSize = argObj->AsObj()->GetLayout()->GetSize();
                     assert(originalSize == info.compCompHnd->getClassSize(objClass));
                 }
+                else if (argObj->OperIs(GT_LCL_FLD))
+                {
+                    originalSize = argObj->AsLclFld()->GetLayout(this)->GetSize();
+                    assert(originalSize == info.compCompHnd->getClassSize(objClass));
+                }
                 else
                 {
                     // We have a BADCODE assert for this in fgInitArgInfo.
@@ -3630,10 +3652,18 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                                 copyBlkClass = objClass;
                             }
                         }
+                        else if (argObj->TypeIs(TYP_STRUCT))
+                        {
+                            assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+
+                            if (passingSize != structSize)
+                            {
+                                copyBlkClass = objClass;
+                            }
+                        }
                         else
                         {
                             // This should only be the case of a value directly producing a known struct type.
-                            assert(argObj->TypeGet() != TYP_STRUCT);
                             if (argEntry->numRegs > 1)
                             {
                                 copyBlkClass = objClass;
@@ -3757,7 +3787,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     else
                     {
                         // Not a GT_LCL_VAR, so we can just change the type on the node
-                        argObj->gtType = structBaseType;
+                        argObj->SetType(structBaseType);
+
+                        if (argObj->OperIs(GT_LCL_FLD))
+                        {
+                            argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+                        }
                     }
                     assert(varTypeIsEnregisterable(argObj->TypeGet()) ||
                            ((copyBlkClass != NO_CLASS_HANDLE) && varTypeIsEnregisterable(structBaseType)));
@@ -3784,8 +3819,9 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                         // There are a few special cases where we can omit using a CopyBlk
                         // where we normally would need to use one.
 
-                        if (argObj->OperIs(GT_OBJ) &&
-                            argObj->AsObj()->gtGetOp1()->IsLocalAddrExpr() != nullptr) // Is the source a LclVar?
+                        if (argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
+                            (argObj->OperIs(GT_OBJ) &&
+                             argObj->AsObj()->gtGetOp1()->IsLocalAddrExpr() != nullptr)) // Is the source a LclVar?
                         {
                             copyBlkClass = NO_CLASS_HANDLE;
                         }
@@ -4174,7 +4210,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                 lcl = actualArg->gtGetOp1()->gtGetOp1()->AsLclVarCommon();
             }
         }
-        else if (actualArg->OperGet() == GT_LCL_VAR)
+        else if (actualArg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             lcl = actualArg->AsLclVarCommon();
         }
@@ -4182,18 +4218,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         {
             if (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
             {
+                assert(!lcl->OperIs(GT_LCL_FLD));
                 arg = fgMorphLclArgToFieldlist(lcl);
             }
             else if (arg->TypeGet() == TYP_STRUCT)
             {
-                // If this is a non-register struct, it must be referenced from memory.
-                if (!actualArg->OperIs(GT_OBJ))
-                {
-                    // Create an Obj of the temp to use it as a call argument.
-                    arg = gtNewOperNode(GT_ADDR, TYP_I_IMPL, arg);
-                    arg = gtNewObjNode(lvaGetStruct(lcl->GetLclNum()), arg);
-                }
-                // Its fields will need to be accessed by address.
                 lvaSetVarDoNotEnregister(lcl->GetLclNum() DEBUG_ARG(DNER_IsStructArg));
             }
         }
@@ -4251,6 +4280,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         LclVarDsc* varDsc = &lvaTable[varNum];
 
         structSize = varDsc->lvExactSize;
+        assert(structSize == info.compCompHnd->getClassSize(objClass));
+    }
+    else if (arg->OperIs(GT_LCL_FLD))
+    {
+        structSize = arg->AsLclFld()->GetLayout(this)->GetSize();
         assert(structSize == info.compCompHnd->getClassSize(objClass));
     }
     else

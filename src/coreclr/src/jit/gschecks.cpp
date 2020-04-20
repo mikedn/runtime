@@ -201,10 +201,25 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
 
                 for (GenTreeCall::Use& use : tree->AsCall()->Args())
                 {
+                    if (use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
+                    {
+                        // Skip STRUCT typed LCL_VAR|FLD call args, previously these were wrapped in OBJs,
+                        // which this code ignored. Which is probably a bug since a struct can contain
+                        // pointers. Needless to say that fixing this will result in regressions due to
+                        // extra copying of current method's parameters.
+                        continue;
+                    }
+
                     comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, (void*)&newState);
                 }
+
                 for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
                 {
+                    if (use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
+                    {
+                        continue;
+                    }
+
                     comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, (void*)&newState);
                 }
 

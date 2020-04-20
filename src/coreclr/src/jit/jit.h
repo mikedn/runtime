@@ -515,7 +515,7 @@ const bool dspGCtbls = true;
         if (JitTls::GetCompiler()->verbose)                                                                            \
         {                                                                                                              \
             logf(__VA_ARGS__);                                                                                         \
-            gtDispTree(tree);                                                                                          \
+            JitTls::GetCompiler()->gtDispTree(tree);                                                                   \
         }                                                                                                              \
     }
 #define JITLOG(x)                                                                                                      \

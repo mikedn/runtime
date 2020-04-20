@@ -16038,8 +16038,14 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 structHnd = gtGetStructHandleIfPresent(tree->gtGetOp1());
                 break;
             case GT_LCL_FLD:
+                ClassLayout* layout;
+                layout = tree->AsLclFld()->GetLayout(this);
+                if ((layout != nullptr) && !layout->IsBlockLayout())
+                {
+                    structHnd = layout->GetClassHandle();
+                }
 #ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(tree))
+                else if (varTypeIsSIMD(tree))
                 {
                     structHnd = gtGetStructHandleForSIMD(tree->gtType, TYP_FLOAT);
                 }

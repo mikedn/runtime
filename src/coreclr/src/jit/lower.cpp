@@ -1077,6 +1077,36 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
     assert(arg != nullptr);
     assert(info != nullptr);
 
+    if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD) && arg->TypeIs(TYP_STRUCT))
+    {
+        GenTree*     addr;
+        ClassLayout* layout;
+
+        if (arg->OperIs(GT_LCL_VAR))
+        {
+            addr   = comp->gtNewLclVarAddrNode(arg->AsLclVar()->GetLclNum());
+            layout = comp->lvaGetDesc(arg->AsLclVar())->GetLayout();
+        }
+        else
+        {
+            addr = comp->gtNewLclFldAddrNode(arg->AsLclFld()->GetLclNum(), arg->AsLclFld()->GetLclOffs(),
+                                             FieldSeqStore::NotAField());
+            layout = arg->AsLclFld()->GetLayout(comp);
+        }
+
+        BlockRange().InsertBefore(arg, addr);
+
+        arg->ChangeOper(GT_OBJ);
+
+        GenTreeObj* store = arg->AsObj();
+        store->SetLayout(layout);
+        store->SetAddr(addr);
+        store->SetData(nullptr);
+        store->gtFlags = GTF_IND_NONFAULTING;
+
+        JITDUMPTREE(arg, "STRUCT local arg wrapped in OBJ\n");
+    }
+
     GenTree* putArg = nullptr;
 
     bool isOnStack = (info->GetRegNum() == REG_STK);
