@@ -9146,6 +9146,12 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* 
     assert(varTypeIsStruct(destLclVar->GetType()));
     assert(destLclVar->lvPromoted);
 
+    if (destLclVar->lvDoNotEnregister && (destLclVar->GetPromotedFieldCount() > 1))
+    {
+        JITDUMP(" dest is already DNER and has more than one field.\n");
+        return nullptr;
+    }
+
     if (destLclVar->lvAddrExposed && destLclVar->lvContainsHoles)
     {
         JITDUMP(" dest is address exposed and contains holes.\n");
