@@ -3460,9 +3460,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         argSlots++;
     }
 
+#if FEATURE_MULTIREG_ARGS
     // Note that this name is a bit of a misnomer - it indicates that there are struct args
     // that occupy more than a single slot that are passed by value (not necessarily in regs).
     bool hasMultiregStructArgs = false;
+#endif
+
     for (args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
         GenTree**      parentArgx = &args->NodeRef();
@@ -3979,10 +3982,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         call->fgArgInfo->EvalArgsToTemps();
     }
 
+#if FEATURE_MULTIREG_ARGS
     if (hasMultiregStructArgs)
     {
         fgMorphMultiregStructArgs(call);
     }
+#endif
 
 #ifdef DEBUG
     if (verbose)
@@ -3998,6 +4003,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #pragma warning(pop)
 #endif
 
+#if FEATURE_MULTIREG_ARGS
 //-----------------------------------------------------------------------------
 // fgMorphMultiregStructArgs:  Locate the TYP_STRUCT arguments and
 //                             call fgMorphMultiregStructArg on each of them.
@@ -4195,7 +4201,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         return arg;
     }
 
-#if FEATURE_MULTIREG_ARGS
     // Examine 'arg' and setup argValue objClass and structSize
     //
     CORINFO_CLASS_HANDLE objClass = gtGetStructHandleIfPresent(arg);
@@ -4659,8 +4664,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     arg = newArg; // consider calling fgMorphTree(newArg);
 
-#endif // FEATURE_MULTIREG_ARGS
-
     return arg;
 }
 
@@ -4690,6 +4693,7 @@ GenTreeFieldList* Compiler::fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl)
     }
     return fieldList;
 }
+#endif // FEATURE_MULTIREG_ARGS
 
 //------------------------------------------------------------------------
 // fgMakeOutgoingStructArgCopy: make a copy of a struct variable if necessary,

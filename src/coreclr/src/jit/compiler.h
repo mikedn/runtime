@@ -5468,7 +5468,6 @@ private:
 #endif // FEATURE_SIMD
     GenTree* fgMorphArrayIndex(GenTree* tree);
     GenTree* fgMorphCast(GenTree* tree);
-    GenTreeFieldList* fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl);
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
 
@@ -9823,8 +9822,11 @@ public:
 
 #endif // defined(UNIX_AMD64_ABI)
 
+#if FEATURE_MULTIREG_ARGS
     void fgMorphMultiregStructArgs(GenTreeCall* call);
     GenTree* fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr);
+    GenTreeFieldList* fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl);
+#endif
 
     bool killGCRefs(GenTree* tree);
 
