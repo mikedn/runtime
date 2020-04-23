@@ -1150,6 +1150,13 @@ unsigned CodeGenInterface::InferStructOpSizeAlign(GenTree* op, unsigned* alignme
         opSize                      = op->AsObj()->GetLayout()->GetSize();
         alignment = roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
     }
+    else if (op->OperIs(GT_LCL_FLD))
+    {
+        ClassLayout*         layout = op->AsLclFld()->GetLayout(compiler);
+        CORINFO_CLASS_HANDLE clsHnd = layout->GetClassHandle();
+        opSize                      = layout->GetSize();
+        alignment = roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
+    }
     else if (op->gtOper == GT_LCL_VAR)
     {
         unsigned   varNum = op->AsLclVarCommon()->GetLclNum();

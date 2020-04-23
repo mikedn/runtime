@@ -5979,8 +5979,21 @@ Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* dat
             // unsigned    lclNum = dest->AsLclFld()->GetLclNum();
             // noway_assert(lvaTable[lclNum].lvAddrTaken);
 
-            varRefKinds refs = varTypeIsGC(tree->TypeGet()) ? VR_IND_REF : VR_IND_SCL;
-            desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
+            // TODO-MIKE-Cleanup: TYP_STRUCT LCL_FLDs are excluded because they were previously wrapped
+            // in OBJ/BLK indirs which optIsVarAssgCB simply ignores. So continue to ignore such stores.
+            //
+            // But this doesn't explain why LCL_FLDs are treated as indirections instead of simply being
+            // treated as local stores. Or what assigning to CLS_VAR has to do with local variables. Or
+            // what assignment to IND has to do with call interference. Complete nonsense.
+            //
+            // The only reason why it works at all is that the callers are only interested in TYP_INT
+            // variables and it's unlikely that these are updated via OBJ indirections.
+
+            if (!tree->TypeIs(TYP_STRUCT))
+            {
+                varRefKinds refs = varTypeIsGC(tree->TypeGet()) ? VR_IND_REF : VR_IND_SCL;
+                desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
+            }
         }
         else if (destOper == GT_CLS_VAR)
         {

@@ -1005,14 +1005,6 @@ private:
                 return;
             }
 
-            if ((user == nullptr) || !user->OperIs(GT_ASG))
-            {
-                // TODO-ADDR: Skip TYP_STRUCT indirs for now, unless they're used by an ASG.
-                // At least call args will require extra work because currently they must be
-                // wrapped in OBJ nodes so we can't replace those with local nodes.
-                return;
-            }
-
             if (indir->OperIs(GT_FIELD))
             {
                 CORINFO_CLASS_HANDLE fieldClassHandle;
@@ -1054,7 +1046,7 @@ private:
             indir->ChangeOper(GT_LCL_VAR);
             indir->AsLclVar()->SetLclNum(val.LclNum());
         }
-        else if (!varTypeIsStruct(indir->TypeGet()) || m_compiler->lvaIsImplicitByRefLocal(val.LclNum()))
+        else
         {
             indir->ChangeOper(GT_LCL_FLD);
             indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1063,19 +1055,12 @@ private:
 
             if (structLayout != nullptr)
             {
-                indir->AsLclFld()->SetLayoutNum(m_compiler->typGetLayoutNum(structLayout));
+                indir->AsLclFld()->SetLayout(structLayout, m_compiler);
             }
 
             // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
             // later transformed into a LCL_VAR and the variable cannot be enregistered.
             m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
-        }
-        else
-        {
-            // TODO-ADDR: Add TYP_STRUCT support to LCL_FLD. Currently these are generated
-            // only for unpromoted implicit-by-ref args, that are converted back to indirs
-            // by IndirectArgMorphVisitor.
-            return;
         }
 
         unsigned flags = 0;
@@ -1094,6 +1079,10 @@ private:
                     flags |= GTF_VAR_USEASG;
                 }
             }
+        }
+        else if (indir->TypeIs(TYP_STRUCT) && (user != nullptr) && user->IsCall())
+        {
+            flags |= GTF_DONT_CSE;
         }
 
         indir->gtFlags = flags;
