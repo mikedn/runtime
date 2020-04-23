@@ -4226,6 +4226,16 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             {
                 argValue = underlyingTree;
             }
+            else if (underlyingTree->OperIs(GT_LCL_FLD) && (underlyingTree->GetType() == argValue->GetType()))
+            {
+                // Make sure we don't hit the weird case of an indirection that expands beyond
+                // the end of the local variable, such LCL_FLDs should not be generated.
+                if ((underlyingTree->AsLclFld()->GetLclOffs() + structSize) <=
+                    lvaLclExactSize(underlyingTree->AsLclFld()->GetLclNum()))
+                {
+                    argValue = underlyingTree;
+                }
+            }
         }
     }
     else if (arg->OperGet() == GT_LCL_VAR)
@@ -4424,6 +4434,8 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #endif // !defined(HOST_UNIX) && defined(TARGET_ARM64)
                                                                     ))
         {
+            // TODO-MIKE-CQ: Use MorphPromotedRegisterCallArg to avoid this limitation.
+
             // See if we have two promoted fields that start at offset 0 and 8?
             unsigned loVarNum = lvaGetFieldLocal(varDsc, 0);
             unsigned hiVarNum = lvaGetFieldLocal(varDsc, TARGET_POINTER_SIZE);
@@ -4592,11 +4604,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             //    replace the existing LDOBJ(ADDR(LCLVAR))
             //    with a FIELD_LIST(LCLFLD-LO, LCLFLD-HI)
             //
-            unsigned offset = baseOffset;
+            unsigned offset = 0;
             newArg          = new (this, GT_FIELD_LIST) GenTreeFieldList();
             for (unsigned inx = 0; inx < elemCount; inx++)
             {
-                GenTree* nextLclFld = gtNewLclFldNode(varNum, type[inx], offset);
+                GenTree* nextLclFld = gtNewLclFldNode(varNum, type[inx], baseOffset + offset);
                 newArg->AddField(this, nextLclFld, offset, type[inx]);
                 offset += genTypeSize(type[inx]);
             }
