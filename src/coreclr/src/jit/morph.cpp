@@ -3460,9 +3460,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         argSlots++;
     }
 
+#if FEATURE_MULTIREG_ARGS
     // Note that this name is a bit of a misnomer - it indicates that there are struct args
     // that occupy more than a single slot that are passed by value (not necessarily in regs).
     bool hasMultiregStructArgs = false;
+#endif
+
     for (args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
         GenTree**      parentArgx = &args->NodeRef();
@@ -3979,10 +3982,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         call->fgArgInfo->EvalArgsToTemps();
     }
 
+#if FEATURE_MULTIREG_ARGS
     if (hasMultiregStructArgs)
     {
         fgMorphMultiregStructArgs(call);
     }
+#endif
 
 #ifdef DEBUG
     if (verbose)
@@ -3998,6 +4003,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #pragma warning(pop)
 #endif
 
+#if FEATURE_MULTIREG_ARGS
 //-----------------------------------------------------------------------------
 // fgMorphMultiregStructArgs:  Locate the TYP_STRUCT arguments and
 //                             call fgMorphMultiregStructArg on each of them.
@@ -4195,7 +4201,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         return arg;
     }
 
-#if FEATURE_MULTIREG_ARGS
     // Examine 'arg' and setup argValue objClass and structSize
     //
     CORINFO_CLASS_HANDLE objClass = gtGetStructHandleIfPresent(arg);
@@ -4225,6 +4230,16 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                 (objClass == gtGetStructHandleIfPresent(underlyingTree)))
             {
                 argValue = underlyingTree;
+            }
+            else if (underlyingTree->OperIs(GT_LCL_FLD) && (underlyingTree->GetType() == argValue->GetType()))
+            {
+                // Make sure we don't hit the weird case of an indirection that expands beyond
+                // the end of the local variable, such LCL_FLDs should not be generated.
+                if ((underlyingTree->AsLclFld()->GetLclOffs() + structSize) <=
+                    lvaLclExactSize(underlyingTree->AsLclFld()->GetLclNum()))
+                {
+                    argValue = underlyingTree;
+                }
             }
         }
     }
@@ -4424,6 +4439,8 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #endif // !defined(HOST_UNIX) && defined(TARGET_ARM64)
                                                                     ))
         {
+            // TODO-MIKE-CQ: Use MorphPromotedRegisterCallArg to avoid this limitation.
+
             // See if we have two promoted fields that start at offset 0 and 8?
             unsigned loVarNum = lvaGetFieldLocal(varDsc, 0);
             unsigned hiVarNum = lvaGetFieldLocal(varDsc, TARGET_POINTER_SIZE);
@@ -4556,33 +4573,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             // The allocated size of our LocalVar must be at least as big as lastOffset
             assert(varDsc->lvSize() >= lastOffset);
 
-            if (varDsc->HasGCPtr())
-            {
-                // alignment of the baseOffset is required
-                noway_assert((baseOffset % TARGET_POINTER_SIZE) == 0);
-#ifndef UNIX_AMD64_ABI
-                noway_assert(elemSize == TARGET_POINTER_SIZE);
-#endif
-                unsigned     baseIndex = baseOffset / TARGET_POINTER_SIZE;
-                ClassLayout* layout    = varDsc->GetLayout();
-                for (unsigned inx = 0; (inx < elemCount); inx++)
-                {
-                    // The GC information must match what we setup using 'objClass'
-                    if (layout->IsGCPtr(baseIndex + inx) || varTypeGCtype(type[inx]))
-                    {
-                        noway_assert(type[inx] == layout->GetGCPtrType(baseIndex + inx));
-                    }
-                }
-            }
-            else //  this varDsc contains no GC pointers
-            {
-                for (unsigned inx = 0; inx < elemCount; inx++)
-                {
-                    // The GC information must match what we setup using 'objClass'
-                    noway_assert(!varTypeIsGC(type[inx]));
-                }
-            }
-
             //
             // We create a list of GT_LCL_FLDs nodes to pass this struct
             //
@@ -4592,11 +4582,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             //    replace the existing LDOBJ(ADDR(LCLVAR))
             //    with a FIELD_LIST(LCLFLD-LO, LCLFLD-HI)
             //
-            unsigned offset = baseOffset;
+            unsigned offset = 0;
             newArg          = new (this, GT_FIELD_LIST) GenTreeFieldList();
             for (unsigned inx = 0; inx < elemCount; inx++)
             {
-                GenTree* nextLclFld = gtNewLclFldNode(varNum, type[inx], offset);
+                GenTree* nextLclFld = gtNewLclFldNode(varNum, type[inx], baseOffset + offset);
                 newArg->AddField(this, nextLclFld, offset, type[inx]);
                 offset += genTypeSize(type[inx]);
             }
@@ -4674,8 +4664,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     arg = newArg; // consider calling fgMorphTree(newArg);
 
-#endif // FEATURE_MULTIREG_ARGS
-
     return arg;
 }
 
@@ -4705,6 +4693,7 @@ GenTreeFieldList* Compiler::fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl)
     }
     return fieldList;
 }
+#endif // FEATURE_MULTIREG_ARGS
 
 //------------------------------------------------------------------------
 // fgMakeOutgoingStructArgCopy: make a copy of a struct variable if necessary,
