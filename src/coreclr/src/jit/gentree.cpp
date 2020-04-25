@@ -721,6 +721,14 @@ int GenTree::GetRegisterDstCount() const
 #endif
     }
 #endif
+
+#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
+    if (OperIs(GT_HWINTRINSIC))
+    {
+        assert(TypeGet() == TYP_STRUCT);
+        return 2;
+    }
+#endif
     assert(!"Unexpected multi-reg node");
     return 0;
 }
@@ -4988,6 +4996,47 @@ bool GenTree::OperMayThrow(Compiler* comp)
     return false;
 }
 
+//-----------------------------------------------------------------------------------
+// GetFieldCount: Return the register count for a multi-reg lclVar.
+//
+// Arguments:
+//     compiler - the current Compiler instance.
+//
+// Return Value:
+//     Returns the number of registers defined by this node.
+//
+// Notes:
+//     This must be a multireg lclVar.
+//
+unsigned int GenTreeLclVar::GetFieldCount(Compiler* compiler)
+{
+    assert(IsMultiReg());
+    LclVarDsc* varDsc = compiler->lvaGetDesc(GetLclNum());
+    return varDsc->lvFieldCnt;
+}
+
+//-----------------------------------------------------------------------------------
+// GetFieldTypeByIndex: Get a specific register's type, based on regIndex, that is produced
+//                    by this multi-reg node.
+//
+// Arguments:
+//     compiler - the current Compiler instance.
+//     idx      - which register type to return.
+//
+// Return Value:
+//     The register type assigned to this index for this node.
+//
+// Notes:
+//     This must be a multireg lclVar and 'regIndex' must be a valid index for this node.
+//
+var_types GenTreeLclVar::GetFieldTypeByIndex(Compiler* compiler, unsigned idx)
+{
+    assert(IsMultiReg());
+    LclVarDsc* varDsc      = compiler->lvaGetDesc(GetLclNum());
+    LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + idx);
+    return fieldVarDsc->TypeGet();
+}
+
 #if DEBUGGABLE_GENTREE
 // static
 GenTree::VtablePtr GenTree::s_vtablesForOpers[] = {nullptr};
@@ -5968,7 +6017,19 @@ GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
 
     if (lhs->OperIs(GT_OBJ))
     {
-        gtSetObjGcInfo(lhs->AsObj());
+        GenTreeObj* lhsObj = lhs->AsObj();
+#if DEBUG
+        // Codegen for CpObj assumes that we cannot have a struct with GC pointers whose size is not a multiple
+        // of the register size. The EE currently does not allow this to ensure that GC pointers are aligned
+        // if the struct is stored in an array. Note that this restriction doesn't apply to stack-allocated objects:
+        // they are never stored in arrays. We should never get to this method with stack-allocated objects since they
+        // are never copied so we don't need to exclude them from the assert below.
+        // Let's assert it just to be safe.
+        ClassLayout* layout = lhsObj->GetLayout();
+        unsigned     size   = layout->GetSize();
+        assert((layout->GetGCPtrCount() == 0) || (roundUp(size, REGSIZE_BYTES) == size));
+#endif
+        gtSetObjGcInfo(lhsObj);
     }
 
     if (srcAddr->OperGet() == GT_ADDR)
@@ -6942,6 +7003,7 @@ GenTree* Compiler::gtCloneExpr(
 
             copy = new (this, GT_HWINTRINSIC)
                 GenTreeHWIntrinsic(from->TypeGet(), from->gtHWIntrinsicId, from->gtSIMDBaseType, from->gtSIMDSize);
+            copy->AsHWIntrinsic()->gtIndexBaseType = from->gtIndexBaseType;
             copy->AsHWIntrinsic()->SetNumOps(from->GetNumOps(), getAllocator(CMK_ASTNode));
 
             for (unsigned i = 0; i < from->GetNumOps(); i++)
@@ -8787,6 +8849,12 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
                     --msgLength;
                     break;
                 }
+                if (tree->gtFlags & GTF_VAR_MULTIREG)
+                {
+                    printf((tree->gtFlags & GTF_VAR_DEF) ? "M" : "m");
+                    --msgLength;
+                    break;
+                }
                 if (tree->gtFlags & GTF_VAR_DEF)
                 {
                     printf("D");
@@ -8964,18 +9032,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
                 if (layout != nullptr)
                 {
-                    if (layout->IsBlockLayout())
-                    {
-                        printf("<%u>", layout->GetSize());
-                    }
-                    else if (varTypeIsSIMD(tree->TypeGet()))
-                    {
-                        printf("<%s>", layout->GetClassName());
-                    }
-                    else
-                    {
-                        printf("<%s, %u>", layout->GetClassName(), layout->GetSize());
-                    }
+                    gtDispClassLayout(layout, tree->TypeGet());
                 }
             }
 
@@ -9330,6 +9387,69 @@ void Compiler::gtDispLclVar(unsigned lclNum, bool padForBiggestDisp)
     if (padForBiggestDisp && (charsPrinted < LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH))
     {
         printf("%*c", LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH - charsPrinted, ' ');
+    }
+}
+
+//------------------------------------------------------------------------
+// gtDispLclVarStructType: Print size and type information about a struct or lclBlk local variable.
+//
+// Arguments:
+//   lclNum - The local var id.
+//
+void Compiler::gtDispLclVarStructType(unsigned lclNum)
+{
+    LclVarDsc* varDsc = lvaGetDesc(lclNum);
+    var_types  type   = varDsc->TypeGet();
+    if (type == TYP_STRUCT)
+    {
+        ClassLayout* layout = varDsc->GetLayout();
+        assert(layout != nullptr);
+        gtDispClassLayout(layout, type);
+    }
+    else if (type == TYP_LCLBLK)
+    {
+#if FEATURE_FIXED_OUT_ARGS
+        assert(lclNum == lvaOutgoingArgSpaceVar);
+        // Since lvaOutgoingArgSpaceSize is a PhasedVar we can't read it for Dumping until
+        // after we set it to something.
+        if (lvaOutgoingArgSpaceSize.HasFinalValue())
+        {
+            // A PhasedVar<T> can't be directly used as an arg to a variadic function
+            unsigned value = lvaOutgoingArgSpaceSize;
+            printf("<%u> ", value);
+        }
+        else
+        {
+            printf("<na> "); // The value hasn't yet been determined
+        }
+#else
+        assert(!"Unknown size");
+        NO_WAY("Target doesn't support TYP_LCLBLK");
+#endif // FEATURE_FIXED_OUT_ARGS
+    }
+}
+
+//------------------------------------------------------------------------
+// gtDispClassLayout: Print size and type information about a layout.
+//
+// Arguments:
+//   layout - the layout;
+//   type   - variable type, used to avoid printing size for SIMD nodes.
+//
+void Compiler::gtDispClassLayout(ClassLayout* layout, var_types type)
+{
+    assert(layout != nullptr);
+    if (layout->IsBlockLayout())
+    {
+        printf("<%u>", layout->GetSize());
+    }
+    else if (varTypeIsSIMD(type))
+    {
+        printf("<%s>", layout->GetClassName());
+    }
+    else
+    {
+        printf("<%s, %u>", layout->GetClassName(), layout->GetSize());
     }
 }
 
@@ -10159,6 +10279,8 @@ void Compiler::gtDispTree(GenTree*     tree,
             {
                 printf(" %s", eeGetFieldName(tree->AsField()->gtFldHnd), 0);
             }
+
+            gtDispCommonEndLine(tree);
 
             if (tree->AsField()->gtFldObj && !topOnly)
             {
@@ -15968,7 +16090,7 @@ GenTree* Compiler::gtGetSIMDZero(var_types simdType, var_types baseType, CORINFO
         switch (simdType)
         {
             case TYP_SIMD16:
-                if (compSupports(InstructionSet_SSE))
+                if (compExactlyDependsOn(InstructionSet_SSE))
                 {
                     // We only return the HWIntrinsicNode if SSE is supported, since it is possible for
                     // the user to disable the SSE HWIntrinsic support via the COMPlus configuration knobs
@@ -15977,7 +16099,7 @@ GenTree* Compiler::gtGetSIMDZero(var_types simdType, var_types baseType, CORINFO
                 }
                 return nullptr;
             case TYP_SIMD32:
-                if (compSupports(InstructionSet_AVX))
+                if (compExactlyDependsOn(InstructionSet_AVX))
                 {
                     // We only return the HWIntrinsicNode if AVX is supported, since it is possible for
                     // the user to disable the AVX HWIntrinsic support via the COMPlus configuration knobs
@@ -17328,7 +17450,7 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
     assert(gtOper == GT_HWINTRINSIC);
     assert(comp != nullptr);
 
-#ifdef TARGET_XARCH
+#if defined(TARGET_XARCH)
     if (!comp->canUseVexEncoding())
     {
         return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->gtHWIntrinsicId);
@@ -17359,9 +17481,11 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
             return false;
         }
     }
+#elif defined(TARGET_ARM64)
+    return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->gtHWIntrinsicId);
 #else
     return false;
-#endif // TARGET_XARCH
+#endif
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,

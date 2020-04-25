@@ -1926,7 +1926,7 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     if (emitBarrier)
     {
 #ifdef TARGET_ARM64
-        instGen_MemoryBarrier(INS_BARRIER_OSHLD);
+        instGen_MemoryBarrier(INS_BARRIER_ISHLD);
 #else
         instGen_MemoryBarrier();
 #endif

@@ -1963,6 +1963,11 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             noway_assert(varTypeIsFloating(simdTree->gtSIMDBaseType));
             break;
 
+        case SIMDIntrinsicCeil:
+        case SIMDIntrinsicFloor:
+            assert(compiler->getSIMDSupportLevel() >= SIMD_SSE4_Supported);
+            break;
+
         case SIMDIntrinsicAdd:
         case SIMDIntrinsicSub:
         case SIMDIntrinsicMul:
@@ -2383,11 +2388,11 @@ int LinearScan::BuildSIMDBinaryRMWUses(GenTreeSIMD* node)
 //
 int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
-    NamedIntrinsic      intrinsicId = intrinsicTree->gtHWIntrinsicId;
-    var_types           baseType    = intrinsicTree->gtSIMDBaseType;
-    InstructionSet      isa         = HWIntrinsicInfo::lookupIsa(intrinsicId);
-    HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
-    int                 numArgs     = intrinsicTree->GetNumOps();
+    NamedIntrinsic         intrinsicId = intrinsicTree->gtHWIntrinsicId;
+    var_types              baseType    = intrinsicTree->gtSIMDBaseType;
+    CORINFO_InstructionSet isa         = HWIntrinsicInfo::lookupIsa(intrinsicId);
+    HWIntrinsicCategory    category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
+    int                    numArgs     = intrinsicTree->GetNumOps();
 
     // Set the AVX Flags if this instruction may use VEX encoding for SIMD operations.
     // Note that this may be true even if the ISA is not AVX (e.g. for platform-agnostic intrinsics
@@ -3045,6 +3050,7 @@ void LinearScan::SetContainsAVXFlags(unsigned sizeOfSIMDVector /* = 0*/)
 {
     if (compiler->canUseVexEncoding())
     {
+        compiler->compExactlyDependsOn(InstructionSet_AVX);
         compiler->GetEmitter()->SetContainsAVX(true);
         if (sizeOfSIMDVector == 32)
         {

@@ -9435,7 +9435,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
                                       unsigned          operandStringLength)
 {
     const char* lastUseChar = "";
-    if ((tree->gtFlags & GTF_VAR_DEATH) != 0)
+    if (tree->OperIsScalarLocal() && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
     {
         lastUseChar = "*";
     }

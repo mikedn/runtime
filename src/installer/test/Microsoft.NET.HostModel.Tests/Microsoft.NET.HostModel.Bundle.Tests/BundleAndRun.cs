@@ -7,7 +7,6 @@ using System.IO;
 using Xunit;
 using Microsoft.DotNet.Cli.Build.Framework;
 using Microsoft.DotNet.CoreSetup.Test;
-using Microsoft.NET.HostModel.Bundle;
 using BundleTests.Helpers;
 
 namespace Microsoft.NET.HostModel.Tests
@@ -33,17 +32,15 @@ namespace Microsoft.NET.HostModel.Tests
                 .HaveStdOutContaining("Wow! We now say hello to the big world and you.");
         }
 
-        private void BundleRun(TestProjectFixture fixture, string publishDir, string singleFileDir)
+        private void BundleRun(TestProjectFixture fixture, string publishPath, string singleFileDir)
         {
             var hostName = BundleHelper.GetHostName(fixture);
 
             // Run the App normally
-            RunTheApp(Path.Combine(publishDir, hostName));
+            RunTheApp(Path.Combine(publishPath, hostName));
 
             // Bundle to a single-file
-            // Bundle all content, until the host can handle other scenarios.
-            Bundler bundler = new Bundler(hostName, singleFileDir, BundleOptions.BundleAllContent);
-            string singleFile = bundler.GenerateBundle(publishDir);
+            string singleFile = BundleHelper.BundleApp(fixture);
 
             // Run the extracted app
             RunTheApp(singleFile);

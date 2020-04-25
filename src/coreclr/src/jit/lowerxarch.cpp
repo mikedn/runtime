@@ -3026,7 +3026,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     {
                         if (varTypeIsIntegral(baseType))
                         {
-                            // These intrinsics are "ins reg/mem, xmm" and don't
+                            // TODO-XARCH-CQ: These intrinsics are "ins reg/mem, xmm" and don't
                             // currently support containment.
                             return;
                         }
@@ -3143,6 +3143,17 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     switch (intrinsicId)
                     {
+                        case NI_SSE2_Extract:
+                        case NI_SSE41_Extract:
+                        case NI_SSE41_X64_Extract:
+                        case NI_AVX_ExtractVector128:
+                        case NI_AVX2_ExtractVector128:
+                        {
+                            // TODO-XARCH-CQ: These intrinsics are "ins reg/mem, xmm, imm8" and don't
+                            // currently support containment.
+                            break;
+                        }
+
                         case NI_SSE2_ShiftLeftLogical:
                         case NI_SSE2_ShiftRightArithmetic:
                         case NI_SSE2_ShiftRightLogical:
@@ -3170,6 +3181,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         case NI_SSE2_ShuffleHigh:
                         case NI_SSE2_ShuffleLow:
                         case NI_AVX2_Permute4x64:
+                        case NI_AVX2_Shuffle:
+                        case NI_AVX2_ShuffleHigh:
+                        case NI_AVX2_ShuffleLow:
                         {
                             // These intrinsics have op2 as an imm and op1 as a reg/mem
 
@@ -3226,6 +3240,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         default:
                         {
+                            assert("Unhandled containment for binary hardware intrinsic with immediate operand");
                             break;
                         }
                     }
@@ -3389,9 +3404,12 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         case NI_AVX_Compare:
                         case NI_AVX_CompareScalar:
                         case NI_AVX_DotProduct:
+                        case NI_AVX_InsertVector128:
                         case NI_AVX_Permute2x128:
                         case NI_AVX_Shuffle:
+                        case NI_AVX2_AlignRight:
                         case NI_AVX2_Blend:
+                        case NI_AVX2_InsertVector128:
                         case NI_AVX2_MultipleSumAbsoluteDifferences:
                         case NI_AVX2_Permute2x128:
                         case NI_PCLMULQDQ_CarrylessMultiply:
@@ -3409,6 +3427,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         default:
                         {
+                            assert("Unhandled containment for ternary hardware intrinsic with immediate operand");
                             break;
                         }
                     }

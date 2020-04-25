@@ -33,17 +33,6 @@ namespace Microsoft.NET.HostModel.Bundle
         // Assemblies are 16 bytes aligned, so that their sections can be memory-mapped cache aligned.
         public const int AssemblyAlignment = 16;
 
-        // This constructor will be deleted once the SDK is changed to use the new constructor
-        public Bundler(string hostName,
-                       string outputDir,
-                       bool embedPDBs,
-                       bool diagnosticOutput)
-            :this(hostName, outputDir,
-                  BundleOptions.BundleAllContent | ((embedPDBs) ? BundleOptions.BundleSymbolFiles : BundleOptions.None),
-                  diagnosticOutput: diagnosticOutput)
-        {
-        }
-
         public Bundler(string hostName,
                        string outputDir,
                        BundleOptions options = BundleOptions.None,
@@ -101,7 +90,7 @@ namespace Microsoft.NET.HostModel.Bundle
             return fileRelativePath.Equals(RuntimeConfigDevJson);
         }
 
-        bool ShouldExclude(FileType type)
+        bool ShouldExclude(FileType type, string relativePath)
         {
             switch (type)
             {
@@ -111,7 +100,7 @@ namespace Microsoft.NET.HostModel.Bundle
                     return false;
 
                 case FileType.NativeBinary:
-                    return !Options.HasFlag(BundleOptions.BundleNativeBinaries);
+                    return !Options.HasFlag(BundleOptions.BundleNativeBinaries) || Target.ShouldExclude(relativePath);
 
                 case FileType.Symbols:
                     return !Options.HasFlag(BundleOptions.BundleSymbolFiles);
@@ -240,22 +229,24 @@ namespace Microsoft.NET.HostModel.Bundle
 
                 foreach (var fileSpec in fileSpecs)
                 {
-                    if (IsHost(fileSpec.BundleRelativePath))
+                    string relativePath = fileSpec.BundleRelativePath;
+
+                    if (IsHost(relativePath))
                     {
                         continue;
                     }
 
-                    if (ShouldIgnore(fileSpec.BundleRelativePath))
+                    if (ShouldIgnore(relativePath))
                     {
-                        Tracer.Log($"Ignore: {fileSpec.BundleRelativePath}");
+                        Tracer.Log($"Ignore: {relativePath}");
                         continue;
                     }
 
                     FileType type = InferType(fileSpec);
 
-                    if (ShouldExclude(type))
+                    if (ShouldExclude(type, relativePath))
                     {
-                        Tracer.Log($"Exclude [{type}]: {fileSpec.BundleRelativePath}");
+                        Tracer.Log($"Exclude [{type}]: {relativePath}");
                         fileSpec.Excluded = true;
                         continue;
                     }
@@ -264,7 +255,7 @@ namespace Microsoft.NET.HostModel.Bundle
                     {
                         FileType targetType = Target.TargetSpecificFileType(type);
                         long startOffset = AddToBundle(bundle, file, targetType);
-                        FileEntry entry = BundleManifest.AddEntry(targetType, fileSpec.BundleRelativePath, startOffset, file.Length);
+                        FileEntry entry = BundleManifest.AddEntry(targetType, relativePath, startOffset, file.Length);
                         Tracer.Log($"Embed: {entry}");
                     }
                 }
@@ -279,42 +270,6 @@ namespace Microsoft.NET.HostModel.Bundle
             HostWriter.SetAsBundle(bundlePath, headerOffset);
 
             return bundlePath;
-        }
-
-        string RelativePath(string dirFullPath, string fileFullPath)
-        {
-            // This function is used in lieu of Path.GetRelativePath because
-            //   * Path.GetRelativePath() doesn't exist in netstandard2.0
-            //   * This implementation is pretty much only intended for testing.
-            //     SDK integration invokes GenerateBundle(fileSpecs) directly.
-            // 
-            // In later revisions, we should target netstandard2.1, and replace 
-            // this function with Path.GetRelativePath().
-
-            return fileFullPath.Substring(dirFullPath.TrimEnd(Path.DirectorySeparatorChar).Length).TrimStart(Path.DirectorySeparatorChar);
-        }
-
-        /// <summary>
-        /// Generate a bundle containind the (embeddable) files in sourceDir
-        /// </summary>
-        public string GenerateBundle(string sourceDir)
-        {
-            // Convert sourceDir to absolute path
-            sourceDir = Path.GetFullPath(sourceDir);
-
-            // Get all files in the source directory and all sub-directories.
-            string[] sources = Directory.GetFiles(sourceDir, searchPattern: "*", searchOption: SearchOption.AllDirectories);
-
-            // Sort the file names to keep the bundle construction deterministic.
-            Array.Sort(sources, StringComparer.Ordinal);
-
-            List<FileSpec> fileSpecs = new List<FileSpec>(sources.Length);
-            foreach (var file in sources)
-            {
-                fileSpecs.Add(new FileSpec(file, RelativePath(sourceDir, file)));
-            }
-
-            return GenerateBundle(fileSpecs);
         }
     }
 }
