@@ -9793,7 +9793,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 }
             }
 
-            if (!destSingleLclVarAsg && !destLclVar->lvRegStruct || (destLclVar->GetType() != dest->GetType()))
+            if (!destSingleLclVarAsg && (!destLclVar->lvRegStruct || (destLclVar->GetType() != dest->GetType())))
             {
                 lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
             }
@@ -9813,7 +9813,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 }
             }
 
-            if (!srcSingleLclVarAsg && !srcLclVar->lvRegStruct || (srcLclVar->GetType() != dest->GetType()))
+            if (!srcSingleLclVarAsg && (!srcLclVar->lvRegStruct || (srcLclVar->GetType() != dest->GetType())))
             {
                 lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_BlockOp));
             }

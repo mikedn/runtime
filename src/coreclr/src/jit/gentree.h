@@ -4677,6 +4677,7 @@ class GenTreeUse
     {
     }
 
+    GenTreeUse(GenTreeUse&&)      = default;
     GenTreeUse(const GenTreeUse&) = delete;
     GenTreeUse& operator=(const GenTreeUse&) = delete;
 
