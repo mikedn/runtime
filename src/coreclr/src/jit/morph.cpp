@@ -4247,25 +4247,19 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         assert(structSize == info.compCompHnd->getClassSize(objClass));
 
         // If we have a GT_OBJ of a GT_ADDR then we set argValue to the child node of the GT_ADDR.
-        GenTree* op1 = argObj->gtOp1;
-        if (op1->OperGet() == GT_ADDR)
+        if (argObj->GetAddr()->OperIs(GT_ADDR))
         {
-            GenTree* underlyingTree = op1->AsOp()->gtOp1;
+            GenTree* location = argObj->GetAddr()->AsUnOp()->GetOp(0);
 
-            // Only update to the same type.
-            if (underlyingTree->OperIs(GT_LCL_VAR) && (underlyingTree->TypeGet() == argValue->TypeGet()) &&
-                (objClass == gtGetStructHandleIfPresent(underlyingTree)))
+            if (location->OperIs(GT_LCL_VAR, GT_LCL_FLD) && (location->GetType() == argValue->GetType()))
             {
-                argValue = underlyingTree;
-            }
-            else if (underlyingTree->OperIs(GT_LCL_FLD) && (underlyingTree->GetType() == argValue->GetType()))
-            {
+                unsigned lclOffs = location->OperIs(GT_LCL_VAR) ? 0 : location->AsLclFld()->GetLclOffs();
+
                 // Make sure we don't hit the weird case of an indirection that expands beyond
-                // the end of the local variable, such LCL_FLDs should not be generated.
-                if ((underlyingTree->AsLclFld()->GetLclOffs() + structSize) <=
-                    lvaLclExactSize(underlyingTree->AsLclFld()->GetLclNum()))
+                // the end of the local variable, we should not generate LCL_FLDs in such cases.
+                if (lclOffs + structSize <= lvaLclExactSize(location->AsLclVarCommon()->GetLclNum()))
                 {
-                    argValue = underlyingTree;
+                    argValue = location;
                 }
             }
         }
