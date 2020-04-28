@@ -9995,6 +9995,9 @@ public:
     void fgMorphMultiregStructArgs(GenTreeCall* call);
     GenTree* fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr);
     GenTreeFieldList* fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl);
+#ifdef TARGET_ARM
+    bool fgCanMorphMultiregPromotedStructArg(CallArgInfo* argInfo, unsigned lclNum);
+#endif
 #endif
 
     bool killGCRefs(GenTree* tree);
