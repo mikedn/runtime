@@ -945,7 +945,9 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
 #endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
+
 #include "hwintrinsic.h"
+
 //------------------------------------------------------------------------
 // BuildHWIntrinsic: Set the NodeInfo for a GT_HWINTRINSIC tree.
 //
@@ -957,108 +959,95 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
 //
 int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
-    NamedIntrinsic         intrinsicId = intrinsicTree->gtHWIntrinsicId;
-    var_types              baseType    = intrinsicTree->gtSIMDBaseType;
-    CORINFO_InstructionSet isa         = HWIntrinsicInfo::lookupIsa(intrinsicId);
-    HWIntrinsicCategory    category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
-    int                    numArgs     = intrinsicTree->GetNumOps();
+    const HWIntrinsic intrin(intrinsicTree);
 
     int srcCount = 0;
     int dstCount = intrinsicTree->IsValue() ? 1 : 0;
 
-    if (numArgs > 0)
-    {
-        GenTree* op1 = nullptr;
-        GenTree* op2 = nullptr;
-        GenTree* op3 = nullptr;
+    // We may need to allocate an additional general-purpose register when an intrinsic has a non-const immediate
+    // operand and the intrinsic does not have an alternative non-const fallback form.
+    // However, for a case when the operand can take only two possible values - zero and one
+    // the codegen will use cbnz to do conditional branch.
+    bool mayNeedBranchTargetReg = (intrin.category == HW_Category_IMM) && !HWIntrinsicInfo::NoJmpTableImm(intrin.id) &&
+                                  (HWIntrinsicInfo::lookupImmUpperBound(intrin.id, intrinsicTree->gtSIMDSize,
+                                                                        intrinsicTree->gtSIMDBaseType) != 2);
 
-        switch (numArgs)
+    if (mayNeedBranchTargetReg)
+    {
+        bool needBranchTargetReg = false;
+
+        switch (intrin.id)
         {
-            case 1:
-                op1 = intrinsicTree->GetOp(0);
+            case NI_AdvSimd_Extract:
+            case NI_AdvSimd_Insert:
+                needBranchTargetReg = !intrin.op2->isContainedIntOrIImmed();
                 break;
-            case 2:
-                op1 = intrinsicTree->GetOp(0);
-                op2 = intrinsicTree->GetOp(1);
+
+            case NI_AdvSimd_ExtractVector64:
+            case NI_AdvSimd_ExtractVector128:
+                needBranchTargetReg = !intrin.op3->isContainedIntOrIImmed();
                 break;
-            case 3:
-            case 4:
-            case 5:
-                op1 = intrinsicTree->GetOp(0);
-                op2 = intrinsicTree->GetOp(1);
-                op3 = intrinsicTree->GetOp(2);
-                break;
+
             default:
                 unreached();
         }
 
-        GenTree* lastOp = intrinsicTree->GetLastOp();
-
-        if ((category == HW_Category_IMM) && !HWIntrinsicInfo::NoJmpTableImm(intrinsicId))
+        if (needBranchTargetReg)
         {
-            if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && !lastOp->isContainedIntOrIImmed())
-            {
-                assert(!lastOp->IsCnsIntOrI());
-
-                // We need two extra reg when lastOp isn't a constant so
-                // the offset into the jump table for the fallback path
-                // can be computed.
-                buildInternalIntRegisterDefForNode(intrinsicTree);
-                buildInternalIntRegisterDefForNode(intrinsicTree);
-            }
+            buildInternalIntRegisterDefForNode(intrinsicTree);
         }
+    }
 
-        // Determine whether this is an RMW operation where op2+ must be marked delayFree so that it
-        // is not allocated the same register as the target.
-        const bool isRMW = intrinsicTree->isRMWHWIntrinsic(compiler);
+    // Determine whether this is an RMW operation where op2+ must be marked delayFree so that it
+    // is not allocated the same register as the target.
+    const bool isRMW = intrinsicTree->isRMWHWIntrinsic(compiler);
 
-        bool tgtPrefOp1 = false;
+    bool tgtPrefOp1 = false;
 
-        // If we have an RMW intrinsic, we want to preference op1Reg to the target if
-        // op1 is not contained.
+    // If we have an RMW intrinsic, we want to preference op1Reg to the target if
+    // op1 is not contained.
+    if (isRMW)
+    {
+        tgtPrefOp1 = !intrin.op1->isContained();
+    }
+
+    if (intrinsicTree->OperIsMemoryLoadOrStore())
+    {
+        srcCount += BuildAddrUses(intrin.op1);
+    }
+    else if (tgtPrefOp1)
+    {
+        tgtPrefUse = BuildUse(intrin.op1);
+        srcCount++;
+    }
+    else
+    {
+        srcCount += BuildOperandUses(intrin.op1);
+    }
+
+    if (intrin.op2 != nullptr)
+    {
         if (isRMW)
         {
-            tgtPrefOp1 = !op1->isContained();
-        }
+            srcCount += BuildDelayFreeUses(intrin.op2);
 
-        if (intrinsicTree->OperIsMemoryLoadOrStore())
-        {
-            srcCount += BuildAddrUses(op1);
-        }
-        else if (tgtPrefOp1)
-        {
-            tgtPrefUse = BuildUse(op1);
-            srcCount++;
+            if (intrin.op3 != nullptr)
+            {
+                srcCount += BuildDelayFreeUses(intrin.op3);
+            }
         }
         else
         {
-            srcCount += BuildOperandUses(op1);
-        }
+            srcCount += BuildOperandUses(intrin.op2);
 
-        if (op2 != nullptr)
-        {
-            if (isRMW)
+            if (intrin.op3 != nullptr)
             {
-                srcCount += BuildDelayFreeUses(op2);
-
-                if (op3 != nullptr)
-                {
-                    srcCount += BuildDelayFreeUses(op3);
-                }
-            }
-            else
-            {
-                srcCount += BuildOperandUses(op2);
-
-                if (op3 != nullptr)
-                {
-                    srcCount += BuildOperandUses(op3);
-                }
+                srcCount += BuildOperandUses(intrin.op3);
             }
         }
-
-        buildInternalRegisterUses();
     }
+
+    buildInternalRegisterUses();
 
     if (dstCount == 1)
     {

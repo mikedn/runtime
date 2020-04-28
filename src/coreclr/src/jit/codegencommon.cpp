@@ -4591,7 +4591,8 @@ void CodeGen::genCheckUseBlockInit()
             continue;
         }
 
-        if (varNum == compiler->lvaInlinedPInvokeFrameVar || varNum == compiler->lvaStubArgumentVar)
+        if (varNum == compiler->lvaInlinedPInvokeFrameVar || varNum == compiler->lvaStubArgumentVar ||
+            varNum == compiler->lvaRetAddrVar)
         {
             continue;
         }
