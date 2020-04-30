@@ -4160,15 +4160,6 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
 #ifdef TARGET_ARM
 bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo)
 {
-    // TODO-MIKE-CQ: The code below needs to be slightly adjusted to handle HFAs. A previous
-    // implementation was also blocking this case but by wrongly checking if the lclvar is a
-    // HFA. That doesn't make sense and it only works if the arg value wasn't reinterpreted.
-    // In general, it doesn't make sense that locals other that parameters are marked as HFA.
-    if (argInfo->IsHfaRegArg())
-    {
-        return false;
-    }
-
     // Keep in sync with the logic in abiMorphPromotedStructArgToFieldList. It's unfortunate
     // that this logic needs to be duplicated. Perhaps abiMorphPromotedStructArgToFieldList
     // could be used during the initial argument morphing instead of being deferred to the
@@ -4180,6 +4171,39 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
     unsigned field           = 0;
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
     unsigned reg             = 0;
+
+    if (argInfo->IsHfaArg() && (argInfo->GetStackSlotCount() == 0))
+    {
+        if (regAndSlotCount > fieldCount)
+        {
+            return false;
+        }
+
+        var_types regType = argInfo->GetHfaType();
+        unsigned  regSize = varTypeSize(regType);
+
+        while (reg < regAndSlotCount)
+        {
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+            var_types  fieldType   = fieldLcl->GetType();
+
+            if (reg * regSize != fieldLcl->GetPromotedFieldOffset())
+            {
+                return false;
+            }
+
+            if (regType != fieldType)
+            {
+                return false;
+            }
+
+            field++;
+            reg++;
+        }
+
+        return true;
+    }
 
     // Note that the number of slots can be very high, if a smaller struct is passed as a very
     // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
@@ -4254,6 +4278,34 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
     unsigned field           = 0;
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
     unsigned reg             = 0;
+
+    if (argInfo->IsHfaArg() && (argInfo->GetStackSlotCount() == 0))
+    {
+        assert(regAndSlotCount <= fieldCount);
+
+        var_types regType = argInfo->GetHfaType();
+        unsigned  regSize = varTypeSize(regType);
+
+        while (reg < regAndSlotCount)
+        {
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+
+            // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
+            assert(reg * regSize == fieldLcl->GetPromotedFieldOffset());
+            assert(regType == fieldLcl->GetType());
+
+            var_types fieldType = fieldLcl->GetType();
+            GenTree*  fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
+
+            reg++;
+
+            list->AddField(this, fieldNode, fieldLcl->GetPromotedFieldOffset(), fieldType);
+            field++;
+        }
+
+        return list;
+    }
 
     while ((field < fieldCount) && (reg < regAndSlotCount))
     {
@@ -4378,8 +4430,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     // Other code below only recognizes OBJ(ADDR(LCL_VAR)).
     GenTreeLclVar* lcl = fgIsIndirOfAddrOfLocal(arg);
 
-    if ((lcl != nullptr) && (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
-        !fgEntryPtr->IsHfaRegArg())
+    if ((lcl != nullptr) && (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
     {
         return abiMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr);
     }
