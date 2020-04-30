@@ -1746,6 +1746,16 @@ public:
         return numSlots + numRegs;
     }
 
+    unsigned GetRegCount()
+    {
+        return numRegs;
+    }
+
+    unsigned GetStackSlotCount()
+    {
+        return numSlots;
+    }
+
     // Returns the size as a multiple of pointer-size.
     // For targets without HFAs, this is the same as getSlotCount().
     unsigned getSize()
@@ -9996,7 +10006,8 @@ public:
     GenTree* fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr);
     GenTreeFieldList* fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl);
 #ifdef TARGET_ARM
-    bool fgCanMorphMultiregPromotedStructArg(CallArgInfo* argInfo, unsigned lclNum);
+    bool abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
+    GenTreeFieldList* abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
 #endif
 #endif
 

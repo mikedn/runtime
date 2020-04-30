@@ -3679,7 +3679,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     // TODO-1stClassStructs: Unify these conditions across targets.
                     if (((lclVar != nullptr) &&
                          (lvaGetPromotionType(lclVar->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
-                         !fgCanMorphMultiregPromotedStructArg(argEntry, lclVar->GetLclNum())) ||
+                         !abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lclVar), argEntry)) ||
                         ((argObj->OperIs(GT_OBJ)) && (passingSize != structSize)))
                     {
                         copyBlkClass = objClass;
@@ -4158,46 +4158,188 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
 }
 
 #ifdef TARGET_ARM
-bool Compiler::fgCanMorphMultiregPromotedStructArg(CallArgInfo* argInfo, unsigned lclNum)
+bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo)
 {
-    // TODO-MIKE-Cleanup: Convoluted condition copied from fgMorphMultiregStructArg.
-    if ((argInfo->IsSplit() && argInfo->numSlots + argInfo->numRegs > 4) ||
-        (!argInfo->IsSplit() && argInfo->GetRegNum() == REG_STK))
+    // TODO-MIKE-CQ: The code below needs to be slightly adjusted to handle HFAs. A previous
+    // implementation was also blocking this case but by wrongly checking if the lclvar is a
+    // HFA. That doesn't make sense and it only works if the arg value wasn't reinterpreted.
+    // In general, it doesn't make sense that locals other that parameters are marked as HFA.
+    if (argInfo->IsHfaRegArg())
     {
         return false;
     }
 
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    // Keep in sync with the logic in abiMorphPromotedStructArgToFieldList. It's unfortunate
+    // that this logic needs to be duplicated. Perhaps abiMorphPromotedStructArgToFieldList
+    // could be used during the initial argument morphing instead of being deferred to the
+    // multireg argument morphing. Probably the main issue is that arg sorting doesn't have
+    // special handling for FIELD_LIST like it does for LCL_VAR and this may have a negative
+    // impact on CQ if the arg ordering ends up being worse. It's not that good to begin with.
 
-    // TODO-MIKE-CQ: This restriction doesn't make sense.
-    if (lcl->lvIsHfa())
+    unsigned fieldCount      = lcl->GetPromotedFieldCount();
+    unsigned field           = 0;
+    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
+    unsigned reg             = 0;
+
+    // Note that the number of slots can be very high, if a smaller struct is passed as a very
+    // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
+    // fields which is very low (currently limited to 4).
+
+    while ((field < fieldCount) && (reg < regAndSlotCount))
     {
-        return false;
-    }
-
-    unsigned requiredFieldCount = argInfo->numSlots + argInfo->numRegs;
-
-    if (requiredFieldCount > lcl->GetPromotedFieldCount())
-    {
-        return false;
-    }
-
-    for (unsigned reg = 0; reg < requiredFieldCount; reg++)
-    {
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(reg);
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
         LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
 
-        if (fieldLcl->GetPromotedFieldOffset() != reg * REGSIZE_BYTES)
+        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldLcl->GetPromotedFieldOffset())
+        {
+            // This register/slot doesn't overlap any promoted field. Must be padding
+            // so we can just load 0 if it's a register or skip it if it's a slot.
+            reg++;
+            continue;
+        }
+
+        if (reg * REGSIZE_BYTES != fieldLcl->GetPromotedFieldOffset())
         {
             // TODO-MIKE-CQ: Use MorphPromotedRegisterCallArg to handle the case of multiple
-            // fields being passed in a single register. What about the opposite case?
-            // A double field is passed in 2 int registers and BITCAST can handle that on ARM
-            // but such a BITCAST can't pass through decomposition.
+            // small int fields being passed in a single register.
             return false;
         }
+
+        var_types fieldType = fieldLcl->GetType();
+
+        if (fieldType == TYP_DOUBLE)
+        {
+            if (reg < argInfo->GetRegCount())
+            {
+                // We don't have decomposition support for LONG BITCAST so we cannot pass it in registers.
+                return false;
+            }
+
+            if (reg == regAndSlotCount - 1)
+            {
+                // We need to have at least 2 slots left to load a DOUBLE field.
+                return false;
+            }
+
+            reg += 2;
+        }
+        else if (fieldType == TYP_FLOAT)
+        {
+            reg++;
+        }
+        else if (fieldType == TYP_LONG)
+        {
+            reg += 2;
+        }
+        else
+        {
+            assert(varTypeIsGC(fieldType) || (fieldType == TYP_INT) || varTypeIsSmall(fieldType));
+
+            reg++;
+        }
+
+        field++;
     }
 
     return true;
+}
+
+GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo)
+{
+    GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    // Keep in sync with the logic in abiCanMorphPromotedStructArgToFieldList.
+
+    unsigned fieldCount      = lcl->GetPromotedFieldCount();
+    unsigned field           = 0;
+    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
+    unsigned reg             = 0;
+
+    while ((field < fieldCount) && (reg < regAndSlotCount))
+    {
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+
+        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldLcl->GetPromotedFieldOffset())
+        {
+            // This register/slot doesn't overlap any promoted field. Must be padding
+            // so we can just load 0 if it's a register or skip it if it's a slot.
+            if (reg < argInfo->GetRegCount())
+            {
+                list->AddField(this, gtNewZeroConNode(TYP_INT), reg * REGSIZE_BYTES, TYP_INT);
+            }
+
+            reg++;
+            continue;
+        }
+
+        // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
+        assert(reg * REGSIZE_BYTES == fieldLcl->GetPromotedFieldOffset());
+
+        var_types fieldType = fieldLcl->GetType();
+        GenTree*  fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
+
+        if (fieldType == TYP_DOUBLE)
+        {
+            // We don't have decomposition support for LONG BITCAST so we cannot pass it in registers.
+            assert(reg >= argInfo->GetRegCount());
+            // We need to have at least 2 slots left to load a DOUBLE field.
+            assert(reg != regAndSlotCount - 1);
+
+            reg += 2;
+        }
+        else if (fieldType == TYP_FLOAT)
+        {
+            if (reg < argInfo->GetRegCount())
+            {
+                fieldNode = gtNewBitCastNode(TYP_INT, fieldNode);
+                fieldType = TYP_INT;
+            }
+
+            reg++;
+        }
+        else if (fieldType == TYP_LONG)
+        {
+            // We need to have at least 2 registers/slots left to load a LONG field.
+            // If not, we can narrow it down to INT to load it.
+            if (reg == regAndSlotCount - 1)
+            {
+                fieldNode = gtNewCastNode(TYP_INT, fieldNode, false, TYP_INT);
+                fieldType = TYP_INT;
+                reg++;
+            }
+            else
+            {
+                reg += 2;
+            }
+        }
+        else
+        {
+            assert(varTypeIsGC(fieldType) || (fieldType == TYP_INT) || varTypeIsSmall(fieldType));
+
+            // Note that small type promoted fields are "normalize on load" but
+            // normalization isn't done here because struct padding bits aren't
+            // supposed to be accessed by normal code. Might be nice to insert
+            // a cast to zero extend small types if it doesn't hurt CQ too much.
+
+            fieldType = varActualType(fieldType);
+            reg++;
+        }
+
+        list->AddField(this, fieldNode, fieldLcl->GetPromotedFieldOffset(), fieldType);
+        field++;
+    }
+
+    // Zero out any remaining registers. Perhaps zeroing isn't strictly needed as these
+    // are basically padding bits but the backend won't allocate the arg register if a
+    // field is not added to the list.
+    while (reg < argInfo->GetRegCount())
+    {
+        list->AddField(this, gtNewZeroConNode(TYP_INT), reg * REGSIZE_BYTES, TYP_INT);
+        reg++;
+    }
+
+    return list;
 }
 #endif // TARGET_ARM
 
@@ -4230,6 +4372,18 @@ bool Compiler::fgCanMorphMultiregPromotedStructArg(CallArgInfo* argInfo, unsigne
 GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr)
 {
     assert(varTypeIsStruct(arg->TypeGet()));
+
+#ifdef TARGET_ARM
+    // This uses fgIsIndirOfAddrOfLocal to match fgMorphArgs.
+    // Other code below only recognizes OBJ(ADDR(LCL_VAR)).
+    GenTreeLclVar* lcl = fgIsIndirOfAddrOfLocal(arg);
+
+    if ((lcl != nullptr) && (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
+        !fgEntryPtr->IsHfaRegArg())
+    {
+        return abiMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr);
+    }
+#endif
 
 #if !defined(TARGET_ARMARCH) && !defined(UNIX_AMD64_ABI)
     NYI("fgMorphMultiregStructArg requires implementation for this target");
@@ -4490,49 +4644,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             //
             lvaSetVarDoNotEnregister(varNum DEBUG_ARG(DNER_LocalField));
         }
-#elif defined(TARGET_ARM)
-        if ((lvaGetPromotionType(varNum) == PROMOTION_TYPE_INDEPENDENT) &&
-            (elemCount <= varDsc->GetPromotedFieldCount()) && !varDsc->lvIsHfa())
-        {
-            // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
-            assert(fgCanMorphMultiregPromotedStructArg(fgEntryPtr, varNum));
-
-            newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-            for (unsigned i = 0; i < elemCount; i++)
-            {
-                unsigned   fieldLclNum = varDsc->GetPromotedFieldLclNum(i);
-                LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-                var_types  fieldType   = fieldLcl->GetType();
-                GenTree*   fieldNode   = gtNewLclvNode(fieldLclNum, fieldType);
-
-                if (fieldType == TYP_FLOAT)
-                {
-                    fieldNode = gtNewBitCastNode(TYP_INT, fieldNode);
-                }
-                else
-                {
-                    // Promoted field cannot overlap so if all have REGSIZE_BYTES multiple
-                    // offsets they can't have type DOUBLE or LONG (or any SIMD type).
-                    assert(varTypeIsGC(fieldType) || varTypeIsSmall(fieldType) || (fieldType == TYP_INT));
-
-                    // Note that small type promoted fields are "normalize on load" but
-                    // normalization isn't done here because struct padding bits aren't
-                    // supposed to be accessed by normal code.
-
-                    // Also note that, at least in theory, there could be GCness discrepancies
-                    // between the field and the arg register if struct reinterpretation was
-                    // used in user code.
-                    // TODO-MIKE-Review: It's not clear if this is something that needs to be
-                    // addressed. It's either a GC pointer reinterpreted as INT, which would be
-                    // a GC hole or an INT reinterpreted as GC pointer which should be harmless,
-                    // assuming it doesn't actually contain a GC heap address.
-                }
-
-                newArg->AddField(this, fieldNode, i * REGSIZE_BYTES, type[i]);
-            }
-        }
-#endif // TARGET_ARM
+#endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
     }
 
     // If we didn't set newarg to a new List Node tree

@@ -333,6 +333,18 @@ inline unsigned varTypeBitSize(var_types type)
     return varTypeSize(type) * 8;
 }
 
+extern const BYTE genActualTypes[TYP_COUNT];
+
+inline var_types varActualType(var_types type)
+{
+    // Spot check to make certain the table is in synch with the enum
+    assert(genActualTypes[TYP_DOUBLE] == TYP_DOUBLE);
+    assert(genActualTypes[TYP_REF] == TYP_REF);
+
+    assert(static_cast<unsigned>(type) < _countof(genActualTypes));
+    return static_cast<var_types>(genActualTypes[type]);
+}
+
 /*****************************************************************************/
 #endif // _VARTYPE_H_
 /*****************************************************************************/
