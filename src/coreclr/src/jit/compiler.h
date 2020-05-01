@@ -10005,7 +10005,7 @@ public:
     void fgMorphMultiregStructArgs(GenTreeCall* call);
     GenTree* fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr);
     GenTreeFieldList* fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl);
-#ifdef TARGET_ARMARCH
+#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
     bool abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
     GenTreeFieldList* abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
 #endif

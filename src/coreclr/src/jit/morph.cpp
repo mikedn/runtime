@@ -3637,7 +3637,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                         assert(argEntry->structDesc.passedInRegisters);
                         if (lclVar != nullptr)
                         {
-                            if (lvaGetPromotionType(lclVar->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
+                            if ((lvaGetPromotionType(lclVar->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
+                                !abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lclVar), argEntry))
                             {
                                 copyBlkClass = objClass;
                             }
@@ -3673,9 +3674,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     {
                         copyBlkClass = objClass;
                     }
-#endif
-
-#ifdef TARGET_ARM
+#elif defined(TARGET_ARM)
                     // TODO-1stClassStructs: Unify these conditions across targets.
                     if (((lclVar != nullptr) &&
                          (lvaGetPromotionType(lclVar->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
@@ -4157,7 +4156,7 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
     call->gtFlags |= (flagsSummary & GTF_ALL_EFFECT);
 }
 
-#ifdef TARGET_ARMARCH
+#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
 bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo)
 {
     // Keep in sync with the logic in abiMorphPromotedStructArgToFieldList. It's unfortunate
@@ -4172,6 +4171,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
     unsigned reg             = 0;
 
+#ifdef TARGET_ARMARCH
     if (argInfo->IsHfaArg() && (argInfo->GetStackSlotCount() == 0))
     {
         if (regAndSlotCount > fieldCount)
@@ -4204,6 +4204,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
 
         return true;
     }
+#endif // TARGET_ARMARCH
 
     // Note that the number of slots can be very high, if a smaller struct is passed as a very
     // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
@@ -4300,6 +4301,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
     unsigned reg             = 0;
 
+#ifdef TARGET_ARMARCH
     if (argInfo->IsHfaArg() && (argInfo->GetStackSlotCount() == 0))
     {
         assert(regAndSlotCount <= fieldCount);
@@ -4327,19 +4329,31 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 
         return list;
     }
+#endif // TARGET_ARMARCH
 
     while ((field < fieldCount) && (reg < regAndSlotCount))
     {
         unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
         LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
 
+        var_types regType = TYP_UNDEF;
+
+        if (reg < argInfo->GetRegCount())
+        {
+#ifdef UNIX_AMD64_ABI
+            regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_I_IMPL;
+#else
+            regType = TYP_I_IMPL;
+#endif
+        }
+
         if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldLcl->GetPromotedFieldOffset())
         {
             // This register/slot doesn't overlap any promoted field. Must be padding
             // so we can just load 0 if it's a register or skip it if it's a slot.
-            if (reg < argInfo->GetRegCount())
+            if (regType != TYP_UNDEF)
             {
-                list->AddField(this, gtNewZeroConNode(TYP_I_IMPL), reg * REGSIZE_BYTES, TYP_I_IMPL);
+                list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
             }
 
             reg++;
@@ -4355,7 +4369,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
         if (fieldType == TYP_DOUBLE)
         {
 #ifdef TARGET_64BIT
-            if (reg < argInfo->GetRegCount())
+            if (regType == TYP_LONG)
             {
                 fieldNode = gtNewBitCastNode(TYP_LONG, fieldNode);
                 fieldType = TYP_LONG;
@@ -4373,7 +4387,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
         }
         else if (fieldType == TYP_FLOAT)
         {
-            if (reg < argInfo->GetRegCount())
+            if (regType == TYP_I_IMPL)
             {
                 fieldNode = gtNewBitCastNode(TYP_INT, fieldNode);
                 fieldType = TYP_INT;
@@ -4384,6 +4398,12 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
         else if (fieldType == TYP_LONG)
         {
 #ifdef TARGET_64BIT
+            if (regType == TYP_DOUBLE)
+            {
+                fieldNode = gtNewBitCastNode(TYP_DOUBLE, fieldNode);
+                fieldType = TYP_DOUBLE;
+            }
+
             reg++;
 #else
             // We need to have at least 2 registers/slots left to load a LONG field.
@@ -4409,7 +4429,6 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
             // supposed to be accessed by normal code. Might be nice to insert
             // a cast to zero extend small types if it doesn't hurt CQ too much.
 
-            fieldType = varActualType(fieldType);
             reg++;
         }
 
@@ -4422,13 +4441,19 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
     // field is not added to the list.
     while (reg < argInfo->GetRegCount())
     {
-        list->AddField(this, gtNewZeroConNode(TYP_I_IMPL), reg * REGSIZE_BYTES, TYP_I_IMPL);
+#ifdef UNIX_AMD64_ABI
+        var_types regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_LONG;
+#else
+        var_types regType = TYP_I_IMPL;
+#endif
+
+        list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
         reg++;
     }
 
     return list;
 }
-#endif // TARGET_ARMARCH
+#endif // defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
 
 //-----------------------------------------------------------------------------
 // fgMorphMultiregStructArg:  Given a TYP_STRUCT arg from a call argument list,
@@ -4460,20 +4485,22 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 {
     assert(varTypeIsStruct(arg->TypeGet()));
 
-#ifdef TARGET_ARMARCH
+#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
     // This uses fgIsIndirOfAddrOfLocal to match fgMorphArgs.
     // Other code below only recognizes OBJ(ADDR(LCL_VAR)).
     GenTreeLclVar* lcl = fgIsIndirOfAddrOfLocal(arg);
 
     if ((lcl != nullptr) && (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64)
         && abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr)
+#elif defined(UNIX_AMD64_ABI)
+        && fgEntryPtr->isPassedInRegisters()
 #endif
             )
     {
         return abiMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr);
     }
-#endif
+#endif // defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
 
 #if !defined(TARGET_ARMARCH) && !defined(UNIX_AMD64_ABI)
     NYI("fgMorphMultiregStructArg requires implementation for this target");
