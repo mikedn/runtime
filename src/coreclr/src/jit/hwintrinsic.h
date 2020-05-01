@@ -620,18 +620,23 @@ struct HWIntrinsicInfo
 
 struct HWIntrinsic final
 {
+    NamedIntrinsic      id;
+    HWIntrinsicCategory category;
+    var_types           baseType;
+    unsigned            numOperands;
+    GenTree*            op1;
+    GenTree*            op2;
+    GenTree*            op3;
+
     HWIntrinsic(const GenTreeHWIntrinsic* node)
-        : numOperands(node->GetNumOps())
+        : id(node->gtHWIntrinsicId)
+        , category(HWIntrinsicInfo::lookupCategory(id))
+        , baseType(TYP_UNDEF)
+        , numOperands(node->GetNumOps())
         , op1(numOperands >= 1 ? node->GetOp(0) : nullptr)
         , op2(numOperands >= 2 ? node->GetOp(1) : nullptr)
         , op3(numOperands >= 3 ? node->GetOp(2) : nullptr)
-        , baseType(TYP_UNDEF)
     {
-        assert(node != nullptr);
-
-        id       = node->gtHWIntrinsicId;
-        category = HWIntrinsicInfo::lookupCategory(id);
-
         assert(HWIntrinsicInfo::RequiresCodegen(id));
 
         InitializeBaseType(node);
@@ -645,14 +650,6 @@ struct HWIntrinsic final
 
         return isTableDrivenCategory && isTableDrivenFlag;
     }
-
-    NamedIntrinsic      id;
-    HWIntrinsicCategory category;
-    GenTree*            op1;
-    GenTree*            op2;
-    GenTree*            op3;
-    int                 numOperands;
-    var_types           baseType;
 
 private:
     void InitializeBaseType(const GenTreeHWIntrinsic* node)
