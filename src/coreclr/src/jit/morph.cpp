@@ -4213,8 +4213,9 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
     {
         unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
         LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
 
-        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldLcl->GetPromotedFieldOffset())
+        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldOffset)
         {
             // This register/slot doesn't overlap any promoted field. Must be padding
             // so we can just load 0 if it's a register or skip it if it's a slot.
@@ -4222,7 +4223,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
             continue;
         }
 
-        if (reg * REGSIZE_BYTES != fieldLcl->GetPromotedFieldOffset())
+        if (reg * REGSIZE_BYTES != fieldOffset)
         {
             // TODO-MIKE-CQ: Use MorphPromotedRegisterCallArg to handle the case of multiple
             // small int, INT or FLOAT fields being passed in a single register.
@@ -4271,6 +4272,18 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
         }
 
         field++;
+
+        if (field < fieldCount)
+        {
+            unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field);
+            LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
+
+            if (nextFieldLcl->GetPromotedFieldOffset() < fieldOffset + REGSIZE_BYTES)
+            {
+                // The next field needs to be loaded in the same register, this isn't supported now.
+                return false;
+            }
+        }
     }
 
     return true;
