@@ -4274,12 +4274,24 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
 
         field++;
 
-        if (field < fieldCount)
+        // Check if subsequent fields overlap this slot.
+        for (; field < fieldCount; field++)
         {
             unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field);
             LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
+            unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
+            var_types  nextFieldType   = nextFieldLcl->GetType();
 
-            if (nextFieldLcl->GetPromotedFieldOffset() < fieldOffset + REGSIZE_BYTES)
+            if (nextFieldOffset >= fieldOffset + REGSIZE_BYTES)
+            {
+                // The next field doesn't overlap this slot.
+                break;
+            }
+
+            // Promoted fields are supposed to be aligned so a field should not straddle 2 slots.
+            assert(nextFieldOffset + varTypeSize(nextFieldType) <= fieldOffset + REGSIZE_BYTES);
+
+            if (reg <= argInfo->GetRegCount())
             {
                 // The next field needs to be loaded in the same register, this isn't supported now.
                 return false;
@@ -4335,6 +4347,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
     {
         unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
         LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
 
         var_types regType = TYP_UNDEF;
 
@@ -4347,7 +4360,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 #endif
         }
 
-        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldLcl->GetPromotedFieldOffset())
+        if (reg * REGSIZE_BYTES + REGSIZE_BYTES <= fieldOffset)
         {
             // This register/slot doesn't overlap any promoted field. Must be padding
             // so we can just load 0 if it's a register or skip it if it's a slot.
@@ -4361,7 +4374,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
         }
 
         // fgMorphArgs should have created a copy if the promoted local can't be passed directly in registers.
-        assert(reg * REGSIZE_BYTES == fieldLcl->GetPromotedFieldOffset());
+        assert(reg * REGSIZE_BYTES == fieldOffset);
 
         var_types fieldType = fieldLcl->GetType();
         GenTree*  fieldNode = gtNewLclvNode(fieldLclNum, fieldType);
@@ -4432,8 +4445,36 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
             reg++;
         }
 
-        list->AddField(this, fieldNode, fieldLcl->GetPromotedFieldOffset(), fieldType);
+        list->AddField(this, fieldNode, fieldOffset, fieldType);
         field++;
+
+        // Add subsequent fields that overlap this slot.
+        for (; field < fieldCount; field++)
+        {
+            unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field);
+            LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
+            unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
+            var_types  nextFieldType   = nextFieldLcl->GetType();
+
+            if (nextFieldOffset >= fieldOffset + REGSIZE_BYTES)
+            {
+                // The next field doesn't overlap this slot.
+                break;
+            }
+
+            // Promoted fields are supposed to be aligned so a field should not straddle 2 slots.
+            assert(nextFieldOffset + varTypeSize(nextFieldType) <= fieldOffset + REGSIZE_BYTES);
+            // The next field needs to be loaded in the same register, this isn't supported now.
+            assert(regType == TYP_UNDEF);
+#ifdef TARGET_64BIT
+            assert(varTypeIsSmall(nextFieldType) || (nextFieldType == TYP_INT) || (nextFieldType == TYP_FLOAT));
+#else
+            assert(varTypeIsSmall(nextFieldType));
+#endif
+
+            GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
+            list->AddField(this, nextFieldNode, nextFieldOffset, nextFieldType);
+        }
     }
 
     // Zero out any remaining registers. Perhaps zeroing isn't strictly needed as these
