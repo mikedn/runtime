@@ -4822,12 +4822,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     //
     if (newArg == nullptr)
     {
-        if (fgEntryPtr->GetRegNum() == REG_STK)
-        {
-            // We leave this stack passed argument alone
-            return arg;
-        }
-
         // Are we passing a GT_LCL_FLD (or a GT_LCL_VAR that was not struct promoted )
         // A GT_LCL_FLD could also contain a 16-byte struct or HFA struct inside it?
         //
