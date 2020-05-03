@@ -4808,13 +4808,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                 }
             }
         }
-        else
-        {
-            //
-            // We will create a list of GT_LCL_FLDs nodes to pass this struct
-            //
-            lvaSetVarDoNotEnregister(varNum DEBUG_ARG(DNER_LocalField));
-        }
 #endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
     }
 
