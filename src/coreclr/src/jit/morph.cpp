@@ -4531,6 +4531,10 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     // Other code below only recognizes OBJ(ADDR(LCL_VAR)).
     GenTreeLclVar* lcl = fgIsIndirOfAddrOfLocal(arg);
 
+    // TODO-MIKE-Cleanup: Sort out these inconsistencies. ARM32 makes a copy if an independent
+    // promoted struct cannot be passed directly in registers due to IR limitations, to avoid
+    // dependent promotion. ARM64 doesn't copy so it always triggers dependent promotion of any
+    // struct type that cannot be passed in registers (e.g. a struct with 2-4 INT fields).
     if ((lcl != nullptr) && (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
 #if defined(TARGET_ARM64)
         && abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr)
@@ -4746,15 +4750,23 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #endif // DEBUG
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-        // Is this LclVar a promoted struct with exactly 2 fields?
-        // TODO-ARM64-CQ: Support struct promoted HFA types here
         if (varDsc->lvPromoted && (varDsc->lvFieldCnt == 2) && (!varDsc->lvIsHfa()
 #if !defined(HOST_UNIX) && defined(TARGET_ARM64)
                                                                 && !fgEntryPtr->IsVararg()
 #endif // !defined(HOST_UNIX) && defined(TARGET_ARM64)
                                                                     ))
         {
-            // TODO-MIKE-CQ: Use MorphPromotedRegisterCallArg to avoid this limitation.
+            // TODO-MIKE-Cleanup: This is a very primitive version of abiMorphPromotedStructArgToFieldList. The
+            // difference is that abiMorphPromotedStructArgToFieldList is currently used only with independent
+            // promoted structs while this is used, mostly as a fallback, in the dependent case. It would likely
+            // be better to get rid of this and use abiMorphPromotedStructArgToFieldList in all cases.
+            //
+            // It may seem pointless to attempt to use the promoted fields in the dependent case, since they're
+            // in memory anyway we could just use the non-promoted code path which creates LCL_FLDs. But:
+            //   - The generated LCL_FLDs do not have field sequences so we lose CSE, const prop and whatever else
+            //     relies on value numbering.
+            //   - The generated LCL_FLDs have type TYP_LONG even when perhaps the type was a smaller int, this
+            //     makes the code larger due to extra REX prefixes.
 
             // See if we have two promoted fields that start at offset 0 and 8?
             unsigned loVarNum = lvaGetFieldLocal(varDsc, 0);
