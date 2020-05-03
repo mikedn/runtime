@@ -4736,11 +4736,15 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     GenTreeFieldList* newArg = nullptr;
 
-    if (argValue->OperIs(GT_LCL_VAR))
+    // Are we passing a GT_LCL_FLD (or a GT_LCL_VAR that was not struct promoted )
+    // A GT_LCL_FLD could also contain a 16-byte struct or HFA struct inside it?
+    //
+    if ((argValue->OperGet() == GT_LCL_FLD) || (argValue->OperGet() == GT_LCL_VAR))
     {
-        GenTreeLclVar* varNode = argValue->AsLclVar();
-        unsigned       varNum  = varNode->GetLclNum();
-        LclVarDsc*     varDsc  = lvaGetDesc(varNum);
+        GenTreeLclVarCommon* varNode = argValue->AsLclVarCommon();
+        unsigned             varNum  = varNode->GetLclNum();
+        assert(varNum < lvaCount);
+        LclVarDsc* varDsc = &lvaTable[varNum];
 
 #ifdef DEBUG
         if (verbose)
@@ -4809,22 +4813,9 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             }
         }
 #endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-    }
 
-    // If we didn't set newarg to a new List Node tree
-    //
-    if (newArg == nullptr)
-    {
-        // Are we passing a GT_LCL_FLD (or a GT_LCL_VAR that was not struct promoted )
-        // A GT_LCL_FLD could also contain a 16-byte struct or HFA struct inside it?
-        //
-        if ((argValue->OperGet() == GT_LCL_FLD) || (argValue->OperGet() == GT_LCL_VAR))
+        if (newArg == nullptr)
         {
-            GenTreeLclVarCommon* varNode = argValue->AsLclVarCommon();
-            unsigned             varNum  = varNode->GetLclNum();
-            assert(varNum < lvaCount);
-            LclVarDsc* varDsc = &lvaTable[varNum];
-
             unsigned baseOffset = argValue->OperIs(GT_LCL_FLD) ? argValue->AsLclFld()->GetLclOffs() : 0;
             unsigned lastOffset = baseOffset + structSize;
 
@@ -4849,80 +4840,67 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                 offset += genTypeSize(type[inx]);
             }
         }
-        // Are we passing a GT_OBJ struct?
-        //
-        else if (argValue->OperGet() == GT_OBJ)
+    }
+    // Are we passing a GT_OBJ struct?
+    //
+    else if (argValue->OperGet() == GT_OBJ)
+    {
+        GenTreeObj* argObj   = argValue->AsObj();
+        GenTree*    baseAddr = argObj->gtOp1;
+        var_types   addrType = baseAddr->TypeGet();
+
+        if (baseAddr->OperGet() == GT_ADDR)
         {
-            GenTreeObj* argObj   = argValue->AsObj();
-            GenTree*    baseAddr = argObj->gtOp1;
-            var_types   addrType = baseAddr->TypeGet();
-
-            if (baseAddr->OperGet() == GT_ADDR)
+            GenTree* addrTaken = baseAddr->AsOp()->gtOp1;
+            if (addrTaken->IsLocal())
             {
-                GenTree* addrTaken = baseAddr->AsOp()->gtOp1;
-                if (addrTaken->IsLocal())
-                {
-                    GenTreeLclVarCommon* varNode = addrTaken->AsLclVarCommon();
-                    unsigned             varNum  = varNode->GetLclNum();
-                    // We access non-struct type (for example, long) as a struct type.
-                    // Make sure lclVar lives on stack to make sure its fields are accessible by address.
-                    lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LocalField));
-                }
-            }
-
-            // Create a new tree for 'arg'
-            //    replace the existing LDOBJ(EXPR)
-            //    with a FIELD_LIST(IND(EXPR), FIELD_LIST(IND(EXPR+8), nullptr) ...)
-            //
-
-            newArg          = new (this, GT_FIELD_LIST) GenTreeFieldList();
-            unsigned offset = 0;
-            for (unsigned inx = 0; inx < elemCount; inx++)
-            {
-                GenTree* curAddr = baseAddr;
-                if (offset != 0)
-                {
-                    GenTree* baseAddrDup = gtCloneExpr(baseAddr);
-                    noway_assert(baseAddrDup != nullptr);
-                    curAddr = gtNewOperNode(GT_ADD, addrType, baseAddrDup, gtNewIconNode(offset, TYP_I_IMPL));
-                }
-                else
-                {
-                    curAddr = baseAddr;
-                }
-                GenTree* curItem = gtNewIndir(type[inx], curAddr);
-
-                // For safety all GT_IND should have at least GT_GLOB_REF set.
-                curItem->gtFlags |= GTF_GLOB_REF;
-
-                newArg->AddField(this, curItem, offset, type[inx]);
-                offset += genTypeSize(type[inx]);
+                GenTreeLclVarCommon* varNode = addrTaken->AsLclVarCommon();
+                unsigned             varNum  = varNode->GetLclNum();
+                // We access non-struct type (for example, long) as a struct type.
+                // Make sure lclVar lives on stack to make sure its fields are accessible by address.
+                lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LocalField));
             }
         }
-    }
 
-#ifdef DEBUG
-    // If we reach here we should have set newArg to something
-    if (newArg == nullptr)
+        // Create a new tree for 'arg'
+        //    replace the existing LDOBJ(EXPR)
+        //    with a FIELD_LIST(IND(EXPR), FIELD_LIST(IND(EXPR+8), nullptr) ...)
+        //
+
+        newArg          = new (this, GT_FIELD_LIST) GenTreeFieldList();
+        unsigned offset = 0;
+        for (unsigned inx = 0; inx < elemCount; inx++)
+        {
+            GenTree* curAddr = baseAddr;
+            if (offset != 0)
+            {
+                GenTree* baseAddrDup = gtCloneExpr(baseAddr);
+                noway_assert(baseAddrDup != nullptr);
+                curAddr = gtNewOperNode(GT_ADD, addrType, baseAddrDup, gtNewIconNode(offset, TYP_I_IMPL));
+            }
+            else
+            {
+                curAddr = baseAddr;
+            }
+            GenTree* curItem = gtNewIndir(type[inx], curAddr);
+
+            // For safety all GT_IND should have at least GT_GLOB_REF set.
+            curItem->gtFlags |= GTF_GLOB_REF;
+
+            newArg->AddField(this, curItem, offset, type[inx]);
+            offset += genTypeSize(type[inx]);
+        }
+    }
+    else
     {
-        gtDispTree(argValue);
-        assert(!"Missing case in fgMorphMultiregStructArg");
+        INDEBUG(gtDispTree(argValue);)
+        unreached();
     }
-#endif
 
-    noway_assert(newArg != nullptr);
+    JITDUMPTREE(newArg, "fgMorphMultiregStructArg created tree:\n");
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("fgMorphMultiregStructArg created tree:\n");
-        gtDispTree(newArg);
-    }
-#endif
-
-    arg = newArg; // consider calling fgMorphTree(newArg);
-
-    return arg;
+    // consider calling fgMorphTree(newArg);
+    return newArg;
 }
 
 //------------------------------------------------------------------------
