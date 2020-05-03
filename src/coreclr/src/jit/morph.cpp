@@ -4645,14 +4645,16 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     }
     noway_assert(objClass != NO_CLASS_HANDLE);
 
-    var_types hfaType                 = fgEntryPtr->GetHfaType();
     unsigned  elemCount               = 0;
     var_types type[MAX_ARG_REG_COUNT] = {}; // TYP_UNDEF = 0
+
+#ifdef FEATURE_HFA
+    var_types hfaType = fgEntryPtr->GetHfaType();
 
     if (varTypeIsValidHfaType(hfaType)
 #if !defined(HOST_UNIX) && defined(TARGET_ARM64)
         && !fgEntryPtr->IsVararg()
-#endif // !defined(HOST_UNIX) && defined(TARGET_ARM64)
+#endif
             )
     {
         unsigned elemSize = genTypeSize(hfaType);
@@ -4664,6 +4666,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         }
     }
     else
+#endif // FEATURE_HFA
     {
         assert(structSize <= MAX_ARG_REG_COUNT * TARGET_POINTER_SIZE);
         BYTE gcPtrs[MAX_ARG_REG_COUNT];
