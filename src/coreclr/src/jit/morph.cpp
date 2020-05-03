@@ -4742,8 +4742,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         unsigned       varNum  = varNode->GetLclNum();
         LclVarDsc*     varDsc  = lvaGetDesc(varNum);
 
-        varDsc->lvIsMultiRegArg = true;
-
 #ifdef DEBUG
         if (verbose)
         {
