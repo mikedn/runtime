@@ -1442,14 +1442,6 @@ struct fgArgTabEntry
 {
     GenTreeCall::Use* use;     // Points to the argument's GenTreeCall::Use in gtCallArgs or gtCallThisArg.
     GenTreeCall::Use* lateUse; // Points to the argument's GenTreeCall::Use in gtCallLateArgs, if any.
-
-    // Get the node that coresponds to this argument entry.
-    // This is the "real" node and not a placeholder or setup node.
-    GenTree* GetNode() const
-    {
-        return lateUse == nullptr ? use->GetNode() : lateUse->GetNode();
-    }
-
     unsigned argNum; // The original argument number, also specifies the required argument evaluation order from the IL
 
 private:
@@ -1473,8 +1465,10 @@ public:
     unsigned numSlots; // Count of number of slots that this argument uses
 
     unsigned alignment; // 1 or 2 (slots/registers)
+
 private:
     unsigned _lateArgInx; // index into gtCallLateArgs list; UINT_MAX if this is not a late arg.
+
 public:
     unsigned tmpNum; // the LclVar number if we had to force evaluation of this arg
 
@@ -1499,6 +1493,16 @@ public:
 #ifdef FEATURE_HFA
     HfaElemKind _hfaElemKind : 2; // What kind of an HFA this is (HFA_ELEM_NONE if it is not an HFA).
 #endif
+#if defined(UNIX_AMD64_ABI)
+    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
+#endif
+
+    // Get the node that coresponds to this argument entry.
+    // This is the "real" node and not a placeholder or setup node.
+    GenTree* GetNode() const
+    {
+        return lateUse == nullptr ? use->GetNode() : lateUse->GetNode();
+    }
 
     bool isLateArg()
     {
@@ -1511,6 +1515,7 @@ public:
         assert(isLateArg());
         return _lateArgInx;
     }
+
     void SetLateArgInx(unsigned inx)
     {
         _lateArgInx = inx;
@@ -1531,15 +1536,12 @@ public:
         return (regNumber)regNums[1];
     }
 
-#if defined(UNIX_AMD64_ABI)
-    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-#endif
-
     void setRegNum(unsigned int i, regNumber regNum)
     {
         assert(i < MAX_ARG_REG_COUNT);
         regNums[i] = (regNumberSmall)regNum;
     }
+
     regNumber GetRegNum(unsigned int i)
     {
         assert(i < MAX_ARG_REG_COUNT);
@@ -1569,6 +1571,7 @@ public:
         return false;
 #endif
     }
+
     void SetIsVararg(bool value)
     {
 #ifdef FEATURE_VARARG
