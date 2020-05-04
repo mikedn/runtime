@@ -1028,30 +1028,6 @@ unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
     return firstSlot;
 }
 
-void fgArgInfo::SplitArg(unsigned argNum, unsigned numRegs, unsigned numSlots)
-{
-    fgArgTabEntry* curArgTabEntry = nullptr;
-    assert(argNum < argCount);
-    for (unsigned inx = 0; inx < argCount; inx++)
-    {
-        curArgTabEntry = argTable[inx];
-        if (curArgTabEntry->argNum == argNum)
-        {
-            break;
-        }
-    }
-
-    assert(numRegs > 0);
-    assert(numSlots > 0);
-
-    unsigned firstSlot = AllocateStackSlots(numSlots, 1);
-    assert(firstSlot == INIT_ARG_STACK_SLOT);
-
-    curArgTabEntry->numRegs  = numRegs;
-    curArgTabEntry->numSlots = numSlots;
-    curArgTabEntry->slotNum  = firstSlot;
-}
-
 //------------------------------------------------------------------------
 // EvalToTmp: Replace the node in the given fgArgTabEntry with a temp
 //
@@ -3049,12 +3025,10 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
 #endif
 
-            // This is a register argument - put it in the table
-            newArgEntry = call->fgArgInfo->AddRegArg(argIndex, argx, args, nextRegNum, size, isStructArg,
-                                                     callIsVararg UNIX_AMD64_ABI_ONLY_ARG(nextOtherRegNum)
-                                                         UNIX_AMD64_ABI_ONLY_ARG(&structDesc));
-
-            newArgEntry->isNonStandard = isNonStandard;
+            unsigned regCount = size;
+#if FEATURE_ARG_SPLIT
+            unsigned slotCount = 0;
+#endif
 
             // Set up the next intArgRegNum and fltArgRegNum values.
             if (!isBackFilled)
@@ -3078,9 +3052,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                             // This indicates a partial enregistration of a struct type
                             assert((isStructArg) || argx->OperIs(GT_FIELD_LIST) || argx->OperIsCopyBlkOp() ||
                                    (argx->gtOper == GT_COMMA && (argx->gtFlags & GTF_ASG)));
-                            unsigned numRegsPartial = MAX_REG_ARG - intArgRegNum;
-                            assert((unsigned char)numRegsPartial == numRegsPartial);
-                            call->fgArgInfo->SplitArg(argIndex, numRegsPartial, size - numRegsPartial);
+
+                            regCount           = MAX_REG_ARG - intArgRegNum;
+                            slotCount          = size - regCount;
+                            unsigned firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
+                            assert(firstSlot == INIT_ARG_STACK_SLOT);
                         }
 #endif // FEATURE_ARG_SPLIT
 
@@ -3108,6 +3084,15 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     }
                 }
             }
+
+            newArgEntry = call->fgArgInfo->AddRegArg(argIndex, argx, args, nextRegNum, regCount, isStructArg,
+                                                     callIsVararg UNIX_AMD64_ABI_ONLY_ARG(nextOtherRegNum)
+                                                         UNIX_AMD64_ABI_ONLY_ARG(&structDesc));
+
+            newArgEntry->isNonStandard = isNonStandard;
+#if FEATURE_ARG_SPLIT
+            newArgEntry->numSlots = slotCount;
+#endif
         }
         else // We have an argument that is not passed in a register
         {
