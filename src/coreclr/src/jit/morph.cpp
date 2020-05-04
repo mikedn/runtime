@@ -989,7 +989,12 @@ fgArgTabEntry* fgArgInfo::AddRegArg(unsigned                                    
 
     if (isStruct && structDescPtr != nullptr)
     {
-        argInfo->structDesc.CopyFrom(*structDescPtr);
+        for (unsigned i = 0; i < numRegs; i++)
+        {
+            argInfo->SetRegType(i,
+                                Compiler::GetTypeFromClassificationAndSizes(structDescPtr->eightByteClassifications[i],
+                                                                            structDescPtr->eightByteSizes[i]));
+        }
     }
 
     return argInfo;
@@ -3111,13 +3116,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             // This is a stack argument - put it in the table
             newArgEntry = call->fgArgInfo->AddStkArg(argIndex, argx, args, size, argAlign, isStructArg, callIsVararg);
-#ifdef UNIX_AMD64_ABI
-            // TODO-Amd64-Unix-CQ: This is temporary (see also in fgMorphArgs).
-            if (structDesc.passedInRegisters)
-            {
-                newArgEntry->structDesc.CopyFrom(structDesc);
-            }
-#endif
         }
 
 #ifdef FEATURE_HFA
@@ -3381,7 +3379,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     // actually passed in registers.
                     if (argEntry->isPassedInRegisters())
                     {
-                        assert(argEntry->structDesc.passedInRegisters);
                         if (lclVar != nullptr)
                         {
                             if ((lvaGetPromotionType(lclVar->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
@@ -4408,8 +4405,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #ifdef UNIX_AMD64_ABI
             if (gcPtrs[inx] == TYPE_GC_NONE)
             {
-                type[inx] = GetTypeFromClassificationAndSizes(fgEntryPtr->structDesc.eightByteClassifications[inx],
-                                                              fgEntryPtr->structDesc.eightByteSizes[inx]);
+                type[inx] = fgEntryPtr->GetRegType(inx);
             }
             else
 #endif // UNIX_AMD64_ABI

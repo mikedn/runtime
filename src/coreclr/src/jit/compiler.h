@@ -1468,8 +1468,8 @@ struct fgArgTabEntry
 #ifdef FEATURE_HFA
     HfaElemKind _hfaElemKind : 2; // What kind of an HFA this is (HFA_ELEM_NONE if it is not an HFA).
 #endif
-#if defined(UNIX_AMD64_ABI)
-    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
+#ifdef UNIX_AMD64_ABI
+    var_types regTypes[MAX_ARG_REG_COUNT];
 #endif
 private:
     regNumberSmall regNums[MAX_ARG_REG_COUNT]; // The registers to use when passing this argument, set to REG_STK for
@@ -1530,6 +1530,20 @@ public:
         assert(i < MAX_ARG_REG_COUNT);
         return static_cast<regNumber>(regNums[i]);
     }
+
+#ifdef UNIX_AMD64_ABI
+    void SetRegType(unsigned i, var_types type)
+    {
+        assert(i < MAX_ARG_REG_COUNT);
+        regTypes[i] = type;
+    }
+
+    var_types GetRegType(unsigned i) const
+    {
+        assert(i < numRegs);
+        return regTypes[i];
+    }
+#endif
 
     bool IsVararg()
     {
