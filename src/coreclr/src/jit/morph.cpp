@@ -1009,18 +1009,23 @@ fgArgTabEntry* fgArgInfo::AddStkArg(unsigned          argNum,
                                     bool              isStruct,
                                     bool              isVararg /*=false*/)
 {
-    nextSlotNum = roundUp(nextSlotNum, alignment);
-
     CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, node->GetType(), use, isStruct, isVararg);
     argInfo->setRegNum(0, REG_STK);
-    argInfo->slotNum  = nextSlotNum;
+    argInfo->slotNum  = AllocateStackSlots(numSlots, alignment);
     argInfo->numSlots = numSlots;
 
-    hasStackArgs = true;
     AddArg(argInfo);
-
-    nextSlotNum += numSlots;
     return argInfo;
+}
+
+unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
+{
+    assert(!argsComplete);
+
+    unsigned firstSlot = roundUp(nextSlotNum, alignment);
+    nextSlotNum        = firstSlot + slotCount;
+    hasStackArgs       = true;
+    return firstSlot;
 }
 
 void fgArgInfo::SplitArg(unsigned argNum, unsigned numRegs, unsigned numSlots)
@@ -1039,20 +1044,12 @@ void fgArgInfo::SplitArg(unsigned argNum, unsigned numRegs, unsigned numSlots)
     assert(numRegs > 0);
     assert(numSlots > 0);
 
-    if (argsComplete)
-    {
-        assert(curArgTabEntry->IsSplit() == true);
-        assert(curArgTabEntry->numRegs == numRegs);
-        assert(curArgTabEntry->numSlots == numSlots);
-        assert(hasStackArgs == true);
-    }
-    else
-    {
-        curArgTabEntry->numRegs  = numRegs;
-        curArgTabEntry->numSlots = numSlots;
-        hasStackArgs             = true;
-    }
-    nextSlotNum += numSlots;
+    unsigned firstSlot = AllocateStackSlots(numSlots, 1);
+    assert(firstSlot == INIT_ARG_STACK_SLOT);
+
+    curArgTabEntry->numRegs  = numRegs;
+    curArgTabEntry->numSlots = numSlots;
+    curArgTabEntry->slotNum  = firstSlot;
 }
 
 //------------------------------------------------------------------------

@@ -1847,6 +1847,8 @@ public:
                              bool              isStruct,
                              bool              isVararg = false);
 
+    unsigned AllocateStackSlots(unsigned slotCount, unsigned alignment);
+
     void SplitArg(unsigned argNum, unsigned numRegs, unsigned numSlots);
 
     void EvalToTmp(fgArgTabEntry* curArgTabEntry, unsigned tmpNum, GenTree* newNode);
