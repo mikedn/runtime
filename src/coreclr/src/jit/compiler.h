@@ -137,7 +137,7 @@ const int BAD_STK_OFFS = 0xBAADF00D; // for LclVarDsc::lvStkOffs
 // HFA info shared by LclVarDsc and fgArgTabEntry
 //------------------------------------------------------------------------
 #ifdef FEATURE_HFA
-enum HfaElemKind : unsigned int
+enum HfaElemKind : unsigned char
 {
     HFA_ELEM_NONE,
     HFA_ELEM_FLOAT,
