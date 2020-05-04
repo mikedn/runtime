@@ -1444,10 +1444,6 @@ struct fgArgTabEntry
     GenTreeCall::Use* lateUse; // Points to the argument's GenTreeCall::Use in gtCallLateArgs, if any.
     unsigned argNum; // The original argument number, also specifies the required argument evaluation order from the IL
 
-private:
-    regNumberSmall regNums[MAX_ARG_REG_COUNT]; // The registers to use when passing this argument, set to REG_STK for
-                                               // arguments passed on the stack
-public:
     unsigned numRegs; // Count of number of registers that this argument uses.
                       // Note that on ARM, if we have a double hfa, this reflects the number
                       // of DOUBLE registers.
@@ -1475,7 +1471,11 @@ public:
 #if defined(UNIX_AMD64_ABI)
     SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
 #endif
+private:
+    regNumberSmall regNums[MAX_ARG_REG_COUNT]; // The registers to use when passing this argument, set to REG_STK for
+                                               // arguments passed on the stack
 
+public:
     // Get the node that coresponds to this argument entry.
     // This is the "real" node and not a placeholder or setup node.
     GenTree* GetNode() const
