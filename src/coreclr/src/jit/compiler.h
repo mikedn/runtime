@@ -1476,6 +1476,27 @@ private:
                                                // arguments passed on the stack
 
 public:
+    fgArgTabEntry(unsigned argNum, var_types argType, GenTreeCall::Use* use, bool isStruct, bool isVararg)
+        : use(use)
+        , lateUse(nullptr)
+        , argNum(argNum)
+        , numRegs(0)
+        , slotNum(0)
+        , numSlots(0)
+        , tmpNum(BAD_VAR_NUM)
+        , argType(argType)
+        , needTmp(false)
+        , needPlace(false)
+        , isNonStandard(false)
+        , isStruct(isStruct)
+        , _isVararg(isVararg)
+        , passedByRef(false)
+#ifdef FEATURE_HFA
+        , _hfaElemKind(HFA_ELEM_NONE)
+#endif
+    {
+    }
+
     // Get the node that coresponds to this argument entry.
     // This is the "real" node and not a placeholder or setup node.
     GenTree* GetNode() const
@@ -1517,13 +1538,6 @@ public:
 #else
         return false;
 #endif
-    }
-
-    void SetIsVararg(bool value)
-    {
-#ifdef FEATURE_VARARG
-        _isVararg = value;
-#endif // FEATURE_VARARG
     }
 
     bool IsHfaArg()

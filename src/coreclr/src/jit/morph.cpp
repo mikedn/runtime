@@ -952,34 +952,18 @@ fgArgTabEntry* fgArgInfo::AddRegArg(unsigned          argNum,
                                     bool              isStruct,
                                     bool              isVararg /*=false*/)
 {
-    fgArgTabEntry* curArgTabEntry = new (compiler, CMK_fgArgInfo) fgArgTabEntry;
+    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, node->GetType(), use, isStruct, isVararg);
 
     // Any additional register numbers are set by the caller.
     // This is primarily because on ARM we don't yet know if it
     // will be split or if it is a double HFA, so the number of registers
     // may actually be less.
-    curArgTabEntry->setRegNum(0, regNum);
-
-    curArgTabEntry->argNum    = argNum;
-    curArgTabEntry->argType   = node->TypeGet();
-    curArgTabEntry->use       = use;
-    curArgTabEntry->lateUse   = nullptr;
-    curArgTabEntry->slotNum   = 0;
-    curArgTabEntry->numRegs   = numRegs;
-    curArgTabEntry->numSlots  = 0;
-    curArgTabEntry->tmpNum    = BAD_VAR_NUM;
-    curArgTabEntry->needTmp   = false;
-    curArgTabEntry->needPlace = false;
-#ifdef FEATURE_HFA
-    curArgTabEntry->_hfaElemKind = HFA_ELEM_NONE;
-#endif
-    curArgTabEntry->isNonStandard = false;
-    curArgTabEntry->isStruct      = isStruct;
-    curArgTabEntry->SetIsVararg(isVararg);
+    argInfo->setRegNum(0, regNum);
+    argInfo->numRegs = numRegs;
 
     hasRegArgs = true;
-    AddArg(curArgTabEntry);
-    return curArgTabEntry;
+    AddArg(argInfo);
+    return argInfo;
 }
 
 #if defined(UNIX_AMD64_ABI)
@@ -993,24 +977,22 @@ fgArgTabEntry* fgArgInfo::AddRegArg(unsigned                                    
                                     const regNumber                                                  otherRegNum,
                                     const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR* const structDescPtr)
 {
-    fgArgTabEntry* curArgTabEntry = AddRegArg(argNum, node, use, regNum, numRegs, isStruct, isVararg);
-    assert(curArgTabEntry != nullptr);
-
-    curArgTabEntry->isStruct = isStruct; // is this a struct arg
-
-    curArgTabEntry->checkIsStruct();
     assert(numRegs <= 2);
+
+    CallArgInfo* argInfo = AddRegArg(argNum, node, use, regNum, numRegs, isStruct, isVararg);
+    argInfo->checkIsStruct();
+
     if (numRegs == 2)
     {
-        curArgTabEntry->setRegNum(1, otherRegNum);
+        argInfo->setRegNum(1, otherRegNum);
     }
 
     if (isStruct && structDescPtr != nullptr)
     {
-        curArgTabEntry->structDesc.CopyFrom(*structDescPtr);
+        argInfo->structDesc.CopyFrom(*structDescPtr);
     }
 
-    return curArgTabEntry;
+    return argInfo;
 }
 #endif // defined(UNIX_AMD64_ABI)
 
@@ -1022,33 +1004,18 @@ fgArgTabEntry* fgArgInfo::AddStkArg(unsigned          argNum,
                                     bool              isStruct,
                                     bool              isVararg /*=false*/)
 {
-    fgArgTabEntry* curArgTabEntry = new (compiler, CMK_fgArgInfo) fgArgTabEntry;
-
     nextSlotNum = roundUp(nextSlotNum, alignment);
 
-    curArgTabEntry->setRegNum(0, REG_STK);
-    curArgTabEntry->argNum    = argNum;
-    curArgTabEntry->argType   = node->TypeGet();
-    curArgTabEntry->use       = use;
-    curArgTabEntry->lateUse   = nullptr;
-    curArgTabEntry->slotNum   = nextSlotNum;
-    curArgTabEntry->numRegs   = 0;
-    curArgTabEntry->numSlots  = numSlots;
-    curArgTabEntry->tmpNum    = BAD_VAR_NUM;
-    curArgTabEntry->needTmp   = false;
-    curArgTabEntry->needPlace = false;
-#ifdef FEATURE_HFA
-    curArgTabEntry->_hfaElemKind = HFA_ELEM_NONE;
-#endif
-    curArgTabEntry->isNonStandard = false;
-    curArgTabEntry->isStruct      = isStruct;
-    curArgTabEntry->SetIsVararg(isVararg);
+    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, node->GetType(), use, isStruct, isVararg);
+    argInfo->setRegNum(0, REG_STK);
+    argInfo->slotNum  = nextSlotNum;
+    argInfo->numSlots = numSlots;
 
     hasStackArgs = true;
-    AddArg(curArgTabEntry);
+    AddArg(argInfo);
 
     nextSlotNum += numSlots;
-    return curArgTabEntry;
+    return argInfo;
 }
 
 void fgArgInfo::SplitArg(unsigned argNum, unsigned numRegs, unsigned numSlots)
