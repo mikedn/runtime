@@ -3048,6 +3048,21 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
 
+#ifdef FEATURE_HFA
+            if (isHfaArg)
+            {
+                regCount = hfaSlots;
+#ifdef TARGET_ARM
+                if (hfaType == TYP_DOUBLE)
+                {
+                    // Must be an even number of registers.
+                    assert((regCount & 1) == 0);
+                    regCount = hfaSlots / 2;
+                }
+#endif
+            }
+#endif
+
             newArgEntry = call->fgArgInfo->AddRegArg(argIndex, args, nextRegNum, regCount, isStructArg, callIsVararg);
             newArgEntry->isNonStandard = isNonStandard;
 #if FEATURE_ARG_SPLIT
@@ -3083,7 +3098,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef FEATURE_HFA
         if (isHfaArg)
         {
-            newArgEntry->SetHfaType(hfaType, hfaSlots);
+            newArgEntry->SetHfaType(hfaType);
         }
 #endif // FEATURE_HFA
         newArgEntry->SetMultiRegNums();

@@ -1585,45 +1585,13 @@ public:
         return regType == TYP_I_IMPL ? TYP_UNDEF : regType;
     }
 
-    void SetHfaType(var_types type, unsigned hfaSlots)
+    void SetHfaType(var_types type)
     {
-        if (type != TYP_UNDEF)
-        {
-            // We must already have set the passing mode.
-            assert(numRegs != 0 || numSlots != 0);
-            // We originally set numRegs according to the size of the struct, but if the size of the
-            // hfaType is not the same as the pointer size, we need to correct it.
-            // Note that hfaSlots is the number of registers we will use. For ARM, that is twice
-            // the number of "double registers".
-            unsigned numHfaRegs = hfaSlots;
-#ifdef TARGET_ARM
-            if (type == TYP_DOUBLE)
-            {
-                // Must be an even number of registers.
-                assert((numRegs & 1) == 0);
-                numHfaRegs = hfaSlots / 2;
-            }
-#endif // TARGET_ARM
+        assert(varTypeIsFloating(type) || varTypeIsSIMD(type));
+        assert((numRegs != 0) || (numSlots != 0));
+        assert(regType == TYP_I_IMPL);
 
-            if (!IsHfaArg())
-            {
-                // We haven't previously set this; do so now.
-                regType = type;
-                if (isPassedInRegisters())
-                {
-                    numRegs = numHfaRegs;
-                }
-            }
-            else
-            {
-                // We've already set this; ensure that it's consistent.
-                if (isPassedInRegisters())
-                {
-                    assert(numRegs == numHfaRegs);
-                }
-                assert(type == regType);
-            }
-        }
+        regType = type;
     }
 #endif // FEATURE_HFA
 
