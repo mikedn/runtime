@@ -10060,29 +10060,6 @@ bool Compiler::IsHfa(CORINFO_CLASS_HANDLE hClass)
     return varTypeIsValidHfaType(GetHfaType(hClass));
 }
 
-bool Compiler::IsHfa(GenTree* tree)
-{
-#ifdef FEATURE_HFA
-    return IsHfa(gtGetStructHandleIfPresent(tree));
-#else
-    return false;
-#endif
-}
-
-var_types Compiler::GetHfaType(GenTree* tree)
-{
-#ifdef FEATURE_HFA
-    return GetHfaType(gtGetStructHandleIfPresent(tree));
-#else
-    return TYP_UNDEF;
-#endif
-}
-
-unsigned Compiler::GetHfaCount(GenTree* tree)
-{
-    return GetHfaCount(gtGetStructHandleIfPresent(tree));
-}
-
 var_types Compiler::GetHfaType(CORINFO_CLASS_HANDLE hClass)
 {
     var_types result = TYP_UNDEF;

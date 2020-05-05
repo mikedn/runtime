@@ -2553,28 +2553,67 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         bool                 isNonStandard = false;
         regNumber            nonStdRegNum  = REG_NA;
 
+        GenTree*             actualArg   = argx->gtEffectiveVal(true /* Commas only */);
+        bool                 isStructArg = varTypeIsStruct(argx->GetType());
+        CORINFO_CLASS_HANDLE objClass    = NO_CLASS_HANDLE;
+        unsigned             structSize  = 0;
+
+        if (isStructArg)
+        {
+            objClass = gtGetStructHandle(argx);
+
 #ifdef FEATURE_HFA
-        hfaType  = GetHfaType(argx);
-        isHfaArg = varTypeIsValidHfaType(hfaType);
+            hfaType  = GetHfaType(objClass);
+            isHfaArg = varTypeIsValidHfaType(hfaType);
 
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-        // Make sure for vararg methods isHfaArg is not true.
-        isHfaArg = callIsVararg ? false : isHfaArg;
+            // Make sure for vararg methods isHfaArg is not true.
+            isHfaArg = callIsVararg ? false : isHfaArg;
 #endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
 
-        if (isHfaArg)
-        {
-            isHfaArg = true;
-            hfaSlots = GetHfaCount(argx);
+            if (isHfaArg)
+            {
+                isHfaArg = true;
+                hfaSlots = GetHfaCount(objClass);
 
-            // If we have a HFA struct it's possible we transition from a method that originally
-            // only had integer types to now start having FP types.  We have to communicate this
-            // through this flag since LSRA later on will use this flag to determine whether
-            // or not to track the FP register set.
-            //
-            compFloatingPointUsed = true;
-        }
+                // If we have a HFA struct it's possible we transition from a method that originally
+                // only had integer types to now start having FP types.  We have to communicate this
+                // through this flag since LSRA later on will use this flag to determine whether
+                // or not to track the FP register set.
+                //
+                compFloatingPointUsed = true;
+            }
 #endif // FEATURE_HFA
+
+            if (argx->TypeGet() == TYP_STRUCT)
+            {
+                // For TYP_STRUCT arguments we must have an OBJ, LCL_VAR or MKREFANY
+                switch (actualArg->OperGet())
+                {
+                    case GT_OBJ:
+                        structSize = actualArg->AsObj()->GetLayout()->GetSize();
+                        assert(structSize == info.compCompHnd->getClassSize(objClass));
+                        break;
+                    case GT_LCL_VAR:
+                        structSize = lvaGetDesc(actualArg->AsLclVarCommon())->lvExactSize;
+                        break;
+                    case GT_LCL_FLD:
+                        structSize = actualArg->AsLclFld()->GetLayout(this)->GetSize();
+                        break;
+                    case GT_MKREFANY:
+                        structSize = info.compCompHnd->getClassSize(objClass);
+                        break;
+                    default:
+                        BADCODE("illegal argument tree in fgInitArgInfo");
+                        break;
+                }
+            }
+            else
+            {
+                structSize = genTypeSize(argx);
+                assert(structSize == info.compCompHnd->getClassSize(objClass));
+            }
+        }
 
 #ifdef TARGET_ARM
         passUsingFloatRegs    = !callIsVararg && (isHfaArg || varTypeIsFloating(argx)) && !opts.compUseSoftFP;
@@ -2626,51 +2665,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         bool      isBackFilled     = false;
         unsigned  nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
         var_types structBaseType   = TYP_STRUCT;
-        unsigned  structSize       = 0;
         bool      passStructByRef  = false;
-
-        bool     isStructArg;
-        GenTree* actualArg = argx->gtEffectiveVal(true /* Commas only */);
 
         //
         // Figure out the size of the argument. This is either in number of registers, or number of
         // TARGET_POINTER_SIZE stack slots, or the sum of these if the argument is split between the registers and
         // the stack.
         //
-        isStructArg                   = varTypeIsStruct(argx);
-        CORINFO_CLASS_HANDLE objClass = NO_CLASS_HANDLE;
-        if (isStructArg)
-        {
-            objClass = gtGetStructHandle(argx);
-            if (argx->TypeGet() == TYP_STRUCT)
-            {
-                // For TYP_STRUCT arguments we must have an OBJ, LCL_VAR or MKREFANY
-                switch (actualArg->OperGet())
-                {
-                    case GT_OBJ:
-                        structSize = actualArg->AsObj()->GetLayout()->GetSize();
-                        assert(structSize == info.compCompHnd->getClassSize(objClass));
-                        break;
-                    case GT_LCL_VAR:
-                        structSize = lvaGetDesc(actualArg->AsLclVarCommon())->lvExactSize;
-                        break;
-                    case GT_LCL_FLD:
-                        structSize = actualArg->AsLclFld()->GetLayout(this)->GetSize();
-                        break;
-                    case GT_MKREFANY:
-                        structSize = info.compCompHnd->getClassSize(objClass);
-                        break;
-                    default:
-                        BADCODE("illegal argument tree in fgInitArgInfo");
-                        break;
-                }
-            }
-            else
-            {
-                structSize = genTypeSize(argx);
-                assert(structSize == info.compCompHnd->getClassSize(objClass));
-            }
-        }
+        CLANG_FORMAT_COMMENT_ANCHOR;
 #if defined(TARGET_AMD64)
 #ifdef UNIX_AMD64_ABI
         if (!isStructArg)
@@ -2692,7 +2694,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 // HFA structs are passed by value in multiple registers.
                 // The "size" in registers may differ the size in pointer-sized units.
-                size = GetHfaCount(argx);
+                size = hfaSlots;
             }
             else
             {
