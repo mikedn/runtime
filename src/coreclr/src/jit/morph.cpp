@@ -944,15 +944,10 @@ void fgArgInfo::AddArg(fgArgTabEntry* curArgTabEntry)
     argCount++;
 }
 
-fgArgTabEntry* fgArgInfo::AddRegArg(unsigned          argNum,
-                                    GenTree*          node,
-                                    GenTreeCall::Use* use,
-                                    regNumber         regNum,
-                                    unsigned          numRegs,
-                                    bool              isStruct,
-                                    bool              isVararg /*=false*/)
+fgArgTabEntry* fgArgInfo::AddRegArg(
+    unsigned argNum, GenTreeCall::Use* use, regNumber regNum, unsigned numRegs, bool isStruct, bool isVararg /*=false*/)
 {
-    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, node->GetType(), use, isStruct, isVararg);
+    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, isVararg);
 
     // Any additional register numbers are set by the caller.
     // This is primarily because on ARM we don't yet know if it
@@ -968,7 +963,6 @@ fgArgTabEntry* fgArgInfo::AddRegArg(unsigned          argNum,
 
 #if defined(UNIX_AMD64_ABI)
 fgArgTabEntry* fgArgInfo::AddRegArg(unsigned                                                         argNum,
-                                    GenTree*                                                         node,
                                     GenTreeCall::Use*                                                use,
                                     regNumber                                                        regNum,
                                     unsigned                                                         numRegs,
@@ -979,7 +973,7 @@ fgArgTabEntry* fgArgInfo::AddRegArg(unsigned                                    
 {
     assert(numRegs <= 2);
 
-    CallArgInfo* argInfo = AddRegArg(argNum, node, use, regNum, numRegs, isStruct, isVararg);
+    CallArgInfo* argInfo = AddRegArg(argNum, use, regNum, numRegs, isStruct, isVararg);
     argInfo->checkIsStruct();
 
     if (numRegs == 2)
@@ -1002,14 +996,13 @@ fgArgTabEntry* fgArgInfo::AddRegArg(unsigned                                    
 #endif // defined(UNIX_AMD64_ABI)
 
 fgArgTabEntry* fgArgInfo::AddStkArg(unsigned          argNum,
-                                    GenTree*          node,
                                     GenTreeCall::Use* use,
                                     unsigned          numSlots,
                                     unsigned          alignment,
                                     bool              isStruct,
                                     bool              isVararg /*=false*/)
 {
-    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, node->GetType(), use, isStruct, isVararg);
+    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, isVararg);
     argInfo->setRegNum(0, REG_STK);
     argInfo->slotNum  = AllocateStackSlots(numSlots, alignment);
     argInfo->numSlots = numSlots;
@@ -2431,10 +2424,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(varTypeIsGC(argx) || (argx->gtType == TYP_I_IMPL));
 
         // This is a register argument - put it in the table.
-        call->fgArgInfo->AddRegArg(argIndex, argx, call->gtCallThisArg, genMapIntRegArgNumToRegNum(intArgRegNum), 1,
-                                   false,
-                                   callIsVararg UNIX_AMD64_ABI_ONLY_ARG(REG_STK) UNIX_AMD64_ABI_ONLY_ARG(nullptr));
-
+        CallArgInfo* argInfo =
+            call->fgArgInfo->AddRegArg(argIndex, call->gtCallThisArg, genMapIntRegArgNumToRegNum(intArgRegNum), 1,
+                                       false,
+                                       callIsVararg UNIX_AMD64_ABI_ONLY_ARG(REG_STK) UNIX_AMD64_ABI_ONLY_ARG(nullptr));
+        argInfo->argType = argx->GetType();
         intArgRegNum++;
 #ifdef WINDOWS_AMD64_ABI
         // Whenever we pass an integer register argument
@@ -3085,7 +3079,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
 
-            newArgEntry = call->fgArgInfo->AddRegArg(argIndex, argx, args, nextRegNum, regCount, isStructArg,
+            newArgEntry = call->fgArgInfo->AddRegArg(argIndex, args, nextRegNum, regCount, isStructArg,
                                                      callIsVararg UNIX_AMD64_ABI_ONLY_ARG(nextOtherRegNum)
                                                          UNIX_AMD64_ABI_ONLY_ARG(&structDesc));
 
@@ -3097,7 +3091,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         else // We have an argument that is not passed in a register
         {
             // This is a stack argument - put it in the table
-            newArgEntry = call->fgArgInfo->AddStkArg(argIndex, argx, args, size, argAlign, isStructArg, callIsVararg);
+            newArgEntry = call->fgArgInfo->AddStkArg(argIndex, args, size, argAlign, isStructArg, callIsVararg);
         }
 
 #ifdef FEATURE_HFA

@@ -1476,7 +1476,7 @@ private:
                                                // arguments passed on the stack
 
 public:
-    fgArgTabEntry(unsigned argNum, var_types argType, GenTreeCall::Use* use, bool isStruct, bool isVararg)
+    fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, bool isStruct, bool isVararg)
         : use(use)
         , lateUse(nullptr)
         , argNum(argNum)
@@ -1484,7 +1484,7 @@ public:
         , slotNum(0)
         , numSlots(0)
         , tmpNum(BAD_VAR_NUM)
-        , argType(argType)
+        , argType(TYP_UNDEF)
         , needTmp(false)
         , needPlace(false)
         , isNonStandard(false)
@@ -1820,7 +1820,6 @@ public:
     fgArgInfo(GenTreeCall* newCall, GenTreeCall* oldCall);
 
     fgArgTabEntry* AddRegArg(unsigned          argNum,
-                             GenTree*          node,
                              GenTreeCall::Use* use,
                              regNumber         regNum,
                              unsigned          numRegs,
@@ -1829,7 +1828,6 @@ public:
 
 #ifdef UNIX_AMD64_ABI
     fgArgTabEntry* AddRegArg(unsigned                                                         argNum,
-                             GenTree*                                                         node,
                              GenTreeCall::Use*                                                use,
                              regNumber                                                        regNum,
                              unsigned                                                         numRegs,
@@ -1840,7 +1838,6 @@ public:
 #endif // UNIX_AMD64_ABI
 
     fgArgTabEntry* AddStkArg(unsigned          argNum,
-                             GenTree*          node,
                              GenTreeCall::Use* use,
                              unsigned          numSlots,
                              unsigned          alignment,
