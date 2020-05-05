@@ -4358,11 +4358,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     var_types type[MAX_ARG_REG_COUNT] = {};
 
 #ifdef FEATURE_HFA
-    if (fgEntryPtr->IsHfaArg()
-#if !defined(HOST_UNIX) && defined(TARGET_ARM64)
-        && !fgEntryPtr->IsVararg()
-#endif
-            )
+    if (fgEntryPtr->IsHfaArg())
     {
         unsigned elemSize = genTypeSize(fgEntryPtr->GetRegType());
         elemCount         = structSize / elemSize;
@@ -4455,11 +4451,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #endif
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-        if (varDsc->lvPromoted && (varDsc->lvFieldCnt == 2) && (!varDsc->lvIsHfa()
-#if !defined(HOST_UNIX) && defined(TARGET_ARM64)
-                                                                && !fgEntryPtr->IsVararg()
-#endif
-                                                                    ))
+        if (varDsc->lvPromoted && (varDsc->lvFieldCnt == 2))
         {
             // If we have 2 promoted fields that start at offset 0 and 8 then we can pass them using FIELD_LIST.
             // If there are more fields it means that 2 or more fields go into the same register, currently this
