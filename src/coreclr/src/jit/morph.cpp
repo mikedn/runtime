@@ -787,7 +787,7 @@ void fgArgTabEntry::Dump()
         printf(", needPlace");
     }
 #ifdef FEATURE_HFA
-    if (IsHfaRegArg())
+    if (IsHfaArg() && isPassedInRegisters())
     {
         printf(", isHfa(%s)", varTypeName(regType));
     }
@@ -3816,7 +3816,7 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
             if (varTypeIsStruct(argx) && !argx->OperIs(GT_FIELD_LIST))
             {
 #ifdef FEATURE_HFA
-                if (fgEntryPtr->IsHfaRegArg())
+                if (fgEntryPtr->IsHfaArg() && fgEntryPtr->isPassedInRegisters())
                 {
                     var_types hfaType = fgEntryPtr->GetRegType();
                     unsigned  structSize;

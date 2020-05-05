@@ -1574,15 +1574,6 @@ public:
 #endif
     }
 
-    bool IsHfaRegArg()
-    {
-#ifdef FEATURE_HFA
-        return (regType != TYP_I_IMPL) && isPassedInRegisters();
-#else
-        return false;
-#endif
-    }
-
     unsigned stackSize()
     {
         return (TARGET_POINTER_SIZE * this->numSlots);
@@ -1687,7 +1678,7 @@ public:
     {
         unsigned size = getSlotCount();
 #ifdef FEATURE_HFA
-        if (IsHfaRegArg())
+        if (IsHfaArg() && isPassedInRegisters())
         {
 #ifdef TARGET_ARM
             // We counted the number of regs, but if they are DOUBLE hfa regs we have to double the size.
