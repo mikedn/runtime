@@ -1444,10 +1444,6 @@ struct fgArgTabEntry
     GenTreeCall::Use* lateUse; // Points to the argument's GenTreeCall::Use in gtCallLateArgs, if any.
     unsigned argNum; // The original argument number, also specifies the required argument evaluation order from the IL
 
-    unsigned numRegs; // Count of number of registers that this argument uses.
-                      // Note that on ARM, if we have a double hfa, this reflects the number
-                      // of DOUBLE registers.
-
     // A slot is a pointer sized region in the OutArg area.
     unsigned slotNum;  // When an argument is passed in the OutArg area this is the slot number in the OutArg area
     unsigned numSlots; // Count of number of slots that this argument uses
@@ -1465,6 +1461,11 @@ struct fgArgTabEntry
     bool isStruct : 1;      // True if this is a struct arg
     bool _isVararg : 1;     // True if the argument is in a vararg context.
     bool passedByRef : 1;   // True iff the argument is passed by reference.
+
+    uint8_t numRegs; // Count of number of registers that this argument uses.
+                     // Note that on ARM, if we have a double hfa, this reflects the number
+                     // of DOUBLE registers.
+
 #ifdef FEATURE_HFA
     var_types regType;
 #elif defined(UNIX_AMD64_ABI)
@@ -1475,11 +1476,11 @@ private:
                                                // arguments passed on the stack
 
 public:
-    fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, bool isStruct, bool isVararg)
+    fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, bool isStruct, bool isVararg, unsigned regCount)
         : use(use)
         , lateUse(nullptr)
         , argNum(argNum)
-        , numRegs(0)
+        , numRegs(static_cast<uint8_t>(regCount))
         , slotNum(0)
         , numSlots(0)
         , tmpNum(BAD_VAR_NUM)
@@ -1494,6 +1495,7 @@ public:
         , regType(TYP_I_IMPL)
 #endif
     {
+        assert(regCount <= MAX_ARG_REG_COUNT);
     }
 
     // Get the node that coresponds to this argument entry.

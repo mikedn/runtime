@@ -949,14 +949,13 @@ void fgArgInfo::AddArg(fgArgTabEntry* curArgTabEntry)
 fgArgTabEntry* fgArgInfo::AddRegArg(
     unsigned argNum, GenTreeCall::Use* use, regNumber regNum, unsigned numRegs, bool isStruct, bool isVararg /*=false*/)
 {
-    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, isVararg);
+    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, isVararg, numRegs);
 
     // Any additional register numbers are set by the caller.
     // This is primarily because on ARM we don't yet know if it
     // will be split or if it is a double HFA, so the number of registers
     // may actually be less.
     argInfo->setRegNum(0, regNum);
-    argInfo->numRegs = numRegs;
 
     hasRegArgs = true;
     AddArg(argInfo);
@@ -970,7 +969,7 @@ fgArgTabEntry* fgArgInfo::AddStkArg(unsigned          argNum,
                                     bool              isStruct,
                                     bool              isVararg /*=false*/)
 {
-    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, isVararg);
+    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, isVararg, 0);
     argInfo->setRegNum(0, REG_STK);
     argInfo->slotNum  = AllocateStackSlots(numSlots, alignment);
     argInfo->numSlots = numSlots;
