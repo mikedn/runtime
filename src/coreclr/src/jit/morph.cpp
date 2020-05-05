@@ -3065,6 +3065,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             newArgEntry = call->fgArgInfo->AddRegArg(argIndex, args, nextRegNum, regCount, isStructArg, callIsVararg);
             newArgEntry->isNonStandard = isNonStandard;
+#ifdef FEATURE_HFA
+            if (isHfaArg)
+            {
+                newArgEntry->SetRegType(hfaType);
+            }
+#endif
 #if FEATURE_ARG_SPLIT
             newArgEntry->numSlots = slotCount;
 #endif
@@ -3087,21 +3093,22 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                                                                                  structDesc.eightByteSizes[i]));
                 }
             }
+#elif defined(FEATURE_MULTIREG_ARGS)
+            newArgEntry->SetMultiRegNums();
 #endif
         }
         else // We have an argument that is not passed in a register
         {
             // This is a stack argument - put it in the table
             newArgEntry = call->fgArgInfo->AddStkArg(argIndex, args, size, argAlign, isStructArg, callIsVararg);
-        }
-
 #ifdef FEATURE_HFA
-        if (isHfaArg)
-        {
-            newArgEntry->SetHfaType(hfaType);
+            if (isHfaArg)
+            {
+                // TODO-MIKE-Cleanup: We should not need to set the HFA type on stack args.
+                newArgEntry->SetHfaType(hfaType);
+            }
+#endif
         }
-#endif // FEATURE_HFA
-        newArgEntry->SetMultiRegNums();
 
         noway_assert(newArgEntry != nullptr);
         if (newArgEntry->isStruct)
