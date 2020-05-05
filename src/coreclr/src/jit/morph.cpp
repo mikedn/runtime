@@ -786,10 +786,12 @@ void fgArgTabEntry::Dump()
     {
         printf(", needPlace");
     }
+#ifdef FEATURE_HFA
     if (IsHfaRegArg())
     {
-        printf(", isHfa(%s)", varTypeName(GetHfaType()));
+        printf(", isHfa(%s)", varTypeName(regType));
     }
+#endif
     if (isNonStandard)
     {
         printf(", isNonStandard");
@@ -1212,7 +1214,7 @@ void fgArgInfo::ArgsComplete()
 #ifdef TARGET_ARM
         bool isMultiRegArg = (curArgTabEntry->numRegs > 0) && (curArgTabEntry->numRegs + curArgTabEntry->numSlots > 1);
 #else
-        bool isMultiRegArg = (curArgTabEntry->numRegs > 1);
+        bool isMultiRegArg           = (curArgTabEntry->numRegs > 1);
 #endif
 
         if ((varTypeIsStruct(argx->TypeGet())) && (curArgTabEntry->needTmp == false))
@@ -2681,7 +2683,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
         }
 #else  // !UNIX_AMD64_ABI
-        size               = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
+        size                         = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
 #endif // UNIX_AMD64_ABI
 #elif defined(TARGET_ARM64)
         if (isStructArg)
@@ -3243,11 +3245,9 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             argx->gtType = TYP_I_IMPL;
         }
 
-        // Get information about this argument.
-        var_types hfaType            = argEntry->GetHfaType();
-        bool      isHfaArg           = (hfaType != TYP_UNDEF);
-        bool      passUsingFloatRegs = argEntry->isPassedInFloatRegisters();
-        unsigned  structSize         = 0;
+        bool     isHfaArg           = argEntry->IsHfaArg();
+        bool     passUsingFloatRegs = argEntry->isPassedInFloatRegisters();
+        unsigned structSize         = 0;
 
         // Struct arguments may be morphed into a node that is not a struct type.
         // In such case the fgArgTabEntry keeps track of whether the original node (before morphing)
@@ -3320,7 +3320,11 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 {
                     if (isPow2(passingSize))
                     {
+#ifdef FEATURE_HFA
                         canTransform = (!argEntry->IsHfaArg() || (passingSize == genTypeSize(argEntry->GetHfaType())));
+#else
+                        canTransform = true;
+#endif
                     }
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
@@ -3811,9 +3815,10 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
             INDEBUG(foundStructArg = true;)
             if (varTypeIsStruct(argx) && !argx->OperIs(GT_FIELD_LIST))
             {
+#ifdef FEATURE_HFA
                 if (fgEntryPtr->IsHfaRegArg())
                 {
-                    var_types hfaType = fgEntryPtr->GetHfaType();
+                    var_types hfaType = fgEntryPtr->GetRegType();
                     unsigned  structSize;
                     if (argx->OperIs(GT_OBJ))
                     {
@@ -3835,6 +3840,7 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
                         argx->gtType = hfaType;
                     }
                 }
+#endif // FEATURE_HFA
 
                 GenTree* newArgx = fgMorphMultiregStructArg(argx, fgEntryPtr);
 
@@ -3876,7 +3882,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
     unsigned reg             = 0;
 
-#ifdef TARGET_ARMARCH
+#ifdef FEATURE_HFA
     if (argInfo->IsHfaArg() && (argInfo->GetStackSlotCount() == 0))
     {
         if (regAndSlotCount > fieldCount)
@@ -3884,7 +3890,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
             return false;
         }
 
-        var_types regType = argInfo->GetHfaType();
+        var_types regType = argInfo->GetRegType();
         unsigned  regSize = varTypeSize(regType);
 
         while (reg < regAndSlotCount)
@@ -3909,7 +3915,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
 
         return true;
     }
-#endif // TARGET_ARMARCH
+#endif // FEATURE_HFA
 
     // Note that the number of slots can be very high, if a smaller struct is passed as a very
     // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
@@ -4018,12 +4024,12 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
     unsigned reg             = 0;
 
-#ifdef TARGET_ARMARCH
+#ifdef FEATURE_HFA
     if (argInfo->IsHfaArg() && (argInfo->GetStackSlotCount() == 0))
     {
         assert(regAndSlotCount <= fieldCount);
 
-        var_types regType = argInfo->GetHfaType();
+        var_types regType = argInfo->GetRegType();
         unsigned  regSize = varTypeSize(regType);
 
         while (reg < regAndSlotCount)
@@ -4046,7 +4052,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 
         return list;
     }
-#endif // TARGET_ARMARCH
+#endif // FEATURE_HFA
 
     while ((field < fieldCount) && (reg < regAndSlotCount))
     {
@@ -4352,20 +4358,18 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     var_types type[MAX_ARG_REG_COUNT] = {};
 
 #ifdef FEATURE_HFA
-    var_types hfaType = fgEntryPtr->GetHfaType();
-
-    if (varTypeIsValidHfaType(hfaType)
+    if (fgEntryPtr->IsHfaArg()
 #if !defined(HOST_UNIX) && defined(TARGET_ARM64)
         && !fgEntryPtr->IsVararg()
 #endif
             )
     {
-        unsigned elemSize = genTypeSize(hfaType);
+        unsigned elemSize = genTypeSize(fgEntryPtr->GetRegType());
         elemCount         = structSize / elemSize;
         assert(elemSize * elemCount == structSize);
         for (unsigned inx = 0; inx < elemCount; inx++)
         {
-            type[inx] = hfaType;
+            type[inx] = fgEntryPtr->GetRegType();
         }
     }
     else

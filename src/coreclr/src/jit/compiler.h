@@ -1466,10 +1466,9 @@ struct fgArgTabEntry
     bool _isVararg : 1;     // True if the argument is in a vararg context.
     bool passedByRef : 1;   // True iff the argument is passed by reference.
 #ifdef FEATURE_HFA
-    HfaElemKind _hfaElemKind : 2; // What kind of an HFA this is (HFA_ELEM_NONE if it is not an HFA).
-#endif
-#ifdef UNIX_AMD64_ABI
-    var_types regTypes[MAX_ARG_REG_COUNT];
+    var_types regType;
+#elif defined(UNIX_AMD64_ABI)
+    var_types     regTypes[MAX_ARG_REG_COUNT];
 #endif
 private:
     regNumberSmall regNums[MAX_ARG_REG_COUNT]; // The registers to use when passing this argument, set to REG_STK for
@@ -1492,7 +1491,7 @@ public:
         , _isVararg(isVararg)
         , passedByRef(false)
 #ifdef FEATURE_HFA
-        , _hfaElemKind(HFA_ELEM_NONE)
+        , regType(TYP_I_IMPL)
 #endif
     {
     }
@@ -1531,7 +1530,19 @@ public:
         return static_cast<regNumber>(regNums[i]);
     }
 
-#ifdef UNIX_AMD64_ABI
+#ifdef FEATURE_HFA
+    void SetRegType(var_types type)
+    {
+        assert(numRegs > 0);
+        regType = type;
+    }
+
+    var_types GetRegType() const
+    {
+        assert(numRegs > 0);
+        return regType;
+    }
+#elif defined(UNIX_AMD64_ABI)
     void SetRegType(unsigned i, var_types type)
     {
         assert(i < MAX_ARG_REG_COUNT);
@@ -1557,7 +1568,7 @@ public:
     bool IsHfaArg()
     {
 #ifdef FEATURE_HFA
-        return IsHfa(_hfaElemKind);
+        return regType != TYP_I_IMPL;
 #else
         return false;
 #endif
@@ -1566,7 +1577,7 @@ public:
     bool IsHfaRegArg()
     {
 #ifdef FEATURE_HFA
-        return IsHfa(_hfaElemKind) && isPassedInRegisters();
+        return (regType != TYP_I_IMPL) && isPassedInRegisters();
 #else
         return false;
 #endif
@@ -1577,18 +1588,14 @@ public:
         return (TARGET_POINTER_SIZE * this->numSlots);
     }
 
+#ifdef FEATURE_HFA
     var_types GetHfaType()
     {
-#ifdef FEATURE_HFA
-        return HfaTypeFromElemKind(_hfaElemKind);
-#else
-        return TYP_UNDEF;
-#endif // FEATURE_HFA
+        return regType == TYP_I_IMPL ? TYP_UNDEF : regType;
     }
 
     void SetHfaType(var_types type, unsigned hfaSlots)
     {
-#ifdef FEATURE_HFA
         if (type != TYP_UNDEF)
         {
             // We must already have set the passing mode.
@@ -1610,7 +1617,7 @@ public:
             if (!IsHfaArg())
             {
                 // We haven't previously set this; do so now.
-                _hfaElemKind = HfaElemKindFromType(type);
+                regType = type;
                 if (isPassedInRegisters())
                 {
                     numRegs = numHfaRegs;
@@ -1623,11 +1630,11 @@ public:
                 {
                     assert(numRegs == numHfaRegs);
                 }
-                assert(type == HfaTypeFromElemKind(_hfaElemKind));
+                assert(type == regType);
             }
         }
-#endif // FEATURE_HFA
     }
+#endif // FEATURE_HFA
 
     bool IsSplit() const
     {
@@ -1684,7 +1691,7 @@ public:
         {
 #ifdef TARGET_ARM
             // We counted the number of regs, but if they are DOUBLE hfa regs we have to double the size.
-            if (GetHfaType() == TYP_DOUBLE)
+            if (regType == TYP_DOUBLE)
             {
                 assert(!IsSplit());
                 size <<= 1;
@@ -1692,13 +1699,13 @@ public:
 #elif defined(TARGET_ARM64)
             // We counted the number of regs, but if they are FLOAT hfa regs we have to halve the size,
             // or if they are SIMD16 vector hfa regs we have to double the size.
-            if (GetHfaType() == TYP_FLOAT)
+            if (regType == TYP_FLOAT)
             {
                 // Round up in case of odd HFA count.
                 size = (size + 1) >> 1;
             }
 #ifdef FEATURE_SIMD
-            else if (GetHfaType() == TYP_SIMD16)
+            else if (regType == TYP_SIMD16)
             {
                 size <<= 1;
             }
@@ -1721,8 +1728,8 @@ public:
         }
 
         regNumber argReg = GetRegNum(0);
-#ifdef TARGET_ARM
-        unsigned int regSize = (GetHfaType() == TYP_DOUBLE) ? 2 : 1;
+#if defined(TARGET_ARM) && defined(FEATURE_HFA)
+        unsigned int regSize = (regType == TYP_DOUBLE) ? 2 : 1;
 #else
         unsigned int regSize = 1;
 #endif
