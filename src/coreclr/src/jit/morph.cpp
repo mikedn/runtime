@@ -963,40 +963,6 @@ fgArgTabEntry* fgArgInfo::AddRegArg(
     return argInfo;
 }
 
-#if defined(UNIX_AMD64_ABI)
-fgArgTabEntry* fgArgInfo::AddRegArg(unsigned                                                         argNum,
-                                    GenTreeCall::Use*                                                use,
-                                    regNumber                                                        regNum,
-                                    unsigned                                                         numRegs,
-                                    const bool                                                       isStruct,
-                                    const bool                                                       isVararg,
-                                    const regNumber                                                  otherRegNum,
-                                    const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR* const structDescPtr)
-{
-    assert(numRegs <= 2);
-
-    CallArgInfo* argInfo = AddRegArg(argNum, use, regNum, numRegs, isStruct, isVararg);
-    argInfo->checkIsStruct();
-
-    if (numRegs == 2)
-    {
-        argInfo->setRegNum(1, otherRegNum);
-    }
-
-    if (isStruct && structDescPtr != nullptr)
-    {
-        for (unsigned i = 0; i < numRegs; i++)
-        {
-            argInfo->SetRegType(i,
-                                Compiler::GetTypeFromClassificationAndSizes(structDescPtr->eightByteClassifications[i],
-                                                                            structDescPtr->eightByteSizes[i]));
-        }
-    }
-
-    return argInfo;
-}
-#endif // defined(UNIX_AMD64_ABI)
-
 fgArgTabEntry* fgArgInfo::AddStkArg(unsigned          argNum,
                                     GenTreeCall::Use* use,
                                     unsigned          numSlots,
@@ -2428,8 +2394,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // This is a register argument - put it in the table.
         CallArgInfo* argInfo =
             call->fgArgInfo->AddRegArg(argIndex, call->gtCallThisArg, genMapIntRegArgNumToRegNum(intArgRegNum), 1,
-                                       false,
-                                       callIsVararg UNIX_AMD64_ABI_ONLY_ARG(REG_STK) UNIX_AMD64_ABI_ONLY_ARG(nullptr));
+                                       false, callIsVararg);
         argInfo->argType = argx->GetType();
         intArgRegNum++;
 #ifdef WINDOWS_AMD64_ABI
@@ -3083,13 +3048,30 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
 
-            newArgEntry = call->fgArgInfo->AddRegArg(argIndex, args, nextRegNum, regCount, isStructArg,
-                                                     callIsVararg UNIX_AMD64_ABI_ONLY_ARG(nextOtherRegNum)
-                                                         UNIX_AMD64_ABI_ONLY_ARG(&structDesc));
-
+            newArgEntry = call->fgArgInfo->AddRegArg(argIndex, args, nextRegNum, regCount, isStructArg, callIsVararg);
             newArgEntry->isNonStandard = isNonStandard;
 #if FEATURE_ARG_SPLIT
             newArgEntry->numSlots = slotCount;
+#endif
+#ifdef UNIX_AMD64_ABI
+            assert(regCount <= 2);
+            newArgEntry->checkIsStruct();
+
+            if (regCount == 2)
+            {
+                newArgEntry->setRegNum(1, nextOtherRegNum);
+            }
+
+            if (isStructArg)
+            {
+                for (unsigned i = 0; i < regCount; i++)
+                {
+                    newArgEntry
+                        ->SetRegType(i,
+                                     Compiler::GetTypeFromClassificationAndSizes(structDesc.eightByteClassifications[i],
+                                                                                 structDesc.eightByteSizes[i]));
+                }
+            }
 #endif
         }
         else // We have an argument that is not passed in a register

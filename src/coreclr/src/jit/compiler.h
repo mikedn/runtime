@@ -1824,17 +1824,6 @@ public:
                              bool              isStruct,
                              bool              isVararg = false);
 
-#ifdef UNIX_AMD64_ABI
-    fgArgTabEntry* AddRegArg(unsigned                                                         argNum,
-                             GenTreeCall::Use*                                                use,
-                             regNumber                                                        regNum,
-                             unsigned                                                         numRegs,
-                             const bool                                                       isStruct,
-                             const bool                                                       isVararg,
-                             const regNumber                                                  otherRegNum,
-                             const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR* const structDescPtr = nullptr);
-#endif // UNIX_AMD64_ABI
-
     fgArgTabEntry* AddStkArg(unsigned          argNum,
                              GenTreeCall::Use* use,
                              unsigned          numSlots,
