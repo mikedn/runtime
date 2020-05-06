@@ -962,21 +962,6 @@ fgArgTabEntry* fgArgInfo::AddRegArg(
     return argInfo;
 }
 
-fgArgTabEntry* fgArgInfo::AddStkArg(unsigned          argNum,
-                                    GenTreeCall::Use* use,
-                                    unsigned          numSlots,
-                                    unsigned          alignment,
-                                    bool              isStruct,
-                                    bool              isVararg /*=false*/)
-{
-    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, isVararg, 0);
-    argInfo->slotNum  = AllocateStackSlots(numSlots, alignment);
-    argInfo->numSlots = numSlots;
-
-    AddArg(argInfo);
-    return argInfo;
-}
-
 unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
 {
     assert(!argsComplete);
@@ -3099,8 +3084,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         else // We have an argument that is not passed in a register
         {
-            // This is a stack argument - put it in the table
-            newArgEntry = call->fgArgInfo->AddStkArg(argIndex, args, size, argAlign, isStructArg, callIsVararg);
+            newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, isStructArg, callIsVararg, 0);
+            newArgEntry->SetStackSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
 #ifdef FEATURE_HFA
             if (isHfaArg)
             {
@@ -3108,9 +3093,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 newArgEntry->SetHfaType(hfaType);
             }
 #endif
+            call->fgArgInfo->AddArg(newArgEntry);
         }
 
-        noway_assert(newArgEntry != nullptr);
         if (newArgEntry->isStruct)
         {
             newArgEntry->passedByRef = passStructByRef;

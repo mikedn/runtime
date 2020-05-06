@@ -1558,6 +1558,12 @@ public:
     }
 #endif
 
+    void SetStackSlots(unsigned firstSlot, unsigned slotCount)
+    {
+        slotNum  = firstSlot;
+        numSlots = slotCount;
+    }
+
     bool IsVararg()
     {
 #ifdef FEATURE_VARARG
@@ -1780,9 +1786,6 @@ class fgArgInfo
     bool            needsTemps;   // one or more arguments must be copied to a temp by EvalArgsToTemps
     fgArgTabEntry** argTable;     // variable sized array of per argument descrption: (i.e. argTable[argTableSize])
 
-private:
-    void AddArg(fgArgTabEntry* curArgTabEntry);
-
 public:
     fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned argCount);
     fgArgInfo(GenTreeCall* newCall, GenTreeCall* oldCall);
@@ -1794,12 +1797,7 @@ public:
                              bool              isStruct,
                              bool              isVararg = false);
 
-    fgArgTabEntry* AddStkArg(unsigned          argNum,
-                             GenTreeCall::Use* use,
-                             unsigned          numSlots,
-                             unsigned          alignment,
-                             bool              isStruct,
-                             bool              isVararg = false);
+    void AddArg(fgArgTabEntry* curArgTabEntry);
 
     unsigned AllocateStackSlots(unsigned slotCount, unsigned alignment);
 
