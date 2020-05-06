@@ -10607,10 +10607,9 @@ void Compiler::gtGetLateArgMsg(
 
     fgArgTabEntry* curArgTabEntry = argInfo;
     assert(curArgTabEntry);
-    regNumber argReg = curArgTabEntry->GetRegNum();
 
 #if FEATURE_FIXED_OUT_ARGS
-    if (argReg == REG_STK)
+    if (argInfo->GetRegCount() == 0)
     {
         sprintf_s(bufp, bufLength, "arg%d in out+%02x%c", curArgTabEntry->argNum,
                   curArgTabEntry->slotNum * TARGET_POINTER_SIZE, 0);
@@ -10620,7 +10619,7 @@ void Compiler::gtGetLateArgMsg(
     {
         if (curArgTabEntry->use == call->gtCallThisArg)
         {
-            sprintf_s(bufp, bufLength, "this in %s%c", compRegVarName(argReg), 0);
+            sprintf_s(bufp, bufLength, "this in %s%c", compRegVarName(argInfo->GetRegNum()), 0);
         }
 #ifdef TARGET_ARM
         else if (curArgTabEntry->IsSplit())
@@ -10693,13 +10692,15 @@ void Compiler::gtGetLateArgMsg(
                 // listCount could be -1 but it is signed, so this comparison is OK.
                 assert(listCount <= MAX_ARG_REG_COUNT);
                 char separator = (curArgTabEntry->numRegs == 2) ? ',' : '-';
-                sprintf_s(bufp, bufLength, "arg%d %s%c%s%c", curArgTabEntry->argNum, compRegVarName(argReg), separator,
-                          compRegVarName(curArgTabEntry->GetRegNum(curArgTabEntry->numRegs - 1)), 0);
+                sprintf_s(bufp, bufLength, "arg%d %s%c%s%c", curArgTabEntry->argNum,
+                          compRegVarName(argInfo->GetRegNum(0)), separator,
+                          compRegVarName(argInfo->GetRegNum(argInfo->GetRegCount() - 1)), 0);
             }
             else
 #endif
             {
-                sprintf_s(bufp, bufLength, "arg%d in %s%c", curArgTabEntry->argNum, compRegVarName(argReg), 0);
+                sprintf_s(bufp, bufLength, "arg%d in %s%c", curArgTabEntry->argNum,
+                          compRegVarName(argInfo->GetRegNum()), 0);
             }
         }
     }

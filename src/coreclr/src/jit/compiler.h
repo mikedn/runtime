@@ -1522,13 +1522,13 @@ public:
 
     void setRegNum(unsigned int i, regNumber regNum)
     {
-        assert(i < MAX_ARG_REG_COUNT);
+        assert(i < numRegs);
         regNums[i] = (regNumberSmall)regNum;
     }
 
     regNumber GetRegNum(unsigned i = 0)
     {
-        assert(i < MAX_ARG_REG_COUNT);
+        assert(i < numRegs);
         return static_cast<regNumber>(regNums[i]);
     }
 
@@ -1547,7 +1547,7 @@ public:
 #elif defined(UNIX_AMD64_ABI)
     void SetRegType(unsigned i, var_types type)
     {
-        assert(i < MAX_ARG_REG_COUNT);
+        assert(i < numRegs);
         regTypes[i] = type;
     }
 
@@ -1616,7 +1616,7 @@ public:
 #ifdef TARGET_X86
         return false;
 #else
-        return isValidFloatArgReg(GetRegNum());
+        return (numRegs != 0) && isValidFloatArgReg(GetRegNum(0));
 #endif
     }
 

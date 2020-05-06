@@ -2506,8 +2506,10 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         // GT_RELOAD/GT_COPY use the child node
         argNode = argNode->gtSkipReloadOrCopy();
 
-        if (curArgTabEntry->GetRegNum() == REG_STK)
+        if (curArgTabEntry->GetRegCount() == 0)
+        {
             continue;
+        }
 
         // Deal with multi register passed struct args.
         if (argNode->OperGet() == GT_FIELD_LIST)

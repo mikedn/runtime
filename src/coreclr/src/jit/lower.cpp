@@ -1109,8 +1109,6 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
 
     GenTree* putArg = nullptr;
 
-    bool isOnStack = (info->GetRegNum() == REG_STK);
-
 #ifdef TARGET_ARMARCH
     // Mark contained when we pass struct
     // GT_FIELD_LIST is always marked contained when it is generated
@@ -1187,10 +1185,10 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
     else
 #endif // FEATURE_ARG_SPLIT
     {
-        if (!isOnStack)
+        if (info->GetRegCount() != 0)
         {
 #if FEATURE_MULTIREG_ARGS
-            if ((info->numRegs > 1) && (arg->OperGet() == GT_FIELD_LIST))
+            if ((info->GetRegCount() > 1) && (arg->OperGet() == GT_FIELD_LIST))
             {
                 unsigned int regIndex = 0;
                 for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
@@ -1396,7 +1394,8 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
     }
 #elif defined(TARGET_AMD64)
     // TYP_SIMD8 parameters that are passed as longs
-    if (type == TYP_SIMD8 && genIsValidIntReg(info->GetRegNum()))
+    // TODO-MIKE-CQ: This should be moved to morph.
+    if ((type == TYP_SIMD8) && (info->GetRegCount() != 0) && genIsValidIntReg(info->GetRegNum()))
     {
         GenTreeUnOp* bitcast = new (comp, GT_BITCAST) GenTreeOp(GT_BITCAST, TYP_LONG, arg, nullptr);
         BlockRange().InsertAfter(arg, bitcast);
@@ -1420,9 +1419,9 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
         fieldList->AddFieldLIR(comp, arg->AsOp()->gtGetOp2(), 4, TYP_INT);
         GenTree* newArg = NewPutArg(call, fieldList, info, type);
 
-        if (info->GetRegNum() != REG_STK)
+        if (info->GetRegCount() != 0)
         {
-            assert(info->numRegs == 2);
+            assert(info->GetRegCount() == 2);
             // In the register argument case, NewPutArg replaces the original field list args with new
             // GT_PUTARG_REG nodes, inserts them in linear order and returns the field list. So the
             // only thing left to do is to insert the field list itself in linear order.
@@ -1493,7 +1492,7 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
 GenTree* Lowering::LowerFloatArg(GenTree** pArg, fgArgTabEntry* info)
 {
     GenTree* arg = *pArg;
-    if (info->GetRegNum() != REG_STK)
+    if (info->GetRegCount() != 0)
     {
         if (arg->OperIs(GT_FIELD_LIST))
         {
