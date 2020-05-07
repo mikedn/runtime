@@ -932,15 +932,10 @@ void fgArgInfo::AddArg(fgArgTabEntry* curArgTabEntry)
     argCount++;
 }
 
-fgArgTabEntry* fgArgInfo::AddRegArg(Compiler*         compiler,
-                                    unsigned          argNum,
-                                    GenTreeCall::Use* use,
-                                    regNumber         regNum,
-                                    unsigned          numRegs,
-                                    bool              isStruct,
-                                    bool              isVararg /*=false*/)
+fgArgTabEntry* fgArgInfo::AddRegArg(
+    Compiler* compiler, unsigned argNum, GenTreeCall::Use* use, regNumber regNum, unsigned numRegs, bool isStruct)
 {
-    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, isVararg, numRegs);
+    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, numRegs);
 
     // Any additional register numbers are set by the caller.
     // This is primarily because on ARM we don't yet know if it
@@ -1622,7 +1617,7 @@ void fgArgInfo::Dump(Compiler* compiler)
 //------------------------------------------------------------------------------
 // fgMakeTmpArgNode: Create a tree for a call arg that requires a temp.
 //
-GenTree* Compiler::fgMakeTmpArgNode(CallArgInfo* argInfo)
+GenTree* Compiler::fgMakeTmpArgNode(GenTreeCall* call, CallArgInfo* argInfo)
 {
     LclVarDsc* varDsc = lvaGetDesc(argInfo->GetTempLclNum());
     assert(varDsc->lvIsTemp);
@@ -1637,7 +1632,7 @@ GenTree* Compiler::fgMakeTmpArgNode(CallArgInfo* argInfo)
     {
         var_types passedAsPrimitiveType =
             getPrimitiveTypeForStruct(lvaLclExactSize(argInfo->GetTempLclNum()), varDsc->lvVerTypeInfo.GetClassHandle(),
-                                      argInfo->IsVararg());
+                                      call->IsVarargs());
 
         if (passedAsPrimitiveType != TYP_UNKNOWN)
         {
@@ -1668,7 +1663,7 @@ GenTree* Compiler::fgMakeTmpArgNode(CallArgInfo* argInfo)
 
 #if defined(TARGET_ARM64) || (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI))
 #if defined(TARGET_ARM64)
-    if (!lvaIsMultiregStruct(varDsc, argInfo->IsVararg()))
+    if (!lvaIsMultiregStruct(varDsc, call->IsVarargs()))
 #endif
     {
         return gtNewLclVarAddrNode(argInfo->GetTempLclNum());
@@ -1728,7 +1723,7 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             if (curArgTabEntry->HasTemp())
             {
                 // Create a copy of the temp to go into the late argument list
-                defArg = compiler->fgMakeTmpArgNode(curArgTabEntry);
+                defArg = compiler->fgMakeTmpArgNode(call, curArgTabEntry);
 
                 // mark the original node as a late argument
                 argx->gtFlags |= GTF_LATE_ARG;
@@ -1810,8 +1805,7 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                             CORINFO_CLASS_HANDLE clsHnd     = compiler->lvaGetStruct(tmpVarNum);
                             unsigned             structSize = varDsc->lvExactSize;
 
-                            scalarType =
-                                compiler->getPrimitiveTypeForStruct(structSize, clsHnd, curArgTabEntry->IsVararg());
+                            scalarType = compiler->getPrimitiveTypeForStruct(structSize, clsHnd, call->IsVarargs());
                         }
 #endif // TARGET_ARMARCH || defined (UNIX_AMD64_ABI)
                     }
@@ -2366,9 +2360,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(varTypeIsGC(argx) || (argx->gtType == TYP_I_IMPL));
 
         // This is a register argument - put it in the table.
-        CallArgInfo* argInfo =
-            call->fgArgInfo->AddRegArg(this, argIndex, call->gtCallThisArg, genMapIntRegArgNumToRegNum(intArgRegNum), 1,
-                                       false, callIsVararg);
+        CallArgInfo* argInfo = call->fgArgInfo->AddRegArg(this, argIndex, call->gtCallThisArg,
+                                                          genMapIntRegArgNumToRegNum(intArgRegNum), 1, false);
         argInfo->argType = argx->GetType();
         intArgRegNum++;
 #ifdef WINDOWS_AMD64_ABI
@@ -3037,8 +3030,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
 #endif
 
-            newArgEntry =
-                call->fgArgInfo->AddRegArg(this, argIndex, args, nextRegNum, regCount, isStructArg, callIsVararg);
+            newArgEntry = call->fgArgInfo->AddRegArg(this, argIndex, args, nextRegNum, regCount, isStructArg);
             newArgEntry->isNonStandard = isNonStandard;
 #ifdef FEATURE_HFA
             if (isHfaArg)
@@ -3074,7 +3066,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         else // We have an argument that is not passed in a register
         {
-            newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, isStructArg, callIsVararg, 0);
+            newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, isStructArg, 0);
             newArgEntry->SetStackSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
 #ifdef FEATURE_HFA
             if (isHfaArg)

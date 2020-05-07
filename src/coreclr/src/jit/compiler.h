@@ -1459,7 +1459,6 @@ struct fgArgTabEntry
     bool isNonStandard : 1; // True if it is an arg that is passed in a reg other than a standard arg reg, or is forced
                             // to be on the stack despite its arg list position.
     bool isStruct : 1;      // True if this is a struct arg
-    bool _isVararg : 1;     // True if the argument is in a vararg context.
     bool passedByRef : 1;   // True iff the argument is passed by reference.
 
     uint8_t numRegs; // Count of number of registers that this argument uses.
@@ -1476,7 +1475,7 @@ private:
                                                // arguments passed on the stack
 
 public:
-    fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, bool isStruct, bool isVararg, unsigned regCount)
+    fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, bool isStruct, unsigned regCount)
         : use(use)
         , lateUse(nullptr)
         , argNum(argNum)
@@ -1489,7 +1488,6 @@ public:
         , needPlace(false)
         , isNonStandard(false)
         , isStruct(isStruct)
-        , _isVararg(isVararg)
         , passedByRef(false)
 #ifdef FEATURE_HFA
         , regType(TYP_I_IMPL)
@@ -1562,15 +1560,6 @@ public:
     {
         slotNum  = firstSlot;
         numSlots = slotCount;
-    }
-
-    bool IsVararg()
-    {
-#ifdef FEATURE_VARARG
-        return _isVararg;
-#else
-        return false;
-#endif
     }
 
     bool IsHfaArg()
@@ -1781,13 +1770,8 @@ public:
     fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned argCount);
     fgArgInfo(Compiler* comp, GenTreeCall* newCall, GenTreeCall* oldCall);
 
-    fgArgTabEntry* AddRegArg(Compiler*         compiler,
-                             unsigned          argNum,
-                             GenTreeCall::Use* use,
-                             regNumber         regNum,
-                             unsigned          numRegs,
-                             bool              isStruct,
-                             bool              isVararg = false);
+    fgArgTabEntry* AddRegArg(
+        Compiler* compiler, unsigned argNum, GenTreeCall::Use* use, regNumber regNum, unsigned numRegs, bool isStruct);
 
     void AddArg(fgArgTabEntry* curArgTabEntry);
 
@@ -5017,7 +5001,7 @@ public:
 
     bool fgCastNeeded(GenTree* tree, var_types toType);
     GenTree* fgDoNormalizeOnStore(GenTree* tree);
-    GenTree* fgMakeTmpArgNode(CallArgInfo* argInfo);
+    GenTree* fgMakeTmpArgNode(GenTreeCall* call, CallArgInfo* argInfo);
 
     // The following check for loops that don't execute calls
     bool fgLoopCallMarked;
