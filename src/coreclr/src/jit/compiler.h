@@ -1759,17 +1759,11 @@ typedef fgArgTabEntry CallArgInfo;
 
 class fgArgInfo
 {
-    Compiler*       compiler;     // Back pointer to the compiler instance so that we can allocate memory
-    GenTreeCall*    callTree;     // Back pointer to the GT_CALL node for this fgArgInfo
-    fgArgTabEntry** argTable;     // variable sized array of per argument descrption: (i.e. argTable[argTableSize])
-    unsigned        argTableSize; // size of argTable array (equal to the argCount when done with fgMorphArgs)
-    unsigned        argCount;     // Updatable arg count value
-    unsigned        nextSlotNum;  // Updatable slot count value
-    unsigned        stkLevel;     // Stack depth when we make this call (for x86)
+    fgArgTabEntry** argTable;       // variable sized array of per argument descrption: (i.e. argTable[argTableSize])
+    INDEBUG(unsigned argTableSize;) // size of argTable array (equal to the argCount when done with fgMorphArgs)
+    unsigned argCount;              // Updatable arg count value
+    unsigned nextSlotNum;           // Updatable slot count value
 
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned outArgSize; // Size of the out arg area for the call, will be at least MIN_ARG_AREA_FOR_CALL
-#endif
 #if defined(UNIX_X86_ABI)
     unsigned stkSizeBytes;  // Size of stack used by this call, in bytes. Calculated during fgMorphArgs().
     unsigned padStkAlign;   // Stack alignment in bytes required before arguments are pushed for this call.
@@ -1779,16 +1773,16 @@ class fgArgInfo
     bool alignmentDone : 1; // Updateable flag, set to 'true' after we've done any required alignment.
 #endif
     bool hasRegArgs : 1;   // true if we have one or more register arguments
-    bool hasStackArgs : 1; // true if we have one or more stack arguments
     bool argsComplete : 1; // marker for state
     bool argsSorted : 1;   // marker for state
     bool needsTemps : 1;   // one or more arguments must be copied to a temp by EvalArgsToTemps
 
 public:
     fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned argCount);
-    fgArgInfo(GenTreeCall* newCall, GenTreeCall* oldCall);
+    fgArgInfo(Compiler* comp, GenTreeCall* newCall, GenTreeCall* oldCall);
 
-    fgArgTabEntry* AddRegArg(unsigned          argNum,
+    fgArgTabEntry* AddRegArg(Compiler*         compiler,
+                             unsigned          argNum,
                              GenTreeCall::Use* use,
                              regNumber         regNum,
                              unsigned          numRegs,
@@ -1801,11 +1795,9 @@ public:
 
     void EvalToTmp(fgArgTabEntry* curArgTabEntry, unsigned tmpNum, GenTree* newNode);
 
-    void ArgsComplete();
-
-    void SortArgs();
-
-    void EvalArgsToTemps();
+    void ArgsComplete(Compiler* compiler);
+    void SortArgs(Compiler* compiler, GenTreeCall* call);
+    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call);
 
     unsigned ArgCount()
     {
@@ -1829,22 +1821,12 @@ public:
     }
     bool HasStackArgs()
     {
-        return hasStackArgs;
+        return nextSlotNum != INIT_ARG_STACK_SLOT;
     }
     bool AreArgsComplete() const
     {
         return argsComplete;
     }
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned GetOutArgSize() const
-    {
-        return outArgSize;
-    }
-    void SetOutArgSize(unsigned newVal)
-    {
-        outArgSize = newVal;
-    }
-#endif // FEATURE_FIXED_OUT_ARGS
 
 #if defined(UNIX_X86_ABI)
     void ComputeStackAlignment(unsigned curStackLevelInBytes)

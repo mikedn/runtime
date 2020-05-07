@@ -9751,8 +9751,8 @@ void Compiler::fgSimpleLowering()
                     if (!call->IsFastTailCall())
                     {
                         // Update outgoing arg size to handle this call
-                        const unsigned thisCallOutAreaSize = call->fgArgInfo->GetOutArgSize();
-                        assert(thisCallOutAreaSize >= MIN_ARG_AREA_FOR_CALL);
+                        const unsigned thisCallOutAreaSize =
+                            max(call->fgArgInfo->GetNextSlotNum() * REGSIZE_BYTES, MIN_ARG_AREA_FOR_CALL);
 
                         if (thisCallOutAreaSize > outgoingArgSpaceSize)
                         {

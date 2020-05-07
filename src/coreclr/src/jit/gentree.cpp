@@ -7181,7 +7181,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
     if (tree->fgArgInfo)
     {
         // Create and initialize the fgArgInfo for our copy of the call tree
-        copy->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(copy, tree);
+        copy->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(this, copy, tree);
     }
     else
     {
