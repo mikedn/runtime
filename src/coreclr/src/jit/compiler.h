@@ -1518,7 +1518,7 @@ public:
         return tmpNum;
     }
 
-    void setRegNum(unsigned int i, regNumber regNum)
+    void SetRegNum(unsigned int i, regNumber regNum)
     {
         assert(i < numRegs);
         regNums[i] = (regNumberSmall)regNum;
@@ -1692,7 +1692,7 @@ public:
         for (unsigned int regIndex = 1; regIndex < numRegs; regIndex++)
         {
             argReg = (regNumber)(argReg + regSize);
-            setRegNum(regIndex, argReg);
+            SetRegNum(regIndex, argReg);
         }
 #endif // FEATURE_MULTIREG_ARGS && !defined(UNIX_AMD64_ABI)
     }
@@ -1770,10 +1770,7 @@ public:
     fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned argCount);
     fgArgInfo(Compiler* comp, GenTreeCall* newCall, GenTreeCall* oldCall);
 
-    fgArgTabEntry* AddRegArg(
-        Compiler* compiler, unsigned argNum, GenTreeCall::Use* use, regNumber regNum, unsigned numRegs, bool isStruct);
-
-    void AddArg(fgArgTabEntry* curArgTabEntry);
+    void AddArg(CallArgInfo* argInfo);
 
     unsigned AllocateStackSlots(unsigned slotCount, unsigned alignment);
 

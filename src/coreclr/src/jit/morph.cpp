@@ -925,27 +925,12 @@ fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldC
     argsSorted   = true;
 }
 
-void fgArgInfo::AddArg(fgArgTabEntry* curArgTabEntry)
+void fgArgInfo::AddArg(CallArgInfo* argInfo)
 {
     assert(argCount < argTableSize);
-    argTable[argCount] = curArgTabEntry;
+    argTable[argCount] = argInfo;
     argCount++;
-}
-
-fgArgTabEntry* fgArgInfo::AddRegArg(
-    Compiler* compiler, unsigned argNum, GenTreeCall::Use* use, regNumber regNum, unsigned numRegs, bool isStruct)
-{
-    CallArgInfo* argInfo = new (compiler, CMK_fgArgInfo) CallArgInfo(argNum, use, isStruct, numRegs);
-
-    // Any additional register numbers are set by the caller.
-    // This is primarily because on ARM we don't yet know if it
-    // will be split or if it is a double HFA, so the number of registers
-    // may actually be less.
-    argInfo->setRegNum(0, regNum);
-
-    hasRegArgs = true;
-    AddArg(argInfo);
-    return argInfo;
+    hasRegArgs |= argInfo->GetRegCount() != 0;
 }
 
 unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
@@ -2359,10 +2344,10 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(call->gtCallType == CT_USER_FUNC || call->gtCallType == CT_INDIRECT);
         assert(varTypeIsGC(argx) || (argx->gtType == TYP_I_IMPL));
 
-        // This is a register argument - put it in the table.
-        CallArgInfo* argInfo = call->fgArgInfo->AddRegArg(this, argIndex, call->gtCallThisArg,
-                                                          genMapIntRegArgNumToRegNum(intArgRegNum), 1, false);
+        CallArgInfo* argInfo = new (this, CMK_fgArgInfo) CallArgInfo(0, call->gtCallThisArg, false, 1);
+        argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
         argInfo->argType = argx->GetType();
+        call->fgArgInfo->AddArg(argInfo);
         intArgRegNum++;
 #ifdef WINDOWS_AMD64_ABI
         // Whenever we pass an integer register argument
@@ -3030,7 +3015,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
 #endif
 
-            newArgEntry = call->fgArgInfo->AddRegArg(this, argIndex, args, nextRegNum, regCount, isStructArg);
+            newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, isStructArg, regCount);
+            newArgEntry->SetRegNum(0, nextRegNum);
             newArgEntry->isNonStandard = isNonStandard;
 #ifdef FEATURE_HFA
             if (isHfaArg)
@@ -3047,16 +3033,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             if (regCount == 2)
             {
-                newArgEntry->setRegNum(1, nextOtherRegNum);
+                newArgEntry->SetRegNum(1, nextOtherRegNum);
             }
 
             if (isStructArg)
             {
                 for (unsigned i = 0; i < regCount; i++)
                 {
-                    newArgEntry
-                        ->SetRegType(i,
-                                     Compiler::GetTypeFromClassificationAndSizes(structDesc.eightByteClassifications[i],
+                    newArgEntry->SetRegType(i, GetTypeFromClassificationAndSizes(structDesc.eightByteClassifications[i],
                                                                                  structDesc.eightByteSizes[i]));
                 }
             }
@@ -3075,7 +3059,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 newArgEntry->SetHfaType(hfaType);
             }
 #endif
-            call->fgArgInfo->AddArg(newArgEntry);
         }
 
         if (newArgEntry->isStruct)
@@ -3087,7 +3070,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             newArgEntry->argType = argx->TypeGet();
         }
-    } // end foreach argument loop
+
+        call->fgArgInfo->AddArg(newArgEntry);
+    }
 
 #ifdef DEBUG
     if (verbose)
