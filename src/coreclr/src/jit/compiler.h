@@ -1759,32 +1759,30 @@ typedef fgArgTabEntry CallArgInfo;
 
 class fgArgInfo
 {
-    Compiler*    compiler;    // Back pointer to the compiler instance so that we can allocate memory
-    GenTreeCall* callTree;    // Back pointer to the GT_CALL node for this fgArgInfo
-    unsigned     argCount;    // Updatable arg count value
-    unsigned     nextSlotNum; // Updatable slot count value
-    unsigned     stkLevel;    // Stack depth when we make this call (for x86)
+    Compiler*       compiler;     // Back pointer to the compiler instance so that we can allocate memory
+    GenTreeCall*    callTree;     // Back pointer to the GT_CALL node for this fgArgInfo
+    fgArgTabEntry** argTable;     // variable sized array of per argument descrption: (i.e. argTable[argTableSize])
+    unsigned        argTableSize; // size of argTable array (equal to the argCount when done with fgMorphArgs)
+    unsigned        argCount;     // Updatable arg count value
+    unsigned        nextSlotNum;  // Updatable slot count value
+    unsigned        stkLevel;     // Stack depth when we make this call (for x86)
 
+#if FEATURE_FIXED_OUT_ARGS
+    unsigned outArgSize; // Size of the out arg area for the call, will be at least MIN_ARG_AREA_FOR_CALL
+#endif
 #if defined(UNIX_X86_ABI)
-    bool     alignmentDone; // Updateable flag, set to 'true' after we've done any required alignment.
     unsigned stkSizeBytes;  // Size of stack used by this call, in bytes. Calculated during fgMorphArgs().
     unsigned padStkAlign;   // Stack alignment in bytes required before arguments are pushed for this call.
                             // Computed dynamically during codegen, based on stkSizeBytes and the current
                             // stack level (genStackLevel) when the first stack adjustment is made for
                             // this call.
+    bool alignmentDone : 1; // Updateable flag, set to 'true' after we've done any required alignment.
 #endif
-
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned outArgSize; // Size of the out arg area for the call, will be at least MIN_ARG_AREA_FOR_CALL
-#endif
-
-    unsigned        argTableSize; // size of argTable array (equal to the argCount when done with fgMorphArgs)
-    bool            hasRegArgs;   // true if we have one or more register arguments
-    bool            hasStackArgs; // true if we have one or more stack arguments
-    bool            argsComplete; // marker for state
-    bool            argsSorted;   // marker for state
-    bool            needsTemps;   // one or more arguments must be copied to a temp by EvalArgsToTemps
-    fgArgTabEntry** argTable;     // variable sized array of per argument descrption: (i.e. argTable[argTableSize])
+    bool hasRegArgs : 1;   // true if we have one or more register arguments
+    bool hasStackArgs : 1; // true if we have one or more stack arguments
+    bool argsComplete : 1; // marker for state
+    bool argsSorted : 1;   // marker for state
+    bool needsTemps : 1;   // one or more arguments must be copied to a temp by EvalArgsToTemps
 
 public:
     fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned argCount);
