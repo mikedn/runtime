@@ -1160,7 +1160,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #ifdef DEBUG
         // In DEBUG only, check validity with respect to the arg table entry.
 
-        fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(call, argNode);
+        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode);
         assert(curArgTabEntry);
 
         if (curArgTabEntry->GetRegCount() == 0)

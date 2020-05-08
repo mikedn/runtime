@@ -228,7 +228,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #ifdef DEBUG
         // During Build, we only use the ArgTabEntry for validation,
         // as getting it is rather expensive.
-        fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(call, argNode);
+        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode);
         assert(curArgTabEntry != nullptr);
 #endif
 
@@ -321,7 +321,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
         // Skip arguments that have been moved to the Late Arg list
         if ((arg->gtFlags & GTF_LATE_ARG) == 0)
         {
-            fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(call, arg);
+            fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(arg);
             assert(curArgTabEntry != nullptr);
 #if FEATURE_ARG_SPLIT
             // PUTARG_SPLIT nodes must be in the gtCallLateArgs list, since they

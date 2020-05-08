@@ -1080,9 +1080,7 @@ void GenTreeCall::ReplaceCallOperand(GenTree** useEdge, GenTree* replacement)
         else
         {
             assert((replacement->gtFlags & GTF_LATE_ARG) == 0);
-
-            fgArgTabEntry* fp = Compiler::gtArgEntryByNode(this, replacement);
-            assert(fp->GetNode() == replacement);
+            assert(GetArgInfoByArgNode(replacement)->GetNode() == replacement);
         }
     }
 }
@@ -5764,32 +5762,23 @@ GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTre
     return new (this, CMK_ASTNode) GenTreeCall::Use(node1, gtNewCallArgs(node2, node3, node4));
 }
 
-/*****************************************************************************
- *
- *  Given a GT_CALL node, access the fgArgInfo and find the entry
- *  that has the matching argNum and return the fgArgTableEntryPtr
- */
-
-fgArgTabEntry* Compiler::gtArgEntryByArgNum(GenTreeCall* call, unsigned argNum)
+CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
 {
-    fgArgInfo* argInfo = call->fgArgInfo;
-    noway_assert(argInfo != nullptr);
-    return argInfo->GetArgEntry(argNum);
+    noway_assert(fgArgInfo != nullptr);
+    return fgArgInfo->GetArgEntry(argNum);
 }
 
-/*****************************************************************************
- *
- *  Given a GT_CALL node, access the fgArgInfo and find the entry
- *  that has the matching node and return the fgArgTableEntryPtr
- */
-
-fgArgTabEntry* Compiler::gtArgEntryByNode(GenTreeCall* call, GenTree* node)
+GenTree* GenTreeCall::GetArgNodeByArgNum(unsigned argNum) const
 {
-    fgArgInfo* argInfo = call->fgArgInfo;
-    noway_assert(argInfo != nullptr);
+    return GetArgInfoByArgNum(argNum)->GetNode();
+}
 
-    unsigned        argCount       = argInfo->ArgCount();
-    fgArgTabEntry** argTable       = argInfo->ArgTable();
+CallArgInfo* GenTreeCall::GetArgInfoByArgNode(GenTree* node) const
+{
+    noway_assert(fgArgInfo != nullptr);
+
+    unsigned        argCount       = fgArgInfo->ArgCount();
+    fgArgTabEntry** argTable       = fgArgInfo->ArgTable();
     fgArgTabEntry*  curArgTabEntry = nullptr;
 
     for (unsigned i = 0; i < argCount; i++)
@@ -5809,19 +5798,13 @@ fgArgTabEntry* Compiler::gtArgEntryByNode(GenTreeCall* call, GenTree* node)
     return nullptr;
 }
 
-/*****************************************************************************
- *
- *  Find and return the entry with the given "lateArgInx".  Requires that one is found
- *  (asserts this).
- */
-fgArgTabEntry* Compiler::gtArgEntryByLateArgUse(GenTreeCall* call, GenTreeCall::Use* use)
+CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
 {
-    fgArgInfo* argInfo = call->fgArgInfo;
-    noway_assert(argInfo != nullptr);
+    noway_assert(fgArgInfo != nullptr);
     assert(use != nullptr);
 
-    unsigned        argCount       = argInfo->ArgCount();
-    fgArgTabEntry** argTable       = argInfo->ArgTable();
+    unsigned        argCount       = fgArgInfo->ArgCount();
+    fgArgTabEntry** argTable       = fgArgInfo->ArgTable();
     fgArgTabEntry*  curArgTabEntry = nullptr;
 
     for (unsigned i = 0; i < argCount; i++)
@@ -7492,9 +7475,7 @@ GenTree* Compiler::gtGetThisArg(GenTreeCall* call)
 
     if (call->gtCallLateArgs != nullptr)
     {
-        unsigned       argNum          = 0;
-        fgArgTabEntry* thisArgTabEntry = gtArgEntryByArgNum(call, argNum);
-        GenTree*       result          = thisArgTabEntry->GetNode();
+        GenTree* result = call->GetArgNodeByArgNum(0);
 
         // Assert if we used DEBUG_DESTROY_NODE.
         assert(result->gtOper != GT_COUNT);
@@ -10370,7 +10351,7 @@ void Compiler::gtDispTree(GenTree*     tree,
                 for (GenTreeCall::Use& use : call->LateArgs())
                 {
                     IndentInfo arcType = (use.GetNext() == nullptr) ? IIArcBottom : IIArc;
-                    gtGetLateArgMsg(call, use.GetNode(), gtArgEntryByLateArgUse(call, &use), -1, bufp, sizeof(buf));
+                    gtGetLateArgMsg(call, use.GetNode(), call->GetArgInfoByLateArgUse(&use), -1, bufp, sizeof(buf));
                     gtDispChild(use.GetNode(), indentStack, arcType, bufp, topOnly);
                     lateArgIndex++;
                 }
@@ -10486,7 +10467,7 @@ void Compiler::gtGetArgMsg(
 {
     if (call->gtCallLateArgs != nullptr)
     {
-        fgArgTabEntry* curArgTabEntry = gtArgEntryByArgNum(call, argNum);
+        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNum(argNum);
         assert(curArgTabEntry);
 
         if (arg->gtFlags & GTF_LATE_ARG)
@@ -10870,7 +10851,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
             }
             else
             {
-                fgArgTabEntry* curArgTabEntry = gtArgEntryByNode(call, operand);
+                fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(operand);
                 assert(curArgTabEntry);
 
                 if (!curArgTabEntry->isLateArg())

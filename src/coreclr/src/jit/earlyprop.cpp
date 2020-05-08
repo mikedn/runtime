@@ -89,7 +89,7 @@ GenTree* Compiler::getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBloc
                                     block);
 #endif
                 // This is an array allocation site. Grab the array length node.
-                return gtArgEntryByArgNum(call, 1)->GetNode();
+                return call->GetArgNodeByArgNum(1);
             }
         }
     }
@@ -146,8 +146,7 @@ GenTree* Compiler::getObjectHandleNodeFromAllocation(GenTree* tree DEBUGARG(Basi
             if (hasNewObj || hasNewArr)
             {
                 // This is an object allocation site. Return the runtime type handle node.
-                fgArgTabEntry* argTabEntry = gtArgEntryByArgNum(call, 0);
-                return argTabEntry->GetNode();
+                return call->GetArgNodeByArgNum(0);
             }
         }
     }

@@ -1358,7 +1358,7 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
         return;
     }
 
-    fgArgTabEntry* info = comp->gtArgEntryByNode(call, arg);
+    fgArgTabEntry* info = call->GetArgInfoByArgNode(arg);
     assert(info->GetNode() == arg);
     var_types type = arg->TypeGet();
 
@@ -2207,7 +2207,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     fgArgTabEntry* argEntry;
 
     // arg 0 == callTarget.
-    argEntry = comp->gtArgEntryByArgNum(call, numArgs - 1);
+    argEntry = call->GetArgInfoByArgNum(numArgs - 1);
     assert(argEntry != nullptr);
     GenTree* arg0 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
 
@@ -2222,7 +2222,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     argEntry->GetNode()->AsPutArgStk()->gtOp1 = callTarget;
 
     // arg 1 == flags
-    argEntry = comp->gtArgEntryByArgNum(call, numArgs - 2);
+    argEntry = call->GetArgInfoByArgNum(numArgs - 2);
     assert(argEntry != nullptr);
     GenTree* arg1 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
     assert(arg1->gtOper == GT_CNS_INT);
@@ -2232,7 +2232,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     arg1->AsIntCon()->gtIconVal = tailCallHelperFlags;
 
     // arg 2 == numberOfNewStackArgsWords
-    argEntry = comp->gtArgEntryByArgNum(call, numArgs - 3);
+    argEntry = call->GetArgInfoByArgNum(numArgs - 3);
     assert(argEntry != nullptr);
     GenTree* arg2 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
     assert(arg2->gtOper == GT_CNS_INT);
@@ -2241,7 +2241,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
 
 #ifdef DEBUG
     // arg 3 == numberOfOldStackArgsWords
-    argEntry = comp->gtArgEntryByArgNum(call, numArgs - 4);
+    argEntry = call->GetArgInfoByArgNum(numArgs - 4);
     assert(argEntry != nullptr);
     GenTree* arg3 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
     assert(arg3->gtOper == GT_CNS_INT);
@@ -3177,9 +3177,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
     GenTree* thisArgNode;
     if (call->IsTailCallViaJitHelper())
     {
-        const unsigned argNum          = 0;
-        fgArgTabEntry* thisArgTabEntry = comp->gtArgEntryByArgNum(call, argNum);
-        thisArgNode                    = thisArgTabEntry->GetNode();
+        thisArgNode = call->GetArgNodeByArgNum(0);
     }
     else
     {
@@ -3974,7 +3972,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
     regNumber thisPtrArgReg = comp->codeGen->genGetThisArgReg(call);
 
     // get a reference to the thisPtr being passed
-    fgArgTabEntry* argEntry = comp->gtArgEntryByArgNum(call, 0);
+    fgArgTabEntry* argEntry = call->GetArgInfoByArgNum(0);
     assert(argEntry->GetRegNum() == thisPtrArgReg);
     assert(argEntry->GetNode()->OperIs(GT_PUTARG_REG));
     GenTree* thisPtr = argEntry->GetNode()->AsUnOp()->gtGetOp1();

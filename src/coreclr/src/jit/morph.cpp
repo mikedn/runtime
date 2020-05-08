@@ -3528,7 +3528,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
             fieldList->AddField(this, argx->AsOp()->gtGetOp1(), OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
             fieldList->AddField(this, argx->AsOp()->gtGetOp2(), OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
-            fgArgTabEntry* fp = gtArgEntryByNode(call, argx);
+            fgArgTabEntry* fp = call->GetArgInfoByArgNode(argx);
             args->SetNode(fieldList);
             assert(fp->GetNode() == fieldList);
 #else  // !TARGET_X86
@@ -3594,7 +3594,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 LclVarDsc*           varDsc    = lvaGetDesc(lcl);
                 GenTreeFieldList*    fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-                fgArgTabEntry* fp = gtArgEntryByNode(call, argx);
+                fgArgTabEntry* fp = call->GetArgInfoByArgNode(argx);
                 args->SetNode(fieldList);
                 assert(fp->GetNode() == fieldList);
 
@@ -3719,7 +3719,7 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
         // between the nodes in both lists. If the arg is not a late arg, the fgArgEntry->node points to itself,
         // otherwise points to the list in the late args list.
         bool           isLateArg  = (use.GetNode()->gtFlags & GTF_LATE_ARG) != 0;
-        fgArgTabEntry* fgEntryPtr = gtArgEntryByNode(call, use.GetNode());
+        fgArgTabEntry* fgEntryPtr = call->GetArgInfoByArgNode(use.GetNode());
         assert(fgEntryPtr != nullptr);
         GenTree*          argx     = fgEntryPtr->GetNode();
         GenTreeCall::Use* lateUse  = nullptr;
@@ -4552,7 +4552,7 @@ void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall*         call,
 {
     GenTree* argx = args->GetNode();
     noway_assert(argx->gtOper != GT_MKREFANY);
-    fgArgTabEntry* argEntry = Compiler::gtArgEntryByNode(call, argx);
+    fgArgTabEntry* argEntry = call->GetArgInfoByArgNode(argx);
 
     // If we're optimizing, see if we can avoid making a copy.
     //
@@ -8223,7 +8223,7 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
             else
             {
                 // This is an actual argument that needs to be assigned to the corresponding caller parameter.
-                fgArgTabEntry* curArgTabEntry = gtArgEntryByArgNum(recursiveTailCall, earlyArgIndex);
+                fgArgTabEntry* curArgTabEntry = recursiveTailCall->GetArgInfoByArgNum(earlyArgIndex);
                 Statement*     paramAssignStmt =
                     fgAssignRecursiveCallArgToCallerParam(earlyArg, curArgTabEntry, block, callILOffset,
                                                           tmpAssignmentInsertionPoint, paramAssignmentInsertionPoint);
@@ -8242,7 +8242,7 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     {
         // A late argument is an actual argument that needs to be assigned to the corresponding caller's parameter.
         GenTree*       lateArg        = use.GetNode();
-        fgArgTabEntry* curArgTabEntry = gtArgEntryByLateArgUse(recursiveTailCall, &use);
+        fgArgTabEntry* curArgTabEntry = recursiveTailCall->GetArgInfoByLateArgUse(&use);
         Statement*     paramAssignStmt =
             fgAssignRecursiveCallArgToCallerParam(lateArg, curArgTabEntry, block, callILOffset,
                                                   tmpAssignmentInsertionPoint, paramAssignmentInsertionPoint);
@@ -8638,13 +8638,13 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     if (opts.OptimizationEnabled() && (call->gtCallType == CT_HELPER) &&
         (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ARRADDR_ST)))
     {
-        GenTree* value = gtArgEntryByArgNum(call, 2)->GetNode();
+        GenTree* value = call->GetArgNodeByArgNum(2);
         if (value->IsIntegralConst(0))
         {
             assert(value->OperGet() == GT_CNS_INT);
 
-            GenTree* arr   = gtArgEntryByArgNum(call, 0)->GetNode();
-            GenTree* index = gtArgEntryByArgNum(call, 1)->GetNode();
+            GenTree* arr   = call->GetArgNodeByArgNum(0);
+            GenTree* index = call->GetArgNodeByArgNum(1);
 
             // Either or both of the array and index arguments may have been spilled to temps by `fgMorphArgs`. Copy
             // the spill trees as well if necessary.
