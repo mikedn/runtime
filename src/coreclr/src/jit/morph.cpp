@@ -3186,36 +3186,25 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         *parentArgx = argx;
         assert(argx == args->GetNode());
 
-        unsigned             size         = argEntry->getSize();
-        CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
-
         if (argEntry->isNonStandard)
         {
             flagsSummary |= argx->gtFlags;
             continue;
         }
 
-        assert(size != 0);
-
         if (argx->IsLocalAddrExpr() != nullptr)
         {
             argx->gtType = TYP_I_IMPL;
         }
 
-        bool     isHfaArg           = argEntry->IsHfaArg();
-        bool     passUsingFloatRegs = argEntry->isPassedInFloatRegisters();
-        unsigned structSize         = 0;
-
-        // Struct arguments may be morphed into a node that is not a struct type.
-        // In such case the fgArgTabEntry keeps track of whether the original node (before morphing)
-        // was a struct and the struct classification.
-        bool isStructArg = argEntry->isStruct;
-
         GenTree* argObj = argx->gtEffectiveVal(true /*commaOnly*/);
-        if (isStructArg && varTypeIsStruct(argObj) && !argObj->OperIs(GT_ASG, GT_MKREFANY, GT_FIELD_LIST, GT_ARGPLACE))
+
+        if (argEntry->isStruct && varTypeIsStruct(argObj) &&
+            !argObj->OperIs(GT_ASG, GT_MKREFANY, GT_FIELD_LIST, GT_ARGPLACE))
         {
             CORINFO_CLASS_HANDLE objClass = gtGetStructHandle(argObj);
             unsigned             originalSize;
+
             if (argObj->TypeGet() == TYP_STRUCT)
             {
                 if (argObj->OperIs(GT_OBJ))
@@ -3241,13 +3230,13 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 originalSize = genTypeSize(argx);
                 assert(originalSize == info.compCompHnd->getClassSize(objClass));
             }
-            unsigned  roundupSize    = (unsigned)roundUp(originalSize, TARGET_POINTER_SIZE);
-            var_types structBaseType = argEntry->argType;
+
+            CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
 
             // First, handle the case where the argument is passed by reference.
             if (argEntry->passedByRef)
             {
-                assert(size == 1);
+                assert(argEntry->getSize() == 1);
                 copyBlkClass = objClass;
 #ifdef UNIX_AMD64_ABI
                 assert(!"Structs are not passed by reference on x64/ux");
@@ -3255,14 +3244,18 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             }
             else // This is passed by value.
             {
+                unsigned  roundupSize    = roundUp(originalSize, TARGET_POINTER_SIZE);
+                unsigned  structSize     = originalSize;
+                unsigned  passingSize    = originalSize;
+                unsigned  size           = argEntry->getSize();
+                var_types structBaseType = argEntry->argType;
+
+                assert(size != 0);
 
 #ifndef TARGET_X86
                 // Check to see if we can transform this into load of a primitive type.
                 // 'size' must be the number of pointer sized items
                 assert(size == roundupSize / TARGET_POINTER_SIZE);
-
-                structSize           = originalSize;
-                unsigned passingSize = originalSize;
 
                 // Check to see if we can transform this struct load (GT_OBJ) into a GT_IND of the appropriate size.
                 // When it can do this is platform-dependent:
@@ -3479,7 +3472,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
 #ifndef UNIX_AMD64_ABI
                 // We still have a struct unless we converted the GT_OBJ into a GT_IND above...
-                if (isHfaArg && passUsingFloatRegs)
+                if (argEntry->IsHfaArg() && argEntry->isPassedInFloatRegisters())
                 {
                     size = argEntry->numRegs;
                 }
@@ -3510,11 +3503,11 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
 #endif // !UNIX_AMD64_ABI
             }
-        }
 
-        if (copyBlkClass != NO_CLASS_HANDLE)
-        {
-            fgMakeOutgoingStructArgCopy(call, args, argIndex, copyBlkClass);
+            if (copyBlkClass != NO_CLASS_HANDLE)
+            {
+                fgMakeOutgoingStructArgCopy(call, args, argIndex, copyBlkClass);
+            }
         }
 
         if (argx->gtOper == GT_MKREFANY)
@@ -3559,9 +3552,10 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         }
 
 #if FEATURE_MULTIREG_ARGS
-        if (isStructArg)
+        if (argEntry->isStruct)
         {
-            if (((argEntry->numRegs + argEntry->numSlots) > 1) || (isHfaArg && argx->TypeGet() == TYP_STRUCT))
+            if (((argEntry->numRegs + argEntry->numSlots) > 1) ||
+                (argEntry->IsHfaArg() && argx->TypeGet() == TYP_STRUCT))
             {
                 hasMultiregStructArgs = true;
             }
@@ -3581,7 +3575,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #endif
 
 #if defined(TARGET_X86)
-        if (isStructArg)
+        if (argEntry->isStruct)
         {
             GenTree* lclNode = argx->OperIs(GT_LCL_VAR) ? argx : fgIsIndirOfAddrOfLocal(argx);
             if ((lclNode != nullptr) &&
