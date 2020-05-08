@@ -675,7 +675,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* treeNode)
     unsigned argOffsetOut = treeNode->gtSlotNum * TARGET_POINTER_SIZE;
 
 #ifdef DEBUG
-    fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(treeNode->gtCall, treeNode);
+    fgArgTabEntry* curArgTabEntry = treeNode->gtCall->GetArgInfoByArgNode(treeNode);
     assert(curArgTabEntry);
     assert(argOffsetOut == (curArgTabEntry->slotNum * TARGET_POINTER_SIZE));
 #endif // DEBUG
@@ -2500,14 +2500,16 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(call, argNode);
+        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode);
         assert(curArgTabEntry);
 
         // GT_RELOAD/GT_COPY use the child node
         argNode = argNode->gtSkipReloadOrCopy();
 
-        if (curArgTabEntry->GetRegNum() == REG_STK)
+        if (curArgTabEntry->GetRegCount() == 0)
+        {
             continue;
+        }
 
         // Deal with multi register passed struct args.
         if (argNode->OperGet() == GT_FIELD_LIST)

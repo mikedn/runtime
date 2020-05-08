@@ -3841,6 +3841,7 @@ public:
 };
 
 class fgArgInfo;
+typedef struct fgArgTabEntry CallArgInfo;
 
 struct GenTreeCall final : public GenTree
 {
@@ -3965,6 +3966,11 @@ struct GenTreeCall final : public GenTree
     {
         return UseList(gtCallLateArgs);
     }
+
+    GenTree* GetArgNodeByArgNum(unsigned argNum) const;
+    CallArgInfo* GetArgInfoByArgNum(unsigned argNum) const;
+    CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
+    CallArgInfo* GetArgInfoByLateArgUse(Use* use) const;
 
 #if !FEATURE_FIXED_OUT_ARGS
     int     regArgListCount;

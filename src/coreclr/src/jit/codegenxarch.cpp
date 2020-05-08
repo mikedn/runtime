@@ -5346,10 +5346,10 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(call, argNode->gtSkipReloadOrCopy());
+        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode->gtSkipReloadOrCopy());
         assert(curArgTabEntry);
 
-        if (curArgTabEntry->GetRegNum() == REG_STK)
+        if (curArgTabEntry->GetRegCount() == 0)
         {
             continue;
         }
@@ -5413,7 +5413,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             unsigned size   = arg->AsPutArgStk()->getArgSize();
             stackArgBytes += size;
 #ifdef DEBUG
-            fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(call, arg);
+            fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(arg);
             assert(curArgTabEntry != nullptr);
             assert(size == (curArgTabEntry->numSlots * TARGET_POINTER_SIZE));
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
@@ -8044,7 +8044,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         int            argOffset      = putArgStk->getArgOffset();
 
 #ifdef DEBUG
-        fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(putArgStk->gtCall, putArgStk);
+        fgArgTabEntry* curArgTabEntry = putArgStk->gtCall->GetArgInfoByArgNode(putArgStk);
         assert(curArgTabEntry);
         assert(argOffset == (int)curArgTabEntry->slotNum * TARGET_POINTER_SIZE);
 #endif

@@ -1109,8 +1109,6 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
 
     GenTree* putArg = nullptr;
 
-    bool isOnStack = (info->GetRegNum() == REG_STK);
-
 #ifdef TARGET_ARMARCH
     // Mark contained when we pass struct
     // GT_FIELD_LIST is always marked contained when it is generated
@@ -1187,10 +1185,10 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
     else
 #endif // FEATURE_ARG_SPLIT
     {
-        if (!isOnStack)
+        if (info->GetRegCount() != 0)
         {
 #if FEATURE_MULTIREG_ARGS
-            if ((info->numRegs > 1) && (arg->OperGet() == GT_FIELD_LIST))
+            if ((info->GetRegCount() > 1) && (arg->OperGet() == GT_FIELD_LIST))
             {
                 unsigned int regIndex = 0;
                 for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
@@ -1360,7 +1358,7 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
         return;
     }
 
-    fgArgTabEntry* info = comp->gtArgEntryByNode(call, arg);
+    fgArgTabEntry* info = call->GetArgInfoByArgNode(arg);
     assert(info->GetNode() == arg);
     var_types type = arg->TypeGet();
 
@@ -1396,7 +1394,8 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
     }
 #elif defined(TARGET_AMD64)
     // TYP_SIMD8 parameters that are passed as longs
-    if (type == TYP_SIMD8 && genIsValidIntReg(info->GetRegNum()))
+    // TODO-MIKE-CQ: This should be moved to morph.
+    if ((type == TYP_SIMD8) && (info->GetRegCount() != 0) && genIsValidIntReg(info->GetRegNum()))
     {
         GenTreeUnOp* bitcast = new (comp, GT_BITCAST) GenTreeOp(GT_BITCAST, TYP_LONG, arg, nullptr);
         BlockRange().InsertAfter(arg, bitcast);
@@ -1420,9 +1419,9 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
         fieldList->AddFieldLIR(comp, arg->AsOp()->gtGetOp2(), 4, TYP_INT);
         GenTree* newArg = NewPutArg(call, fieldList, info, type);
 
-        if (info->GetRegNum() != REG_STK)
+        if (info->GetRegCount() != 0)
         {
-            assert(info->numRegs == 2);
+            assert(info->GetRegCount() == 2);
             // In the register argument case, NewPutArg replaces the original field list args with new
             // GT_PUTARG_REG nodes, inserts them in linear order and returns the field list. So the
             // only thing left to do is to insert the field list itself in linear order.
@@ -1493,7 +1492,7 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
 GenTree* Lowering::LowerFloatArg(GenTree** pArg, fgArgTabEntry* info)
 {
     GenTree* arg = *pArg;
-    if (info->GetRegNum() != REG_STK)
+    if (info->GetRegCount() != 0)
     {
         if (arg->OperIs(GT_FIELD_LIST))
         {
@@ -2208,7 +2207,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     fgArgTabEntry* argEntry;
 
     // arg 0 == callTarget.
-    argEntry = comp->gtArgEntryByArgNum(call, numArgs - 1);
+    argEntry = call->GetArgInfoByArgNum(numArgs - 1);
     assert(argEntry != nullptr);
     GenTree* arg0 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
 
@@ -2223,7 +2222,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     argEntry->GetNode()->AsPutArgStk()->gtOp1 = callTarget;
 
     // arg 1 == flags
-    argEntry = comp->gtArgEntryByArgNum(call, numArgs - 2);
+    argEntry = call->GetArgInfoByArgNum(numArgs - 2);
     assert(argEntry != nullptr);
     GenTree* arg1 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
     assert(arg1->gtOper == GT_CNS_INT);
@@ -2233,7 +2232,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     arg1->AsIntCon()->gtIconVal = tailCallHelperFlags;
 
     // arg 2 == numberOfNewStackArgsWords
-    argEntry = comp->gtArgEntryByArgNum(call, numArgs - 3);
+    argEntry = call->GetArgInfoByArgNum(numArgs - 3);
     assert(argEntry != nullptr);
     GenTree* arg2 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
     assert(arg2->gtOper == GT_CNS_INT);
@@ -2242,7 +2241,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
 
 #ifdef DEBUG
     // arg 3 == numberOfOldStackArgsWords
-    argEntry = comp->gtArgEntryByArgNum(call, numArgs - 4);
+    argEntry = call->GetArgInfoByArgNum(numArgs - 4);
     assert(argEntry != nullptr);
     GenTree* arg3 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
     assert(arg3->gtOper == GT_CNS_INT);
@@ -3178,9 +3177,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
     GenTree* thisArgNode;
     if (call->IsTailCallViaJitHelper())
     {
-        const unsigned argNum          = 0;
-        fgArgTabEntry* thisArgTabEntry = comp->gtArgEntryByArgNum(call, argNum);
-        thisArgNode                    = thisArgTabEntry->GetNode();
+        thisArgNode = call->GetArgNodeByArgNum(0);
     }
     else
     {
@@ -3975,7 +3972,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
     regNumber thisPtrArgReg = comp->codeGen->genGetThisArgReg(call);
 
     // get a reference to the thisPtr being passed
-    fgArgTabEntry* argEntry = comp->gtArgEntryByArgNum(call, 0);
+    fgArgTabEntry* argEntry = call->GetArgInfoByArgNum(0);
     assert(argEntry->GetRegNum() == thisPtrArgReg);
     assert(argEntry->GetNode()->OperIs(GT_PUTARG_REG));
     GenTree* thisPtr = argEntry->GetNode()->AsUnOp()->gtGetOp1();

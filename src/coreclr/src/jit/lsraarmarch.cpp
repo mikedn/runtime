@@ -228,15 +228,14 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #ifdef DEBUG
         // During Build, we only use the ArgTabEntry for validation,
         // as getting it is rather expensive.
-        fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(call, argNode);
-        regNumber      argReg         = curArgTabEntry->GetRegNum();
+        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode);
         assert(curArgTabEntry != nullptr);
 #endif
 
         if (argNode->gtOper == GT_PUTARG_STK)
         {
             // late arg that is not passed in a register
-            assert(curArgTabEntry->GetRegNum() == REG_STK);
+            assert(curArgTabEntry->GetRegCount() == 0);
             // These should never be contained.
             assert(!argNode->isContained());
             continue;
@@ -246,6 +245,8 @@ int LinearScan::BuildCall(GenTreeCall* call)
         if (argNode->OperGet() == GT_FIELD_LIST)
         {
             assert(argNode->isContained());
+
+            INDEBUG(regNumber argReg = curArgTabEntry->GetRegNum(0);)
 
             // There could be up to 2-4 PUTARG_REGs in the list (3 or 4 can only occur for HFAs)
             for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
@@ -283,7 +284,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
         else
         {
             assert(argNode->OperIs(GT_PUTARG_REG));
-            assert(argNode->GetRegNum() == argReg);
+            assert(argNode->GetRegNum() == curArgTabEntry->GetRegNum());
             HandleFloatVarArgs(call, argNode, &callHasFloatRegArgs);
 #ifdef TARGET_ARM
             // The `double` types have been transformed to `long` on armel,
@@ -320,7 +321,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
         // Skip arguments that have been moved to the Late Arg list
         if ((arg->gtFlags & GTF_LATE_ARG) == 0)
         {
-            fgArgTabEntry* curArgTabEntry = compiler->gtArgEntryByNode(call, arg);
+            fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(arg);
             assert(curArgTabEntry != nullptr);
 #if FEATURE_ARG_SPLIT
             // PUTARG_SPLIT nodes must be in the gtCallLateArgs list, since they
@@ -329,7 +330,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #endif // FEATURE_ARG_SPLIT
             if (arg->gtOper == GT_PUTARG_STK)
             {
-                assert(curArgTabEntry->GetRegNum() == REG_STK);
+                assert(curArgTabEntry->GetRegCount() == 0);
             }
             else
             {

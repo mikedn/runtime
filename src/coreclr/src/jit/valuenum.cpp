@@ -8879,7 +8879,7 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
         assert(args->GetNode()->OperGet() == GT_ARGPLACE);
 
         // Find the corresponding late arg.
-        GenTree* indirectCellAddress = call->fgArgInfo->GetArgNode(0);
+        GenTree* indirectCellAddress = call->GetArgNodeByArgNum(0);
         assert(indirectCellAddress->IsCnsIntOrI() && indirectCellAddress->GetRegNum() == REG_R2R_INDIRECT_PARAM);
 #endif // DEBUG
 
@@ -8916,7 +8916,7 @@ void Compiler::fgValueNumberHelperCallFunc(GenTreeCall* call, VNFunc vnf, ValueN
                     // index into them using one less than the requested index.
                     --currentIndex;
                 }
-                return call->fgArgInfo->GetArgNode(currentIndex);
+                return call->GetArgNodeByArgNum(currentIndex);
             }
             return arg;
         };
@@ -9013,7 +9013,7 @@ void Compiler::fgValueNumberCall(GenTreeCall* call)
         if (arg->OperGet() == GT_ARGPLACE)
         {
             // Find the corresponding late arg.
-            GenTree* lateArg = call->fgArgInfo->GetArgNode(i);
+            GenTree* lateArg = call->GetArgNodeByArgNum(i);
             assert(lateArg->gtVNPair.BothDefined());
             arg->gtVNPair = lateArg->gtVNPair;
 #ifdef DEBUG
