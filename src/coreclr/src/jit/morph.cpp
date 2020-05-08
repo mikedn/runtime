@@ -3127,18 +3127,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
 GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 {
-    GenTreeCall::Use* args;
-    GenTree*          argx;
+    bool reMorphing = call->AreArgsComplete();
+    fgInitArgInfo(call);
+
+    JITDUMP("%sMorphing args for %d.%s:\n", (reMorphing) ? "Re" : "", call->gtTreeID, GenTree::OpName(call->gtOper));
 
     unsigned flagsSummary = 0;
-
-    unsigned argIndex = 0;
-
-    bool reMorphing = call->AreArgsComplete();
-
-    // Set up the fgArgInfo.
-    fgInitArgInfo(call);
-    JITDUMP("%sMorphing args for %d.%s:\n", (reMorphing) ? "Re" : "", call->gtTreeID, GenTree::OpName(call->gtOper));
 
     // If we are remorphing, process the late arguments (which were determined by a previous caller).
     if (reMorphing)
@@ -3157,14 +3151,14 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     // information about late arguments we have in 'fgArgInfo'.
     // This information is used later to contruct the gtCallLateArgs */
 
-    // Process the 'this' argument value, if present.
+    unsigned argIndex = 0;
+
     if (call->gtCallThisArg != nullptr)
     {
-        argx = call->gtCallThisArg->GetNode();
-        argx = fgMorphTree(argx);
-        call->gtCallThisArg->SetNode(argx);
-        flagsSummary |= argx->gtFlags;
-        assert(argIndex == 0);
+        GenTree* argNode = call->gtCallThisArg->GetNode();
+        argNode          = fgMorphTree(argNode);
+        call->gtCallThisArg->SetNode(argNode);
+        flagsSummary |= argNode->gtFlags;
         argIndex++;
     }
 
@@ -3174,15 +3168,15 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     bool hasMultiregStructArgs = false;
 #endif
 
-    for (args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
+    for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
         GenTree**      parentArgx = &args->NodeRef();
         fgArgTabEntry* argEntry   = call->GetArgInfoByArgNum(argIndex);
 
         // Morph the arg node, and update the parent and argEntry pointers.
-        argx        = *parentArgx;
-        argx        = fgMorphTree(argx);
-        *parentArgx = argx;
+        GenTree* argx = *parentArgx;
+        argx          = fgMorphTree(argx);
+        *parentArgx   = argx;
         assert(argx == args->GetNode());
 
         if (argEntry->isNonStandard)
