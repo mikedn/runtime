@@ -6992,7 +6992,7 @@ Compiler::NodeToIntMap* Compiler::FindReachableNodesInNodeTestData()
                         if ((use.GetNode()->gtFlags & GTF_LATE_ARG) != 0)
                         {
                             // Find the corresponding late arg.
-                            GenTree* lateArg = call->fgArgInfo->GetArgNode(i);
+                            GenTree* lateArg = call->GetArgNodeByArgNum(i);
                             if (GetNodeTestData()->Lookup(lateArg, &tlAndN))
                             {
                                 reachable->Set(lateArg, 0);

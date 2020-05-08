@@ -3161,9 +3161,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     // Process the 'this' argument value, if present.
     if (call->gtCallThisArg != nullptr)
     {
-        argx                        = call->gtCallThisArg->GetNode();
-        fgArgTabEntry* thisArgEntry = call->fgArgInfo->GetArgEntry(0, reMorphing);
-        argx                        = fgMorphTree(argx);
+        argx = call->gtCallThisArg->GetNode();
+        argx = fgMorphTree(argx);
         call->gtCallThisArg->SetNode(argx);
         flagsSummary |= argx->gtFlags;
         assert(argIndex == 0);
@@ -3179,7 +3178,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     for (args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
         GenTree**      parentArgx = &args->NodeRef();
-        fgArgTabEntry* argEntry   = call->fgArgInfo->GetArgEntry(argIndex, reMorphing);
+        fgArgTabEntry* argEntry   = call->GetArgInfoByArgNum(argIndex);
 
         // Morph the arg node, and update the parent and argEntry pointers.
         argx        = *parentArgx;
@@ -6451,7 +6450,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 
     for (unsigned index = 0; index < argInfo->ArgCount(); ++index)
     {
-        fgArgTabEntry* arg = argInfo->GetArgEntry(index, false);
+        fgArgTabEntry* arg = callee->GetArgInfoByArgNum(index);
 
         calleeArgStackSize += arg->stackSize();
 
@@ -6517,7 +6516,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
                                         continue;
                                     }
 
-                                    fgArgTabEntry* const arg2 = argInfo->GetArgEntry(index2, false);
+                                    fgArgTabEntry* const arg2 = callee->GetArgInfoByArgNum(index2);
                                     JITDUMP("... checking other arg [%06u]...\n", dspTreeID(arg2->GetNode()));
                                     DISPTREE(arg2->GetNode());
 

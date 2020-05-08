@@ -5765,7 +5765,24 @@ GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTre
 CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
 {
     noway_assert(fgArgInfo != nullptr);
-    return fgArgInfo->GetArgEntry(argNum);
+
+    assert(argNum < fgArgInfo->ArgCount());
+
+    if (fgArgInfo->ArgTable()[argNum]->argNum == argNum)
+    {
+        return fgArgInfo->ArgTable()[argNum];
+    }
+
+    // The arg table was sorted and the arg changed its position, do a linear search to find it.
+    for (unsigned i = 0; i < fgArgInfo->ArgCount(); i++)
+    {
+        if (fgArgInfo->ArgTable()[i]->argNum == argNum)
+        {
+            return fgArgInfo->ArgTable()[i];
+        }
+    }
+
+    unreached();
 }
 
 GenTree* GenTreeCall::GetArgNodeByArgNum(unsigned argNum) const

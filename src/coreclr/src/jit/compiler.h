@@ -1841,38 +1841,6 @@ public:
     }
 #endif // defined(UNIX_X86_ABI)
 
-    // Get the fgArgTabEntry for the arg at position argNum.
-    fgArgTabEntry* GetArgEntry(unsigned argNum, bool reMorphing = true)
-    {
-        fgArgTabEntry* curArgTabEntry = nullptr;
-
-        if (!reMorphing)
-        {
-            // The arg table has not yet been sorted.
-            curArgTabEntry = argTable[argNum];
-            assert(curArgTabEntry->argNum == argNum);
-            return curArgTabEntry;
-        }
-
-        for (unsigned i = 0; i < argCount; i++)
-        {
-            curArgTabEntry = argTable[i];
-            if (curArgTabEntry->argNum == argNum)
-            {
-                return curArgTabEntry;
-            }
-        }
-        noway_assert(!"GetArgEntry: argNum not found");
-        return nullptr;
-    }
-
-    // Get the node for the arg at position argIndex.
-    // Caller must ensure that this index is a valid arg index.
-    GenTree* GetArgNode(unsigned argIndex)
-    {
-        return GetArgEntry(argIndex)->GetNode();
-    }
-
     void Dump(Compiler* compiler);
 };
 

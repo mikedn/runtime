@@ -1986,8 +1986,8 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
         (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFANY)))
     {
         fgArgInfo* const argInfo         = call->fgArgInfo;
-        GenTree*         objectNode      = argInfo->GetArgNode(1);
-        GenTree*         methodTableNode = argInfo->GetArgNode(0);
+        GenTree*         objectNode      = call->GetArgNodeByArgNum(1);
+        GenTree*         methodTableNode = call->GetArgNodeByArgNum(0);
 
         assert(objectNode->TypeGet() == TYP_REF);
         assert(methodTableNode->TypeGet() == TYP_I_IMPL);
