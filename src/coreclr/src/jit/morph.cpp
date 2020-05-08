@@ -3138,7 +3138,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
     // Set up the fgArgInfo.
     fgInitArgInfo(call);
-    unsigned numArgs = call->fgArgInfo->ArgCount();
     JITDUMP("%sMorphing args for %d.%s:\n", (reMorphing) ? "Re" : "", call->gtTreeID, GenTree::OpName(call->gtOper));
 
     // If we are remorphing, process the late arguments (which were determined by a previous caller).
@@ -3471,12 +3470,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #endif // !TARGET_X86
 
 #ifndef UNIX_AMD64_ABI
-                // We still have a struct unless we converted the GT_OBJ into a GT_IND above...
-                if (argEntry->IsHfaArg() && argEntry->isPassedInFloatRegisters())
-                {
-                    size = argEntry->numRegs;
-                }
-                else if (structBaseType == TYP_STRUCT)
+                if ((structBaseType == TYP_STRUCT) && !(argEntry->IsHfaArg() && argEntry->isPassedInFloatRegisters()))
                 {
                     // If the valuetype size is not a multiple of TARGET_POINTER_SIZE,
                     // we must copyblk to a temp before doing the obj to avoid
@@ -3497,8 +3491,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                             copyBlkClass = NO_CLASS_HANDLE;
                         }
                     }
-
-                    size = roundupSize / TARGET_POINTER_SIZE; // Normalize size to number of pointer sized items
                 }
 
 #endif // !UNIX_AMD64_ABI
