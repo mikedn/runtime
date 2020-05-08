@@ -3170,14 +3170,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
     for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
-        GenTree**      parentArgx = &args->NodeRef();
-        fgArgTabEntry* argEntry   = call->GetArgInfoByArgNum(argIndex);
+        fgArgTabEntry* argEntry = call->GetArgInfoByArgNum(argIndex);
 
         // Morph the arg node, and update the parent and argEntry pointers.
-        GenTree* argx = *parentArgx;
+        GenTree* argx = args->GetNode();
         argx          = fgMorphTree(argx);
-        *parentArgx   = argx;
-        assert(argx == args->GetNode());
+        args->SetNode(argx);
 
         if (argEntry->isNonStandard)
         {
@@ -3389,9 +3387,9 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                             DEBUG_DESTROY_NODE(argObj->AsOp()->gtOp1); // GT_ADDR
                             DEBUG_DESTROY_NODE(argObj);                // GT_IND
 
-                            argObj      = temp;
-                            *parentArgx = temp;
-                            argx        = temp;
+                            argObj = temp;
+                            args->SetNode(temp);
+                            argx = temp;
                         }
                     }
                     if (argObj->gtOper == GT_LCL_VAR)
