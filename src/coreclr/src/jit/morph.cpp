@@ -3528,9 +3528,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
             fieldList->AddField(this, argx->AsOp()->gtGetOp1(), OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
             fieldList->AddField(this, argx->AsOp()->gtGetOp2(), OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
-            fgArgTabEntry* fp = call->GetArgInfoByArgNode(argx);
             args->SetNode(fieldList);
-            assert(fp->GetNode() == fieldList);
+            assert(argEntry->GetNode() == fieldList);
 #else  // !TARGET_X86
 
             // Get a new temp
@@ -3594,9 +3593,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 LclVarDsc*           varDsc    = lvaGetDesc(lcl);
                 GenTreeFieldList*    fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-                fgArgTabEntry* fp = call->GetArgInfoByArgNode(argx);
                 args->SetNode(fieldList);
-                assert(fp->GetNode() == fieldList);
+                assert(argEntry->GetNode() == fieldList);
 
                 for (unsigned fieldLclNum = varDsc->lvFieldLclStart;
                      fieldLclNum < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++fieldLclNum)
