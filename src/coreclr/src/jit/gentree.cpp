@@ -242,7 +242,6 @@ void GenTree::InitNodeSize()
 
     GenTree::s_gtNodeSizes[GT_CALL]             = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_CAST]             = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_FTN_ADDR]         = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_BOX]              = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_INDEX]            = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_INDEX_ADDR]       = TREE_NODE_SZ_LARGE;
@@ -298,7 +297,7 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeColon)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCall)         <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeCmpXchg)      <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIntrinsic)    <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeIndex)        <= TREE_NODE_SZ_LARGE); // *** large node
