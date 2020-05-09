@@ -5756,7 +5756,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
                     bool fieldHasChangeableOffset = false;
 
 #ifdef FEATURE_READYTORUN_COMPILER
-                    fieldHasChangeableOffset = (tree->AsField()->gtFieldLookup.addr != nullptr);
+                    fieldHasChangeableOffset = (tree->AsField()->GetR2RFieldLookupAddr() != nullptr);
 #endif
 
 #if CONSERVATIVE_NULL_CHECK_BYREF_CREATION
@@ -5827,19 +5827,11 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (tree->AsField()->gtFieldLookup.addr != nullptr)
+        if (tree->AsField()->GetR2RFieldLookupAddr() != nullptr)
         {
-            GenTree* offsetNode = nullptr;
-            if (tree->AsField()->gtFieldLookup.accessType == IAT_PVALUE)
-            {
-                offsetNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)tree->AsField()->gtFieldLookup.addr,
-                                                      GTF_ICON_FIELD_HDL, false);
-            }
-            else
-            {
-                noway_assert(!"unexpected accessType for R2R field access");
-            }
-
+            GenTree* offsetNode =
+                gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(tree->AsField()->GetR2RFieldLookupAddr()),
+                                         GTF_ICON_FIELD_HDL, false);
             var_types addType = (objRefType == TYP_I_IMPL) ? TYP_I_IMPL : TYP_BYREF;
             addr              = gtNewOperNode(GT_ADD, addType, addr, offsetNode);
         }

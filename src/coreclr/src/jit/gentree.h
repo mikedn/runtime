@@ -3568,22 +3568,40 @@ struct GenTreeField : public GenTree
     CORINFO_FIELD_HANDLE gtFldHnd;
     DWORD                gtFldOffset;
     bool                 gtFldMayOverlap;
+
+private:
 #ifdef FEATURE_READYTORUN_COMPILER
-    CORINFO_CONST_LOOKUP gtFieldLookup;
+    void* m_r2rFieldLookupAddr;
 #endif
 
+public:
     GenTreeField(var_types type, GenTree* obj, CORINFO_FIELD_HANDLE fldHnd, DWORD offs)
-        : GenTree(GT_FIELD, type), gtFldObj(obj), gtFldHnd(fldHnd), gtFldOffset(offs), gtFldMayOverlap(false)
+        : GenTree(GT_FIELD, type)
+        , gtFldObj(obj)
+        , gtFldHnd(fldHnd)
+        , gtFldOffset(offs)
+        , gtFldMayOverlap(false)
+#ifdef FEATURE_READYTORUN_COMPILER
+        , m_r2rFieldLookupAddr(nullptr)
+#endif
     {
         if (obj != nullptr)
         {
             gtFlags |= (obj->gtFlags & GTF_ALL_EFFECT);
         }
+    }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-        gtFieldLookup.addr = nullptr;
-#endif
+    void* GetR2RFieldLookupAddr() const
+    {
+        return m_r2rFieldLookupAddr;
     }
+
+    void SetR2RFieldLookupAddr(void* addr)
+    {
+        m_r2rFieldLookupAddr = addr;
+    }
+#endif
 
     // True if this field is a volatile memory operation.
     bool IsVolatile() const

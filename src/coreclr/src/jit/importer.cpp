@@ -14154,7 +14154,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #ifdef FEATURE_READYTORUN_COMPILER
                         if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
                         {
-                            op1->AsField()->gtFieldLookup = fieldInfo.fieldLookup;
+                            noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
+                            op1->AsField()->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
                         }
 #endif
 
@@ -14469,7 +14470,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #ifdef FEATURE_READYTORUN_COMPILER
                         if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
                         {
-                            op1->AsField()->gtFieldLookup = fieldInfo.fieldLookup;
+                            noway_assert(fieldInfo.fieldLookup.accessType == IAT_PVALUE);
+                            op1->AsField()->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
                         }
 #endif
 

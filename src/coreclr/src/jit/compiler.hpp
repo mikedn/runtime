@@ -1192,9 +1192,6 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
 
 inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj, DWORD offset)
 {
-    /* 'GT_FIELD' nodes may later get transformed into 'GT_IND' */
-    assert(GenTree::s_gtNodeSizes[GT_IND] <= GenTree::s_gtNodeSizes[GT_FIELD]);
-
     if (typ == TYP_STRUCT)
     {
         CORINFO_CLASS_HANDLE fieldClass;
@@ -1495,6 +1492,11 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     // Do "oper"-specific initializations...
     switch (oper)
     {
+        case GT_LCL_VAR:
+        case GT_LCL_VAR_ADDR:
+            INDEBUG(AsLclVar()->gtLclILoffs = BAD_IL_OFFSET;)
+            break;
+
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
         {
