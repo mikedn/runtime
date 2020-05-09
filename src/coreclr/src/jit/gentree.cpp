@@ -245,7 +245,6 @@ void GenTree::InitNodeSize()
     GenTree::s_gtNodeSizes[GT_BOX]              = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_INDEX_ADDR]       = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_ARR_ELEM]         = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_RET_EXPR]         = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_DYN_BLK]          = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_STORE_DYN_BLK]    = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_INTRINSIC]        = TREE_NODE_SZ_LARGE;
@@ -304,7 +303,7 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeObj)          <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeBlk)          <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeDynBlk)       <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeArgPlace)     <= TREE_NODE_SZ_SMALL);
@@ -5676,23 +5675,14 @@ GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned
     return node;
 }
 
-GenTree* Compiler::gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type)
+GenTreeRetExpr* Compiler::gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type)
 {
-    assert(GenTree::s_gtNodeSizes[GT_RET_EXPR] == TREE_NODE_SZ_LARGE);
+    GenTreeRetExpr* node = new (this, GT_RET_EXPR) GenTreeRetExpr(type, inlineCandidate);
 
-    GenTree* node = new (this, GT_RET_EXPR) GenTreeRetExpr(type);
-
-    node->AsRetExpr()->gtInlineCandidate = inlineCandidate;
-
-    if (varTypeIsStruct(inlineCandidate) && !inlineCandidate->OperIsBlkOp())
+    if (varTypeIsStruct(inlineCandidate->GetType()) && !inlineCandidate->OperIsBlkOp())
     {
-        node->AsRetExpr()->gtRetClsHnd = gtGetStructHandle(inlineCandidate);
+        node->gtRetClsHnd = gtGetStructHandle(inlineCandidate);
     }
-
-    // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
-    // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
-    // For example, impImportLeave or CEE_POP need to spill GT_RET_EXPR before empty the evaluation stack.
-    node->gtFlags |= GTF_CALL;
 
     return node;
 }

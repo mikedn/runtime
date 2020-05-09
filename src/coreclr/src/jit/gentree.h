@@ -5990,9 +5990,15 @@ struct GenTreeRetExpr : public GenTree
 
     CORINFO_CLASS_HANDLE gtRetClsHnd;
 
-    GenTreeRetExpr(var_types type) : GenTree(GT_RET_EXPR, type)
+    GenTreeRetExpr(var_types type, GenTree* inlineCandidate)
+        : GenTree(GT_RET_EXPR, type), gtInlineCandidate(inlineCandidate)
     {
+        // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
+        // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
+        // For example, impImportLeave or CEE_POP need to spill GT_RET_EXPR before empty the evaluation stack.
+        gtFlags |= GTF_CALL;
     }
+
 #if DEBUGGABLE_GENTREE
     GenTreeRetExpr() : GenTree()
     {
