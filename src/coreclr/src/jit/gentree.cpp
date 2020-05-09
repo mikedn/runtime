@@ -256,14 +256,9 @@ void GenTree::InitNodeSize()
     GenTree::s_gtNodeSizes[GT_MOD]              = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_UMOD]             = TREE_NODE_SZ_LARGE;
 #endif
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-    // TODO-Throughput: This should not need to be a large node. The object info should be
-    // obtained from the child node.
-    GenTree::s_gtNodeSizes[GT_PUTARG_STK]       = TREE_NODE_SZ_LARGE;
 #if FEATURE_ARG_SPLIT
     GenTree::s_gtNodeSizes[GT_PUTARG_SPLIT]     = TREE_NODE_SZ_LARGE;
-#endif // FEATURE_ARG_SPLIT
-#endif // FEATURE_PUT_STRUCT_ARG_STK
+#endif
 
     assert(GenTree::s_gtNodeSizes[GT_RETURN] == GenTree::s_gtNodeSizes[GT_ASG]);
 
@@ -315,16 +310,10 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeArgPlace)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreePhiArg)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeAllocObj)     <= TREE_NODE_SZ_LARGE); // *** large node
-#ifndef FEATURE_PUT_STRUCT_ARG_STK
     static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
-#else  // FEATURE_PUT_STRUCT_ARG_STK
-    // TODO-Throughput: This should not need to be a large node. The object info should be
-    // obtained from the child node.
-    static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_LARGE);
 #if FEATURE_ARG_SPLIT
     static_assert_no_msg(sizeof(GenTreePutArgSplit)  <= TREE_NODE_SZ_LARGE);
-#endif // FEATURE_ARG_SPLIT
-#endif // FEATURE_PUT_STRUCT_ARG_STK
+#endif
 
 #ifdef FEATURE_SIMD
     static_assert_no_msg(sizeof(GenTreeSIMD)         <= TREE_NODE_SZ_SMALL);
