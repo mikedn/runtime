@@ -1427,27 +1427,8 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
 inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
 {
-    GenTreeCast* res = new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);
-    return res;
+    return new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);
 }
-
-inline GenTreeCast* Compiler::gtNewCastNodeL(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
-{
-    /* Some casts get transformed into 'GT_CALL' or 'GT_IND' nodes */
-
-    assert(GenTree::s_gtNodeSizes[GT_CALL] >= GenTree::s_gtNodeSizes[GT_CAST]);
-    assert(GenTree::s_gtNodeSizes[GT_CALL] >= GenTree::s_gtNodeSizes[GT_IND]);
-
-    /* Make a big node first and then change it to be GT_CAST */
-
-    GenTreeCast* res =
-        new (this, LargeOpOpcode()) GenTreeCast(typ, op1, fromUnsigned, castType DEBUGARG(/*largeNode*/ true));
-    return res;
-}
-
-/*****************************************************************************/
-
-/*****************************************************************************/
 
 inline void GenTree::SetOperRaw(genTreeOps oper)
 {
