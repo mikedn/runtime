@@ -4730,12 +4730,13 @@ struct GenTreeFptrVal : public GenTree
 #endif
 };
 
-/* gtQmark */
 struct GenTreeQmark : public GenTreeOp
 {
-    // The "Compiler*" argument is not a DEBUGARG here because we use it to keep track of the set of
-    // (possible) QMark nodes.
-    GenTreeQmark(var_types type, GenTree* cond, GenTree* colonOp, class Compiler* comp);
+    GenTreeQmark(var_types type, GenTree* cond, GenTree* colonOp) : GenTreeOp(GT_QMARK, type, cond, colonOp)
+    {
+        assert((cond != nullptr) && cond->TypeIs(TYP_INT));
+        assert((colonOp != nullptr) && colonOp->OperIs(GT_COLON));
+    }
 
 #if DEBUGGABLE_GENTREE
     GenTreeQmark() : GenTreeOp(GT_QMARK, TYP_INT, nullptr, nullptr)

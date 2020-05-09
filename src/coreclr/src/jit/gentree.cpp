@@ -251,7 +251,6 @@ void GenTree::InitNodeSize()
     GenTree::s_gtNodeSizes[GT_ARR_OFFSET]       = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_RET_EXPR]         = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_CMPXCHG]          = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_QMARK]            = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_DYN_BLK]          = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_STORE_DYN_BLK]    = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_INTRINSIC]        = TREE_NODE_SZ_LARGE;
@@ -300,7 +299,7 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeCall)         <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeCmpXchg)      <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIntrinsic)    <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeIndex)        <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_LARGE); // *** large node
@@ -5169,7 +5168,7 @@ GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* c
 {
     compQmarkUsed = true;
     cond->gtFlags |= GTF_RELOP_QMARK;
-    GenTreeQmark* result = new (this, GT_QMARK) GenTreeQmark(type, cond, colon, this);
+    GenTreeQmark* result = new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
 #ifdef DEBUG
     if (compQmarkRationalized)
     {
@@ -5177,14 +5176,6 @@ GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* c
     }
 #endif
     return result;
-}
-
-GenTreeQmark::GenTreeQmark(var_types type, GenTree* cond, GenTree* colonOp, Compiler* comp)
-    : GenTreeOp(GT_QMARK, type, cond, colonOp)
-{
-    // These must follow a specific form.
-    assert(cond != nullptr && cond->TypeGet() == TYP_INT);
-    assert(colonOp != nullptr && colonOp->OperGet() == GT_COLON);
 }
 
 GenTreeIntCon* Compiler::gtNewIconNode(ssize_t value, var_types type)
@@ -6743,8 +6734,7 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_QMARK:
-                copy =
-                    new (this, GT_QMARK) GenTreeQmark(tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2, this);
+                copy = new (this, GT_QMARK) GenTreeQmark(tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
                 break;
 
             case GT_OBJ:
