@@ -3901,6 +3901,18 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
         }
         else
         {
+            if (varTypeIsSIMD(fieldType))
+            {
+                // TODO-MIKE-CQ: Handle promoted SIMD fields.
+                // On Linux-x64 a Vector2 can be easily passed in an SSE eightbyte but the rest need to be
+                // split across multiple eightbytes. Also, the VM doesn't yet handle SSEUP so Vector128<T>
+                // and Vector256<T> aren't passed correctly as far as the ABI is concerned.
+                // On ARM64 Vector2/3/4 are HFAs so they need to be handled by the HFA specific logic. But
+                // if you put a Vector3 and an Int32 in a struct the result is not a HFA and would need to
+                // be handled here by passing the Vector3 and Int32 in 4 integer registers.
+                return false;
+            }
+
             assert(varTypeIsGC(fieldType) || (fieldType == TYP_INT) || varTypeIsSmall(fieldType));
 
             reg++;
