@@ -3742,11 +3742,16 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
                     {
                         structSize = argx->AsObj()->GetLayout()->GetSize();
                     }
+                    else if (argx->OperIs(GT_LCL_VAR))
+                    {
+                        structSize = lvaGetDesc(argx->AsLclVar())->lvExactSize;
+                    }
                     else
                     {
-                        assert(argx->OperIs(GT_LCL_VAR));
-                        structSize = lvaGetDesc(argx->AsLclVar()->GetLclNum())->lvExactSize;
+                        assert(argx->OperIs(GT_LCL_FLD));
+                        structSize = argx->AsLclFld()->GetLayout(this)->GetSize();
                     }
+
                     assert(structSize > 0);
                     if (structSize == genTypeSize(hfaType))
                     {
@@ -3896,6 +3901,18 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
         }
         else
         {
+            if (varTypeIsSIMD(fieldType))
+            {
+                // TODO-MIKE-CQ: Handle promoted SIMD fields.
+                // On Linux-x64 a Vector2 can be easily passed in an SSE eightbyte but the rest need to be
+                // split across multiple eightbytes. Also, the VM doesn't yet handle SSEUP so Vector128<T>
+                // and Vector256<T> aren't passed correctly as far as the ABI is concerned.
+                // On ARM64 Vector2/3/4 are HFAs so they need to be handled by the HFA specific logic. But
+                // if you put a Vector3 and an Int32 in a struct the result is not a HFA and would need to
+                // be handled here by passing the Vector3 and Int32 in 4 integer registers.
+                return false;
+            }
+
             assert(varTypeIsGC(fieldType) || (fieldType == TYP_INT) || varTypeIsSmall(fieldType));
 
             reg++;
@@ -4369,7 +4386,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #endif
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-        if (varDsc->lvPromoted && (varDsc->lvFieldCnt == 2))
+        if (varDsc->lvPromoted && (varDsc->lvFieldCnt == 2) && (elemCount == 2))
         {
             // If we have 2 promoted fields that start at offset 0 and 8 then we can pass them using FIELD_LIST.
             // If there are more fields it means that 2 or more fields go into the same register, currently this
@@ -4398,12 +4415,8 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                 var_types loType = loVarDsc->lvType;
                 var_types hiType = hiVarDsc->lvType;
 
-                if (varTypeIsFloating(loType) || varTypeIsFloating(hiType))
-                {
-                    JITDUMP("Multireg struct V%02u will be passed using GT_LCLFLD because it has float fields.\n",
-                            varNum);
-                }
-                else
+                if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(type[0])) &&
+                    (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(type[1])))
                 {
                     newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
                     newArg->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
