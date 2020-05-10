@@ -3742,11 +3742,16 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
                     {
                         structSize = argx->AsObj()->GetLayout()->GetSize();
                     }
+                    else if (argx->OperIs(GT_LCL_VAR))
+                    {
+                        structSize = lvaGetDesc(argx->AsLclVar())->lvExactSize;
+                    }
                     else
                     {
-                        assert(argx->OperIs(GT_LCL_VAR));
-                        structSize = lvaGetDesc(argx->AsLclVar()->GetLclNum())->lvExactSize;
+                        assert(argx->OperIs(GT_LCL_FLD));
+                        structSize = argx->AsLclFld()->GetLayout(this)->GetSize();
                     }
+
                     assert(structSize > 0);
                     if (structSize == genTypeSize(hfaType))
                     {
