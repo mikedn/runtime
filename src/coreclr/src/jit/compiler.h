@@ -1479,7 +1479,6 @@ public:
         : use(use)
         , lateUse(nullptr)
         , argNum(argNum)
-        , numRegs(static_cast<uint8_t>(regCount))
         , slotNum(0)
         , numSlots(0)
         , tmpNum(BAD_VAR_NUM)
@@ -1489,6 +1488,7 @@ public:
         , isNonStandard(false)
         , isStruct(isStruct)
         , passedByRef(false)
+        , numRegs(static_cast<uint8_t>(regCount))
 #ifdef FEATURE_HFA
         , regType(TYP_I_IMPL)
 #endif
