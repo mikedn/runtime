@@ -22218,7 +22218,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         }
 #endif // DEBUG
 
-        tree->ReplaceWith(inlineCandidate, comp);
+        tree = *pTree = inlineCandidate;
 
 #ifdef DEBUG
         if (comp->verbose)
@@ -22276,7 +22276,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
                 else
                 {
                     // Just assign the inlinee to a variable to keep it simple.
-                    tree->ReplaceWith(comp->fgAssignStructInlineeToVar(tree, retClsHnd), comp);
+                    tree = *pTree = comp->fgAssignStructInlineeToVar(tree, retClsHnd);
                 }
             }
             break;

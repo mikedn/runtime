@@ -241,26 +241,9 @@ void GenTree::InitNodeSize()
 #endif // defined(FEATURE_HFA) || defined(UNIX_AMD64_ABI)
 
     GenTree::s_gtNodeSizes[GT_CALL]             = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_CAST]             = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_FTN_ADDR]         = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_BOX]              = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_INDEX]            = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_INDEX_ADDR]       = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_ARR_BOUNDS_CHECK] = TREE_NODE_SZ_LARGE;
-#ifdef FEATURE_SIMD
-    GenTree::s_gtNodeSizes[GT_SIMD_CHK] = TREE_NODE_SZ_LARGE;
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-    GenTree::s_gtNodeSizes[GT_HW_INTRINSIC_CHK] = TREE_NODE_SZ_LARGE;
-#endif // FEATURE_HW_INTRINSICS
-
     GenTree::s_gtNodeSizes[GT_ARR_ELEM]         = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_ARR_INDEX]        = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_ARR_OFFSET]       = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_RET_EXPR]         = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_FIELD]            = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_CMPXCHG]          = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_QMARK]            = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_DYN_BLK]          = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_STORE_DYN_BLK]    = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_INTRINSIC]        = TREE_NODE_SZ_LARGE;
@@ -271,14 +254,9 @@ void GenTree::InitNodeSize()
     GenTree::s_gtNodeSizes[GT_MOD]              = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_UMOD]             = TREE_NODE_SZ_LARGE;
 #endif
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-    // TODO-Throughput: This should not need to be a large node. The object info should be
-    // obtained from the child node.
-    GenTree::s_gtNodeSizes[GT_PUTARG_STK]       = TREE_NODE_SZ_LARGE;
 #if FEATURE_ARG_SPLIT
     GenTree::s_gtNodeSizes[GT_PUTARG_SPLIT]     = TREE_NODE_SZ_LARGE;
-#endif // FEATURE_ARG_SPLIT
-#endif // FEATURE_PUT_STRUCT_ARG_STK
+#endif
 
     assert(GenTree::s_gtNodeSizes[GT_RETURN] == GenTree::s_gtNodeSizes[GT_ASG]);
 
@@ -301,45 +279,39 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeLclVar)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeLclFld)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCC)           <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeField)        <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeField)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeColon)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeCall)         <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeCmpXchg)      <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeCmpXchg)      <= TREE_NODE_SZ_SMALL);
+    static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_SMALL);
+    static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIntrinsic)    <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeIndex)        <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeIndex)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_SMALL);
+    static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeArrElem)      <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeArrIndex)     <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeArrOffs)      <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeArrIndex)     <= TREE_NODE_SZ_SMALL);
+    static_assert_no_msg(sizeof(GenTreeArrOffs)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIndir)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeStoreInd)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeAddrMode)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeObj)          <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeBlk)          <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeDynBlk)       <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeArgPlace)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreePhiArg)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeAllocObj)     <= TREE_NODE_SZ_LARGE); // *** large node
-#ifndef FEATURE_PUT_STRUCT_ARG_STK
     static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
-#else  // FEATURE_PUT_STRUCT_ARG_STK
-    // TODO-Throughput: This should not need to be a large node. The object info should be
-    // obtained from the child node.
-    static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_LARGE);
 #if FEATURE_ARG_SPLIT
     static_assert_no_msg(sizeof(GenTreePutArgSplit)  <= TREE_NODE_SZ_LARGE);
-#endif // FEATURE_ARG_SPLIT
-#endif // FEATURE_PUT_STRUCT_ARG_STK
+#endif
 
 #ifdef FEATURE_SIMD
     static_assert_no_msg(sizeof(GenTreeSIMD)         <= TREE_NODE_SZ_SMALL);
@@ -5178,7 +5150,7 @@ GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* c
 {
     compQmarkUsed = true;
     cond->gtFlags |= GTF_RELOP_QMARK;
-    GenTreeQmark* result = new (this, GT_QMARK) GenTreeQmark(type, cond, colon, this);
+    GenTreeQmark* result = new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
 #ifdef DEBUG
     if (compQmarkRationalized)
     {
@@ -5186,14 +5158,6 @@ GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* c
     }
 #endif
     return result;
-}
-
-GenTreeQmark::GenTreeQmark(var_types type, GenTree* cond, GenTree* colonOp, Compiler* comp)
-    : GenTreeOp(GT_QMARK, type, cond, colonOp)
-{
-    // These must follow a specific form.
-    assert(cond != nullptr && cond->TypeGet() == TYP_INT);
-    assert(colonOp != nullptr && colonOp->OperGet() == GT_COLON);
 }
 
 GenTreeIntCon* Compiler::gtNewIconNode(ssize_t value, var_types type)
@@ -5710,23 +5674,14 @@ GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned
     return node;
 }
 
-GenTree* Compiler::gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type)
+GenTreeRetExpr* Compiler::gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type)
 {
-    assert(GenTree::s_gtNodeSizes[GT_RET_EXPR] == TREE_NODE_SZ_LARGE);
+    GenTreeRetExpr* node = new (this, GT_RET_EXPR) GenTreeRetExpr(type, inlineCandidate);
 
-    GenTree* node = new (this, GT_RET_EXPR) GenTreeRetExpr(type);
-
-    node->AsRetExpr()->gtInlineCandidate = inlineCandidate;
-
-    if (varTypeIsStruct(inlineCandidate) && !inlineCandidate->OperIsBlkOp())
+    if (varTypeIsStruct(inlineCandidate->GetType()) && !inlineCandidate->OperIsBlkOp())
     {
-        node->AsRetExpr()->gtRetClsHnd = gtGetStructHandle(inlineCandidate);
+        node->gtRetClsHnd = gtGetStructHandle(inlineCandidate);
     }
-
-    // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
-    // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
-    // For example, impImportLeave or CEE_POP need to spill GT_RET_EXPR before empty the evaluation stack.
-    node->gtFlags |= GTF_CALL;
 
     return node;
 }
@@ -6445,7 +6400,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                 copy = gtNewFieldRef(tree->TypeGet(), tree->AsField()->gtFldHnd, objp, tree->AsField()->gtFldOffset);
                 copy->AsField()->gtFldMayOverlap = tree->AsField()->gtFldMayOverlap;
 #ifdef FEATURE_READYTORUN_COMPILER
-                copy->AsField()->gtFieldLookup = tree->AsField()->gtFieldLookup;
+                copy->AsField()->SetR2RFieldLookupAddr(tree->AsField()->GetR2RFieldLookupAddr());
 #endif
             }
             else if (tree->OperIs(GT_ADD, GT_SUB))
@@ -6752,8 +6707,7 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_QMARK:
-                copy =
-                    new (this, GT_QMARK) GenTreeQmark(tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2, this);
+                copy = new (this, GT_QMARK) GenTreeQmark(tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
                 break;
 
             case GT_OBJ:
@@ -6906,9 +6860,8 @@ GenTree* Compiler::gtCloneExpr(
                                             : nullptr;
             copy->AsField()->gtFldMayOverlap = tree->AsField()->gtFldMayOverlap;
 #ifdef FEATURE_READYTORUN_COMPILER
-            copy->AsField()->gtFieldLookup = tree->AsField()->gtFieldLookup;
+            copy->AsField()->SetR2RFieldLookupAddr(tree->AsField()->GetR2RFieldLookupAddr());
 #endif
-
             break;
 
         case GT_ARR_ELEM:

@@ -1192,9 +1192,6 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
 
 inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj, DWORD offset)
 {
-    /* 'GT_FIELD' nodes may later get transformed into 'GT_IND' */
-    assert(GenTree::s_gtNodeSizes[GT_IND] <= GenTree::s_gtNodeSizes[GT_FIELD]);
-
     if (typ == TYP_STRUCT)
     {
         CORINFO_CLASS_HANDLE fieldClass;
@@ -1430,27 +1427,8 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
 inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
 {
-    GenTreeCast* res = new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);
-    return res;
+    return new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);
 }
-
-inline GenTreeCast* Compiler::gtNewCastNodeL(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
-{
-    /* Some casts get transformed into 'GT_CALL' or 'GT_IND' nodes */
-
-    assert(GenTree::s_gtNodeSizes[GT_CALL] >= GenTree::s_gtNodeSizes[GT_CAST]);
-    assert(GenTree::s_gtNodeSizes[GT_CALL] >= GenTree::s_gtNodeSizes[GT_IND]);
-
-    /* Make a big node first and then change it to be GT_CAST */
-
-    GenTreeCast* res =
-        new (this, LargeOpOpcode()) GenTreeCast(typ, op1, fromUnsigned, castType DEBUGARG(/*largeNode*/ true));
-    return res;
-}
-
-/*****************************************************************************/
-
-/*****************************************************************************/
 
 inline void GenTree::SetOperRaw(genTreeOps oper)
 {
@@ -1495,6 +1473,11 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     // Do "oper"-specific initializations...
     switch (oper)
     {
+        case GT_LCL_VAR:
+        case GT_LCL_VAR_ADDR:
+            INDEBUG(AsLclVar()->gtLclILoffs = BAD_IL_OFFSET;)
+            break;
+
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
         {

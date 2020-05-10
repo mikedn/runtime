@@ -2502,7 +2502,7 @@ public:
 #endif // FEATURE_HW_INTRINSICS
 
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
-    GenTree* gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type);
+    GenTreeRetExpr* gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type);
 
     GenTreeField* gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj = nullptr, DWORD offset = 0);
 
@@ -2537,8 +2537,6 @@ public:
     GenTree* gtUnusedValNode(GenTree* expr);
 
     GenTreeCast* gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType);
-
-    GenTreeCast* gtNewCastNodeL(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType);
 
     GenTreeAllocObj* gtNewAllocObjNode(
         unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1);

@@ -25,8 +25,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // returns the morphed tree
 GenTree* Compiler::fgMorphCastIntoHelper(GenTree* tree, int helper, GenTree* oper)
 {
-    GenTree* result;
-
     /* If the operand is a constant, we'll try to fold it */
     if (oper->OperIsConst())
     {
@@ -47,9 +45,18 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTree* tree, int helper, GenTree* ope
         noway_assert(tree->AsCast()->CastOp() == oper);
         noway_assert(tree->gtOper == GT_CAST);
     }
-    result = fgMorphIntoHelperCall(tree, helper, gtNewCallArgs(oper));
-    assert(result == tree);
-    return result;
+
+    // GenTreeCast nodes are small so they cannot be converted to calls in place. It may
+    // be possible to have the importer create large cast nodes as needed but the number
+    // of cast nodes that need to be converted to helper calls is typically very small
+    // (e.g. 0.03% in corelib x86) so it's not worth the risk. At least in theory, if 2
+    // cast nodes somehow combine into one and one is large and the other small then the
+    // combining code would need to be careful to preserve the large node, not the small
+    // node. Cast morphing code is convoluted enough as it is.
+    tree = new (this, LargeOpOpcode()) GenTreeCast(tree->GetType(), tree->AsCast()->GetOp(0), tree->IsUnsigned(),
+                                                   tree->AsCast()->GetCastType() DEBUGARG(/*largeNode*/ true));
+    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    return fgMorphIntoHelperCall(tree, helper, gtNewCallArgs(oper));
 }
 
 /*****************************************************************************
@@ -174,14 +181,14 @@ GenTree* Compiler::fgMorphCast(GenTree* tree)
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)
         if (dstSize < genTypeSize(TYP_INT))
         {
-            oper = gtNewCastNodeL(TYP_INT, oper, tree->IsUnsigned(), TYP_INT);
+            oper = gtNewCastNode(TYP_INT, oper, tree->IsUnsigned(), TYP_INT);
             oper->gtFlags |= (tree->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
             tree->gtFlags &= ~GTF_UNSIGNED;
         }
 #else
         if (dstSize < TARGET_POINTER_SIZE)
         {
-            oper = gtNewCastNodeL(TYP_I_IMPL, oper, false, TYP_I_IMPL);
+            oper = gtNewCastNode(TYP_I_IMPL, oper, false, TYP_I_IMPL);
             oper->gtFlags |= (tree->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
         }
 #endif
@@ -5756,7 +5763,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
                     bool fieldHasChangeableOffset = false;
 
 #ifdef FEATURE_READYTORUN_COMPILER
-                    fieldHasChangeableOffset = (tree->AsField()->gtFieldLookup.addr != nullptr);
+                    fieldHasChangeableOffset = (tree->AsField()->GetR2RFieldLookupAddr() != nullptr);
 #endif
 
 #if CONSERVATIVE_NULL_CHECK_BYREF_CREATION
@@ -5827,19 +5834,11 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
         }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (tree->AsField()->gtFieldLookup.addr != nullptr)
+        if (tree->AsField()->GetR2RFieldLookupAddr() != nullptr)
         {
-            GenTree* offsetNode = nullptr;
-            if (tree->AsField()->gtFieldLookup.accessType == IAT_PVALUE)
-            {
-                offsetNode = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)tree->AsField()->gtFieldLookup.addr,
-                                                      GTF_ICON_FIELD_HDL, false);
-            }
-            else
-            {
-                noway_assert(!"unexpected accessType for R2R field access");
-            }
-
+            GenTree* offsetNode =
+                gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(tree->AsField()->GetR2RFieldLookupAddr()),
+                                         GTF_ICON_FIELD_HDL, false);
             var_types addType = (objRefType == TYP_I_IMPL) ? TYP_I_IMPL : TYP_BYREF;
             addr              = gtNewOperNode(GT_ADD, addType, addr, offsetNode);
         }

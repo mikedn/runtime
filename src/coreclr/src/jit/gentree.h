@@ -3568,22 +3568,40 @@ struct GenTreeField : public GenTree
     CORINFO_FIELD_HANDLE gtFldHnd;
     DWORD                gtFldOffset;
     bool                 gtFldMayOverlap;
+
+private:
 #ifdef FEATURE_READYTORUN_COMPILER
-    CORINFO_CONST_LOOKUP gtFieldLookup;
+    void* m_r2rFieldLookupAddr;
 #endif
 
+public:
     GenTreeField(var_types type, GenTree* obj, CORINFO_FIELD_HANDLE fldHnd, DWORD offs)
-        : GenTree(GT_FIELD, type), gtFldObj(obj), gtFldHnd(fldHnd), gtFldOffset(offs), gtFldMayOverlap(false)
+        : GenTree(GT_FIELD, type)
+        , gtFldObj(obj)
+        , gtFldHnd(fldHnd)
+        , gtFldOffset(offs)
+        , gtFldMayOverlap(false)
+#ifdef FEATURE_READYTORUN_COMPILER
+        , m_r2rFieldLookupAddr(nullptr)
+#endif
     {
         if (obj != nullptr)
         {
             gtFlags |= (obj->gtFlags & GTF_ALL_EFFECT);
         }
+    }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-        gtFieldLookup.addr = nullptr;
-#endif
+    void* GetR2RFieldLookupAddr() const
+    {
+        return m_r2rFieldLookupAddr;
     }
+
+    void SetR2RFieldLookupAddr(void* addr)
+    {
+        m_r2rFieldLookupAddr = addr;
+    }
+#endif
 
     // True if this field is a volatile memory operation.
     bool IsVolatile() const
@@ -4712,12 +4730,13 @@ struct GenTreeFptrVal : public GenTree
 #endif
 };
 
-/* gtQmark */
 struct GenTreeQmark : public GenTreeOp
 {
-    // The "Compiler*" argument is not a DEBUGARG here because we use it to keep track of the set of
-    // (possible) QMark nodes.
-    GenTreeQmark(var_types type, GenTree* cond, GenTree* colonOp, class Compiler* comp);
+    GenTreeQmark(var_types type, GenTree* cond, GenTree* colonOp) : GenTreeOp(GT_QMARK, type, cond, colonOp)
+    {
+        assert((cond != nullptr) && cond->TypeIs(TYP_INT));
+        assert((colonOp != nullptr) && colonOp->OperIs(GT_COLON));
+    }
 
 #if DEBUGGABLE_GENTREE
     GenTreeQmark() : GenTreeOp(GT_QMARK, TYP_INT, nullptr, nullptr)
@@ -5971,9 +5990,15 @@ struct GenTreeRetExpr : public GenTree
 
     CORINFO_CLASS_HANDLE gtRetClsHnd;
 
-    GenTreeRetExpr(var_types type) : GenTree(GT_RET_EXPR, type)
+    GenTreeRetExpr(var_types type, GenTree* inlineCandidate)
+        : GenTree(GT_RET_EXPR, type), gtInlineCandidate(inlineCandidate)
     {
+        // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
+        // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
+        // For example, impImportLeave or CEE_POP need to spill GT_RET_EXPR before empty the evaluation stack.
+        gtFlags |= GTF_CALL;
     }
+
 #if DEBUGGABLE_GENTREE
     GenTreeRetExpr() : GenTree()
     {
@@ -6278,81 +6303,69 @@ struct GenTreePhiArg : public GenTreeLclVarCommon
 
 struct GenTreePutArgStk : public GenTreeUnOp
 {
-    unsigned gtSlotNum; // Slot number of the argument to be passed on stack
-#if defined(UNIX_X86_ABI)
-    unsigned gtPadAlign; // Number of padding slots for stack alignment
-#endif
-
-    // Don't let clang-format mess with the GenTreePutArgStk constructor.
-    // clang-format off
-
-    GenTreePutArgStk(genTreeOps   oper,
-                     var_types    type,
-                     GenTree*   op1,
-                     unsigned     slotNum
-                     PUT_STRUCT_ARG_STK_ONLY_ARG(unsigned numSlots),
-                     bool         putInIncomingArgArea = false,
-                     GenTreeCall* callNode = nullptr)
-        : GenTreeUnOp(oper, type, op1 DEBUGARG(/*largeNode*/ false))
-        , gtSlotNum(slotNum)
-#if defined(UNIX_X86_ABI)
-        , gtPadAlign(0)
-#endif
-#if FEATURE_FASTTAILCALL
-        , gtPutInIncomingArgArea(putInIncomingArgArea)
-#endif // FEATURE_FASTTAILCALL
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-        , gtPutArgStkKind(Kind::Invalid)
-        , gtNumSlots(numSlots)
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
-        , gtCall(callNode)
+    GenTreeCall* gtCall; // the call node to which this argument belongs
 #endif
-    {
-    }
+    unsigned gtSlotNum; // Slot number of the argument to be passed on stack
+#ifdef FEATURE_PUT_STRUCT_ARG_STK
+    unsigned gtNumSlots; // Number of slots for the argument to be passed on stack
 
-// clang-format on
+    // Instruction selection: during codegen time, what code sequence we will be using
+    // to encode this operation.
+    // TODO-Throughput: The following information should be obtained from the child
+    // block node.
+    enum class Kind : uint8_t{
+        Invalid, RepInstr, Unroll, Push, PushAllSlots,
+    };
 
+    Kind gtPutArgStkKind;
+#endif
 #if FEATURE_FASTTAILCALL
-
     bool gtPutInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
                                  // By default this is false and will be placed in out-going arg area.
                                  // Fast tail calls set this to true.
                                  // In future if we need to add more such bool fields consider bit fields.
+#endif
+
+    // clang-format off
+    GenTreePutArgStk(genTreeOps   oper,
+                     var_types    type,
+                     GenTree*     op1,
+                     unsigned     slotNum
+                     PUT_STRUCT_ARG_STK_ONLY_ARG(unsigned numSlots),
+                     bool         putInIncomingArgArea = false,
+                     GenTreeCall* callNode = nullptr)
+        : GenTreeUnOp(oper, type, op1)
+#if defined(DEBUG) || defined(UNIX_X86_ABI)
+        , gtCall(callNode)
+#endif
+        , gtSlotNum(slotNum)
+#ifdef FEATURE_PUT_STRUCT_ARG_STK
+        , gtNumSlots(numSlots)
+        , gtPutArgStkKind(Kind::Invalid)
+#endif
+#if FEATURE_FASTTAILCALL
+        , gtPutInIncomingArgArea(putInIncomingArgArea)
+#endif
+    {
+    }
+    // clang-format on
 
     bool putInIncomingArgArea() const
     {
+#if FEATURE_FASTTAILCALL
         return gtPutInIncomingArgArea;
-    }
-
-#else // !FEATURE_FASTTAILCALL
-
-    bool putInIncomingArgArea() const
-    {
+#else
         return false;
+#endif
     }
-
-#endif // !FEATURE_FASTTAILCALL
 
     unsigned getArgOffset()
     {
         return gtSlotNum * TARGET_POINTER_SIZE;
     }
 
-#if defined(UNIX_X86_ABI)
-    unsigned getArgPadding()
-    {
-        return gtPadAlign;
-    }
-
-    void setArgPadding(unsigned padAlign)
-    {
-        gtPadAlign = padAlign;
-    }
-#endif
-
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
-
     unsigned getArgSize()
     {
         return gtNumSlots * TARGET_POINTER_SIZE;
@@ -6365,29 +6378,12 @@ struct GenTreePutArgStk : public GenTreeUnOp
         return (varTypeIsSIMD(gtOp1) && (gtNumSlots == 3));
     }
 
-    // Instruction selection: during codegen time, what code sequence we will be using
-    // to encode this operation.
-    // TODO-Throughput: The following information should be obtained from the child
-    // block node.
-
-    enum class Kind : __int8{
-        Invalid, RepInstr, Unroll, Push, PushAllSlots,
-    };
-
-    Kind gtPutArgStkKind;
     bool isPushKind()
     {
         return (gtPutArgStkKind == Kind::Push) || (gtPutArgStkKind == Kind::PushAllSlots);
     }
-
-    unsigned gtNumSlots; // Number of slots for the argument to be passed on stack
-
-#else  // !FEATURE_PUT_STRUCT_ARG_STK
+#else
     unsigned getArgSize();
-#endif // !FEATURE_PUT_STRUCT_ARG_STK
-
-#if defined(DEBUG) || defined(UNIX_X86_ABI)
-    GenTreeCall* gtCall; // the call node to which this argument belongs
 #endif
 
 #if DEBUGGABLE_GENTREE
