@@ -3608,6 +3608,11 @@ public:
         }
     }
 
+    unsigned GetOffset() const
+    {
+        return gtFldOffset;
+    }
+
 #ifdef FEATURE_READYTORUN_COMPILER
     void* GetR2RFieldLookupAddr() const
     {
