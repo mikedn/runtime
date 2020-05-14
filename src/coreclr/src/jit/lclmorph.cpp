@@ -1874,7 +1874,7 @@ public:
         }
 
         indir->AsIndir()->SetAddr(addr);
-        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_TGTANYWHERE;
+        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_TGTANYWHERE | GTF_IND_NONFAULTING;
 
         INDEBUG(m_stmtModified = true;)
     }
