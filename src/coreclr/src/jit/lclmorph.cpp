@@ -1544,27 +1544,13 @@ public:
 
     void VisitStmt(Statement* stmt)
     {
-#ifdef DEBUG
-        if (m_compiler->verbose)
-        {
-            printf("IndirectArgMorphVisitor visiting statement:\n");
-            m_compiler->gtDispStmt(stmt);
-            m_stmtModified = false;
-        }
-#endif
-
         WalkTree(stmt->GetRootNodePointer(), nullptr);
 
 #ifdef DEBUG
-        if (m_compiler->verbose)
+        if (m_compiler->verbose && m_stmtModified)
         {
-            if (m_stmtModified)
-            {
-                printf("IndirectArgMorphVisitor modified statement:\n");
-                m_compiler->gtDispStmt(stmt);
-            }
-
-            printf("\n");
+            printf("IndirectArgMorphVisitor modified statement:\n");
+            m_compiler->gtDispTree(stmt->GetRootNode());
         }
 #endif
     }
@@ -1791,6 +1777,8 @@ public:
                     }
                 }
             }
+
+            INDEBUG(m_stmtModified = true;)
         }
         else if (lclVarDsc->lvIsStructField && m_compiler->lvaIsImplicitByRefLocal(lclVarDsc->lvParentLcl))
         {
@@ -1832,9 +1820,9 @@ public:
                 // TGTANYWHERE
                 tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGTANYWHERE;
             }
-        }
 
-        INDEBUG(m_stmtModified = true;)
+            INDEBUG(m_stmtModified = true;)
+        }
     }
 #elif defined(TARGET_X86)
     void MorphVarargsStackArgAddr(GenTreeLclVarCommon* lclNode)

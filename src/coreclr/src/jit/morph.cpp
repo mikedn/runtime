@@ -15115,6 +15115,16 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
         fgMorphStmt = stmt;
         compCurStmt = stmt;
 
+#ifdef DEBUG
+        unsigned oldHash = verbose ? gtHashValue(stmt->GetRootNode()) : DUMMY_INIT(~0);
+
+        if (verbose)
+        {
+            printf("\nfgMorphTree " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum, stmt->GetID());
+            gtDispTree(stmt->GetRootNode());
+        }
+#endif
+
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
         if (fgGlobalMorph)
         {
@@ -15123,16 +15133,6 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
 #endif
 
         GenTree* oldTree = stmt->GetRootNode();
-
-#ifdef DEBUG
-        unsigned oldHash = verbose ? gtHashValue(oldTree) : DUMMY_INIT(~0);
-
-        if (verbose)
-        {
-            printf("\nfgMorphTree " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum, stmt->GetID());
-            gtDispTree(oldTree);
-        }
-#endif
 
         /* Morph this statement tree */
 
