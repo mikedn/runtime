@@ -5699,6 +5699,18 @@ struct GenTreeIndir : public GenTreeOp
         gtOp1 = addr;
     }
 
+    GenTree* GetValue() const
+    {
+        return gtOp2;
+    }
+
+    void SetValue(GenTree* value)
+    {
+        assert(OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
+        assert(value != nullptr);
+        gtOp2 = value;
+    }
+
     // these methods provide an interface to the indirection node which
     bool     HasBase();
     bool     HasIndex();
@@ -7038,20 +7050,13 @@ struct GenTreeCC final : public GenTree
 
 inline bool GenTree::OperIsBlkOp()
 {
-    return ((gtOper == GT_ASG) && varTypeIsStruct(AsOp()->gtOp1)) || (OperIsBlk() && (AsBlk()->Data() != nullptr));
+    return (OperIs(GT_ASG) && varTypeIsStruct(AsOp()->GetOp(0)->GetType())) ||
+           OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK);
 }
 
 inline bool GenTree::OperIsDynBlkOp()
 {
-    if (gtOper == GT_ASG)
-    {
-        return gtGetOp1()->OperGet() == GT_DYN_BLK;
-    }
-    else if (gtOper == GT_STORE_DYN_BLK)
-    {
-        return true;
-    }
-    return false;
+    return (OperIs(GT_ASG) && AsOp()->GetOp(0)->OperIs(GT_DYN_BLK)) || OperIs(GT_STORE_DYN_BLK);
 }
 
 inline bool GenTree::OperIsInitBlkOp()
@@ -7060,16 +7065,9 @@ inline bool GenTree::OperIsInitBlkOp()
     {
         return false;
     }
-    GenTree* src;
-    if (gtOper == GT_ASG)
-    {
-        src = gtGetOp2();
-    }
-    else
-    {
-        src = AsBlk()->Data()->gtSkipReloadOrCopy();
-    }
-    return src->OperIsInitVal() || src->OperIsConst();
+
+    GenTree* src = OperIs(GT_ASG) ? AsOp()->GetOp(1) : AsBlk()->GetValue()->gtSkipReloadOrCopy();
+    return src->OperIs(GT_INIT_VAL, GT_CNS_INT);
 }
 
 inline bool GenTree::OperIsCopyBlkOp()

@@ -1778,10 +1778,7 @@ public:
                         tree->AsObj()->SetAddr(addr);
                         tree->AsObj()->gtBlkOpGcUnsafe = false;
                         tree->AsObj()->gtBlkOpKind     = GenTreeBlk::BlkOpKindInvalid;
-                        // TODO-Cleanup: This should not be needed, OBJ is an unary operator and nobody
-                        // is supposed to try to access gtOp2. OperIsBlkOp does it.
-                        tree->AsObj()->SetData(nullptr);
-                        tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
+                        tree->gtFlags                  = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                     }
                     else
                     {
@@ -1882,9 +1879,6 @@ public:
 
             indir->ChangeOper(GT_OBJ);
             indir->AsObj()->SetLayout(layout);
-            // TODO-Cleanup: This should not be needed, OBJ is an unary operator and nobody
-            // is supposed to try to access gtOp2. OperIsBlkOp does it.
-            indir->AsObj()->SetData(nullptr);
         }
         else
         {
