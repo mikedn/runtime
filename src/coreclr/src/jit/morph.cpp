@@ -5457,56 +5457,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
     return tree;
 }
 
-#ifdef TARGET_X86
-/*****************************************************************************
- *
- *  Wrap fixed stack arguments for varargs functions to go through varargs
- *  cookie to access them, except for the cookie itself.
- *
- * Non-x86 platforms are allowed to access all arguments directly
- * so we don't need this code.
- *
- */
-GenTree* Compiler::fgMorphStackArgForVarArgs(unsigned lclNum, var_types varType, unsigned lclOffs)
-{
-    /* For the fixed stack arguments of a varargs function, we need to go
-        through the varargs cookies to access them, except for the
-        cookie itself */
-
-    LclVarDsc* varDsc = &lvaTable[lclNum];
-
-    if (varDsc->lvIsParam && !varDsc->lvIsRegArg && lclNum != lvaVarargsHandleArg)
-    {
-        // Create a node representing the local pointing to the base of the args
-        GenTree* ptrArg =
-            gtNewOperNode(GT_SUB, TYP_I_IMPL, gtNewLclvNode(lvaVarargsBaseOfStkArgs, TYP_I_IMPL),
-                          gtNewIconNode(varDsc->lvStkOffs - codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES -
-                                        lclOffs));
-
-        // Access the argument through the local
-        GenTree* tree;
-        if (varType == TYP_STRUCT)
-        {
-            tree = gtNewObjNode(varDsc->lvVerTypeInfo.GetClassHandle(), ptrArg);
-        }
-        else
-        {
-            tree = gtNewOperNode(GT_IND, varType, ptrArg);
-        }
-        tree->gtFlags |= GTF_IND_TGTANYWHERE;
-
-        if (varDsc->lvAddrExposed)
-        {
-            tree->gtFlags |= GTF_GLOB_REF;
-        }
-
-        return fgMorphTree(tree);
-    }
-
-    return NULL;
-}
-#endif
-
 /*****************************************************************************
  *
  *  Transform the given GT_LCL_VAR tree for code generation.
@@ -5524,17 +5474,6 @@ GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
     {
         tree->gtFlags |= GTF_GLOB_REF;
     }
-
-#ifdef TARGET_X86
-    if (info.compIsVarArgs)
-    {
-        GenTree* newTree = fgMorphStackArgForVarArgs(lclNum, varType, 0);
-        if (newTree != nullptr)
-        {
-            return newTree;
-        }
-    }
-#endif // TARGET_X86
 
     /* If not during the global morphing phase bail */
 
@@ -8845,18 +8784,6 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
         {
             tree->gtFlags |= GTF_GLOB_REF;
         }
-
-#ifdef TARGET_X86
-        if (info.compIsVarArgs)
-        {
-            GenTree* newTree = fgMorphStackArgForVarArgs(tree->AsLclFld()->GetLclNum(), tree->TypeGet(),
-                                                         tree->AsLclFld()->GetLclOffs());
-            if (newTree != nullptr)
-            {
-                return newTree;
-            }
-        }
-#endif // TARGET_X86
     }
     else if (tree->gtOper == GT_FTN_ADDR)
     {
@@ -15188,24 +15115,24 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
         fgMorphStmt = stmt;
         compCurStmt = stmt;
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
-        if (fgGlobalMorph)
-        {
-            fgMorphImplicitByRefArgs(stmt);
-        }
-#endif
-
-        GenTree* oldTree = stmt->GetRootNode();
-
 #ifdef DEBUG
-        unsigned oldHash = verbose ? gtHashValue(oldTree) : DUMMY_INIT(~0);
+        unsigned oldHash = verbose ? gtHashValue(stmt->GetRootNode()) : DUMMY_INIT(~0);
 
         if (verbose)
         {
             printf("\nfgMorphTree " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum, stmt->GetID());
-            gtDispTree(oldTree);
+            gtDispTree(stmt->GetRootNode());
         }
 #endif
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
+        if (fgGlobalMorph)
+        {
+            fgMorphIndirectArgs(stmt);
+        }
+#endif
+
+        GenTree* oldTree = stmt->GetRootNode();
 
         /* Morph this statement tree */
 

@@ -854,15 +854,6 @@ private:
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
 
-#ifdef TARGET_X86
-        if (m_compiler->info.compIsVarArgs && varDsc->lvIsParam && !varDsc->lvIsRegArg)
-        {
-            // TODO-ADDR: For now we ignore all stack parameters of varargs methods,
-            // fgMorphStackArgForVarArgs does not handle LCL_VAR|FLD_ADDR nodes.
-            return;
-        }
-#endif
-
         GenTree* addr = val.Node();
 
         if (val.Offset() > UINT16_MAX)
@@ -995,15 +986,6 @@ private:
             // additional changes in subsequent phases.
             return;
         }
-
-#ifdef TARGET_X86
-        if (m_compiler->info.compIsVarArgs && varDsc->lvIsParam && !varDsc->lvIsRegArg)
-        {
-            // TODO-ADDR: For now we ignore all stack parameters of varargs methods,
-            // fgMorphStackArgForVarArgs does not handle LCL_FLD nodes.
-            return;
-        }
-#endif
 
         ClassLayout*  structLayout = nullptr;
         FieldSeqNode* fieldSeq     = val.FieldSeq();
@@ -1540,7 +1522,7 @@ void Compiler::fgMarkAddressExposedLocals(Statement* stmt)
     visitor.VisitStmt(stmt);
 }
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
 
 class IndirectArgMorphVisitor final : public GenTreeVisitor<IndirectArgMorphVisitor>
 {
@@ -1562,27 +1544,13 @@ public:
 
     void VisitStmt(Statement* stmt)
     {
-#ifdef DEBUG
-        if (m_compiler->verbose)
-        {
-            printf("IndirectArgMorphVisitor visiting statement:\n");
-            m_compiler->gtDispStmt(stmt);
-            m_stmtModified = false;
-        }
-#endif
-
         WalkTree(stmt->GetRootNodePointer(), nullptr);
 
 #ifdef DEBUG
-        if (m_compiler->verbose)
+        if (m_compiler->verbose && m_stmtModified)
         {
-            if (m_stmtModified)
-            {
-                printf("IndirectArgMorphVisitor modified statement:\n");
-                m_compiler->gtDispStmt(stmt);
-            }
-
-            printf("\n");
+            printf("IndirectArgMorphVisitor modified statement:\n");
+            m_compiler->gtDispTree(stmt->GetRootNode());
         }
 #endif
     }
@@ -1593,6 +1561,7 @@ public:
 
         switch (node->OperGet())
         {
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
             case GT_LCL_VAR_ADDR:
             case GT_LCL_FLD_ADDR:
                 MorphImplicitByRefArgAddr(node->AsLclVarCommon());
@@ -1610,12 +1579,24 @@ public:
             case GT_LCL_FLD:
                 MorphImplicitByRefArg(node);
                 return Compiler::WALK_SKIP_SUBTREES;
+#elif defined(TARGET_X86)
+            case GT_LCL_VAR_ADDR:
+            case GT_LCL_FLD_ADDR:
+                MorphVarargsStackArgAddr(node->AsLclVarCommon());
+                return Compiler::WALK_SKIP_SUBTREES;
+
+            case GT_LCL_VAR:
+            case GT_LCL_FLD:
+                MorphVarargsStackArg(node->AsLclVarCommon());
+                return Compiler::WALK_SKIP_SUBTREES;
+#endif
 
             default:
                 return Compiler::WALK_CONTINUE;
         }
     }
 
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     void MorphImplicitByRefArgAddr(GenTreeLclVarCommon* lclAddrNode)
     {
         assert(lclAddrNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
@@ -1783,10 +1764,7 @@ public:
                         tree->AsObj()->SetAddr(addr);
                         tree->AsObj()->gtBlkOpGcUnsafe = false;
                         tree->AsObj()->gtBlkOpKind     = GenTreeBlk::BlkOpKindInvalid;
-                        // TODO-Cleanup: This should not be needed, OBJ is an unary operator and nobody
-                        // is supposed to try to access gtOp2. OperIsBlkOp does it.
-                        tree->AsObj()->SetData(nullptr);
-                        tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
+                        tree->gtFlags                  = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                     }
                     else
                     {
@@ -1799,6 +1777,8 @@ public:
                     }
                 }
             }
+
+            INDEBUG(m_stmtModified = true;)
         }
         else if (lclVarDsc->lvIsStructField && m_compiler->lvaIsImplicitByRefLocal(lclVarDsc->lvParentLcl))
         {
@@ -1840,25 +1820,101 @@ public:
                 // TGTANYWHERE
                 tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGTANYWHERE;
             }
+
+            INDEBUG(m_stmtModified = true;)
         }
+    }
+#elif defined(TARGET_X86)
+    void MorphVarargsStackArgAddr(GenTreeLclVarCommon* lclNode)
+    {
+        assert(lclNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+
+        if (!IsVarargsStackArg(lclNode))
+        {
+            return;
+        }
+
+        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
+        GenTree* offset = GetVarargsStackArgOffset(lclNode);
+        GenTree* addr   = lclNode;
+
+        addr->ChangeOper(GT_ADD);
+        addr->SetType(TYP_I_IMPL);
+        addr->AsOp()->SetOp(0, base);
+        addr->AsOp()->SetOp(1, offset);
 
         INDEBUG(m_stmtModified = true;)
     }
+
+    void MorphVarargsStackArg(GenTreeLclVarCommon* lclNode)
+    {
+        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+
+        if (!IsVarargsStackArg(lclNode))
+        {
+            return;
+        }
+
+        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
+        GenTree* offset = GetVarargsStackArgOffset(lclNode);
+        GenTree* addr   = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, base, offset);
+        GenTree* indir  = lclNode;
+
+        if (lclNode->TypeIs(TYP_STRUCT))
+        {
+            ClassLayout* layout = lclNode->OperIs(GT_LCL_VAR) ? m_compiler->lvaGetDesc(lclNode)->GetLayout()
+                                                              : lclNode->AsLclFld()->GetLayout(m_compiler);
+
+            indir->ChangeOper(GT_OBJ);
+            indir->AsObj()->SetLayout(layout);
+        }
+        else
+        {
+            indir->ChangeOper(GT_IND);
+        }
+
+        indir->AsIndir()->SetAddr(addr);
+        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_TGTANYWHERE | GTF_IND_NONFAULTING;
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    bool IsVarargsStackArg(GenTreeLclVarCommon* lclNode) const
+    {
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNode);
+        return lcl->lvIsParam && !lcl->lvIsRegArg && (lclNode->GetLclNum() != m_compiler->lvaVarargsHandleArg);
+    }
+
+    GenTreeIntCon* GetVarargsStackArgOffset(GenTreeLclVarCommon* lclNode) const
+    {
+        int stkOffs = m_compiler->lvaGetDesc(lclNode)->lvStkOffs;
+        stkOffs -= static_cast<int>(m_compiler->codeGen->intRegState.rsCalleeRegArgCount) * REGSIZE_BYTES;
+        int lclOffs = lclNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR) ? 0 : lclNode->AsLclFld()->GetLclOffs();
+        return m_compiler->gtNewIconNode(-stkOffs + lclOffs, TYP_I_IMPL);
+    }
+#endif // !TARGET_X86
 };
 
 //------------------------------------------------------------------------
-// fgMorphImplicitByRefArgs: Traverse the entire statement tree and morph
-//    implicit-by-ref argument references in it.
+// fgMorphIndirectArgs: Traverse the entire statement tree and morph
+//    implicit-by-ref or x86 vararg stack argument references in it.
 //
 // Arguments:
 //    stmt - the statement to traverse
 //
-void Compiler::fgMorphImplicitByRefArgs(Statement* stmt)
+void Compiler::fgMorphIndirectArgs(Statement* stmt)
 {
     assert(fgGlobalMorph);
+
+#if defined(TARGET_X86)
+    if (!info.compIsVarArgs)
+    {
+        return;
+    }
+#endif
 
     IndirectArgMorphVisitor visitor(this);
     visitor.VisitStmt(stmt);
 }
 
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
+#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64 || TARGET_X86
