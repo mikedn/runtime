@@ -2538,8 +2538,10 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     assert(isRMW);
 
                     // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-                    srcCount += BuildOperandUses(op1);
-                    srcCount += BuildDelayFreeUses(op2);
+                    tgtPrefUse = BuildUse(op1);
+
+                    srcCount += 1;
+                    srcCount += op2->isContained() ? BuildOperandUses(op2) : BuildDelayFreeUses(op2);
                     srcCount += BuildDelayFreeUses(op3, RBM_XMM0);
 
                     buildUses = false;
@@ -2573,7 +2575,9 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(isRMW);
 
                 // CRC32 may operate over "byte" but on x86 only RBM_BYTE_REGS can be used as byte registers.
-                srcCount += BuildOperandUses(op1);
+                tgtPrefUse = BuildUse(op1);
+
+                srcCount += 1;
                 srcCount += BuildDelayFreeUses(op2, varTypeIsByte(baseType) ? allByteRegs() : RBM_NONE);
 
                 buildUses = false;
@@ -2619,29 +2623,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 // Intrinsics with CopyUpperBits semantics cannot have op1 be contained
                 assert(!copiesUpperBits || !op1->isContained());
 
-                if (op3->isContained())
-                {
-                    // 213 form: op1 = (op2 * op1) + [op3]
-
-                    if (copiesUpperBits)
-                    {
-                        tgtPrefUse = BuildUse(op1);
-
-                        srcCount += 1;
-                        srcCount += BuildDelayFreeUses(op2);
-                    }
-                    else
-                    {
-                        // op1 and op2 are commutative, so don't
-                        // set either to be tgtPref or delayFree
-
-                        srcCount += BuildOperandUses(op1);
-                        srcCount += BuildOperandUses(op2);
-                    }
-
-                    srcCount += BuildOperandUses(op3);
-                }
-                else if (op2->isContained())
+                if (op2->isContained())
                 {
                     // 132 form: op1 = (op1 * op3) + [op2]
 
@@ -2663,25 +2645,22 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 }
                 else
                 {
-                    // 213 form: op1 = (op2 * op1) + op3
+                    // 213 form: op1 = (op2 * op1) + [op3]
+
+                    tgtPrefUse = BuildUse(op1);
+                    srcCount += 1;
 
                     if (copiesUpperBits)
                     {
-                        tgtPrefUse = BuildUse(op1);
-
-                        srcCount += 1;
                         srcCount += BuildDelayFreeUses(op2);
                     }
                     else
                     {
-                        // op1 and op2 are commutative, so don't
-                        // set either to be tgtPref or delayFree
-
-                        srcCount += BuildOperandUses(op1);
-                        srcCount += BuildOperandUses(op2);
+                        tgtPrefUse2 = BuildUse(op2);
+                        srcCount += 1;
                     }
 
-                    srcCount += BuildDelayFreeUses(op3);
+                    srcCount += op3->isContained() ? BuildOperandUses(op3) : BuildDelayFreeUses(op3);
                 }
 
                 buildUses = false;
@@ -2692,9 +2671,14 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             case NI_AVX2_GatherVector256:
             {
                 assert(numArgs == 3);
+                assert(!isRMW);
+
                 // Any pair of the index, mask, or destination registers should be different
                 srcCount += BuildOperandUses(op1);
                 srcCount += BuildDelayFreeUses(op2);
+
+                // op3 should always be contained
+                assert(op3->isContained());
 
                 // get a tmp register for mask that will be cleared by gather instructions
                 buildInternalFloatRegisterDefForNode(intrinsicTree, allSIMDRegs());
@@ -2708,11 +2692,15 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             case NI_AVX2_GatherMaskVector256:
             {
                 assert(numArgs == 5);
+                assert(!isRMW);
+
                 // Any pair of the index, mask, or destination registers should be different
                 srcCount += BuildOperandUses(op1);
-                srcCount += BuildOperandUses(op2);
+                srcCount += BuildDelayFreeUses(op2);
                 srcCount += BuildDelayFreeUses(op3);
                 srcCount += BuildDelayFreeUses(intrinsicTree->GetOp(3));
+
+                assert(intrinsicTree->GetOp(4)->isContained());
 
                 // get a tmp register for mask that will be cleared by gather instructions
                 buildInternalFloatRegisterDefForNode(intrinsicTree, allSIMDRegs());
@@ -2737,6 +2725,11 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             {
                 srcCount += BuildAddrUses(op1);
             }
+            else if (isRMW && !op1->isContained())
+            {
+                tgtPrefUse = BuildUse(op1);
+                srcCount += 1;
+            }
             else
             {
                 srcCount += BuildOperandUses(op1);
@@ -2748,9 +2741,17 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 {
                     srcCount += BuildAddrUses(op2->AsHWIntrinsic()->GetOp(0));
                 }
-                else if (isRMW)
+                else if (isRMW && !op2->isContained())
                 {
-                    srcCount += BuildDelayFreeUses(op2);
+                    if (HWIntrinsicInfo::IsCommutative(intrinsicId))
+                    {
+                        tgtPrefUse2 = BuildUse(op2);
+                        srcCount += 1;
+                    }
+                    else
+                    {
+                        srcCount += BuildDelayFreeUses(op2);
+                    }
                 }
                 else
                 {
@@ -2759,7 +2760,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
                 if (op3 != nullptr)
                 {
-                    srcCount += (isRMW) ? BuildDelayFreeUses(op3) : BuildOperandUses(op3);
+                    srcCount += isRMW ? BuildDelayFreeUses(op3) : BuildOperandUses(op3);
                 }
             }
         }

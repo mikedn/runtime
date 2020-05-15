@@ -1382,11 +1382,22 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
             LclVarDsc* varDsc = &comp->lvaTable[varNum];
             type              = varDsc->lvType;
         }
-        else if (arg->OperGet() == GT_SIMD)
+        else if (arg->OperIs(GT_SIMD))
         {
-            assert((arg->AsSIMD()->gtSIMDSize == 16) || (arg->AsSIMD()->gtSIMDSize == 12));
+            GenTreeSIMD* jitIntrinsic = arg->AsSIMD();
+            assert((jitIntrinsic->gtSIMDSize == 12) || (jitIntrinsic->gtSIMDSize == 16));
 
-            if (arg->AsSIMD()->gtSIMDSize == 12)
+            if (jitIntrinsic->gtSIMDSize == 12)
+            {
+                type = TYP_SIMD12;
+            }
+        }
+        else if (arg->OperIs(GT_HWINTRINSIC))
+        {
+            GenTreeHWIntrinsic* jitIntrinsic = arg->AsHWIntrinsic();
+            assert((jitIntrinsic->gtSIMDSize == 12) || (jitIntrinsic->gtSIMDSize == 16));
+
+            if (jitIntrinsic->gtSIMDSize == 12)
             {
                 type = TYP_SIMD12;
             }
@@ -5443,6 +5454,7 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
 
 #ifdef FEATURE_SIMD
         case GT_SIMD:
+        case GT_HWINTRINSIC:
             assert(node->TypeGet() != TYP_SIMD12);
             break;
 #ifdef TARGET_64BIT
