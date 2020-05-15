@@ -3821,7 +3821,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 #endif // !TARGET_64BIT
         {
             // If this arg is never on the stack, go to the next one.
-            if (!regArgTab[argNum].stackArg)
+            if (!regArgTab[argNum].stackArg && !regArgTab[argNum].writeThru)
             {
                 continue;
             }
@@ -7539,6 +7539,25 @@ void CodeGen::genFnProlog()
 
         bool isInReg    = varDsc->lvIsInReg();
         bool isInMemory = !isInReg || varDsc->lvLiveInOutOfHndlr;
+
+        // Note that 'lvIsInReg()' will only be accurate for variables that are actually live-in to
+        // the first block. This will include all possibly-uninitialized locals, whose liveness
+        // will naturally propagate up to the entry block. However, we also set 'lvMustInit' for
+        // locals that are live-in to a finally block, and those may not be live-in to the first
+        // block. For those, we don't want to initialize the register, as it will not actually be
+        // occupying it on entry.
+        if (isInReg)
+        {
+            if (compiler->lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
+            {
+                isInReg = VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex);
+            }
+            else
+            {
+                assert(VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex));
+            }
+        }
+
         if (isInReg)
         {
             regMaskTP regMask = genRegMask(varDsc->GetRegNum());

@@ -1959,6 +1959,8 @@ public:
     bool shouldUseVerboseSsa();
     bool treesBeforeAfterMorph; // If true, print trees before/after morphing (paired by an intra-compilation id:
     int  morphNum;              // This counts the the trees that have been morphed, allowing us to label each uniquely.
+    bool doExtraSuperPmiQueries;
+    void makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int level); // Make queries recursively 'level' deep.
 
     const char* VarNameToStr(VarName name)
     {
@@ -5290,6 +5292,9 @@ public:
 private:
     GenTree* fgMorphField(GenTree* tree, MorphAddrContext* mac);
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
+#if FEATURE_FASTTAILCALL
+    bool fgCallHasMustCopyByrefParameter(GenTreeCall* callee);
+#endif
     bool     fgCheckStmtAfterTailCall();
     GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help);
     bool fgCanTailCallViaJitHelper();
@@ -7924,7 +7929,25 @@ private:
     // AVX: vector2f, 3f and 4f are all considered sub register SIMD types.
     bool isSubRegisterSIMDType(GenTreeSIMD* simdNode)
     {
-        return (simdNode->gtSIMDSize < getSIMDVectorRegisterByteLength());
+        unsigned vectorRegisterByteLength;
+#if defined(TARGET_XARCH)
+        // Calling the getSIMDVectorRegisterByteLength api causes the size of Vector<T> to be recorded
+        // with the AOT compiler, so that it cannot change from aot compilation time to runtime
+        // This api does not require such fixing as it merely pertains to the size of the simd type
+        // relative to the Vector<T> size as used at compile time. (So detecting a vector length of 16 here
+        // does not preclude the code from being used on a machine with a larger vector length.)
+        if (getSIMDSupportLevel() < SIMD_AVX2_Supported)
+        {
+            vectorRegisterByteLength = 16;
+        }
+        else
+        {
+            vectorRegisterByteLength = 32;
+        }
+#else
+        vectorRegisterByteLength = getSIMDVectorRegisterByteLength();
+#endif
+        return (simdNode->gtSIMDSize < vectorRegisterByteLength);
     }
 
     // Get the type for the hardware SIMD vector.
