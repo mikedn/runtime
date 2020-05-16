@@ -326,6 +326,11 @@ struct HWIntrinsicInfo
                     return static_cast<int>(FloatComparisonMode::OrderedGreaterThanSignaling);
                 }
 
+                // CompareGreaterThan is not directly supported in hardware without AVX support.
+                // We will return the inverted case here and lowering will itself swap the ops
+                // to ensure the emitted code remains correct. This simplifies the overall logic
+                // here and for other use cases.
+
                 assert(id != NI_AVX_CompareGreaterThan);
                 return static_cast<int>(FloatComparisonMode::OrderedLessThanSignaling);
             }
@@ -349,6 +354,11 @@ struct HWIntrinsicInfo
                 {
                     return static_cast<int>(FloatComparisonMode::OrderedGreaterThanOrEqualSignaling);
                 }
+
+                // CompareGreaterThanOrEqual is not directly supported in hardware without AVX support.
+                // We will return the inverted case here and lowering will itself swap the ops
+                // to ensure the emitted code remains correct. This simplifies the overall logic
+                // here and for other use cases.
 
                 assert(id != NI_AVX_CompareGreaterThanOrEqual);
                 return static_cast<int>(FloatComparisonMode::OrderedLessThanOrEqualSignaling);
@@ -383,6 +393,11 @@ struct HWIntrinsicInfo
                     return static_cast<int>(FloatComparisonMode::UnorderedNotGreaterThanSignaling);
                 }
 
+                // CompareNotGreaterThan is not directly supported in hardware without AVX support.
+                // We will return the inverted case here and lowering will itself swap the ops
+                // to ensure the emitted code remains correct. This simplifies the overall logic
+                // here and for other use cases.
+
                 assert(id != NI_AVX_CompareNotGreaterThan);
                 return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanSignaling);
             }
@@ -406,6 +421,11 @@ struct HWIntrinsicInfo
                 {
                     return static_cast<int>(FloatComparisonMode::UnorderedNotGreaterThanOrEqualSignaling);
                 }
+
+                // CompareNotGreaterThanOrEqual is not directly supported in hardware without AVX support.
+                // We will return the inverted case here and lowering will itself swap the ops
+                // to ensure the emitted code remains correct. This simplifies the overall logic
+                // here and for other use cases.
 
                 assert(id != NI_AVX_CompareNotGreaterThanOrEqual);
                 return static_cast<int>(FloatComparisonMode::UnorderedNotLessThanOrEqualSignaling);

@@ -1384,20 +1384,14 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
         }
         else if (arg->OperIs(GT_SIMD))
         {
-            GenTreeSIMD* jitIntrinsic = arg->AsSIMD();
-            assert((jitIntrinsic->gtSIMDSize == 12) || (jitIntrinsic->gtSIMDSize == 16));
-
-            if (jitIntrinsic->gtSIMDSize == 12)
+            if (arg->AsSIMD()->gtSIMDSize == 12)
             {
                 type = TYP_SIMD12;
             }
         }
         else if (arg->OperIs(GT_HWINTRINSIC))
         {
-            GenTreeHWIntrinsic* jitIntrinsic = arg->AsHWIntrinsic();
-            assert((jitIntrinsic->gtSIMDSize == 12) || (jitIntrinsic->gtSIMDSize == 16));
-
-            if (jitIntrinsic->gtSIMDSize == 12)
+            if (arg->AsHWIntrinsic()->gtSIMDSize == 12)
             {
                 type = TYP_SIMD12;
             }
