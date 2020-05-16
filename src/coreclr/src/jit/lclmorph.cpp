@@ -1346,7 +1346,8 @@ private:
         noway_assert(fieldLclIndex != BAD_VAR_NUM);
         LclVarDsc* fldVarDsc = m_compiler->lvaGetDesc(fieldLclIndex);
 
-        if (genTypeSize(fldVarDsc->TypeGet()) != genTypeSize(node->TypeGet()))
+        if ((varTypeSize(fldVarDsc->GetType()) != varTypeSize(node->GetType())) &&
+            (varDsc->GetPromotedFieldCount() != 1))
         {
             // There is no existing field that has all the parts that we need
             // So we must ensure that the struct lives in memory.

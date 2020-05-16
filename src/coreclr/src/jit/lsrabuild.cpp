@@ -3112,7 +3112,20 @@ int LinearScan::BuildStoreLoc(GenTreeLclVarCommon* storeLoc)
 #endif // !TARGET_64BIT
     else if (op1->isContained())
     {
-        srcCount = 0;
+#ifdef TARGET_XARCH
+        if (varTypeIsSIMD(storeLoc))
+        {
+            // This is the zero-init case, and we need a register to hold the zero.
+            // (On Arm64 we can just store REG_ZR.)
+            assert(op1->IsSIMDZero());
+            singleUseRef = BuildUse(op1->AsSIMD()->GetOp(0));
+            srcCount     = 1;
+        }
+        else
+#endif
+        {
+            srcCount = 0;
+        }
     }
     else
     {
