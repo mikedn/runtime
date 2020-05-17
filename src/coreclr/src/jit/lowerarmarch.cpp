@@ -590,7 +590,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     GenTree* tmp2 = nullptr;
     GenTree* tmp3 = nullptr;
 
-    unsigned argCnt = node->GetNumOps();
+    unsigned argCnt    = node->GetNumOps();
     unsigned cnsArgCnt = 0;
 
     assert((argCnt == 1) || (argCnt == (simdSize / varTypeSize(baseType))));
@@ -669,7 +669,6 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     //          +--*  ... T
     //          +--*  opN T
     //   node = *  HWINTRINSIC   simd   T Create
-
 
     // We will be constructing the following parts:
     //          /--*  op1  T
