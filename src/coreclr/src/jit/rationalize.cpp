@@ -294,7 +294,7 @@ static void RewriteAssignmentIntoStoreLclCore(GenTreeOp* assignment,
         store->AsLclFld()->SetLayoutNum(var->AsLclFld()->GetLayoutNum());
     }
 
-    copyFlags(store, var, GTF_LIVENESS_MASK);
+    copyFlags(store, var, (GTF_LIVENESS_MASK | GTF_VAR_MULTIREG));
     store->gtFlags &= ~GTF_REVERSE_OPS;
 
     store->gtType = var->TypeGet();

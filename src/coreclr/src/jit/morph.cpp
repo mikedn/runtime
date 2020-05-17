@@ -1669,8 +1669,6 @@ GenTree* Compiler::fgMakeTmpArgNode(GenTreeCall* call, CallArgInfo* argInfo)
     GenTree* arg = gtNewLclvNode(argInfo->GetTempLclNum(), varDsc->GetType());
     arg->gtFlags |= GTF_DONT_CSE;
     arg = gtNewOperNode(GT_ADDR, TYP_BYREF, arg);
-    // ToDo-ARM64: Consider using:  arg->ChangeOper(GT_LCL_FLD);
-    // as that is how UNIX_AMD64_ABI works.
     // We will create a GT_OBJ for the argument below.
     // This will be passed by value in two registers.
     return gtNewObjNode(lvaGetStruct(argInfo->GetTempLclNum()), arg);
