@@ -3299,45 +3299,31 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #else  // UNIX_AMD64_ABI
                     // On Unix, structs are always passed by value.
                     // We only need a copy if we have one of the following:
-                    // - We have a lclVar that has been promoted and is passed in registers.
                     // - The sizes don't match for a non-lclVar argument.
                     // - We have a known struct type (e.g. SIMD) that requires multiple registers.
-                    // TODO-Amd64-Unix-CQ: The first case could and should be handled without copies.
                     // TODO-Amd64-Unix-Throughput: We don't need to keep the structDesc in the argEntry if it's not
                     // actually passed in registers.
                     if (argEntry->isPassedInRegisters())
                     {
-                        if (lclVar != nullptr)
-                        {
-                            if ((lvaGetPromotionType(lclVar->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
-                                !abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lclVar), argEntry))
-                            {
-                                copyBlkClass = objClass;
-                            }
-                        }
-                        else if (argObj->OperIs(GT_OBJ))
+                        if (argObj->OperIs(GT_OBJ))
                         {
                             if (passingSize != structSize)
                             {
                                 copyBlkClass = objClass;
                             }
                         }
-                        else if (argObj->TypeIs(TYP_STRUCT))
-                        {
-                            assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
-                            if (passingSize != structSize)
-                            {
-                                copyBlkClass = objClass;
-                            }
-                        }
-                        else
+                        else if (lclVar == nullptr)
                         {
                             // This should only be the case of a value directly producing a known struct type.
                             if (argEntry->numRegs > 1)
                             {
                                 copyBlkClass = objClass;
                             }
+                        }
+                        else if ((lvaGetPromotionType(lclVar->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
+                                 !abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lclVar), argEntry))
+                        {
+                            copyBlkClass = objClass;
                         }
                     }
 #endif // UNIX_AMD64_ABI
