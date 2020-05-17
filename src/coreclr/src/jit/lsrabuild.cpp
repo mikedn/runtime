@@ -3112,7 +3112,7 @@ int LinearScan::BuildStoreLoc(GenTreeLclVarCommon* storeLoc)
 #endif // !TARGET_64BIT
     else if (op1->isContained())
     {
-#ifdef TARGET_XARCH
+#if defined(TARGET_XARCH) && defined(FEATURE_SIMD)
         if (varTypeIsSIMD(storeLoc))
         {
             // This is the zero-init case, and we need a register to hold the zero.

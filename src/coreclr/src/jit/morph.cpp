@@ -9750,7 +9750,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         JITDUMP(" src is a call");
         requiresCopyBlock = true;
     }
-    else if (src->OperIs(GT_SIMD, GT_HWINTRINSIC))
+    else if (src->OperIsSimdOrHWintrinsic())
     {
         JITDUMP(" src is a SIMD/HWINTRINSIC node");
         requiresCopyBlock = true;
