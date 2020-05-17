@@ -1103,7 +1103,7 @@ void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcTyp
 #ifdef TARGET_ARM64
         ins = INS_fmov;
 #else
-        ins = INS_vmov_i2f;
+        ins             = INS_vmov_i2f;
 #endif
     }
     else if (!dstIsFloat && srcIsFloat)
@@ -1111,7 +1111,7 @@ void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcTyp
 #ifdef TARGET_ARM64
         ins = INS_fmov;
 #else
-        ins = INS_vmov_f2i;
+        ins             = INS_vmov_f2i;
 #endif
     }
     else if (dstReg != srcReg)

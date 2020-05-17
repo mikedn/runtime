@@ -345,6 +345,7 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
                 GenTree* op = impPopStack().val;
                 SetOpLclRelatedToSIMDIntrinsic(op);
                 hwIntrinsic->SetOp(sig->numArgs - 1 - i, op);
+                hwIntrinsic->gtFlags |= op->gtFlags & GTF_ALL_EFFECT;
             }
 
             retNode = hwIntrinsic;

@@ -1122,20 +1122,20 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     unsigned argCnt    = node->GetNumOps();
     unsigned cnsArgCnt = 0;
 
-    assert((argCnt == 1) || (argCnt == (simdSize / varTypeSize(baseType))));
-
     if (argCnt == 1)
     {
-        for (unsigned i = 0; i < argCnt; i++)
+        for (unsigned i = 0; i < simdSize / varTypeSize(baseType); i++)
         {
             if (HandleArgForHWIntrinsicCreate(node->GetOp(0), i, vecCns, baseType))
             {
-                cnsArgCnt += 1;
+                cnsArgCnt = 1;
             }
         }
     }
     else
     {
+        assert(argCnt == (simdSize / varTypeSize(baseType)));
+
         for (unsigned i = 0; i < argCnt; i++)
         {
             if (HandleArgForHWIntrinsicCreate(node->GetOp(i), i, vecCns, baseType))
