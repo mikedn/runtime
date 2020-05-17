@@ -17559,40 +17559,6 @@ GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1, op2, op3);
 }
 
-//---------------------------------------------------------------------------------------
-// gtNewMustThrowException:
-//    create a throw node (calling into JIT helper) that must be thrown.
-//    The result would be a comma node: COMMA(jithelperthrow(void), x) where x's type should be specified.
-//
-// Arguments
-//    helper      -  JIT helper ID
-//    type        -  return type of the node
-//
-// Return Value
-//    pointer to the throw node
-//
-GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd)
-{
-    GenTreeCall* node = gtNewHelperCallNode(helper, TYP_VOID);
-    node->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
-    if (type != TYP_VOID)
-    {
-        unsigned dummyTemp = lvaGrabTemp(true DEBUGARG("dummy temp of must thrown exception"));
-        if (type == TYP_STRUCT)
-        {
-            lvaSetStruct(dummyTemp, clsHnd, false);
-            type = lvaTable[dummyTemp].lvType; // struct type is normalized
-        }
-        else
-        {
-            lvaTable[dummyTemp].lvType = type;
-        }
-        GenTree* dummyNode = gtNewLclvNode(dummyTemp, type);
-        return gtNewOperNode(GT_COMMA, type, node, dummyNode);
-    }
-    return node;
-}
-
 // Returns true for the HW Instrinsic instructions that have MemoryLoad semantics, false otherwise
 bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
 {
@@ -17681,6 +17647,40 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoadOrStore() const
 }
 
 #endif // FEATURE_HW_INTRINSICS
+
+//---------------------------------------------------------------------------------------
+// gtNewMustThrowException:
+//    create a throw node (calling into JIT helper) that must be thrown.
+//    The result would be a comma node: COMMA(jithelperthrow(void), x) where x's type should be specified.
+//
+// Arguments
+//    helper      -  JIT helper ID
+//    type        -  return type of the node
+//
+// Return Value
+//    pointer to the throw node
+//
+GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd)
+{
+    GenTreeCall* node = gtNewHelperCallNode(helper, TYP_VOID);
+    node->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
+    if (type != TYP_VOID)
+    {
+        unsigned dummyTemp = lvaGrabTemp(true DEBUGARG("dummy temp of must thrown exception"));
+        if (type == TYP_STRUCT)
+        {
+            lvaSetStruct(dummyTemp, clsHnd, false);
+            type = lvaTable[dummyTemp].lvType; // struct type is normalized
+        }
+        else
+        {
+            lvaTable[dummyTemp].lvType = type;
+        }
+        GenTree* dummyNode = gtNewLclvNode(dummyTemp, type);
+        return gtNewOperNode(GT_COMMA, type, node, dummyNode);
+    }
+    return node;
+}
 
 //---------------------------------------------------------------------------------------
 // InitializeStructReturnType:
