@@ -369,32 +369,17 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
                 break;
             }
 
-            if (sig->numArgs == 1)
-            {
-                op1     = impPopStack().val;
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, simdSize);
-            }
-            else if (sig->numArgs == 2)
-            {
-                op2     = impPopStack().val;
-                op1     = impPopStack().val;
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, op2, intrinsic, baseType, simdSize);
-            }
-            else
-            {
-                assert(sig->numArgs >= 3);
+            GenTreeHWIntrinsic* hwIntrinsic = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
+            hwIntrinsic->SetNumOps(sig->numArgs, getAllocator(CMK_ASTNode));
 
-                GenTreeArgList* tmp = nullptr;
-
-                for (unsigned i = 0; i < sig->numArgs; i++)
-                {
-                    tmp        = gtNewArgList(impPopStack().val);
-                    tmp->gtOp2 = op1;
-                    op1        = tmp;
-                }
-
-                retNode = gtNewSimdHWIntrinsicNode(retType, op1, intrinsic, baseType, simdSize);
+            for (unsigned i = 0; i < sig->numArgs; i++)
+            {
+                GenTree* op = impPopStack().val;
+                SetOpLclRelatedToSIMDIntrinsic(op);
+                hwIntrinsic->SetOp(sig->numArgs - 1 - i, op);
             }
+
+            retNode = hwIntrinsic;
             break;
         }
 

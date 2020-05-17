@@ -583,10 +583,6 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     assert(varTypeIsArithmetic(baseType));
     assert(simdSize != 0);
 
-    GenTreeArgList* argList = nullptr;
-    GenTree*        op1     = node->gtGetOp1();
-    GenTree*        op2     = node->gtGetOp2();
-
     // Spare GenTrees to be used for the lowering logic below
     // Defined upfront to avoid naming conflicts, etc...
     GenTree* idx  = nullptr;
@@ -594,79 +590,46 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     GenTree* tmp2 = nullptr;
     GenTree* tmp3 = nullptr;
 
-    assert(op1 != nullptr);
-
-    unsigned argCnt    = 0;
+    unsigned argCnt = node->GetNumOps();
     unsigned cnsArgCnt = 0;
 
-    if (op1->OperIsList())
-    {
-        assert(op2 == nullptr);
+    assert((argCnt == 1) || (argCnt == (simdSize / varTypeSize(baseType))));
 
-        for (argList = op1->AsArgList(); argList != nullptr; argList = argList->Rest())
+    if (argCnt == 1)
+    {
+        for (unsigned i = 0; i < argCnt; i++)
         {
-            if (HandleArgForHWIntrinsicCreate(argList->Current(), argCnt, vecCns, baseType))
+            if (HandleArgForHWIntrinsicCreate(node->GetOp(0), i, vecCns, baseType))
             {
                 cnsArgCnt += 1;
             }
-            argCnt += 1;
         }
     }
     else
     {
-        if (HandleArgForHWIntrinsicCreate(op1, argCnt, vecCns, baseType))
+        for (unsigned i = 0; i < argCnt; i++)
         {
-            cnsArgCnt += 1;
-        }
-        argCnt += 1;
-
-        if (op2 != nullptr)
-        {
-            if (HandleArgForHWIntrinsicCreate(op2, argCnt, vecCns, baseType))
+            if (HandleArgForHWIntrinsicCreate(node->GetOp(i), i, vecCns, baseType))
             {
                 cnsArgCnt += 1;
             }
-            argCnt += 1;
-        }
-        else if (cnsArgCnt == 1)
-        {
-            // These intrinsics are meant to set the same value to every element
-            // so we'll just specially handle it here and copy it into the remaining
-            // indices.
-
-            for (unsigned i = 1; i < simdSize / genTypeSize(baseType); i++)
-            {
-                HandleArgForHWIntrinsicCreate(op1, i, vecCns, baseType);
-            }
         }
     }
-    assert((argCnt == 1) || (argCnt == (simdSize / genTypeSize(baseType))));
 
     if (argCnt == cnsArgCnt)
     {
-        if (op1->OperIsList())
+        for (unsigned i = 0; i < argCnt; i++)
         {
-            for (argList = op1->AsArgList(); argList != nullptr; argList = argList->Rest())
-            {
-                BlockRange().Remove(argList->Current());
-            }
-        }
-        else
-        {
-            BlockRange().Remove(op1);
-
-            if (op2 != nullptr)
-            {
-                BlockRange().Remove(op2);
-            }
+            BlockRange().Remove(node->GetOp(i));
         }
 
         CORINFO_FIELD_HANDLE hnd = comp->GetEmitter()->emitAnyConst(&vecCns, simdSize, emitDataAlignment::Required);
         GenTree* clsVarAddr      = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(GT_CLS_VAR_ADDR, TYP_I_IMPL, hnd, nullptr);
         BlockRange().InsertBefore(node, clsVarAddr);
 
-        node->ChangeOper(GT_IND);
-        node->gtOp1 = clsVarAddr;
+        GenTree* indir = node;
+        indir->ChangeOper(GT_IND);
+        indir->AsIndir()->SetAddr(clsVarAddr);
 
         // TODO-ARM64-CQ: We should be able to modify at least the paths that use Insert to trivially support partial
         // vector constants. With this, we can create a constant if say 50% of the inputs are also constant and just
@@ -674,7 +637,8 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
         return;
     }
-    else if (argCnt == 1)
+
+    if (argCnt == 1)
     {
         // We have the following (where simd is simd8 or simd16):
         //          /--*  op1  T
@@ -706,12 +670,6 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     //          +--*  opN T
     //   node = *  HWINTRINSIC   simd   T Create
 
-    if (op1->OperIsList())
-    {
-        argList = op1->AsArgList();
-        op1     = argList->Current();
-        argList = argList->Rest();
-    }
 
     // We will be constructing the following parts:
     //          /--*  op1  T
@@ -722,10 +680,12 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     //   var tmp1 = Vector64.CreateScalarUnsafe(op1);
     //   ...
 
+    GenTree* op1 = node->GetOp(0);
+
     NamedIntrinsic createScalarUnsafe =
         (simdType == TYP_SIMD8) ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;
 
-    tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, op1, createScalarUnsafe, baseType, simdSize);
+    tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, createScalarUnsafe, baseType, simdSize, op1);
     BlockRange().InsertAfter(op1, tmp1);
     LowerNode(tmp1);
 
@@ -748,16 +708,14 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         //   tmp1 = AdvSimd.Insert(tmp1, N, opN);
         //   ...
 
-        opN = argList->Current();
+        opN = node->GetOp(N);
 
         idx = comp->gtNewIconNode(N, TYP_INT);
         BlockRange().InsertBefore(opN, idx);
 
-        tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, tmp1, idx, opN, NI_AdvSimd_Insert, baseType, simdSize);
+        tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Insert, baseType, simdSize, tmp1, idx, opN);
         BlockRange().InsertAfter(opN, tmp1);
         LowerNode(tmp1);
-
-        argList = argList->Rest();
     }
 
     assert(N == (argCnt - 1));
@@ -774,15 +732,15 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     //   tmp1 = AdvSimd.Insert(tmp1, N, opN);
     //   ...
 
-    opN = (argCnt == 2) ? op2 : argList->Current();
+    opN = node->GetOp(N);
 
     idx = comp->gtNewIconNode(N, TYP_INT);
     BlockRange().InsertBefore(opN, idx);
 
-    node->gtOp1 = comp->gtNewArgList(tmp1, idx, opN);
-    node->gtOp2 = nullptr;
-
-    node->gtHWIntrinsicId = NI_AdvSimd_Insert;
+    node->SetIntrinsic(NI_AdvSimd_Insert, 3);
+    node->SetOp(0, tmp1);
+    node->SetOp(1, idx);
+    node->SetOp(2, opN);
 }
 #endif // FEATURE_HW_INTRINSICS
 
