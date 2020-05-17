@@ -5094,9 +5094,73 @@ public:
         gtFlags |= op3->gtFlags & GTF_ALL_EFFECT;
     }
 
+    NamedIntrinsic GetIntrinsic() const
+    {
+        return gtHWIntrinsicId;
+    }
+
+    void SetIntrinsic(NamedIntrinsic intrinsic)
+    {
+        assert(intrinsic != NI_Illegal);
+        gtHWIntrinsicId = intrinsic;
+    }
+
+    void SetIntrinsic(NamedIntrinsic intrinsic, unsigned numOps)
+    {
+        SetIntrinsic(intrinsic);
+        SetNumOps(numOps);
+    }
+
+    void SetIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned numOps)
+    {
+        SetIntrinsic(intrinsic);
+        SetSIMDBaseType(simdBaseType);
+        SetNumOps(numOps);
+    }
+
+    void SetIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned simdSize, unsigned numOps)
+    {
+        SetIntrinsic(intrinsic);
+        SetSIMDBaseType(simdBaseType);
+        SetSIMDSize(simdSize);
+        SetNumOps(numOps);
+    }
+
+    var_types GetSIMDBaseType() const
+    {
+        return gtSIMDBaseType;
+    }
+
+    void SetSIMDBaseType(var_types type)
+    {
+        assert(varTypeIsIntegral(type) || varTypeIsFloating(type));
+        gtSIMDBaseType = type;
+    }
+
+    unsigned GetSIMDSize() const
+    {
+        return gtSIMDSize;
+    }
+
+    void SetSIMDSize(unsigned size)
+    {
+        assert(size <= UINT16_MAX);
+        gtSIMDSize = static_cast<uint16_t>(size);
+    }
+
     unsigned GetNumOps() const
     {
         return m_numOps;
+    }
+
+    void SetNumOps(unsigned numOps)
+    {
+        assert(numOps <= _countof(m_inlineUses));
+
+        m_numOps = static_cast<uint8_t>(numOps);
+
+        assert(HasInlineUses());
+        new (m_inlineUses) Use[numOps]();
     }
 
     void SetNumOps(unsigned numOps, CompAllocator alloc)
