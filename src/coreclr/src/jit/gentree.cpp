@@ -8929,96 +8929,92 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
     if (tree)
     {
-        /* print the type of the node */
-        if (tree->gtOper != GT_CAST)
+        printf(" %-6s", varTypeName(tree->TypeGet()));
+
+        if (varTypeIsStruct(tree->TypeGet()))
         {
-            printf(" %-6s", varTypeName(tree->TypeGet()));
+            ClassLayout* layout = nullptr;
 
-            if (varTypeIsStruct(tree->TypeGet()))
+            if (tree->OperIs(GT_BLK, GT_OBJ, GT_STORE_BLK, GT_STORE_OBJ))
             {
-                ClassLayout* layout = nullptr;
+                layout = tree->AsBlk()->GetLayout();
+            }
+            else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+            {
+                LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
 
-                if (tree->OperIs(GT_BLK, GT_OBJ, GT_STORE_BLK, GT_STORE_OBJ))
+                if (varTypeIsStruct(varDsc->TypeGet()))
                 {
-                    layout = tree->AsBlk()->GetLayout();
-                }
-                else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
-                {
-                    LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
-
-                    if (varTypeIsStruct(varDsc->TypeGet()))
-                    {
-                        layout = varDsc->GetLayout();
-                    }
-                }
-                else if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD) && (tree->AsLclFld()->GetLayoutNum() != 0))
-                {
-                    layout = typGetLayoutByNum(tree->AsLclFld()->GetLayoutNum());
-                }
-
-                if (layout != nullptr)
-                {
-                    gtDispClassLayout(layout, tree->TypeGet());
+                    layout = varDsc->GetLayout();
                 }
             }
-
-            if (tree->gtOper == GT_LCL_VAR || tree->gtOper == GT_STORE_LCL_VAR)
+            else if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD) && (tree->AsLclFld()->GetLayoutNum() != 0))
             {
-                LclVarDsc* varDsc = &lvaTable[tree->AsLclVarCommon()->GetLclNum()];
-                if (varDsc->lvAddrExposed)
-                {
-                    printf("(AX)"); // Variable has address exposed.
-                }
-
-                if (varDsc->lvUnusedStruct)
-                {
-                    assert(varDsc->lvPromoted);
-                    printf("(U)"); // Unused struct
-                }
-                else if (varDsc->lvPromoted)
-                {
-                    if (varTypeIsPromotable(varDsc))
-                    {
-                        printf("(P)"); // Promoted struct
-                    }
-                    else
-                    {
-                        // Promoted implicit by-refs can have this state during
-                        // global morph while they are being rewritten
-                        assert(fgGlobalMorph);
-                        printf("(P?!)"); // Promoted struct
-                    }
-                }
+                layout = typGetLayoutByNum(tree->AsLclFld()->GetLayoutNum());
             }
 
-            if (tree->IsArgPlaceHolderNode() && (tree->AsArgPlace()->gtArgPlaceClsHnd != nullptr))
+            if (layout != nullptr)
             {
-                printf(" => [clsHnd=%08X]", dspPtr(tree->AsArgPlace()->gtArgPlaceClsHnd));
+                gtDispClassLayout(layout, tree->TypeGet());
+            }
+        }
+
+        if (tree->gtOper == GT_LCL_VAR || tree->gtOper == GT_STORE_LCL_VAR)
+        {
+            LclVarDsc* varDsc = &lvaTable[tree->AsLclVarCommon()->GetLclNum()];
+            if (varDsc->lvAddrExposed)
+            {
+                printf("(AX)"); // Variable has address exposed.
             }
 
-            if (tree->gtOper == GT_RUNTIMELOOKUP)
+            if (varDsc->lvUnusedStruct)
             {
+                assert(varDsc->lvPromoted);
+                printf("(U)"); // Unused struct
+            }
+            else if (varDsc->lvPromoted)
+            {
+                if (varTypeIsPromotable(varDsc))
+                {
+                    printf("(P)"); // Promoted struct
+                }
+                else
+                {
+                    // Promoted implicit by-refs can have this state during
+                    // global morph while they are being rewritten
+                    assert(fgGlobalMorph);
+                    printf("(P?!)"); // Promoted struct
+                }
+            }
+        }
+
+        if (tree->IsArgPlaceHolderNode() && (tree->AsArgPlace()->gtArgPlaceClsHnd != nullptr))
+        {
+            printf(" => [clsHnd=%08X]", dspPtr(tree->AsArgPlace()->gtArgPlaceClsHnd));
+        }
+
+        if (tree->gtOper == GT_RUNTIMELOOKUP)
+        {
 #ifdef TARGET_64BIT
-                printf(" 0x%llx", dspPtr(tree->AsRuntimeLookup()->gtHnd));
+            printf(" 0x%llx", dspPtr(tree->AsRuntimeLookup()->gtHnd));
 #else
-                printf(" 0x%x", dspPtr(tree->AsRuntimeLookup()->gtHnd));
+            printf(" 0x%x", dspPtr(tree->AsRuntimeLookup()->gtHnd));
 #endif
 
-                switch (tree->AsRuntimeLookup()->gtHndType)
-                {
-                    case CORINFO_HANDLETYPE_CLASS:
-                        printf(" class");
-                        break;
-                    case CORINFO_HANDLETYPE_METHOD:
-                        printf(" method");
-                        break;
-                    case CORINFO_HANDLETYPE_FIELD:
-                        printf(" field");
-                        break;
-                    default:
-                        printf(" unknown");
-                        break;
-                }
+            switch (tree->AsRuntimeLookup()->gtHndType)
+            {
+                case CORINFO_HANDLETYPE_CLASS:
+                    printf(" class");
+                    break;
+                case CORINFO_HANDLETYPE_METHOD:
+                    printf(" method");
+                    break;
+                case CORINFO_HANDLETYPE_FIELD:
+                    printf(" field");
+                    break;
+                default:
+                    printf(" unknown");
+                    break;
             }
         }
 
@@ -9912,26 +9908,17 @@ void Compiler::gtDispTree(GenTree*     tree,
             indentStack->Push(lowerArc);
         }
 
-        if (tree->gtOper == GT_CAST)
+        if (tree->OperIs(GT_CAST))
         {
-            /* Format a message that explains the effect of this GT_CAST */
+            var_types fromType = genActualType(tree->AsUnOp()->GetOp(0)->GetType());
+            var_types toType   = tree->AsCast()->GetCastType();
 
-            var_types fromType  = genActualType(tree->AsCast()->CastOp()->TypeGet());
-            var_types toType    = tree->CastToType();
-            var_types finalType = tree->TypeGet();
-
-            /* if GTF_UNSIGNED is set then force fromType to an unsigned type */
-            if (tree->gtFlags & GTF_UNSIGNED)
+            if (tree->IsUnsigned())
             {
                 fromType = genUnsignedType(fromType);
             }
 
-            if (finalType != toType)
-            {
-                printf(" %s <-", varTypeName(finalType));
-            }
-
-            printf(" %s <- %s", varTypeName(toType), varTypeName(fromType));
+            printf(" (%s to %s)", varTypeName(fromType), varTypeName(toType));
         }
 
         if (tree->OperIsBlkOp())
