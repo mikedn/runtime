@@ -696,6 +696,32 @@ OPTIMIZECAST:
                     {
                         goto REMOVE_CAST;
                     }
+
+                    // Simplify some cast sequences:
+                    //   Successive narrowing - CAST<byte>(CAST<short>(x)) is CAST<byte>(x)
+                    //   Sign changing - CAST<byte>(CAST<ubyte>(x)) is CAST<byte>(x)
+                    //   Unnecessary widening - CAST<byte>(CAST<long>(x)) is CAST<byte>(x)
+                    if ((varTypeSize(dstType) <= varTypeSize(dstType2)) && varTypeIsIntegral(dstType) &&
+                        varTypeIsIntegral(dstType2) && varTypeIsIntegral(oper->AsCast()->GetOp(0)->GetType()) &&
+                        !oper->gtOverflow()
+#ifndef TARGET_64BIT
+                        // 32 bit target codegen does not support casting directly from LONG to small int
+                        // types so we can't simplify CAST<byte>(CAST<int>(x.long)) to CAST<byte>(x.long).
+                        && (!varTypeIsSmall(dstType) || (varTypeSize(dstType2) != 4) ||
+                            (varTypeSize(oper->AsCast()->GetOp(0)->GetType()) != 8))
+#endif
+                            )
+                    {
+                        oper = oper->AsCast()->GetOp(0);
+                        tree->AsCast()->SetOp(0, oper);
+
+                        // We may have had CAST<uint>(CAST<long>(x.int)),
+                        // this becomes CAST<uint>(x.int) and can be removed.
+                        if (!varTypeIsSmall(dstType) && (varActualType(dstType) == varActualType(oper->GetType())))
+                        {
+                            goto REMOVE_CAST;
+                        }
+                    }
                 }
                 break;
 
