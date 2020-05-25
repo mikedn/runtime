@@ -932,59 +932,147 @@ private:
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
 
-        if (!varTypeIsStruct(varDsc->TypeGet()))
+        if (!varTypeIsStruct(varDsc->GetType()))
         {
+            // TODO-MIKE-Cleanup: This likely makes a bunch of IND morphing code in fgMorphSmpOp redundant.
+
             const bool isDef = (user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
 
-            if (val.Offset() == 0)
-            {
-                if (indir->TypeGet() == varDsc->TypeGet())
-                {
-                    indir->ChangeOper(GT_LCL_VAR);
-                    indir->AsLclVar()->SetLclNum(val.LclNum());
-                    indir->gtFlags = 0;
+            const var_types indirType = indir->GetType();
+            const var_types lclType   = varDsc->GetType();
 
+            if ((val.Offset() == 0) && !varTypeIsStruct(indirType))
+            {
+                if (varTypeSize(indirType) == varTypeSize(lclType))
+                {
                     if (isDef)
                     {
-                        indir->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-                    }
+                        // Handle the "store" variant of the "indirect local load" cases below.
+                        // The only difference is that on store the signedness of small int types
+                        // is not relevant. If the destination local ends up being "normalize on
+                        // store" then global morph will later do the required widening.
 
-                    INDEBUG(m_stmtModified = true;)
-                }
-                else if (genTypeSize(indir->GetType()) == genTypeSize(varDsc->GetType()))
-                {
-                    if ((varTypeIsFloating(indir->GetType()) != varTypeIsFloating(varDsc->GetType())) &&
-                        (genTypeSize(indir->GetType()) <= REGSIZE_BYTES))
-                    {
-                        if (isDef)
+                        bool isAssignable = varTypeKind(indirType) == varTypeKind(lclType);
+
+                        if (!isAssignable && CanBitCastTo(lclType))
                         {
-                            user->AsOp()->SetOp(1, NewBitCastNode(varDsc->GetType(), user->AsOp()->GetOp(1)));
+                            user->AsOp()->SetOp(1, NewBitCastNode(lclType, user->AsOp()->GetOp(1)));
+                            isAssignable = true;
+                        }
 
+                        if (isAssignable)
+                        {
                             indir->ChangeOper(GT_LCL_VAR);
-                            indir->SetType(varDsc->GetType());
+                            indir->SetType(lclType);
                             indir->AsLclVar()->SetLclNum(val.LclNum());
                             indir->gtFlags = GTF_VAR_DEF | GTF_DONT_CSE;
                         }
-                        else
+                    }
+                    else if (varTypeIsSmall(indirType) && (varTypeIsUnsigned(indirType) != varTypeIsUnsigned(lclType)))
+                    {
+                        // There's no reason to write something like `*(short*)&ushortLocal` instead of just
+                        // `(short)ushortLocal`, except that generics code can't do such casts and sometimes
+                        // uses `Unsafe.As` as a substitute.
+
+                        indir->ChangeOper(GT_CAST);
+                        indir->AsCast()->SetCastType(indirType);
+                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
+                        indir->gtFlags = 0;
+                    }
+                    else if (varTypeKind(indirType) != varTypeKind(lclType))
+                    {
+                        // Handle the relatively common case of floating point/integer reinterpretation.
+                        // Also handle GC pointer/native int reinterpretation, some corelib tracing code
+                        // uses object references as if they're normal pointers for logging purposes.
+
+                        if (CanBitCastTo(indirType))
                         {
                             indir->ChangeOper(GT_BITCAST);
-                            indir->AsUnOp()->SetOp(0, NewLclVarNode(varDsc->GetType(), val.LclNum()));
+                            indir->AsUnOp()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
                             indir->gtFlags = 0;
                         }
+                    }
+                    else
+                    {
+                        // Like in the signedess mismatch case above, it's not common to have `*(int*)&intLocal`
+                        // but such cases may arise either from fancy generic code or, more likely, due to the
+                        // inlining of primitive type methods. Turns out that having methods on primitive types,
+                        // while elegant, can cause problems as any call to such a method requires taking the
+                        // address of the primitive type local variable.
 
-                        INDEBUG(m_stmtModified = true;)
+                        assert((indirType == lclType) || ((indirType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
+                               ((indirType == TYP_UBYTE) && (lclType == TYP_BOOL)));
+
+                        indir->ChangeOper(GT_LCL_VAR);
+                        indir->AsLclVar()->SetLclNum(val.LclNum());
+                        indir->gtFlags = 0;
+                    }
+                }
+                else
+                {
+                    // The indir has to be smaller than the local, the "wide" indir case is handled in EscapeLocation.
+                    assert(varTypeSize(indirType) < varTypeSize(lclType));
+
+                    // Storing to a local via a smaller indirection is more difficult to handle, we need something
+                    // like ASG(lcl, OR(lcl, value)) in the integer case plus some BITCASTs or intrinsics in the
+                    // float case. CoreLib has a few cases in Vector128 & co. WithElement methods but these are
+                    // normally recognized as intrinsics so it's not worth the trouble to handle this case.
+
+                    // Loading via a smaller indirection isn't common either but this case can be easily handled
+                    // by using a CAST. There's no reason to write something like `*(short*)&intLocal` instead of
+                    // just `(short)intLocal`, except that generics code can't do such casts and sometimes uses
+                    // `Unsafe.As` as a substitute.
+
+                    if (!isDef && varTypeIsIntegral(indirType) && varTypeIsIntegral(lclType))
+                    {
+                        indir->ChangeOper(GT_CAST);
+                        indir->AsCast()->SetCastType(indirType);
+                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
+                        indir->gtFlags = 0;
                     }
                 }
             }
 
-            // TODO-MIKE: Handle type mismatches to prevent blocking enregistration:
-            //   - integer sign mismatches can be handled by inserting a CAST node (trouble: CAST is a
-            //     large node so we can't simply convert the indir node into a cast node)
-            //   - many (all?) integer size mismatches can also be handled by inserting casts
-            //   - non zero offsets can be handled by inserting bit shifts and casts
-            // Alternatively - use LCL_FLD and delay setting DNER_LocalField until lowering, then either
-            // apply the above solutions in lowering or teach codegen to handle such LCL_FLDs without
-            // requiring the variable to be in memory.
+            // If we haven't been able to get rid of the indir until now then just use a LCL_FLD.
+            //
+            // Except in the odd case when the indir has STRUCT type. One might expect this case
+            // to be very rare but thanks to pseudo-recursive struct promotion it is actually
+            // quite common to have OBJ(ADDR(LCL_VAR)) with a promoted struct field local.
+            // Using a LCL_FLD in this case would then lead to dependent struct promotion.
+            // Though perhaps the solution is to use LCL_FLD but defer DNERing the local to morph
+            // or lowering.
+
+            if (indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_FIELD) && (indirType != TYP_STRUCT))
+            {
+                indir->ChangeOper(GT_LCL_FLD);
+                indir->AsLclFld()->SetLclNum(val.LclNum());
+                indir->AsLclFld()->SetLclOffs(val.Offset());
+                indir->gtFlags = 0;
+
+                if (isDef)
+                {
+                    indir->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+
+                    if (varTypeSize(indirType) < varTypeSize(lclType))
+                    {
+                        indir->gtFlags |= GTF_VAR_USEASG;
+                    }
+
+                    if (varTypeIsSmall(varDsc->GetType()))
+                    {
+                        // If LCL_FLD is used to store to a small type local then "normalize on store"
+                        // isn't possible so the local has to be "normalize on load". The only way to
+                        // do this is by making the local address exposed which is a big hammer. But
+                        // such an indirect store is highly unusual so it's not worth the trouble to
+                        // introduce another mechanism.
+                        m_compiler->lvaSetVarAddrExposed(val.LclNum());
+                    }
+                }
+
+                m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
+            }
+
+            INDEBUG(m_stmtModified = !indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_FIELD);)
 
             return;
         }
@@ -1138,6 +1226,18 @@ private:
         indir->gtFlags = flags;
 
         INDEBUG(m_stmtModified = true;)
+    }
+
+    static bool CanBitCastTo(var_types type)
+    {
+        assert(((TYP_INT <= type) && (type <= TYP_DOUBLE)) || (type == TYP_REF) || (type == TYP_BYREF));
+
+#ifdef TARGET_64BIT
+        return true;
+#else
+        // Currently long/double BITCAST isn't supported by decomposition on 32 bit targets.
+        return varTypeSize(type) <= REGSIZE_BYTES;
+#endif
     }
 
     //------------------------------------------------------------------------

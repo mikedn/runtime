@@ -111,6 +111,12 @@ inline bool varTypeIsUnsigned(T vt)
     return ((varTypeClassification[TypeGet(vt)] & (VTF_UNS)) != 0);
 }
 
+inline var_types_classification varTypeKind(var_types type)
+{
+    return static_cast<var_types_classification>(varTypeClassification[type] &
+                                                 (VTF_INT | VTF_FLT | VTF_GCR | VTF_BYR | VTF_S));
+}
+
 // If "vt" is an unsigned integral type, returns the corresponding signed integral type, otherwise
 // return "vt".
 inline var_types varTypeUnsignedToSigned(var_types vt)
