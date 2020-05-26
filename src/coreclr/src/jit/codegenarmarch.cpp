@@ -242,7 +242,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 #endif // !defined(TARGET_64BIT)
 
         case GT_CAST:
-            genCodeForCast(treeNode->AsOp());
+            genCodeForCast(treeNode->AsCast());
             break;
 
         case GT_BITCAST:
@@ -3286,71 +3286,53 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 // genFloatToFloatCast: Generate code for a cast between float and double
 //
 // Arguments:
-//    treeNode - The GT_CAST node
+//    cast - The GT_CAST node
 //
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    Cast is a non-overflow conversion.
-//    The treeNode must have an assigned register.
-//    The cast is between float and double.
-//
-void CodeGen::genFloatToFloatCast(GenTree* treeNode)
+void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
 {
-    // float <--> double conversions are always non-overflow ones
-    assert(treeNode->OperGet() == GT_CAST);
-    assert(!treeNode->gtOverflow());
+    assert(!cast->gtOverflow());
 
-    regNumber targetReg = treeNode->GetRegNum();
-    assert(genIsValidFloatReg(targetReg));
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-    assert(!op1->isContained());                  // Cannot be contained
-    assert(genIsValidFloatReg(op1->GetRegNum())); // Must be a valid float reg.
+    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
+    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
+    assert(cast->GetType() == dstType);
 
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = op1->TypeGet();
-    assert(varTypeIsFloating(srcType) && varTypeIsFloating(dstType));
+    regNumber srcReg = genConsumeReg(src);
+    regNumber dstReg = cast->GetRegNum();
 
-    genConsumeOperands(treeNode->AsOp());
+    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));
 
-    // treeNode must be a reg
-    assert(!treeNode->isContained());
-
-#if defined(TARGET_ARM)
+    instruction ins     = INS_none;
+    emitAttr    insSize = emitTypeSize(dstType);
+    ARM64_ONLY(insOpts opts = INS_OPTS_NONE;)
 
     if (srcType != dstType)
     {
-        instruction insVcvt = (srcType == TYP_FLOAT) ? INS_vcvt_f2d  // convert Float to Double
-                                                     : INS_vcvt_d2f; // convert Double to Float
-
-        GetEmitter()->emitIns_R_R(insVcvt, emitTypeSize(treeNode), treeNode->GetRegNum(), op1->GetRegNum());
+#ifdef TARGET_ARM64
+        ins  = INS_fcvt;
+        opts = (srcType == TYP_FLOAT) ? INS_OPTS_S_TO_D : INS_OPTS_D_TO_S;
+#else
+        ins = (srcType == TYP_FLOAT) ? INS_vcvt_f2d : INS_vcvt_d2f;
+#endif
     }
-    else if (treeNode->GetRegNum() != op1->GetRegNum())
+    else if (dstReg != srcReg)
     {
-        GetEmitter()->emitIns_R_R(INS_vmov, emitTypeSize(treeNode), treeNode->GetRegNum(), op1->GetRegNum());
+#ifdef TARGET_ARM64
+        ins = INS_mov;
+#else
+        ins = INS_vmov;
+#endif
     }
 
-#elif defined(TARGET_ARM64)
-
-    if (srcType != dstType)
+    if (ins != INS_none)
     {
-        insOpts cvtOption = (srcType == TYP_FLOAT) ? INS_OPTS_S_TO_D  // convert Single to Double
-                                                   : INS_OPTS_D_TO_S; // convert Double to Single
-
-        GetEmitter()->emitIns_R_R(INS_fcvt, emitActualTypeSize(treeNode), treeNode->GetRegNum(), op1->GetRegNum(),
-                                  cvtOption);
-    }
-    else if (treeNode->GetRegNum() != op1->GetRegNum())
-    {
-        // If double to double cast or float to float cast. Emit a move instruction.
-        GetEmitter()->emitIns_R_R(INS_mov, emitActualTypeSize(treeNode), treeNode->GetRegNum(), op1->GetRegNum());
+        GetEmitter()->emitIns_R_R(ins, insSize, dstReg, srcReg ARM64_ARG(opts));
     }
 
-#endif // TARGET*
-
-    genProduceReg(treeNode);
+    genProduceReg(cast);
 }
 
 //------------------------------------------------------------------------

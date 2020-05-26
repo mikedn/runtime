@@ -961,9 +961,10 @@ protected:
 
     void genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg);
     void genIntToIntCast(GenTreeCast* cast);
-    void genFloatToFloatCast(GenTree* treeNode);
-    void genFloatToIntCast(GenTree* treeNode);
-    void genIntToFloatCast(GenTree* treeNode);
+    void genFloatToFloatCast(GenTreeCast* cast);
+    void genFloatToIntCast(GenTreeCast* cast);
+    void genIntToFloatCast(GenTreeCast* cast);
+
     void genCkfinite(GenTree* treeNode);
     void genCodeForCompare(GenTreeOp* tree);
     void genIntrinsic(GenTree* treeNode);
@@ -1187,7 +1188,7 @@ protected:
     void genCodeForBT(GenTreeOp* bt);
 #endif // TARGET_XARCH
 
-    void genCodeForCast(GenTreeOp* tree);
+    void genCodeForCast(GenTreeCast* cast);
     void genCodeForLclAddr(GenTree* tree);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
     void genCodeForIndir(GenTreeIndir* tree);
@@ -1485,7 +1486,6 @@ public:
     instruction ins_CopyFloatToInt(var_types srcType, var_types dstTyp);
     static instruction ins_FloatStore(var_types type = TYP_DOUBLE);
     static instruction ins_FloatCopy(var_types type = TYP_DOUBLE);
-    instruction ins_FloatConv(var_types to, var_types from);
     instruction ins_FloatCompare(var_types type);
     instruction ins_MathOp(genTreeOps oper, var_types type);
     instruction ins_FloatSqrt(var_types type);

@@ -1431,128 +1431,81 @@ void CodeGen::genLongToIntCast(GenTree* cast)
 // genIntToFloatCast: Generate code to cast an int to float/double
 //
 // Arguments:
-//    treeNode - The GT_CAST node
+//    cast - The GT_CAST node
 //
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    Cast is a non-overflow conversion.
-//    The treeNode must have an assigned register.
-//    SrcType= int32/uint32/int64/uint64 and DstType=float/double.
-//
-void CodeGen::genIntToFloatCast(GenTree* treeNode)
+void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 {
-    // int --> float/double conversions are always non-overflow ones
-    assert(treeNode->OperGet() == GT_CAST);
-    assert(!treeNode->gtOverflow());
+    assert(!cast->gtOverflow());
 
-    regNumber targetReg = treeNode->GetRegNum();
-    assert(genIsValidFloatReg(targetReg));
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetCastType();
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-    assert(!op1->isContained());                // Cannot be contained
-    assert(genIsValidIntReg(op1->GetRegNum())); // Must be a valid int reg.
+    noway_assert(srcType == TYP_INT);
+    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
+    assert(cast->GetType() == dstType);
 
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = genActualType(op1->TypeGet());
-    assert(!varTypeIsFloating(srcType) && varTypeIsFloating(dstType));
+    regNumber srcReg = genConsumeReg(src);
+    regNumber dstReg = cast->GetRegNum();
 
-    // force the srcType to unsigned if GT_UNSIGNED flag is set
-    if (treeNode->gtFlags & GTF_UNSIGNED)
-    {
-        srcType = genUnsignedType(srcType);
-    }
+    assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
 
-    // We only expect a srcType whose size is EA_4BYTE.
-    emitAttr srcSize = EA_ATTR(genTypeSize(srcType));
-    noway_assert(srcSize == EA_4BYTE);
-
-    instruction insVcvt = INS_invalid;
+    instruction ins;
 
     if (dstType == TYP_DOUBLE)
     {
-        insVcvt = (varTypeIsUnsigned(srcType)) ? INS_vcvt_u2d : INS_vcvt_i2d;
+        ins = cast->IsUnsigned() ? INS_vcvt_u2d : INS_vcvt_i2d;
     }
     else
     {
-        assert(dstType == TYP_FLOAT);
-        insVcvt = (varTypeIsUnsigned(srcType)) ? INS_vcvt_u2f : INS_vcvt_i2f;
+        ins = cast->IsUnsigned() ? INS_vcvt_u2f : INS_vcvt_i2f;
     }
-    // All other cast are implemented by different CORINFO_HELP_XX2XX
-    // Look to Compiler::fgMorphCast()
 
-    genConsumeOperands(treeNode->AsOp());
+    GetEmitter()->emitIns_R_R(INS_vmov_i2f, EA_4BYTE, dstReg, srcReg);
+    GetEmitter()->emitIns_R_R(ins, EA_4BYTE, dstReg, dstReg);
 
-    assert(insVcvt != INS_invalid);
-    GetEmitter()->emitIns_R_R(INS_vmov_i2f, srcSize, treeNode->GetRegNum(), op1->GetRegNum());
-    GetEmitter()->emitIns_R_R(insVcvt, srcSize, treeNode->GetRegNum(), treeNode->GetRegNum());
-
-    genProduceReg(treeNode);
+    genProduceReg(cast);
 }
 
 //------------------------------------------------------------------------
 // genFloatToIntCast: Generate code to cast float/double to int
 //
 // Arguments:
-//    treeNode - The GT_CAST node
+//    cast - The GT_CAST node
 //
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    Cast is a non-overflow conversion.
-//    The treeNode must have an assigned register.
-//    SrcType=float/double and DstType= int32/uint32/int64/uint64
-//
-void CodeGen::genFloatToIntCast(GenTree* treeNode)
+void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 {
-    // we don't expect to see overflow detecting float/double --> int type conversions here
-    // as they should have been converted into helper calls by front-end.
-    assert(treeNode->OperGet() == GT_CAST);
-    assert(!treeNode->gtOverflow());
+    assert(!cast->gtOverflow());
 
-    regNumber targetReg = treeNode->GetRegNum();
-    assert(genIsValidIntReg(targetReg)); // Must be a valid int reg.
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-    assert(!op1->isContained());                  // Cannot be contained
-    assert(genIsValidFloatReg(op1->GetRegNum())); // Must be a valid float reg.
+    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
+    noway_assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+    assert(cast->GetType() == TYP_INT);
 
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = op1->TypeGet();
-    assert(varTypeIsFloating(srcType) && !varTypeIsFloating(dstType));
+    regNumber srcReg = genConsumeReg(src);
+    regNumber dstReg = cast->GetRegNum();
+    regNumber tmpReg = cast->GetSingleTempReg();
 
-    // We only expect a dstType whose size is EA_4BYTE.
-    // For conversions to small types (byte/sbyte/int16/uint16) from float/double,
-    // we expect the front-end or lowering phase to have generated two levels of cast.
-    //
-    emitAttr dstSize = EA_ATTR(genTypeSize(dstType));
-    noway_assert(dstSize == EA_4BYTE);
+    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(tmpReg) && genIsValidIntReg(dstReg));
 
-    instruction insVcvt = INS_invalid;
+    instruction ins;
 
     if (srcType == TYP_DOUBLE)
     {
-        insVcvt = (varTypeIsUnsigned(dstType)) ? INS_vcvt_d2u : INS_vcvt_d2i;
+        ins = varTypeIsUnsigned(dstType) ? INS_vcvt_d2u : INS_vcvt_d2i;
     }
     else
     {
-        assert(srcType == TYP_FLOAT);
-        insVcvt = (varTypeIsUnsigned(dstType)) ? INS_vcvt_f2u : INS_vcvt_f2i;
+        ins = varTypeIsUnsigned(dstType) ? INS_vcvt_f2u : INS_vcvt_f2i;
     }
-    // All other cast are implemented by different CORINFO_HELP_XX2XX
-    // Look to Compiler::fgMorphCast()
 
-    genConsumeOperands(treeNode->AsOp());
+    GetEmitter()->emitIns_R_R(ins, EA_4BYTE, tmpReg, srcReg);
+    GetEmitter()->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, dstReg, tmpReg);
 
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    assert(insVcvt != INS_invalid);
-    GetEmitter()->emitIns_R_R(insVcvt, dstSize, tmpReg, op1->GetRegNum());
-    GetEmitter()->emitIns_R_R(INS_vmov_f2i, dstSize, treeNode->GetRegNum(), tmpReg);
-
-    genProduceReg(treeNode);
+    genProduceReg(cast);
 }
 
 //------------------------------------------------------------------------
