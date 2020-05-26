@@ -408,10 +408,10 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
 // LowerCast: Lower GT_CAST(srcType, DstType) nodes.
 //
 // Arguments:
-//    tree - GT_CAST node to be lowered
+//    cast - GT_CAST node to be lowered
 //
 // Return Value:
-//    None.
+//    The next node to lower.
 //
 // Notes:
 //    Casts from float/double to a smaller int type are transformed as follows:
@@ -424,22 +424,16 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
 //    don't expect to see them here.
 //    i) GT_CAST(float/double, int type with overflow detection)
 //
-void Lowering::LowerCast(GenTree* tree)
+GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
-    assert(tree->OperGet() == GT_CAST);
-
-    JITDUMP("LowerCast for: ");
-    DISPNODE(tree);
-    JITDUMP("\n");
-
-    GenTree*  op1     = tree->AsOp()->gtOp1;
-    var_types dstType = tree->CastToType();
-    var_types srcType = genActualType(op1->TypeGet());
+    GenTree*  src     = cast->GetOp(0);
+    var_types dstType = cast->GetCastType();
+    var_types srcType = genActualType(src->GetType());
     var_types tmpType = TYP_UNDEF;
 
     if (varTypeIsFloating(srcType))
     {
-        noway_assert(!tree->gtOverflow());
+        noway_assert(!cast->gtOverflow());
         assert(!varTypeIsSmall(dstType)); // fgMorphCast creates intermediate casts when converting from float to small
                                           // int.
     }
@@ -448,16 +442,17 @@ void Lowering::LowerCast(GenTree* tree)
 
     if (tmpType != TYP_UNDEF)
     {
-        GenTree* tmp = comp->gtNewCastNode(tmpType, op1, tree->IsUnsigned(), tmpType);
-        tmp->gtFlags |= (tree->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
+        GenTreeCast* tmp = comp->gtNewCastNode(tmpType, src, cast->IsUnsigned(), tmpType);
+        tmp->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
 
-        tree->gtFlags &= ~GTF_UNSIGNED;
-        tree->AsOp()->gtOp1 = tmp;
-        BlockRange().InsertAfter(op1, tmp);
+        cast->gtFlags &= ~GTF_UNSIGNED;
+        cast->SetOp(0, tmp);
+        BlockRange().InsertAfter(src, tmp);
     }
 
-    // Now determine if we have operands that should be contained.
-    ContainCheckCast(tree->AsCast());
+    ContainCheckCast(cast);
+
+    return cast->gtNext;
 }
 
 //------------------------------------------------------------------------

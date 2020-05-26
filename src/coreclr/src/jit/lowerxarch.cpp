@@ -598,17 +598,15 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
  * system.windows.forms, scimark, fractals, bio mums). If we ever find evidence that
  * doing this optimization is a win, should consider generating in-lined code.
  */
-void Lowering::LowerCast(GenTree* tree)
+GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
-    assert(tree->OperGet() == GT_CAST);
-
-    GenTree*  castOp     = tree->AsCast()->CastOp();
-    var_types castToType = tree->CastToType();
-    var_types srcType    = castOp->TypeGet();
-    var_types tmpType    = TYP_UNDEF;
+    GenTree*  src     = cast->GetOp(0);
+    var_types dstType = cast->GetCastType();
+    var_types srcType = src->TypeGet();
+    var_types tmpType = TYP_UNDEF;
 
     // force the srcType to unsigned if GT_UNSIGNED flag is set
-    if (tree->gtFlags & GTF_UNSIGNED)
+    if (cast->IsUnsigned())
     {
         srcType = genUnsignedType(srcType);
     }
@@ -625,44 +623,45 @@ void Lowering::LowerCast(GenTree* tree)
     //       Reason: ulong -> float = ulong -> double -> float
     if (varTypeIsFloating(srcType))
     {
-        noway_assert(!tree->gtOverflow());
-        noway_assert(castToType != TYP_ULONG);
+        noway_assert(!cast->gtOverflow());
+        noway_assert(dstType != TYP_ULONG);
     }
     else if (srcType == TYP_UINT)
     {
-        noway_assert(!varTypeIsFloating(castToType));
+        noway_assert(!varTypeIsFloating(dstType));
     }
     else if (srcType == TYP_ULONG)
     {
-        noway_assert(castToType != TYP_FLOAT);
+        noway_assert(dstType != TYP_FLOAT);
     }
 
     // Case of src is a small type and dst is a floating point type.
-    if (varTypeIsSmall(srcType) && varTypeIsFloating(castToType))
+    if (varTypeIsSmall(srcType) && varTypeIsFloating(dstType))
     {
         // These conversions can never be overflow detecting ones.
-        noway_assert(!tree->gtOverflow());
+        noway_assert(!cast->gtOverflow());
         tmpType = TYP_INT;
     }
     // case of src is a floating point type and dst is a small type.
-    else if (varTypeIsFloating(srcType) && varTypeIsSmall(castToType))
+    else if (varTypeIsFloating(srcType) && varTypeIsSmall(dstType))
     {
         tmpType = TYP_INT;
     }
 
     if (tmpType != TYP_UNDEF)
     {
-        GenTree* tmp = comp->gtNewCastNode(tmpType, castOp, tree->IsUnsigned(), tmpType);
-        tmp->gtFlags |= (tree->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
+        GenTreeCast* tmp = comp->gtNewCastNode(tmpType, src, cast->IsUnsigned(), tmpType);
+        tmp->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
 
-        tree->gtFlags &= ~GTF_UNSIGNED;
-        tree->AsOp()->gtOp1 = tmp;
-        BlockRange().InsertAfter(castOp, tmp);
-        ContainCheckCast(tmp->AsCast());
+        cast->gtFlags &= ~GTF_UNSIGNED;
+        cast->SetOp(0, tmp);
+        BlockRange().InsertAfter(src, tmp);
+        ContainCheckCast(tmp);
     }
 
-    // Now determine if we have operands that should be contained.
-    ContainCheckCast(tree->AsCast());
+    ContainCheckCast(cast);
+
+    return cast->gtNext;
 }
 
 #ifdef FEATURE_SIMD
