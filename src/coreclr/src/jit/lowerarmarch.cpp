@@ -413,23 +413,11 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
 // Return Value:
 //    The next node to lower.
 //
-// Notes:
-//    Casts from float/double to a smaller int type are transformed as follows:
-//    GT_CAST(float/double, byte)     =   GT_CAST(GT_CAST(float/double, int32), byte)
-//    GT_CAST(float/double, sbyte)    =   GT_CAST(GT_CAST(float/double, int32), sbyte)
-//    GT_CAST(float/double, int16)    =   GT_CAST(GT_CAST(double/double, int32), int16)
-//    GT_CAST(float/double, uint16)   =   GT_CAST(GT_CAST(double/double, int32), uint16)
-//
-//    Note that for the overflow conversions we still depend on helper calls and
-//    don't expect to see them here.
-//    i) GT_CAST(float/double, int type with overflow detection)
-//
 GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
     GenTree*  src     = cast->GetOp(0);
     var_types dstType = cast->GetCastType();
     var_types srcType = genActualType(src->GetType());
-    var_types tmpType = TYP_UNDEF;
 
     if (varTypeIsFloating(srcType))
     {
@@ -439,16 +427,6 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     }
 
     assert(!varTypeIsSmall(srcType));
-
-    if (tmpType != TYP_UNDEF)
-    {
-        GenTreeCast* tmp = comp->gtNewCastNode(tmpType, src, cast->IsUnsigned(), tmpType);
-        tmp->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
-
-        cast->gtFlags &= ~GTF_UNSIGNED;
-        cast->SetOp(0, tmp);
-        BlockRange().InsertAfter(src, tmp);
-    }
 
     ContainCheckCast(cast);
 
