@@ -565,27 +565,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
 /* Lower GT_CAST(srcType, DstType) nodes.
  *
- * Casts from small int type to float/double are transformed as follows:
- * GT_CAST(byte, float/double)     =   GT_CAST(GT_CAST(byte, int32), float/double)
- * GT_CAST(sbyte, float/double)    =   GT_CAST(GT_CAST(sbyte, int32), float/double)
- * GT_CAST(int16, float/double)    =   GT_CAST(GT_CAST(int16, int32), float/double)
- * GT_CAST(uint16, float/double)   =   GT_CAST(GT_CAST(uint16, int32), float/double)
- *
- * SSE2 conversion instructions operate on signed integers. casts from Uint32/Uint64
- * are morphed as follows by front-end and hence should not be seen here.
- * GT_CAST(uint32, float/double)   =   GT_CAST(GT_CAST(uint32, long), float/double)
- * GT_CAST(uint64, float)          =   GT_CAST(GT_CAST(uint64, double), float)
- *
- *
- * Similarly casts from float/double to a smaller int type are transformed as follows:
- * GT_CAST(float/double, byte)     =   GT_CAST(GT_CAST(float/double, int32), byte)
- * GT_CAST(float/double, sbyte)    =   GT_CAST(GT_CAST(float/double, int32), sbyte)
- * GT_CAST(float/double, int16)    =   GT_CAST(GT_CAST(double/double, int32), int16)
- * GT_CAST(float/double, uint16)   =   GT_CAST(GT_CAST(double/double, int32), uint16)
- *
- * SSE2 has instructions to convert a float/double vlaue into a signed 32/64-bit
- * integer.  The above transformations help us to leverage those instructions.
- *
  * Note that for the following conversions we still depend on helper calls and
  * don't expect to see them here.
  *  i) GT_CAST(float/double, uint64)
@@ -603,7 +582,6 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     GenTree*  src     = cast->GetOp(0);
     var_types dstType = cast->GetCastType();
     var_types srcType = src->TypeGet();
-    var_types tmpType = TYP_UNDEF;
 
     // force the srcType to unsigned if GT_UNSIGNED flag is set
     if (cast->IsUnsigned())
@@ -633,23 +611,6 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     else if (srcType == TYP_ULONG)
     {
         noway_assert(dstType != TYP_FLOAT);
-    }
-
-    // case of src is a floating point type and dst is a small type.
-    if (varTypeIsFloating(srcType) && varTypeIsSmall(dstType))
-    {
-        tmpType = TYP_INT;
-    }
-
-    if (tmpType != TYP_UNDEF)
-    {
-        GenTreeCast* tmp = comp->gtNewCastNode(tmpType, src, cast->IsUnsigned(), tmpType);
-        tmp->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
-
-        cast->gtFlags &= ~GTF_UNSIGNED;
-        cast->SetOp(0, tmp);
-        BlockRange().InsertAfter(src, tmp);
-        ContainCheckCast(tmp);
     }
 
     ContainCheckCast(cast);
