@@ -635,15 +635,8 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
         noway_assert(dstType != TYP_FLOAT);
     }
 
-    // Case of src is a small type and dst is a floating point type.
-    if (varTypeIsSmall(srcType) && varTypeIsFloating(dstType))
-    {
-        // These conversions can never be overflow detecting ones.
-        noway_assert(!cast->gtOverflow());
-        tmpType = TYP_INT;
-    }
     // case of src is a floating point type and dst is a small type.
-    else if (varTypeIsFloating(srcType) && varTypeIsSmall(dstType))
+    if (varTypeIsFloating(srcType) && varTypeIsSmall(dstType))
     {
         tmpType = TYP_INT;
     }
@@ -3034,22 +3027,13 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
     else if (!cast->gtOverflow() && (varTypeIsFloating(castType) || varTypeIsFloating(srcType)))
     {
-#ifdef DEBUG
-        // If converting to float/double, the operand must be 4 or 8 byte in size.
-        if (varTypeIsFloating(castType))
-        {
-            unsigned opSize = genTypeSize(srcType);
-            assert(opSize == 4 || opSize == 8);
-        }
-#endif // DEBUG
-
         if (cast->IsUnsigned())
         {
             srcType = genUnsignedType(srcType);
         }
 
         // U8 -> R8 conversion requires that the operand be in a register.
-        if (srcType != TYP_ULONG)
+        if ((srcType != TYP_ULONG) && !varTypeIsSmall(srcType))
         {
             if (IsContainableMemoryOp(src) || src->IsCnsNonZeroFltOrDbl())
             {
