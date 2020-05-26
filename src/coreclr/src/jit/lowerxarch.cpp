@@ -563,55 +563,24 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 }
 
-/* Lower GT_CAST(srcType, DstType) nodes.
- *
- * Note that for the following conversions we still depend on helper calls and
- * don't expect to see them here.
- *  i) GT_CAST(float/double, uint64)
- * ii) GT_CAST(float/double, int type with overflow detection)
- *
- * TODO-XArch-CQ: (Low-pri): Jit64 generates in-line code of 8 instructions for (i) above.
- * There are hardly any occurrences of this conversion operation in platform
- * assemblies or in CQ perf benchmarks (1 occurrence in mscorlib, microsoft.jscript,
- * 1 occurence in Roslyn and no occurrences in system, system.core, system.numerics
- * system.windows.forms, scimark, fractals, bio mums). If we ever find evidence that
- * doing this optimization is a win, should consider generating in-lined code.
- */
+//------------------------------------------------------------------------
+// LowerCast: Lower GT_CAST nodes.
+//
+// Arguments:
+//    cast - GT_CAST node to be lowered
+//
+// Return Value:
+//    The next node to lower.
+//
 GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
-    GenTree*  src     = cast->GetOp(0);
-    var_types dstType = cast->GetCastType();
-    var_types srcType = src->TypeGet();
-
-    // force the srcType to unsigned if GT_UNSIGNED flag is set
-    if (cast->IsUnsigned())
-    {
-        srcType = genUnsignedType(srcType);
-    }
-
-    // We should never see the following casts as they are expected to be lowered
-    // apropriately or converted into helper calls by front-end.
-    //   srcType = float/double                    castToType = * and overflow detecting cast
-    //       Reason: must be converted to a helper call
-    //   srcType = float/double,                   castToType = ulong
-    //       Reason: must be converted to a helper call
-    //   srcType = uint                            castToType = float/double
-    //       Reason: uint -> float/double = uint -> long -> float/double
-    //   srcType = ulong                           castToType = float
-    //       Reason: ulong -> float = ulong -> double -> float
-    if (varTypeIsFloating(srcType))
-    {
-        noway_assert(!cast->gtOverflow());
-        noway_assert(dstType != TYP_ULONG);
-    }
-    else if (srcType == TYP_UINT)
-    {
-        noway_assert(!varTypeIsFloating(dstType));
-    }
-    else if (srcType == TYP_ULONG)
-    {
-        noway_assert(dstType != TYP_FLOAT);
-    }
+    // TODO-XArch-CQ: (Low-pri): Jit64 generates in-line code of 8 instructions for
+    // FLOAT/DOUBLE to ULONG casts.
+    // There are hardly any occurrences of this conversion operation in platform
+    // assemblies or in CQ perf benchmarks (1 occurrence in mscorlib, microsoft.jscript,
+    // 1 occurence in Roslyn and no occurrences in system, system.core, system.numerics
+    // system.windows.forms, scimark, fractals, bio mums). If we ever find evidence that
+    // doing this optimization is a win, should consider generating in-lined code.
 
     ContainCheckCast(cast);
 

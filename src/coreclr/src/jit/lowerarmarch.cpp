@@ -405,7 +405,7 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
 }
 
 //------------------------------------------------------------------------
-// LowerCast: Lower GT_CAST(srcType, DstType) nodes.
+// LowerCast: Lower GT_CAST nodes.
 //
 // Arguments:
 //    cast - GT_CAST node to be lowered
@@ -415,19 +415,6 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
 //
 GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
-    GenTree*  src     = cast->GetOp(0);
-    var_types dstType = cast->GetCastType();
-    var_types srcType = genActualType(src->GetType());
-
-    if (varTypeIsFloating(srcType))
-    {
-        noway_assert(!cast->gtOverflow());
-        assert(!varTypeIsSmall(dstType)); // fgMorphCast creates intermediate casts when converting from float to small
-                                          // int.
-    }
-
-    assert(!varTypeIsSmall(srcType));
-
     ContainCheckCast(cast);
 
     return cast->gtNext;
