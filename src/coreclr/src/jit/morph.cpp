@@ -46,6 +46,12 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTree* tree, int helper, GenTree* ope
         noway_assert(tree->gtOper == GT_CAST);
     }
 
+    if (oper->TypeIs(TYP_FLOAT))
+    {
+        // All floating point cast helpers work only with DOUBLE.
+        oper = gtNewCastNode(TYP_DOUBLE, oper, false, TYP_DOUBLE);
+    }
+
     // GenTreeCast nodes are small so they cannot be converted to calls in place. It may
     // be possible to have the importer create large cast nodes as needed but the number
     // of cast nodes that need to be converted to helper calls is typically very small
@@ -142,27 +148,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     // See if the cast has to be done in two steps.  R -> I
     if (varTypeIsFloating(srcType) && varTypeIsIntegral(dstType))
     {
-        if ((srcType == TYP_FLOAT)
-#if defined(TARGET_ARM64)
-            // Arm64: src = float, dst is overflow conversion.
-            // This goes through helper and hence src needs to be converted to double.
-            && cast->gtOverflow()
-#elif defined(TARGET_AMD64)
-            // Amd64: src = float, dst = uint64 or overflow conversion.
-            // This goes through helper and hence src needs to be converted to double.
-            && (cast->gtOverflow() || (dstType == TYP_ULONG))
-#elif defined(TARGET_ARM)
-            // Arm: src = float, dst = int64/uint64 or overflow conversion.
-            && (cast->gtOverflow() || varTypeIsLong(dstType))
-#else
-            // x86: src = float, dst = uint32/int64/uint64 or overflow conversion.
-            && (cast->gtOverflow() || varTypeIsLong(dstType) || (dstType == TYP_UINT))
-#endif
-                )
-        {
-            src = gtNewCastNode(TYP_DOUBLE, src, false, TYP_DOUBLE);
-        }
-
         // do we need to do it in two steps R -> I, '-> smallType
 
         if (varTypeIsSmall(dstType))
