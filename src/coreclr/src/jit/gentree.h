@@ -3530,6 +3530,13 @@ struct GenTreeCast : public GenTreeOp
         return gtCastType;
     }
 
+    void SetCastType(var_types type)
+    {
+        assert(varTypeIsArithmetic(type));
+        SetType(varActualType(type));
+        gtCastType = type;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeCast() : GenTreeOp()
     {
