@@ -2949,6 +2949,8 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
     else if (varTypeIsFloating(dstType) || varTypeIsFloating(srcType))
     {
+        assert(!cast->gtOverflow());
+
         // The source of cvtsi2sd and similar instructions can be a memory operand but it must
         // be 4 or 8 bytes in size so it cannot be a small int. It's likely possible to make a
         // "normalize on store" local reg-optional but it's probably not worth the extra work.
@@ -2958,6 +2960,14 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         {
             if (IsContainableMemoryOp(src))
             {
+                // Since a floating point cast can't throw we can move the cast
+                // right after the source node to avoid the interference check.
+                if (cast->gtPrev != src)
+                {
+                    BlockRange().Remove(cast);
+                    BlockRange().InsertAfter(src, cast);
+                }
+
                 src->SetContained();
             }
             else
