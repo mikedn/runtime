@@ -951,10 +951,10 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    var_types castType = cast->GetCastType();
-    var_types srcType  = src->GetType();
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    if (varTypeIsIntegral(castType) && varTypeIsIntegral(srcType))
+    if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType))
     {
         // TODO-MIKE-CQ: Indirs with contained address mode are problematic. They may
         // end up requiring a temp register and if the indir itself is made contained

@@ -2925,10 +2925,10 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    var_types castType = cast->GetCastType();
-    var_types srcType  = src->GetType();
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    if (varTypeIsIntegral(castType) && varTypeIsIntegral(srcType))
+    if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType))
     {
         if (IsContainableMemoryOp(src) && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
         {
@@ -2947,15 +2947,14 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
             src->SetRegOptional();
         }
     }
-    else if (!cast->gtOverflow() && (varTypeIsFloating(castType) || varTypeIsFloating(srcType)))
+    else if (varTypeIsFloating(dstType) || varTypeIsFloating(srcType))
     {
-        if (cast->IsUnsigned())
-        {
-            srcType = genUnsignedType(srcType);
-        }
-
-        // U8 -> R8 conversion requires that the operand be in a register.
-        if ((srcType != TYP_ULONG) && !varTypeIsSmall(srcType))
+        // The source of cvtsi2sd and similar instructions can be a memory operand but it must
+        // be 4 or 8 bytes in size so it cannot be a small int. It's likely possible to make a
+        // "normalize on store" local reg-optional but it's probably not worth the extra work.
+        // Also, ULONG to DOUBLE casts require checking the sign of the source so allowing a
+        // memory operand would result in 2 loads instead of 1.
+        if (!varTypeIsSmall(srcType) && ((srcType != TYP_LONG) || !cast->IsUnsigned()))
         {
             if (IsContainableMemoryOp(src) || src->IsCnsNonZeroFltOrDbl())
             {
