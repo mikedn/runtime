@@ -155,58 +155,46 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             src = gtNewCastNode(TYP_INT, src, false, TYP_INT);
             src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
         }
+        else if (cast->gtOverflow())
+        {
+            switch (dstType)
+            {
+                case TYP_INT:
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2INT_OVF, src);
+                case TYP_UINT:
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT_OVF, src);
+                case TYP_LONG:
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG_OVF, src);
+                case TYP_ULONG:
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG_OVF, src);
+                default:
+                    unreached();
+            }
+        }
         else
         {
-            // Note that if we need to use a helper call then we can not morph oper
-            if (!cast->gtOverflow())
+            switch (dstType)
             {
-#ifdef TARGET_ARM64 // On ARM64 All non-overflow checking conversions can be optimized
-                goto OPTIMIZECAST;
-#else
-                switch (dstType)
-                {
-                    case TYP_INT:
-                        goto OPTIMIZECAST;
-
-                    case TYP_UINT:
-#if defined(TARGET_ARM) || defined(TARGET_AMD64)
-                        goto OPTIMIZECAST;
-#else
-                        return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT, src);
+                case TYP_INT:
+                    break;
+                case TYP_UINT:
+#if !defined(TARGET_ARM64) && !defined(TARGET_ARM) && !defined(TARGET_AMD64)
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT, src);
 #endif
-
-                    case TYP_LONG:
-#ifdef TARGET_AMD64
-                        // SSE2 has instructions to convert a float/double directly to a long
-                        goto OPTIMIZECAST;
-#else
-                        return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG, src);
+                    break;
+                case TYP_LONG:
+#if !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG, src);
 #endif
-
-                    case TYP_ULONG:
-                        return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG, src);
-                    default:
-                        break;
-                }
-#endif // !TARGET_ARM64
+                    break;
+                case TYP_ULONG:
+#if !defined(TARGET_ARM64)
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG, src);
+#endif
+                    break;
+                default:
+                    unreached();
             }
-            else
-            {
-                switch (dstType)
-                {
-                    case TYP_INT:
-                        return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2INT_OVF, src);
-                    case TYP_UINT:
-                        return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT_OVF, src);
-                    case TYP_LONG:
-                        return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG_OVF, src);
-                    case TYP_ULONG:
-                        return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG_OVF, src);
-                    default:
-                        break;
-                }
-            }
-            noway_assert(!"Unexpected dstType");
         }
     }
 #ifndef TARGET_64BIT
@@ -244,12 +232,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             return fgMorphTree(gtNewCastNode(TYP_FLOAT, cast, false, TYP_FLOAT));
         }
 
-        if (cast->IsUnsigned())
-        {
-            return fgMorphCastIntoHelper(cast, CORINFO_HELP_ULNG2DBL, src);
-        }
-
-        return fgMorphCastIntoHelper(cast, CORINFO_HELP_LNG2DBL, src);
+        return fgMorphCastIntoHelper(cast, cast->IsUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL, src);
     }
 #endif // TARGET_ARM
 
@@ -292,14 +275,12 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     // Do we have to do two step U4/8 -> R4/8 ?
     else if (cast->IsUnsigned() && varTypeIsFloating(dstType))
     {
-        srcType = genUnsignedType(srcType);
-
-        if (srcType == TYP_ULONG)
+        if (srcType == TYP_LONG)
         {
             return fgMorphCastIntoHelper(cast, CORINFO_HELP_ULNG2DBL, src);
         }
 
-        if (srcType == TYP_UINT)
+        if (srcType == TYP_INT)
         {
             src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
             src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
@@ -466,7 +447,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         }
     }
 
-OPTIMIZECAST:
     src = fgMorphTree(src);
     cast->SetOp(0, src);
 
