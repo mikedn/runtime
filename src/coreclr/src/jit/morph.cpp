@@ -164,22 +164,12 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         }
 
         // do we need to do it in two steps R -> I, '-> smallType
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef TARGET_64BIT
-        if (dstSize < 4)
-        {
-            src = gtNewCastNode(TYP_INT, src, cast->IsUnsigned(), TYP_INT);
-            src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
-            cast->gtFlags &= ~GTF_UNSIGNED;
-        }
-#else
-        if (dstSize < 4)
+        if (varTypeIsSmall(dstType))
         {
             src = gtNewCastNode(TYP_INT, src, false, TYP_INT);
             src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
         }
-#endif
         else
         {
             // Note that if we need to use a helper call then we can not morph oper
