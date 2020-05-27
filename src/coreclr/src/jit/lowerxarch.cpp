@@ -2956,7 +2956,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         // memory operand would result in 2 loads instead of 1.
         if (!varTypeIsSmall(srcType) && ((srcType != TYP_LONG) || !cast->IsUnsigned()))
         {
-            if (IsContainableMemoryOp(src) || src->IsCnsNonZeroFltOrDbl())
+            if (IsContainableMemoryOp(src))
             {
                 src->SetContained();
             }
