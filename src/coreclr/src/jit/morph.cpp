@@ -19,37 +19,33 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "allocacheck.h" // for alloca
 
 // Convert the given node into a call to the specified helper passing
-// the given argument list.
-//
-// Tries to fold constants and also adds an edge for overflow exception
-// returns the morphed tree
-GenTree* Compiler::fgMorphCastIntoHelper(GenTree* tree, int helper, GenTree* oper)
+// the given argument list. Also tries to fold constants.
+GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
 {
-    /* If the operand is a constant, we'll try to fold it */
-    if (oper->OperIsConst())
+    GenTree* src = cast->GetOp(0);
+
+    if (src->OperIsConst())
     {
-        GenTree* oldTree = tree;
+        GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
 
-        tree = gtFoldExprConst(tree); // This may not fold the constant (NaN ...)
-
-        if (tree != oldTree)
+        if (folded != cast)
         {
-            return fgMorphTree(tree);
-        }
-        else if (tree->OperKind() & GTK_CONST)
-        {
-            return fgMorphConst(tree);
+            return fgMorphTree(folded);
         }
 
-        // assert that oper is unchanged and that it is still a GT_CAST node
-        noway_assert(tree->AsCast()->CastOp() == oper);
-        noway_assert(tree->gtOper == GT_CAST);
+        if (folded->OperIsConst())
+        {
+            return fgMorphConst(folded);
+        }
+
+        noway_assert(cast->OperIs(GT_CAST));
+        noway_assert(cast->GetOp(0) == src);
     }
 
-    if (oper->TypeIs(TYP_FLOAT))
+    if (src->TypeIs(TYP_FLOAT))
     {
         // All floating point cast helpers work only with DOUBLE.
-        oper = gtNewCastNode(TYP_DOUBLE, oper, false, TYP_DOUBLE);
+        src = gtNewCastNode(TYP_DOUBLE, src, false, TYP_DOUBLE);
     }
 
     // GenTreeCast nodes are small so they cannot be converted to calls in place. It may
@@ -59,10 +55,10 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTree* tree, int helper, GenTree* ope
     // cast nodes somehow combine into one and one is large and the other small then the
     // combining code would need to be careful to preserve the large node, not the small
     // node. Cast morphing code is convoluted enough as it is.
-    tree = new (this, LargeOpOpcode()) GenTreeCast(tree->GetType(), tree->AsCast()->GetOp(0), tree->IsUnsigned(),
-                                                   tree->AsCast()->GetCastType() DEBUGARG(/*largeNode*/ true));
-    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    return fgMorphIntoHelperCall(tree, helper, gtNewCallArgs(oper));
+    GenTree* call = new (this, LargeOpOpcode())
+        GenTreeCast(cast->GetType(), src, cast->IsUnsigned(), cast->GetCastType() DEBUGARG(/*largeNode*/ true));
+    INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
 }
 
 /*****************************************************************************
@@ -160,13 +156,13 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             switch (dstType)
             {
                 case TYP_INT:
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2INT_OVF, src);
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2INT_OVF);
                 case TYP_UINT:
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT_OVF, src);
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT_OVF);
                 case TYP_LONG:
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG_OVF, src);
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG_OVF);
                 case TYP_ULONG:
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG_OVF, src);
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG_OVF);
                 default:
                     unreached();
             }
@@ -179,17 +175,17 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                     break;
                 case TYP_UINT:
 #if !defined(TARGET_ARM64) && !defined(TARGET_ARM) && !defined(TARGET_AMD64)
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT, src);
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT);
 #endif
                     break;
                 case TYP_LONG:
 #if !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG, src);
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG);
 #endif
                     break;
                 case TYP_ULONG:
 #if !defined(TARGET_ARM64)
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG, src);
+                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG);
 #endif
                     break;
                 default:
@@ -232,7 +228,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             return fgMorphTree(gtNewCastNode(TYP_FLOAT, cast, false, TYP_FLOAT));
         }
 
-        return fgMorphCastIntoHelper(cast, cast->IsUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL, src);
+        return fgMorphCastIntoHelper(cast, cast->IsUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL);
     }
 #endif // TARGET_ARM
 
@@ -277,20 +273,21 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     {
         if (srcType == TYP_LONG)
         {
-            return fgMorphCastIntoHelper(cast, CORINFO_HELP_ULNG2DBL, src);
+            return fgMorphCastIntoHelper(cast, CORINFO_HELP_ULNG2DBL);
         }
 
         if (srcType == TYP_INT)
         {
             src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
             src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
+            cast->SetOp(0, src);
             cast->gtFlags &= ~GTF_UNSIGNED;
-            return fgMorphCastIntoHelper(cast, CORINFO_HELP_LNG2DBL, src);
+            return fgMorphCastIntoHelper(cast, CORINFO_HELP_LNG2DBL);
         }
     }
     else if (!cast->IsUnsigned() && (srcType == TYP_LONG) && varTypeIsFloating(dstType))
     {
-        return fgMorphCastIntoHelper(cast, CORINFO_HELP_LNG2DBL, src);
+        return fgMorphCastIntoHelper(cast, CORINFO_HELP_LNG2DBL);
     }
 #endif // TARGET_X86
     else if (varTypeIsGC(srcType) != varTypeIsGC(dstType))

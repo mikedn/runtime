@@ -5293,7 +5293,7 @@ private:
     bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
     bool fgIsBlockCold(BasicBlock* block);
 
-    GenTree* fgMorphCastIntoHelper(GenTree* tree, int helper, GenTree* oper);
+    GenTree* fgMorphCastIntoHelper(GenTreeCast* cast, int helper);
 
     GenTree* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs = true);
 
