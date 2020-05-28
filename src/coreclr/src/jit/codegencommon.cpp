@@ -95,16 +95,17 @@ CodeGenInterface::CodeGenInterface(Compiler* theCompiler)
 
 /*****************************************************************************/
 
-CodeGen::CodeGen(Compiler* theCompiler) : CodeGenInterface(theCompiler)
-{
+CodeGen::CodeGen(Compiler* theCompiler)
+    : CodeGenInterface(theCompiler)
 #if defined(TARGET_XARCH)
-    negBitmaskFlt  = nullptr;
-    negBitmaskDbl  = nullptr;
-    absBitmaskFlt  = nullptr;
-    absBitmaskDbl  = nullptr;
-    u8ToDblBitmask = nullptr;
-#endif // defined(TARGET_XARCH)
-
+    , negBitmaskFlt(nullptr)
+    , negBitmaskDbl(nullptr)
+    , absBitmaskFlt(nullptr)
+    , absBitmaskDbl(nullptr)
+    , u8ToDblBitmask(nullptr)
+    , u8ToFltBitmask(nullptr)
+#endif
+{
 #if defined(FEATURE_PUT_STRUCT_ARG_STK) && !defined(TARGET_X86)
     m_stkArgVarNum = BAD_VAR_NUM;
 #endif

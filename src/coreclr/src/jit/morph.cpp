@@ -253,30 +253,16 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         if (cast->IsUnsigned())
         {
             // X64 doesn't have any instruction to cast FP types to unsigned types
-            // but codegen handles the ULONG to DOUBLE case by adjusting the result
-            // of a LONG to DOUBLE cast. For all other cases we need to introduce
-            // additional casts:
-            //   - UINT  to DOUBLE => UINT  to LONG   to DOUBLE
-            //   - UINT  to FLOAT  => UINT  to LONG   to FLOAT
-            //   - ULONG to FLOAT  => ULONG to DOUBLE to FLOAT
-
-            var_types newSrcType = TYP_UNDEF;
+            // but codegen handles the ULONG to DOUBLE/FLOAT case by adjusting the
+            // result of a ULONG to DOUBLE/FLOAT cast. For UINT to DOUBLE/FLOAT we
+            // need to first cast the source to LONG.
 
             if (srcType == TYP_INT)
             {
-                newSrcType = TYP_LONG;
-            }
-            else if ((srcType == TYP_LONG) && (dstType == TYP_FLOAT))
-            {
-                newSrcType = TYP_DOUBLE;
-            }
-
-            if (newSrcType != TYP_UNDEF)
-            {
-                src = gtNewCastNode(newSrcType, src, true, newSrcType);
+                src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
                 cast->SetOp(0, src);
                 cast->gtFlags &= ~GTF_UNSIGNED;
-                srcType = newSrcType;
+                srcType = TYP_LONG;
             }
         }
 #elif defined(TARGET_X86)
