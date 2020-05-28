@@ -139,6 +139,18 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
+    if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST))
+    {
+        // Optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
+        // This happens semi-frequently because there is no IL 'conv.r4.un'
+
+        cast->gtFlags &= ~GTF_UNSIGNED;
+        cast->gtFlags |= src->gtFlags & GTF_UNSIGNED;
+        src = src->AsCast()->GetOp(0);
+        cast->SetOp(0, src);
+        srcType = varActualType(src->GetType());
+    }
+
     noway_assert(!varTypeIsGC(dstType));
 
     if (varTypeIsGC(srcType))
@@ -222,17 +234,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     else if (varTypeIsFloating(dstType))
     {
 #if defined(TARGET_ARM)
-        // TODO-MIKE-CQ: Why is this ARM specific?
-        if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST) &&
-            !varTypeIsLong(src->AsCast()->GetOp(0)->GetType()))
-        {
-            // optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
-            // except when the ultimate source is a long because there is no long-to-float helper, so it must be 2 step.
-            // This happens semi-frequently because there is no IL 'conv.r4.un'
-            src->AsCast()->SetCastType(TYP_FLOAT);
-            return fgMorphTree(src);
-        }
-
         if (srcType == TYP_LONG)
         {
             // We only have helpers for (U)LONG to DOUBLE casts, we may need an extra cast to FLOAT.
