@@ -160,19 +160,32 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         srcType = TYP_I_IMPL;
     }
 
+    if (varTypeIsSmall(dstType) && (varTypeIsFloating(srcType)
+#ifndef TARGET_64BIT
+                                    || varTypeIsLong(srcType)
+#endif
+                                        ))
+    {
+        // CodeGen doesn't support casting from floating point types, or long types on
+        // 32 bit targets, directly to small int types. Cast the source to INT first.
+
+        src = gtNewCastNode(TYP_INT, src, cast->IsUnsigned(), TYP_INT);
+        src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
+        cast->SetOp(0, src);
+        srcType = TYP_INT;
+
+        // TODO-MIKE-CQ: This should not be needed. It's only meaningfull for overflow
+        // checking casts from LONG and in that case removing it makes the INT to small
+        // int cast check for negative values, something that the ULONG to INT cast
+        // already does.
+        cast->gtFlags &= ~GTF_UNSIGNED;
+    }
+
     unsigned dstSize = genTypeSize(dstType);
 
-    // See if the cast has to be done in two steps.  R -> I
     if (varTypeIsFloating(srcType) && varTypeIsIntegral(dstType))
     {
-        // do we need to do it in two steps R -> I, '-> smallType
-
-        if (varTypeIsSmall(dstType))
-        {
-            src = gtNewCastNode(TYP_INT, src, false, TYP_INT);
-            src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
-        }
-        else if (cast->gtOverflow())
+        if (cast->gtOverflow())
         {
             switch (dstType)
             {
@@ -214,17 +227,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             }
         }
     }
-#ifndef TARGET_64BIT
-    // The code generation phase (for x86 & ARM32) does not handle casts
-    // directly from [u]long to anything other than [u]int. Insert an
-    // intermediate cast to native int.
-    else if (varTypeIsLong(srcType) && varTypeIsSmall(dstType))
-    {
-        src = gtNewCastNode(TYP_I_IMPL, src, cast->IsUnsigned(), TYP_I_IMPL);
-        src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
-        cast->gtFlags &= ~GTF_UNSIGNED;
-    }
-#endif //! TARGET_64BIT
 
 #ifdef TARGET_ARM
     else if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST) &&
