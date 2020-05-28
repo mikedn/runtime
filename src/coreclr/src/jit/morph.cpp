@@ -181,8 +181,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         cast->gtFlags &= ~GTF_UNSIGNED;
     }
 
-    unsigned dstSize = genTypeSize(dstType);
-
     if (varTypeIsFloating(srcType) && varTypeIsIntegral(dstType))
     {
         if (cast->gtOverflow())
@@ -227,103 +225,99 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             }
         }
     }
-
-#ifdef TARGET_ARM
-    else if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST) &&
-             !varTypeIsLong(src->AsCast()->GetOp(0)))
+    else if (varTypeIsFloating(dstType))
     {
-        // optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
-        // except when the ultimate source is a long because there is no long-to-float helper, so it must be 2 step.
-        // This happens semi-frequently because there is no IL 'conv.r4.un'
-        src->AsCast()->SetCastType(TYP_FLOAT);
-        return fgMorphTree(src);
-    }
-    // converts long/ulong --> float/double casts into helper calls.
-    else if (varTypeIsFloating(dstType) && varTypeIsLong(srcType))
-    {
-        if (dstType == TYP_FLOAT)
+#if defined(TARGET_ARM)
+        // TODO-MIKE-CQ: Why is this ARM specific?
+        if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST) &&
+            !varTypeIsLong(src->AsCast()->GetOp(0)->GetType()))
         {
-            // there is only a double helper, so we
-            // - change the dsttype to double
-            // - insert a cast from double to float
-            // - recurse into the resulting tree
-            cast->SetCastType(TYP_DOUBLE);
-            return fgMorphTree(gtNewCastNode(TYP_FLOAT, cast, false, TYP_FLOAT));
+            // optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
+            // except when the ultimate source is a long because there is no long-to-float helper, so it must be 2 step.
+            // This happens semi-frequently because there is no IL 'conv.r4.un'
+            src->AsCast()->SetCastType(TYP_FLOAT);
+            return fgMorphTree(src);
         }
 
-        return fgMorphCastIntoHelper(cast, cast->IsUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL);
-    }
-#endif // TARGET_ARM
-
-#ifdef TARGET_AMD64
-    // Do we have to do two step U4/8 -> R4/8 ?
-    // Codegen supports the following conversion as one-step operation
-    // a) Long -> R4/R8
-    // b) U8 -> R8
-    //
-    // The following conversions are performed as two-step operations using above.
-    // U4 -> R4/8 = U4-> Long -> R4/8
-    // U8 -> R4   = U8 -> R8 -> R4
-    else if (cast->IsUnsigned() && varTypeIsFloating(dstType))
-    {
-        srcType = genUnsignedType(srcType);
-
-        if (srcType == TYP_ULONG)
-        {
-            if (dstType == TYP_FLOAT)
-            {
-                // Codegen can handle U8 -> R8 conversion.
-                // U8 -> R4 =  U8 -> R8 -> R4
-                // - change the dsttype to double
-                // - insert a cast from double to float
-                // - recurse into the resulting tree
-                cast->SetCastType(TYP_DOUBLE);
-                return fgMorphTree(gtNewCastNode(TYP_FLOAT, cast, false, TYP_FLOAT));
-            }
-        }
-        else if (srcType == TYP_UINT)
-        {
-            src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
-            src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
-            cast->gtFlags &= ~GTF_UNSIGNED;
-        }
-    }
-#endif // TARGET_AMD64
-
-#ifdef TARGET_X86
-    // Do we have to do two step U4/8 -> R4/8 ?
-    else if (cast->IsUnsigned() && varTypeIsFloating(dstType))
-    {
         if (srcType == TYP_LONG)
         {
-            return fgMorphCastIntoHelper(cast, CORINFO_HELP_ULNG2DBL);
-        }
+            // We only have helpers for (U)LONG to DOUBLE casts, we may need an extra cast to FLOAT.
+            cast->SetCastType(TYP_DOUBLE);
 
-        if (srcType == TYP_INT)
+            GenTree* helper =
+                fgMorphCastIntoHelper(cast, cast->IsUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL);
+
+            if (dstType == TYP_FLOAT)
+            {
+                helper = gtNewCastNode(TYP_FLOAT, helper, false, TYP_FLOAT);
+                INDEBUG(helper->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+            }
+
+            return helper;
+        }
+#elif defined(TARGET_AMD64)
+        if (cast->IsUnsigned())
         {
+            // X64 doesn't have any instruction to cast FP types to unsigned types
+            // but codegen handles the ULONG to DOUBLE case by adjusting the result
+            // of a LONG to DOUBLE cast. For all other cases we need to introduce
+            // additional casts:
+            //   - UINT  to DOUBLE => UINT  to LONG   to DOUBLE
+            //   - UINT  to FLOAT  => UINT  to LONG   to FLOAT
+            //   - ULONG to FLOAT  => ULONG to DOUBLE to FLOAT
+
+            var_types newSrcType = TYP_UNDEF;
+
+            if (srcType == TYP_INT)
+            {
+                newSrcType = TYP_LONG;
+            }
+            else if ((srcType == TYP_LONG) && (dstType == TYP_FLOAT))
+            {
+                newSrcType = TYP_DOUBLE;
+            }
+
+            if (newSrcType != TYP_UNDEF)
+            {
+                src = gtNewCastNode(newSrcType, src, true, newSrcType);
+                cast->SetOp(0, src);
+                cast->gtFlags &= ~GTF_UNSIGNED;
+                srcType = newSrcType;
+            }
+        }
+#elif defined(TARGET_X86)
+        if (cast->IsUnsigned() && (srcType == TYP_INT))
+        {
+            // There is no support for UINT to FP casts so first cast the source
+            // to LONG and then use a helper call to cast to FP.
             src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
-            src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
             cast->SetOp(0, src);
             cast->gtFlags &= ~GTF_UNSIGNED;
-            return fgMorphCastIntoHelper(cast, CORINFO_HELP_LNG2DBL);
+            srcType = TYP_LONG;
         }
-    }
-    else if (!cast->IsUnsigned() && (srcType == TYP_LONG) && varTypeIsFloating(dstType))
-    {
-        return fgMorphCastIntoHelper(cast, CORINFO_HELP_LNG2DBL);
-    }
-#endif // TARGET_X86
 
-    // Look for narrowing casts ([u]long -> [u]int) and try to push them
-    // down into the operand before morphing it.
-    //
-    // It doesn't matter if this is cast is from ulong or long (i.e. if
-    // GTF_UNSIGNED is set) because the transformation is only applied to
-    // overflow-insensitive narrowing casts, which always silently truncate.
-    //
-    // Note that casts from [u]long to small integer types are handled above.
-    if ((srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
+        if (srcType == TYP_LONG)
+        {
+            // These helpers really return DOUBLE but codegen automatically casts
+            // to call node's return type when copying from the x87 stack to a SSE
+            // register so we don't need to add an extra cast when the destination
+            // type is FLOAT.
+
+            return fgMorphCastIntoHelper(cast, cast->IsUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL);
+        }
+#endif // TARGET_X86
+    }
+    else if ((srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
     {
+        // Look for narrowing casts ([u]long -> [u]int) and try to push them
+        // down into the operand before morphing it.
+        //
+        // It doesn't matter if this is cast is from ulong or long (i.e. if
+        // GTF_UNSIGNED is set) because the transformation is only applied to
+        // overflow-insensitive narrowing casts, which always silently truncate.
+        //
+        // Note that casts from [u]long to small integer types are handled above.
+
         // As a special case, look for overflow-sensitive casts of an AND
         // expression, and see if the second operand is a small constant. Since
         // the result of an AND is bound by its smaller operand, it may be
@@ -497,6 +491,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             bool     unsignedDst = varTypeIsUnsigned(dstType);
             bool     signsDiffer = (unsignedSrc != unsignedDst);
             unsigned srcSize     = genTypeSize(srcType);
+            unsigned dstSize     = genTypeSize(dstType);
 
             // For same sized casts with
             //    the same signs or non-overflow cast we discard them as well
