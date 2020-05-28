@@ -563,22 +563,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 }
 
-//------------------------------------------------------------------------
-// LowerCast: Lower GT_CAST nodes.
-//
-// Arguments:
-//    cast - GT_CAST node to be lowered
-//
-// Return Value:
-//    The next node to lower.
-//
-GenTree* Lowering::LowerCast(GenTreeCast* cast)
-{
-    ContainCheckCast(cast);
-
-    return cast->gtNext;
-}
-
 #ifdef FEATURE_SIMD
 //----------------------------------------------------------------------------------------------
 // Lowering::LowerSIMD: Perform containment analysis for a SIMD intrinsic node.
