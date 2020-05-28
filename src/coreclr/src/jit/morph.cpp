@@ -173,12 +173,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
         cast->SetOp(0, src);
         srcType = TYP_INT;
-
-        // TODO-MIKE-CQ: This should not be needed. It's only meaningfull for overflow
-        // checking casts from LONG and in that case removing it makes the INT to small
-        // int cast check for negative values, something that the ULONG to INT cast
-        // already does.
-        cast->gtFlags &= ~GTF_UNSIGNED;
     }
 
     if (varTypeIsFloating(srcType) && varTypeIsIntegral(dstType))
