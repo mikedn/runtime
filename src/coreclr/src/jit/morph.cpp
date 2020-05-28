@@ -139,6 +139,32 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
+    noway_assert(!varTypeIsGC(dstType));
+
+    if (varTypeIsGC(srcType))
+    {
+        // We are casting away GC information.  we would like to just
+        // change the type to int, however this gives the emitter fits because
+        // it believes the variable is a GC variable at the beginning of the
+        // instruction group, but is not turned non-gc by the code generator
+        // we fix this by copying the GC pointer to a non-gc pointer temp.
+
+        // We generate an assignment to an int and then do the cast from an int. With this we avoid
+        // the gc problem and we allow casts to bytes, longs,  etc...
+        unsigned lclNum = lvaGrabTemp(true DEBUGARG("Cast away GC"));
+        src->SetType(TYP_I_IMPL);
+        GenTree* asg = gtNewTempAssign(lclNum, src);
+        src->SetType(srcType);
+
+        // do the real cast
+        GenTree* newCast = gtNewCastNode(cast->GetType(), gtNewLclvNode(lclNum, TYP_I_IMPL), false, dstType);
+
+        // Generate the comma tree
+        src = gtNewOperNode(GT_COMMA, newCast->GetType(), asg, newCast);
+
+        return fgMorphTree(src);
+    }
+
     unsigned dstSize = genTypeSize(dstType);
 
     // See if the cast has to be done in two steps.  R -> I
@@ -290,30 +316,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         return fgMorphCastIntoHelper(cast, CORINFO_HELP_LNG2DBL);
     }
 #endif // TARGET_X86
-    else if (varTypeIsGC(srcType) != varTypeIsGC(dstType))
-    {
-        // We are casting away GC information.  we would like to just
-        // change the type to int, however this gives the emitter fits because
-        // it believes the variable is a GC variable at the beginning of the
-        // instruction group, but is not turned non-gc by the code generator
-        // we fix this by copying the GC pointer to a non-gc pointer temp.
-        noway_assert(!varTypeIsGC(dstType) && "How can we have a cast to a GCRef here?");
-
-        // We generate an assignment to an int and then do the cast from an int. With this we avoid
-        // the gc problem and we allow casts to bytes, longs,  etc...
-        unsigned lclNum = lvaGrabTemp(true DEBUGARG("Cast away GC"));
-        src->SetType(TYP_I_IMPL);
-        GenTree* asg = gtNewTempAssign(lclNum, src);
-        src->SetType(srcType);
-
-        // do the real cast
-        GenTree* newCast = gtNewCastNode(cast->GetType(), gtNewLclvNode(lclNum, TYP_I_IMPL), false, dstType);
-
-        // Generate the comma tree
-        src = gtNewOperNode(GT_COMMA, newCast->GetType(), asg, newCast);
-
-        return fgMorphTree(src);
-    }
 
     // Look for narrowing casts ([u]long -> [u]int) and try to push them
     // down into the operand before morphing it.

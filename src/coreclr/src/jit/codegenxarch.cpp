@@ -6380,24 +6380,6 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
-    // Since xarch emitter doesn't handle reporting gc-info correctly while casting away gc-ness we
-    // ensure srcType of a cast is non gc-type.  Codegen should never see BYREF as source type except
-    // for GT_LCL_VAR_ADDR and GT_LCL_FLD_ADDR that represent stack addresses and can be considered
-    // as TYP_I_IMPL. In all other cases where src operand is a gc-type and not known to be on stack,
-    // Front-end (see fgMorphCast()) ensures this by assigning gc-type local to a non gc-type
-    // temp and using temp as operand of cast operation.
-    //
-    // TODO-MIKE-Cleanup: This is kind of weird. It's likely that this kind of IR can only be produced
-    // by importing invalid IL - ldloca & co. produce managed pointers and converting such pointers to
-    // floating point isn't valid according to ECMA-335. And the comment is rather misleading, it seems
-    // to imply that the emitter can't handle this case but then it's this code that incorrectly tells
-    // the emitter that the instruction produces a GC ref because it extracts the emitAttr from src.
-    if (srcType == TYP_BYREF)
-    {
-        noway_assert(src->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
-        srcType = TYP_I_IMPL;
-    }
-
     if (cast->IsUnsigned())
     {
         srcType = genUnsignedType(srcType);
