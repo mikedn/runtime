@@ -3273,157 +3273,82 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
 // genIntToFloatCast: Generate code to cast an int/long to float/double
 //
 // Arguments:
-//    treeNode - The GT_CAST node
+//    cast - The GT_CAST node
 //
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    Cast is a non-overflow conversion.
-//    The treeNode must have an assigned register.
-//    SrcType= int32/uint32/int64/uint64 and DstType=float/double.
-//
-void CodeGen::genIntToFloatCast(GenTree* treeNode)
+void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 {
-    // int type --> float/double conversions are always non-overflow ones
-    assert(treeNode->OperGet() == GT_CAST);
-    assert(!treeNode->gtOverflow());
+    assert(!cast->gtOverflow());
 
-    regNumber targetReg = treeNode->GetRegNum();
-    assert(genIsValidFloatReg(targetReg));
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetCastType();
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-    assert(!op1->isContained());                // Cannot be contained
-    assert(genIsValidIntReg(op1->GetRegNum())); // Must be a valid int reg.
+    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG));
+    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
+    assert(cast->GetType() == dstType);
 
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = genActualType(op1->TypeGet());
-    assert(!varTypeIsFloating(srcType) && varTypeIsFloating(dstType));
+    regNumber srcReg = genConsumeReg(src);
+    regNumber dstReg = cast->GetRegNum();
 
-    // force the srcType to unsigned if GT_UNSIGNED flag is set
-    if (treeNode->gtFlags & GTF_UNSIGNED)
-    {
-        srcType = genUnsignedType(srcType);
-    }
+    assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
 
-    // We should never see a srcType whose size is neither EA_4BYTE or EA_8BYTE
-    emitAttr srcSize = EA_ATTR(genTypeSize(srcType));
-    noway_assert((srcSize == EA_4BYTE) || (srcSize == EA_8BYTE));
-
-    instruction ins       = varTypeIsUnsigned(srcType) ? INS_ucvtf : INS_scvtf;
-    insOpts     cvtOption = INS_OPTS_NONE; // invalid value
+    instruction ins     = cast->IsUnsigned() ? INS_ucvtf : INS_scvtf;
+    emitAttr    insSize = emitTypeSize(dstType);
+    insOpts     opts;
 
     if (dstType == TYP_DOUBLE)
     {
-        if (srcSize == EA_4BYTE)
-        {
-            cvtOption = INS_OPTS_4BYTE_TO_D;
-        }
-        else
-        {
-            assert(srcSize == EA_8BYTE);
-            cvtOption = INS_OPTS_8BYTE_TO_D;
-        }
+        opts = (srcType == TYP_INT) ? INS_OPTS_4BYTE_TO_D : INS_OPTS_8BYTE_TO_D;
     }
     else
     {
-        assert(dstType == TYP_FLOAT);
-        if (srcSize == EA_4BYTE)
-        {
-            cvtOption = INS_OPTS_4BYTE_TO_S;
-        }
-        else
-        {
-            assert(srcSize == EA_8BYTE);
-            cvtOption = INS_OPTS_8BYTE_TO_S;
-        }
+        opts = (srcType == TYP_INT) ? INS_OPTS_4BYTE_TO_S : INS_OPTS_8BYTE_TO_S;
     }
 
-    genConsumeOperands(treeNode->AsOp());
+    GetEmitter()->emitIns_R_R(ins, insSize, dstReg, srcReg, opts);
 
-    GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(dstType), treeNode->GetRegNum(), op1->GetRegNum(), cvtOption);
-
-    genProduceReg(treeNode);
+    genProduceReg(cast);
 }
 
 //------------------------------------------------------------------------
 // genFloatToIntCast: Generate code to cast float/double to int/long
 //
 // Arguments:
-//    treeNode - The GT_CAST node
+//    cast - The GT_CAST node
 //
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    Cast is a non-overflow conversion.
-//    The treeNode must have an assigned register.
-//    SrcType=float/double and DstType= int32/uint32/int64/uint64
-//
-void CodeGen::genFloatToIntCast(GenTree* treeNode)
+void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 {
-    // we don't expect to see overflow detecting float/double --> int type conversions here
-    // as they should have been converted into helper calls by front-end.
-    assert(treeNode->OperGet() == GT_CAST);
-    assert(!treeNode->gtOverflow());
+    assert(!cast->gtOverflow());
 
-    regNumber targetReg = treeNode->GetRegNum();
-    assert(genIsValidIntReg(targetReg)); // Must be a valid int reg.
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-    assert(!op1->isContained());                  // Cannot be contained
-    assert(genIsValidFloatReg(op1->GetRegNum())); // Must be a valid float reg.
+    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
+    noway_assert((dstType == TYP_INT) || (dstType == TYP_UINT) || (dstType == TYP_LONG) || (dstType == TYP_ULONG));
+    assert(cast->GetType() == varActualType(dstType));
 
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = op1->TypeGet();
-    assert(varTypeIsFloating(srcType) && !varTypeIsFloating(dstType));
+    regNumber srcReg = genConsumeReg(src);
+    regNumber dstReg = cast->GetRegNum();
 
-    // We should never see a dstType whose size is neither EA_4BYTE or EA_8BYTE
-    // For conversions to small types (byte/sbyte/int16/uint16) from float/double,
-    // we expect the front-end or lowering phase to have generated two levels of cast.
-    //
-    emitAttr dstSize = EA_ATTR(genTypeSize(dstType));
-    noway_assert((dstSize == EA_4BYTE) || (dstSize == EA_8BYTE));
+    assert(genIsValidFloatReg(srcReg) && genIsValidIntReg(dstReg));
 
-    instruction ins       = INS_fcvtzs;    // default to sign converts
-    insOpts     cvtOption = INS_OPTS_NONE; // invalid value
-
-    if (varTypeIsUnsigned(dstType))
-    {
-        ins = INS_fcvtzu; // use unsigned converts
-    }
+    instruction ins     = varTypeIsUnsigned(dstType) ? INS_fcvtzu : INS_fcvtzs;
+    emitAttr    insSize = emitTypeSize(dstType);
+    insOpts     opts;
 
     if (srcType == TYP_DOUBLE)
     {
-        if (dstSize == EA_4BYTE)
-        {
-            cvtOption = INS_OPTS_D_TO_4BYTE;
-        }
-        else
-        {
-            assert(dstSize == EA_8BYTE);
-            cvtOption = INS_OPTS_D_TO_8BYTE;
-        }
+        opts = (insSize == EA_4BYTE) ? INS_OPTS_D_TO_4BYTE : INS_OPTS_D_TO_8BYTE;
     }
     else
     {
-        assert(srcType == TYP_FLOAT);
-        if (dstSize == EA_4BYTE)
-        {
-            cvtOption = INS_OPTS_S_TO_4BYTE;
-        }
-        else
-        {
-            assert(dstSize == EA_8BYTE);
-            cvtOption = INS_OPTS_S_TO_8BYTE;
-        }
+        opts = (insSize == EA_4BYTE) ? INS_OPTS_S_TO_4BYTE : INS_OPTS_S_TO_8BYTE;
     }
 
-    genConsumeOperands(treeNode->AsOp());
+    GetEmitter()->emitIns_R_R(ins, insSize, dstReg, srcReg, opts);
 
-    GetEmitter()->emitIns_R_R(ins, dstSize, treeNode->GetRegNum(), op1->GetRegNum(), cvtOption);
-
-    genProduceReg(treeNode);
+    genProduceReg(cast);
 }
 
 //------------------------------------------------------------------------

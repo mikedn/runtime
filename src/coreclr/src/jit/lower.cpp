@@ -213,8 +213,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerBitCast(node->AsUnOp());
 
         case GT_CAST:
-            LowerCast(node);
-            break;
+            return LowerCast(node->AsCast());
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
         case GT_ARR_BOUNDS_CHECK:

@@ -2119,41 +2119,32 @@ void CodeGen::genEmitCall(int                   callType,
 // genCodeForCast: Generates the code for GT_CAST.
 //
 // Arguments:
-//    tree - the GT_CAST node.
+//    cast - the GT_CAST node.
 //
-void CodeGen::genCodeForCast(GenTreeOp* tree)
+void CodeGen::genCodeForCast(GenTreeCast* cast)
 {
-    assert(tree->OperIs(GT_CAST));
-
-    var_types targetType = tree->TypeGet();
-
-    if (varTypeIsFloating(targetType) && varTypeIsFloating(tree->gtOp1))
+    if (varTypeIsFloating(cast->GetType()) && varTypeIsFloating(cast->GetOp(0)->GetType()))
     {
-        // Casts float/double <--> double/float
-        genFloatToFloatCast(tree);
+        genFloatToFloatCast(cast);
     }
-    else if (varTypeIsFloating(tree->gtOp1))
+    else if (varTypeIsFloating(cast->GetOp(0)->GetType()))
     {
-        // Casts float/double --> int32/int64
-        genFloatToIntCast(tree);
+        genFloatToIntCast(cast);
     }
-    else if (varTypeIsFloating(targetType))
+    else if (varTypeIsFloating(cast->GetType()))
     {
-        // Casts int32/uint32/int64/uint64 --> float/double
-        genIntToFloatCast(tree);
+        genIntToFloatCast(cast);
     }
 #ifndef TARGET_64BIT
-    else if (varTypeIsLong(tree->gtOp1))
+    else if (varTypeIsLong(cast->GetOp(0)->GetType()))
     {
-        genLongToIntCast(tree);
+        genLongToIntCast(cast);
     }
-#endif // !TARGET_64BIT
+#endif
     else
     {
-        // Casts int <--> int
-        genIntToIntCast(tree->AsCast());
+        genIntToIntCast(cast);
     }
-    // The per-case functions call genProduceReg()
 }
 
 CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)

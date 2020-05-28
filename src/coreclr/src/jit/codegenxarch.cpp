@@ -1554,7 +1554,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 #endif // !defined(TARGET_64BIT)
 
         case GT_CAST:
-            genCodeForCast(treeNode->AsOp());
+            genCodeForCast(treeNode->AsCast());
             break;
 
         case GT_BITCAST:
@@ -6323,126 +6323,87 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 // genFloatToFloatCast: Generate code for a cast between float and double
 //
 // Arguments:
-//    treeNode - The GT_CAST node
+//    cast - The GT_CAST node
 //
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    Cast is a non-overflow conversion.
-//    The treeNode must have an assigned register.
-//    The cast is between float and double or vice versa.
-//
-void CodeGen::genFloatToFloatCast(GenTree* treeNode)
+void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
 {
-    // float <--> double conversions are always non-overflow ones
-    assert(treeNode->OperGet() == GT_CAST);
-    assert(!treeNode->gtOverflow());
+    assert(!cast->gtOverflow());
 
-    regNumber targetReg = treeNode->GetRegNum();
-    assert(genIsValidFloatReg(targetReg));
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-#ifdef DEBUG
-    // If not contained, must be a valid float reg.
-    if (op1->isUsedFromReg())
+    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
+    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
+    assert(cast->GetType() == dstType);
+
+    assert(genIsValidFloatReg(cast->GetRegNum()));
+    assert(!src->isUsedFromReg() || genIsValidFloatReg(src->GetRegNum()));
+
+    genConsumeRegs(src);
+
+    instruction ins     = INS_none;
+    emitAttr    insSize = emitTypeSize(dstType);
+
+    if (srcType != dstType)
     {
-        assert(genIsValidFloatReg(op1->GetRegNum()));
+        ins = srcType == TYP_FLOAT ? INS_cvtss2sd : INS_cvtsd2ss;
     }
-#endif
-
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = op1->TypeGet();
-    assert(varTypeIsFloating(srcType) && varTypeIsFloating(dstType));
-
-    genConsumeOperands(treeNode->AsOp());
-    if (srcType == dstType && (op1->isUsedFromReg() && (targetReg == op1->GetRegNum())))
+    else if (!src->isUsedFromReg())
     {
-        // source and destinations types are the same and also reside in the same register.
-        // we just need to consume and produce the reg in this case.
-        ;
+        ins = srcType == TYP_FLOAT ? INS_movss : INS_movsdsse2;
     }
-    else
+    else if (cast->GetRegNum() != src->GetRegNum())
     {
-        instruction ins = ins_FloatConv(dstType, srcType);
-        GetEmitter()->emitInsBinary(ins, emitTypeSize(dstType), treeNode, op1);
+        ins = INS_movaps;
     }
 
-    genProduceReg(treeNode);
+    if (ins != INS_none)
+    {
+        GetEmitter()->emitInsBinary(ins, insSize, cast, src);
+    }
+
+    genProduceReg(cast);
 }
 
 //------------------------------------------------------------------------
 // genIntToFloatCast: Generate code to cast an int/long to float/double
 //
 // Arguments:
-//    treeNode - The GT_CAST node
+//    cast - The GT_CAST node
 //
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    Cast is a non-overflow conversion.
-//    The treeNode must have an assigned register.
-//    SrcType= int32/uint32/int64/uint64 and DstType=float/double.
-//
-void CodeGen::genIntToFloatCast(GenTree* treeNode)
+void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 {
-    // int type --> float/double conversions are always non-overflow ones
-    assert(treeNode->OperGet() == GT_CAST);
-    assert(!treeNode->gtOverflow());
+    assert(!cast->gtOverflow());
 
-    regNumber targetReg = treeNode->GetRegNum();
-    assert(genIsValidFloatReg(targetReg));
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetCastType();
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-#ifdef DEBUG
-    if (op1->isUsedFromReg())
-    {
-        assert(genIsValidIntReg(op1->GetRegNum()));
-    }
-#endif
-
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = op1->TypeGet();
-    assert(!varTypeIsFloating(srcType) && varTypeIsFloating(dstType));
-
-#if !defined(TARGET_64BIT)
-    // We expect morph to replace long to float/double casts with helper calls
-    noway_assert(!varTypeIsLong(srcType));
-#endif // !defined(TARGET_64BIT)
-
-    // Since xarch emitter doesn't handle reporting gc-info correctly while casting away gc-ness we
-    // ensure srcType of a cast is non gc-type.  Codegen should never see BYREF as source type except
-    // for GT_LCL_VAR_ADDR and GT_LCL_FLD_ADDR that represent stack addresses and can be considered
-    // as TYP_I_IMPL. In all other cases where src operand is a gc-type and not known to be on stack,
-    // Front-end (see fgMorphCast()) ensures this by assigning gc-type local to a non gc-type
-    // temp and using temp as operand of cast operation.
-    if (srcType == TYP_BYREF)
-    {
-        noway_assert(op1->OperGet() == GT_LCL_VAR_ADDR || op1->OperGet() == GT_LCL_FLD_ADDR);
-        srcType = TYP_I_IMPL;
-    }
-
-    // force the srcType to unsigned if GT_UNSIGNED flag is set
-    if (treeNode->gtFlags & GTF_UNSIGNED)
+    if (cast->IsUnsigned())
     {
         srcType = genUnsignedType(srcType);
     }
 
-    noway_assert(!varTypeIsGC(srcType));
+#ifdef TARGET_64BIT
+    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG) || ((srcType == TYP_ULONG) && (dstType == TYP_DOUBLE)));
+#else
+    noway_assert(srcType == TYP_INT);
+#endif
 
-    // We should never be seeing srcType whose size is not sizeof(int) nor sizeof(long).
-    // For conversions from byte/sbyte/int16/uint16 to float/double, we would expect
-    // either the front-end or lowering phase to have generated two levels of cast.
-    // The first one is for widening smaller int type to int32 and the second one is
-    // to the float/double.
-    emitAttr srcSize = EA_ATTR(genTypeSize(srcType));
-    noway_assert((srcSize == EA_ATTR(genTypeSize(TYP_INT))) || (srcSize == EA_ATTR(genTypeSize(TYP_LONG))));
+    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
+    assert(cast->GetType() == dstType);
 
-    // Also we don't expect to see uint32 -> float/double and uint64 -> float conversions
-    // here since they should have been lowered apropriately.
-    noway_assert(srcType != TYP_UINT);
-    noway_assert((srcType != TYP_ULONG) || (dstType != TYP_FLOAT));
+    genConsumeRegs(src);
+    regNumber srcReg = src->isUsedFromReg() ? src->GetRegNum() : REG_NA;
+    regNumber dstReg = cast->GetRegNum();
+
+    assert((srcReg == REG_NA) || genIsValidIntReg(srcReg));
+    assert(genIsValidFloatReg(dstReg));
+
+    // The source value is never a small int but it may be produced by a small int typed
+    // IND or other memory node and in that case the source must not be contained.
+    assert(!varTypeIsSmall(src->GetType()) || (srcReg != REG_NA));
 
     // To convert int to a float/double, cvtsi2ss/sd SSE2 instruction is used
     // which does a partial write to lower 4/8 bytes of xmm register keeping the other
@@ -6452,54 +6413,41 @@ void CodeGen::genIntToFloatCast(GenTree* treeNode)
     // customer reported version of SpectralNorm benchmark, resulting in 2x perf
     // regression.  To avoid false dependency, we emit "xorps xmmReg, xmmReg" before
     // cvtsi2ss/sd instruction.
+    GetEmitter()->emitIns_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg);
 
-    genConsumeOperands(treeNode->AsOp());
-    GetEmitter()->emitIns_R_R(INS_xorps, EA_4BYTE, treeNode->GetRegNum(), treeNode->GetRegNum());
+    instruction ins     = (dstType == TYP_FLOAT) ? INS_cvtsi2ss : INS_cvtsi2sd;
+    emitAttr    insSize = emitTypeSize(srcType);
 
-    // Note that here we need to specify srcType that will determine
-    // the size of source reg/mem operand and rex.w prefix.
-    instruction ins = ins_FloatConv(dstType, TYP_INT);
-    GetEmitter()->emitInsBinary(ins, emitTypeSize(srcType), treeNode, op1);
+    GetEmitter()->emitInsBinary(ins, insSize, cast, src);
 
+#ifdef TARGET_64BIT
     // Handle the case of srcType = TYP_ULONG. SSE2 conversion instruction
     // will interpret ULONG value as LONG.  Hence we need to adjust the
     // result if sign-bit of srcType is set.
     if (srcType == TYP_ULONG)
     {
-        // The instruction sequence below is less accurate than what clang
-        // and gcc generate. However, we keep the current sequence for backward compatibility.
-        // If we change the instructions below, FloatingPointUtils::convertUInt64ToDobule
-        // should be also updated for consistent conversion result.
         assert(dstType == TYP_DOUBLE);
-        assert(op1->isUsedFromReg());
+        assert(srcReg != REG_NA);
 
-        // Set the flags without modifying op1.
-        // test op1Reg, op1Reg
-        inst_RV_RV(INS_test, op1->GetRegNum(), op1->GetRegNum(), srcType);
+        // The instruction sequence below is less accurate than what clang and gcc generate.
+        // However, we keep the current sequence for backward compatibility. If we change the
+        // instructions below, FloatingPointUtils::convertUInt64ToDobule should be also updated
+        // for consistent conversion result.
 
-        // No need to adjust result if op1 >= 0 i.e. positive
-        // Jge label
-        BasicBlock* label = genCreateTempLabel();
-        inst_JMP(EJ_jge, label);
-
-        // Adjust the result
-        // result = result + 0x43f00000 00000000
-        // addsd resultReg,  0x43f00000 00000000
-        CORINFO_FIELD_HANDLE* cns = &u8ToDblBitmask;
-        if (*cns == nullptr)
+        if (u8ToDblBitmask == nullptr)
         {
-            double d;
-            static_assert_no_msg(sizeof(double) == sizeof(__int64));
-            *((__int64*)&d) = 0x43f0000000000000LL;
-
-            *cns = GetEmitter()->emitFltOrDblConst(d, EA_8BYTE);
+            u8ToDblBitmask = GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), EA_8BYTE);
         }
-        GetEmitter()->emitIns_R_C(INS_addsd, EA_8BYTE, treeNode->GetRegNum(), *cns, 0);
 
+        BasicBlock* label = genCreateTempLabel();
+        GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
+        inst_JMP(EJ_jge, label);
+        GetEmitter()->emitIns_R_C(INS_addsd, EA_8BYTE, dstReg, u8ToDblBitmask, 0);
         genDefineTempLabel(label);
     }
+#endif
 
-    genProduceReg(treeNode);
+    genProduceReg(cast);
 }
 
 //------------------------------------------------------------------------
@@ -6508,64 +6456,51 @@ void CodeGen::genIntToFloatCast(GenTree* treeNode)
 // Arguments:
 //    treeNode - The GT_CAST node
 //
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    Cast is a non-overflow conversion.
-//    The treeNode must have an assigned register.
-//    SrcType=float/double and DstType= int32/uint32/int64/uint64
-//
-// TODO-XArch-CQ: (Low-pri) - generate in-line code when DstType = uint64
-//
-void CodeGen::genFloatToIntCast(GenTree* treeNode)
+void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 {
-    // we don't expect to see overflow detecting float/double --> int type conversions here
-    // as they should have been converted into helper calls by front-end.
-    assert(treeNode->OperGet() == GT_CAST);
-    assert(!treeNode->gtOverflow());
+    assert(!cast->gtOverflow());
 
-    regNumber targetReg = treeNode->GetRegNum();
-    assert(genIsValidIntReg(targetReg));
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-#ifdef DEBUG
-    if (op1->isUsedFromReg())
-    {
-        assert(genIsValidFloatReg(op1->GetRegNum()));
-    }
-#endif
+    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
 
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = op1->TypeGet();
-    assert(varTypeIsFloating(srcType) && !varTypeIsFloating(dstType));
+#ifndef TARGET_64BIT
+    noway_assert(dstType == TYP_INT);
+    assert(cast->GetType() == TYP_INT);
+#else
+    noway_assert((dstType == TYP_INT) || (dstType == TYP_UINT) || (dstType == TYP_LONG));
+    assert(cast->GetType() == varActualType(dstType));
 
-    // We should never be seeing dstType whose size is neither sizeof(TYP_INT) nor sizeof(TYP_LONG).
-    // For conversions to byte/sbyte/int16/uint16 from float/double, we would expect the
-    // front-end or lowering phase to have generated two levels of cast. The first one is
-    // for float or double to int32/uint32 and the second one for narrowing int32/uint32 to
-    // the required smaller int type.
-    emitAttr dstSize = EA_ATTR(genTypeSize(dstType));
-    noway_assert((dstSize == EA_ATTR(genTypeSize(TYP_INT))) || (dstSize == EA_ATTR(genTypeSize(TYP_LONG))));
-
-    // We shouldn't be seeing uint64 here as it should have been converted
-    // into a helper call by either front-end or lowering phase.
-    noway_assert(!varTypeIsUnsigned(dstType) || (dstSize != EA_ATTR(genTypeSize(TYP_LONG))));
+    // TODO-XArch-CQ: (Low-pri): Jit64 generates in-line code of 8 instructions for
+    // FLOAT/DOUBLE to ULONG casts.
+    // There are hardly any occurrences of this conversion operation in platform
+    // assemblies or in CQ perf benchmarks (1 occurrence in mscorlib, microsoft.jscript,
+    // 1 occurence in Roslyn and no occurrences in system, system.core, system.numerics
+    // system.windows.forms, scimark, fractals, bio mums). If we ever find evidence that
+    // doing this optimization is a win, should consider generating in-lined code.
 
     // If the dstType is TYP_UINT, we have 32-bits to encode the
     // float number. Any of 33rd or above bits can be the sign bit.
     // To achieve it we pretend as if we are converting it to a long.
-    if (varTypeIsUnsigned(dstType) && (dstSize == EA_ATTR(genTypeSize(TYP_INT))))
+    if (dstType == TYP_UINT)
     {
         dstType = TYP_LONG;
     }
+#endif
 
-    // Note that we need to specify dstType here so that it will determine
-    // the size of destination integer register and also the rex.w prefix.
-    genConsumeOperands(treeNode->AsOp());
-    instruction ins = ins_FloatConv(TYP_INT, srcType);
-    GetEmitter()->emitInsBinary(ins, emitTypeSize(dstType), treeNode, op1);
-    genProduceReg(treeNode);
+    genConsumeRegs(src);
+
+    assert(genIsValidIntReg(cast->GetRegNum()));
+    assert(!src->isUsedFromReg() || genIsValidFloatReg(src->GetRegNum()));
+
+    instruction ins     = (srcType == TYP_FLOAT) ? INS_cvttss2si : INS_cvttsd2si;
+    emitAttr    insSize = emitTypeSize(dstType);
+
+    GetEmitter()->emitInsBinary(ins, insSize, cast, src);
+
+    genProduceReg(cast);
 }
 
 //------------------------------------------------------------------------

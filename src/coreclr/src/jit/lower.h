@@ -295,7 +295,7 @@ private:
         BasicBlock* jumpTable[], unsigned jumpCount, unsigned targetCount, BasicBlock* bbSwitch, GenTree* switchValue);
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
-    void LowerCast(GenTree* node);
+    GenTree* LowerCast(GenTreeCast* cast);
 
 #if !CPU_LOAD_STORE_ARCH
     bool IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd);

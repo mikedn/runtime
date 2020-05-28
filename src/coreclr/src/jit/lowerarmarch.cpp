@@ -405,59 +405,19 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
 }
 
 //------------------------------------------------------------------------
-// LowerCast: Lower GT_CAST(srcType, DstType) nodes.
+// LowerCast: Lower GT_CAST nodes.
 //
 // Arguments:
-//    tree - GT_CAST node to be lowered
+//    cast - GT_CAST node to be lowered
 //
 // Return Value:
-//    None.
+//    The next node to lower.
 //
-// Notes:
-//    Casts from float/double to a smaller int type are transformed as follows:
-//    GT_CAST(float/double, byte)     =   GT_CAST(GT_CAST(float/double, int32), byte)
-//    GT_CAST(float/double, sbyte)    =   GT_CAST(GT_CAST(float/double, int32), sbyte)
-//    GT_CAST(float/double, int16)    =   GT_CAST(GT_CAST(double/double, int32), int16)
-//    GT_CAST(float/double, uint16)   =   GT_CAST(GT_CAST(double/double, int32), uint16)
-//
-//    Note that for the overflow conversions we still depend on helper calls and
-//    don't expect to see them here.
-//    i) GT_CAST(float/double, int type with overflow detection)
-//
-void Lowering::LowerCast(GenTree* tree)
+GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
-    assert(tree->OperGet() == GT_CAST);
+    ContainCheckCast(cast);
 
-    JITDUMP("LowerCast for: ");
-    DISPNODE(tree);
-    JITDUMP("\n");
-
-    GenTree*  op1     = tree->AsOp()->gtOp1;
-    var_types dstType = tree->CastToType();
-    var_types srcType = genActualType(op1->TypeGet());
-    var_types tmpType = TYP_UNDEF;
-
-    if (varTypeIsFloating(srcType))
-    {
-        noway_assert(!tree->gtOverflow());
-        assert(!varTypeIsSmall(dstType)); // fgMorphCast creates intermediate casts when converting from float to small
-                                          // int.
-    }
-
-    assert(!varTypeIsSmall(srcType));
-
-    if (tmpType != TYP_UNDEF)
-    {
-        GenTree* tmp = comp->gtNewCastNode(tmpType, op1, tree->IsUnsigned(), tmpType);
-        tmp->gtFlags |= (tree->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
-
-        tree->gtFlags &= ~GTF_UNSIGNED;
-        tree->AsOp()->gtOp1 = tmp;
-        BlockRange().InsertAfter(op1, tmp);
-    }
-
-    // Now determine if we have operands that should be contained.
-    ContainCheckCast(tree->AsCast());
+    return cast->gtNext;
 }
 
 //------------------------------------------------------------------------
@@ -991,10 +951,10 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    var_types castType = cast->GetCastType();
-    var_types srcType  = src->GetType();
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    if (varTypeIsIntegral(castType) && varTypeIsIntegral(srcType))
+    if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType))
     {
         // TODO-MIKE-CQ: Indirs with contained address mode are problematic. They may
         // end up requiring a temp register and if the indir itself is made contained

@@ -563,106 +563,20 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 }
 
-/* Lower GT_CAST(srcType, DstType) nodes.
- *
- * Casts from small int type to float/double are transformed as follows:
- * GT_CAST(byte, float/double)     =   GT_CAST(GT_CAST(byte, int32), float/double)
- * GT_CAST(sbyte, float/double)    =   GT_CAST(GT_CAST(sbyte, int32), float/double)
- * GT_CAST(int16, float/double)    =   GT_CAST(GT_CAST(int16, int32), float/double)
- * GT_CAST(uint16, float/double)   =   GT_CAST(GT_CAST(uint16, int32), float/double)
- *
- * SSE2 conversion instructions operate on signed integers. casts from Uint32/Uint64
- * are morphed as follows by front-end and hence should not be seen here.
- * GT_CAST(uint32, float/double)   =   GT_CAST(GT_CAST(uint32, long), float/double)
- * GT_CAST(uint64, float)          =   GT_CAST(GT_CAST(uint64, double), float)
- *
- *
- * Similarly casts from float/double to a smaller int type are transformed as follows:
- * GT_CAST(float/double, byte)     =   GT_CAST(GT_CAST(float/double, int32), byte)
- * GT_CAST(float/double, sbyte)    =   GT_CAST(GT_CAST(float/double, int32), sbyte)
- * GT_CAST(float/double, int16)    =   GT_CAST(GT_CAST(double/double, int32), int16)
- * GT_CAST(float/double, uint16)   =   GT_CAST(GT_CAST(double/double, int32), uint16)
- *
- * SSE2 has instructions to convert a float/double vlaue into a signed 32/64-bit
- * integer.  The above transformations help us to leverage those instructions.
- *
- * Note that for the following conversions we still depend on helper calls and
- * don't expect to see them here.
- *  i) GT_CAST(float/double, uint64)
- * ii) GT_CAST(float/double, int type with overflow detection)
- *
- * TODO-XArch-CQ: (Low-pri): Jit64 generates in-line code of 8 instructions for (i) above.
- * There are hardly any occurrences of this conversion operation in platform
- * assemblies or in CQ perf benchmarks (1 occurrence in mscorlib, microsoft.jscript,
- * 1 occurence in Roslyn and no occurrences in system, system.core, system.numerics
- * system.windows.forms, scimark, fractals, bio mums). If we ever find evidence that
- * doing this optimization is a win, should consider generating in-lined code.
- */
-void Lowering::LowerCast(GenTree* tree)
+//------------------------------------------------------------------------
+// LowerCast: Lower GT_CAST nodes.
+//
+// Arguments:
+//    cast - GT_CAST node to be lowered
+//
+// Return Value:
+//    The next node to lower.
+//
+GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
-    assert(tree->OperGet() == GT_CAST);
+    ContainCheckCast(cast);
 
-    GenTree*  castOp     = tree->AsCast()->CastOp();
-    var_types castToType = tree->CastToType();
-    var_types srcType    = castOp->TypeGet();
-    var_types tmpType    = TYP_UNDEF;
-
-    // force the srcType to unsigned if GT_UNSIGNED flag is set
-    if (tree->gtFlags & GTF_UNSIGNED)
-    {
-        srcType = genUnsignedType(srcType);
-    }
-
-    // We should never see the following casts as they are expected to be lowered
-    // apropriately or converted into helper calls by front-end.
-    //   srcType = float/double                    castToType = * and overflow detecting cast
-    //       Reason: must be converted to a helper call
-    //   srcType = float/double,                   castToType = ulong
-    //       Reason: must be converted to a helper call
-    //   srcType = uint                            castToType = float/double
-    //       Reason: uint -> float/double = uint -> long -> float/double
-    //   srcType = ulong                           castToType = float
-    //       Reason: ulong -> float = ulong -> double -> float
-    if (varTypeIsFloating(srcType))
-    {
-        noway_assert(!tree->gtOverflow());
-        noway_assert(castToType != TYP_ULONG);
-    }
-    else if (srcType == TYP_UINT)
-    {
-        noway_assert(!varTypeIsFloating(castToType));
-    }
-    else if (srcType == TYP_ULONG)
-    {
-        noway_assert(castToType != TYP_FLOAT);
-    }
-
-    // Case of src is a small type and dst is a floating point type.
-    if (varTypeIsSmall(srcType) && varTypeIsFloating(castToType))
-    {
-        // These conversions can never be overflow detecting ones.
-        noway_assert(!tree->gtOverflow());
-        tmpType = TYP_INT;
-    }
-    // case of src is a floating point type and dst is a small type.
-    else if (varTypeIsFloating(srcType) && varTypeIsSmall(castToType))
-    {
-        tmpType = TYP_INT;
-    }
-
-    if (tmpType != TYP_UNDEF)
-    {
-        GenTree* tmp = comp->gtNewCastNode(tmpType, castOp, tree->IsUnsigned(), tmpType);
-        tmp->gtFlags |= (tree->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
-
-        tree->gtFlags &= ~GTF_UNSIGNED;
-        tree->AsOp()->gtOp1 = tmp;
-        BlockRange().InsertAfter(castOp, tmp);
-        ContainCheckCast(tmp->AsCast());
-    }
-
-    // Now determine if we have operands that should be contained.
-    ContainCheckCast(tree->AsCast());
+    return cast->gtNext;
 }
 
 #ifdef FEATURE_SIMD
@@ -3011,10 +2925,10 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    var_types castType = cast->GetCastType();
-    var_types srcType  = src->GetType();
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetCastType();
 
-    if (varTypeIsIntegral(castType) && varTypeIsIntegral(srcType))
+    if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType))
     {
         if (IsContainableMemoryOp(src) && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
         {
@@ -3033,27 +2947,27 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
             src->SetRegOptional();
         }
     }
-    else if (!cast->gtOverflow() && (varTypeIsFloating(castType) || varTypeIsFloating(srcType)))
+    else if (varTypeIsFloating(dstType) || varTypeIsFloating(srcType))
     {
-#ifdef DEBUG
-        // If converting to float/double, the operand must be 4 or 8 byte in size.
-        if (varTypeIsFloating(castType))
-        {
-            unsigned opSize = genTypeSize(srcType);
-            assert(opSize == 4 || opSize == 8);
-        }
-#endif // DEBUG
+        assert(!cast->gtOverflow());
 
-        if (cast->IsUnsigned())
+        // The source of cvtsi2sd and similar instructions can be a memory operand but it must
+        // be 4 or 8 bytes in size so it cannot be a small int. It's likely possible to make a
+        // "normalize on store" local reg-optional but it's probably not worth the extra work.
+        // Also, ULONG to DOUBLE casts require checking the sign of the source so allowing a
+        // memory operand would result in 2 loads instead of 1.
+        if (!varTypeIsSmall(srcType) && ((srcType != TYP_LONG) || !cast->IsUnsigned()))
         {
-            srcType = genUnsignedType(srcType);
-        }
-
-        // U8 -> R8 conversion requires that the operand be in a register.
-        if (srcType != TYP_ULONG)
-        {
-            if (IsContainableMemoryOp(src) || src->IsCnsNonZeroFltOrDbl())
+            if (IsContainableMemoryOp(src))
             {
+                // Since a floating point cast can't throw we can move the cast
+                // right after the source node to avoid the interference check.
+                if (cast->gtPrev != src)
+                {
+                    BlockRange().Remove(cast);
+                    BlockRange().InsertAfter(src, cast);
+                }
+
                 src->SetContained();
             }
             else
