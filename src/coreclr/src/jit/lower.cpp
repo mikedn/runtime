@@ -6117,3 +6117,86 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
 
     return next;
 }
+
+//------------------------------------------------------------------------
+// LowerCast: Lower GT_CAST nodes.
+//
+// Arguments:
+//    cast - GT_CAST node to be lowered
+//
+// Return Value:
+//    The next node to lower.
+//
+GenTree* Lowering::LowerCast(GenTreeCast* cast)
+{
+    GenTree*  src     = cast->GetOp(0);
+    var_types dstType = cast->GetCastType();
+    var_types srcType = src->GetType();
+
+    if (!cast->gtOverflow())
+    {
+        bool remove = false;
+
+#ifndef TARGET_64BIT
+        if (src->OperIs(GT_LONG))
+        {
+            assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+
+            BlockRange().Remove(src);
+            src->AsOp()->GetOp(1)->SetUnusedValue();
+            src    = src->AsOp()->GetOp(0);
+            remove = true;
+        }
+        else
+#endif
+
+            if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType) &&
+                (varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
+        {
+            // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
+
+            // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
+            // if there are any advantages in doing such a transform earlier (in fact there may be one
+            // disatvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+
+            if (dstType == TYP_UINT)
+            {
+                dstType = TYP_INT;
+            }
+            else if (dstType == TYP_ULONG)
+            {
+                dstType = TYP_LONG;
+            }
+
+            if (src->OperIs(GT_LCL_VAR))
+            {
+                src->ChangeOper(GT_LCL_FLD);
+            }
+
+            src->SetType(dstType);
+            remove = true;
+        }
+
+        if (remove)
+        {
+            LIR::Use use;
+
+            if (BlockRange().TryGetUse(cast, &use))
+            {
+                use.ReplaceWith(comp, src);
+            }
+            else
+            {
+                src->SetUnusedValue();
+            }
+
+            GenTree* next = cast->gtNext;
+            BlockRange().Remove(cast);
+            return next;
+        }
+    }
+
+    ContainCheckCast(cast);
+
+    return cast->gtNext;
+}

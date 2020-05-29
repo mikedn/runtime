@@ -64,6 +64,7 @@ private:
 
     // Bit mask used in U8 -> double conversion to adjust the result.
     CORINFO_FIELD_HANDLE u8ToDblBitmask;
+    CORINFO_FIELD_HANDLE u8ToFltBitmask;
 
     // Generates SSE2 code for the given tree as "Operand BitWiseOp BitMask"
     void genSSE2BitwiseOp(GenTree* treeNode);

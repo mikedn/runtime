@@ -405,22 +405,6 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
 }
 
 //------------------------------------------------------------------------
-// LowerCast: Lower GT_CAST nodes.
-//
-// Arguments:
-//    cast - GT_CAST node to be lowered
-//
-// Return Value:
-//    The next node to lower.
-//
-GenTree* Lowering::LowerCast(GenTreeCast* cast)
-{
-    ContainCheckCast(cast);
-
-    return cast->gtNext;
-}
-
-//------------------------------------------------------------------------
 // LowerRotate: Lower GT_ROL and GT_ROR nodes.
 //
 // Arguments:

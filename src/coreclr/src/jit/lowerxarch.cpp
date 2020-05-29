@@ -563,22 +563,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 }
 
-//------------------------------------------------------------------------
-// LowerCast: Lower GT_CAST nodes.
-//
-// Arguments:
-//    cast - GT_CAST node to be lowered
-//
-// Return Value:
-//    The next node to lower.
-//
-GenTree* Lowering::LowerCast(GenTreeCast* cast)
-{
-    ContainCheckCast(cast);
-
-    return cast->gtNext;
-}
-
 #ifdef FEATURE_SIMD
 //----------------------------------------------------------------------------------------------
 // Lowering::LowerSIMD: Perform containment analysis for a SIMD intrinsic node.
@@ -2954,8 +2938,8 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         // The source of cvtsi2sd and similar instructions can be a memory operand but it must
         // be 4 or 8 bytes in size so it cannot be a small int. It's likely possible to make a
         // "normalize on store" local reg-optional but it's probably not worth the extra work.
-        // Also, ULONG to DOUBLE casts require checking the sign of the source so allowing a
-        // memory operand would result in 2 loads instead of 1.
+        // Also, ULONG to DOUBLE/FLOAT casts require checking the sign of the source so allowing
+        // a memory operand would result in 2 loads instead of 1.
         if (!varTypeIsSmall(srcType) && ((srcType != TYP_LONG) || !cast->IsUnsigned()))
         {
             if (IsContainableMemoryOp(src))

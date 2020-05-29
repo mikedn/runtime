@@ -409,7 +409,7 @@ struct GenTree
 
     void SetType(var_types type)
     {
-        assert((TYP_UNDEF < type) && (type < TYP_UNKNOWN));
+        assert(((TYP_UNDEF < type) && (type < TYP_UNKNOWN)) && (type != TYP_UINT) && (type != TYP_ULONG));
         gtType = type;
     }
 

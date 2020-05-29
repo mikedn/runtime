@@ -6386,7 +6386,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     }
 
 #ifdef TARGET_64BIT
-    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG) || ((srcType == TYP_ULONG) && (dstType == TYP_DOUBLE)));
+    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG) || (srcType == TYP_ULONG));
 #else
     noway_assert(srcType == TYP_INT);
 #endif
@@ -6426,7 +6426,6 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     // result if sign-bit of srcType is set.
     if (srcType == TYP_ULONG)
     {
-        assert(dstType == TYP_DOUBLE);
         assert(srcReg != REG_NA);
 
         // The instruction sequence below is less accurate than what clang and gcc generate.
@@ -6434,15 +6433,28 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
         // instructions below, FloatingPointUtils::convertUInt64ToDobule should be also updated
         // for consistent conversion result.
 
-        if (u8ToDblBitmask == nullptr)
-        {
-            u8ToDblBitmask = GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), EA_8BYTE);
-        }
-
         BasicBlock* label = genCreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
         inst_JMP(EJ_jge, label);
-        GetEmitter()->emitIns_R_C(INS_addsd, EA_8BYTE, dstReg, u8ToDblBitmask, 0);
+
+        if (dstType == TYP_DOUBLE)
+        {
+            if (u8ToDblBitmask == nullptr)
+            {
+                u8ToDblBitmask =
+                    GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), EA_8BYTE);
+            }
+            GetEmitter()->emitIns_R_C(INS_addsd, EA_8BYTE, dstReg, u8ToDblBitmask, 0);
+        }
+        else
+        {
+            if (u8ToFltBitmask == nullptr)
+            {
+                u8ToFltBitmask = GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<float>(0x5f800000U), EA_4BYTE);
+            }
+            GetEmitter()->emitIns_R_C(INS_addss, EA_4BYTE, dstReg, u8ToFltBitmask, 0);
+        }
+
         genDefineTempLabel(label);
     }
 #endif

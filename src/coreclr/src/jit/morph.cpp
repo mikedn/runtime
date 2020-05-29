@@ -139,6 +139,18 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
+    if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST))
+    {
+        // Optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
+        // This happens semi-frequently because there is no IL 'conv.r4.un'
+
+        cast->gtFlags &= ~GTF_UNSIGNED;
+        cast->gtFlags |= src->gtFlags & GTF_UNSIGNED;
+        src = src->AsCast()->GetOp(0);
+        cast->SetOp(0, src);
+        srcType = varActualType(src->GetType());
+    }
+
     noway_assert(!varTypeIsGC(dstType));
 
     if (varTypeIsGC(srcType))
@@ -173,12 +185,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
         cast->SetOp(0, src);
         srcType = TYP_INT;
-
-        // TODO-MIKE-CQ: This should not be needed. It's only meaningfull for overflow
-        // checking casts from LONG and in that case removing it makes the INT to small
-        // int cast check for negative values, something that the ULONG to INT cast
-        // already does.
-        cast->gtFlags &= ~GTF_UNSIGNED;
     }
 
     if (varTypeIsFloating(srcType) && varTypeIsIntegral(dstType))
@@ -228,17 +234,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     else if (varTypeIsFloating(dstType))
     {
 #if defined(TARGET_ARM)
-        // TODO-MIKE-CQ: Why is this ARM specific?
-        if ((dstType == TYP_FLOAT) && (srcType == TYP_DOUBLE) && src->OperIs(GT_CAST) &&
-            !varTypeIsLong(src->AsCast()->GetOp(0)->GetType()))
-        {
-            // optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
-            // except when the ultimate source is a long because there is no long-to-float helper, so it must be 2 step.
-            // This happens semi-frequently because there is no IL 'conv.r4.un'
-            src->AsCast()->SetCastType(TYP_FLOAT);
-            return fgMorphTree(src);
-        }
-
         if (srcType == TYP_LONG)
         {
             // We only have helpers for (U)LONG to DOUBLE casts, we may need an extra cast to FLOAT.
@@ -259,30 +254,16 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         if (cast->IsUnsigned())
         {
             // X64 doesn't have any instruction to cast FP types to unsigned types
-            // but codegen handles the ULONG to DOUBLE case by adjusting the result
-            // of a LONG to DOUBLE cast. For all other cases we need to introduce
-            // additional casts:
-            //   - UINT  to DOUBLE => UINT  to LONG   to DOUBLE
-            //   - UINT  to FLOAT  => UINT  to LONG   to FLOAT
-            //   - ULONG to FLOAT  => ULONG to DOUBLE to FLOAT
-
-            var_types newSrcType = TYP_UNDEF;
+            // but codegen handles the ULONG to DOUBLE/FLOAT case by adjusting the
+            // result of a ULONG to DOUBLE/FLOAT cast. For UINT to DOUBLE/FLOAT we
+            // need to first cast the source to LONG.
 
             if (srcType == TYP_INT)
             {
-                newSrcType = TYP_LONG;
-            }
-            else if ((srcType == TYP_LONG) && (dstType == TYP_FLOAT))
-            {
-                newSrcType = TYP_DOUBLE;
-            }
-
-            if (newSrcType != TYP_UNDEF)
-            {
-                src = gtNewCastNode(newSrcType, src, true, newSrcType);
+                src = gtNewCastNode(TYP_LONG, src, true, TYP_LONG);
                 cast->SetOp(0, src);
                 cast->gtFlags &= ~GTF_UNSIGNED;
-                srcType = newSrcType;
+                srcType = TYP_LONG;
             }
         }
 #elif defined(TARGET_X86)
