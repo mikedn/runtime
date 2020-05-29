@@ -6133,48 +6133,67 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     var_types dstType = cast->GetCastType();
     var_types srcType = src->GetType();
 
-    if (!cast->gtOverflow() && varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType) &&
-#ifndef TARGET_64BIT
-        (srcType != TYP_LONG) &&
-#endif
-        (varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
+    if (!cast->gtOverflow())
     {
-        // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
+        bool remove = false;
 
-        // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
-        // if there are any advantages in doing such a transform earlier (in fact there may be one
-        // disatvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
-
-        if (dstType == TYP_UINT)
+#ifndef TARGET_64BIT
+        if (src->OperIs(GT_LONG))
         {
-            dstType = TYP_INT;
-        }
-        else if (dstType == TYP_ULONG)
-        {
-            dstType = TYP_LONG;
-        }
+            assert((dstType == TYP_INT) || (dstType == TYP_UINT));
 
-        if (src->OperIs(GT_LCL_VAR))
-        {
-            src->ChangeOper(GT_LCL_FLD);
-        }
-
-        src->SetType(dstType);
-
-        LIR::Use use;
-
-        if (BlockRange().TryGetUse(cast, &use))
-        {
-            use.ReplaceWith(comp, src);
+            BlockRange().Remove(src);
+            src->AsOp()->GetOp(1)->SetUnusedValue();
+            src    = src->AsOp()->GetOp(0);
+            remove = true;
         }
         else
+#endif
+
+            if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType) &&
+                (varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
         {
-            src->SetUnusedValue();
+            // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
+
+            // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
+            // if there are any advantages in doing such a transform earlier (in fact there may be one
+            // disatvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+
+            if (dstType == TYP_UINT)
+            {
+                dstType = TYP_INT;
+            }
+            else if (dstType == TYP_ULONG)
+            {
+                dstType = TYP_LONG;
+            }
+
+            if (src->OperIs(GT_LCL_VAR))
+            {
+                src->ChangeOper(GT_LCL_FLD);
+            }
+
+            src->SetType(dstType);
+            remove = true;
         }
 
-        GenTree* next = cast->gtNext;
-        BlockRange().Remove(cast);
-        return next;
+        if (remove)
+        {
+            LIR::Use use;
+
+            if (BlockRange().TryGetUse(cast, &use))
+            {
+                use.ReplaceWith(comp, src);
+            }
+            else
+            {
+                src->SetUnusedValue();
+            }
+
+            GenTree* next = cast->gtNext;
+            BlockRange().Remove(cast);
+            return next;
+        }
     }
 
     ContainCheckCast(cast);
