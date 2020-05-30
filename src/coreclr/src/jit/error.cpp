@@ -276,8 +276,9 @@ extern "C" void __cdecl assertAbort(const char* why, const char* file, unsigned 
     if (env->compiler)
     {
         phaseName = PhaseNames[env->compiler->mostRecentlyActivePhase];
-        _snprintf_s(buff, BUFF_SIZE, _TRUNCATE, "Assertion failed '%s' in '%s' during '%s' (IL size %d)\n", why,
-                    env->compiler->info.compFullName, phaseName, env->compiler->info.compILCodeSize);
+        _snprintf_s(buff, BUFF_SIZE, _TRUNCATE, "Assertion failed '%s' in '%s' (%x) during '%s' (IL size %d)\n", why,
+                    env->compiler->info.compFullName, env->compiler->info.compMethodHash(), phaseName,
+                    env->compiler->info.compILCodeSize);
         msg = buff;
     }
     printf(""); // null string means flush
