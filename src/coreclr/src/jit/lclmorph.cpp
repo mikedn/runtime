@@ -927,6 +927,11 @@ private:
             // TODO-ADDR: We shouldn't remove the indir because it's volatile but we should
             // transform the tree into IND(LCL_VAR|FLD_ADDR) instead of leaving this to
             // fgMorphField.
+
+            // For now make the local address exposed to workaround a bug in fgMorphSmpOp's
+            // IND morphing code. It completly ignores volatile indirs and in doing so it
+            // fails to DNER the local which leads to asserts in the backend.
+            m_compiler->lvaSetVarAddrExposed(val.LclNum());
             return;
         }
 
