@@ -324,7 +324,12 @@ ClassLayout* ClassLayout::Create(Compiler* compiler, CORINFO_CLASS_HANDLE classH
 
     if (isValueClass)
     {
-        assert(compiler->info.compCompHnd->getTypeForPrimitiveValueClass(classHandle) == CORINFO_TYPE_UNDEF);
+        // Normally we should not create layout instances for primitive types but the importer
+        // manages to do that by importing `initobj T` where T may be a primitive type in
+        // generic code. Ideally the importer should convert that to scalar initialization.
+
+        //assert(compiler->info.compCompHnd->getTypeForPrimitiveValueClass(classHandle) == CORINFO_TYPE_UNDEF);
+
         size = compiler->info.compCompHnd->getClassSize(classHandle);
     }
     else
