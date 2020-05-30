@@ -10182,6 +10182,7 @@ void Compiler::gtDispTree(GenTree*     tree,
             break;
 
         case GT_FIELD:
+            printf("[+%u]", tree->AsField()->GetOffset());
             if (FieldSeqStore::IsPseudoField(tree->AsField()->gtFldHnd))
             {
                 printf(" #PseudoField:0x%x", tree->AsField()->gtFldOffset);
@@ -11916,10 +11917,11 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     {
         CORINFO_CLASS_HANDLE nullableHnd = gtGetStructHandle(arg->AsOp()->gtOp1);
         CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableHnd, 0);
+        unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
 
         // Replace the box with an access of the nullable 'hasValue' field.
         JITDUMP("\nSuccess: replacing BOX_NULLABLE(&x) [%06u] with x.hasValue\n", dspTreeID(op));
-        GenTree* newOp = gtNewFieldRef(TYP_BOOL, fieldHnd, arg, 0);
+        GenTree* newOp = gtNewFieldRef(TYP_BOOL, fieldHnd, arg, fieldOffset);
 
         if (op == op1)
         {
