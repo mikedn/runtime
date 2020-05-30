@@ -2870,6 +2870,8 @@ void emitter::emitHandleMemOp(GenTreeIndir* indir, instrDesc* id, insFormat fmt,
     }
     else
     {
+        assert(!indir->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) || !indir->GetAddr()->isContained());
+
         if (memBase != nullptr)
         {
             id->idAddr()->iiaAddrMode.amBaseReg = memBase->GetRegNum();

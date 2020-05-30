@@ -3204,7 +3204,7 @@ bool Lowering::LowerRMWMemOp(GenTreeIndir* storeInd)
         // We would still need a reg for GT_CNS_INT if it doesn't fit within addressing mode base.
         // For GT_CLS_VAR_ADDR, we don't need a reg to hold the address, because field address value is known at jit
         // time. Also, we don't need a reg for GT_CLS_VAR_ADDR.
-        if (indirCandidateChild->OperGet() == GT_LCL_VAR_ADDR || indirCandidateChild->OperGet() == GT_CLS_VAR_ADDR)
+        if (indirCandidateChild->OperIs(GT_CLS_VAR_ADDR))
         {
             indirDst->SetContained();
         }
