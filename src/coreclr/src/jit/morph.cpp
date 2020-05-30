@@ -3235,18 +3235,22 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                                 copyBlkClass = objClass;
                             }
                         }
-                        else if (lclVar == nullptr)
+                        else if (argObj->TypeIs(TYP_STRUCT))
+                        {
+                            assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+
+                            if (passingSize != structSize)
+                            {
+                                copyBlkClass = objClass;
+                            }
+                        }
+                        else
                         {
                             // This should only be the case of a value directly producing a known struct type.
                             if (argEntry->numRegs > 1)
                             {
                                 copyBlkClass = objClass;
                             }
-                        }
-                        else if ((lvaGetPromotionType(lclVar->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
-                                 !abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lclVar), argEntry))
-                        {
-                            copyBlkClass = objClass;
                         }
                     }
 #endif // UNIX_AMD64_ABI
@@ -4091,10 +4095,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     // dependent promotion. ARM64 doesn't copy so it always triggers dependent promotion of any
     // struct type that cannot be passed in registers (e.g. a struct with 2-4 INT fields).
     if ((lcl != nullptr) && (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
-#if defined(TARGET_ARM64)
-        && abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr)
-#elif defined(UNIX_AMD64_ABI)
+#if defined(UNIX_AMD64_ABI)
         && fgEntryPtr->isPassedInRegisters()
+#endif
+#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
+        && abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr)
 #endif
             )
     {
