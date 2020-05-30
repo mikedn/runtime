@@ -927,6 +927,11 @@ private:
             // TODO-ADDR: We shouldn't remove the indir because it's volatile but we should
             // transform the tree into IND(LCL_VAR|FLD_ADDR) instead of leaving this to
             // fgMorphField.
+
+            // For now make the local address exposed to workaround a bug in fgMorphSmpOp's
+            // IND morphing code. It completly ignores volatile indirs and in doing so it
+            // fails to DNER the local which leads to asserts in the backend.
+            m_compiler->lvaSetVarAddrExposed(val.LclNum());
             return;
         }
 
@@ -1271,58 +1276,7 @@ private:
         unsigned   lclNum = obj->AsLclVar()->GetLclNum();
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
 
-        if (!varTypeIsStruct(obj->TypeGet()))
-        {
-            // Normed struct
-            // A "normed struct" is a struct that the VM tells us is a basic type. This can only happen if
-            // the struct contains a single element, and that element is 4 bytes (on x64 it can also be 8
-            // bytes). Normally, the type of the local var and the type of GT_FIELD are equivalent. However,
-            // there is one extremely rare case where that won't be true. An enum type is a special value type
-            // that contains exactly one element of a primitive integer type (that, for CLS programs is named
-            // "value__"). The VM tells us that a local var of that enum type is the primitive type of the
-            // enum's single field. It turns out that it is legal for IL to access this field using ldflda or
-            // ldfld. For example:
-            //
-            //  .class public auto ansi sealed mynamespace.e_t extends [mscorlib]System.Enum
-            //  {
-            //    .field public specialname rtspecialname int16 value__
-            //    .field public static literal valuetype mynamespace.e_t one = int16(0x0000)
-            //  }
-            //  .method public hidebysig static void  Main() cil managed
-            //  {
-            //     .locals init (valuetype mynamespace.e_t V_0)
-            //     ...
-            //     ldloca.s   V_0
-            //     ldflda     int16 mynamespace.e_t::value__
-            //     ...
-            //  }
-            //
-            // Normally, compilers will not generate the ldflda, since it is superfluous.
-            //
-            // In the example, the lclVar is short, but the JIT promotes all trees using this local to the
-            // "actual type", that is, INT. But the GT_FIELD is still SHORT. So, in the case of a type
-            // mismatch like this, don't do this morphing. The local var may end up getting marked as
-            // address taken, and the appropriate SHORT load will be done from memory in that case.
-
-            if (node->TypeGet() == obj->TypeGet())
-            {
-                node->ChangeOper(GT_LCL_VAR);
-                node->AsLclVar()->SetLclNum(lclNum);
-                node->gtFlags = 0;
-
-                if (user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == node))
-                {
-                    node->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-                }
-
-                JITDUMP("Replaced the field in normed struct with local var V%02u\n", lclNum);
-                INDEBUG(m_stmtModified = true;)
-            }
-
-            return;
-        }
-
-        if (!varDsc->lvPromoted)
+        if (!varTypeIsStruct(obj->GetType()) || !varDsc->lvPromoted)
         {
             return;
         }
