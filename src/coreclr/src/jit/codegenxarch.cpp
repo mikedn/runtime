@@ -7534,16 +7534,14 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         regNumber srcReg = genConsumeReg(src);
         assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
 
-        genAdjustStackForPutArgStk(putArgStk);
+        inst_RV_IV(INS_sub, REG_SPBASE, putArgStk->getArgSize(), EA_4BYTE);
+        AddStackLevel(putArgStk->getArgSize());
+        m_pushStkArg = false;
 
         if (putArgStk->isSIMD12())
         {
             regNumber tmpReg = putArgStk->GetSingleTempReg();
             genStoreSIMD12ToStack(srcReg, tmpReg);
-        }
-        else if (m_pushStkArg)
-        {
-            genPushReg(srcType, srcReg);
         }
         else
         {
