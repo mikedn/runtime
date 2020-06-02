@@ -1263,7 +1263,7 @@ protected:
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
 #ifdef TARGET_X86
-    bool genAdjustStackForPutArgStk(GenTreePutArgStk* putArgStk);
+    void genPreAdjustStackForPutArgStk(unsigned argSize);
     void genPushReg(var_types type, regNumber srcReg);
     void genPutArgStkFieldList(GenTreePutArgStk* putArgStk);
 #endif // TARGET_X86

@@ -3148,7 +3148,7 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
         return;
     }
 
-    genAdjustStackForPutArgStk(putArgNode);
+    genPreAdjustStackForPutArgStk(putArgNode->getArgSize());
 
 #else  // !TARGET_X86
     // On x64 we use an XMM register only for 16-byte chunks.
@@ -3219,7 +3219,7 @@ void CodeGen::genStructPutArgRepMovs(GenTreePutArgStk* putArgNode
     assert(srcAddr->isContained());
 
 #ifdef TARGET_X86
-    genAdjustStackForPutArgStk(putArgNode);
+    genPreAdjustStackForPutArgStk(putArgNode->getArgSize());
 #endif
 
     genConsumePutStructArgStk(putArgNode, REG_RDI, REG_RSI, REG_RCX
@@ -7176,91 +7176,34 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 #ifdef TARGET_X86
 
 //---------------------------------------------------------------------
-// genAdjustStackForPutArgStk:
-//    adjust the stack pointer for a putArgStk node if necessary.
+// genPreAdjustStackForPutArgStk: Adjust the stack pointer before a non-push stack put arg
 //
 // Arguments:
-//    putArgStk - the putArgStk node.
+//    argSize - the size of the argument
 //
-// Returns: true if the stack pointer was adjusted; false otherwise.
-//
-// Notes:
-//    Sets `m_pushStkArg` to true if the stack arg needs to be pushed,
-//    false if the stack arg needs to be stored at the current stack
-//    pointer address. This is exactly the opposite of the return value
-//    of this function.
-//
-bool CodeGen::genAdjustStackForPutArgStk(GenTreePutArgStk* putArgStk)
+void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
 {
-    const unsigned argSize = putArgStk->getArgSize();
-    GenTree*       source  = putArgStk->gtGetOp1();
+    m_pushStkArg = false;
 
-#ifdef FEATURE_SIMD
-    if (!source->OperIs(GT_FIELD_LIST) && varTypeIsSIMD(source))
+    // If argSize is large, we need to probe the stack like we do in the prolog (genAllocLclFrame)
+    // or for localloc (genLclHeap), to ensure we touch the stack pages sequentially, and don't miss
+    // the stack guard pages. The prolog probes, but we don't know at this point how much higher
+    // the last probed stack pointer value is. We default a threshold. Any size below this threshold
+    // we are guaranteed the stack has been probed. Above this threshold, we don't know. The threshold
+    // should be high enough to cover all common cases. Increasing the threshold means adding a few
+    // more "lowest address of stack" probes in the prolog. Since this is relatively rare, add it to
+    // stress modes.
+
+    if ((argSize >= ARG_STACK_PROBE_THRESHOLD_BYTES) || compiler->compStressCompile(Compiler::STRESS_GENERIC_VARN, 5))
     {
-        inst_RV_IV(INS_sub, REG_SPBASE, argSize, EA_PTRSIZE);
-        AddStackLevel(argSize);
-        m_pushStkArg = false;
-        return true;
-    }
-#endif // FEATURE_SIMD
-
-    // If the gtPutArgStkKind is one of the push types, we do not pre-adjust the stack.
-    // This is set in Lowering, and is true if and only if:
-    // - This argument contains any GC pointers OR
-    // - It is a GT_FIELD_LIST OR
-    // - It is less than 16 bytes in size.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-    switch (putArgStk->gtPutArgStkKind)
-    {
-        case GenTreePutArgStk::Kind::RepInstr:
-        case GenTreePutArgStk::Kind::Unroll:
-            assert(!source->AsObj()->GetLayout()->HasGCPtr());
-            break;
-        case GenTreePutArgStk::Kind::Push:
-        case GenTreePutArgStk::Kind::PushAllSlots:
-            assert(source->OperIs(GT_FIELD_LIST) || source->AsObj()->GetLayout()->HasGCPtr() || (argSize < 16));
-            break;
-        case GenTreePutArgStk::Kind::Invalid:
-        default:
-            assert(!"Uninitialized GenTreePutArgStk::Kind");
-            break;
-    }
-#endif // DEBUG
-
-    if (putArgStk->isPushKind())
-    {
-        m_pushStkArg = true;
-        return false;
+        genStackPointerConstantAdjustmentLoopWithProbe(-(ssize_t)argSize, REG_NA);
     }
     else
     {
-        m_pushStkArg = false;
-
-        // If argSize is large, we need to probe the stack like we do in the prolog (genAllocLclFrame)
-        // or for localloc (genLclHeap), to ensure we touch the stack pages sequentially, and don't miss
-        // the stack guard pages. The prolog probes, but we don't know at this point how much higher
-        // the last probed stack pointer value is. We default a threshold. Any size below this threshold
-        // we are guaranteed the stack has been probed. Above this threshold, we don't know. The threshold
-        // should be high enough to cover all common cases. Increasing the threshold means adding a few
-        // more "lowest address of stack" probes in the prolog. Since this is relatively rare, add it to
-        // stress modes.
-
-        if ((argSize >= ARG_STACK_PROBE_THRESHOLD_BYTES) ||
-            compiler->compStressCompile(Compiler::STRESS_GENERIC_VARN, 5))
-        {
-            genStackPointerConstantAdjustmentLoopWithProbe(-(ssize_t)argSize, REG_NA);
-        }
-        else
-        {
-            inst_RV_IV(INS_sub, REG_SPBASE, argSize, EA_PTRSIZE);
-        }
-
-        AddStackLevel(argSize);
-        return true;
+        inst_RV_IV(INS_sub, REG_SPBASE, argSize, EA_PTRSIZE);
     }
+
+    AddStackLevel(argSize);
 }
 
 //---------------------------------------------------------------------

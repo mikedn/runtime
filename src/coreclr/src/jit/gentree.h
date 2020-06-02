@@ -6520,13 +6520,6 @@ struct GenTreePutArgStk : public GenTreeUnOp
     {
         return (varTypeIsSIMD(gtOp1) && (gtNumSlots == 3));
     }
-
-#ifdef TARGET_X86
-    bool isPushKind()
-    {
-        return (gtPutArgStkKind == Kind::Push) || (gtPutArgStkKind == Kind::PushAllSlots);
-    }
-#endif
 #else
     unsigned getArgSize();
 #endif
