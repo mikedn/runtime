@@ -1526,15 +1526,18 @@ void CodeGen::genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* node)
 // Notes:
 //    sizeReg can be REG_NA when this function is used to consume the dstReg and srcReg
 //    for copying on the stack a struct with references.
-//    The source address/offset is determined from the address on the GT_OBJ node, while
-//    the destination address is the address contained in 'm_stkArgVarNum' plus the offset
-//    provided in the 'putArgNode'.
-//    m_stkArgVarNum must be set to  the varnum for the local used for placing the "by-value" args on the stack.
-
+//    The source address/offset is determined from the address on the GT_OBJ node.
+//
 void CodeGen::genConsumePutStructArgStk(GenTreePutArgStk* putArgNode,
                                         regNumber         dstReg,
                                         regNumber         srcReg,
-                                        regNumber         sizeReg)
+                                        regNumber         sizeReg
+#ifndef TARGET_X86
+                                        ,
+                                        unsigned outArgLclNum,
+                                        unsigned outArgLclOffs
+#endif
+                                        )
 {
     // The putArgNode children are always contained. We should not consume any registers.
     assert(putArgNode->gtGetOp1()->isContained());
@@ -1570,8 +1573,7 @@ void CodeGen::genConsumePutStructArgStk(GenTreePutArgStk* putArgNode,
         // Generate LEA instruction to load the stack of the outgoing var + SlotNum offset (or the incoming arg area
         // for tail calls) in RDI.
         // Destination is always local (on the stack) - use EA_PTRSIZE.
-        assert(m_stkArgVarNum != BAD_VAR_NUM);
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, m_stkArgVarNum, putArgNode->getArgOffset());
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, outArgLclNum, outArgLclOffs);
     }
 #endif // !TARGET_X86
 

@@ -106,10 +106,6 @@ CodeGen::CodeGen(Compiler* theCompiler)
     , u8ToFltBitmask(nullptr)
 #endif
 {
-#if defined(FEATURE_PUT_STRUCT_ARG_STK) && !defined(TARGET_X86)
-    m_stkArgVarNum = BAD_VAR_NUM;
-#endif
-
 #if defined(UNIX_X86_ABI)
     curNestedAlignment = 0;
     maxNestedAlignment = 0;

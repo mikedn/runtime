@@ -1165,7 +1165,13 @@ protected:
     void genConsumePutStructArgStk(GenTreePutArgStk* putArgStkNode,
                                    regNumber         dstReg,
                                    regNumber         srcReg,
-                                   regNumber         sizeReg);
+                                   regNumber         sizeReg
+#ifndef TARGET_X86
+                                   ,
+                                   unsigned outArgLclNum,
+                                   unsigned outArgLclOffs
+#endif
+                                   );
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 #if FEATURE_ARG_SPLIT
     void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
@@ -1263,12 +1269,38 @@ protected:
     void genPutArgStkFieldList(GenTreePutArgStk* putArgStk);
 #endif // TARGET_X86
 
-    void genPutStructArgStk(GenTreePutArgStk* treeNode);
+    void genPutStructArgStk(GenTreePutArgStk* treeNode
+#ifndef TARGET_X86
+                            ,
+                            unsigned outArgLclNum,
+                            unsigned outArgLclOffs
+#endif
+                            );
 
     void genCodeForLoadOffset(instruction ins, emitAttr size, regNumber dst, GenTree* base, unsigned offset);
-    void genStructPutArgRepMovs(GenTreePutArgStk* putArgStkNode);
-    void genStructPutArgUnroll(GenTreePutArgStk* putArgStkNode);
-    void genStoreRegToStackArg(var_types type, regNumber reg, int offset);
+    void genStructPutArgRepMovs(GenTreePutArgStk* putArgStkNode
+#ifndef TARGET_X86
+                                ,
+                                unsigned outArgLclNum,
+                                unsigned outArgLclOffs
+#endif
+                                );
+    void genStructPutArgUnroll(GenTreePutArgStk* putArgStkNode
+#ifndef TARGET_X86
+                               ,
+                               unsigned outArgLclNum,
+                               unsigned outArgLclOffs
+#endif
+                               );
+    void genStoreRegToStackArg(var_types type,
+                               regNumber reg,
+                               int       offset
+#ifndef TARGET_X86
+                               ,
+                               unsigned outArgLclNum,
+                               unsigned outArgLclOffs
+#endif
+                               );
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 
     void genCodeForStoreBlk(GenTreeBlk* storeBlkNode);
@@ -1348,10 +1380,7 @@ protected:
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
 #ifdef TARGET_X86
     bool m_pushStkArg;
-#else  // !TARGET_X86
-    unsigned m_stkArgVarNum;
-    unsigned m_stkArgOffset;
-#endif // !TARGET_X86
+#endif
 #endif // !FEATURE_PUT_STRUCT_ARG_STK
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
