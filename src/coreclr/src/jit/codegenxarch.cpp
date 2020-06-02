@@ -3140,14 +3140,14 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode)
         if ((size & 4) != 0)
         {
             genCodeForLoadOffset(INS_mov, EA_4BYTE, intTmpReg, srcAddr, size & 8);
-            genStoreRegToStackArg(TYP_INT, intTmpReg, size & 8);
+            genPushReg(TYP_INT, intTmpReg);
         }
         // Now if we have an 8 byte chunk, load it from offset 0 (it's the first chunk)
         // and push it on the stack.
         if ((size & 8) != 0)
         {
             genCodeForLoadOffset(INS_movq, EA_8BYTE, xmmTmpReg, srcAddr, 0);
-            genStoreRegToStackArg(TYP_LONG, xmmTmpReg, 0);
+            genPushReg(TYP_LONG, xmmTmpReg);
         }
 
         return;
@@ -7700,14 +7700,12 @@ void CodeGen::genStoreRegToStackArg(var_types type, regNumber srcReg, int offset
     assert(srcReg != REG_NA);
     instruction ins;
     emitAttr    attr;
-    unsigned    size;
 
     if (type == TYP_STRUCT)
     {
         ins = INS_movdqu;
         // This should be changed!
         attr = EA_8BYTE;
-        size = 16;
     }
     else
     {
@@ -7733,7 +7731,6 @@ void CodeGen::genStoreRegToStackArg(var_types type, regNumber srcReg, int offset
             ins = ins_Store(type);
         }
         attr = emitTypeSize(type);
-        size = genTypeSize(type);
     }
 
 #ifdef TARGET_X86
