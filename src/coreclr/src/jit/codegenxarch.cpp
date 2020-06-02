@@ -3072,126 +3072,6 @@ void CodeGen::genCodeForCpBlkRepMovs(GenTreeBlk* cpBlkNode)
 }
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
-//------------------------------------------------------------------------
-// CodeGen::genMove8IfNeeded: Conditionally move 8 bytes of a struct to the argument area
-//
-// Arguments:
-//    size       - The size of bytes remaining to be moved
-//    longTmpReg - The tmp register to be used for the long value
-//    srcAddr    - The address of the source struct
-//    offset     - The current offset being copied
-//
-// Return Value:
-//    Returns the number of bytes moved (8 or 0).
-//
-// Notes:
-//    This is used in the PutArgStkKindUnroll case, to move any bytes that are
-//    not an even multiple of 16.
-//    On x86, longTmpReg must be an xmm reg; on x64 it must be an integer register.
-//    This is checked by genStoreRegToStackArg.
-//
-unsigned CodeGen::genMove8IfNeeded(unsigned size, regNumber longTmpReg, GenTree* srcAddr, unsigned offset)
-{
-#ifdef TARGET_X86
-    instruction longMovIns = INS_movq;
-#else  // !TARGET_X86
-    instruction longMovIns = INS_mov;
-#endif // !TARGET_X86
-    if ((size & 8) != 0)
-    {
-        genCodeForLoadOffset(longMovIns, EA_8BYTE, longTmpReg, srcAddr, offset);
-        genStoreRegToStackArg(TYP_LONG, longTmpReg, offset);
-        return 8;
-    }
-    return 0;
-}
-
-//------------------------------------------------------------------------
-// CodeGen::genMove4IfNeeded: Conditionally move 4 bytes of a struct to the argument area
-//
-// Arguments:
-//    size      - The size of bytes remaining to be moved
-//    intTmpReg - The tmp register to be used for the long value
-//    srcAddr   - The address of the source struct
-//    offset    - The current offset being copied
-//
-// Return Value:
-//    Returns the number of bytes moved (4 or 0).
-//
-// Notes:
-//    This is used in the PutArgStkKindUnroll case, to move any bytes that are
-//    not an even multiple of 16.
-//    intTmpReg must be an integer register.
-//    This is checked by genStoreRegToStackArg.
-//
-unsigned CodeGen::genMove4IfNeeded(unsigned size, regNumber intTmpReg, GenTree* srcAddr, unsigned offset)
-{
-    if ((size & 4) != 0)
-    {
-        genCodeForLoadOffset(INS_mov, EA_4BYTE, intTmpReg, srcAddr, offset);
-        genStoreRegToStackArg(TYP_INT, intTmpReg, offset);
-        return 4;
-    }
-    return 0;
-}
-
-//------------------------------------------------------------------------
-// CodeGen::genMove2IfNeeded: Conditionally move 2 bytes of a struct to the argument area
-//
-// Arguments:
-//    size      - The size of bytes remaining to be moved
-//    intTmpReg - The tmp register to be used for the long value
-//    srcAddr   - The address of the source struct
-//    offset    - The current offset being copied
-//
-// Return Value:
-//    Returns the number of bytes moved (2 or 0).
-//
-// Notes:
-//    This is used in the PutArgStkKindUnroll case, to move any bytes that are
-//    not an even multiple of 16.
-//    intTmpReg must be an integer register.
-//    This is checked by genStoreRegToStackArg.
-//
-unsigned CodeGen::genMove2IfNeeded(unsigned size, regNumber intTmpReg, GenTree* srcAddr, unsigned offset)
-{
-    if ((size & 2) != 0)
-    {
-        genCodeForLoadOffset(INS_mov, EA_2BYTE, intTmpReg, srcAddr, offset);
-        genStoreRegToStackArg(TYP_SHORT, intTmpReg, offset);
-        return 2;
-    }
-    return 0;
-}
-
-//------------------------------------------------------------------------
-// CodeGen::genMove1IfNeeded: Conditionally move 1 byte of a struct to the argument area
-//
-// Arguments:
-//    size      - The size of bytes remaining to be moved
-//    intTmpReg - The tmp register to be used for the long value
-//    srcAddr   - The address of the source struct
-//    offset    - The current offset being copied
-//
-// Return Value:
-//    Returns the number of bytes moved (1 or 0).
-//
-// Notes:
-//    This is used in the PutArgStkKindUnroll case, to move any bytes that are
-//    not an even multiple of 16.
-//    intTmpReg must be an integer register.
-//    This is checked by genStoreRegToStackArg.
-//
-unsigned CodeGen::genMove1IfNeeded(unsigned size, regNumber intTmpReg, GenTree* srcAddr, unsigned offset)
-{
-    if ((size & 1) != 0)
-    {
-        genCodeForLoadOffset(INS_mov, EA_1BYTE, intTmpReg, srcAddr, offset);
-        genStoreRegToStackArg(TYP_BYTE, intTmpReg, offset);
-        return 1;
-    }
-    return 0;
-}
 
 //---------------------------------------------------------------------------------------------------------------//
 // genStructPutArgUnroll: Generates code for passing a struct arg on stack by value using loop unrolling.
@@ -3230,18 +3110,18 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode)
         genConsumeReg(src->AsOp()->gtOp1);
     }
 
+    GenTree* srcAddr = src->AsObj()->GetAddr();
+
     unsigned offset = 0;
 
-    regNumber xmmTmpReg  = REG_NA;
-    regNumber intTmpReg  = REG_NA;
-    regNumber longTmpReg = REG_NA;
+    regNumber xmmTmpReg = REG_NA;
+    regNumber intTmpReg = REG_NA;
 #ifdef TARGET_X86
     // On x86 we use an XMM register for both 16 and 8-byte chunks, but if it's
     // less than 16 bytes, we will just be using pushes
     if (size >= 8)
     {
-        xmmTmpReg  = putArgNode->GetSingleTempReg(RBM_ALLFLOAT);
-        longTmpReg = xmmTmpReg;
+        xmmTmpReg = putArgNode->GetSingleTempReg(RBM_ALLFLOAT);
     }
     if ((size & 0x7) != 0)
     {
@@ -3257,10 +3137,19 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode)
         assert(((size & 0xc) == size) && (offset == 0));
         // If we have a 4 byte chunk, load it from either offset 0 or 8, depending on
         // whether we've got an 8 byte chunk, and then push it on the stack.
-        unsigned pushedBytes = genMove4IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, size & 0x8);
+        if ((size & 4) != 0)
+        {
+            genCodeForLoadOffset(INS_mov, EA_4BYTE, intTmpReg, srcAddr, size & 8);
+            genStoreRegToStackArg(TYP_INT, intTmpReg, size & 8);
+        }
         // Now if we have an 8 byte chunk, load it from offset 0 (it's the first chunk)
         // and push it on the stack.
-        pushedBytes += genMove8IfNeeded(size, longTmpReg, src->AsOp()->gtOp1, 0);
+        if ((size & 8) != 0)
+        {
+            genCodeForLoadOffset(INS_movq, EA_8BYTE, xmmTmpReg, srcAddr, 0);
+            genStoreRegToStackArg(TYP_LONG, xmmTmpReg, 0);
+        }
+
         return;
     }
 
@@ -3272,8 +3161,7 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode)
     }
     if ((size & 0xf) != 0)
     {
-        intTmpReg  = putArgNode->GetSingleTempReg(RBM_ALLINT);
-        longTmpReg = intTmpReg;
+        intTmpReg = putArgNode->GetSingleTempReg(RBM_ALLINT);
     }
 #endif // !TARGET_X86
 
@@ -3305,10 +3193,39 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode)
     // Fill the remainder (15 bytes or less) if there's one.
     if ((size & 0xf) != 0)
     {
-        offset += genMove8IfNeeded(size, longTmpReg, src->AsOp()->gtOp1, offset);
-        offset += genMove4IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
-        offset += genMove2IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
-        offset += genMove1IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
+        if ((size & 8) != 0)
+        {
+#ifdef TARGET_X86
+            genCodeForLoadOffset(INS_movq, EA_8BYTE, xmmTmpReg, srcAddr, offset);
+            genStoreRegToStackArg(TYP_LONG, xmmTmpReg, offset);
+#else
+            genCodeForLoadOffset(INS_mov, EA_8BYTE, intTmpReg, srcAddr, offset);
+            genStoreRegToStackArg(TYP_LONG, intTmpReg, offset);
+#endif
+            offset += 8;
+        }
+
+        if ((size & 4) != 0)
+        {
+            genCodeForLoadOffset(INS_mov, EA_4BYTE, intTmpReg, srcAddr, offset);
+            genStoreRegToStackArg(TYP_INT, intTmpReg, offset);
+            offset += 4;
+        }
+
+        if ((size & 2) != 0)
+        {
+            genCodeForLoadOffset(INS_mov, EA_2BYTE, intTmpReg, srcAddr, offset);
+            genStoreRegToStackArg(TYP_SHORT, intTmpReg, offset);
+            offset += 2;
+        }
+
+        if ((size & 1) != 0)
+        {
+            genCodeForLoadOffset(INS_mov, EA_1BYTE, intTmpReg, srcAddr, offset);
+            genStoreRegToStackArg(TYP_BYTE, intTmpReg, offset);
+            offset += 1;
+        }
+
         assert(offset == size);
     }
 }
