@@ -1034,7 +1034,6 @@ protected:
     void genLoadLclTypeSIMD12(GenTree* treeNode);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
-    void genPutArgStkSIMD12(GenTree* treeNode);
 #endif // TARGET_X86
 #endif // FEATURE_SIMD
 

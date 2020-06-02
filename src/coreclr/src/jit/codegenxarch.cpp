@@ -7531,25 +7531,23 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
         genStoreRegToStackArg(srcType, srcReg, 0, outArgLclNum, outArgLclOffs);
 #elif defined(TARGET_X86)
+        regNumber srcReg = genConsumeReg(src);
+        assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
+
         genAdjustStackForPutArgStk(putArgStk);
 
         if (putArgStk->isSIMD12())
         {
-            genPutArgStkSIMD12(putArgStk);
+            regNumber tmpReg = putArgStk->GetSingleTempReg();
+            genStoreSIMD12ToStack(srcReg, tmpReg);
+        }
+        else if (m_pushStkArg)
+        {
+            genPushReg(srcType, srcReg);
         }
         else
         {
-            regNumber srcReg = genConsumeReg(src);
-            assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
-
-            if (m_pushStkArg)
-            {
-                genPushReg(srcType, srcReg);
-            }
-            else
-            {
-                genStoreRegToStackArg(srcType, srcReg, 0);
-            }
+            genStoreRegToStackArg(srcType, srcReg, 0);
         }
 #else
         // WIN64 passes SIMD types by reference (no vectorcall support).

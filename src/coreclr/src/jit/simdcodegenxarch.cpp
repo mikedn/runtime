@@ -3078,32 +3078,6 @@ void CodeGen::genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg)
     GetEmitter()->emitIns_AR_R(ins_Store(TYP_FLOAT), EA_4BYTE, tmpReg, REG_SPBASE, 8);
 }
 
-//-----------------------------------------------------------------------------
-// genPutArgStkSIMD12: store a TYP_SIMD12 (i.e. Vector3) type field.
-// Since Vector3 is not a hardware supported write size, it is performed
-// as two stores: 8 byte followed by 4-byte. The stack is assumed to have
-// already been adjusted.
-//
-// Arguments:
-//    treeNode - tree node that is attempting to store TYP_SIMD12 field
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genPutArgStkSIMD12(GenTree* treeNode)
-{
-    assert(treeNode->OperGet() == GT_PUTARG_STK);
-
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-    assert(!op1->isContained());
-    regNumber operandReg = genConsumeReg(op1);
-
-    // Need an addtional Xmm register to extract upper 4 bytes from data.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    genStoreSIMD12ToStack(operandReg, tmpReg);
-}
-
 #endif // TARGET_X86
 
 //-----------------------------------------------------------------------------
