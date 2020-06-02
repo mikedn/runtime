@@ -7495,7 +7495,15 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                     default:
                         unreached();
                 }
-                genStoreRegToStackArg(fieldType, intTmpReg, fieldOffset - currentOffset);
+
+                if (m_pushStkArg)
+                {
+                    genPushReg(fieldType, intTmpReg);
+                }
+                else
+                {
+                    genStoreRegToStackArg(fieldType, intTmpReg, fieldOffset - currentOffset);
+                }
             }
         }
         else
@@ -7508,6 +7516,11 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             }
             else
 #endif // defined(FEATURE_SIMD)
+                if (m_pushStkArg)
+            {
+                genPushReg(fieldType, argReg);
+            }
+            else
             {
                 genStoreRegToStackArg(fieldType, argReg, fieldOffset - currentOffset);
             }
@@ -7774,17 +7787,11 @@ void CodeGen::genStoreRegToStackArg(var_types type,
     }
 
 #ifdef TARGET_X86
-    if (m_pushStkArg)
-    {
-        genPushReg(type, srcReg);
-    }
-    else
-    {
-        GetEmitter()->emitIns_AR_R(ins, attr, srcReg, REG_SPBASE, offset);
-    }
-#else  // !TARGET_X86
+    assert(!m_pushStkArg);
+    GetEmitter()->emitIns_AR_R(ins, attr, srcReg, REG_SPBASE, offset);
+#else
     GetEmitter()->emitIns_S_R(ins, attr, srcReg, outArgLclNum, outArgLclOffs + offset);
-#endif // !TARGET_X86
+#endif
 }
 
 //---------------------------------------------------------------------
@@ -7818,12 +7825,21 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
     {
         regNumber srcReg = genConsumeReg(source);
         assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
-        genStoreRegToStackArg(targetType, srcReg, 0
-#ifndef TARGET_X86
-                              ,
-                              outArgLclNum, outArgLclOffs
+#ifdef TARGET_X86
+        if (m_pushStkArg)
+        {
+            genPushReg(targetType, srcReg);
+        }
+        else
 #endif
-                              );
+        {
+            genStoreRegToStackArg(targetType, srcReg, 0
+#ifndef TARGET_X86
+                                  ,
+                                  outArgLclNum, outArgLclOffs
+#endif
+                                  );
+        }
         return;
     }
 
