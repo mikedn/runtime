@@ -3247,6 +3247,23 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode)
     {
         intTmpReg = putArgNode->GetSingleTempReg(RBM_ALLINT);
     }
+
+    if (m_pushStkArg)
+    {
+        // This case is currently supported only for the case where the total size is
+        // less than XMM_REGSIZE_BYTES. We need to push the remaining chunks in reverse
+        // order. However, morph has ensured that we have a struct that is an even
+        // multiple of TARGET_POINTER_SIZE, so we don't need to worry about alignment.
+        assert(((size & 0xc) == size) && (offset == 0));
+        // If we have a 4 byte chunk, load it from either offset 0 or 8, depending on
+        // whether we've got an 8 byte chunk, and then push it on the stack.
+        unsigned pushedBytes = genMove4IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, size & 0x8);
+        // Now if we have an 8 byte chunk, load it from offset 0 (it's the first chunk)
+        // and push it on the stack.
+        pushedBytes += genMove8IfNeeded(size, longTmpReg, src->AsOp()->gtOp1, 0);
+        return;
+    }
+
 #else  // !TARGET_X86
     // On x64 we use an XMM register only for 16-byte chunks.
     if (size >= XMM_REGSIZE_BYTES)
@@ -3265,9 +3282,6 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode)
     // loads and stores.
     if (size >= XMM_REGSIZE_BYTES)
     {
-#ifdef TARGET_X86
-        assert(!m_pushStkArg);
-#endif // TARGET_X86
         size_t slots = size / XMM_REGSIZE_BYTES;
 
         assert(putArgNode->gtGetOp1()->isContained());
@@ -3291,30 +3305,11 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode)
     // Fill the remainder (15 bytes or less) if there's one.
     if ((size & 0xf) != 0)
     {
-#ifdef TARGET_X86
-        if (m_pushStkArg)
-        {
-            // This case is currently supported only for the case where the total size is
-            // less than XMM_REGSIZE_BYTES. We need to push the remaining chunks in reverse
-            // order. However, morph has ensured that we have a struct that is an even
-            // multiple of TARGET_POINTER_SIZE, so we don't need to worry about alignment.
-            assert(((size & 0xc) == size) && (offset == 0));
-            // If we have a 4 byte chunk, load it from either offset 0 or 8, depending on
-            // whether we've got an 8 byte chunk, and then push it on the stack.
-            unsigned pushedBytes = genMove4IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, size & 0x8);
-            // Now if we have an 8 byte chunk, load it from offset 0 (it's the first chunk)
-            // and push it on the stack.
-            pushedBytes += genMove8IfNeeded(size, longTmpReg, src->AsOp()->gtOp1, 0);
-        }
-        else
-#endif // TARGET_X86
-        {
-            offset += genMove8IfNeeded(size, longTmpReg, src->AsOp()->gtOp1, offset);
-            offset += genMove4IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
-            offset += genMove2IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
-            offset += genMove1IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
-            assert(offset == size);
-        }
+        offset += genMove8IfNeeded(size, longTmpReg, src->AsOp()->gtOp1, offset);
+        offset += genMove4IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
+        offset += genMove2IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
+        offset += genMove1IfNeeded(size, intTmpReg, src->AsOp()->gtOp1, offset);
+        assert(offset == size);
     }
 }
 
