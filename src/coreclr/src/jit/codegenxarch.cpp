@@ -3185,13 +3185,11 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
             // Load
             genCodeForLoadOffset(INS_movdqu, EA_8BYTE, xmmTmpReg, src->gtGetOp1(), offset);
 
-            // Store
-            genStoreRegToStackArg(TYP_STRUCT, xmmTmpReg, offset
-#ifndef TARGET_X86
-                                  ,
-                                  outArgLclNum, outArgLclOffs
+#ifdef TARGET_X86
+            GetEmitter()->emitIns_AR_R(INS_movdqu, EA_8BYTE, xmmTmpReg, REG_SPBASE, offset);
+#else
+            GetEmitter()->emitIns_S_R(INS_movdqu, EA_8BYTE, xmmTmpReg, outArgLclNum, outArgLclOffs + offset);
 #endif
-                                  );
 
             offset += XMM_REGSIZE_BYTES;
         }
@@ -7726,20 +7724,6 @@ void CodeGen::genPushReg(var_types type, regNumber srcReg)
 //    reg    - the register containing the value
 //    offset - the offset from the base (see Assumptions below)
 //
-// Notes:
-//    A type of TYP_STRUCT instructs this method to store a 16-byte chunk
-//    at the given offset (i.e. not the full struct).
-//
-// Assumptions:
-//    The caller must set the context appropriately before calling this method:
-//    - On x64, m_stkArgVarNum must be set according to whether this is a regular or tail call.
-//    - On x86, the caller must set m_pushStkArg if this method should push the argument.
-//      Otherwise, the argument is stored at the given offset from sp.
-//
-// TODO: In the below code the load and store instructions are for 16 bytes, but the
-//          type is EA_8BYTE. The movdqa/u are 16 byte instructions, so it works, but
-//          this probably needs to be changed.
-//
 void CodeGen::genStoreRegToStackArg(var_types type,
                                     regNumber srcReg,
                                     int       offset
@@ -7752,45 +7736,34 @@ void CodeGen::genStoreRegToStackArg(var_types type,
 {
     assert(srcReg != REG_NA);
     instruction ins;
-    emitAttr    attr;
 
-    if (type == TYP_STRUCT)
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(type))
     {
-        ins = INS_movdqu;
-        // This should be changed!
-        attr = EA_8BYTE;
+        assert(genIsValidFloatReg(srcReg));
+        ins = ins_Store(type); // TODO-CQ: pass 'aligned' correctly
     }
     else
-    {
-#ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(type))
-        {
-            assert(genIsValidFloatReg(srcReg));
-            ins = ins_Store(type); // TODO-CQ: pass 'aligned' correctly
-        }
-        else
 #endif // FEATURE_SIMD
 #ifdef TARGET_X86
-            if (type == TYP_LONG)
-        {
-            assert(genIsValidFloatReg(srcReg));
-            ins = INS_movq;
-        }
-        else
+        if (type == TYP_LONG)
+    {
+        assert(genIsValidFloatReg(srcReg));
+        ins = INS_movq;
+    }
+    else
 #endif // TARGET_X86
-        {
-            assert((varTypeIsFloating(type) && genIsValidFloatReg(srcReg)) ||
-                   (varTypeIsIntegralOrI(type) && genIsValidIntReg(srcReg)));
-            ins = ins_Store(type);
-        }
-        attr = emitTypeSize(type);
+    {
+        assert((varTypeIsFloating(type) && genIsValidFloatReg(srcReg)) ||
+               (varTypeIsIntegralOrI(type) && genIsValidIntReg(srcReg)));
+        ins = ins_Store(type);
     }
 
 #ifdef TARGET_X86
     assert(!m_pushStkArg);
-    GetEmitter()->emitIns_AR_R(ins, attr, srcReg, REG_SPBASE, offset);
+    GetEmitter()->emitIns_AR_R(ins, emitTypeSize(type), srcReg, REG_SPBASE, offset);
 #else
-    GetEmitter()->emitIns_S_R(ins, attr, srcReg, outArgLclNum, outArgLclOffs + offset);
+    GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), srcReg, outArgLclNum, outArgLclOffs + offset);
 #endif
 }
 
