@@ -7499,11 +7499,11 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
     var_types srcType = varActualType(src->GetType());
 
 #if defined(TARGET_AMD64)
-    unsigned outArgLclNum = getBaseVarForPutArgStk(putArgStk);
-    unsigned argOffset    = putArgStk->getArgOffset();
-    assert(argOffset == putArgStk->gtCall->GetArgInfoByArgNode(putArgStk)->slotNum * TARGET_POINTER_SIZE);
+    unsigned outArgLclNum  = getBaseVarForPutArgStk(putArgStk);
+    unsigned outArgLclOffs = putArgStk->getArgOffset();
+    assert(outArgLclOffs == putArgStk->gtCall->GetArgInfoByArgNode(putArgStk)->slotNum * TARGET_POINTER_SIZE);
 #else
-    // On a 32-bit target, all of the long arguments are handled with GT_FIELD_LISTs of TYP_INT.
+    // On a 32-bit target, all of the long arguments are handled with FIELD_LISTs of TYP_INT.
     assert(srcType != TYP_LONG);
 
     genAlignStackBeforeCall(putArgStk);
@@ -7516,19 +7516,58 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #elif defined(TARGET_X86)
         genPutArgStkFieldList(putArgStk);
 #else
+        // WIN64 passes struct types as integers or by reference.
         unreached();
 #endif
         return;
     }
 
-    if (varTypeIsStruct(srcType))
+    if (varTypeIsSIMD(srcType))
+    {
+#if defined(FEATURE_SIMD)
+#if defined(UNIX_AMD64_ABI)
+        regNumber srcReg = genConsumeReg(src);
+        assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
+
+        genStoreRegToStackArg(srcType, srcReg, 0, outArgLclNum, outArgLclOffs);
+#elif defined(TARGET_X86)
+        genAdjustStackForPutArgStk(putArgStk);
+
+        if (putArgStk->isSIMD12())
+        {
+            genPutArgStkSIMD12(putArgStk);
+        }
+        else
+        {
+            regNumber srcReg = genConsumeReg(src);
+            assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
+
+            if (m_pushStkArg)
+            {
+                genPushReg(srcType, srcReg);
+            }
+            else
+            {
+                genStoreRegToStackArg(srcType, srcReg, 0);
+            }
+        }
+#else
+        // WIN64 passes SIMD types by reference (no vectorcall support).
+        unreached();
+#endif
+#endif
+        return;
+    }
+
+    if (srcType == TYP_STRUCT)
     {
 #if defined(UNIX_AMD64_ABI)
-        genPutStructArgStk(putArgStk, outArgLclNum, putArgStk->getArgOffset());
+        genPutStructArgStk(putArgStk, outArgLclNum, outArgLclOffs);
 #elif defined(TARGET_X86)
         genAdjustStackForPutArgStk(putArgStk);
         genPutStructArgStk(putArgStk);
 #else
+        // WIN64 passes register sized structs as integers and the rest by reference.
         unreached();
 #endif
         return;
@@ -7539,8 +7578,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         ssize_t value = src->AsIntCon()->GetValue();
 
 #if defined(TARGET_AMD64)
-        GetEmitter()->emitIns_S_I(ins_Store(srcType), emitTypeSize(srcType), outArgLclNum, static_cast<int>(argOffset),
-                                  static_cast<int>(value));
+        GetEmitter()->emitIns_S_I(ins_Store(srcType), emitTypeSize(srcType), outArgLclNum,
+                                  static_cast<int>(outArgLclOffs), static_cast<int>(value));
 #else
         if (src->IsIconHandle())
         {
@@ -7559,7 +7598,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
 #if defined(TARGET_AMD64)
         GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum,
-                                  static_cast<int>(argOffset));
+                                  static_cast<int>(outArgLclOffs));
 #else
         genPushReg(srcType, srcReg);
 #endif
@@ -7698,36 +7737,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 {
     GenTree*  source     = putArgStk->gtGetOp1();
     var_types targetType = source->TypeGet();
-
-#if defined(TARGET_X86) && defined(FEATURE_SIMD)
-    if (putArgStk->isSIMD12())
-    {
-        genPutArgStkSIMD12(putArgStk);
-        return;
-    }
-#endif // defined(TARGET_X86) && defined(FEATURE_SIMD)
-
-    if (varTypeIsSIMD(targetType))
-    {
-        regNumber srcReg = genConsumeReg(source);
-        assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
-#ifdef TARGET_X86
-        if (m_pushStkArg)
-        {
-            genPushReg(targetType, srcReg);
-        }
-        else
-#endif
-        {
-            genStoreRegToStackArg(targetType, srcReg, 0
-#ifndef TARGET_X86
-                                  ,
-                                  outArgLclNum, outArgLclOffs
-#endif
-                                  );
-        }
-        return;
-    }
 
     assert(targetType == TYP_STRUCT);
 
