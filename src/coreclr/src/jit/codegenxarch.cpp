@@ -7279,19 +7279,17 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
     GenTreeFieldList* const fieldList = putArgStk->gtOp1->AsFieldList();
     assert(fieldList != nullptr);
 
-    // Set m_pushStkArg and pre-adjust the stack if necessary.
-    const bool preAdjustedStack = genAdjustStackForPutArgStk(putArgStk);
+    assert((putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push) ||
+           (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::PushAllSlots));
 
-    // For now, we only support the "push" case; we will push a full slot for the first field of each slot
-    // within the struct.
-    assert((putArgStk->isPushKind()) && !preAdjustedStack && m_pushStkArg);
+    m_pushStkArg = true;
 
     // If we have pre-adjusted the stack and are simply storing the fields in order, set the offset to 0.
     // (Note that this mode is not currently being used.)
     // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
     // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
     // a multiple of the target pointer size).
-    unsigned  currentOffset   = (preAdjustedStack) ? 0 : putArgStk->getArgSize();
+    unsigned  currentOffset   = putArgStk->getArgSize();
     unsigned  prevFieldOffset = currentOffset;
     regNumber intTmpReg       = REG_NA;
     regNumber simdTmpReg      = REG_NA;
