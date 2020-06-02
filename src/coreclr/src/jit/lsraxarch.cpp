@@ -1588,10 +1588,10 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             }
 
 #ifdef TARGET_X86
-            if (size >= 8)
-#else  // !TARGET_X86
+            if (size >= XMM_REGSIZE_BYTES / 2)
+#else
             if (size >= XMM_REGSIZE_BYTES)
-#endif // !TARGET_X86
+#endif
             {
                 // If we have a buffer larger than or equal to XMM_REGSIZE_BYTES on x64/ux,
                 // or larger than or equal to 8 bytes on x86, reserve an XMM register to use it for a

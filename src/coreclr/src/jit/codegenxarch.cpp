@@ -3131,25 +3131,15 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
         intTmpReg = putArgNode->GetSingleTempReg(RBM_ALLINT);
     }
 
-    genAdjustStackForPutArgStk(putArgNode);
-
-    if (m_pushStkArg)
+    if ((size == 4) || (size == 12))
     {
-        // This case is currently supported only for the case where the total size is
-        // less than XMM_REGSIZE_BYTES. We need to push the remaining chunks in reverse
-        // order. However, morph has ensured that we have a struct that is an even
-        // multiple of TARGET_POINTER_SIZE, so we don't need to worry about alignment.
-        assert(((size & 0xc) == size) && (offset == 0));
-        // If we have a 4 byte chunk, load it from either offset 0 or 8, depending on
-        // whether we've got an 8 byte chunk, and then push it on the stack.
-        if ((size & 4) != 0)
-        {
-            genCodeForLoadOffset(INS_mov, EA_4BYTE, intTmpReg, srcAddr, size & 8);
-            genPushReg(TYP_INT, intTmpReg);
-        }
-        // Now if we have an 8 byte chunk, load it from offset 0 (it's the first chunk)
-        // and push it on the stack.
-        if ((size & 8) != 0)
+        // Use a push (and a movq) if we have a 4 byte reminder, it's smaller
+        // than the normal unroll code generated below.
+
+        genCodeForLoadOffset(INS_mov, EA_4BYTE, intTmpReg, srcAddr, size & 8);
+        genPushReg(TYP_INT, intTmpReg);
+
+        if (size == 12)
         {
             genCodeForLoadOffset(INS_movq, EA_8BYTE, xmmTmpReg, srcAddr, 0);
             genPushReg(TYP_LONG, xmmTmpReg);
@@ -3157,6 +3147,8 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
 
         return;
     }
+
+    genAdjustStackForPutArgStk(putArgNode);
 
 #else  // !TARGET_X86
     // On x64 we use an XMM register only for 16-byte chunks.
@@ -7225,7 +7217,7 @@ bool CodeGen::genAdjustStackForPutArgStk(GenTreePutArgStk* putArgStk)
     {
         case GenTreePutArgStk::Kind::RepInstr:
         case GenTreePutArgStk::Kind::Unroll:
-            assert(!source->AsObj()->GetLayout()->HasGCPtr() && (argSize >= 16));
+            assert(!source->AsObj()->GetLayout()->HasGCPtr());
             break;
         case GenTreePutArgStk::Kind::Push:
         case GenTreePutArgStk::Kind::PushAllSlots:
@@ -7753,9 +7745,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 #endif
                                        );
                 break;
-#ifdef TARGET_X86
-            case GenTreePutArgStk::Kind::Push:
-#endif
             case GenTreePutArgStk::Kind::Unroll:
                 genStructPutArgUnroll(putArgStk
 #ifndef TARGET_X86
