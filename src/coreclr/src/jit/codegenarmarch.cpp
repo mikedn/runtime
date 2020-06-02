@@ -904,152 +904,85 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* treeNode)
             noway_assert(structSize <= MAX_PASS_MULTIREG_BYTES);
 #endif // TARGET_ARM64
 
-            int      remainingSize = structSize;
-            unsigned structOffset  = 0;
-            unsigned nextIndex     = 0;
+            unsigned size          = structSize;
+            unsigned offset        = 0;
+            unsigned srcLclNum     = varNode == nullptr ? BAD_VAR_NUM : varNode->GetLclNum();
+            unsigned outArgLclNum  = varNumOut;
+            unsigned outArgLclOffs = argOffsetOut;
+            unsigned outArgLclSize = argOffsetMax;
 
 #ifdef TARGET_ARM64
-            // For a >= 16-byte structSize we will generate a ldp and stp instruction each loop
-            //             ldp     x2, x3, [x0]
-            //             stp     x2, x3, [sp, #16]
-
-            while (remainingSize >= 2 * TARGET_POINTER_SIZE)
+            for (unsigned regSize = 2 * REGSIZE_BYTES; size >= regSize; size -= regSize, offset += regSize)
             {
-                var_types type0 = layout->GetGCPtrType(nextIndex + 0);
-                var_types type1 = layout->GetGCPtrType(nextIndex + 1);
+                emitAttr attr  = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES + 0));
+                emitAttr attr2 = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES + 1));
 
-                if (varNode != nullptr)
+                if (srcLclNum != BAD_VAR_NUM)
                 {
-                    // Load from our varNumImp source
-                    emit->emitIns_R_R_S_S(INS_ldp, emitTypeSize(type0), emitTypeSize(type1), loReg, hiReg,
-                                          varNode->GetLclNum(), structOffset);
+                    emit->emitIns_R_R_S_S(INS_ldp, attr, attr2, loReg, hiReg, srcLclNum, offset);
                 }
                 else
                 {
-                    // check for case of destroying the addrRegister while we still need it
-                    assert(loReg != addrReg);
-                    noway_assert((remainingSize == 2 * TARGET_POINTER_SIZE) || (hiReg != addrReg));
-
-                    // Load from our address expression source
-                    emit->emitIns_R_R_R_I(INS_ldp, emitTypeSize(type0), loReg, hiReg, addrReg, structOffset,
-                                          INS_OPTS_NONE, emitTypeSize(type0));
+                    emit->emitIns_R_R_R_I(INS_ldp, attr, loReg, hiReg, addrReg, offset, INS_OPTS_NONE, attr2);
                 }
 
-                // Emit stp instruction to store the two registers into the outgoing argument area
-                emit->emitIns_S_S_R_R(INS_stp, emitTypeSize(type0), emitTypeSize(type1), loReg, hiReg, varNumOut,
-                                      argOffsetOut);
-                argOffsetOut += (2 * TARGET_POINTER_SIZE); // We stored 16-bytes of the struct
-                assert(argOffsetOut <= argOffsetMax);      // We can't write beyound the outgoing area area
+                // We can't write beyound the outgoing area area
+                assert(outArgLclOffs + offset + 16 <= outArgLclSize);
 
-                remainingSize -= (2 * TARGET_POINTER_SIZE); // We loaded 16-bytes of the struct
-                structOffset += (2 * TARGET_POINTER_SIZE);
-                nextIndex += 2;
+                emit->emitIns_S_S_R_R(INS_stp, attr, attr2, loReg, hiReg, outArgLclNum, outArgLclOffs + offset);
             }
-#else  // TARGET_ARM
-            // For a >= 4 byte structSize we will generate a ldr and str instruction each loop
-            //             ldr     r2, [r0]
-            //             str     r2, [sp, #16]
-            while (remainingSize >= TARGET_POINTER_SIZE)
-            {
-                var_types type = layout->GetGCPtrType(nextIndex);
+#endif // TARGET_ARM64
 
-                if (varNode != nullptr)
+            for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize)
+            {
+                while (regSize > size)
                 {
-                    // Load from our varNumImp source
-                    emit->emitIns_R_S(INS_ldr, emitTypeSize(type), loReg, varNode->GetLclNum(), structOffset);
+                    regSize /= 2;
+                }
+
+                instruction loadIns;
+                instruction storeIns;
+                emitAttr    attr;
+
+                switch (regSize)
+                {
+                    case 1:
+                        loadIns  = INS_ldrb;
+                        storeIns = INS_strb;
+                        attr     = EA_4BYTE;
+                        break;
+                    case 2:
+                        loadIns  = INS_ldrh;
+                        storeIns = INS_strh;
+                        attr     = EA_4BYTE;
+                        break;
+#ifdef TARGET_ARM64
+                    case 4:
+                        loadIns  = INS_ldr;
+                        storeIns = INS_str;
+                        attr     = EA_4BYTE;
+                        break;
+#endif // TARGET_ARM64
+                    default:
+                        assert(regSize == REGSIZE_BYTES);
+                        loadIns  = INS_ldr;
+                        storeIns = INS_str;
+                        attr     = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));
+                }
+
+                if (srcLclNum != BAD_VAR_NUM)
+                {
+                    emit->emitIns_R_S(loadIns, attr, loReg, srcLclNum, offset);
                 }
                 else
                 {
-                    // check for case of destroying the addrRegister while we still need it
-                    assert(loReg != addrReg || remainingSize == TARGET_POINTER_SIZE);
-
-                    // Load from our address expression source
-                    emit->emitIns_R_R_I(INS_ldr, emitTypeSize(type), loReg, addrReg, structOffset);
+                    emit->emitIns_R_R_I(loadIns, attr, loReg, addrReg, offset);
                 }
 
-                // Emit str instruction to store the register into the outgoing argument area
-                emit->emitIns_S_R(INS_str, emitTypeSize(type), loReg, varNumOut, argOffsetOut);
-                argOffsetOut += TARGET_POINTER_SIZE;  // We stored 4-bytes of the struct
-                assert(argOffsetOut <= argOffsetMax); // We can't write beyound the outgoing area area
+                // We can't write beyound the outgoing area area
+                assert(outArgLclOffs + offset + regSize <= outArgLclSize);
 
-                remainingSize -= TARGET_POINTER_SIZE; // We loaded 4-bytes of the struct
-                structOffset += TARGET_POINTER_SIZE;
-                nextIndex += 1;
-            }
-#endif // TARGET_ARM
-
-            // For a 12-byte structSize we will we will generate two load instructions
-            //             ldr     x2, [x0]
-            //             ldr     w3, [x0, #8]
-            //             str     x2, [sp, #16]
-            //             str     w3, [sp, #24]
-
-            while (remainingSize > 0)
-            {
-                if (remainingSize >= TARGET_POINTER_SIZE)
-                {
-                    var_types nextType = layout->GetGCPtrType(nextIndex);
-                    emitAttr  nextAttr = emitTypeSize(nextType);
-                    remainingSize -= TARGET_POINTER_SIZE;
-
-                    if (varNode != nullptr)
-                    {
-                        // Load from our varNumImp source
-                        emit->emitIns_R_S(ins_Load(nextType), nextAttr, loReg, varNode->GetLclNum(), structOffset);
-                    }
-                    else
-                    {
-                        assert(loReg != addrReg);
-
-                        // Load from our address expression source
-                        emit->emitIns_R_R_I(ins_Load(nextType), nextAttr, loReg, addrReg, structOffset);
-                    }
-                    // Emit a store instruction to store the register into the outgoing argument area
-                    emit->emitIns_S_R(ins_Store(nextType), nextAttr, loReg, varNumOut, argOffsetOut);
-                    argOffsetOut += EA_SIZE_IN_BYTES(nextAttr);
-                    assert(argOffsetOut <= argOffsetMax); // We can't write beyound the outgoing area area
-
-                    structOffset += TARGET_POINTER_SIZE;
-                    nextIndex++;
-                }
-                else // (remainingSize < TARGET_POINTER_SIZE)
-                {
-                    int loadSize  = remainingSize;
-                    remainingSize = 0;
-
-                    // We should never have to do a non-pointer sized load when we have a LclVar source
-                    assert(varNode == nullptr);
-
-                    // the left over size is smaller than a pointer and thus can never be a GC type
-                    assert(!layout->IsGCPtr(nextIndex));
-
-                    var_types loadType = TYP_UINT;
-                    if (loadSize == 1)
-                    {
-                        loadType = TYP_UBYTE;
-                    }
-                    else if (loadSize == 2)
-                    {
-                        loadType = TYP_USHORT;
-                    }
-                    else
-                    {
-                        // Need to handle additional loadSize cases here
-                        noway_assert(loadSize == 4);
-                    }
-
-                    instruction loadIns  = ins_Load(loadType);
-                    emitAttr    loadAttr = emitAttr(loadSize);
-
-                    assert(loReg != addrReg);
-
-                    emit->emitIns_R_R_I(loadIns, loadAttr, loReg, addrReg, structOffset);
-
-                    // Emit a store instruction to store the register into the outgoing argument area
-                    emit->emitIns_S_R(ins_Store(loadType), loadAttr, loReg, varNumOut, argOffsetOut);
-                    argOffsetOut += EA_SIZE_IN_BYTES(loadAttr);
-                    assert(argOffsetOut <= argOffsetMax); // We can't write beyound the outgoing area area
-                }
+                emit->emitIns_S_R(storeIns, attr, loReg, outArgLclNum, outArgLclOffs + offset);
             }
         }
     }
