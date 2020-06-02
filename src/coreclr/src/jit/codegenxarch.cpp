@@ -3142,7 +3142,10 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
         if (size == 12)
         {
             genCodeForLoadOffset(INS_movq, EA_8BYTE, xmmTmpReg, srcAddr, 0);
-            genPushReg(TYP_LONG, xmmTmpReg);
+
+            inst_RV_IV(INS_sub, REG_SPBASE, 8, EA_4BYTE);
+            GetEmitter()->emitIns_AR_R(INS_movq, EA_8BYTE, xmmTmpReg, REG_SPBASE, 0);
+            AddStackLevel(8);
         }
 
         return;
@@ -7674,37 +7677,24 @@ void CodeGen::genPutArgReg(GenTreeOp* tree)
 //    type   - the type of value to be stored
 //    reg    - the register containing the value
 //
-// Notes:
-//    For TYP_LONG, the srcReg must be a floating point register.
-//    Otherwise, the register type must be consistent with the given type.
-//
 void CodeGen::genPushReg(var_types type, regNumber srcReg)
 {
-    unsigned size = genTypeSize(type);
-    if (varTypeIsIntegralOrI(type) && type != TYP_LONG)
+    assert(!varTypeIsLong(type));
+
+    unsigned size = varTypeSize(type);
+
+    if (varTypeIsIntegralOrI(type))
     {
         assert(genIsValidIntReg(srcReg));
         inst_RV(INS_push, srcReg, type);
     }
     else
     {
-        instruction ins;
-        emitAttr    attr = emitTypeSize(type);
-        if (type == TYP_LONG)
-        {
-            // On x86, the only way we can push a TYP_LONG from a register is if it is in an xmm reg.
-            // This is only used when we are pushing a struct from memory to memory, and basically is
-            // handling an 8-byte "chunk", as opposed to strictly a long type.
-            ins = INS_movq;
-        }
-        else
-        {
-            ins = ins_Store(type);
-        }
         assert(genIsValidFloatReg(srcReg));
-        inst_RV_IV(INS_sub, REG_SPBASE, size, EA_PTRSIZE);
-        GetEmitter()->emitIns_AR_R(ins, attr, srcReg, REG_SPBASE, 0);
+        inst_RV_IV(INS_sub, REG_SPBASE, size, EA_4BYTE);
+        GetEmitter()->emitIns_AR_R(ins_Store(type), emitTypeSize(type), srcReg, REG_SPBASE, 0);
     }
+
     AddStackLevel(size);
 }
 #endif // TARGET_X86
