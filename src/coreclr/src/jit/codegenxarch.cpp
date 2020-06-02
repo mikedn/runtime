@@ -3131,6 +3131,8 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
         intTmpReg = putArgNode->GetSingleTempReg(RBM_ALLINT);
     }
 
+    genAdjustStackForPutArgStk(putArgNode);
+
     if (m_pushStkArg)
     {
         // This case is currently supported only for the case where the total size is
@@ -3223,6 +3225,10 @@ void CodeGen::genStructPutArgRepMovs(GenTreePutArgStk* putArgNode
     // 'srcAddr' is contained as expected.
     assert(putArgNode->gtRsvdRegs == (RBM_RDI | RBM_RCX | RBM_RSI));
     assert(srcAddr->isContained());
+
+#ifdef TARGET_X86
+    genAdjustStackForPutArgStk(putArgNode);
+#endif
 
     genConsumePutStructArgStk(putArgNode, REG_RDI, REG_RSI, REG_RCX
 #ifndef TARGET_X86
@@ -7558,7 +7564,6 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #if defined(UNIX_AMD64_ABI)
         genPutStructArgStk(putArgStk, outArgLclNum, outArgLclOffs);
 #elif defined(TARGET_X86)
-        genAdjustStackForPutArgStk(putArgStk);
         genPutStructArgStk(putArgStk);
 #else
         // WIN64 passes register sized structs as integers and the rest by reference.
@@ -7775,7 +7780,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
         // Strictly speaking, it is only necessary to use `push` to store the GC references themselves, so for structs
         // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
         // future.
-        assert(m_pushStkArg);
+        m_pushStkArg = true;
 
         GenTree*       srcAddr  = source->gtGetOp1();
         const unsigned numSlots = putArgStk->gtNumSlots;
