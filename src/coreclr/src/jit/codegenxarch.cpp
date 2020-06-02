@@ -7488,105 +7488,82 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 #endif // TARGET_X86
 
 //---------------------------------------------------------------------
-// genPutArgStk - generate code for passing an arg on the stack.
+// genPutArgStk - Generate code for passing an arg on the stack.
 //
 // Arguments
-//    treeNode      - the GT_PUTARG_STK node
-//    targetType    - the type of the treeNode
-//
-// Return value:
-//    None
+//    putArgStk - the GT_PUTARG_STK node
 //
 void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 {
-    GenTree*  data       = putArgStk->gtOp1;
-    var_types targetType = genActualType(data->TypeGet());
+    GenTree*  src     = putArgStk->GetOp(0);
+    var_types srcType = varActualType(src->GetType());
 
-#ifdef TARGET_X86
+#if defined(TARGET_AMD64)
+    unsigned outArgLclNum = getBaseVarForPutArgStk(putArgStk);
+    unsigned argOffset    = putArgStk->getArgOffset();
+    assert(argOffset == putArgStk->gtCall->GetArgInfoByArgNode(putArgStk)->slotNum * TARGET_POINTER_SIZE);
+#else
+    // On a 32-bit target, all of the long arguments are handled with GT_FIELD_LISTs of TYP_INT.
+    assert(srcType != TYP_LONG);
 
     genAlignStackBeforeCall(putArgStk);
+#endif
 
-    if ((data->OperGet() != GT_FIELD_LIST) && varTypeIsStruct(targetType))
+    if (src->OperIs(GT_FIELD_LIST))
     {
-        (void)genAdjustStackForPutArgStk(putArgStk);
-        genPutStructArgStk(putArgStk);
+#if defined(UNIX_AMD64_ABI)
+        genPutArgStkFieldList(putArgStk, outArgLclNum);
+#elif defined(TARGET_X86)
+        genPutArgStkFieldList(putArgStk);
+#else
+        unreached();
+#endif
         return;
     }
 
-    // On a 32-bit target, all of the long arguments are handled with GT_FIELD_LISTs of TYP_INT.
-    assert(targetType != TYP_LONG);
-
-    const unsigned argSize = putArgStk->getArgSize();
-    assert((argSize % TARGET_POINTER_SIZE) == 0);
-
-    if (data->isContainedIntOrIImmed())
+    if (varTypeIsStruct(srcType))
     {
-        if (data->IsIconHandle())
+#if defined(UNIX_AMD64_ABI)
+        genPutStructArgStk(putArgStk, outArgLclNum, putArgStk->getArgOffset());
+#elif defined(TARGET_X86)
+        genAdjustStackForPutArgStk(putArgStk);
+        genPutStructArgStk(putArgStk);
+#else
+        unreached();
+#endif
+        return;
+    }
+
+    if (src->isContained())
+    {
+        ssize_t value = src->AsIntCon()->GetValue();
+
+#if defined(TARGET_AMD64)
+        GetEmitter()->emitIns_S_I(ins_Store(srcType), emitTypeSize(srcType), outArgLclNum, static_cast<int>(argOffset),
+                                  static_cast<int>(value));
+#else
+        if (src->IsIconHandle())
         {
-            inst_IV_handle(INS_push, data->AsIntCon()->gtIconVal);
+            inst_IV_handle(INS_push, value);
         }
         else
         {
-            inst_IV(INS_push, data->AsIntCon()->gtIconVal);
+            inst_IV(INS_push, value);
         }
-        AddStackLevel(argSize);
-    }
-    else if (data->OperGet() == GT_FIELD_LIST)
-    {
-        genPutArgStkFieldList(putArgStk);
+        AddStackLevel(putArgStk->getArgSize());
+#endif
     }
     else
     {
-        // We should not see any contained nodes that are not immediates.
-        assert(data->isUsedFromReg());
-        genConsumeReg(data);
-        genPushReg(targetType, data->GetRegNum());
-    }
-#else // !TARGET_X86
-    {
-        unsigned baseVarNum = getBaseVarForPutArgStk(putArgStk);
+        regNumber srcReg = genConsumeReg(src);
 
-#ifdef UNIX_AMD64_ABI
-
-        if (data->OperIs(GT_FIELD_LIST))
-        {
-            genPutArgStkFieldList(putArgStk, baseVarNum);
-            return;
-        }
-        else if (varTypeIsStruct(targetType))
-        {
-            genPutStructArgStk(putArgStk, baseVarNum, putArgStk->getArgOffset());
-            return;
-        }
-#endif // UNIX_AMD64_ABI
-
-        noway_assert(targetType != TYP_STRUCT);
-
-        // Get argument offset on stack.
-        // Here we cross check that argument offset hasn't changed from lowering to codegen since
-        // we are storing arg slot number in GT_PUTARG_STK node in lowering phase.
-        int            argOffset      = putArgStk->getArgOffset();
-
-#ifdef DEBUG
-        fgArgTabEntry* curArgTabEntry = putArgStk->gtCall->GetArgInfoByArgNode(putArgStk);
-        assert(curArgTabEntry);
-        assert(argOffset == (int)curArgTabEntry->slotNum * TARGET_POINTER_SIZE);
+#if defined(TARGET_AMD64)
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum,
+                                  static_cast<int>(argOffset));
+#else
+        genPushReg(srcType, srcReg);
 #endif
-
-        if (data->isContainedIntOrIImmed())
-        {
-            GetEmitter()->emitIns_S_I(ins_Store(targetType), emitTypeSize(targetType), baseVarNum, argOffset,
-                                      (int)data->AsIntConCommon()->IconValue());
-        }
-        else
-        {
-            assert(data->isUsedFromReg());
-            genConsumeReg(data);
-            GetEmitter()->emitIns_S_R(ins_Store(targetType), emitTypeSize(targetType), data->GetRegNum(), baseVarNum,
-                                      argOffset);
-        }
     }
-#endif // !TARGET_X86
 }
 
 //---------------------------------------------------------------------
