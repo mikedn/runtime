@@ -7183,8 +7183,6 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 //
 void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
 {
-    m_pushStkArg = false;
-
     // If argSize is large, we need to probe the stack like we do in the prolog (genAllocLclFrame)
     // or for localloc (genLclHeap), to ensure we touch the stack pages sequentially, and don't miss
     // the stack guard pages. The prolog probes, but we don't know at this point how much higher
@@ -7223,7 +7221,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
     assert((putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push) ||
            (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::PushAllSlots));
 
-    m_pushStkArg = true;
+    bool pushStkArg = true;
 
     // If we have pre-adjusted the stack and are simply storing the fields in order, set the offset to 0.
     // (Note that this mode is not currently being used.)
@@ -7290,11 +7288,11 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 AddStackLevel(pushSize);
                 adjustment -= pushSize;
             }
-            m_pushStkArg = true;
+            pushStkArg = true;
         }
         else
         {
-            m_pushStkArg = false;
+            pushStkArg = false;
 
             // We always "push" floating point fields (i.e. they are full slot values that don't
             // require special handling).
@@ -7329,7 +7327,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 
         if (argReg == REG_NA)
         {
-            if (m_pushStkArg)
+            if (pushStkArg)
             {
                 if (fieldNode->isUsedFromSpillTemp())
                 {
@@ -7380,7 +7378,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                         unreached();
                 }
 
-                if (m_pushStkArg)
+                if (pushStkArg)
                 {
                     genPushReg(fieldType, intTmpReg);
                 }
@@ -7400,7 +7398,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             }
             else
 #endif // defined(FEATURE_SIMD)
-                if (m_pushStkArg)
+                if (pushStkArg)
             {
                 genPushReg(fieldType, argReg);
             }
@@ -7408,7 +7406,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             {
                 genStoreRegToStackArg(fieldType, argReg, fieldOffset - currentOffset);
             }
-            if (m_pushStkArg)
+            if (pushStkArg)
             {
                 // We always push a slot-rounded size
                 currentOffset -= genTypeSize(fieldType);
@@ -7475,7 +7473,6 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
         inst_RV_IV(INS_sub, REG_SPBASE, putArgStk->getArgSize(), EA_4BYTE);
         AddStackLevel(putArgStk->getArgSize());
-        m_pushStkArg = false;
 
         if (putArgStk->isSIMD12())
         {
@@ -7646,7 +7643,6 @@ void CodeGen::genStoreRegToStackArg(var_types type,
     }
 
 #ifdef TARGET_X86
-    assert(!m_pushStkArg);
     GetEmitter()->emitIns_AR_R(ins_Store(type), emitTypeSize(type), srcReg, REG_SPBASE, offset);
 #else
     GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, outArgLclNum, outArgLclOffs + offset);
@@ -7712,7 +7708,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
         // Strictly speaking, it is only necessary to use `push` to store the GC references themselves, so for structs
         // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
         // future.
-        m_pushStkArg = true;
 
         GenTree*       srcAddr  = source->gtGetOp1();
         const unsigned numSlots = putArgStk->gtNumSlots;

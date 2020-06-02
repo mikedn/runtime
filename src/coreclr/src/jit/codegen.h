@@ -1376,12 +1376,6 @@ protected:
         return (varDsc->lvIsRegCandidate());
     }
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-#ifdef TARGET_X86
-    bool m_pushStkArg;
-#endif
-#endif // !FEATURE_PUT_STRUCT_ARG_STK
-
 #if defined(DEBUG) && defined(TARGET_XARCH)
     void genStackPointerCheck(bool doStackPointerCheck, unsigned lvaStackPointerVar);
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
