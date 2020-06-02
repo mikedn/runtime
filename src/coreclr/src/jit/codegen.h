@@ -1161,6 +1161,7 @@ protected:
     void genConsumeBlockOp(GenTreeBlk* blkNode, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
+#ifdef TARGET_XARCH
     void genConsumePutStructArgStk(GenTreePutArgStk* putArgStkNode,
                                    regNumber         dstReg,
                                    regNumber         srcReg,
@@ -1171,6 +1172,7 @@ protected:
                                    unsigned outArgLclOffs
 #endif
                                    );
+#endif
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 #if FEATURE_ARG_SPLIT
     void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
