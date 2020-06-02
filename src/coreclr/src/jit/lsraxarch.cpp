@@ -1564,8 +1564,10 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     ssize_t size = putArgStk->gtNumSlots * TARGET_POINTER_SIZE;
     switch (putArgStk->gtPutArgStkKind)
     {
+#ifdef TARGET_X86
         case GenTreePutArgStk::Kind::Push:
         case GenTreePutArgStk::Kind::PushAllSlots:
+#endif
         case GenTreePutArgStk::Kind::Unroll:
             // If we have a remainder smaller than XMM_REGSIZE_BYTES, we need an integer temp reg.
             //

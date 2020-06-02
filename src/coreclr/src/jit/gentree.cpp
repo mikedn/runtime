@@ -9957,26 +9957,27 @@ void Compiler::gtDispTree(GenTree*     tree,
         else if (tree->OperGet() == GT_PUTARG_STK)
         {
             printf(" (%d slots)", tree->AsPutArgStk()->gtNumSlots);
-            if (tree->AsPutArgStk()->gtPutArgStkKind != GenTreePutArgStk::Kind::Invalid)
+#ifdef TARGET_XARCH
+            switch (tree->AsPutArgStk()->gtPutArgStkKind)
             {
-                switch (tree->AsPutArgStk()->gtPutArgStkKind)
-                {
-                    case GenTreePutArgStk::Kind::RepInstr:
-                        printf(" (RepInstr)");
-                        break;
-                    case GenTreePutArgStk::Kind::Unroll:
-                        printf(" (Unroll)");
-                        break;
-                    case GenTreePutArgStk::Kind::Push:
-                        printf(" (Push)");
-                        break;
-                    case GenTreePutArgStk::Kind::PushAllSlots:
-                        printf(" (PushAllSlots)");
-                        break;
-                    default:
-                        unreached();
-                }
+                case GenTreePutArgStk::Kind::RepInstr:
+                    printf(" (RepInstr)");
+                    break;
+                case GenTreePutArgStk::Kind::Unroll:
+                    printf(" (Unroll)");
+                    break;
+#ifdef TARGET_X86
+                case GenTreePutArgStk::Kind::Push:
+                    printf(" (Push)");
+                    break;
+                case GenTreePutArgStk::Kind::PushAllSlots:
+                    printf(" (PushAllSlots)");
+                    break;
+#endif
+                default:
+                    break;
             }
+#endif
         }
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 

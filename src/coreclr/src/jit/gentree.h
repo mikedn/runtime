@@ -6446,16 +6446,21 @@ struct GenTreePutArgStk : public GenTreeUnOp
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
     unsigned gtNumSlots; // Number of slots for the argument to be passed on stack
 
+#ifdef TARGET_XARCH
     // Instruction selection: during codegen time, what code sequence we will be using
     // to encode this operation.
     // TODO-Throughput: The following information should be obtained from the child
     // block node.
     enum class Kind : uint8_t{
-        Invalid, RepInstr, Unroll, Push, PushAllSlots,
+        Invalid, RepInstr,     Unroll,
+#ifdef TARGET_X86
+        Push,    PushAllSlots,
+#endif
     };
 
     Kind gtPutArgStkKind;
-#endif
+#endif // TARGET_XARCH
+#endif // FEATURE_PUT_STRUCT_ARG_STK
 #if FEATURE_FASTTAILCALL
     bool gtPutInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
                                  // By default this is false and will be placed in out-going arg area.
@@ -6478,7 +6483,9 @@ struct GenTreePutArgStk : public GenTreeUnOp
         , gtSlotNum(slotNum)
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
         , gtNumSlots(numSlots)
+#ifdef TARGET_XARCH
         , gtPutArgStkKind(Kind::Invalid)
+#endif
 #endif
 #if FEATURE_FASTTAILCALL
         , gtPutInIncomingArgArea(putInIncomingArgArea)
@@ -6514,10 +6521,12 @@ struct GenTreePutArgStk : public GenTreeUnOp
         return (varTypeIsSIMD(gtOp1) && (gtNumSlots == 3));
     }
 
+#ifdef TARGET_X86
     bool isPushKind()
     {
         return (gtPutArgStkKind == Kind::Push) || (gtPutArgStkKind == Kind::PushAllSlots);
     }
+#endif
 #else
     unsigned getArgSize();
 #endif

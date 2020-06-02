@@ -7768,7 +7768,9 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 #endif
                                        );
                 break;
+#ifdef TARGET_X86
             case GenTreePutArgStk::Kind::Push:
+#endif
             case GenTreePutArgStk::Kind::Unroll:
                 genStructPutArgUnroll(putArgStk
 #ifndef TARGET_X86
