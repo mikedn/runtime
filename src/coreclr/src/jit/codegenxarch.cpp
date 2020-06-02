@@ -3202,7 +3202,7 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
         {
 #ifdef TARGET_X86
             genCodeForLoadOffset(INS_movq, EA_8BYTE, xmmTmpReg, srcAddr, offset);
-            genStoreRegToStackArg(TYP_LONG, xmmTmpReg, offset);
+            GetEmitter()->emitIns_AR_R(INS_movq, EA_8BYTE, xmmTmpReg, REG_SPBASE, offset);
 #else
             genCodeForLoadOffset(INS_mov, EA_8BYTE, intTmpReg, srcAddr, offset);
             genStoreRegToStackArg(TYP_LONG, intTmpReg, offset
@@ -7735,35 +7735,24 @@ void CodeGen::genStoreRegToStackArg(var_types type,
                                     )
 {
     assert(srcReg != REG_NA);
-    instruction ins;
 
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(type))
     {
         assert(genIsValidFloatReg(srcReg));
-        ins = ins_Store(type); // TODO-CQ: pass 'aligned' correctly
     }
     else
 #endif // FEATURE_SIMD
-#ifdef TARGET_X86
-        if (type == TYP_LONG)
-    {
-        assert(genIsValidFloatReg(srcReg));
-        ins = INS_movq;
-    }
-    else
-#endif // TARGET_X86
     {
         assert((varTypeIsFloating(type) && genIsValidFloatReg(srcReg)) ||
                (varTypeIsIntegralOrI(type) && genIsValidIntReg(srcReg)));
-        ins = ins_Store(type);
     }
 
 #ifdef TARGET_X86
     assert(!m_pushStkArg);
-    GetEmitter()->emitIns_AR_R(ins, emitTypeSize(type), srcReg, REG_SPBASE, offset);
+    GetEmitter()->emitIns_AR_R(ins_Store(type), emitTypeSize(type), srcReg, REG_SPBASE, offset);
 #else
-    GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), srcReg, outArgLclNum, outArgLclOffs + offset);
+    GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, outArgLclNum, outArgLclOffs + offset);
 #endif
 }
 
