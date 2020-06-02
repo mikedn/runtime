@@ -3121,11 +3121,12 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
 #ifdef TARGET_X86
     // On x86 we use an XMM register for both 16 and 8-byte chunks, but if it's
     // less than 16 bytes, we will just be using pushes
-    if (size >= 8)
+    if (size >= (XMM_REGSIZE_BYTES / 2))
     {
         xmmTmpReg = putArgNode->GetSingleTempReg(RBM_ALLFLOAT);
     }
-    if ((size & 0x7) != 0)
+
+    if ((size % (XMM_REGSIZE_BYTES / 2)) != 0)
     {
         intTmpReg = putArgNode->GetSingleTempReg(RBM_ALLINT);
     }
@@ -3161,97 +3162,43 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
     {
         xmmTmpReg = putArgNode->GetSingleTempReg(RBM_ALLFLOAT);
     }
-    if ((size & 0xf) != 0)
+
+    if ((size % XMM_REGSIZE_BYTES) != 0)
     {
         intTmpReg = putArgNode->GetSingleTempReg(RBM_ALLINT);
     }
 #endif // !TARGET_X86
 
-    // If the size of this struct is larger than 16 bytes
-    // let's use SSE2 to be able to do 16 byte at a time
-    // loads and stores.
-    if (size >= XMM_REGSIZE_BYTES)
+    for (unsigned regSize = XMM_REGSIZE_BYTES, offset = 0; size != 0; size -= regSize, offset += regSize)
     {
-        size_t slots = size / XMM_REGSIZE_BYTES;
-
-        assert(putArgNode->gtGetOp1()->isContained());
-        assert(putArgNode->gtGetOp1()->AsOp()->gtOper == GT_OBJ);
-
-        // TODO: In the below code the load and store instructions are for 16 bytes, but the
-        //          type is EA_8BYTE. The movdqa/u are 16 byte instructions, so it works, but
-        //          this probably needs to be changed.
-        while (slots-- > 0)
+        while (regSize > size)
         {
-            // Load
-            genCodeForLoadOffset(INS_movdqu, EA_8BYTE, xmmTmpReg, src->gtGetOp1(), offset);
+            regSize /= 2;
+        }
+
+        instruction ins    = INS_mov;
+        regNumber   tmpReg = intTmpReg;
+
+        if (regSize == 16)
+        {
+            ins    = INS_movdqu;
+            tmpReg = xmmTmpReg;
+        }
+#ifdef TARGET_X86
+        else if (regSize == 8)
+        {
+            ins    = INS_movq;
+            tmpReg = xmmTmpReg;
+        }
+#endif
+
+        genCodeForLoadOffset(ins, EA_ATTR(regSize), tmpReg, srcAddr, offset);
 
 #ifdef TARGET_X86
-            GetEmitter()->emitIns_AR_R(INS_movdqu, EA_8BYTE, xmmTmpReg, REG_SPBASE, offset);
+        GetEmitter()->emitIns_AR_R(ins, EA_ATTR(regSize), tmpReg, REG_SPBASE, offset);
 #else
-            GetEmitter()->emitIns_S_R(INS_movdqu, EA_8BYTE, xmmTmpReg, outArgLclNum, outArgLclOffs + offset);
+        GetEmitter()->emitIns_S_R(ins, EA_ATTR(regSize), tmpReg, outArgLclNum, outArgLclOffs + offset);
 #endif
-
-            offset += XMM_REGSIZE_BYTES;
-        }
-    }
-
-    // Fill the remainder (15 bytes or less) if there's one.
-    if ((size & 0xf) != 0)
-    {
-        if ((size & 8) != 0)
-        {
-#ifdef TARGET_X86
-            genCodeForLoadOffset(INS_movq, EA_8BYTE, xmmTmpReg, srcAddr, offset);
-            GetEmitter()->emitIns_AR_R(INS_movq, EA_8BYTE, xmmTmpReg, REG_SPBASE, offset);
-#else
-            genCodeForLoadOffset(INS_mov, EA_8BYTE, intTmpReg, srcAddr, offset);
-            genStoreRegToStackArg(TYP_LONG, intTmpReg, offset
-#ifndef TARGET_X86
-                                  ,
-                                  outArgLclNum, outArgLclOffs
-#endif
-                                  );
-#endif
-            offset += 8;
-        }
-
-        if ((size & 4) != 0)
-        {
-            genCodeForLoadOffset(INS_mov, EA_4BYTE, intTmpReg, srcAddr, offset);
-            genStoreRegToStackArg(TYP_INT, intTmpReg, offset
-#ifndef TARGET_X86
-                                  ,
-                                  outArgLclNum, outArgLclOffs
-#endif
-                                  );
-            offset += 4;
-        }
-
-        if ((size & 2) != 0)
-        {
-            genCodeForLoadOffset(INS_mov, EA_2BYTE, intTmpReg, srcAddr, offset);
-            genStoreRegToStackArg(TYP_SHORT, intTmpReg, offset
-#ifndef TARGET_X86
-                                  ,
-                                  outArgLclNum, outArgLclOffs
-#endif
-                                  );
-            offset += 2;
-        }
-
-        if ((size & 1) != 0)
-        {
-            genCodeForLoadOffset(INS_mov, EA_1BYTE, intTmpReg, srcAddr, offset);
-            genStoreRegToStackArg(TYP_BYTE, intTmpReg, offset
-#ifndef TARGET_X86
-                                  ,
-                                  outArgLclNum, outArgLclOffs
-#endif
-                                  );
-            offset += 1;
-        }
-
-        assert(offset == size);
     }
 }
 
