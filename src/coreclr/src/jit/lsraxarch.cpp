@@ -1559,22 +1559,22 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return BuildSimple(putArgStk);
     }
 
-    ClassLayout* layout = src->AsObj()->GetLayout();
-
-    ssize_t size = putArgStk->gtNumSlots * TARGET_POINTER_SIZE;
     switch (putArgStk->gtPutArgStkKind)
     {
 #ifdef TARGET_X86
         case GenTreePutArgStk::Kind::Push:
-        case GenTreePutArgStk::Kind::PushAllSlots:
+            break;
 #endif
+
         case GenTreePutArgStk::Kind::Unroll:
+            ssize_t size;
+            size = putArgStk->getArgSize();
             // If we have a remainder smaller than XMM_REGSIZE_BYTES, we need an integer temp reg.
             //
             // x86 specific note: if the size is odd, the last copy operation would be of size 1 byte.
             // But on x86 only RBM_BYTE_REGS could be used as byte registers.  Therefore, exclude
             // RBM_NON_BYTE_REGS from internal candidates.
-            if (!layout->HasGCPtr() && (size & (XMM_REGSIZE_BYTES - 1)) != 0)
+            if ((size % XMM_REGSIZE_BYTES) != 0)
             {
                 regMaskTP regMask = allRegs(TYP_INT);
 
