@@ -7486,7 +7486,8 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 }
                 else
                 {
-                    genStoreRegToStackArg(fieldType, intTmpReg, fieldOffset - currentOffset);
+                    GetEmitter()->emitIns_AR_R(ins_Store(fieldType), emitTypeSize(fieldType), intTmpReg, REG_SPBASE,
+                                               fieldOffset - currentOffset);
                 }
             }
         }
@@ -7506,7 +7507,8 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             }
             else
             {
-                genStoreRegToStackArg(fieldType, argReg, fieldOffset - currentOffset);
+                GetEmitter()->emitIns_AR_R(ins_Store(fieldType), emitTypeSize(fieldType), argReg, REG_SPBASE,
+                                           fieldOffset - currentOffset);
             }
             if (pushStkArg)
             {
@@ -7568,7 +7570,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         regNumber srcReg = genConsumeReg(src);
         assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
 
-        genStoreRegToStackArg(srcType, srcReg, 0, outArgLclNum, outArgLclOffs);
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, outArgLclOffs);
 #elif defined(TARGET_X86)
         regNumber srcReg = genConsumeReg(src);
         assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
@@ -7583,7 +7585,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         else
         {
-            genStoreRegToStackArg(srcType, srcReg, 0);
+            GetEmitter()->emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
         }
 #else
         // WIN64 passes SIMD types by reference (no vectorcall support).
@@ -7700,43 +7702,6 @@ void CodeGen::genPushReg(var_types type, regNumber srcReg)
 #endif // TARGET_X86
 
 #if defined(FEATURE_PUT_STRUCT_ARG_STK)
-// genStoreRegToStackArg: Store a register value into the stack argument area
-//
-// Arguments:
-//    type   - the type of value to be stored
-//    reg    - the register containing the value
-//    offset - the offset from the base (see Assumptions below)
-//
-void CodeGen::genStoreRegToStackArg(var_types type,
-                                    regNumber srcReg,
-                                    int       offset
-#ifndef TARGET_X86
-                                    ,
-                                    unsigned outArgLclNum,
-                                    unsigned outArgLclOffs
-#endif
-                                    )
-{
-    assert(srcReg != REG_NA);
-
-#ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(type))
-    {
-        assert(genIsValidFloatReg(srcReg));
-    }
-    else
-#endif // FEATURE_SIMD
-    {
-        assert((varTypeIsFloating(type) && genIsValidFloatReg(srcReg)) ||
-               (varTypeIsIntegralOrI(type) && genIsValidIntReg(srcReg)));
-    }
-
-#ifdef TARGET_X86
-    GetEmitter()->emitIns_AR_R(ins_Store(type), emitTypeSize(type), srcReg, REG_SPBASE, offset);
-#else
-    GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, outArgLclNum, outArgLclOffs + offset);
-#endif
-}
 
 //---------------------------------------------------------------------
 // genPutStructArgStk - Generate code for copying a struct arg on the stack by value.

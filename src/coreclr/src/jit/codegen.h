@@ -1293,15 +1293,6 @@ protected:
                                unsigned outArgLclOffs
 #endif
                                );
-    void genStoreRegToStackArg(var_types type,
-                               regNumber reg,
-                               int       offset
-#ifndef TARGET_X86
-                               ,
-                               unsigned outArgLclNum,
-                               unsigned outArgLclOffs
-#endif
-                               );
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 
     void genCodeForStoreBlk(GenTreeBlk* storeBlkNode);
