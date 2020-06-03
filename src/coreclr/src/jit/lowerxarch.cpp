@@ -387,8 +387,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     if (src->OperIs(GT_FIELD_LIST))
     {
 #ifdef TARGET_X86
-        putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::Invalid;
-
         GenTreeFieldList* fieldList = src->AsFieldList();
 
         // The code generator will push these fields in reverse order by offset. Reorder the list here s.t. the order
@@ -499,21 +497,8 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
-    GenTree* srcAddr = nullptr;
-
-    bool haveLocalAddr = false;
-    if ((src->OperGet() == GT_OBJ) || (src->OperGet() == GT_IND))
-    {
-        srcAddr = src->AsOp()->gtOp1;
-        assert(srcAddr != nullptr);
-        haveLocalAddr = srcAddr->OperIsLocalAddr();
-    }
-    else
-    {
-        assert(varTypeIsSIMD(putArgStk));
-    }
-
-    ClassLayout* layout = src->AsObj()->GetLayout();
+    GenTree*     srcAddr = src->AsObj()->GetAddr();
+    ClassLayout* layout  = src->AsObj()->GetLayout();
 
     // In case of a CpBlk we could use a helper call. In case of putarg_stk we
     // can't do that since the helper call could kill some already set up outgoing args.
@@ -521,7 +506,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     // The cpyXXXX code is rather complex and this could cause it to be more complex, but
     // it might be the right thing to do.
 
-    ssize_t size = putArgStk->gtNumSlots * TARGET_POINTER_SIZE;
+    ssize_t size = putArgStk->getArgSize();
 
     // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
     // (I don't know which).
@@ -544,7 +529,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
     // Always mark the OBJ and ADDR as contained trees by the putarg_stk. The codegen will deal with this tree.
     MakeSrcContained(putArgStk, src);
-    if (haveLocalAddr)
+    if (srcAddr->OperIsLocalAddr())
     {
         // If the source address is the address of a lclVar, make the source address contained to avoid unnecessary
         // copies.
