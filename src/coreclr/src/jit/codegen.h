@@ -1275,6 +1275,10 @@ protected:
                             ,
                             unsigned outArgLclNum,
                             unsigned outArgLclOffs
+#ifdef TARGET_ARMARCH
+                            ,
+                            unsigned outArgLclSize
+#endif
 #endif
                             );
 
