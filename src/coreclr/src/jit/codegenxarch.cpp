@@ -5074,28 +5074,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         GenTree* arg = use.GetNode();
         if (arg->OperIs(GT_PUTARG_STK) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
         {
-            GenTree* source = arg->AsPutArgStk()->gtGetOp1();
-            unsigned size   = arg->AsPutArgStk()->getArgSize();
-            stackArgBytes += size;
-#ifdef DEBUG
-            fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(arg);
-            assert(curArgTabEntry != nullptr);
-            assert(size == (curArgTabEntry->numSlots * TARGET_POINTER_SIZE));
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-            if (!source->OperIs(GT_FIELD_LIST) && (source->TypeGet() == TYP_STRUCT))
-            {
-                GenTreeObj* obj      = source->AsObj();
-                unsigned    argBytes = roundUp(obj->GetLayout()->GetSize(), TARGET_POINTER_SIZE);
-#ifdef TARGET_X86
-                // If we have an OBJ, we must have created a copy if the original arg was not a
-                // local and was not a multiple of TARGET_POINTER_SIZE.
-                // Note that on x64/ux this will be handled by unrolling in genStructPutArgUnroll.
-                assert((argBytes == obj->GetLayout()->GetSize()) || obj->Addr()->IsLocalAddrExpr());
-#endif // TARGET_X86
-                assert((curArgTabEntry->numSlots * TARGET_POINTER_SIZE) == argBytes);
-            }
-#endif // FEATURE_PUT_STRUCT_ARG_STK
-#endif // DEBUG
+            stackArgBytes += arg->AsPutArgStk()->getArgSize();
         }
     }
 #endif // defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
@@ -7730,6 +7709,9 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
                 unreached();
         }
     }
+
+    // The code below assumes that the size of an object which contains GC pointers is a multiple of the slot size.
+    assert(layout->GetSize() % REGSIZE_BYTES == 0);
 
 #ifdef TARGET_X86
     // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions so
