@@ -2850,29 +2850,6 @@ void CodeGen::genCodeForInitBlkHelper(GenTreeBlk* initBlkNode)
 }
 #endif // TARGET_AMD64
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-// Generate code for a load from some address + offset
-//   baseNode: tree node which can be either a local address or arbitrary node
-//   offset: distance from the baseNode from which to load
-void CodeGen::genCodeForLoadOffset(instruction ins, emitAttr size, regNumber dst, GenTree* baseNode, unsigned offset)
-{
-    emitter* emit = GetEmitter();
-
-    if (baseNode->OperIsLocalAddr())
-    {
-        if (baseNode->gtOper == GT_LCL_FLD_ADDR)
-        {
-            offset += baseNode->AsLclFld()->GetLclOffs();
-        }
-        emit->emitIns_R_S(ins, size, dst, baseNode->AsLclVarCommon()->GetLclNum(), offset);
-    }
-    else
-    {
-        emit->emitIns_R_AR(ins, size, dst, baseNode->GetRegNum(), offset);
-    }
-}
-#endif // FEATURE_PUT_STRUCT_ARG_STK
-
 //----------------------------------------------------------------------------------
 // genCodeForCpBlkUnroll - Generate unrolled block copy code.
 //
@@ -3073,54 +3050,53 @@ void CodeGen::genCodeForCpBlkRepMovs(GenTreeBlk* cpBlkNode)
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
 
-//---------------------------------------------------------------------------------------------------------------//
+//---------------------------------------------------------------------------------------------------------------
 // genStructPutArgUnroll: Generates code for passing a struct arg on stack by value using loop unrolling.
 //
 // Arguments:
-//     putArgNode  - the PutArgStk tree.
+//     putArgNode - the PUTARG_STK node.
 //
 // TODO-Amd64-Unix: Try to share code with copyblk.
 //      Need refactoring of copyblk before it could be used for putarg_stk.
 //      The difference for now is that a putarg_stk contains its children, while cpyblk does not.
 //      This creates differences in code. After some significant refactoring it could be reused.
 //
-void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
-#ifndef TARGET_X86
-                                    ,
-                                    unsigned outArgLclNum,
-                                    unsigned outArgLclOffs
-#endif
-                                    )
+void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode NOT_X86_ARG(unsigned outArgLclNum)
+                                        NOT_X86_ARG(unsigned outArgLclOffs))
 {
-    GenTree* src = putArgNode->AsOp()->gtOp1;
-    // We will never call this method for SIMD types, which are stored directly
-    // in genPutStructArgStk().
-    noway_assert(src->TypeGet() == TYP_STRUCT);
+    GenTree* src = putArgNode->GetOp(0);
 
-    unsigned size = putArgNode->getArgSize();
-    assert(size <= CPBLK_UNROLL_LIMIT);
-
-    emitter* emit         = GetEmitter();
-    unsigned putArgOffset = putArgNode->getArgOffset();
-
+    assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
 
-    assert(src->gtOper == GT_OBJ);
-
-    if (src->AsOp()->gtOp1->isUsedFromReg())
-    {
-        genConsumeReg(src->AsOp()->gtOp1);
-    }
+    unsigned  srcLclNum      = BAD_VAR_NUM;
+    regNumber srcAddrBaseReg = REG_NA;
+    int       srcOffset      = 0;
 
     GenTree* srcAddr = src->AsObj()->GetAddr();
 
-    unsigned offset = 0;
+    if (srcAddr->isUsedFromReg())
+    {
+        srcAddrBaseReg = genConsumeReg(srcAddr);
+    }
+    else
+    {
+        assert(srcAddr->OperIsLocalAddr());
+
+        srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
+
+        if (srcAddr->OperIs(GT_LCL_FLD_ADDR))
+        {
+            srcOffset = srcAddr->AsLclFld()->GetLclOffs();
+        }
+    }
+
+    unsigned size = putArgNode->getArgSize();
 
     regNumber xmmTmpReg = REG_NA;
     regNumber intTmpReg = REG_NA;
 #ifdef TARGET_X86
-    // On x86 we use an XMM register for both 16 and 8-byte chunks, but if it's
-    // less than 16 bytes, we will just be using pushes
+    // On x86 we use an XMM register for both 16 and 8-byte chunks.
     if (size >= (XMM_REGSIZE_BYTES / 2))
     {
         xmmTmpReg = putArgNode->GetSingleTempReg(RBM_ALLFLOAT);
@@ -3136,12 +3112,27 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
         // Use a push (and a movq) if we have a 4 byte reminder, it's smaller
         // than the normal unroll code generated below.
 
-        genCodeForLoadOffset(INS_mov, EA_4BYTE, intTmpReg, srcAddr, size & 8);
+        if (srcLclNum != BAD_VAR_NUM)
+        {
+            GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, intTmpReg, srcLclNum, srcOffset + size & 8);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, intTmpReg, srcAddrBaseReg, srcOffset + size & 8);
+        }
+
         genPushReg(TYP_INT, intTmpReg);
 
         if (size == 12)
         {
-            genCodeForLoadOffset(INS_movq, EA_8BYTE, xmmTmpReg, srcAddr, 0);
+            if (srcLclNum != BAD_VAR_NUM)
+            {
+                GetEmitter()->emitIns_R_S(INS_movq, EA_8BYTE, xmmTmpReg, srcLclNum, srcOffset);
+            }
+            else
+            {
+                GetEmitter()->emitIns_R_AR(INS_movq, EA_8BYTE, xmmTmpReg, srcAddrBaseReg, srcOffset);
+            }
 
             inst_RV_IV(INS_sub, REG_SPBASE, 8, EA_4BYTE);
             GetEmitter()->emitIns_AR_R(INS_movq, EA_8BYTE, xmmTmpReg, REG_SPBASE, 0);
@@ -3189,7 +3180,14 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode
         }
 #endif
 
-        genCodeForLoadOffset(ins, EA_ATTR(regSize), tmpReg, srcAddr, offset);
+        if (srcLclNum != BAD_VAR_NUM)
+        {
+            GetEmitter()->emitIns_R_S(ins, EA_ATTR(regSize), tmpReg, srcLclNum, srcOffset + offset);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_AR(ins, EA_ATTR(regSize), tmpReg, srcAddrBaseReg, srcOffset + offset);
+        }
 
 #ifdef TARGET_X86
         GetEmitter()->emitIns_AR_R(ins, EA_ATTR(regSize), tmpReg, REG_SPBASE, offset);

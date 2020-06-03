@@ -1278,7 +1278,6 @@ protected:
 #endif
                             );
 
-    void genCodeForLoadOffset(instruction ins, emitAttr size, regNumber dst, GenTree* base, unsigned offset);
     void genStructPutArgRepMovs(GenTreePutArgStk* putArgStkNode
 #ifndef TARGET_X86
                                 ,
