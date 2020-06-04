@@ -3206,93 +3206,53 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode NOT_X86_ARG(uns
 //    putArgNode - the PUTARG_STK tree.
 //    dstReg     - the dstReg for the rep move operation.
 //    srcReg     - the srcReg for the rep move operation.
-//    sizeReg    - the sizeReg for the rep move operation.
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    sizeReg can be REG_NA when this function is used to consume the dstReg and srcReg
-//    for copying on the stack a struct with references.
-//    The source address/offset is determined from the address on the GT_OBJ node.
 //
 void CodeGen::genConsumePutStructArgStk(GenTreePutArgStk* putArgNode,
                                         regNumber         dstReg,
-                                        regNumber         srcReg,
-                                        regNumber         sizeReg
-#ifndef TARGET_X86
-                                        ,
-                                        unsigned outArgLclNum,
-                                        unsigned outArgLclOffs
-#endif
-                                        )
+                                        regNumber srcReg NOT_X86_ARG(unsigned outArgLclNum)
+                                            NOT_X86_ARG(unsigned outArgLclOffs))
 {
-    // The putArgNode children are always contained. We should not consume any registers.
-    assert(putArgNode->gtGetOp1()->isContained());
+    assert((dstReg != REG_NA) && ((putArgNode->gtRsvdRegs & genRegMask(dstReg)) != 0));
+    assert((srcReg != REG_NA) && ((putArgNode->gtRsvdRegs & genRegMask(srcReg)) != 0));
 
-    // Get the source address.
-    GenTree* src = putArgNode->gtGetOp1();
-    assert(varTypeIsStruct(src));
-    assert((src->gtOper == GT_OBJ) || ((src->gtOper == GT_IND && varTypeIsSIMD(src))));
-    GenTree* srcAddr = src->gtGetOp1();
+    GenTree* src = putArgNode->GetOp(0);
 
-    unsigned int size = putArgNode->getArgSize();
+    assert(src->isContained());
+    assert(src->TypeIs(TYP_STRUCT));
 
-    assert(dstReg != REG_NA);
-    assert(srcReg != REG_NA);
+    GenTree* srcAddr = src->AsObj()->GetAddr();
 
-    // Consume the registers only if they are not contained or set to REG_NA.
-    if (srcAddr->GetRegNum() != REG_NA)
+    if (!srcAddr->isContained())
     {
         genConsumeReg(srcAddr);
     }
 
-    // If the op1 is already in the dstReg - nothing to do.
-    // Otherwise load the op1 (GT_ADDR) into the dstReg to copy the struct on the stack by value.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef TARGET_X86
-    assert(dstReg != REG_SPBASE);
-    inst_RV_RV(INS_mov, dstReg, REG_SPBASE);
-#else  // !TARGET_X86
-    GenTree* dstAddr = putArgNode;
-    if (dstAddr->GetRegNum() != dstReg)
-    {
-        // Generate LEA instruction to load the stack of the outgoing var + SlotNum offset (or the incoming arg area
-        // for tail calls) in RDI.
-        // Destination is always local (on the stack) - use EA_PTRSIZE.
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, outArgLclNum, outArgLclOffs);
-    }
-#endif // !TARGET_X86
+    GetEmitter()->emitIns_R_R(INS_mov, EA_PTRSIZE, dstReg, REG_SPBASE);
+#else
+    GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, outArgLclNum, outArgLclOffs);
+#endif
 
-    if (srcAddr->GetRegNum() != srcReg)
+    if (!srcAddr->isContained())
     {
-        if (srcAddr->OperIsLocalAddr())
+        if (srcAddr->GetRegNum() != srcReg)
         {
-            // The OperLocalAddr is always contained.
-            assert(srcAddr->isContained());
-            GenTreeLclVarCommon* lclNode = srcAddr->AsLclVarCommon();
-
-            // Generate LEA instruction to load the LclVar address in RSI.
-            // Source is known to be on the stack. Use EA_PTRSIZE.
-            unsigned int offset = 0;
-            if (srcAddr->OperGet() == GT_LCL_FLD_ADDR)
-            {
-                offset = srcAddr->AsLclFld()->GetLclOffs();
-            }
-            GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, lclNode->GetLclNum(), offset);
-        }
-        else
-        {
-            assert(srcAddr->GetRegNum() != REG_NA);
-            // Source is not known to be on the stack. Use EA_BYREF.
             GetEmitter()->emitIns_R_R(INS_mov, EA_BYREF, srcReg, srcAddr->GetRegNum());
         }
     }
-
-    if (sizeReg != REG_NA)
+    else
     {
-        inst_RV_IV(INS_mov, sizeReg, size, EA_PTRSIZE);
+        assert(srcAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+
+        unsigned srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
+        unsigned srcOffset = 0;
+
+        if (srcAddr->OperIs(GT_LCL_FLD_ADDR))
+        {
+            srcOffset = srcAddr->AsLclFld()->GetLclOffs();
+        }
+
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, srcLclNum, srcOffset);
     }
 }
 
@@ -3302,32 +3262,19 @@ void CodeGen::genConsumePutStructArgStk(GenTreePutArgStk* putArgNode,
 // Arguments:
 //     putArgNode  - the PutArgStk tree.
 //
-void CodeGen::genStructPutArgRepMovs(GenTreePutArgStk* putArgNode
-#ifndef TARGET_X86
-                                     ,
-                                     unsigned outArgLclNum,
-                                     unsigned outArgLclOffs
-#endif
-                                     )
+void CodeGen::genStructPutArgRepMovs(GenTreePutArgStk* putArgNode NOT_X86_ARG(unsigned outArgLclNum)
+                                         NOT_X86_ARG(unsigned outArgLclOffs))
 {
-    GenTree* srcAddr = putArgNode->gtGetOp1();
-    assert(srcAddr->TypeGet() == TYP_STRUCT);
-
-    // Make sure we got the arguments of the cpblk operation in the right registers, and that
-    // 'srcAddr' is contained as expected.
-    assert(putArgNode->gtRsvdRegs == (RBM_RDI | RBM_RCX | RBM_RSI));
-    assert(srcAddr->isContained());
 
 #ifdef TARGET_X86
     genPreAdjustStackForPutArgStk(putArgNode->getArgSize());
 #endif
 
-    genConsumePutStructArgStk(putArgNode, REG_RDI, REG_RSI, REG_RCX
-#ifndef TARGET_X86
-                              ,
-                              outArgLclNum, outArgLclOffs
-#endif
-                              );
+    genConsumePutStructArgStk(putArgNode, REG_RDI, REG_RSI NOT_X86_ARG(outArgLclNum) NOT_X86_ARG(outArgLclOffs));
+
+    assert(((putArgNode->gtRsvdRegs & RBM_RCX) != 0));
+    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgNode->getArgSize());
+
     instGen(INS_r_movsb);
 }
 
@@ -7761,7 +7708,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     }
 #else  // !defined(TARGET_X86)
 
-    genConsumePutStructArgStk(putArgStk, REG_RDI, REG_RSI, REG_NA, outArgLclNum, outArgLclOffs);
+    genConsumePutStructArgStk(putArgStk, REG_RDI, REG_RSI, outArgLclNum, outArgLclOffs);
 
     GenTree* srcAddr     = src->AsObj()->GetAddr();
     emitAttr srcAddrAttr = srcAddr->OperIsLocalAddr() ? EA_PTRSIZE : EA_BYREF;

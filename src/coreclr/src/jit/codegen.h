@@ -1164,14 +1164,8 @@ protected:
 #ifdef TARGET_XARCH
     void genConsumePutStructArgStk(GenTreePutArgStk* putArgStkNode,
                                    regNumber         dstReg,
-                                   regNumber         srcReg,
-                                   regNumber         sizeReg
-#ifndef TARGET_X86
-                                   ,
-                                   unsigned outArgLclNum,
-                                   unsigned outArgLclOffs
-#endif
-                                   );
+                                   regNumber srcReg NOT_X86_ARG(unsigned outArgLclNum)
+                                       NOT_X86_ARG(unsigned outArgLclOffs));
 #endif
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 #if FEATURE_ARG_SPLIT
