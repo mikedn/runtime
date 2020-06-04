@@ -1464,24 +1464,25 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
 // BuildPutArgStk: Set the NodeInfo for a GT_PUTARG_STK.
 //
 // Arguments:
-//    tree      - The node of interest
+//    putArgStk - The node of interest
 //
 // Return Value:
 //    The number of sources consumed by this node.
 //
 int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 {
-    int srcCount = 0;
-    if (putArgStk->gtOp1->gtOper == GT_FIELD_LIST)
+    GenTree* src = putArgStk->GetOp(0);
+
+    if (src->OperIs(GT_FIELD_LIST))
     {
-        assert(putArgStk->gtOp1->isContained());
+        assert(src->isContained());
 
         RefPosition* simdTemp   = nullptr;
         RefPosition* intTemp    = nullptr;
         unsigned     prevOffset = putArgStk->getArgSize();
         // We need to iterate over the fields twice; once to determine the need for internal temps,
         // and once to actually build the uses.
-        for (GenTreeFieldList::Use& use : putArgStk->gtOp1->AsFieldList()->Uses())
+        for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
             GenTree* const  fieldNode   = use.GetNode();
             const var_types fieldType   = fieldNode->TypeGet();
@@ -1525,6 +1526,8 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             prevOffset = fieldOffset;
         }
 
+        int srcCount = 0;
+
         for (GenTreeFieldList::Use& use : putArgStk->gtOp1->AsFieldList()->Uses())
         {
             GenTree* const fieldNode = use.GetNode();
@@ -1539,87 +1542,82 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return srcCount;
     }
 
-    GenTree*  src  = putArgStk->gtOp1;
-    var_types type = src->TypeGet();
-
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
-    // For PutArgStk of a TYP_SIMD12, we need an extra register.
     if (putArgStk->isSIMD12())
     {
         buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
-        BuildUse(putArgStk->gtOp1);
-        srcCount = 1;
+        BuildUse(src);
+        buildInternalRegisterUses();
+        return 1;
+    }
+#endif
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        switch (putArgStk->gtPutArgStkKind)
+        {
+#ifdef TARGET_X86
+            case GenTreePutArgStk::Kind::Push:
+                break;
+#endif
+
+            case GenTreePutArgStk::Kind::Unroll:
+                unsigned size;
+                size = src->AsObj()->GetLayout()->GetSize();
+
+                if (src->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+                {
+                    size = roundUp(size, REGSIZE_BYTES);
+                }
+
+                // If we have a remainder smaller than XMM_REGSIZE_BYTES, we need an integer temp reg.
+                //
+                // x86 specific note: if the size is odd, the last copy operation would be of size 1 byte.
+                // But on x86 only RBM_BYTE_REGS could be used as byte registers.  Therefore, exclude
+                // RBM_NON_BYTE_REGS from internal candidates.
+                if ((size % XMM_REGSIZE_BYTES) != 0)
+                {
+                    regMaskTP regMask = allRegs(TYP_INT);
+
+#ifdef TARGET_X86
+                    if ((size % 2) != 0)
+                    {
+                        regMask &= ~RBM_NON_BYTE_REGS;
+                    }
+#endif
+                    buildInternalIntRegisterDefForNode(putArgStk, regMask);
+                }
+
+#ifdef TARGET_X86
+                if (size >= XMM_REGSIZE_BYTES / 2)
+#else
+                if (size >= XMM_REGSIZE_BYTES)
+#endif
+                {
+                    // If we have a buffer larger than or equal to XMM_REGSIZE_BYTES on x64/ux,
+                    // or larger than or equal to 8 bytes on x86, reserve an XMM register to use it for a
+                    // series of 16-byte loads and stores.
+                    buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
+                    SetContainsAVXFlags();
+                }
+                break;
+
+            case GenTreePutArgStk::Kind::RepInstr:
+                buildInternalIntRegisterDefForNode(putArgStk, RBM_RDI);
+                buildInternalIntRegisterDefForNode(putArgStk, RBM_RCX);
+                buildInternalIntRegisterDefForNode(putArgStk, RBM_RSI);
+                break;
+
+            default:
+                unreached();
+        }
+
+        int srcCount = BuildOperandUses(src);
         buildInternalRegisterUses();
         return srcCount;
     }
-#endif // defined(FEATURE_SIMD) && defined(TARGET_X86)
 
-    if (type != TYP_STRUCT)
-    {
-        return BuildSimple(putArgStk);
-    }
-
-    switch (putArgStk->gtPutArgStkKind)
-    {
-#ifdef TARGET_X86
-        case GenTreePutArgStk::Kind::Push:
-            break;
-#endif
-
-        case GenTreePutArgStk::Kind::Unroll:
-            unsigned size;
-            size = src->AsObj()->GetLayout()->GetSize();
-
-            if (src->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-            {
-                size = roundUp(size, REGSIZE_BYTES);
-            }
-
-            // If we have a remainder smaller than XMM_REGSIZE_BYTES, we need an integer temp reg.
-            //
-            // x86 specific note: if the size is odd, the last copy operation would be of size 1 byte.
-            // But on x86 only RBM_BYTE_REGS could be used as byte registers.  Therefore, exclude
-            // RBM_NON_BYTE_REGS from internal candidates.
-            if ((size % XMM_REGSIZE_BYTES) != 0)
-            {
-                regMaskTP regMask = allRegs(TYP_INT);
-
-#ifdef TARGET_X86
-                if ((size % 2) != 0)
-                {
-                    regMask &= ~RBM_NON_BYTE_REGS;
-                }
-#endif
-                buildInternalIntRegisterDefForNode(putArgStk, regMask);
-            }
-
-#ifdef TARGET_X86
-            if (size >= XMM_REGSIZE_BYTES / 2)
-#else
-            if (size >= XMM_REGSIZE_BYTES)
-#endif
-            {
-                // If we have a buffer larger than or equal to XMM_REGSIZE_BYTES on x64/ux,
-                // or larger than or equal to 8 bytes on x86, reserve an XMM register to use it for a
-                // series of 16-byte loads and stores.
-                buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
-                SetContainsAVXFlags();
-            }
-            break;
-
-        case GenTreePutArgStk::Kind::RepInstr:
-            buildInternalIntRegisterDefForNode(putArgStk, RBM_RDI);
-            buildInternalIntRegisterDefForNode(putArgStk, RBM_RCX);
-            buildInternalIntRegisterDefForNode(putArgStk, RBM_RSI);
-            break;
-
-        default:
-            unreached();
-    }
-
-    srcCount = BuildOperandUses(src);
-    buildInternalRegisterUses();
-    return srcCount;
+    return BuildOperandUses(src);
 }
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 
