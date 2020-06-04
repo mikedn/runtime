@@ -3081,7 +3081,7 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode NOT_X86_ARG(uns
     }
     else
     {
-        assert(srcAddr->OperIsLocalAddr());
+        assert(srcAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
 
         srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
 
@@ -3091,7 +3091,12 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode NOT_X86_ARG(uns
         }
     }
 
-    unsigned size = putArgNode->getArgSize();
+    unsigned size = src->AsObj()->GetLayout()->GetSize();
+
+    if (srcLclNum != BAD_VAR_NUM)
+    {
+        size = roundUp(size, REGSIZE_BYTES);
+    }
 
     regNumber xmmTmpReg = REG_NA;
     regNumber intTmpReg = REG_NA;
@@ -3273,7 +3278,7 @@ void CodeGen::genStructPutArgRepMovs(GenTreePutArgStk* putArgNode NOT_X86_ARG(un
     genConsumePutStructArgStk(putArgNode, REG_RDI, REG_RSI NOT_X86_ARG(outArgLclNum) NOT_X86_ARG(outArgLclOffs));
 
     assert(((putArgNode->gtRsvdRegs & RBM_RCX) != 0));
-    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgNode->getArgSize());
+    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgNode->GetOp(0)->AsObj()->GetLayout()->GetSize());
 
     instGen(INS_r_movsb);
 }

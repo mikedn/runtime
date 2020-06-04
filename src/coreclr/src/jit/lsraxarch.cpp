@@ -1567,8 +1567,14 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
 
         case GenTreePutArgStk::Kind::Unroll:
-            ssize_t size;
-            size = putArgStk->getArgSize();
+            unsigned size;
+            size = src->AsObj()->GetLayout()->GetSize();
+
+            if (src->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+            {
+                size = roundUp(size, REGSIZE_BYTES);
+            }
+
             // If we have a remainder smaller than XMM_REGSIZE_BYTES, we need an integer temp reg.
             //
             // x86 specific note: if the size is odd, the last copy operation would be of size 1 byte.

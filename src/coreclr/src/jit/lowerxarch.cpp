@@ -506,10 +506,15 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     // The cpyXXXX code is rather complex and this could cause it to be more complex, but
     // it might be the right thing to do.
 
-    ssize_t size = putArgStk->getArgSize();
-
     // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
     // (I don't know which).
+
+    unsigned size = layout->GetSize();
+
+    if (src->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        size = roundUp(size, REGSIZE_BYTES);
+    }
 
     if ((size <= CPBLK_UNROLL_LIMIT) && !layout->HasGCPtr())
     {
