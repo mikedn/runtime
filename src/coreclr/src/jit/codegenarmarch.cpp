@@ -996,7 +996,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
     {
         // Evaluate each of the GT_FIELD_LIST items into their register
         // and store their register into the outgoing argument area
-        unsigned regIndex = 0;
+        unsigned regIndex  = 0;
         unsigned dstOffset = outArgLclOffs;
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
@@ -1073,37 +1073,77 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             srcLclNum = srcAddr->AsLclVar()->GetLclNum();
         }
 
-        unsigned size      = putArg->getArgSize();
+        unsigned size = layout->GetSize();
+
+        if (srcLclNum != BAD_VAR_NUM)
+        {
+            size = roundUp(size, REGSIZE_BYTES);
+        }
+
         unsigned srcOffset = putArg->gtNumRegs * REGSIZE_BYTES;
         unsigned dstOffset = outArgLclOffs;
 
-        for (; srcOffset < size; srcOffset += REGSIZE_BYTES, dstOffset += REGSIZE_BYTES)
+        for (unsigned regSize = REGSIZE_BYTES; srcOffset < size; srcOffset += regSize, dstOffset += regSize)
         {
-            emitAttr slotAttr = emitTypeSize(layout->GetGCPtrType(srcOffset / REGSIZE_BYTES));
+            while (regSize > size)
+            {
+                regSize /= 2;
+            }
+
+            instruction loadIns;
+            instruction storeIns;
+            emitAttr    attr;
+
+            switch (regSize)
+            {
+                case 1:
+                    loadIns  = INS_ldrb;
+                    storeIns = INS_strb;
+                    attr     = EA_4BYTE;
+                    break;
+                case 2:
+                    loadIns  = INS_ldrh;
+                    storeIns = INS_strh;
+                    attr     = EA_4BYTE;
+                    break;
+#ifdef TARGET_ARM64
+                case 4:
+                    loadIns  = INS_ldr;
+                    storeIns = INS_str;
+                    attr     = EA_4BYTE;
+                    break;
+#endif // TARGET_ARM64
+                default:
+                    assert(regSize == REGSIZE_BYTES);
+                    loadIns  = INS_ldr;
+                    storeIns = INS_str;
+                    attr     = emitTypeSize(layout->GetGCPtrType(srcOffset / REGSIZE_BYTES));
+            }
 
             if (srcLclNum != BAD_VAR_NUM)
             {
-                GetEmitter()->emitIns_R_S(INS_ldr, slotAttr, tempReg, srcLclNum, srcOffset);
+                GetEmitter()->emitIns_R_S(loadIns, attr, tempReg, srcLclNum, srcOffset);
             }
             else
             {
-                GetEmitter()->emitIns_R_R_I(INS_ldr, slotAttr, tempReg, srcAddrBaseReg, srcOffset);
+                GetEmitter()->emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset);
             }
 
             // We can't write beyound the outgoing area area
-            assert(dstOffset + REGSIZE_BYTES <= outArgLclSize);
+            assert(dstOffset + regSize <= outArgLclSize);
 
-            GetEmitter()->emitIns_S_R(INS_str, slotAttr, tempReg, outArgLclNum, dstOffset);
+            GetEmitter()->emitIns_S_R(storeIns, attr, tempReg, outArgLclNum, dstOffset);
         }
 
         for (unsigned i = 0; i < putArg->gtNumRegs; i++)
         {
-            regNumber dstReg   = putArg->GetRegNumByIdx(i);
-            emitAttr  slotAttr = emitTypeSize(putArg->GetRegType(i));
+            unsigned  srcOffset = i * REGSIZE_BYTES;
+            regNumber dstReg    = putArg->GetRegNumByIdx(i);
+            emitAttr  slotAttr  = emitTypeSize(putArg->GetRegType(i));
 
             if (srcLclNum != BAD_VAR_NUM)
             {
-                GetEmitter()->emitIns_R_S(INS_ldr, slotAttr, dstReg, srcLclNum, i * REGSIZE_BYTES);
+                GetEmitter()->emitIns_R_S(INS_ldr, slotAttr, dstReg, srcLclNum, srcOffset);
             }
             else
             {
@@ -1118,7 +1158,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                     srcAddrBaseReg = tempReg;
                 }
 
-                GetEmitter()->emitIns_R_R_I(INS_ldr, slotAttr, dstReg, srcAddrBaseReg, i * REGSIZE_BYTES);
+                GetEmitter()->emitIns_R_R_I(INS_ldr, slotAttr, dstReg, srcAddrBaseReg, srcOffset);
             }
         }
     }
