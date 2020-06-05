@@ -3050,158 +3050,6 @@ void CodeGen::genCodeForCpBlkRepMovs(GenTreeBlk* cpBlkNode)
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
 
-//---------------------------------------------------------------------------------------------------------------
-// genStructPutArgUnroll: Generates code for passing a struct arg on stack by value using loop unrolling.
-//
-// Arguments:
-//     putArgNode - the PUTARG_STK node.
-//
-// TODO-Amd64-Unix: Try to share code with copyblk.
-//      Need refactoring of copyblk before it could be used for putarg_stk.
-//      The difference for now is that a putarg_stk contains its children, while cpyblk does not.
-//      This creates differences in code. After some significant refactoring it could be reused.
-//
-void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode NOT_X86_ARG(unsigned outArgLclNum)
-                                        NOT_X86_ARG(unsigned outArgLclOffs))
-{
-    GenTree* src = putArgNode->GetOp(0);
-
-    assert(src->TypeIs(TYP_STRUCT));
-    assert(src->isContained());
-
-    unsigned  srcLclNum      = BAD_VAR_NUM;
-    regNumber srcAddrBaseReg = REG_NA;
-    int       srcOffset      = 0;
-
-    GenTree* srcAddr = src->AsObj()->GetAddr();
-
-    if (srcAddr->isUsedFromReg())
-    {
-        srcAddrBaseReg = genConsumeReg(srcAddr);
-    }
-    else
-    {
-        assert(srcAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
-
-        srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
-
-        if (srcAddr->OperIs(GT_LCL_FLD_ADDR))
-        {
-            srcOffset = srcAddr->AsLclFld()->GetLclOffs();
-        }
-    }
-
-    unsigned size = src->AsObj()->GetLayout()->GetSize();
-
-    if (srcLclNum != BAD_VAR_NUM)
-    {
-        size = roundUp(size, REGSIZE_BYTES);
-    }
-
-    regNumber xmmTmpReg = REG_NA;
-    regNumber intTmpReg = REG_NA;
-#ifdef TARGET_X86
-    // On x86 we use an XMM register for both 16 and 8-byte chunks.
-    if (size >= (XMM_REGSIZE_BYTES / 2))
-    {
-        xmmTmpReg = putArgNode->GetSingleTempReg(RBM_ALLFLOAT);
-    }
-
-    if ((size % (XMM_REGSIZE_BYTES / 2)) != 0)
-    {
-        intTmpReg = putArgNode->GetSingleTempReg(RBM_ALLINT);
-    }
-
-    if ((size == 4) || (size == 12))
-    {
-        // Use a push (and a movq) if we have a 4 byte reminder, it's smaller
-        // than the normal unroll code generated below.
-
-        if (srcLclNum != BAD_VAR_NUM)
-        {
-            GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, intTmpReg, srcLclNum, srcOffset + size & 8);
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, intTmpReg, srcAddrBaseReg, srcOffset + size & 8);
-        }
-
-        genPushReg(TYP_INT, intTmpReg);
-
-        if (size == 12)
-        {
-            if (srcLclNum != BAD_VAR_NUM)
-            {
-                GetEmitter()->emitIns_R_S(INS_movq, EA_8BYTE, xmmTmpReg, srcLclNum, srcOffset);
-            }
-            else
-            {
-                GetEmitter()->emitIns_R_AR(INS_movq, EA_8BYTE, xmmTmpReg, srcAddrBaseReg, srcOffset);
-            }
-
-            inst_RV_IV(INS_sub, REG_SPBASE, 8, EA_4BYTE);
-            GetEmitter()->emitIns_AR_R(INS_movq, EA_8BYTE, xmmTmpReg, REG_SPBASE, 0);
-            AddStackLevel(8);
-        }
-
-        return;
-    }
-
-    genPreAdjustStackForPutArgStk(putArgNode->getArgSize());
-
-#else  // !TARGET_X86
-    // On x64 we use an XMM register only for 16-byte chunks.
-    if (size >= XMM_REGSIZE_BYTES)
-    {
-        xmmTmpReg = putArgNode->GetSingleTempReg(RBM_ALLFLOAT);
-    }
-
-    if ((size % XMM_REGSIZE_BYTES) != 0)
-    {
-        intTmpReg = putArgNode->GetSingleTempReg(RBM_ALLINT);
-    }
-#endif // !TARGET_X86
-
-    for (unsigned regSize = XMM_REGSIZE_BYTES, offset = 0; size != 0; size -= regSize, offset += regSize)
-    {
-        while (regSize > size)
-        {
-            regSize /= 2;
-        }
-
-        instruction ins    = INS_mov;
-        regNumber   tmpReg = intTmpReg;
-
-        if (regSize == 16)
-        {
-            ins    = INS_movdqu;
-            tmpReg = xmmTmpReg;
-        }
-#ifdef TARGET_X86
-        else if (regSize == 8)
-        {
-            ins    = INS_movq;
-            tmpReg = xmmTmpReg;
-        }
-#endif
-
-        if (srcLclNum != BAD_VAR_NUM)
-        {
-            GetEmitter()->emitIns_R_S(ins, EA_ATTR(regSize), tmpReg, srcLclNum, srcOffset + offset);
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_AR(ins, EA_ATTR(regSize), tmpReg, srcAddrBaseReg, srcOffset + offset);
-        }
-
-#ifdef TARGET_X86
-        GetEmitter()->emitIns_AR_R(ins, EA_ATTR(regSize), tmpReg, REG_SPBASE, offset);
-#else
-        GetEmitter()->emitIns_S_R(ins, EA_ATTR(regSize), tmpReg, outArgLclNum, outArgLclOffs + offset);
-#endif
-    }
-}
-
 //------------------------------------------------------------------------
 // If any Vector3 args are on stack and they are not pass-by-ref, the upper 32bits
 // must be cleared to zeroes. The native compiler doesn't clear the upper bits
@@ -7567,13 +7415,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
 
     ClassLayout* layout = src->AsObj()->GetLayout();
 
-    if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Unroll)
-    {
-        assert(!layout->HasGCPtr());
-        genStructPutArgUnroll(putArgStk NOT_X86_ARG(outArgLclNum) NOT_X86_ARG(outArgLclOffs));
-        return;
-    }
-
     unsigned  srcLclNum      = BAD_VAR_NUM;
     regNumber srcAddrBaseReg = REG_NA;
     int       srcOffset      = 0;
@@ -7629,6 +7470,122 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         return;
     }
 #endif // TARGET_X86
+
+    if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Unroll)
+    {
+        assert(!layout->HasGCPtr());
+
+        unsigned size = layout->GetSize();
+
+        if (srcLclNum != BAD_VAR_NUM)
+        {
+            size = roundUp(size, REGSIZE_BYTES);
+        }
+
+        regNumber xmmTmpReg = REG_NA;
+        regNumber intTmpReg = REG_NA;
+#ifdef TARGET_X86
+        // On x86 we use an XMM register for both 16 and 8-byte chunks.
+        if (size >= (XMM_REGSIZE_BYTES / 2))
+        {
+            xmmTmpReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
+        }
+
+        if ((size % (XMM_REGSIZE_BYTES / 2)) != 0)
+        {
+            intTmpReg = putArgStk->GetSingleTempReg(RBM_ALLINT);
+        }
+
+        if ((size == 4) || (size == 12))
+        {
+            // Use a push (and a movq) if we have a 4 byte reminder, it's smaller
+            // than the normal unroll code generated below.
+
+            if (srcLclNum != BAD_VAR_NUM)
+            {
+                GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, intTmpReg, srcLclNum, srcOffset + size & 8);
+            }
+            else
+            {
+                GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, intTmpReg, srcAddrBaseReg, srcOffset + size & 8);
+            }
+
+            genPushReg(TYP_INT, intTmpReg);
+
+            if (size == 12)
+            {
+                if (srcLclNum != BAD_VAR_NUM)
+                {
+                    GetEmitter()->emitIns_R_S(INS_movq, EA_8BYTE, xmmTmpReg, srcLclNum, srcOffset);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_AR(INS_movq, EA_8BYTE, xmmTmpReg, srcAddrBaseReg, srcOffset);
+                }
+
+                inst_RV_IV(INS_sub, REG_SPBASE, 8, EA_4BYTE);
+                GetEmitter()->emitIns_AR_R(INS_movq, EA_8BYTE, xmmTmpReg, REG_SPBASE, 0);
+                AddStackLevel(8);
+            }
+
+            return;
+        }
+
+        genPreAdjustStackForPutArgStk(putArgStk->getArgSize());
+
+#else  // !TARGET_X86
+        // On x64 we use an XMM register only for 16-byte chunks.
+        if (size >= XMM_REGSIZE_BYTES)
+        {
+            xmmTmpReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
+        }
+
+        if ((size % XMM_REGSIZE_BYTES) != 0)
+        {
+            intTmpReg = putArgStk->GetSingleTempReg(RBM_ALLINT);
+        }
+#endif // !TARGET_X86
+
+        for (unsigned regSize = XMM_REGSIZE_BYTES, offset = 0; size != 0; size -= regSize, offset += regSize)
+        {
+            while (regSize > size)
+            {
+                regSize /= 2;
+            }
+
+            instruction ins    = INS_mov;
+            regNumber   tmpReg = intTmpReg;
+
+            if (regSize == 16)
+            {
+                ins    = INS_movdqu;
+                tmpReg = xmmTmpReg;
+            }
+#ifdef TARGET_X86
+            else if (regSize == 8)
+            {
+                ins    = INS_movq;
+                tmpReg = xmmTmpReg;
+            }
+#endif
+
+            if (srcLclNum != BAD_VAR_NUM)
+            {
+                GetEmitter()->emitIns_R_S(ins, EA_ATTR(regSize), tmpReg, srcLclNum, srcOffset + offset);
+            }
+            else
+            {
+                GetEmitter()->emitIns_R_AR(ins, EA_ATTR(regSize), tmpReg, srcAddrBaseReg, srcOffset + offset);
+            }
+
+#ifdef TARGET_X86
+            GetEmitter()->emitIns_AR_R(ins, EA_ATTR(regSize), tmpReg, REG_SPBASE, offset);
+#else
+            GetEmitter()->emitIns_S_R(ins, EA_ATTR(regSize), tmpReg, outArgLclNum, outArgLclOffs + offset);
+#endif
+        }
+        return;
+    }
 
     assert(putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstr);
     assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
