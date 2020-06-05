@@ -1268,13 +1268,6 @@ protected:
 #endif
                             );
 
-    void genStructPutArgRepMovs(GenTreePutArgStk* putArgStkNode
-#ifndef TARGET_X86
-                                ,
-                                unsigned outArgLclNum,
-                                unsigned outArgLclOffs
-#endif
-                                );
     void genStructPutArgUnroll(GenTreePutArgStk* putArgStkNode
 #ifndef TARGET_X86
                                ,

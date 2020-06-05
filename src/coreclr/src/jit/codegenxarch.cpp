@@ -3203,67 +3203,6 @@ void CodeGen::genStructPutArgUnroll(GenTreePutArgStk* putArgNode NOT_X86_ARG(uns
 }
 
 //------------------------------------------------------------------------
-// genStructPutArgRepMovs: Generates code for passing a struct arg by value on stack using Rep Movs.
-//
-// Arguments:
-//     putArgNode  - the PutArgStk tree.
-//
-void CodeGen::genStructPutArgRepMovs(GenTreePutArgStk* putArgNode NOT_X86_ARG(unsigned outArgLclNum)
-                                         NOT_X86_ARG(unsigned outArgLclOffs))
-{
-    assert((putArgNode->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
-
-#ifdef TARGET_X86
-    genPreAdjustStackForPutArgStk(putArgNode->getArgSize());
-#endif
-
-    GenTree* src = putArgNode->GetOp(0);
-
-    assert(src->isContained());
-    assert(src->TypeIs(TYP_STRUCT));
-
-    GenTree* srcAddr = src->AsObj()->GetAddr();
-
-    if (!srcAddr->isContained())
-    {
-        genConsumeReg(srcAddr);
-    }
-
-#ifdef TARGET_X86
-    GetEmitter()->emitIns_R_R(INS_mov, EA_PTRSIZE, REG_RDI, REG_SPBASE);
-#else
-    GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI, outArgLclNum, outArgLclOffs);
-#endif
-
-    if (!srcAddr->isContained())
-    {
-        if (srcAddr->GetRegNum() != REG_RSI)
-        {
-            GetEmitter()->emitIns_R_R(INS_mov, EA_BYREF, REG_RSI, srcAddr->GetRegNum());
-        }
-    }
-    else
-    {
-        assert(srcAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
-
-        unsigned srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
-        int      srcOffset = 0;
-
-        if (srcAddr->OperIs(GT_LCL_FLD_ADDR))
-        {
-            srcOffset = srcAddr->AsLclFld()->GetLclOffs();
-        }
-
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RSI, srcLclNum, srcOffset);
-    }
-
-    assert(((putArgNode->gtRsvdRegs & RBM_RCX) != 0));
-    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgNode->GetOp(0)->AsObj()->GetLayout()->GetSize());
-
-    instGen(INS_r_movsb);
-}
-
-//------------------------------------------------------------------------
 // If any Vector3 args are on stack and they are not pass-by-ref, the upper 32bits
 // must be cleared to zeroes. The native compiler doesn't clear the upper bits
 // and there is no way to know if the caller is native or not. So, the upper
@@ -7624,26 +7563,16 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     GenTree* src = putArgStk->GetOp(0);
 
     assert(src->TypeIs(TYP_STRUCT));
+    assert(src->isContained());
 
     ClassLayout* layout = src->AsObj()->GetLayout();
 
-    if (!layout->HasGCPtr())
+    if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Unroll)
     {
-        switch (putArgStk->gtPutArgStkKind)
-        {
-            case GenTreePutArgStk::Kind::RepInstr:
-                genStructPutArgRepMovs(putArgStk NOT_X86_ARG(outArgLclNum) NOT_X86_ARG(outArgLclOffs));
-                return;
-            case GenTreePutArgStk::Kind::Unroll:
-                genStructPutArgUnroll(putArgStk NOT_X86_ARG(outArgLclNum) NOT_X86_ARG(outArgLclOffs));
-                return;
-            default:
-                unreached();
-        }
+        assert(!layout->HasGCPtr());
+        genStructPutArgUnroll(putArgStk NOT_X86_ARG(outArgLclNum) NOT_X86_ARG(outArgLclOffs));
+        return;
     }
-
-    // The code below assumes that the size of an object which contains GC pointers is a multiple of the slot size.
-    assert(layout->GetSize() % REGSIZE_BYTES == 0);
 
     unsigned  srcLclNum      = BAD_VAR_NUM;
     regNumber srcAddrBaseReg = REG_NA;
@@ -7668,33 +7597,48 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     }
 
 #ifdef TARGET_X86
-    // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions so
-    // that the emitter properly detects the need to update the method's GC information.
-    //
-    // Strictly speaking, it is only necessary to use `push` to store the GC references themselves, so for structs
-    // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
-    // future.
-
-    for (int i = putArgStk->gtNumSlots - 1; i >= 0; --i)
+    if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push)
     {
-        emitAttr slotAttr      = emitTypeSize(layout->GetGCPtrType(i));
-        int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
+        // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions so
+        // that the emitter properly detects the need to update the method's GC information.
+        //
+        // Strictly speaking, it is only necessary to use `push` to store the GC references themselves, so for structs
+        // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
+        // future.
 
-        if (srcLclNum != BAD_VAR_NUM)
+        // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
+        assert(layout->GetSize() % REGSIZE_BYTES == 0);
+
+        for (int i = putArgStk->gtNumSlots - 1; i >= 0; --i)
         {
-            GetEmitter()->emitIns_S(INS_push, slotAttr, srcLclNum, slotSrcOffset);
-        }
-        else
-        {
-            GetEmitter()->emitIns_AR_R(INS_push, slotAttr, REG_NA, srcAddrBaseReg, slotSrcOffset);
+            emitAttr slotAttr      = emitTypeSize(layout->GetGCPtrType(i));
+            int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
+
+            if (srcLclNum != BAD_VAR_NUM)
+            {
+                GetEmitter()->emitIns_S(INS_push, slotAttr, srcLclNum, slotSrcOffset);
+            }
+            else
+            {
+                GetEmitter()->emitIns_AR_R(INS_push, slotAttr, REG_NA, srcAddrBaseReg, slotSrcOffset);
+            }
+
+            AddStackLevel(REGSIZE_BYTES);
         }
 
-        AddStackLevel(REGSIZE_BYTES);
+        return;
     }
-#else  // !defined(TARGET_X86)
+#endif // TARGET_X86
 
+    assert(putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstr);
     assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
+
+#ifdef TARGET_X86
+    genPreAdjustStackForPutArgStk(putArgStk->getArgSize());
+    GetEmitter()->emitIns_R_R(INS_mov, EA_PTRSIZE, REG_RDI, REG_SPBASE);
+#else
     GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI, outArgLclNum, outArgLclOffs);
+#endif
 
     if (srcLclNum != BAD_VAR_NUM)
     {
@@ -7705,8 +7649,22 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         GetEmitter()->emitIns_R_R(INS_mov, EA_BYREF, REG_RSI, srcAddrBaseReg);
     }
 
+    if (!layout->HasGCPtr())
+    {
+        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, layout->GetSize());
+        GetEmitter()->emitIns(INS_r_movsb);
+        return;
+    }
+
+#ifdef TARGET_X86
+    // Structs containing GC pointers should always use GenTreePutArgStk::Kind::Push.
+    unreached();
+#else  // TARGET_AMD64
     emitAttr srcAddrAttr = srcAddr->OperIsLocalAddr() ? EA_PTRSIZE : EA_BYREF;
     unsigned numSlots    = putArgStk->gtNumSlots;
+
+    // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
+    assert(layout->GetSize() % REGSIZE_BYTES == 0);
 
     for (unsigned i = 0; i < numSlots; i++)
     {
@@ -7754,7 +7712,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
 
         i += adjacentNonGCSlotCount - 1;
     }
-#endif // TARGET_X86
+#endif // TARGET_AMD64
 }
 #endif // defined(FEATURE_PUT_STRUCT_ARG_STK)
 
