@@ -995,7 +995,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             regNumber fieldReg    = nextArgNode->GetRegNum();
             genConsumeReg(nextArgNode);
 
-            if (regIndex >= putArg->gtNumRegs)
+            if (regIndex >= putArg->GetRegCount())
             {
                 var_types type = nextArgNode->TypeGet();
                 emitAttr  attr = emitTypeSize(type);
@@ -1071,7 +1071,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             size = roundUp(size, REGSIZE_BYTES);
         }
 
-        unsigned srcOffset = putArg->gtNumRegs * REGSIZE_BYTES;
+        unsigned srcOffset = putArg->GetRegCount() * REGSIZE_BYTES;
         unsigned dstOffset = outArgLclOffs;
 
         for (unsigned regSize = REGSIZE_BYTES; srcOffset < size; srcOffset += regSize, dstOffset += regSize)
@@ -1126,7 +1126,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             GetEmitter()->emitIns_S_R(storeIns, attr, tempReg, outArgLclNum, dstOffset);
         }
 
-        for (unsigned i = 0; i < putArg->gtNumRegs; i++)
+        for (unsigned i = 0; i < putArg->GetRegCount(); i++)
         {
             unsigned  srcOffset = i * REGSIZE_BYTES;
             regNumber dstReg    = putArg->GetRegNumByIdx(i);
@@ -1142,7 +1142,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                 // copy the address to the temp register (which is always allocated and different from
                 // all destination registers) and continue using the temp register as source address.
 
-                if ((dstReg == srcAddrBaseReg) && (i != putArg->gtNumRegs - 1))
+                if ((dstReg == srcAddrBaseReg) && (i != putArg->GetRegCount() - 1))
                 {
                     assert(dstReg != tempReg);
                     GetEmitter()->emitIns_R_R(INS_mov, emitTypeSize(srcAddr->GetType()), tempReg, srcAddrBaseReg);

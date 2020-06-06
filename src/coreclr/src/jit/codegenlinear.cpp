@@ -1136,7 +1136,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
         else if (unspillTree->OperIsPutArgSplit())
         {
             GenTreePutArgSplit* splitArg = unspillTree->AsPutArgSplit();
-            unsigned            regCount = splitArg->gtNumRegs;
+            unsigned            regCount = splitArg->GetRegCount();
 
             // In case of split struct argument node, GTF_SPILLED flag on it indicates that
             // one or more of its result regs are spilled.  Call node needs to be
@@ -1818,7 +1818,7 @@ void CodeGen::genProduceReg(GenTree* tree)
             else if (tree->OperIsPutArgSplit())
             {
                 GenTreePutArgSplit* argSplit = tree->AsPutArgSplit();
-                unsigned            regCount = argSplit->gtNumRegs;
+                unsigned            regCount = argSplit->GetRegCount();
 
                 for (unsigned i = 0; i < regCount; ++i)
                 {

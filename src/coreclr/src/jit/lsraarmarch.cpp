@@ -281,7 +281,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #if FEATURE_ARG_SPLIT
         else if (argNode->OperGet() == GT_PUTARG_SPLIT)
         {
-            unsigned regCount = argNode->AsPutArgSplit()->gtNumRegs;
+            unsigned regCount = argNode->AsPutArgSplit()->GetRegCount();
             assert(regCount == curArgTabEntry->numRegs);
             for (unsigned int i = 0; i < regCount; i++)
             {
@@ -457,7 +457,7 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
     regMaskTP argRegMask = RBM_NONE;
 
-    for (unsigned i = 0; i < putArg->gtNumRegs; i++)
+    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
     {
         regNumber argRegNum = (regNumber)((unsigned)putArg->GetRegNum() + i);
         argRegMask |= genRegMask(argRegNum);
@@ -494,7 +494,7 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
             for (unsigned regIndex = 0; regIndex < currentRegCount; regIndex++)
             {
                 regMaskTP sourceMask = RBM_NONE;
-                if (sourceRegCount < putArg->gtNumRegs)
+                if (sourceRegCount < putArg->GetRegCount())
                 {
                     sourceMask = genRegMask((regNumber)((unsigned)putArg->GetRegNum() + sourceRegCount));
                 }
@@ -523,7 +523,7 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         buildInternalRegisterUses();
     }
 
-    BuildDefs(putArg, putArg->gtNumRegs, argRegMask);
+    BuildDefs(putArg, putArg->GetRegCount(), argRegMask);
 
     return srcCount;
 }

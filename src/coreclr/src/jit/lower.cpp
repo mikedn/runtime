@@ -1135,8 +1135,7 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
         }
 
         putArg = new (comp, GT_PUTARG_SPLIT)
-            GenTreePutArgSplit(arg, info->slotNum PUT_STRUCT_ARG_STK_ONLY_ARG(info->numSlots), info->numRegs,
-                               call->IsFastTailCall(), call);
+            GenTreePutArgSplit(arg, info->slotNum, info->numSlots, info->numRegs, call->IsFastTailCall(), call);
 
         // If struct argument is morphed to GT_FIELD_LIST node(s),
         // we can know GC info by type of each GT_FIELD_LIST node.
@@ -1155,7 +1154,7 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
             // Set type of registers
             for (unsigned index = 0; index < info->numRegs; index++)
             {
-                argSplit->m_regType[index] = layout->GetGCPtrType(index);
+                argSplit->SetRegType(index, layout->GetGCPtrType(index));
             }
         }
         else
@@ -1173,7 +1172,7 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
                 {
                     regType = (regType == TYP_FLOAT) ? TYP_INT : TYP_LONG;
                 }
-                argSplit->m_regType[regIndex] = regType;
+                argSplit->SetRegType(regIndex, regType);
                 regIndex++;
             }
 

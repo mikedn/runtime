@@ -668,7 +668,7 @@ int GenTree::GetRegisterDstCount() const
 #if FEATURE_ARG_SPLIT
     else if (OperIsPutArgSplit())
     {
-        return (const_cast<GenTree*>(this))->AsPutArgSplit()->gtNumRegs;
+        return AsPutArgSplit()->GetRegCount();
     }
 #endif
 #if !defined(TARGET_64BIT)
@@ -741,7 +741,7 @@ regMaskTP GenTree::gtGetRegMask() const
     else if (OperIsPutArgSplit())
     {
         const GenTreePutArgSplit* splitArg = AsPutArgSplit();
-        const unsigned            regCount = splitArg->gtNumRegs;
+        const unsigned            regCount = splitArg->GetRegCount();
 
         resultMask = RBM_NONE;
         for (unsigned i = 0; i < regCount; ++i)
