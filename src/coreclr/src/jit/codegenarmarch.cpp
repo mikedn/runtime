@@ -746,11 +746,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
     assert(src->OperIs(GT_LCL_VAR, GT_OBJ));
     assert(src->TypeIs(TYP_STRUCT));
 
-    regNumber tempReg = putArgStk->ExtractTempReg();
-#ifdef TARGET_ARM64
-    regNumber tempReg2 = putArgStk->GetSingleTempReg();
-#endif
-
     ClassLayout* layout;
     unsigned     srcLclNum      = BAD_VAR_NUM;
     regNumber    srcAddrBaseReg = REG_NA;
@@ -768,16 +763,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
         if (!srcAddr->isContained())
         {
             srcAddrBaseReg = genConsumeReg(srcAddr);
-
-#ifdef TARGET_ARM64
-            // If srcAddrBaseReg equal to tempReg, swap(tempReg, tempReg2)
-            // This reduces code complexity by only supporting one addrReg overwrite case
-            if (tempReg == srcAddrBaseReg)
-            {
-                tempReg  = tempReg2;
-                tempReg2 = srcAddrBaseReg;
-            }
-#endif // TARGET_ARM64
         }
         else
         {
@@ -798,7 +783,13 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
         size = roundUp(size, REGSIZE_BYTES);
     }
 
+    regNumber tempReg = putArgStk->ExtractTempReg();
+    assert(tempReg != srcAddrBaseReg);
+
 #ifdef TARGET_ARM64
+    regNumber tempReg2 = putArgStk->GetSingleTempReg();
+    assert(tempReg2 != srcAddrBaseReg);
+
     for (unsigned regSize = 2 * REGSIZE_BYTES; size >= regSize; size -= regSize, offset += regSize)
     {
         emitAttr attr  = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES + 0));
