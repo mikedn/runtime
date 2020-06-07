@@ -1502,11 +1502,21 @@ public:
         assert(regCount <= MAX_ARG_REG_COUNT);
     }
 
-    // Get the node that coresponds to this argument entry.
-    // This is the "real" node and not a placeholder or setup node.
+    // Get the use that coresponds to this argument.
+    // This is the "real" argument use and not the use of the setup tree.
+    GenTreeCall::Use* GetUse() const
+    {
+        return lateUse == nullptr ? use : lateUse;
+    }
+
     GenTree* GetNode() const
     {
-        return lateUse == nullptr ? use->GetNode() : lateUse->GetNode();
+        return GetUse()->GetNode();
+    }
+
+    void SetNode(GenTree* node)
+    {
+        GetUse()->SetNode(node);
     }
 
     bool isLateArg() const
@@ -1790,6 +1800,17 @@ public:
     void SortArgs(Compiler* compiler, GenTreeCall* call);
     void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call);
 
+    unsigned GetArgCount() const
+    {
+        return argCount;
+    }
+
+    CallArgInfo* GetArgInfo(unsigned i) const
+    {
+        assert(i < argCount);
+        return argTable[i];
+    }
+
     unsigned ArgCount()
     {
         return argCount;
@@ -1853,6 +1874,8 @@ public:
 
     void Dump(Compiler* compiler);
 };
+
+typedef fgArgInfo CallInfo;
 
 #ifdef DEBUG
 // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

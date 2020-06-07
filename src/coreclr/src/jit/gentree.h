@@ -3883,6 +3883,7 @@ public:
 
 class fgArgInfo;
 typedef struct fgArgTabEntry CallArgInfo;
+typedef class fgArgInfo      CallInfo;
 
 struct GenTreeCall final : public GenTree
 {
@@ -3997,6 +3998,11 @@ struct GenTreeCall final : public GenTree
                          // On ARM/x64: - also includes any outgoing arg space arguments
                          //             - that were evaluated into a temp LclVar
     fgArgInfo* fgArgInfo;
+
+    CallInfo* GetInfo() const
+    {
+        return fgArgInfo;
+    }
 
     UseList Args()
     {

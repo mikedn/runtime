@@ -1025,25 +1025,6 @@ bool Lowering::TryLowerSwitchToBitTest(
 #endif // TARGET_XARCH
 }
 
-// NOTE: this method deliberately does not update the call arg table. It must only
-// be used by NewPutArg and LowerArg; these functions are responsible for updating
-// the call arg table as necessary.
-void Lowering::ReplaceArgWithPutArgOrBitcast(GenTree** argSlot, GenTree* putArgOrBitcast)
-{
-    assert(argSlot != nullptr);
-    assert(*argSlot != nullptr);
-    assert(putArgOrBitcast->OperIsPutArg() || putArgOrBitcast->OperIs(GT_BITCAST));
-
-    GenTree* arg = *argSlot;
-
-    // Replace the argument with the putarg/copy
-    *argSlot                       = putArgOrBitcast;
-    putArgOrBitcast->AsOp()->gtOp1 = arg;
-
-    // Insert the putarg/copy into the block
-    BlockRange().InsertAfter(arg, putArgOrBitcast);
-}
-
 //------------------------------------------------------------------------
 // NewPutArg: rewrites the tree to put an arg in a register or on the stack.
 //
@@ -1195,11 +1176,9 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
                     GenTree*  curOp  = use.GetNode();
                     var_types curTyp = curOp->TypeGet();
 
-                    // Create a new GT_PUTARG_REG node with op1
                     GenTree* newOper = comp->gtNewPutArgReg(curTyp, curOp, argReg);
-
-                    // Splice in the new GT_PUTARG_REG node in the GT_FIELD_LIST
-                    ReplaceArgWithPutArgOrBitcast(&use.NodeRef(), newOper);
+                    use.SetNode(newOper);
+                    BlockRange().InsertAfter(curOp, newOper);
                     regIndex++;
                 }
 
@@ -1309,10 +1288,6 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
         }
     }
 
-    JITDUMP("new node is : ");
-    DISPNODE(putArg);
-    JITDUMP("\n");
-
     if (arg->gtFlags & GTF_LATE_ARG)
     {
         putArg->gtFlags |= GTF_LATE_ARG;
@@ -1320,45 +1295,70 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
     return putArg;
 }
 
+void Lowering::LowerCallArgs(GenTreeCall* call)
+{
+    CallInfo* info = call->GetInfo();
+
+    for (unsigned i = 0; i < info->GetArgCount(); i++)
+    {
+        JITDUMPTREE(info->GetArgInfo(i)->GetNode(), "lowering call arg %u (before):\n", i);
+        LowerCallArg(call, info->GetArgInfo(i));
+        JITDUMPTREE(info->GetArgInfo(i)->GetNode(), "lowering call arg %u (after):\n", i);
+        JITDUMP("\n");
+    }
+}
+
 //------------------------------------------------------------------------
-// LowerArg: Lower one argument of a call. This entails splicing a "putarg" node between
+// LowerCallArg: Lower one argument of a call. This entails splicing a "putarg" node between
 // the argument evaluation and the call. This is the point at which the source is
 // consumed and the value transitions from control of the register allocator to the calling
 // convention.
 //
-// Arguments:
 //    call  - The call node
-//    ppArg - Pointer to the call argument pointer. We might replace the call argument by
-//            changing *ppArg.
+//    argInfo - Call argument info
 //
-// Return Value:
-//    None.
-//
-void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
+void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
-    GenTree* arg = *ppArg;
+    GenTree* arg = argInfo->GetNode();
 
-    JITDUMP("lowering arg : ");
-    DISPNODE(arg);
+    assert(!arg->OperIsPutArg());
+    assert(!arg->OperIs(GT_STORE_LCL_VAR, GT_ARGPLACE, GT_NOP));
 
-    // No assignments should remain by Lowering.
-    assert(!arg->OperIs(GT_ASG));
-    assert(!arg->OperIsPutArgStk());
-
-    // Assignments/stores at this level are not really placing an argument.
-    // They are setting up temporary locals that will later be placed into
-    // outgoing regs or stack.
-    // Note that atomic ops may be stores and still produce a value.
-    if (!arg->IsValue())
+#if !defined(TARGET_64BIT)
+    if (arg->TypeIs(TYP_LONG))
     {
-        assert((arg->OperIsStore() && !arg->IsValue()) || arg->IsArgPlaceHolderNode() || arg->IsNothingNode() ||
-               arg->OperIsCopyBlkOp());
+        noway_assert(arg->OperIs(GT_LONG));
+        GenTreeFieldList* fieldList = new (comp, GT_FIELD_LIST) GenTreeFieldList();
+        fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(0), 0, TYP_INT);
+        fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(1), 4, TYP_INT);
+        GenTree* newArg = NewPutArg(call, fieldList, argInfo, TYP_LONG);
+
+        if (argInfo->GetRegCount() != 0)
+        {
+            assert(argInfo->GetRegCount() == 2);
+            // In the register argument case, NewPutArg replaces the original field list args with new
+            // GT_PUTARG_REG nodes, inserts them in linear order and returns the field list. So the
+            // only thing left to do is to insert the field list itself in linear order.
+            assert(newArg == fieldList);
+            BlockRange().InsertBefore(arg, newArg);
+        }
+        else
+        {
+            // For longs, we will replace the GT_LONG with a GT_FIELD_LIST, and put that under a PUTARG_STK.
+            // Although the hi argument needs to be pushed first, that will be handled by the general case,
+            // in which the fields will be reversed.
+            assert(argInfo->GetStackSlotCount() == 2);
+            newArg->SetRegNum(REG_STK);
+            BlockRange().InsertBefore(arg, fieldList, newArg);
+        }
+
+        argInfo->SetNode(newArg);
+        BlockRange().Remove(arg);
         return;
     }
+#endif // !defined(TARGET_64BIT)
 
-    fgArgTabEntry* info = call->GetArgInfoByArgNode(arg);
-    assert(info->GetNode() == arg);
-    var_types type = arg->TypeGet();
+    var_types type = arg->GetType();
 
     if (varTypeIsSmall(type))
     {
@@ -1374,11 +1374,9 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
     // actual TYP_SIMD12 type, so exactly 12 bytes is allocated and written.
     if (type == TYP_SIMD16)
     {
-        if ((arg->OperGet() == GT_LCL_VAR) || (arg->OperGet() == GT_STORE_LCL_VAR))
+        if (arg->OperIs(GT_LCL_VAR))
         {
-            unsigned   varNum = arg->AsLclVarCommon()->GetLclNum();
-            LclVarDsc* varDsc = &comp->lvaTable[varNum];
-            type              = varDsc->lvType;
+            type = comp->lvaGetDesc(arg->AsLclVar())->GetType();
         }
         else if (arg->OperIs(GT_SIMD))
         {
@@ -1398,80 +1396,37 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
 #elif defined(TARGET_AMD64)
     // TYP_SIMD8 parameters that are passed as longs
     // TODO-MIKE-CQ: This should be moved to morph.
-    if ((type == TYP_SIMD8) && (info->GetRegCount() != 0) && genIsValidIntReg(info->GetRegNum()))
+    if ((type == TYP_SIMD8) && (argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum()))
     {
-        GenTreeUnOp* bitcast = new (comp, GT_BITCAST) GenTreeOp(GT_BITCAST, TYP_LONG, arg, nullptr);
+        GenTreeUnOp* bitcast = comp->gtNewBitCastNode(TYP_LONG, arg);
         BlockRange().InsertAfter(arg, bitcast);
-
-        *ppArg = arg = bitcast;
-        assert(info->GetNode() == arg);
+        arg = bitcast;
+        argInfo->SetNode(bitcast);
         type = TYP_LONG;
     }
 #endif // defined(TARGET_X86)
 #endif // defined(FEATURE_SIMD)
 
-    // If we hit this we are probably double-lowering.
-    assert(!arg->OperIsPutArg());
-
-#if !defined(TARGET_64BIT)
-    if (varTypeIsLong(type))
-    {
-        noway_assert(arg->OperIs(GT_LONG));
-        GenTreeFieldList* fieldList = new (comp, GT_FIELD_LIST) GenTreeFieldList();
-        fieldList->AddFieldLIR(comp, arg->AsOp()->gtGetOp1(), 0, TYP_INT);
-        fieldList->AddFieldLIR(comp, arg->AsOp()->gtGetOp2(), 4, TYP_INT);
-        GenTree* newArg = NewPutArg(call, fieldList, info, type);
-
-        if (info->GetRegCount() != 0)
-        {
-            assert(info->GetRegCount() == 2);
-            // In the register argument case, NewPutArg replaces the original field list args with new
-            // GT_PUTARG_REG nodes, inserts them in linear order and returns the field list. So the
-            // only thing left to do is to insert the field list itself in linear order.
-            assert(newArg == fieldList);
-            BlockRange().InsertBefore(arg, newArg);
-        }
-        else
-        {
-            // For longs, we will replace the GT_LONG with a GT_FIELD_LIST, and put that under a PUTARG_STK.
-            // Although the hi argument needs to be pushed first, that will be handled by the general case,
-            // in which the fields will be reversed.
-            assert(info->numSlots == 2);
-            newArg->SetRegNum(REG_STK);
-            BlockRange().InsertBefore(arg, fieldList, newArg);
-        }
-
-        *ppArg = newArg;
-        assert(info->GetNode() == newArg);
-
-        BlockRange().Remove(arg);
-    }
-    else
-#endif // !defined(TARGET_64BIT)
-    {
-
 #ifdef TARGET_ARMARCH
-        if (call->IsVarargs() || comp->opts.compUseSoftFP)
+    if (call->IsVarargs() || comp->opts.compUseSoftFP)
+    {
+        // For vararg call or on armel, reg args should be all integer.
+        // Insert copies as needed to move float value to integer register.
+        GenTree* newArg = LowerFloatCallArg(argInfo);
+        if (newArg != nullptr)
         {
-            // For vararg call or on armel, reg args should be all integer.
-            // Insert copies as needed to move float value to integer register.
-            GenTree* newNode = LowerFloatArg(ppArg, info);
-            if (newNode != nullptr)
-            {
-                type = newNode->TypeGet();
-            }
+            arg  = newArg;
+            type = newArg->GetType();
         }
+    }
 #endif // TARGET_ARMARCH
 
-        GenTree* putArg = NewPutArg(call, arg, info, type);
+    GenTree* putArg = NewPutArg(call, arg, argInfo, type);
 
-        // In the case of register passable struct (in one or two registers)
-        // the NewPutArg returns a new node (GT_PUTARG_REG or a GT_FIELD_LIST with two GT_PUTARG_REGs.)
-        // If an extra node is returned, splice it in the right place in the tree.
-        if (arg != putArg)
-        {
-            ReplaceArgWithPutArgOrBitcast(ppArg, putArg);
-        }
+    if (arg != putArg)
+    {
+        argInfo->SetNode(putArg);
+        BlockRange().InsertAfter(arg, putArg);
     }
 }
 
@@ -1480,65 +1435,73 @@ void Lowering::LowerArg(GenTreeCall* call, GenTree** ppArg)
 // LowerFloatArg: Lower float call arguments on the arm platform.
 //
 // Arguments:
-//    arg  - The arg node
-//    info - call argument info
+//    argInfo - call argument info
 //
 // Return Value:
-//    Return nullptr, if no transformation was done;
-//    return arg if there was in place transformation;
-//    return a new tree if the root was changed.
+//    If the argument is floating point then this returns a new BITCAST node
+//    that converts the argument to INT/LONG. Otherwise it returns nullptr.
 //
 // Notes:
 //    This must handle scalar float arguments as well as GT_FIELD_LISTs
 //    with floating point fields.
 //
-GenTree* Lowering::LowerFloatArg(GenTree** pArg, fgArgTabEntry* info)
+GenTree* Lowering::LowerFloatCallArg(CallArgInfo* argInfo)
 {
-    GenTree* arg = *pArg;
-    if (info->GetRegCount() != 0)
+    GenTree* arg = argInfo->GetNode();
+
+    if (argInfo->GetRegCount() == 0)
     {
-        if (arg->OperIs(GT_FIELD_LIST))
-        {
-            // Transform fields that are passed as registers in place.
-            regNumber currRegNumber = info->GetRegNum();
-            unsigned  regIndex      = 0;
-            for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
-            {
-                if (regIndex >= info->numRegs)
-                {
-                    break;
-                }
-                GenTree* node = use.GetNode();
-                if (varTypeIsFloating(node))
-                {
-                    GenTree* intNode = LowerFloatArgReg(node, currRegNumber);
-                    assert(intNode != nullptr);
-
-                    ReplaceArgWithPutArgOrBitcast(&use.NodeRef(), intNode);
-                }
-
-                if (node->TypeGet() == TYP_DOUBLE)
-                {
-                    currRegNumber = REG_NEXT(REG_NEXT(currRegNumber));
-                    regIndex += 2;
-                }
-                else
-                {
-                    currRegNumber = REG_NEXT(currRegNumber);
-                    regIndex += 1;
-                }
-            }
-            // List fields were replaced in place.
-            return arg;
-        }
-        else if (varTypeIsFloating(arg))
-        {
-            GenTree* intNode = LowerFloatArgReg(arg, info->GetRegNum());
-            assert(intNode != nullptr);
-            ReplaceArgWithPutArgOrBitcast(pArg, intNode);
-            return *pArg;
-        }
+        return nullptr;
     }
+
+    if (arg->OperIs(GT_FIELD_LIST))
+    {
+        // Transform fields that are passed as registers in place.
+        regNumber currRegNumber = argInfo->GetRegNum();
+        unsigned  regIndex      = 0;
+
+        for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
+        {
+            if (regIndex >= argInfo->GetRegCount())
+            {
+                break;
+            }
+
+            GenTree* node = use.GetNode();
+            if (varTypeIsFloating(node->GetType()))
+            {
+                GenTree* intNode = LowerFloatCallArgReg(node, currRegNumber);
+                use.SetNode(intNode);
+                BlockRange().InsertAfter(node, intNode);
+            }
+
+            currRegNumber = REG_NEXT(currRegNumber);
+            regIndex += 1;
+
+            if (node->TypeIs(TYP_DOUBLE))
+            {
+                currRegNumber = REG_NEXT(currRegNumber);
+                // TODO-MIKE-Review: This is likely wrong, CallArgInfo's register count
+                // includes only one register for a double arg. But it seems that there's
+                // no way to reach here with a double field so this doesn't matter now.
+                // In fact, it's not clear how we can reach this witha FIELD_LIST.
+                // We'd need a HFA but then this is called only for varargs and soft-fp
+                // and there shouldn't be any HFAs in this case.
+                regIndex += 1;
+            }
+        }
+        // List fields were replaced in place.
+        return nullptr;
+    }
+
+    if (varTypeIsFloating(arg->GetType()))
+    {
+        GenTree* intNode = LowerFloatCallArgReg(arg, argInfo->GetRegNum());
+        argInfo->SetNode(intNode);
+        BlockRange().InsertAfter(arg, intNode);
+        return intNode;
+    }
+
     return nullptr;
 }
 
@@ -1547,50 +1510,27 @@ GenTree* Lowering::LowerFloatArg(GenTree** pArg, fgArgTabEntry* info)
 //
 // Arguments:
 //    arg    - The arg node
-//    regNum - register number
+//    argReg - register number
 //
 // Return Value:
 //    Return new bitcast node, that moves float to int register.
 //
-GenTree* Lowering::LowerFloatArgReg(GenTree* arg, regNumber regNum)
+GenTree* Lowering::LowerFloatCallArgReg(GenTree* arg, regNumber argReg)
 {
-    var_types floatType = arg->TypeGet();
-    assert(varTypeIsFloating(floatType));
-    var_types intType = (floatType == TYP_DOUBLE) ? TYP_LONG : TYP_INT;
+    assert(varTypeIsFloating(arg->GetType()));
+
+    var_types intType = arg->TypeIs(TYP_DOUBLE) ? TYP_LONG : TYP_INT;
     GenTree*  intArg  = comp->gtNewBitCastNode(intType, arg);
-    intArg->SetRegNum(regNum);
+    intArg->SetRegNum(argReg);
 #ifdef TARGET_ARM
-    if (floatType == TYP_DOUBLE)
+    if (arg->TypeIs(TYP_DOUBLE))
     {
-        regNumber nextReg                  = REG_NEXT(regNum);
-        intArg->AsMultiRegOp()->gtOtherReg = nextReg;
+        intArg->AsMultiRegOp()->gtOtherReg = REG_NEXT(argReg);
     }
 #endif
     return intArg;
 }
-#endif
-
-// do lowering steps for each arg of a call
-void Lowering::LowerArgsForCall(GenTreeCall* call)
-{
-    JITDUMP("objp:\n======\n");
-    if (call->gtCallThisArg != nullptr)
-    {
-        LowerArg(call, &call->gtCallThisArg->NodeRef());
-    }
-
-    JITDUMP("\nargs:\n======\n");
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        LowerArg(call, &use.NodeRef());
-    }
-
-    JITDUMP("\nlate:\n======\n");
-    for (GenTreeCall::Use& use : call->LateArgs())
-    {
-        LowerArg(call, &use.NodeRef());
-    }
-}
+#endif // TARGET_ARMARCH
 
 // helper that create a node representing a relocatable physical address computation
 GenTree* Lowering::AddrGen(ssize_t addr)
@@ -1622,7 +1562,7 @@ void Lowering::LowerCall(GenTree* node)
     JITDUMP("\n");
 
     call->ClearOtherRegs();
-    LowerArgsForCall(call);
+    LowerCallArgs(call);
 
     // note that everything generated from this point on runs AFTER the outgoing args are placed
     GenTree* controlExpr = nullptr;

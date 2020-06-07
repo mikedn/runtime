@@ -149,13 +149,12 @@ private:
     void InsertProfTailCallHook(GenTreeCall* callNode, GenTree* insertionPoint);
     GenTree* LowerVirtualVtableCall(GenTreeCall* call);
     GenTree* LowerVirtualStubCall(GenTreeCall* call);
-    void LowerArgsForCall(GenTreeCall* call);
-    void ReplaceArgWithPutArgOrBitcast(GenTree** ppChild, GenTree* newNode);
+    void LowerCallArgs(GenTreeCall* call);
     GenTree* NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* info, var_types type);
-    void LowerArg(GenTreeCall* call, GenTree** ppTree);
+    void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);
 #ifdef TARGET_ARMARCH
-    GenTree* LowerFloatArg(GenTree** pArg, fgArgTabEntry* info);
-    GenTree* LowerFloatArgReg(GenTree* arg, regNumber regNum);
+    GenTree* LowerFloatCallArg(CallArgInfo* argInfo);
+    GenTree* LowerFloatCallArgReg(GenTree* arg, regNumber argReg);
 #endif
 
     void InsertPInvokeCallProlog(GenTreeCall* call);
