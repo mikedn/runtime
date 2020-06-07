@@ -7413,28 +7413,26 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
 
-    ClassLayout* layout = src->AsObj()->GetLayout();
+    ClassLayout* srcLayout;
+    unsigned     srcLclNum      = BAD_VAR_NUM;
+    regNumber    srcAddrBaseReg = REG_NA;
+    int          srcOffset      = 0;
 
-    unsigned  srcLclNum      = BAD_VAR_NUM;
-    regNumber srcAddrBaseReg = REG_NA;
-    int       srcOffset      = 0;
-
-    GenTree* srcAddr = src->AsObj()->GetAddr();
-
-    if (srcAddr->isUsedFromReg())
+    if (src->OperIs(GT_LCL_VAR))
     {
-        srcAddrBaseReg = genConsumeReg(srcAddr);
+        srcLclNum = src->AsLclVar()->GetLclNum();
+        srcLayout = compiler->lvaGetDesc(srcLclNum)->GetLayout();
+    }
+    else if (src->OperIs(GT_LCL_FLD))
+    {
+        srcLclNum = src->AsLclFld()->GetLclNum();
+        srcOffset = src->AsLclFld()->GetLclOffs();
+        srcLayout = src->AsLclFld()->GetLayout(compiler);
     }
     else
     {
-        assert(srcAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
-
-        srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
-
-        if (srcAddr->OperIs(GT_LCL_FLD_ADDR))
-        {
-            srcOffset = srcAddr->AsLclFld()->GetLclOffs();
-        }
+        srcAddrBaseReg = genConsumeReg(src->AsObj()->GetAddr());
+        srcLayout      = src->AsObj()->GetLayout();
     }
 
 #ifdef TARGET_X86
@@ -7448,11 +7446,11 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         // future.
 
         // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
-        assert(layout->GetSize() % REGSIZE_BYTES == 0);
+        assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
 
         for (int i = putArgStk->gtNumSlots - 1; i >= 0; --i)
         {
-            emitAttr slotAttr      = emitTypeSize(layout->GetGCPtrType(i));
+            emitAttr slotAttr      = emitTypeSize(srcLayout->GetGCPtrType(i));
             int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
 
             if (srcLclNum != BAD_VAR_NUM)
@@ -7473,9 +7471,9 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
 
     if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Unroll)
     {
-        assert(!layout->HasGCPtr());
+        assert(!srcLayout->HasGCPtr());
 
-        unsigned size = layout->GetSize();
+        unsigned size = srcLayout->GetSize();
 
         if (srcLclNum != BAD_VAR_NUM)
         {
@@ -7603,12 +7601,13 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     }
     else if (srcAddrBaseReg != REG_RSI)
     {
+        assert(srcOffset == 0);
         GetEmitter()->emitIns_R_R(INS_mov, EA_BYREF, REG_RSI, srcAddrBaseReg);
     }
 
-    if (!layout->HasGCPtr())
+    if (!srcLayout->HasGCPtr())
     {
-        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, layout->GetSize());
+        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, srcLayout->GetSize());
         GetEmitter()->emitIns(INS_r_movsb);
         return;
     }
@@ -7617,22 +7616,22 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     // Structs containing GC pointers should always use GenTreePutArgStk::Kind::Push.
     unreached();
 #else  // TARGET_AMD64
-    emitAttr srcAddrAttr = srcAddr->OperIsLocalAddr() ? EA_PTRSIZE : EA_BYREF;
-    unsigned numSlots    = putArgStk->gtNumSlots;
-
     // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
-    assert(layout->GetSize() % REGSIZE_BYTES == 0);
+    assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
+
+    emitAttr srcAddrAttr = src->OperIs(GT_OBJ) ? emitTypeSize(src->AsObj()->GetAddr()->GetType()) : EA_PTRSIZE;
+    unsigned numSlots    = putArgStk->gtNumSlots;
 
     for (unsigned i = 0; i < numSlots; i++)
     {
-        if (layout->IsGCPtr(i))
+        if (srcLayout->IsGCPtr(i))
         {
             // TODO-AMD64-Unix: Here a better solution (for code size) would be to use movsp instruction,
             // but the logic for emitting a GC info record is not available (it is internal for the emitter
             // only). See emitGCVarLiveUpd function. If we could call it separately, we could do
             // instGen(INS_movsp); and emission of gc info.
 
-            emitAttr slotAttr = emitTypeSize(layout->GetGCPtrType(i));
+            emitAttr slotAttr = emitTypeSize(srcLayout->GetGCPtrType(i));
 
             GetEmitter()->emitIns_R_AR(INS_mov, slotAttr, REG_RCX, REG_RSI, 0);
             GetEmitter()->emitIns_S_R(INS_mov, slotAttr, REG_RCX, outArgLclNum, outArgLclOffs + i * REGSIZE_BYTES);
@@ -7652,7 +7651,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         do
         {
             adjacentNonGCSlotCount++;
-        } while ((i + adjacentNonGCSlotCount < numSlots) && !layout->IsGCPtr(i + adjacentNonGCSlotCount));
+        } while ((i + adjacentNonGCSlotCount < numSlots) && !srcLayout->IsGCPtr(i + adjacentNonGCSlotCount));
 
         if (adjacentNonGCSlotCount < CPOBJ_NONGC_SLOTS_LIMIT)
         {

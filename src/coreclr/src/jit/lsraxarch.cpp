@@ -1562,12 +1562,23 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
 
             case GenTreePutArgStk::Kind::Unroll:
-                unsigned size;
-                size = src->AsObj()->GetLayout()->GetSize();
+                ClassLayout* layout;
+                unsigned     size;
 
-                if (src->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+                if (src->OperIs(GT_LCL_VAR))
                 {
-                    size = roundUp(size, REGSIZE_BYTES);
+                    layout = compiler->lvaGetDesc(src->AsLclVar())->GetLayout();
+                    size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
+                }
+                else if (src->OperIs(GT_LCL_FLD))
+                {
+                    layout = src->AsLclFld()->GetLayout(compiler);
+                    size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
+                }
+                else
+                {
+                    layout = src->AsObj()->GetLayout();
+                    size   = layout->GetSize();
                 }
 
                 // If we have a remainder smaller than XMM_REGSIZE_BYTES, we need an integer temp reg.

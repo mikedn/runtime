@@ -410,26 +410,12 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 #ifdef TARGET_ARM64
         buildInternalIntRegisterDefForNode(putArg);
 #endif
-
         int srcCount = 0;
 
         if (src->OperIs(GT_OBJ))
         {
-            GenTree* srcAddr = src->AsObj()->GetAddr();
-
-            if (!srcAddr->isContained())
-            {
-                BuildUse(srcAddr);
-                srcCount++;
-            }
-            else
-            {
-                assert(srcAddr->OperIs(GT_LCL_VAR_ADDR));
-            }
-        }
-        else
-        {
-            assert(src->OperIs(GT_LCL_VAR));
+            BuildUse(src->AsObj()->GetAddr());
+            srcCount = 1;
         }
 
         buildInternalRegisterUses();
@@ -463,8 +449,6 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         argRegMask |= genRegMask(argRegNum);
         putArg->SetRegNumByIdx(argRegNum, i);
     }
-
-    int srcCount = 0;
 
     if (src->OperIs(GT_FIELD_LIST))
     {
@@ -502,29 +486,24 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
                 BuildUse(node, sourceMask, regIndex);
             }
         }
-        srcCount += sourceRegCount;
+
+        BuildDefs(putArg, putArg->GetRegCount(), argRegMask);
+        return sourceRegCount;
     }
-    else
+
+    assert(src->TypeIs(TYP_STRUCT));
+
+    buildInternalIntRegisterDefForNode(putArg, allRegs(TYP_INT) & ~argRegMask);
+
+    int srcCount = 0;
+    if (src->OperIs(GT_OBJ))
     {
-        buildInternalIntRegisterDefForNode(putArg, allRegs(TYP_INT) & ~argRegMask);
-
-        GenTree* srcAddr = src->AsObj()->GetAddr();
-
-        if (!srcAddr->isContained())
-        {
-            BuildUse(srcAddr);
-            srcCount++;
-        }
-        else
-        {
-            assert(srcAddr->OperIs(GT_LCL_VAR_ADDR));
-        }
-
-        buildInternalRegisterUses();
+        BuildUse(src->AsObj()->GetAddr());
+        srcCount = 1;
     }
 
+    buildInternalRegisterUses();
     BuildDefs(putArg, putArg->GetRegCount(), argRegMask);
-
     return srcCount;
 }
 #endif // FEATURE_ARG_SPLIT

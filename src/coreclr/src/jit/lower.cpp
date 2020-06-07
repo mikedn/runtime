@@ -1040,49 +1040,6 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
 {
     GenTree* arg = info->GetNode();
 
-    if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD) && arg->TypeIs(TYP_STRUCT))
-    {
-        GenTree*     addr;
-        ClassLayout* layout;
-
-        if (arg->OperIs(GT_LCL_VAR))
-        {
-            addr   = comp->gtNewLclVarAddrNode(arg->AsLclVar()->GetLclNum());
-            layout = comp->lvaGetDesc(arg->AsLclVar())->GetLayout();
-        }
-        else
-        {
-            addr = comp->gtNewLclFldAddrNode(arg->AsLclFld()->GetLclNum(), arg->AsLclFld()->GetLclOffs(),
-                                             FieldSeqStore::NotAField());
-            layout = arg->AsLclFld()->GetLayout(comp);
-        }
-
-        BlockRange().InsertBefore(arg, addr);
-
-        arg->ChangeOper(GT_OBJ);
-
-        GenTreeObj* store = arg->AsObj();
-        store->SetLayout(layout);
-        store->SetAddr(addr);
-        store->SetData(nullptr);
-        store->gtFlags = GTF_IND_NONFAULTING;
-
-        JITDUMPTREE(arg, "STRUCT local arg wrapped in OBJ\n");
-    }
-
-#ifdef TARGET_ARMARCH
-    // Mark contained when we pass struct
-    // GT_FIELD_LIST is always marked contained when it is generated
-    if (arg->TypeIs(TYP_STRUCT))
-    {
-        arg->SetContained();
-        if (arg->OperIs(GT_OBJ) && arg->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR))
-        {
-            MakeSrcContained(arg, arg->AsObj()->GetAddr());
-        }
-    }
-#endif
-
     if (info->IsSplit())
     {
 #if FEATURE_ARG_SPLIT
@@ -1125,7 +1082,20 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
         }
         else
         {
-            ClassLayout* layout = arg->AsObj()->GetLayout();
+            ClassLayout* layout;
+
+            if (arg->OperIs(GT_LCL_VAR))
+            {
+                layout = comp->lvaGetDesc(arg->AsLclVar())->GetLayout();
+            }
+            else if (arg->OperIs(GT_LCL_FLD))
+            {
+                layout = arg->AsLclFld()->GetLayout(comp);
+            }
+            else
+            {
+                layout = arg->AsObj()->GetLayout();
+            }
 
             for (unsigned index = 0; index < info->GetRegCount(); index++)
             {
@@ -1165,68 +1135,6 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
     {
         return comp->gtNewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
     }
-
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-    // If the ArgTabEntry indicates that this arg is a struct
-    // get and store the number of slots that are references.
-    // This is later used in the codegen for PUT_ARG_STK implementation
-    // for struct to decide whether and how many single eight-byte copies
-    // to be done (only for reference slots), so gcinfo is emitted.
-    // For non-reference slots faster/smaller size instructions are used -
-    // pair copying using XMM registers or rep mov instructions.
-    if (info->isStruct)
-    {
-        if (arg->OperIs(GT_OBJ))
-        {
-            assert(!varTypeIsSIMD(arg->GetType()));
-
-#ifdef TARGET_X86
-            // On x86 VM lies about the type of a struct containing a pointer sized
-            // integer field by returning the type of its field as the type of struct.
-            // Such struct can be passed in a register depending its position in
-            // parameter list.  VM does this unwrapping only one level and therefore
-            // a type like Struct Foo { Struct Bar { int f}} awlays needs to be
-            // passed on stack.  Also, VM doesn't lie about type of such a struct
-            // when it is a field of another struct.  That is VM doesn't lie about
-            // the type of Foo.Bar
-            //
-            // We now support the promotion of fields that are of type struct.
-            // However we only support a limited case where the struct field has a
-            // single field and that single field must be a scalar type. Say Foo.Bar
-            // field is getting passed as a parameter to a call, Since it is a TYP_STRUCT,
-            // as per x86 ABI it should always be passed on stack.  Therefore GenTree
-            // node under a PUTARG_STK could be GT_OBJ(GT_LCL_VAR_ADDR(v1)), where
-            // local v1 could be a promoted field standing for Foo.Bar.  Note that
-            // the type of v1 will be the type of field of Foo.Bar.f when Foo is
-            // promoted.  That is v1 will be a scalar type.  In this case we need to
-            // pass v1 on stack instead of in a register.
-            //
-            // TODO-PERF: replace GT_OBJ(GT_LCL_VAR_ADDR(v1)) with v1 if v1 is
-            // a scalar type and the width of GT_OBJ matches the type size of v1.
-            // Note that this cannot be done till call node arguments are morphed
-            // because we should not lose the fact that the type of argument is
-            // a struct so that the arg gets correctly marked to be passed on stack.
-            GenTree* addr = arg->AsObj()->GetAddr();
-            if (addr->OperIs(GT_LCL_VAR_ADDR))
-            {
-                unsigned lclNum = addr->AsLclVar()->GetLclNum();
-                if (comp->lvaGetDesc(lclNum)->GetType() != TYP_STRUCT)
-                {
-                    comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_VMNeedsStackAddr));
-                }
-            }
-#endif // TARGET_X86
-        }
-        else if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            assert(arg->GetType() != TYP_STRUCT);
-        }
-        else if (!arg->OperIs(GT_FIELD_LIST))
-        {
-            assert(varTypeIsSIMD(arg->GetType()) || (info->GetStackSlotCount() == 1));
-        }
-    }
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 
     return new (comp, GT_PUTARG_STK)
         GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg,
@@ -1328,6 +1236,49 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         }
     }
 #endif // TARGET_ARMARCH
+
+    if (arg->OperIs(GT_OBJ))
+    {
+        assert(arg->TypeIs(TYP_STRUCT));
+
+        GenTree* srcAddr = arg->AsObj()->GetAddr();
+
+        // Simplify OBJ(LCL_VAR|FLD_ADDR) to LCL_VAR|FLD.
+        // TODO-MIKE-Cleanup: This should not be needed once the frontend uses struct LCL_VAR|FLD consistently.
+
+        if (srcAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        {
+            ClassLayout* layout = arg->AsObj()->GetLayout();
+
+            unsigned   srcLclNum  = srcAddr->AsLclVarCommon()->GetLclNum();
+            unsigned   srcLclOffs = srcAddr->OperIs(GT_LCL_VAR_ADDR) ? 0 : srcAddr->AsLclFld()->GetLclOffs();
+            LclVarDsc* srcLcl     = comp->lvaGetDesc(srcLclNum);
+
+            if ((srcLcl->GetType() == TYP_STRUCT) && (srcLcl->GetLayout() == layout) && (srcLclOffs == 0))
+            {
+                arg->ChangeOper(GT_LCL_VAR);
+                arg->AsLclVar()->SetLclNum(srcLclNum);
+            }
+            else
+            {
+                arg->ChangeOper(GT_LCL_FLD);
+                arg->AsLclFld()->SetLclNum(srcLclNum);
+                arg->AsLclFld()->SetLclOffs(srcLclOffs);
+                arg->AsLclFld()->SetLayout(layout, comp);
+
+                comp->lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(Compiler::DNER_LocalField));
+            }
+
+            arg->gtFlags = 0;
+
+            BlockRange().Remove(srcAddr);
+        }
+    }
+
+    if (arg->TypeIs(TYP_STRUCT))
+    {
+        arg->SetContained();
+    }
 
     GenTree* putArg = NewPutArg(call, argInfo);
 
