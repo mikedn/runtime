@@ -1030,15 +1030,11 @@ bool Lowering::TryLowerSwitchToBitTest(
 //
 // Arguments:
 //    call - the call whose arg is being rewritten.
-//    arg  - the arg being rewritten.
 //    info - the fgArgTabEntry information for the argument.
 //
 // Return Value:
 //    The new tree that was created to put the arg in the right place
 //    or the incoming arg if the arg tree was not rewritten.
-//
-// Assumptions:
-//    call, arg, and info must be non-null.
 //
 // Notes:
 //    For System V systems with native struct passing (i.e. UNIX_AMD64_ABI defined)
@@ -1050,11 +1046,9 @@ bool Lowering::TryLowerSwitchToBitTest(
 //    layout object, so the codegen of the GT_PUTARG_STK could use this for optimizing copying to the stack by value.
 //    (using block copy primitives for non GC pointers and a single TARGET_POINTER_SIZE copy with recording GC info.)
 //
-GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* info)
+GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
 {
-    assert(call != nullptr);
-    assert(arg != nullptr);
-    assert(info != nullptr);
+    GenTree* arg = info->GetNode();
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD) && arg->TypeIs(TYP_STRUCT))
     {
@@ -1197,12 +1191,6 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
             // This provides the info to put this argument in in-coming arg area slot
             // instead of in out-going arg area slot.
 
-            // Make sure state is correct. The PUTARG_STK has TYP_VOID, as it doesn't produce
-            // a result. So the type of its operand must be the correct type to push on the stack.
-            // For a FIELD_LIST, this will be the type of the field (not the type of the arg),
-            // but otherwise it is generally the type of the operand.
-            info->checkIsStruct();
-
             putArg =
                 new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg,
                                                            info->slotNum PUT_STRUCT_ARG_STK_ONLY_ARG(info->numSlots),
@@ -1310,6 +1298,9 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     assert(!arg->OperIsPutArg());
     assert(!arg->OperIs(GT_STORE_LCL_VAR, GT_ARGPLACE, GT_NOP));
 
+    // Make sure the argument type is consistent with arg info's state.
+    argInfo->checkIsStruct();
+
 #if !defined(TARGET_64BIT)
     if (arg->TypeIs(TYP_LONG))
     {
@@ -1317,7 +1308,9 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         GenTreeFieldList* fieldList = new (comp, GT_FIELD_LIST) GenTreeFieldList();
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(0), 0, TYP_INT);
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(1), 4, TYP_INT);
-        GenTree* newArg = NewPutArg(call, fieldList, argInfo);
+        argInfo->SetNode(fieldList);
+
+        GenTree* newArg = NewPutArg(call, argInfo);
 
         if (argInfo->GetRegCount() != 0)
         {
@@ -1336,9 +1329,9 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
             assert(argInfo->GetStackSlotCount() == 2);
             newArg->SetRegNum(REG_STK);
             BlockRange().InsertBefore(arg, fieldList, newArg);
+            argInfo->SetNode(newArg);
         }
 
-        argInfo->SetNode(newArg);
         BlockRange().Remove(arg);
         return;
     }
@@ -1367,7 +1360,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     }
 #endif // TARGET_ARMARCH
 
-    GenTree* putArg = NewPutArg(call, arg, argInfo);
+    GenTree* putArg = NewPutArg(call, argInfo);
 
     if (arg != putArg)
     {

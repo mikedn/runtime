@@ -150,7 +150,7 @@ private:
     GenTree* LowerVirtualVtableCall(GenTreeCall* call);
     GenTree* LowerVirtualStubCall(GenTreeCall* call);
     void LowerCallArgs(GenTreeCall* call);
-    GenTree* NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* info);
+    GenTree* NewPutArg(GenTreeCall* call, CallArgInfo* argInfo);
     void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);
 #ifdef TARGET_ARMARCH
     GenTree* LowerFloatCallArg(CallArgInfo* argInfo);
