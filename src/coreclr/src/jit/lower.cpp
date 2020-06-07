@@ -1032,7 +1032,6 @@ bool Lowering::TryLowerSwitchToBitTest(
 //    call - the call whose arg is being rewritten.
 //    arg  - the arg being rewritten.
 //    info - the fgArgTabEntry information for the argument.
-//    type - the type of the argument.
 //
 // Return Value:
 //    The new tree that was created to put the arg in the right place
@@ -1051,7 +1050,7 @@ bool Lowering::TryLowerSwitchToBitTest(
 //    layout object, so the codegen of the GT_PUTARG_STK could use this for optimizing copying to the stack by value.
 //    (using block copy primitives for non GC pointers and a single TARGET_POINTER_SIZE copy with recording GC info.)
 //
-GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* info, var_types type)
+GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* info)
 {
     assert(call != nullptr);
     assert(arg != nullptr);
@@ -1092,7 +1091,7 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
 #ifdef TARGET_ARMARCH
     // Mark contained when we pass struct
     // GT_FIELD_LIST is always marked contained when it is generated
-    if (type == TYP_STRUCT)
+    if (arg->TypeIs(TYP_STRUCT))
     {
         arg->SetContained();
         if ((arg->OperGet() == GT_OBJ) && (arg->AsObj()->Addr()->OperGet() == GT_LCL_VAR_ADDR))
@@ -1189,7 +1188,7 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
             else
 #endif // FEATURE_MULTIREG_ARGS
             {
-                putArg = comp->gtNewPutArgReg(type, arg, info->GetRegNum());
+                putArg = comp->gtNewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
             }
         }
         else
@@ -1203,19 +1202,6 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
             // For a FIELD_LIST, this will be the type of the field (not the type of the arg),
             // but otherwise it is generally the type of the operand.
             info->checkIsStruct();
-            if ((arg->OperGet() != GT_FIELD_LIST))
-            {
-#if defined(FEATURE_SIMD) && defined(FEATURE_PUT_STRUCT_ARG_STK)
-                if (type == TYP_SIMD12)
-                {
-                    assert(info->numSlots == 3);
-                }
-                else
-#endif // defined(FEATURE_SIMD) && defined(FEATURE_PUT_STRUCT_ARG_STK)
-                {
-                    assert(genActualType(arg->TypeGet()) == type);
-                }
-            }
 
             putArg =
                 new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg,
@@ -1331,7 +1317,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         GenTreeFieldList* fieldList = new (comp, GT_FIELD_LIST) GenTreeFieldList();
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(0), 0, TYP_INT);
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(1), 4, TYP_INT);
-        GenTree* newArg = NewPutArg(call, fieldList, argInfo, TYP_LONG);
+        GenTree* newArg = NewPutArg(call, fieldList, argInfo);
 
         if (argInfo->GetRegCount() != 0)
         {
@@ -1358,24 +1344,15 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     }
 #endif // !defined(TARGET_64BIT)
 
-    var_types type = arg->GetType();
-
-    if (varTypeIsSmall(type))
-    {
-        // Normalize 'type', it represents the item that we will be storing in the Outgoing Args
-        type = TYP_INT;
-    }
-
 #if defined(FEATURE_SIMD) && defined(TARGET_AMD64)
     // TYP_SIMD8 parameters that are passed as longs
     // TODO-MIKE-CQ: This should be moved to morph.
-    if ((type == TYP_SIMD8) && (argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum()))
+    if (arg->TypeIs(TYP_SIMD8) && (argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum()))
     {
         GenTreeUnOp* bitcast = comp->gtNewBitCastNode(TYP_LONG, arg);
         BlockRange().InsertAfter(arg, bitcast);
         arg = bitcast;
         argInfo->SetNode(bitcast);
-        type = TYP_LONG;
     }
 #elif defined(TARGET_ARMARCH)
     if (call->IsVarargs() || comp->opts.compUseSoftFP)
@@ -1385,13 +1362,12 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         GenTree* newArg = LowerFloatCallArg(argInfo);
         if (newArg != nullptr)
         {
-            arg  = newArg;
-            type = newArg->GetType();
+            arg = newArg;
         }
     }
 #endif // TARGET_ARMARCH
 
-    GenTree* putArg = NewPutArg(call, arg, argInfo, type);
+    GenTree* putArg = NewPutArg(call, arg, argInfo);
 
     if (arg != putArg)
     {
