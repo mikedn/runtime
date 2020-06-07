@@ -1036,16 +1036,6 @@ bool Lowering::TryLowerSwitchToBitTest(
 //    The new tree that was created to put the arg in the right place
 //    or the incoming arg if the arg tree was not rewritten.
 //
-// Notes:
-//    For System V systems with native struct passing (i.e. UNIX_AMD64_ABI defined)
-//    this method allocates a single GT_PUTARG_REG for 1 eightbyte structs and a GT_FIELD_LIST of two GT_PUTARG_REGs
-//    for two eightbyte structs.
-//
-//    For STK passed structs the method generates GT_PUTARG_STK tree. For System V systems with native struct passing
-//    (i.e. UNIX_AMD64_ABI defined) this method also sets the GC pointers count and the pointers
-//    layout object, so the codegen of the GT_PUTARG_STK could use this for optimizing copying to the stack by value.
-//    (using block copy primitives for non GC pointers and a single TARGET_POINTER_SIZE copy with recording GC info.)
-//
 GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
 {
     GenTree* arg = info->GetNode();
@@ -1080,63 +1070,43 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
         JITDUMPTREE(arg, "STRUCT local arg wrapped in OBJ\n");
     }
 
-    GenTree* putArg = nullptr;
-
 #ifdef TARGET_ARMARCH
     // Mark contained when we pass struct
     // GT_FIELD_LIST is always marked contained when it is generated
     if (arg->TypeIs(TYP_STRUCT))
     {
         arg->SetContained();
-        if ((arg->OperGet() == GT_OBJ) && (arg->AsObj()->Addr()->OperGet() == GT_LCL_VAR_ADDR))
+        if (arg->OperIs(GT_OBJ) && arg->AsObj()->GetAddr()->OperIs(GT_LCL_VAR_ADDR))
         {
-            MakeSrcContained(arg, arg->AsObj()->Addr());
+            MakeSrcContained(arg, arg->AsObj()->GetAddr());
         }
     }
 #endif
 
-#if FEATURE_ARG_SPLIT
-    // Struct can be split into register(s) and stack on ARM
     if (info->IsSplit())
     {
-        assert(arg->OperGet() == GT_OBJ || arg->OperGet() == GT_FIELD_LIST);
+#if FEATURE_ARG_SPLIT
         // TODO: Need to check correctness for FastTailCall
         if (call->IsFastTailCall())
         {
-#ifdef TARGET_ARM
             NYI_ARM("lower: struct argument by fast tail call");
-#endif // TARGET_ARM
         }
 
-        putArg = new (comp, GT_PUTARG_SPLIT)
-            GenTreePutArgSplit(arg, info->slotNum, info->numSlots, info->numRegs, call->IsFastTailCall(), call);
+        GenTreePutArgSplit* argSplit =
+            new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info->GetSlotNum(), info->GetStackSlotCount(),
+                                                           info->GetRegCount(), call->IsFastTailCall(), call);
 
-        // If struct argument is morphed to GT_FIELD_LIST node(s),
-        // we can know GC info by type of each GT_FIELD_LIST node.
-        // So we skip setting GC Pointer info.
-        //
-        GenTreePutArgSplit* argSplit = putArg->AsPutArgSplit();
-        for (unsigned regIndex = 0; regIndex < info->numRegs; regIndex++)
+        for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
         {
             argSplit->SetRegNumByIdx(info->GetRegNum(regIndex), regIndex);
         }
 
-        if (arg->OperGet() == GT_OBJ)
-        {
-            ClassLayout* layout = arg->AsObj()->GetLayout();
-
-            // Set type of registers
-            for (unsigned index = 0; index < info->numRegs; index++)
-            {
-                argSplit->SetRegType(index, layout->GetGCPtrType(index));
-            }
-        }
-        else
+        if (arg->OperIs(GT_FIELD_LIST))
         {
             unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
             {
-                if (regIndex >= info->numRegs)
+                if (regIndex >= info->GetRegCount())
                 {
                     break;
                 }
@@ -1153,116 +1123,115 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
             // Clear the register assignment on the fieldList node, as these are contained.
             arg->SetRegNum(REG_NA);
         }
-    }
-    else
-#endif // FEATURE_ARG_SPLIT
-    {
-        if (info->GetRegCount() != 0)
-        {
-#if FEATURE_MULTIREG_ARGS
-            if ((info->GetRegCount() > 1) && (arg->OperGet() == GT_FIELD_LIST))
-            {
-                unsigned int regIndex = 0;
-                for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
-                {
-                    regNumber argReg = info->GetRegNum(regIndex);
-                    GenTree*  curOp  = use.GetNode();
-                    var_types curTyp = curOp->TypeGet();
-
-                    GenTree* newOper = comp->gtNewPutArgReg(curTyp, curOp, argReg);
-                    use.SetNode(newOper);
-                    BlockRange().InsertAfter(curOp, newOper);
-                    regIndex++;
-                }
-
-                // Just return arg. The GT_FIELD_LIST is not replaced.
-                // Nothing more to do.
-                return arg;
-            }
-            else
-#endif // FEATURE_MULTIREG_ARGS
-            {
-                putArg = comp->gtNewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
-            }
-        }
         else
         {
-            // Mark this one as tail call arg if it is a fast tail call.
-            // This provides the info to put this argument in in-coming arg area slot
-            // instead of in out-going arg area slot.
+            ClassLayout* layout = arg->AsObj()->GetLayout();
 
-            putArg =
-                new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg,
-                                                           info->slotNum PUT_STRUCT_ARG_STK_ONLY_ARG(info->numSlots),
-                                                           call->IsFastTailCall(), call);
-
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-            // If the ArgTabEntry indicates that this arg is a struct
-            // get and store the number of slots that are references.
-            // This is later used in the codegen for PUT_ARG_STK implementation
-            // for struct to decide whether and how many single eight-byte copies
-            // to be done (only for reference slots), so gcinfo is emitted.
-            // For non-reference slots faster/smaller size instructions are used -
-            // pair copying using XMM registers or rep mov instructions.
-            if (info->isStruct)
+            for (unsigned index = 0; index < info->GetRegCount(); index++)
             {
-                // We use GT_OBJ only for non-lclVar, non-SIMD, non-FIELD_LIST struct arguments.
-                if (arg->OperIsLocal())
-                {
-                    // This must have a type with a known size (SIMD or has been morphed to a primitive type).
-                    assert(arg->TypeGet() != TYP_STRUCT);
-                }
-                else if (arg->OperIs(GT_OBJ))
-                {
-                    assert(!varTypeIsSIMD(arg));
-
-#ifdef TARGET_X86
-                    // On x86 VM lies about the type of a struct containing a pointer sized
-                    // integer field by returning the type of its field as the type of struct.
-                    // Such struct can be passed in a register depending its position in
-                    // parameter list.  VM does this unwrapping only one level and therefore
-                    // a type like Struct Foo { Struct Bar { int f}} awlays needs to be
-                    // passed on stack.  Also, VM doesn't lie about type of such a struct
-                    // when it is a field of another struct.  That is VM doesn't lie about
-                    // the type of Foo.Bar
-                    //
-                    // We now support the promotion of fields that are of type struct.
-                    // However we only support a limited case where the struct field has a
-                    // single field and that single field must be a scalar type. Say Foo.Bar
-                    // field is getting passed as a parameter to a call, Since it is a TYP_STRUCT,
-                    // as per x86 ABI it should always be passed on stack.  Therefore GenTree
-                    // node under a PUTARG_STK could be GT_OBJ(GT_LCL_VAR_ADDR(v1)), where
-                    // local v1 could be a promoted field standing for Foo.Bar.  Note that
-                    // the type of v1 will be the type of field of Foo.Bar.f when Foo is
-                    // promoted.  That is v1 will be a scalar type.  In this case we need to
-                    // pass v1 on stack instead of in a register.
-                    //
-                    // TODO-PERF: replace GT_OBJ(GT_LCL_VAR_ADDR(v1)) with v1 if v1 is
-                    // a scalar type and the width of GT_OBJ matches the type size of v1.
-                    // Note that this cannot be done till call node arguments are morphed
-                    // because we should not lose the fact that the type of argument is
-                    // a struct so that the arg gets correctly marked to be passed on stack.
-                    GenTree* objOp1 = arg->gtGetOp1();
-                    if (objOp1->OperGet() == GT_LCL_VAR_ADDR)
-                    {
-                        unsigned lclNum = objOp1->AsLclVarCommon()->GetLclNum();
-                        if (comp->lvaTable[lclNum].lvType != TYP_STRUCT)
-                        {
-                            comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_VMNeedsStackAddr));
-                        }
-                    }
-#endif // TARGET_X86
-                }
-                else if (!arg->OperIs(GT_FIELD_LIST))
-                {
-                    assert(varTypeIsSIMD(arg) || (info->numSlots == 1));
-                }
+                argSplit->SetRegType(index, layout->GetGCPtrType(index));
             }
-#endif // FEATURE_PUT_STRUCT_ARG_STK
         }
+
+        return argSplit;
+#else  // !FEATURE_ARG_SPLIT
+        unreached();
+#endif // !FEATURE_ARG_SPLIT
     }
 
-    return putArg;
+    if ((info->GetRegCount() > 1) && arg->OperIs(GT_FIELD_LIST))
+    {
+#if FEATURE_MULTIREG_ARGS
+        unsigned int regIndex = 0;
+        for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
+        {
+            regNumber argReg = info->GetRegNum(regIndex);
+            GenTree*  curOp  = use.GetNode();
+            var_types curTyp = curOp->TypeGet();
+
+            GenTree* newOper = comp->gtNewPutArgReg(curTyp, curOp, argReg);
+            use.SetNode(newOper);
+            BlockRange().InsertAfter(curOp, newOper);
+            regIndex++;
+        }
+
+        return arg;
+#else  //  !FEATURE_MULTIREG_ARGS
+        unreached();
+#endif // !FEATURE_MULTIREG_ARGS
+    }
+
+    if (info->GetRegCount() != 0)
+    {
+        return comp->gtNewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
+    }
+
+#ifdef FEATURE_PUT_STRUCT_ARG_STK
+    // If the ArgTabEntry indicates that this arg is a struct
+    // get and store the number of slots that are references.
+    // This is later used in the codegen for PUT_ARG_STK implementation
+    // for struct to decide whether and how many single eight-byte copies
+    // to be done (only for reference slots), so gcinfo is emitted.
+    // For non-reference slots faster/smaller size instructions are used -
+    // pair copying using XMM registers or rep mov instructions.
+    if (info->isStruct)
+    {
+        if (arg->OperIs(GT_OBJ))
+        {
+            assert(!varTypeIsSIMD(arg->GetType()));
+
+#ifdef TARGET_X86
+            // On x86 VM lies about the type of a struct containing a pointer sized
+            // integer field by returning the type of its field as the type of struct.
+            // Such struct can be passed in a register depending its position in
+            // parameter list.  VM does this unwrapping only one level and therefore
+            // a type like Struct Foo { Struct Bar { int f}} awlays needs to be
+            // passed on stack.  Also, VM doesn't lie about type of such a struct
+            // when it is a field of another struct.  That is VM doesn't lie about
+            // the type of Foo.Bar
+            //
+            // We now support the promotion of fields that are of type struct.
+            // However we only support a limited case where the struct field has a
+            // single field and that single field must be a scalar type. Say Foo.Bar
+            // field is getting passed as a parameter to a call, Since it is a TYP_STRUCT,
+            // as per x86 ABI it should always be passed on stack.  Therefore GenTree
+            // node under a PUTARG_STK could be GT_OBJ(GT_LCL_VAR_ADDR(v1)), where
+            // local v1 could be a promoted field standing for Foo.Bar.  Note that
+            // the type of v1 will be the type of field of Foo.Bar.f when Foo is
+            // promoted.  That is v1 will be a scalar type.  In this case we need to
+            // pass v1 on stack instead of in a register.
+            //
+            // TODO-PERF: replace GT_OBJ(GT_LCL_VAR_ADDR(v1)) with v1 if v1 is
+            // a scalar type and the width of GT_OBJ matches the type size of v1.
+            // Note that this cannot be done till call node arguments are morphed
+            // because we should not lose the fact that the type of argument is
+            // a struct so that the arg gets correctly marked to be passed on stack.
+            GenTree* addr = arg->AsObj()->GetAddr();
+            if (addr->OperIs(GT_LCL_VAR_ADDR))
+            {
+                unsigned lclNum = addr->AsLclVar()->GetLclNum();
+                if (comp->lvaGetDesc(lclNum)->GetType() != TYP_STRUCT)
+                {
+                    comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_VMNeedsStackAddr));
+                }
+            }
+#endif // TARGET_X86
+        }
+        else if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            assert(arg->GetType() != TYP_STRUCT);
+        }
+        else if (!arg->OperIs(GT_FIELD_LIST))
+        {
+            assert(varTypeIsSIMD(arg->GetType()) || (info->GetStackSlotCount() == 1));
+        }
+    }
+#endif // FEATURE_PUT_STRUCT_ARG_STK
+
+    return new (comp, GT_PUTARG_STK)
+        GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg,
+                         info->GetSlotNum() PUT_STRUCT_ARG_STK_ONLY_ARG(info->GetStackSlotCount()),
+                         call->IsFastTailCall(), call);
 }
 
 void Lowering::LowerCallArgs(GenTreeCall* call)
@@ -1304,6 +1273,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     if (arg->TypeIs(TYP_LONG))
     {
         noway_assert(arg->OperIs(GT_LONG));
+
         GenTreeFieldList* fieldList = new (comp, GT_FIELD_LIST) GenTreeFieldList();
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(0), 0, TYP_INT);
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(1), 4, TYP_INT);

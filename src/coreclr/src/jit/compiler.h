@@ -1572,6 +1572,11 @@ public:
     }
 #endif
 
+    unsigned GetSlotNum() const
+    {
+        return slotNum;
+    }
+
     void SetStackSlots(unsigned firstSlot, unsigned slotCount)
     {
         slotNum  = firstSlot;
