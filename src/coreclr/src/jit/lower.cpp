@@ -1366,34 +1366,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         type = TYP_INT;
     }
 
-#if defined(FEATURE_SIMD)
-#if defined(TARGET_X86)
-    // Non-param TYP_SIMD12 local var nodes are massaged in Lower to TYP_SIMD16 to match their
-    // allocated size (see lvSize()). However, when passing the variables as arguments, and
-    // storing the variables to the outgoing argument area on the stack, we must use their
-    // actual TYP_SIMD12 type, so exactly 12 bytes is allocated and written.
-    if (type == TYP_SIMD16)
-    {
-        if (arg->OperIs(GT_LCL_VAR))
-        {
-            type = comp->lvaGetDesc(arg->AsLclVar())->GetType();
-        }
-        else if (arg->OperIs(GT_SIMD))
-        {
-            if (arg->AsSIMD()->gtSIMDSize == 12)
-            {
-                type = TYP_SIMD12;
-            }
-        }
-        else if (arg->OperIs(GT_HWINTRINSIC))
-        {
-            if (arg->AsHWIntrinsic()->gtSIMDSize == 12)
-            {
-                type = TYP_SIMD12;
-            }
-        }
-    }
-#elif defined(TARGET_AMD64)
+#if defined(FEATURE_SIMD) && defined(TARGET_AMD64)
     // TYP_SIMD8 parameters that are passed as longs
     // TODO-MIKE-CQ: This should be moved to morph.
     if ((type == TYP_SIMD8) && (argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum()))
@@ -1404,10 +1377,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         argInfo->SetNode(bitcast);
         type = TYP_LONG;
     }
-#endif // defined(TARGET_X86)
-#endif // defined(FEATURE_SIMD)
-
-#ifdef TARGET_ARMARCH
+#elif defined(TARGET_ARMARCH)
     if (call->IsVarargs() || comp->opts.compUseSoftFP)
     {
         // For vararg call or on armel, reg args should be all integer.
