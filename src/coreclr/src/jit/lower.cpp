@@ -1262,10 +1262,6 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
         }
     }
 
-    if (arg->gtFlags & GTF_LATE_ARG)
-    {
-        putArg->gtFlags |= GTF_LATE_ARG;
-    }
     return putArg;
 }
 
@@ -1297,6 +1293,9 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
 
     assert(!arg->OperIsPutArg());
     assert(!arg->OperIs(GT_STORE_LCL_VAR, GT_ARGPLACE, GT_NOP));
+
+    // Real call arguments should not have GTF_LATE_ARG, only arg setup nodes do.
+    assert((arg->gtFlags & GTF_LATE_ARG) == 0);
 
     // Make sure the argument type is consistent with arg info's state.
     argInfo->checkIsStruct();
