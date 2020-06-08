@@ -668,7 +668,7 @@ int GenTree::GetRegisterDstCount() const
 #if FEATURE_ARG_SPLIT
     else if (OperIsPutArgSplit())
     {
-        return (const_cast<GenTree*>(this))->AsPutArgSplit()->gtNumRegs;
+        return AsPutArgSplit()->GetRegCount();
     }
 #endif
 #if !defined(TARGET_64BIT)
@@ -741,7 +741,7 @@ regMaskTP GenTree::gtGetRegMask() const
     else if (OperIsPutArgSplit())
     {
         const GenTreePutArgSplit* splitArg = AsPutArgSplit();
-        const unsigned            regCount = splitArg->gtNumRegs;
+        const unsigned            regCount = splitArg->GetRegCount();
 
         resultMask = RBM_NONE;
         for (unsigned i = 0; i < regCount; ++i)
@@ -9957,26 +9957,27 @@ void Compiler::gtDispTree(GenTree*     tree,
         else if (tree->OperGet() == GT_PUTARG_STK)
         {
             printf(" (%d slots)", tree->AsPutArgStk()->gtNumSlots);
-            if (tree->AsPutArgStk()->gtPutArgStkKind != GenTreePutArgStk::Kind::Invalid)
+#ifdef TARGET_XARCH
+            switch (tree->AsPutArgStk()->gtPutArgStkKind)
             {
-                switch (tree->AsPutArgStk()->gtPutArgStkKind)
-                {
-                    case GenTreePutArgStk::Kind::RepInstr:
-                        printf(" (RepInstr)");
-                        break;
-                    case GenTreePutArgStk::Kind::Unroll:
-                        printf(" (Unroll)");
-                        break;
-                    case GenTreePutArgStk::Kind::Push:
-                        printf(" (Push)");
-                        break;
-                    case GenTreePutArgStk::Kind::PushAllSlots:
-                        printf(" (PushAllSlots)");
-                        break;
-                    default:
-                        unreached();
-                }
+                case GenTreePutArgStk::Kind::RepInstr:
+                    printf(" (RepInstr)");
+                    break;
+                case GenTreePutArgStk::Kind::Unroll:
+                    printf(" (Unroll)");
+                    break;
+#ifdef TARGET_X86
+                case GenTreePutArgStk::Kind::Push:
+                    printf(" (Push)");
+                    break;
+                case GenTreePutArgStk::Kind::PushAllSlots:
+                    printf(" (PushAllSlots)");
+                    break;
+#endif
+                default:
+                    break;
             }
+#endif
         }
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 

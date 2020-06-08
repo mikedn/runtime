@@ -1034,7 +1034,6 @@ protected:
     void genLoadLclTypeSIMD12(GenTree* treeNode);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
-    void genPutArgStkSIMD12(GenTree* treeNode);
 #endif // TARGET_X86
 #endif // FEATURE_SIMD
 
@@ -1161,12 +1160,6 @@ protected:
     void genSetBlockSrc(GenTreeBlk* blkNode, regNumber srcReg);
     void genConsumeBlockOp(GenTreeBlk* blkNode, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-    void genConsumePutStructArgStk(GenTreePutArgStk* putArgStkNode,
-                                   regNumber         dstReg,
-                                   regNumber         srcReg,
-                                   regNumber         sizeReg);
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 #if FEATURE_ARG_SPLIT
     void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
 #endif // FEATURE_ARG_SPLIT
@@ -1258,21 +1251,22 @@ protected:
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
 #ifdef TARGET_X86
-    bool genAdjustStackForPutArgStk(GenTreePutArgStk* putArgStk);
+    void genPreAdjustStackForPutArgStk(unsigned argSize);
     void genPushReg(var_types type, regNumber srcReg);
     void genPutArgStkFieldList(GenTreePutArgStk* putArgStk);
 #endif // TARGET_X86
 
-    void genPutStructArgStk(GenTreePutArgStk* treeNode);
-
-    unsigned genMove8IfNeeded(unsigned size, regNumber tmpReg, GenTree* srcAddr, unsigned offset);
-    unsigned genMove4IfNeeded(unsigned size, regNumber tmpReg, GenTree* srcAddr, unsigned offset);
-    unsigned genMove2IfNeeded(unsigned size, regNumber tmpReg, GenTree* srcAddr, unsigned offset);
-    unsigned genMove1IfNeeded(unsigned size, regNumber tmpReg, GenTree* srcAddr, unsigned offset);
-    void genCodeForLoadOffset(instruction ins, emitAttr size, regNumber dst, GenTree* base, unsigned offset);
-    void genStructPutArgRepMovs(GenTreePutArgStk* putArgStkNode);
-    void genStructPutArgUnroll(GenTreePutArgStk* putArgStkNode);
-    void genStoreRegToStackArg(var_types type, regNumber reg, int offset);
+    void genPutStructArgStk(GenTreePutArgStk* treeNode
+#ifndef TARGET_X86
+                            ,
+                            unsigned outArgLclNum,
+                            unsigned outArgLclOffs
+#ifdef TARGET_ARMARCH
+                            ,
+                            unsigned outArgLclSize
+#endif
+#endif
+                            );
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 
     void genCodeForStoreBlk(GenTreeBlk* storeBlkNode);
@@ -1348,15 +1342,6 @@ protected:
         const LclVarDsc* varDsc = &compiler->lvaTable[tree->AsLclVarCommon()->GetLclNum()];
         return (varDsc->lvIsRegCandidate());
     }
-
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-#ifdef TARGET_X86
-    bool m_pushStkArg;
-#else  // !TARGET_X86
-    unsigned m_stkArgVarNum;
-    unsigned m_stkArgOffset;
-#endif // !TARGET_X86
-#endif // !FEATURE_PUT_STRUCT_ARG_STK
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
     void genStackPointerCheck(bool doStackPointerCheck, unsigned lvaStackPointerVar);

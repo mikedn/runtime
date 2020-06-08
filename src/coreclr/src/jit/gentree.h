@@ -3883,6 +3883,7 @@ public:
 
 class fgArgInfo;
 typedef struct fgArgTabEntry CallArgInfo;
+typedef class fgArgInfo      CallInfo;
 
 struct GenTreeCall final : public GenTree
 {
@@ -3997,6 +3998,11 @@ struct GenTreeCall final : public GenTree
                          // On ARM/x64: - also includes any outgoing arg space arguments
                          //             - that were evaluated into a temp LclVar
     fgArgInfo* fgArgInfo;
+
+    CallInfo* GetInfo() const
+    {
+        return fgArgInfo;
+    }
 
     UseList Args()
     {
@@ -6446,16 +6452,21 @@ struct GenTreePutArgStk : public GenTreeUnOp
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
     unsigned gtNumSlots; // Number of slots for the argument to be passed on stack
 
+#ifdef TARGET_XARCH
     // Instruction selection: during codegen time, what code sequence we will be using
     // to encode this operation.
     // TODO-Throughput: The following information should be obtained from the child
     // block node.
     enum class Kind : uint8_t{
-        Invalid, RepInstr, Unroll, Push, PushAllSlots,
+        Invalid, RepInstr,     Unroll,
+#ifdef TARGET_X86
+        Push,    PushAllSlots,
+#endif
     };
 
     Kind gtPutArgStkKind;
-#endif
+#endif // TARGET_XARCH
+#endif // FEATURE_PUT_STRUCT_ARG_STK
 #if FEATURE_FASTTAILCALL
     bool gtPutInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
                                  // By default this is false and will be placed in out-going arg area.
@@ -6478,7 +6489,9 @@ struct GenTreePutArgStk : public GenTreeUnOp
         , gtSlotNum(slotNum)
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
         , gtNumSlots(numSlots)
+#ifdef TARGET_XARCH
         , gtPutArgStkKind(Kind::Invalid)
+#endif
 #endif
 #if FEATURE_FASTTAILCALL
         , gtPutInIncomingArgArea(putInIncomingArgArea)
@@ -6513,11 +6526,6 @@ struct GenTreePutArgStk : public GenTreeUnOp
     {
         return (varTypeIsSIMD(gtOp1) && (gtNumSlots == 3));
     }
-
-    bool isPushKind()
-    {
-        return (gtPutArgStkKind == Kind::Push) || (gtPutArgStkKind == Kind::PushAllSlots);
-    }
 #else
     unsigned getArgSize();
 #endif
@@ -6533,68 +6541,73 @@ struct GenTreePutArgStk : public GenTreeUnOp
 // Represent the struct argument: split value in register(s) and stack
 struct GenTreePutArgSplit : public GenTreePutArgStk
 {
-    unsigned gtNumRegs;
+private:
+#if defined(TARGET_ARM)
+    constexpr static unsigned MAX_SPLIT_ARG_REGS = MAX_REG_ARG;
+#elif defined(TARGET_ARM64)
+    constexpr static unsigned MAX_SPLIT_ARG_REGS = 1;
+#else
+#error Unknown FEATURE_ARG_SPLIT target.
+#endif
 
-    GenTreePutArgSplit(GenTree* op1,
-                       unsigned slotNum PUT_STRUCT_ARG_STK_ONLY_ARG(unsigned numSlots),
+#ifdef TARGET_ARM
+    unsigned gtNumRegs;
+    // First reg of struct is always given by GetRegNum().
+    // gtOtherRegs holds the other reg numbers of struct.
+    regNumberSmall gtOtherRegs[MAX_SPLIT_ARG_REGS - 1];
+    // Type required to support multi-reg struct arg.
+    var_types          m_regType[MAX_SPLIT_ARG_REGS];
+    MultiRegSpillFlags gtSpillFlags;
+#else
+    var_types                 m_regType;
+#endif
+
+public:
+    GenTreePutArgSplit(GenTree*     op1,
+                       unsigned     slotNum,
+                       unsigned     numSlots,
                        unsigned     numRegs,
                        bool         putIncomingArgArea = false,
                        GenTreeCall* callNode           = nullptr)
-        : GenTreePutArgStk(GT_PUTARG_SPLIT,
-                           TYP_STRUCT,
-                           op1,
-                           slotNum PUT_STRUCT_ARG_STK_ONLY_ARG(numSlots),
-                           putIncomingArgArea,
-                           callNode)
+        : GenTreePutArgStk(GT_PUTARG_SPLIT, TYP_STRUCT, op1, slotNum, numSlots, putIncomingArgArea, callNode)
+#ifdef TARGET_ARM
         , gtNumRegs(numRegs)
+#endif
     {
+        assert((0 < numRegs) && (numRegs <= MAX_SPLIT_ARG_REGS));
+#ifdef TARGET_ARM64
+        assert(numSlots == 1);
+#endif
+
         ClearOtherRegs();
         ClearOtherRegFlags();
     }
 
-    // Type required to support multi-reg struct arg.
-    var_types m_regType[MAX_REG_ARG];
-
-    // First reg of struct is always given by GetRegNum().
-    // gtOtherRegs holds the other reg numbers of struct.
-    regNumberSmall gtOtherRegs[MAX_REG_ARG - 1];
-
-    MultiRegSpillFlags gtSpillFlags;
-
-    //---------------------------------------------------------------------------
-    // GetRegNumByIdx: get ith register allocated to this struct argument.
-    //
-    // Arguments:
-    //     idx   -   index of the struct
-    //
-    // Return Value:
-    //     Return regNumber of ith register of this struct argument
-    //
-    regNumber GetRegNumByIdx(unsigned idx) const
+    unsigned GetRegCount() const
     {
-        assert(idx < MAX_REG_ARG);
-
-        if (idx == 0)
-        {
-            return GetRegNum();
-        }
-
-        return (regNumber)gtOtherRegs[idx - 1];
+#ifdef TARGET_ARM
+        return gtNumRegs;
+#else
+        return 1;
+#endif
     }
 
-    //----------------------------------------------------------------------
-    // SetRegNumByIdx: set ith register of this struct argument
-    //
-    // Arguments:
-    //    reg    -   reg number
-    //    idx    -   index of the struct
-    //
-    // Return Value:
-    //    None
-    //
+    regNumber GetRegNumByIdx(unsigned idx) const
+    {
+        assert(idx < MAX_SPLIT_ARG_REGS);
+
+#ifdef TARGET_ARM
+        return (idx == 0) ? GetRegNum() : (regNumber)gtOtherRegs[idx - 1];
+#else
+        return GetRegNum();
+#endif
+    }
+
     void SetRegNumByIdx(regNumber reg, unsigned idx)
     {
-        assert(idx < MAX_REG_ARG);
+        assert(idx < MAX_SPLIT_ARG_REGS);
+
+#ifdef TARGET_ARM
         if (idx == 0)
         {
             SetRegNum(reg);
@@ -6604,74 +6617,78 @@ struct GenTreePutArgSplit : public GenTreePutArgStk
             gtOtherRegs[idx - 1] = (regNumberSmall)reg;
             assert(gtOtherRegs[idx - 1] == reg);
         }
+#else
+        SetRegNum(reg);
+#endif
     }
 
-    //----------------------------------------------------------------------------
-    // ClearOtherRegs: clear multi-reg state to indicate no regs are allocated
-    //
-    // Arguments:
-    //    None
-    //
-    // Return Value:
-    //    None
-    //
     void ClearOtherRegs()
     {
+#ifdef TARGET_ARM
         for (unsigned i = 0; i < MAX_REG_ARG - 1; ++i)
         {
             gtOtherRegs[i] = REG_NA;
         }
+#endif
     }
 
     unsigned GetRegSpillFlagByIdx(unsigned idx) const
     {
+#ifdef TARGET_ARM
         return GetMultiRegSpillFlagsByIdx(gtSpillFlags, idx);
+#else
+        return gtFlags & (GTF_SPILL | GTF_SPILLED);
+#endif
     }
 
     void SetRegSpillFlagByIdx(unsigned flags, unsigned idx)
     {
 #if FEATURE_MULTIREG_RET
+#ifdef TARGET_ARM
         gtSpillFlags = SetMultiRegSpillFlagsByIdx(gtSpillFlags, flags, idx);
+#else
+        gtFlags = (gtFlags & ~(GTF_SPILL | GTF_SPILLED)) | (flags & (GTF_SPILL | GTF_SPILLED));
+#endif
 #endif
     }
 
-    //--------------------------------------------------------------------------
-    // GetRegType:  Get var_type of the register specified by index.
-    //
-    // Arguments:
-    //    index - Index of the register.
-    //            First register will have an index 0 and so on.
-    //
-    // Return Value:
-    //    var_type of the register specified by its index.
-
-    var_types GetRegType(unsigned index)
+    var_types GetRegType(unsigned index) const
     {
-        assert(index < gtNumRegs);
-        var_types result = m_regType[index];
-        return result;
+        assert(index < GetRegCount());
+#ifdef TARGET_ARM
+        return m_regType[index];
+#else
+        return m_regType;
+#endif
     }
 
-    //-------------------------------------------------------------------
-    // clearOtherRegFlags: clear GTF_* flags associated with gtOtherRegs
-    //
-    // Arguments:
-    //     None
-    //
-    // Return Value:
-    //     None
-    //
+    void SetRegType(unsigned index, var_types type)
+    {
+        assert(index < GetRegCount());
+#ifdef TARGET_ARM
+        m_regType[index] = type;
+#else
+        m_regType = type;
+#endif
+    }
+
     void ClearOtherRegFlags()
     {
+#ifdef TARGET_ARM
         gtSpillFlags = 0;
+#else
+        gtFlags &= ~(GTF_SPILL | GTF_SPILLED);
+#endif
     }
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
     unsigned getArgSize()
     {
-        return (gtNumSlots + gtNumRegs) * TARGET_POINTER_SIZE;
+#ifdef TARGET_ARM
+        return (gtNumSlots + gtNumRegs) * REGSIZE_BYTES;
+#else
+        return 2 * REGSIZE_BYTES;
+#endif
     }
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 
 #if DEBUGGABLE_GENTREE
     GenTreePutArgSplit() : GenTreePutArgStk()
@@ -7571,7 +7588,7 @@ inline unsigned GenTree::GetMultiRegCount()
 #if FEATURE_ARG_SPLIT
     if (OperIsPutArgSplit())
     {
-        return AsPutArgSplit()->gtNumRegs;
+        return AsPutArgSplit()->GetRegCount();
     }
 #endif
 
