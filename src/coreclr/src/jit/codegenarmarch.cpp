@@ -764,8 +764,20 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
     }
     else
     {
-        srcAddrBaseReg = genConsumeReg(src->AsObj()->GetAddr());
-        srcLayout      = src->AsObj()->GetLayout();
+        GenTree* srcAddr = src->AsObj()->GetAddr();
+
+        if (!srcAddr->isContained())
+        {
+            srcAddrBaseReg = genConsumeReg(srcAddr);
+        }
+        else
+        {
+            srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
+            assert(!srcAddr->AsAddrMode()->HasIndex());
+            srcOffset = srcAddr->AsAddrMode()->Offset();
+        }
+
+        srcLayout = src->AsObj()->GetLayout();
     }
 
     emitter* emit   = GetEmitter();
@@ -1054,8 +1066,20 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
         }
         else
         {
-            srcAddrBaseReg = genConsumeReg(src->AsObj()->GetAddr());
-            srcLayout      = src->AsObj()->GetLayout();
+            GenTree* srcAddr = src->AsObj()->GetAddr();
+
+            if (!srcAddr->isContained())
+            {
+                srcAddrBaseReg = genConsumeReg(srcAddr);
+            }
+            else
+            {
+                srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
+                assert(!srcAddr->AsAddrMode()->HasIndex());
+                srcOffset = srcAddr->AsAddrMode()->Offset();
+            }
+
+            srcLayout = src->AsObj()->GetLayout();
         }
 
         unsigned offset    = 0;

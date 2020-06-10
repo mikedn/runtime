@@ -5746,6 +5746,11 @@ struct GenTreeAddrMode : public GenTreeOp
         return gtOp1;
     }
 
+    GenTree* GetBase() const
+    {
+        return gtOp1;
+    }
+
     void SetBase(GenTree* base)
     {
         gtOp1 = base;
@@ -5757,6 +5762,11 @@ struct GenTreeAddrMode : public GenTreeOp
         return gtOp2 != nullptr;
     }
     GenTree*& Index()
+    {
+        return gtOp2;
+    }
+
+    GenTree* GetIndex() const
     {
         return gtOp2;
     }

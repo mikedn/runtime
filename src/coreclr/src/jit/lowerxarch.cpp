@@ -325,16 +325,18 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
 }
 
 //------------------------------------------------------------------------
-// ContainBlockStoreAddress: Attempt to contain an address used by an unrolled block store.
+// ContainBlockStoreAddress: Attempt to contain an address used by a block store.
 //
 // Arguments:
-//    blkNode - the block store node
+//    store - the block store node - STORE_BLK or PUTARG_STK
 //    size - the block size
 //    addr - the address node to try to contain
 //
-void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenTree* addr)
+void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(blkNode->OperIs(GT_STORE_BLK) && (blkNode->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll));
+    assert((store->OperIs(GT_STORE_BLK) && (store->AsBlk()->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll)) ||
+           store->OperIs(GT_PUTARG_STK));
+
     assert(size < INT32_MAX);
 
     if (addr->OperIsLocalAddr())
@@ -360,10 +362,26 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
         return;
     }
 
-    // Note that the parentNode is always the block node, even if we're dealing with the source address.
-    // The source address is not directly used by the block node but by an IND node and that IND node is
-    // always contained.
-    if (!IsSafeToContainMem(blkNode, addrMode))
+#ifdef TARGET_X86
+    if (store->OperIs(GT_PUTARG_STK) && (store->AsPutArgStk()->gtPutArgStkKind == GenTreePutArgStk::Kind::Push))
+    {
+        // Containing the address mode avoids generating an extra LEA instruction but may increase the size
+        // of the load/store instructions due to extra SIB bytes and/or 32 bit displacements. Unlike Unroll,
+        // Push places no upper bound on the size of the struct and anyway it requires more instructions
+        // than Unroll because it copies only 4 bytes at a time. Besides, if we need to push a lot of slots
+        // the cost of the extra LEA is likely to be irrelevant.
+
+        if ((addrMode->HasIndex() && (size > 32)) || ((addrMode->Offset() > 128 - 16) && (size > 16)))
+        {
+            return;
+        }
+    }
+#endif
+
+    // Note that the parentNode is always the store node, even if we're dealing with the source address.
+    // The source address is not directly used by the store node but by an indirection that is always
+    // contained.
+    if (!IsSafeToContainMem(store, addrMode))
     {
         return;
     }
@@ -540,6 +558,11 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     else
     {
         putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::RepInstr;
+    }
+
+    if (src->OperIs(GT_OBJ))
+    {
+        ContainBlockStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
     }
 #endif // FEATURE_PUT_STRUCT_ARG_STK
 }

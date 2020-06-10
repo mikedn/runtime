@@ -369,6 +369,18 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        if (src->OperIs(GT_OBJ))
+        {
+            unsigned size = src->AsObj()->GetLayout()->GetSize();
+
+            ContainBlockStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+        }
+
+        return;
+    }
+
 #ifdef TARGET_ARM64
     if (src->IsIntegralConst(0) || src->IsDblConPositiveZero())
     {
@@ -381,13 +393,14 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 // ContainBlockStoreAddress: Attempt to contain an address used by an unrolled block store.
 //
 // Arguments:
-//    blkNode - the block store node
+//    store - the block store node
 //    size - the block size
 //    addr - the address node to try to contain
 //
-void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenTree* addr)
+void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(blkNode->OperIs(GT_STORE_BLK) && (blkNode->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll));
+    assert((store->OperIs(GT_STORE_BLK) && (store->AsBlk()->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll)) ||
+           store->OperIsPutArgStkOrSplit());
     assert(size < INT32_MAX);
 
     if (addr->OperIsLocalAddr())
@@ -423,7 +436,7 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
     }
 #endif
 
-    if (!IsSafeToContainMem(blkNode, addr))
+    if (!IsSafeToContainMem(store, addr))
     {
         return;
     }

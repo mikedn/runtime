@@ -7421,9 +7421,11 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     assert(src->isContained());
 
     ClassLayout* srcLayout;
-    unsigned     srcLclNum      = BAD_VAR_NUM;
-    regNumber    srcAddrBaseReg = REG_NA;
-    int          srcOffset      = 0;
+    unsigned     srcLclNum         = BAD_VAR_NUM;
+    regNumber    srcAddrBaseReg    = REG_NA;
+    regNumber    srcAddrIndexReg   = REG_NA;
+    unsigned     srcAddrIndexScale = 1;
+    int          srcOffset         = 0;
 
     if (src->OperIs(GT_LCL_VAR))
     {
@@ -7438,8 +7440,31 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     }
     else
     {
-        srcAddrBaseReg = genConsumeReg(src->AsObj()->GetAddr());
-        srcLayout      = src->AsObj()->GetLayout();
+        GenTree* srcAddr = src->AsObj()->GetAddr();
+
+        if (!srcAddr->isContained())
+        {
+            srcAddrBaseReg = genConsumeReg(srcAddr);
+        }
+        else
+        {
+            GenTreeAddrMode* addrMode = srcAddr->AsAddrMode();
+
+            if (addrMode->HasBase())
+            {
+                srcAddrBaseReg = genConsumeReg(addrMode->GetBase());
+            }
+
+            if (addrMode->HasIndex())
+            {
+                srcAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                srcAddrIndexScale = addrMode->GetScale();
+            }
+
+            srcOffset = addrMode->Offset();
+        }
+
+        srcLayout = src->AsObj()->GetLayout();
     }
 
 #ifdef TARGET_X86
@@ -7466,7 +7491,8 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             }
             else
             {
-                GetEmitter()->emitIns_AR_R(INS_push, slotAttr, REG_NA, srcAddrBaseReg, slotSrcOffset);
+                GetEmitter()->emitIns_ARX_R(INS_push, slotAttr, REG_NA, srcAddrBaseReg, srcAddrIndexReg,
+                                            srcAddrIndexScale, slotSrcOffset);
             }
 
             AddStackLevel(REGSIZE_BYTES);
@@ -7512,7 +7538,8 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             }
             else
             {
-                GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, intTmpReg, srcAddrBaseReg, srcOffset + size & 8);
+                GetEmitter()->emitIns_R_ARX(INS_mov, EA_4BYTE, intTmpReg, srcAddrBaseReg, srcAddrIndexReg,
+                                            srcAddrIndexScale, srcOffset + size & 8);
             }
 
             genPushReg(TYP_INT, intTmpReg);
@@ -7525,7 +7552,8 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
                 }
                 else
                 {
-                    GetEmitter()->emitIns_R_AR(INS_movq, EA_8BYTE, xmmTmpReg, srcAddrBaseReg, srcOffset);
+                    GetEmitter()->emitIns_R_ARX(INS_movq, EA_8BYTE, xmmTmpReg, srcAddrBaseReg, srcAddrIndexReg,
+                                                srcAddrIndexScale, srcOffset);
                 }
 
                 inst_RV_IV(INS_sub, REG_SPBASE, 8, EA_4BYTE);
@@ -7580,7 +7608,8 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             }
             else
             {
-                GetEmitter()->emitIns_R_AR(ins, EA_ATTR(regSize), tmpReg, srcAddrBaseReg, srcOffset + offset);
+                GetEmitter()->emitIns_R_ARX(ins, EA_ATTR(regSize), tmpReg, srcAddrBaseReg, srcAddrIndexReg,
+                                            srcAddrIndexScale, srcOffset + offset);
             }
 
 #ifdef TARGET_X86
@@ -7606,9 +7635,13 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     {
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RSI, srcLclNum, srcOffset);
     }
-    else if (srcAddrBaseReg != REG_RSI)
+    else if ((srcAddrIndexReg != REG_NA) || (srcOffset != 0))
     {
-        assert(srcOffset == 0);
+        GetEmitter()->emitIns_R_ARX(INS_lea, EA_BYREF, REG_RSI, srcAddrBaseReg, srcAddrIndexReg, srcAddrIndexScale,
+                                    srcOffset);
+    }
+    else
+    {
         GetEmitter()->emitIns_R_R(INS_mov, EA_BYREF, REG_RSI, srcAddrBaseReg);
     }
 

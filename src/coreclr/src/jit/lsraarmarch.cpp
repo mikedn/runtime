@@ -413,14 +413,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 #ifdef TARGET_ARM64
         buildInternalIntRegisterDefForNode(putArg);
 #endif
-        int srcCount = 0;
-
-        if (src->OperIs(GT_OBJ))
-        {
-            BuildUse(src->AsObj()->GetAddr());
-            srcCount = 1;
-        }
-
+        int srcCount = src->OperIs(GT_OBJ) ? BuildAddrUses(src->AsObj()->GetAddr()) : 0;
         buildInternalRegisterUses();
         return srcCount;
     }
@@ -502,14 +495,7 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
     assert(src->TypeIs(TYP_STRUCT));
 
     buildInternalIntRegisterDefForNode(putArg, allRegs(TYP_INT) & ~argRegMask);
-
-    int srcCount = 0;
-    if (src->OperIs(GT_OBJ))
-    {
-        BuildUse(src->AsObj()->GetAddr());
-        srcCount = 1;
-    }
-
+    int srcCount = src->OperIs(GT_OBJ) ? BuildAddrUses(src->AsObj()->GetAddr()) : 0;
     buildInternalRegisterUses();
     BuildDefs(putArg, putArg->GetRegCount(), argRegMask);
     return srcCount;
