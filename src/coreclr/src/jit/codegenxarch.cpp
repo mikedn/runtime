@@ -7527,22 +7527,39 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             intTmpReg = putArgStk->GetSingleTempReg(RBM_ALLINT);
         }
 
-        if ((size == 4) || (size == 12))
+        if ((size == 1) || (size == 2) || (size == 4) || (size == 12))
         {
             // Use a push (and a movq) if we have a 4 byte reminder, it's smaller
             // than the normal unroll code generated below.
 
-            if (srcLclNum != BAD_VAR_NUM)
+            if ((size == 1) || (size == 2))
             {
-                GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, intTmpReg, srcLclNum, srcOffset + size & 8);
+                if (srcLclNum != BAD_VAR_NUM)
+                {
+                    GetEmitter()->emitIns_R_S(INS_movzx, EA_ATTR(size), intTmpReg, srcLclNum, srcOffset);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_ARX(INS_movzx, EA_ATTR(size), intTmpReg, srcAddrBaseReg, srcAddrIndexReg,
+                                                srcAddrIndexScale, srcOffset);
+                }
+
+                GetEmitter()->emitIns_R(INS_push, EA_4BYTE, intTmpReg);
             }
-            else
+            else if ((size == 4) || (size == 12))
             {
-                GetEmitter()->emitIns_R_ARX(INS_mov, EA_4BYTE, intTmpReg, srcAddrBaseReg, srcAddrIndexReg,
-                                            srcAddrIndexScale, srcOffset + size & 8);
+                if (srcLclNum != BAD_VAR_NUM)
+                {
+                    GetEmitter()->emitIns_S(INS_push, EA_4BYTE, srcLclNum, srcOffset + size & 8);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_ARX(INS_push, EA_4BYTE, srcAddrBaseReg, srcAddrIndexReg, srcAddrIndexScale,
+                                              srcOffset + size & 8);
+                }
             }
 
-            genPushReg(TYP_INT, intTmpReg);
+            AddStackLevel(4);
 
             if (size == 12)
             {
@@ -7556,7 +7573,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
                                                 srcAddrIndexScale, srcOffset);
                 }
 
-                inst_RV_IV(INS_sub, REG_SPBASE, 8, EA_4BYTE);
+                GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 8);
                 GetEmitter()->emitIns_AR_R(INS_movq, EA_8BYTE, xmmTmpReg, REG_SPBASE, 0);
                 AddStackLevel(8);
             }
