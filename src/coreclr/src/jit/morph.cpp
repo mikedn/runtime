@@ -3091,6 +3091,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             argx->gtType = TYP_I_IMPL;
         }
 
+#ifndef TARGET_X86
         GenTree* argObj = argx->gtEffectiveVal(true /*commaOnly*/);
 
         if (argEntry->isStruct && varTypeIsStruct(argObj) &&
@@ -3146,7 +3147,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
                 assert(size != 0);
 
-#ifndef TARGET_X86
                 // Check to see if we can transform this into load of a primitive type.
                 // 'size' must be the number of pointer sized items
                 assert(size == roundupSize / TARGET_POINTER_SIZE);
@@ -3352,7 +3352,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     assert(varTypeIsEnregisterable(argObj->TypeGet()) ||
                            ((copyBlkClass != NO_CLASS_HANDLE) && varTypeIsEnregisterable(structBaseType)));
                 }
-#endif // !TARGET_X86
 
 #ifndef UNIX_AMD64_ABI
                 if ((structBaseType == TYP_STRUCT) && !(argEntry->IsHfaArg() && argEntry->isPassedInFloatRegisters()))
@@ -3386,6 +3385,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 fgMakeOutgoingStructArgCopy(call, args, argIndex, copyBlkClass);
             }
         }
+#endif // !TARGET_X86
 
         if (argx->gtOper == GT_MKREFANY)
         {
