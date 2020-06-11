@@ -7249,7 +7249,14 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
     if (src->OperIs(GT_FIELD_LIST))
     {
 #if defined(UNIX_AMD64_ABI)
-        genPutArgStkFieldList(putArgStk, outArgLclNum);
+#if FEATURE_FASTTAILCALL
+        // TODO-MIKE-Cleanup: This seems to be sligtly different from ARMARCH's outArgLclSize.
+        INDEBUG(unsigned outArgLclSize = putArgStk->putInIncomingArgArea() ? compiler->info.compArgStackSize
+                                                                           : compiler->lvaLclSize(outArgLclNum);)
+#else
+        INDEBUG(unsigned outArgLclSize = compiler->lvaLclSize(outArgLclNum);)
+#endif
+        genPutArgStkFieldList(src->AsFieldList(), outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
 #elif defined(TARGET_X86)
         genPutArgStkFieldList(putArgStk);
 #else

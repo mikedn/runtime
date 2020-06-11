@@ -687,7 +687,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 
     if (src->OperIs(GT_FIELD_LIST))
     {
-        genPutArgStkFieldList(putArg, outArgLclNum);
+        genPutArgStkFieldList(src->AsFieldList(), outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
         return;
     }
 
