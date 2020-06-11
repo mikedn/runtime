@@ -344,6 +344,39 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
     }
 }
 
+void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
+{
+    GenTree* src = putArgStk->GetOp(0);
+
+    if (src->OperIs(GT_FIELD_LIST))
+    {
+#ifdef TARGET_ARM64
+        // Don't bother with GT_PUTARG_SPLIT, codegen doesn't support contained
+        // constants currently and it's only used by varargs methods on win-64.
+        if (putArgStk->OperIs(GT_PUTARG_STK))
+        {
+            for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
+            {
+                GenTree* node = use.GetNode();
+
+                if (node->IsIntegralConst(0) || node->IsDblConPositiveZero())
+                {
+                    node->SetContained();
+                }
+            }
+        }
+#endif
+        return;
+    }
+
+#ifdef TARGET_ARM64
+    if (src->IsIntegralConst(0) || src->IsDblConPositiveZero())
+    {
+        src->SetContained();
+    }
+#endif
+}
+
 //------------------------------------------------------------------------
 // ContainBlockStoreAddress: Attempt to contain an address used by an unrolled block store.
 //

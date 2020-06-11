@@ -1556,9 +1556,23 @@ void CodeGen::genPutArgStkFieldList(GenTreeFieldList* fieldList,
 {
     for (GenTreeFieldList::Use& use : fieldList->Uses())
     {
-        regNumber srcReg    = genConsumeReg(use.GetNode());
-        var_types srcType   = use.GetNode()->GetType();
-        unsigned  dstOffset = outArgLclOffs + use.GetOffset();
+        unsigned dstOffset = outArgLclOffs + use.GetOffset();
+
+        GenTree*  src     = use.GetNode();
+        var_types srcType = use.GetNode()->GetType();
+        regNumber srcReg;
+
+#ifdef TARGET_ARM64
+        if (src->isContained())
+        {
+            assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero());
+            srcReg = REG_ZR;
+        }
+        else
+#endif
+        {
+            srcReg = genConsumeReg(src);
+        }
 
         assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
 

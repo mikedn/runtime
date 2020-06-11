@@ -707,7 +707,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 #ifdef TARGET_ARM64
     if (src->isContained())
     {
-        assert(src->IsIntegralConst(0));
+        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero());
+        assert(storeIns == INS_str);
         srcReg = REG_ZR;
     }
     else

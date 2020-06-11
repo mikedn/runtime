@@ -395,8 +395,11 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
         int srcCount = 0;
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
-            BuildUse(use.GetNode());
-            srcCount++;
+            if (!use.GetNode()->isContained())
+            {
+                BuildUse(use.GetNode());
+                srcCount++;
+            }
         }
         return srcCount;
     }
@@ -422,8 +425,13 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
         return srcCount;
     }
 
-    BuildUse(src);
-    return 1;
+    if (!src->isContained())
+    {
+        BuildUse(src);
+        return 1;
+    }
+
+    return 0;
 }
 
 #if FEATURE_ARG_SPLIT
