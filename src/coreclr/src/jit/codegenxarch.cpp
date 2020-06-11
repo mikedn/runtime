@@ -7491,8 +7491,8 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             }
             else
             {
-                GetEmitter()->emitIns_ARX_R(INS_push, slotAttr, REG_NA, srcAddrBaseReg, srcAddrIndexReg,
-                                            srcAddrIndexScale, slotSrcOffset);
+                GetEmitter()->emitIns_ARX(INS_push, slotAttr, srcAddrBaseReg, srcAddrIndexReg, srcAddrIndexScale,
+                                          slotSrcOffset);
             }
 
             AddStackLevel(REGSIZE_BYTES);

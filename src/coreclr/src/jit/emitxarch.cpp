@@ -5495,6 +5495,11 @@ void emitter::emitIns_R_ARX(
     emitCurIGsize += sz;
 }
 
+void emitter::emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int disp)
+{
+    emitIns_ARX_R(ins, attr, REG_NA, base, index, scale, disp);
+}
+
 void emitter::emitIns_ARX_R(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int disp)
 {
