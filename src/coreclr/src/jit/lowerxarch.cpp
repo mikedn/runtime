@@ -484,76 +484,47 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
-    if (src->TypeGet() != TYP_STRUCT)
-#endif // FEATURE_PUT_STRUCT_ARG_STK
+    if (src->TypeIs(TYP_STRUCT))
     {
-        // If the child of GT_PUTARG_STK is a constant, we don't need a register to
-        // move it to memory (stack location).
-        //
-        // On AMD64, we don't want to make 0 contained, because we can generate smaller code
-        // by zeroing a register and then storing it. E.g.:
-        //      xor rdx, rdx
-        //      mov gword ptr [rsp+28H], rdx
-        // is 2 bytes smaller than:
-        //      mov gword ptr [rsp+28H], 0
-        //
-        // On x86, we push stack arguments; we don't use 'mov'. So:
-        //      push 0
-        // is 1 byte smaller than:
-        //      xor rdx, rdx
-        //      push rdx
+        ClassLayout* layout;
+        unsigned     size;
 
-        if (IsContainableImmed(putArgStk, src)
-#if defined(TARGET_AMD64)
-            && !src->IsIntegralConst(0)
-#endif // TARGET_AMD64
-                )
+        if (src->OperIs(GT_LCL_VAR))
         {
-            MakeSrcContained(putArgStk, src);
+            layout = comp->lvaGetDesc(src->AsLclVar())->GetLayout();
+            size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
         }
-        return;
-    }
+        else if (src->OperIs(GT_LCL_FLD))
+        {
+            layout = src->AsLclFld()->GetLayout(comp);
+            size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
+        }
+        else
+        {
+            layout = src->AsObj()->GetLayout();
+            size   = layout->GetSize();
+        }
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-    ClassLayout* layout;
-    unsigned     size;
+        // In case of a CpBlk we could use a helper call. In case of putarg_stk we
+        // can't do that since the helper call could kill some already set up outgoing args.
+        // TODO-Amd64-Unix: converge the code for putarg_stk with cpyblk/cpyobj.
+        // The cpyXXXX code is rather complex and this could cause it to be more complex, but
+        // it might be the right thing to do.
 
-    if (src->OperIs(GT_LCL_VAR))
-    {
-        layout = comp->lvaGetDesc(src->AsLclVar())->GetLayout();
-        size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
-    }
-    else if (src->OperIs(GT_LCL_FLD))
-    {
-        layout = src->AsLclFld()->GetLayout(comp);
-        size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
-    }
-    else
-    {
-        layout = src->AsObj()->GetLayout();
-        size   = layout->GetSize();
-    }
+        // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
+        // (I don't know which).
 
-    // In case of a CpBlk we could use a helper call. In case of putarg_stk we
-    // can't do that since the helper call could kill some already set up outgoing args.
-    // TODO-Amd64-Unix: converge the code for putarg_stk with cpyblk/cpyobj.
-    // The cpyXXXX code is rather complex and this could cause it to be more complex, but
-    // it might be the right thing to do.
-
-    // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
-    // (I don't know which).
-
-    if (!layout->HasGCPtr())
-    {
-        putArgStk->gtPutArgStkKind =
-            (size <= CPBLK_UNROLL_LIMIT) ? GenTreePutArgStk::Kind::Unroll : GenTreePutArgStk::Kind::RepInstr;
-    }
-    else
-    {
+        if (!layout->HasGCPtr())
+        {
+            putArgStk->gtPutArgStkKind =
+                (size <= CPBLK_UNROLL_LIMIT) ? GenTreePutArgStk::Kind::Unroll : GenTreePutArgStk::Kind::RepInstr;
+        }
+        else
+        {
 #ifdef TARGET_X86
-        // On x86, we must use `push` to store GC references to the stack in order for the emitter to properly update
-        // the function's GC info. These `putargstk` nodes will generate a sequence of `push` instructions.
-        putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::Push;
+            // On x86, we must use `push` to store GC references to the stack in order for the emitter to properly
+            // update the function's GC info. These `putargstk` nodes will generate a sequence of `push` instructions.
+            putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::Push;
 #else
             // On Linux-x64, any GC pointers the struct contains must be stored to the argument outgoing area using
             // MOV instructions that the emitter can recognize, e.g. "mov qword ptr [esp+8], rax". XMM stores or
@@ -631,13 +602,41 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
                     hasXmmSequence ? GenTreePutArgStk::Kind::GCUnrollXMM : GenTreePutArgStk::Kind::GCUnroll;
             }
 #endif
-    }
+        }
 
-    if (src->OperIs(GT_OBJ))
-    {
-        ContainBlockStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+        if (src->OperIs(GT_OBJ))
+        {
+            ContainBlockStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+        }
+
+        return;
     }
 #endif // FEATURE_PUT_STRUCT_ARG_STK
+
+    // If the child of GT_PUTARG_STK is a constant, we don't need a register to
+    // move it to memory (stack location).
+    //
+    // On AMD64, we don't want to make 0 contained, because we can generate smaller code
+    // by zeroing a register and then storing it. E.g.:
+    //      xor rdx, rdx
+    //      mov gword ptr [rsp+28H], rdx
+    // is 2 bytes smaller than:
+    //      mov gword ptr [rsp+28H], 0
+    //
+    // On x86, we push stack arguments; we don't use 'mov'. So:
+    //      push 0
+    // is 1 byte smaller than:
+    //      xor rdx, rdx
+    //      push rdx
+
+    if (IsContainableImmed(putArgStk, src)
+#if defined(TARGET_AMD64)
+        && !src->IsIntegralConst(0)
+#endif // TARGET_AMD64
+            )
+    {
+        MakeSrcContained(putArgStk, src);
+    }
 }
 
 #ifdef FEATURE_SIMD
