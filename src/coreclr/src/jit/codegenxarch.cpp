@@ -7467,41 +7467,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         srcLayout = src->AsObj()->GetLayout();
     }
 
-#ifdef TARGET_X86
-    if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push)
-    {
-        // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions so
-        // that the emitter properly detects the need to update the method's GC information.
-        //
-        // Strictly speaking, it is only necessary to use `push` to store the GC references themselves, so for structs
-        // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
-        // future.
-
-        // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
-        assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
-
-        for (int i = putArgStk->gtNumSlots - 1; i >= 0; --i)
-        {
-            emitAttr slotAttr      = emitTypeSize(srcLayout->GetGCPtrType(i));
-            int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
-
-            if (srcLclNum != BAD_VAR_NUM)
-            {
-                GetEmitter()->emitIns_S(INS_push, slotAttr, srcLclNum, slotSrcOffset);
-            }
-            else
-            {
-                GetEmitter()->emitIns_ARX(INS_push, slotAttr, srcAddrBaseReg, srcAddrIndexReg, srcAddrIndexScale,
-                                          slotSrcOffset);
-            }
-
-            AddStackLevel(REGSIZE_BYTES);
-        }
-
-        return;
-    }
-#endif // TARGET_X86
-
     if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Unroll)
     {
         assert(!srcLayout->HasGCPtr());
@@ -7639,6 +7604,39 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     }
 
 #ifdef TARGET_X86
+    if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push)
+    {
+        // On x86, any struct that has contains GC references must be stored to the stack using `push` instructions so
+        // that the emitter properly detects the need to update the method's GC information.
+        //
+        // Strictly speaking, it is only necessary to use `push` to store the GC references themselves, so for structs
+        // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
+        // future.
+
+        // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
+        assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
+
+        for (int i = putArgStk->gtNumSlots - 1; i >= 0; --i)
+        {
+            emitAttr slotAttr = emitTypeSize(srcLayout->GetGCPtrType(i));
+            int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
+
+            if (srcLclNum != BAD_VAR_NUM)
+            {
+                GetEmitter()->emitIns_S(INS_push, slotAttr, srcLclNum, slotSrcOffset);
+            }
+            else
+            {
+                GetEmitter()->emitIns_ARX(INS_push, slotAttr, srcAddrBaseReg, srcAddrIndexReg, srcAddrIndexScale,
+                    slotSrcOffset);
+            }
+
+            AddStackLevel(REGSIZE_BYTES);
+        }
+
+        return;
+    }
+
     assert(putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstr);
     assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
 
