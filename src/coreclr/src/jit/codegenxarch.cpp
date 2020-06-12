@@ -7618,7 +7618,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
 
         for (int i = putArgStk->gtNumSlots - 1; i >= 0; --i)
         {
-            emitAttr slotAttr = emitTypeSize(srcLayout->GetGCPtrType(i));
+            emitAttr slotAttr      = emitTypeSize(srcLayout->GetGCPtrType(i));
             int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
 
             if (srcLclNum != BAD_VAR_NUM)
@@ -7628,7 +7628,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             else
             {
                 GetEmitter()->emitIns_ARX(INS_push, slotAttr, srcAddrBaseReg, srcAddrIndexReg, srcAddrIndexScale,
-                    slotSrcOffset);
+                                          slotSrcOffset);
             }
 
             AddStackLevel(REGSIZE_BYTES);
@@ -7724,7 +7724,15 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
 
     for (unsigned i = 0; i < numSlots; i++)
     {
-        if (srcLayout->IsGCPtr(i))
+        // Let's see if we can use rep movsp (alias for movsd or movsq for 32 and 64 bits respectively)
+        // instead of a sequence of movsp instructions to save cycles and code size.
+        unsigned nonGCSequenceLength = 0;
+        while ((i + nonGCSequenceLength < numSlots) && !srcLayout->IsGCPtr(i + nonGCSequenceLength))
+        {
+            nonGCSequenceLength++;
+        }
+
+        if (nonGCSequenceLength <= 1)
         {
             // TODO-AMD64-Unix: Here a better solution (for code size) would be to use movsp instruction,
             // but the logic for emitting a GC info record is not available (it is internal for the emitter
@@ -7747,31 +7755,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             continue;
         }
 
-        // Let's see if we can use rep movsp (alias for movsd or movsq for 32 and 64 bits respectively)
-        // instead of a sequence of movsp instructions to save cycles and code size.
-        unsigned adjacentNonGCSlotCount = 0;
-        do
-        {
-            adjacentNonGCSlotCount++;
-        } while ((i + adjacentNonGCSlotCount < numSlots) && !srcLayout->IsGCPtr(i + adjacentNonGCSlotCount));
-
-        if (adjacentNonGCSlotCount == 1)
-        {
-            if (srcLclNum != BAD_VAR_NUM)
-            {
-                GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, intTmpReg, srcLclNum, srcOffset);
-            }
-            else
-            {
-                GetEmitter()->emitIns_R_ARX(INS_mov, EA_8BYTE, intTmpReg, srcAddrBaseReg, srcAddrIndexReg,
-                                            srcAddrIndexScale, srcOffset);
-            }
-            GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, intTmpReg, outArgLclNum, outArgLclOffs + i * REGSIZE_BYTES);
-            srcOffset += REGSIZE_BYTES;
-            continue;
-        }
-
-        if (adjacentNonGCSlotCount == 2)
+        if (nonGCSequenceLength == 2)
         {
             assert(xmmTmpReg != REG_NA);
 
@@ -7803,20 +7787,20 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             srcOffset = 0;
         }
 
-        if (adjacentNonGCSlotCount < CPOBJ_NONGC_SLOTS_LIMIT)
+        if (nonGCSequenceLength < CPOBJ_NONGC_SLOTS_LIMIT)
         {
-            for (unsigned j = 0; j < adjacentNonGCSlotCount; j++)
+            for (unsigned j = 0; j < nonGCSequenceLength; j++)
             {
                 instGen(INS_movsp);
             }
         }
         else
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, adjacentNonGCSlotCount);
+            GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, nonGCSequenceLength);
             instGen(INS_r_movsp);
         }
 
-        i += adjacentNonGCSlotCount - 1;
+        i += nonGCSequenceLength - 1;
     }
 #endif // TARGET_AMD64
 }
