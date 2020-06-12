@@ -7550,12 +7550,12 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             {
                 if (srcLclNum != BAD_VAR_NUM)
                 {
-                    GetEmitter()->emitIns_S(INS_push, EA_4BYTE, srcLclNum, srcOffset + size & 8);
+                    GetEmitter()->emitIns_S(INS_push, EA_4BYTE, srcLclNum, srcOffset + (size & 8));
                 }
                 else
                 {
                     GetEmitter()->emitIns_ARX(INS_push, EA_4BYTE, srcAddrBaseReg, srcAddrIndexReg, srcAddrIndexScale,
-                                              srcOffset + size & 8);
+                                              srcOffset + (size & 8));
                 }
             }
 
