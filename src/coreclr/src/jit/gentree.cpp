@@ -9958,25 +9958,39 @@ void Compiler::gtDispTree(GenTree*     tree,
         {
             printf(" (%d slots)", tree->AsPutArgStk()->gtNumSlots);
 #ifdef TARGET_XARCH
+            const char* kindName;
             switch (tree->AsPutArgStk()->gtPutArgStkKind)
             {
                 case GenTreePutArgStk::Kind::RepInstr:
-                    printf(" (RepInstr)");
+                    kindName = "RepInst";
                     break;
                 case GenTreePutArgStk::Kind::Unroll:
-                    printf(" (Unroll)");
+                    kindName = "Unroll";
                     break;
 #ifdef TARGET_X86
                 case GenTreePutArgStk::Kind::Push:
-                    printf(" (Push)");
+                    kindName = "Push";
                     break;
                 case GenTreePutArgStk::Kind::PushAllSlots:
-                    printf(" (PushAllSlots)");
+                    kindName = "PushAllSlots";
+                    break;
+#endif
+#ifdef UNIX_AMD64_ABI
+                case GenTreePutArgStk::Kind::RepInstrXMM:
+                    kindName = "RepInstrXMM";
+                    break;
+                case GenTreePutArgStk::Kind::GCUnroll:
+                    kindName = "GCUnroll";
+                    break;
+                case GenTreePutArgStk::Kind::GCUnrollXMM:
+                    kindName = "GCUnrollXMM";
                     break;
 #endif
                 default:
+                    kindName = "???";
                     break;
             }
+            printf(" (%s)", kindName);
 #endif
         }
 #endif // FEATURE_PUT_STRUCT_ARG_STK

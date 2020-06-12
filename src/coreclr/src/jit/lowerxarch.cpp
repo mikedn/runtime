@@ -543,21 +543,94 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
     // (I don't know which).
 
-    if ((size <= CPBLK_UNROLL_LIMIT) && !layout->HasGCPtr())
+    if (!layout->HasGCPtr())
     {
-        putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::Unroll;
+        putArgStk->gtPutArgStkKind =
+            (size <= CPBLK_UNROLL_LIMIT) ? GenTreePutArgStk::Kind::Unroll : GenTreePutArgStk::Kind::RepInstr;
     }
-#ifdef TARGET_X86
-    else if (layout->HasGCPtr())
+    else
     {
+#ifdef TARGET_X86
         // On x86, we must use `push` to store GC references to the stack in order for the emitter to properly update
         // the function's GC info. These `putargstk` nodes will generate a sequence of `push` instructions.
         putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::Push;
-    }
-#endif // TARGET_X86
-    else
-    {
-        putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::RepInstr;
+#else
+            // On Linux-x64, any GC pointers the struct contains must be stored to the argument outgoing area using
+            // MOV instructions that the emitter can recognize, e.g. "mov qword ptr [esp+8], rax". XMM stores or
+            // "indirect" stores, including MOVSQ, cannot be used because the emitter wouldn't be able to figure
+            // out which slot is being stored do.
+            //
+            // If the struct contains only GC pointers then we the only option is to generate a series of load/store
+            // instructions, 2 MOVs for each GC pointer.
+            //
+            // If the struct also contains non-GC slots then we have more options:
+            //   - same MOV load/store as for GC slots - starts at around 8 bytes of code for 8 bytes of data
+            //     but can reach 16 bytes of code with 32 bit address mode displacements and SIB bytes.
+            //   - XMM load/store - copies 16 bytes at once but also generates larger code, ~11 - 18 bytes
+            //     depending on encoding and address modes.
+            //   - REP MOVSQ - basically required for large copies. It's only 3 bytes but addresses and count
+            //     have to be loaded in specific registers so a complete REP MOVSQ sequence can have ~16 - 21
+            //     bytes of code.
+            //   - Individual MOVSQ instructions. Like REP MOVSQ, it's very small, if addresses are already in
+            //     the right registers.
+            //
+            // A previous implementation used (REP) MOVSQ for all non-GC slots but that generates horrible code:
+            //   - If the struct contains only GC slots then the source and destination addresses are still
+            //     loaded in RSI and RDI respectively, even if MOVSQ will never be used. In fact, RDI is loaded
+            //     and not used at all since all GC stores use RSP instead.
+            //   - When transitioning from a GC slot sequence to a non-GC slot sequence, RSI and RDI have to be
+            //     adjusted to account for the already copied GC slots. This requires at least 8 bytes of code.
+            //     Together with a single MOVSQ it's 10 bytes of code to copy 8 bytes of data. So the code may
+            //     end up being larger than a simple MOV load/store, especially if the initial RSI/RDI setup is
+            //     also taken into consideration.
+            //   - The performance of MOVSQ is quite bad - throughput is only 0.25 and it wastes additional
+            //     execution resources by adding 8 to RSI and RDI when normally such additions would be folded
+            //     in address modes.
+            //
+            // As a compromise, continue to use MOVSQ for code size reasons, but with a few exceptions:
+            //   - Copy single non-GC slot sequences using MOV.
+            //   - Copy 2 non-GC slot sequences using XMM.
+            //   - Do not use RDI/RSI/RCX temp registers in cases where (REP) MOVSQ isn't actually used.
+            //
+            // This results in smaller code, except in a few cases where large address mode displacements
+            // and/or many transitions between GC and non-GC slot sequences make for larger code.
+            //
+            // TODO-MIKE-CQ: This mostly deals with code size issues seen in FX diffs, MOVSQ is still being
+            // used to copy 3-4 non-GC slots and that probably has poor performance. And using REP MOVSQ
+            // for more than 4 slots isn't great either.
+
+            bool     hasXmmSequence      = false;
+            bool     hasRepMovsSequence  = false;
+            unsigned nonGCSequenceLength = 0;
+
+            for (unsigned i = 0; i < layout->GetSlotCount(); i++)
+            {
+                if (layout->IsGCPtr(i))
+                {
+                    hasXmmSequence |= (nonGCSequenceLength == 2);
+                    hasRepMovsSequence |= (nonGCSequenceLength > 2);
+                    nonGCSequenceLength = 0;
+                }
+                else
+                {
+                    nonGCSequenceLength++;
+                }
+            }
+
+            hasXmmSequence |= (nonGCSequenceLength == 2);
+            hasRepMovsSequence |= (nonGCSequenceLength > 2);
+
+            if (hasRepMovsSequence)
+            {
+                putArgStk->gtPutArgStkKind =
+                    hasXmmSequence ? GenTreePutArgStk::Kind::RepInstrXMM : GenTreePutArgStk::Kind::RepInstr;
+            }
+            else
+            {
+                putArgStk->gtPutArgStkKind =
+                    hasXmmSequence ? GenTreePutArgStk::Kind::GCUnrollXMM : GenTreePutArgStk::Kind::GCUnroll;
+            }
+#endif
     }
 
     if (src->OperIs(GT_OBJ))

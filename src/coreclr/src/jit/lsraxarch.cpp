@@ -1613,11 +1613,26 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 }
                 break;
 
+#ifdef UNIX_AMD64_ABI
+            case GenTreePutArgStk::Kind::RepInstrXMM:
+                buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
+                SetContainsAVXFlags();
+                __fallthrough;
+#endif
             case GenTreePutArgStk::Kind::RepInstr:
                 buildInternalIntRegisterDefForNode(putArgStk, RBM_RDI);
                 buildInternalIntRegisterDefForNode(putArgStk, RBM_RCX);
                 buildInternalIntRegisterDefForNode(putArgStk, RBM_RSI);
                 break;
+
+#ifdef UNIX_AMD64_ABI
+            case GenTreePutArgStk::Kind::GCUnrollXMM:
+                buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
+                SetContainsAVXFlags();
+            case GenTreePutArgStk::Kind::GCUnroll:
+                buildInternalIntRegisterDefForNode(putArgStk);
+                break;
+#endif
 
             default:
                 unreached();

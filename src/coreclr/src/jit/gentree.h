@@ -6470,12 +6470,23 @@ struct GenTreePutArgStk : public GenTreeUnOp
     // to encode this operation.
     // TODO-Throughput: The following information should be obtained from the child
     // block node.
-    enum class Kind : uint8_t{
-        Invalid, RepInstr,     Unroll,
+    // clang-format off
+    enum class Kind : uint8_t
+    {
+        Invalid,
+        RepInstr,
+        Unroll,
+#ifdef UNIX_AMD64_ABI
+        RepInstrXMM,
+        GCUnroll,
+        GCUnrollXMM,
+#endif
 #ifdef TARGET_X86
-        Push,    PushAllSlots,
+        Push,
+        PushAllSlots,
 #endif
     };
+    // clang-format on
 
     Kind gtPutArgStkKind;
 #endif // TARGET_XARCH
