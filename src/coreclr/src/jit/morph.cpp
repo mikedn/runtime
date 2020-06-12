@@ -12101,9 +12101,9 @@ DONE_MORPHING_CHILDREN:
                 {
                     /* Negate the constant and change the node to be "+" */
 
-                    op2->AsIntConCommon()->SetIconValue(-op2->AsIntConCommon()->IconValue());
-                    op2->AsIntConRef().gtFieldSeq = FieldSeqStore::NotAField();
-                    oper                          = GT_ADD;
+                    op2->AsIntCon()->SetIconValue(-op2->AsIntConCommon()->IconValue());
+                    op2->AsIntCon()->gtFieldSeq = FieldSeqStore::NotAField();
+                    oper                        = GT_ADD;
                     tree->ChangeOper(oper);
                     goto CM_ADD_OP;
                 }
