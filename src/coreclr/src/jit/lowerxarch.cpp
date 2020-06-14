@@ -362,19 +362,37 @@ void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* 
         return;
     }
 
-#ifdef TARGET_X86
-    if (store->OperIs(GT_PUTARG_STK) && (store->AsPutArgStk()->gtPutArgStkKind == GenTreePutArgStk::Kind::Push))
+#if defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
+    if (GenTreePutArgStk* putArg = store->IsPutArgStk())
     {
-        // Containing the address mode avoids generating an extra LEA instruction but may increase the size
-        // of the load/store instructions due to extra SIB bytes and/or 32 bit displacements. Unlike Unroll,
-        // Push places no upper bound on the size of the struct and anyway it requires more instructions
-        // than Unroll because it copies only 4 bytes at a time. Besides, if we need to push a lot of slots
-        // the cost of the extra LEA is likely to be irrelevant.
-
-        if ((addrMode->HasIndex() && (size > 32)) || ((addrMode->Offset() > 128 - 16) && (size > 16)))
+#if defined(TARGET_X86)
+        if (putArg->gtPutArgStkKind == GenTreePutArgStk::Kind::Push)
         {
-            return;
+            // Containing the address mode avoids generating an extra LEA instruction but may increase the size
+            // of the load/store instructions due to extra SIB bytes and/or 32 bit displacements. Unlike Unroll,
+            // Push places no upper bound on the size of the struct and anyway it requires more instructions
+            // than Unroll because it copies only 4 bytes at a time. Besides, if we need to push a lot of slots
+            // the cost of the extra LEA is likely to be irrelevant.
+
+            if ((addrMode->HasIndex() && (size > 32)) || ((addrMode->Offset() > 128 - 16) && (size > 16)))
+            {
+                return;
+            }
         }
+#else
+        if ((putArg->gtPutArgStkKind == GenTreePutArgStk::Kind::GCUnroll) ||
+            (putArg->gtPutArgStkKind == GenTreePutArgStk::Kind::GCUnrollXMM))
+        {
+            // Like in the x86 PUSH case, do not contain in cases where unrolling isn't limited. Use a higher
+            // size treshold as on x64 we copy 8 and even 16 bytes at a time. Not that RepInstr/RepInstr also
+            // do unlimited unroll but unlike GCUnroll/GCUnrollXMM they use the address mode only once.
+
+            if ((addrMode->HasIndex() && (size > 64)) || ((addrMode->Offset() > 128 - 32) && (size > 32)))
+            {
+                return;
+            }
+        }
+#endif
     }
 #endif
 
