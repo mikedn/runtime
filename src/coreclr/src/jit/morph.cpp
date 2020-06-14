@@ -1619,6 +1619,9 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         GenTree* setupArg = nullptr;
         GenTree* defArg;
 
+        // fgMorphArgs should have transformed all MKREFANY args.
+        assert(!argx->OperIs(GT_MKREFANY));
+
 #if !FEATURE_FIXED_OUT_ARGS
         // Only ever set for FEATURE_FIXED_OUT_ARGS
         assert(curArgTabEntry->needPlace == false);
@@ -1662,36 +1665,6 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 #endif
 
                 unsigned tmpVarNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
-                if (argx->gtOper == GT_MKREFANY)
-                {
-                    // For GT_MKREFANY, typically the actual struct copying does
-                    // not have any side-effects and can be delayed. So instead
-                    // of using a temp for the whole struct, we can just use a temp
-                    // for operand that that has a side-effect
-                    GenTree* operand;
-                    if ((argx->AsOp()->gtOp2->gtFlags & GTF_ALL_EFFECT) == 0)
-                    {
-                        operand = argx->AsOp()->gtOp1;
-
-                        // In the early argument evaluation, place an assignment to the temp
-                        // from the source operand of the mkrefany
-                        setupArg = compiler->gtNewTempAssign(tmpVarNum, operand);
-
-                        // Replace the operand for the mkrefany with the new temp.
-                        argx->AsOp()->gtOp1 = compiler->gtNewLclvNode(tmpVarNum, operand->TypeGet());
-                    }
-                    else if ((argx->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT) == 0)
-                    {
-                        operand = argx->AsOp()->gtOp2;
-
-                        // In the early argument evaluation, place an assignment to the temp
-                        // from the source operand of the mkrefany
-                        setupArg = compiler->gtNewTempAssign(tmpVarNum, operand);
-
-                        // Replace the operand for the mkrefany with the new temp.
-                        argx->AsOp()->gtOp2 = compiler->gtNewLclvNode(tmpVarNum, operand->TypeGet());
-                    }
-                }
 
                 if (setupArg != nullptr)
                 {
@@ -3118,6 +3091,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             argx->gtType = TYP_I_IMPL;
         }
 
+#ifndef TARGET_X86
         GenTree* argObj = argx->gtEffectiveVal(true /*commaOnly*/);
 
         if (argEntry->isStruct && varTypeIsStruct(argObj) &&
@@ -3173,7 +3147,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
                 assert(size != 0);
 
-#ifndef TARGET_X86
                 // Check to see if we can transform this into load of a primitive type.
                 // 'size' must be the number of pointer sized items
                 assert(size == roundupSize / TARGET_POINTER_SIZE);
@@ -3379,7 +3352,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     assert(varTypeIsEnregisterable(argObj->TypeGet()) ||
                            ((copyBlkClass != NO_CLASS_HANDLE) && varTypeIsEnregisterable(structBaseType)));
                 }
-#endif // !TARGET_X86
 
 #ifndef UNIX_AMD64_ABI
                 if ((structBaseType == TYP_STRUCT) && !(argEntry->IsHfaArg() && argEntry->isPassedInFloatRegisters()))
@@ -3413,6 +3385,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 fgMakeOutgoingStructArgCopy(call, args, argIndex, copyBlkClass);
             }
         }
+#endif // !TARGET_X86
 
         if (argx->gtOper == GT_MKREFANY)
         {
@@ -12128,9 +12101,9 @@ DONE_MORPHING_CHILDREN:
                 {
                     /* Negate the constant and change the node to be "+" */
 
-                    op2->AsIntConCommon()->SetIconValue(-op2->AsIntConCommon()->IconValue());
-                    op2->AsIntConRef().gtFieldSeq = FieldSeqStore::NotAField();
-                    oper                          = GT_ADD;
+                    op2->AsIntCon()->SetIconValue(-op2->AsIntConCommon()->IconValue());
+                    op2->AsIntCon()->gtFieldSeq = FieldSeqStore::NotAField();
+                    oper                        = GT_ADD;
                     tree->ChangeOper(oper);
                     goto CM_ADD_OP;
                 }

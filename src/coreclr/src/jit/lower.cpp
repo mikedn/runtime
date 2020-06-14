@@ -1207,6 +1207,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
             newArg->SetRegNum(REG_STK);
             BlockRange().InsertBefore(arg, fieldList, newArg);
             argInfo->SetNode(newArg);
+            LowerPutArgStk(newArg->AsPutArgStk());
         }
 
         BlockRange().Remove(arg);
@@ -1286,6 +1287,11 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     {
         argInfo->SetNode(putArg);
         BlockRange().InsertAfter(arg, putArg);
+
+        if (putArg->IsPutArgStk())
+        {
+            LowerPutArgStk(putArg->AsPutArgStk());
+        }
     }
 }
 

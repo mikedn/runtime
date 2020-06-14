@@ -325,16 +325,18 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
 }
 
 //------------------------------------------------------------------------
-// ContainBlockStoreAddress: Attempt to contain an address used by an unrolled block store.
+// ContainBlockStoreAddress: Attempt to contain an address used by a block store.
 //
 // Arguments:
-//    blkNode - the block store node
+//    store - the block store node - STORE_BLK or PUTARG_STK
 //    size - the block size
 //    addr - the address node to try to contain
 //
-void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenTree* addr)
+void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(blkNode->OperIs(GT_STORE_BLK) && (blkNode->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll));
+    assert((store->OperIs(GT_STORE_BLK) && (store->AsBlk()->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll)) ||
+           store->OperIs(GT_PUTARG_STK));
+
     assert(size < INT32_MAX);
 
     if (addr->OperIsLocalAddr())
@@ -360,10 +362,44 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
         return;
     }
 
-    // Note that the parentNode is always the block node, even if we're dealing with the source address.
-    // The source address is not directly used by the block node but by an IND node and that IND node is
-    // always contained.
-    if (!IsSafeToContainMem(blkNode, addrMode))
+#if defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
+    if (GenTreePutArgStk* putArg = store->IsPutArgStk())
+    {
+#if defined(TARGET_X86)
+        if (putArg->gtPutArgStkKind == GenTreePutArgStk::Kind::Push)
+        {
+            // Containing the address mode avoids generating an extra LEA instruction but may increase the size
+            // of the load/store instructions due to extra SIB bytes and/or 32 bit displacements. Unlike Unroll,
+            // Push places no upper bound on the size of the struct and anyway it requires more instructions
+            // than Unroll because it copies only 4 bytes at a time. Besides, if we need to push a lot of slots
+            // the cost of the extra LEA is likely to be irrelevant.
+
+            if ((addrMode->HasIndex() && (size > 32)) || ((addrMode->Offset() > 128 - 16) && (size > 16)))
+            {
+                return;
+            }
+        }
+#else
+        if ((putArg->gtPutArgStkKind == GenTreePutArgStk::Kind::GCUnroll) ||
+            (putArg->gtPutArgStkKind == GenTreePutArgStk::Kind::GCUnrollXMM))
+        {
+            // Like in the x86 PUSH case, do not contain in cases where unrolling isn't limited. Use a higher
+            // size treshold as on x64 we copy 8 and even 16 bytes at a time. Not that RepInstr/RepInstr also
+            // do unlimited unroll but unlike GCUnroll/GCUnrollXMM they use the address mode only once.
+
+            if ((addrMode->HasIndex() && (size > 64)) || ((addrMode->Offset() > 128 - 32) && (size > 32)))
+            {
+                return;
+            }
+        }
+#endif
+    }
+#endif
+
+    // Note that the parentNode is always the store node, even if we're dealing with the source address.
+    // The source address is not directly used by the store node but by an indirection that is always
+    // contained.
+    if (!IsSafeToContainMem(store, addrMode))
     {
         return;
     }
@@ -466,82 +502,159 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK
-    if (src->TypeGet() != TYP_STRUCT)
-#endif // FEATURE_PUT_STRUCT_ARG_STK
+    if (src->TypeIs(TYP_STRUCT))
     {
-        // If the child of GT_PUTARG_STK is a constant, we don't need a register to
-        // move it to memory (stack location).
-        //
-        // On AMD64, we don't want to make 0 contained, because we can generate smaller code
-        // by zeroing a register and then storing it. E.g.:
-        //      xor rdx, rdx
-        //      mov gword ptr [rsp+28H], rdx
-        // is 2 bytes smaller than:
-        //      mov gword ptr [rsp+28H], 0
-        //
-        // On x86, we push stack arguments; we don't use 'mov'. So:
-        //      push 0
-        // is 1 byte smaller than:
-        //      xor rdx, rdx
-        //      push rdx
+        ClassLayout* layout;
+        unsigned     size;
 
-        if (IsContainableImmed(putArgStk, src)
-#if defined(TARGET_AMD64)
-            && !src->IsIntegralConst(0)
-#endif // TARGET_AMD64
-                )
+        if (src->OperIs(GT_LCL_VAR))
         {
-            MakeSrcContained(putArgStk, src);
+            layout = comp->lvaGetDesc(src->AsLclVar())->GetLayout();
+            size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
         }
+        else if (src->OperIs(GT_LCL_FLD))
+        {
+            layout = src->AsLclFld()->GetLayout(comp);
+            size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
+        }
+        else
+        {
+            layout = src->AsObj()->GetLayout();
+            size   = layout->GetSize();
+        }
+
+        // In case of a CpBlk we could use a helper call. In case of putarg_stk we
+        // can't do that since the helper call could kill some already set up outgoing args.
+        // TODO-Amd64-Unix: converge the code for putarg_stk with cpyblk/cpyobj.
+        // The cpyXXXX code is rather complex and this could cause it to be more complex, but
+        // it might be the right thing to do.
+
+        // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
+        // (I don't know which).
+
+        if (!layout->HasGCPtr())
+        {
+            putArgStk->gtPutArgStkKind =
+                (size <= CPBLK_UNROLL_LIMIT) ? GenTreePutArgStk::Kind::Unroll : GenTreePutArgStk::Kind::RepInstr;
+        }
+        else
+        {
+#ifdef TARGET_X86
+            // On x86, we must use `push` to store GC references to the stack in order for the emitter to properly
+            // update the function's GC info. These `putargstk` nodes will generate a sequence of `push` instructions.
+            putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::Push;
+#else
+            // On Linux-x64, any GC pointers the struct contains must be stored to the argument outgoing area using
+            // MOV instructions that the emitter can recognize, e.g. "mov qword ptr [esp+8], rax". XMM stores or
+            // "indirect" stores, including MOVSQ, cannot be used because the emitter wouldn't be able to figure
+            // out which slot is being stored do.
+            //
+            // If the struct contains only GC pointers then we the only option is to generate a series of load/store
+            // instructions, 2 MOVs for each GC pointer.
+            //
+            // If the struct also contains non-GC slots then we have more options:
+            //   - same MOV load/store as for GC slots - starts at around 8 bytes of code for 8 bytes of data
+            //     but can reach 16 bytes of code with 32 bit address mode displacements and SIB bytes.
+            //   - XMM load/store - copies 16 bytes at once but also generates larger code, ~11 - 18 bytes
+            //     depending on encoding and address modes.
+            //   - REP MOVSQ - basically required for large copies. It's only 3 bytes but addresses and count
+            //     have to be loaded in specific registers so a complete REP MOVSQ sequence can have ~16 - 21
+            //     bytes of code.
+            //   - Individual MOVSQ instructions. Like REP MOVSQ, it's very small, if addresses are already in
+            //     the right registers.
+            //
+            // A previous implementation used (REP) MOVSQ for all non-GC slots but that generates horrible code:
+            //   - If the struct contains only GC slots then the source and destination addresses are still
+            //     loaded in RSI and RDI respectively, even if MOVSQ will never be used. In fact, RDI is loaded
+            //     and not used at all since all GC stores use RSP instead.
+            //   - When transitioning from a GC slot sequence to a non-GC slot sequence, RSI and RDI have to be
+            //     adjusted to account for the already copied GC slots. This requires at least 8 bytes of code.
+            //     Together with a single MOVSQ it's 10 bytes of code to copy 8 bytes of data. So the code may
+            //     end up being larger than a simple MOV load/store, especially if the initial RSI/RDI setup is
+            //     also taken into consideration.
+            //   - The performance of MOVSQ is quite bad - throughput is only 0.25 and it wastes additional
+            //     execution resources by adding 8 to RSI and RDI when normally such additions would be folded
+            //     in address modes.
+            //
+            // As a compromise, continue to use MOVSQ for code size reasons, but with a few exceptions:
+            //   - Copy single non-GC slot sequences using MOV.
+            //   - Copy 2 non-GC slot sequences using XMM.
+            //   - Do not use RDI/RSI/RCX temp registers in cases where (REP) MOVSQ isn't actually used.
+            //
+            // This results in smaller code, except in a few cases where large address mode displacements
+            // and/or many transitions between GC and non-GC slot sequences make for larger code.
+            //
+            // TODO-MIKE-CQ: This mostly deals with code size issues seen in FX diffs, MOVSQ is still being
+            // used to copy 3-4 non-GC slots and that probably has poor performance. And using REP MOVSQ
+            // for more than 4 slots isn't great either.
+
+            bool     hasXmmSequence      = false;
+            bool     hasRepMovsSequence  = false;
+            unsigned nonGCSequenceLength = 0;
+
+            for (unsigned i = 0; i < layout->GetSlotCount(); i++)
+            {
+                if (layout->IsGCPtr(i))
+                {
+                    hasXmmSequence |= (nonGCSequenceLength == 2);
+                    hasRepMovsSequence |= (nonGCSequenceLength > 2);
+                    nonGCSequenceLength = 0;
+                }
+                else
+                {
+                    nonGCSequenceLength++;
+                }
+            }
+
+            hasXmmSequence |= (nonGCSequenceLength == 2);
+            hasRepMovsSequence |= (nonGCSequenceLength > 2);
+
+            if (hasRepMovsSequence)
+            {
+                putArgStk->gtPutArgStkKind =
+                    hasXmmSequence ? GenTreePutArgStk::Kind::RepInstrXMM : GenTreePutArgStk::Kind::RepInstr;
+            }
+            else
+            {
+                putArgStk->gtPutArgStkKind =
+                    hasXmmSequence ? GenTreePutArgStk::Kind::GCUnrollXMM : GenTreePutArgStk::Kind::GCUnroll;
+            }
+#endif
+        }
+
+        if (src->OperIs(GT_OBJ))
+        {
+            ContainBlockStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+        }
+
         return;
     }
-
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-    ClassLayout* layout;
-    unsigned     size;
-
-    if (src->OperIs(GT_LCL_VAR))
-    {
-        layout = comp->lvaGetDesc(src->AsLclVar())->GetLayout();
-        size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
-    }
-    else if (src->OperIs(GT_LCL_FLD))
-    {
-        layout = src->AsLclFld()->GetLayout(comp);
-        size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
-    }
-    else
-    {
-        layout = src->AsObj()->GetLayout();
-        size   = layout->GetSize();
-    }
-
-    // In case of a CpBlk we could use a helper call. In case of putarg_stk we
-    // can't do that since the helper call could kill some already set up outgoing args.
-    // TODO-Amd64-Unix: converge the code for putarg_stk with cpyblk/cpyobj.
-    // The cpyXXXX code is rather complex and this could cause it to be more complex, but
-    // it might be the right thing to do.
-
-    // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
-    // (I don't know which).
-
-    if ((size <= CPBLK_UNROLL_LIMIT) && !layout->HasGCPtr())
-    {
-        putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::Unroll;
-    }
-#ifdef TARGET_X86
-    else if (layout->HasGCPtr())
-    {
-        // On x86, we must use `push` to store GC references to the stack in order for the emitter to properly update
-        // the function's GC info. These `putargstk` nodes will generate a sequence of `push` instructions.
-        putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::Push;
-    }
-#endif // TARGET_X86
-    else
-    {
-        putArgStk->gtPutArgStkKind = GenTreePutArgStk::Kind::RepInstr;
-    }
 #endif // FEATURE_PUT_STRUCT_ARG_STK
+
+    // If the child of GT_PUTARG_STK is a constant, we don't need a register to
+    // move it to memory (stack location).
+    //
+    // On AMD64, we don't want to make 0 contained, because we can generate smaller code
+    // by zeroing a register and then storing it. E.g.:
+    //      xor rdx, rdx
+    //      mov gword ptr [rsp+28H], rdx
+    // is 2 bytes smaller than:
+    //      mov gword ptr [rsp+28H], 0
+    //
+    // On x86, we push stack arguments; we don't use 'mov'. So:
+    //      push 0
+    // is 1 byte smaller than:
+    //      xor rdx, rdx
+    //      push rdx
+
+    if (IsContainableImmed(putArgStk, src)
+#if defined(TARGET_AMD64)
+        && !src->IsIntegralConst(0)
+#endif // TARGET_AMD64
+            )
+    {
+        MakeSrcContained(putArgStk, src);
+    }
 }
 
 #ifdef FEATURE_SIMD
@@ -2466,22 +2579,6 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
                 ctrlExpr->SetRegNum(REG_NA);
                 MakeSrcContained(call, ctrlExpr);
             }
-        }
-    }
-
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        if (use.GetNode()->OperIs(GT_PUTARG_STK))
-        {
-            LowerPutArgStk(use.GetNode()->AsPutArgStk());
-        }
-    }
-
-    for (GenTreeCall::Use& use : call->LateArgs())
-    {
-        if (use.GetNode()->OperIs(GT_PUTARG_STK))
-        {
-            LowerPutArgStk(use.GetNode()->AsPutArgStk());
         }
     }
 }

@@ -354,10 +354,6 @@ struct GenTree
     {                                                                                                                  \
         assert(OperIsSimple());                                                                                        \
         return reinterpret_cast<const GenTree##fn*>(this);                                                             \
-    }                                                                                                                  \
-    GenTree##fn& As##fn##Ref()                                                                                         \
-    {                                                                                                                  \
-        return *As##fn();                                                                                              \
     }
 
 #define GTSTRUCT_N(fn, ...)                                                                                            \
@@ -371,9 +367,13 @@ struct GenTree
         assert(OperIs(__VA_ARGS__));                                                                                   \
         return reinterpret_cast<const GenTree##fn*>(this);                                                             \
     }                                                                                                                  \
-    GenTree##fn& As##fn##Ref()                                                                                         \
+    GenTree##fn* Is##fn()                                                                                              \
     {                                                                                                                  \
-        return *As##fn();                                                                                              \
+        return OperIs(__VA_ARGS__) ? reinterpret_cast<GenTree##fn*>(this) : nullptr;                                   \
+    }                                                                                                                  \
+    const GenTree##fn* Is##fn() const                                                                                  \
+    {                                                                                                                  \
+        return OperIs(__VA_ARGS__) ? reinterpret_cast<const GenTree##fn*>(this) : nullptr;                             \
     }
 
 #define GTSTRUCT_1(fn, en) GTSTRUCT_N(fn, en)
@@ -384,6 +384,15 @@ struct GenTree
 #define GTSTRUCT_3_SPECIAL(fn, en, en2, en3) GTSTRUCT_3(fn, en, en2, en3)
 
 #include "gtstructs.h"
+
+#undef GTSTRUCT_0
+#undef GTSTRUCT_1
+#undef GTSTRUCT_2
+#undef GTSTRUCT_3
+#undef GTSTRUCT_4
+#undef GTSTRUCT_N
+#undef GTSTRUCT_2_SPECIAL
+#undef GTSTRUCT_3_SPECIAL
 
     genTreeOps gtOper; // enum subtype BYTE
     var_types  gtType; // enum subtype BYTE
@@ -1697,9 +1706,6 @@ public:
     // Returns the GTF flag equivalent for the regIndex'th register of a multi-reg node.
     unsigned int GetRegSpillFlagByIdx(int regIndex) const;
 
-    // Returns true if it is a GT_COPY or GT_RELOAD node
-    inline bool IsCopyOrReload() const;
-
     // Returns true if it is a GT_COPY or GT_RELOAD of a multi-reg call node
     inline bool IsCopyOrReloadOfMultiRegCall() const;
 
@@ -2006,10 +2012,7 @@ public:
     {
         return OperGet() == GT_ARGPLACE;
     }
-    bool IsCall() const
-    {
-        return OperGet() == GT_CALL;
-    }
+
     inline bool IsHelperCall();
 
     bool gtOverflow() const;
@@ -5743,6 +5746,11 @@ struct GenTreeAddrMode : public GenTreeOp
         return gtOp1;
     }
 
+    GenTree* GetBase() const
+    {
+        return gtOp1;
+    }
+
     void SetBase(GenTree* base)
     {
         gtOp1 = base;
@@ -5754,6 +5762,11 @@ struct GenTreeAddrMode : public GenTreeOp
         return gtOp2 != nullptr;
     }
     GenTree*& Index()
+    {
+        return gtOp2;
+    }
+
+    GenTree* GetIndex() const
     {
         return gtOp2;
     }
@@ -6457,12 +6470,23 @@ struct GenTreePutArgStk : public GenTreeUnOp
     // to encode this operation.
     // TODO-Throughput: The following information should be obtained from the child
     // block node.
-    enum class Kind : uint8_t{
-        Invalid, RepInstr,     Unroll,
+    // clang-format off
+    enum class Kind : uint8_t
+    {
+        Invalid,
+        RepInstr,
+        Unroll,
+#ifdef UNIX_AMD64_ABI
+        RepInstrXMM,
+        GCUnroll,
+        GCUnrollXMM,
+#endif
 #ifdef TARGET_X86
-        Push,    PushAllSlots,
+        Push,
+        PushAllSlots,
 #endif
     };
+    // clang-format on
 
     Kind gtPutArgStkKind;
 #endif // TARGET_XARCH
@@ -7810,19 +7834,6 @@ inline unsigned int GenTree::GetRegSpillFlagByIdx(int regIndex) const
 
     assert(!"Invalid node type for GetRegSpillFlagByIdx");
     return TYP_UNDEF;
-}
-
-//-------------------------------------------------------------------------
-// IsCopyOrReload: whether this is a GT_COPY or GT_RELOAD node.
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     Returns true if this GenTree is a copy or reload node.
-inline bool GenTree::IsCopyOrReload() const
-{
-    return (gtOper == GT_COPY || gtOper == GT_RELOAD);
 }
 
 //-----------------------------------------------------------------------------------

@@ -1246,7 +1246,9 @@ protected:
 #endif
 
 #ifndef TARGET_X86
-    void genPutArgStkFieldList(GenTreePutArgStk* putArgStk, unsigned outArgVarNum);
+    void genPutArgStkFieldList(GenTreeFieldList* fieldList,
+                               unsigned          outArgLclNum,
+                               unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
 #endif // !TARGET_X86
 
 #ifdef FEATURE_PUT_STRUCT_ARG_STK

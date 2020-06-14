@@ -344,17 +344,63 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
     }
 }
 
+void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
+{
+    GenTree* src = putArgStk->GetOp(0);
+
+    if (src->OperIs(GT_FIELD_LIST))
+    {
+#ifdef TARGET_ARM64
+        // Don't bother with GT_PUTARG_SPLIT, codegen doesn't support contained
+        // constants currently and it's only used by varargs methods on win-64.
+        if (putArgStk->OperIs(GT_PUTARG_STK))
+        {
+            for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
+            {
+                GenTree* node = use.GetNode();
+
+                if (node->IsIntegralConst(0) || node->IsDblConPositiveZero())
+                {
+                    node->SetContained();
+                }
+            }
+        }
+#endif
+        return;
+    }
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        if (src->OperIs(GT_OBJ))
+        {
+            unsigned size = src->AsObj()->GetLayout()->GetSize();
+
+            ContainBlockStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+        }
+
+        return;
+    }
+
+#ifdef TARGET_ARM64
+    if (src->IsIntegralConst(0) || src->IsDblConPositiveZero())
+    {
+        src->SetContained();
+    }
+#endif
+}
+
 //------------------------------------------------------------------------
 // ContainBlockStoreAddress: Attempt to contain an address used by an unrolled block store.
 //
 // Arguments:
-//    blkNode - the block store node
+//    store - the block store node
 //    size - the block size
 //    addr - the address node to try to contain
 //
-void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenTree* addr)
+void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(blkNode->OperIs(GT_STORE_BLK) && (blkNode->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll));
+    assert((store->OperIs(GT_STORE_BLK) && (store->AsBlk()->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll)) ||
+           store->OperIsPutArgStkOrSplit());
     assert(size < INT32_MAX);
 
     if (addr->OperIsLocalAddr())
@@ -390,7 +436,7 @@ void Lowering::ContainBlockStoreAddress(GenTreeBlk* blkNode, unsigned size, GenT
     }
 #endif
 
-    if (!IsSafeToContainMem(blkNode, addr))
+    if (!IsSafeToContainMem(store, addr))
     {
         return;
     }

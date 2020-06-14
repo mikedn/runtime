@@ -1537,48 +1537,46 @@ void CodeGen::genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode)
 // genPutArgStkFieldList: Generate code for a putArgStk whose source is a GT_FIELD_LIST
 //
 // Arguments:
-//    putArgStk    - The putArgStk node
-//    outArgVarNum - The lclVar num for the argument
+//    fieldList     - The list of fields to store to the stack
+//    outArgLclNum  - The local variable where outgoing arguments are stored
+//    outArgLclOffs - The offset of the argument in the argument area
+//    outArgLclSize - The size of the argument area
 //
 // Notes:
 //    The x86 version of this is in codegenxarch.cpp, and doesn't take an
-//    outArgVarNum, as it pushes its args onto the stack.
+//    outArgLclNum, as it pushes its args onto the stack.
+//
+//    For fast tail calls the outgoing argument area is actually the method's
+//    own incoming argument area.
 //
 #ifndef TARGET_X86
-void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk, unsigned outArgVarNum)
+void CodeGen::genPutArgStkFieldList(GenTreeFieldList* fieldList,
+                                    unsigned          outArgLclNum,
+                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
-    assert(putArgStk->gtOp1->OperIs(GT_FIELD_LIST));
-
-    // Evaluate each of the GT_FIELD_LIST items into their register
-    // and store their register into the outgoing argument area.
-    unsigned argOffset = putArgStk->getArgOffset();
-    for (GenTreeFieldList::Use& use : putArgStk->gtOp1->AsFieldList()->Uses())
+    for (GenTreeFieldList::Use& use : fieldList->Uses())
     {
-        GenTree* nextArgNode = use.GetNode();
-        genConsumeReg(nextArgNode);
+        unsigned dstOffset = outArgLclOffs + use.GetOffset();
 
-        regNumber reg  = nextArgNode->GetRegNum();
-        var_types type = nextArgNode->TypeGet();
-        emitAttr  attr = emitTypeSize(type);
+        GenTree*  src     = use.GetNode();
+        var_types srcType = use.GetNode()->GetType();
+        regNumber srcReg;
 
-        // Emit store instructions to store the registers produced by the GT_FIELD_LIST into the outgoing
-        // argument area.
-        unsigned thisFieldOffset = argOffset + use.GetOffset();
-        GetEmitter()->emitIns_S_R(ins_Store(type), attr, reg, outArgVarNum, thisFieldOffset);
-
-// We can't write beyond the arg area unless this is a tail call, in which case we use
-// the first stack arg as the base of the incoming arg area.
-#ifdef DEBUG
-        size_t areaSize = compiler->lvaLclSize(outArgVarNum);
-#if FEATURE_FASTTAILCALL
-        if (putArgStk->gtCall->IsFastTailCall())
+#ifdef TARGET_ARM64
+        if (src->isContained())
         {
-            areaSize = compiler->info.compArgStackSize;
+            assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero());
+            srcReg = REG_ZR;
         }
+        else
 #endif
+        {
+            srcReg = genConsumeReg(src);
+        }
 
-        assert((thisFieldOffset + EA_SIZE_IN_BYTES(attr)) <= areaSize);
-#endif
+        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
+
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, dstOffset);
     }
 }
 #endif // !TARGET_X86

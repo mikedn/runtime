@@ -687,7 +687,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 
     if (src->OperIs(GT_FIELD_LIST))
     {
-        genPutArgStkFieldList(putArg, outArgLclNum);
+        genPutArgStkFieldList(src->AsFieldList(), outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
         return;
     }
 
@@ -707,7 +707,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 #ifdef TARGET_ARM64
     if (src->isContained())
     {
-        assert(src->IsIntegralConst(0));
+        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero());
+        assert(storeIns == INS_str);
         srcReg = REG_ZR;
     }
     else
@@ -763,8 +764,20 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
     }
     else
     {
-        srcAddrBaseReg = genConsumeReg(src->AsObj()->GetAddr());
-        srcLayout      = src->AsObj()->GetLayout();
+        GenTree* srcAddr = src->AsObj()->GetAddr();
+
+        if (!srcAddr->isContained())
+        {
+            srcAddrBaseReg = genConsumeReg(srcAddr);
+        }
+        else
+        {
+            srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
+            assert(!srcAddr->AsAddrMode()->HasIndex());
+            srcOffset = srcAddr->AsAddrMode()->Offset();
+        }
+
+        srcLayout = src->AsObj()->GetLayout();
     }
 
     emitter* emit   = GetEmitter();
@@ -1053,8 +1066,20 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
         }
         else
         {
-            srcAddrBaseReg = genConsumeReg(src->AsObj()->GetAddr());
-            srcLayout      = src->AsObj()->GetLayout();
+            GenTree* srcAddr = src->AsObj()->GetAddr();
+
+            if (!srcAddr->isContained())
+            {
+                srcAddrBaseReg = genConsumeReg(srcAddr);
+            }
+            else
+            {
+                srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
+                assert(!srcAddr->AsAddrMode()->HasIndex());
+                srcOffset = srcAddr->AsAddrMode()->Offset();
+            }
+
+            srcLayout = src->AsObj()->GetLayout();
         }
 
         unsigned offset    = 0;
