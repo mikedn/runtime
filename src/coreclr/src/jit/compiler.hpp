@@ -612,27 +612,7 @@ inline var_types genActualType(var_types type)
 
 inline var_types genUnsignedType(var_types type)
 {
-    /* Force signed types into corresponding unsigned type */
-
-    switch (type)
-    {
-        case TYP_BYTE:
-            type = TYP_UBYTE;
-            break;
-        case TYP_SHORT:
-            type = TYP_USHORT;
-            break;
-        case TYP_INT:
-            type = TYP_UINT;
-            break;
-        case TYP_LONG:
-            type = TYP_ULONG;
-            break;
-        default:
-            break;
-    }
-
-    return type;
+    return varTypeToUnsigned(type);
 }
 
 /*****************************************************************************/
@@ -1493,6 +1473,12 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     // Do "oper"-specific initializations...
     switch (oper)
     {
+        case GT_FIELD_LIST:
+            AsFieldList()->SetType(TYP_STRUCT);
+            AsFieldList()->ClearFields();
+            AsFieldList()->SetContained();
+            break;
+
         case GT_LCL_VAR:
         case GT_LCL_VAR_ADDR:
             INDEBUG(AsLclVar()->gtLclILoffs = BAD_IL_OFFSET;)

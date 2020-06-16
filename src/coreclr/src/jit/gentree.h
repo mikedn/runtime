@@ -2530,6 +2530,11 @@ public:
     // Insert a new field use after the specified use without updating side effect flags.
     void InsertFieldLIR(Compiler* compiler, Use* insertAfter, GenTree* node, unsigned offset, var_types type);
 
+    void ClearFields()
+    {
+        m_uses = UseList();
+    }
+
     //--------------------------------------------------------------------------
     // Equals: Check if 2 FIELD_LIST nodes are equal.
     //

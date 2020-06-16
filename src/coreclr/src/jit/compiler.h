@@ -9899,6 +9899,8 @@ public:
     GenTreeFieldList* abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
 #endif
 #endif
+    bool abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode);
+    void abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* argNode);
 
     bool killGCRefs(GenTree* tree);
 
