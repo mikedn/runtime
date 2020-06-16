@@ -1136,10 +1136,8 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
         return comp->gtNewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
     }
 
-    return new (comp, GT_PUTARG_STK)
-        GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg,
-                         info->GetSlotNum() PUT_STRUCT_ARG_STK_ONLY_ARG(info->GetStackSlotCount()),
-                         call->IsFastTailCall(), call);
+    return new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg, info->GetSlotNum(),
+                                                      info->GetStackSlotCount(), call->IsFastTailCall(), call);
 }
 
 void Lowering::LowerCallArgs(GenTreeCall* call)
