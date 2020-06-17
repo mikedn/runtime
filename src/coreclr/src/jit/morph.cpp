@@ -4255,6 +4255,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr)
 {
     assert(varTypeIsStruct(arg->TypeGet()));
+    assert(fgEntryPtr->GetRegCount() != 0);
 
 #if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
     // This uses fgIsIndirOfAddrOfLocal to match fgMorphArgs.
@@ -4283,11 +4284,17 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #endif
 
 #ifdef TARGET_ARM
-    if ((fgEntryPtr->IsSplit() && fgEntryPtr->numSlots + fgEntryPtr->numRegs > 4) ||
-        (!fgEntryPtr->IsSplit() && fgEntryPtr->GetRegCount() == 0))
-#else
-    if (fgEntryPtr->GetRegCount() == 0)
-#endif
+    // If an argument is passed in registers we'd like to build a FIELD_LIST with
+    // one field for each register. But split args are problematic - they are also
+    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
+    // with one field per slot isn't an option because there may be too many and
+    // having one field for all slots doesn't work either because we don't have a
+    // layout to describe such a partial "view" of a struct.
+    // So we give up if there are too many slots, with the exception of the promoted
+    // struct case that is always converted to a FIELD_LIST because the number of
+    // promoted fields is bounded.
+
+    if (fgEntryPtr->IsSplit() && (fgEntryPtr->GetSlotCount() + fgEntryPtr->GetRegCount() > 4))
     {
         GenTreeLclVarCommon* lcl       = nullptr;
         GenTree*             actualArg = arg->gtEffectiveVal();
@@ -4318,6 +4325,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
         return arg;
     }
+#endif
 
     CORINFO_CLASS_HANDLE objClass = gtGetStructHandleIfPresent(arg);
     noway_assert(objClass != NO_CLASS_HANDLE);
