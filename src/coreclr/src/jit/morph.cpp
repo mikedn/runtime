@@ -3838,81 +3838,42 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
 //                             call fgMorphMultiregStructArg on each of them.
 //
 // Arguments:
-//    call    :    a GenTreeCall node that has one or more TYP_STRUCT arguments\.
+//    call - a GenTreeCall node that has one or more TYP_STRUCT multireg arguments.
 //
 // Notes:
-//    We only call fgMorphMultiregStructArg for struct arguments that are not passed as simple types.
-//    It will ensure that the struct arguments are in the correct form.
-//    If this method fails to find any TYP_STRUCT arguments it will assert.
+//    We only call fgMorphMultiregStructArg for struct arguments that are passed in
+//    multiple registers. This includes split args which may be passed in only one
+//    register and at least one stack slot.
+//    If this method fails to find such arguments it will assert.
 //
 void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
 {
     INDEBUG(bool foundStructArg = false;)
 
-#ifdef TARGET_X86
-    assert(!"Logic error: no MultiregStructArgs for X86");
-#endif
-#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
-    assert(!"Logic error: no MultiregStructArgs for Windows X64 ABI");
-#endif
-
-    for (GenTreeCall::Use& use : call->Args())
+    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
     {
-        // For late arguments the arg tree that is overridden is in the gtCallLateArgs list.
-        // For such late args the gtCallArgList contains the setup arg node (evaluating the arg.)
-        // The tree from the gtCallLateArgs list is passed to the callee. The fgArgEntry node contains the mapping
-        // between the nodes in both lists. If the arg is not a late arg, the fgArgEntry->node points to itself,
-        // otherwise points to the list in the late args list.
-        bool           isLateArg  = (use.GetNode()->gtFlags & GTF_LATE_ARG) != 0;
-        fgArgTabEntry* fgEntryPtr = call->GetArgInfoByArgNode(use.GetNode());
-        assert(fgEntryPtr != nullptr);
-        GenTree*          argx     = fgEntryPtr->GetNode();
-        GenTreeCall::Use* lateUse  = nullptr;
-        GenTree*          lateNode = nullptr;
+        CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
 
-        if (isLateArg)
-        {
-            for (GenTreeCall::Use& lateArgUse : call->LateArgs())
-            {
-                GenTree* argNode = lateArgUse.GetNode();
-                if (argx == argNode)
-                {
-                    lateUse  = &lateArgUse;
-                    lateNode = argNode;
-                    break;
-                }
-            }
-            assert((lateUse != nullptr) && (lateNode != nullptr));
-        }
-
-        if (!fgEntryPtr->isStruct || (fgEntryPtr->GetRegCount() == 0))
+        if (!argInfo->isStruct || (argInfo->GetRegCount() == 0) ||
+            (argInfo->GetRegCount() + argInfo->GetSlotCount() <= 1))
         {
             continue;
         }
 
-        if (fgEntryPtr->GetRegCount() + fgEntryPtr->GetSlotCount() > 1)
+        INDEBUG(foundStructArg = true;)
+
+        GenTree* argNode = argInfo->GetNode();
+
+        if (!varTypeIsStruct(argNode->GetType()) || argNode->OperIs(GT_FIELD_LIST))
         {
-            INDEBUG(foundStructArg = true;)
-            if (varTypeIsStruct(argx) && !argx->OperIs(GT_FIELD_LIST))
-            {
-                GenTree* newArgx = fgMorphMultiregStructArg(argx, fgEntryPtr);
+            continue;
+        }
 
-                // Did we replace 'argx' with a new tree?
-                if (newArgx != argx)
-                {
-                    // link the new arg node into either the late arg list or the gtCallArgs list
-                    if (isLateArg)
-                    {
-                        lateUse->SetNode(newArgx);
-                    }
-                    else
-                    {
-                        use.SetNode(newArgx);
-                    }
+        GenTree* newArgNode = fgMorphMultiregStructArg(argNode, argInfo);
 
-                    assert(fgEntryPtr->GetNode() == newArgx);
-                }
-            }
+        if (newArgNode != argNode)
+        {
+            argInfo->SetNode(newArgNode);
         }
     }
 
