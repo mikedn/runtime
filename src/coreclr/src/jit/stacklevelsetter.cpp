@@ -259,7 +259,7 @@ unsigned StackLevelSetter::PopArgumentsFromCall(GenTreeCall* call)
                 GenTreePutArgStk* putArg = node->AsPutArgStk();
 
 #if !FEATURE_FIXED_OUT_ARGS
-                assert(argTab->numSlots == putArg->gtNumSlots);
+                assert(argTab->GetStackSlotCount() == putArg->GetSlotCount());
 #endif // !FEATURE_FIXED_OUT_ARGS
 
                 putArgNumSlots.Set(putArg, argTab->numSlots);

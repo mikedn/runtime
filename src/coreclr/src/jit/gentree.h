@@ -6460,9 +6460,14 @@ struct GenTreePutArgStk : public GenTreeUnOp
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
     GenTreeCall* gtCall; // the call node to which this argument belongs
 #endif
-    unsigned gtSlotNum;  // Slot number of the argument to be passed on stack
-    unsigned gtNumSlots; // Number of slots for the argument to be passed on stack
 
+private:
+    unsigned m_slotNum; // Slot number of the argument to be passed on stack
+#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
+    unsigned m_slotCount; // Number of slots for the argument to be passed on stack
+#endif
+
+public:
 #ifdef TARGET_XARCH
     // Instruction selection: during codegen time, what code sequence we will be using
     // to encode this operation.
@@ -6498,15 +6503,17 @@ struct GenTreePutArgStk : public GenTreeUnOp
                      var_types    type,
                      GenTree*     op1,
                      unsigned     slotNum,
-                     unsigned     numSlots,
+                     unsigned     slotCount,
                      bool         putInIncomingArgArea = false,
                      GenTreeCall* callNode = nullptr)
         : GenTreeUnOp(oper, type, op1)
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
         , gtCall(callNode)
 #endif
-        , gtSlotNum(slotNum)
-        , gtNumSlots(numSlots)
+        , m_slotNum(slotNum)
+#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
+        , m_slotCount(slotCount)
+#endif
 #ifdef TARGET_XARCH
         , gtPutArgStkKind(Kind::Invalid)
 #endif
@@ -6514,6 +6521,9 @@ struct GenTreePutArgStk : public GenTreeUnOp
         , gtPutInIncomingArgArea(putInIncomingArgArea)
 #endif
     {
+#if defined(TARGET_AMD64) && defined(TARGET_WINDOWS)
+        assert(slotCount == 1);
+#endif
     }
     // clang-format on
 
@@ -6526,14 +6536,28 @@ struct GenTreePutArgStk : public GenTreeUnOp
 #endif
     }
 
+    unsigned GetSlotNum() const
+    {
+        return m_slotNum;
+    }
+
+    unsigned GetSlotCount() const
+    {
+#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
+        return m_slotCount;
+#else
+        return 1;
+#endif
+    }
+
     unsigned getArgOffset()
     {
-        return gtSlotNum * TARGET_POINTER_SIZE;
+        return m_slotNum * TARGET_POINTER_SIZE;
     }
 
     unsigned getArgSize()
     {
-        return gtNumSlots * TARGET_POINTER_SIZE;
+        return GetSlotCount() * TARGET_POINTER_SIZE;
     }
 
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
@@ -6541,7 +6565,7 @@ struct GenTreePutArgStk : public GenTreeUnOp
     // This is needed because such values are re-typed to SIMD16, and the type of PutArgStk is VOID.
     unsigned isSIMD12()
     {
-        return (varTypeIsSIMD(gtOp1) && (gtNumSlots == 3));
+        return (varTypeIsSIMD(gtOp1) && (m_slotCount == 3));
     }
 #endif
 
@@ -6699,7 +6723,7 @@ public:
     unsigned getArgSize()
     {
 #ifdef TARGET_ARM
-        return (gtNumSlots + gtNumRegs) * REGSIZE_BYTES;
+        return (GetSlotCount() + gtNumRegs) * REGSIZE_BYTES;
 #else
         return 2 * REGSIZE_BYTES;
 #endif

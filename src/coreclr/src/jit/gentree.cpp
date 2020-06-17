@@ -9948,7 +9948,7 @@ void Compiler::gtDispTree(GenTree*     tree,
         }
         else if (tree->OperGet() == GT_PUTARG_STK)
         {
-            printf(" (%d slots)", tree->AsPutArgStk()->gtNumSlots);
+            printf(" (%d slots)", tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
             const char* kindName;
             switch (tree->AsPutArgStk()->gtPutArgStkKind)

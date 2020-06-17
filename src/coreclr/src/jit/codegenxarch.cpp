@@ -7603,7 +7603,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
         assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
 
-        for (int i = putArgStk->gtNumSlots - 1; i >= 0; --i)
+        for (int i = putArgStk->GetSlotCount() - 1; i >= 0; --i)
         {
             emitAttr slotAttr      = emitTypeSize(srcLayout->GetGCPtrType(i));
             int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
@@ -7706,7 +7706,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
     assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
 
-    unsigned numSlots = putArgStk->gtNumSlots;
+    unsigned numSlots = putArgStk->GetSlotCount();
 
     for (unsigned i = 0; i < numSlots; i++)
     {
