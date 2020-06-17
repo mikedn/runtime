@@ -3004,7 +3004,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
                 assert(!"Structs are not passed by reference on x64/ux");
 #endif
-                fgMakeOutgoingStructArgCopy(call, args, argIndex, gtGetStructHandle(argObj));
+                fgMakeOutgoingStructArgCopy(call, argEntry, gtGetStructHandle(argObj));
             }
             else if (argEntry->GetRegCount() == 0)
             {
@@ -4933,21 +4933,16 @@ GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsig
 //
 // Arguments:
 //    call - call being processed
-//    args - args for the call
-///   argIndex - arg being processed
+//    argInfo - call arg info
 //    copyBlkClass - class handle for the struct
 //
 // Return value:
 //    tree that computes address of the outgoing arg
 //
-void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall*         call,
-                                           GenTreeCall::Use*    args,
-                                           unsigned             argIndex,
-                                           CORINFO_CLASS_HANDLE copyBlkClass)
+void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argInfo, CORINFO_CLASS_HANDLE copyBlkClass)
 {
-    GenTree* argx = args->GetNode();
+    GenTree* argx = argInfo->GetNode();
     noway_assert(argx->gtOper != GT_MKREFANY);
-    fgArgTabEntry* argEntry = call->GetArgInfoByArgNode(argx);
 
     // If we're optimizing, see if we can avoid making a copy.
     //
@@ -4984,8 +4979,7 @@ void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall*         call,
             if (isTailCallLastUse || isCallLastUse || isNoReturnLastUse)
             {
                 varDsc->setLvRefCnt(0, RCS_EARLY);
-                args->SetNode(lcl);
-                assert(argEntry->GetNode() == lcl);
+                argInfo->SetNode(lcl);
 
                 JITDUMP("did not need to make outgoing copy for last use of implicit byref V%2d\n", varNum);
                 return;
@@ -5075,16 +5069,16 @@ void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall*         call,
 
     // Structs are always on the stack, and thus never need temps
     // so we have to put the copy and temp all into one expression.
-    argEntry->tmpNum = tmp;
-    GenTree* arg     = fgMakeTmpArgNode(call, argEntry);
+    argInfo->tmpNum = tmp;
+    GenTree* arg    = fgMakeTmpArgNode(call, argInfo);
 
     // Change the expression to "(tmp=val),tmp"
     arg = gtNewOperNode(GT_COMMA, arg->TypeGet(), copyBlk, arg);
 
 #endif // FEATURE_FIXED_OUT_ARGS
 
-    args->SetNode(arg);
-    call->fgArgInfo->EvalToTmp(argEntry, tmp, arg);
+    argInfo->SetNode(arg);
+    call->fgArgInfo->EvalToTmp(argInfo, tmp, arg);
 
     return;
 }
