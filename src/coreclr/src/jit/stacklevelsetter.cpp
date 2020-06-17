@@ -13,8 +13,6 @@ StackLevelSetter::StackLevelSetter(Compiler* compiler)
     : Phase(compiler, PHASE_STACK_LEVEL_SETTER)
     , currentStackLevel(0)
     , maxStackLevel(0)
-    , memAllocator(compiler->getAllocator(CMK_fgArgInfoPtrArr))
-    , putArgNumSlots(memAllocator)
 #if !FEATURE_FIXED_OUT_ARGS
     , framePointerRequired(compiler->codeGen->isFramePointerRequired())
     , throwHelperBlocksUsed(comp->fgUseThrowHelperBlocks() && comp->compUsesThrowHelper)
@@ -77,17 +75,18 @@ PhaseStatus StackLevelSetter::DoPhase()
 //
 void StackLevelSetter::ProcessBlock(BasicBlock* block)
 {
+    // TODO-MIKE-Cleanup: Investigate why we need to run StackLevelSetter at all in the
+    // FEATURE_FIXED_OUT_ARGS case. It should not be needed since the stack level doesn't
+    // change. Apparently this is mingled together with EMIT_TRACK_STACK_DEPTH which is
+    // also suspect in the FEATURE_FIXED_OUT_ARGS case.
+
     assert(currentStackLevel == 0);
-    LIR::ReadOnlyRange& range = LIR::AsRange(block);
-    for (auto i = range.rbegin(); i != range.rend(); ++i)
+    for (GenTree* node : LIR::AsRange(block))
     {
-        GenTree* node = *i;
-        if (node->OperIsPutArgStkOrSplit())
+        if (GenTreePutArgStk* putArgStk = node->IsPutArgStk())
         {
-            GenTreePutArgStk* putArg   = node->AsPutArgStk();
-            unsigned          numSlots = putArgNumSlots[putArg];
-            putArgNumSlots.Remove(putArg);
-            SubStackLevel(numSlots);
+            PushArg(putArgStk);
+            continue;
         }
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -101,10 +100,9 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
         }
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-        if (node->IsCall())
+        if (GenTreeCall* call = node->IsCall())
         {
-            GenTreeCall* call                = node->AsCall();
-            unsigned     usedStackSlotsCount = PopArgumentsFromCall(call);
+            unsigned usedStackSlotsCount = PopArgumentsFromCall(call);
 #if defined(UNIX_X86_ABI)
             call->fgArgInfo->SetStkSizeBytes(usedStackSlotsCount * TARGET_POINTER_SIZE);
 #endif // UNIX_X86_ABI
@@ -244,43 +242,28 @@ void StackLevelSetter::SetThrowHelperBlock(SpecialCodeKind kind, BasicBlock* blo
 //   the number of stack slots in stack arguments for the call.
 unsigned StackLevelSetter::PopArgumentsFromCall(GenTreeCall* call)
 {
-    unsigned   usedStackSlotsCount = 0;
-    fgArgInfo* argInfo             = call->fgArgInfo;
-    if (argInfo->HasStackArgs())
+    unsigned  usedStackSlotsCount = 0;
+    CallInfo* callInfo            = call->GetInfo();
+    if (callInfo->HasStackArgs())
     {
-        for (unsigned i = 0; i < argInfo->ArgCount(); ++i)
+        // TODO-MIKE-Cleaup: CallInfo::GetNextSlotNum should provide the total
+        // slot count so this loop shouldn't be necessary.
+
+        for (unsigned i = 0; i < callInfo->GetArgCount(); ++i)
         {
-            fgArgTabEntry* argTab = argInfo->ArgTable()[i];
-            if (argTab->numSlots != 0)
+            if (GenTreePutArgStk* putArgStk = callInfo->GetArgInfo(i)->GetNode()->IsPutArgStk())
             {
-                GenTree* node = argTab->GetNode();
-                assert(node->OperIsPutArgStkOrSplit());
-
-                GenTreePutArgStk* putArg = node->AsPutArgStk();
-
-#if !FEATURE_FIXED_OUT_ARGS
-                assert(argTab->GetStackSlotCount() == putArg->GetSlotCount());
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-                putArgNumSlots.Set(putArg, argTab->numSlots);
-
-                usedStackSlotsCount += argTab->numSlots;
-                AddStackLevel(argTab->numSlots);
+                usedStackSlotsCount += putArgStk->GetSlotCount();
+                PopArg(putArgStk);
             }
         }
     }
     return usedStackSlotsCount;
 }
 
-//------------------------------------------------------------------------
-// SubStackLevel: Reflect pushing to the stack.
-//
-// Arguments:
-//   value - a positive value to add.
-//
-void StackLevelSetter::AddStackLevel(unsigned value)
+void StackLevelSetter::PushArg(GenTreePutArgStk* putArgStk)
 {
-    currentStackLevel += value;
+    currentStackLevel += putArgStk->GetSlotCount();
 
     if (currentStackLevel > maxStackLevel)
     {
@@ -288,16 +271,10 @@ void StackLevelSetter::AddStackLevel(unsigned value)
     }
 }
 
-//------------------------------------------------------------------------
-// SubStackLevel: Reflect popping from the stack.
-//
-// Arguments:
-//   value - a positive value to subtract.
-//
-void StackLevelSetter::SubStackLevel(unsigned value)
+void StackLevelSetter::PopArg(GenTreePutArgStk* putArgStk)
 {
-    assert(currentStackLevel >= value);
-    currentStackLevel -= value;
+    assert(currentStackLevel >= putArgStk->GetSlotCount());
+    currentStackLevel -= putArgStk->GetSlotCount();
 }
 
 //------------------------------------------------------------------------
