@@ -3688,11 +3688,11 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
 
     unsigned fieldCount      = lcl->GetPromotedFieldCount();
     unsigned field           = 0;
-    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
+    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
     unsigned reg             = 0;
 
 #ifdef FEATURE_HFA
-    if (argInfo->IsHfaArg() && (argInfo->GetStackSlotCount() == 0))
+    if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
     {
         if (regAndSlotCount > fieldCount)
         {
@@ -3842,11 +3842,11 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 
     unsigned fieldCount      = lcl->GetPromotedFieldCount();
     unsigned field           = 0;
-    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetStackSlotCount();
+    unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
     unsigned reg             = 0;
 
 #ifdef FEATURE_HFA
-    if (argInfo->IsHfaArg() && (argInfo->GetStackSlotCount() == 0))
+    if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
     {
         assert(regAndSlotCount <= fieldCount);
 
