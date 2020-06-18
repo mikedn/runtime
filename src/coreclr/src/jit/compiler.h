@@ -5402,7 +5402,9 @@ private:
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
 
+#ifdef FEATURE_FIXED_OUT_ARGS
     void fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argInfo, CORINFO_CLASS_HANDLE copyBlkClass);
+#endif
 
     void fgFixupStructReturn(GenTree* call);
     GenTree* fgMorphLocalVar(GenTree* tree, bool forceRemorph);

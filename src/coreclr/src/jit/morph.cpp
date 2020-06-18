@@ -4927,6 +4927,7 @@ GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsig
 
 #endif // FEATURE_MULTIREG_ARGS
 
+#ifdef FEATURE_FIXED_OUT_ARGS
 //------------------------------------------------------------------------
 // fgMakeOutgoingStructArgCopy: make a copy of a struct variable if necessary,
 //   to pass to a callee.
@@ -5055,33 +5056,15 @@ void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argIn
         argx->gtFlags |= GTF_DONT_CSE;
     }
 
-    // Copy the valuetype to the temp
+    // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
+    // a use of the temp to the late arg list.
+
     GenTree* copyBlk = gtNewBlkOpNode(dest, argx, false /* not volatile */, true /* copyBlock */);
     copyBlk          = fgMorphCopyBlock(copyBlk->AsOp());
-
-#if FEATURE_FIXED_OUT_ARGS
-
-    // Do the copy early, and evalute the temp later (see EvalArgsToTemps)
-    // When on Unix create LCL_FLD for structs passed in more than one registers. See fgMakeTmpArgNode
-    GenTree* arg = copyBlk;
-
-#else // FEATURE_FIXED_OUT_ARGS
-
-    // Structs are always on the stack, and thus never need temps
-    // so we have to put the copy and temp all into one expression.
-    argInfo->tmpNum = tmp;
-    GenTree* arg    = fgMakeTmpArgNode(call, argInfo);
-
-    // Change the expression to "(tmp=val),tmp"
-    arg = gtNewOperNode(GT_COMMA, arg->TypeGet(), copyBlk, arg);
-
-#endif // FEATURE_FIXED_OUT_ARGS
-
-    argInfo->SetNode(arg);
-    call->fgArgInfo->EvalToTmp(argInfo, tmp, arg);
-
-    return;
+    argInfo->SetNode(copyBlk);
+    call->fgArgInfo->EvalToTmp(argInfo, tmp, copyBlk);
 }
+#endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef TARGET_ARM
 // See declaration for specification comment.
