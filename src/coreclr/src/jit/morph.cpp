@@ -3190,31 +3190,28 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     // - We have a known struct type (e.g. SIMD) that requires multiple registers.
                     // TODO-Amd64-Unix-Throughput: We don't need to keep the structDesc in the argEntry if it's not
                     // actually passed in registers.
-                    if (argEntry->isPassedInRegisters())
+                    if (argObj->OperIs(GT_OBJ))
                     {
-                        if (argObj->OperIs(GT_OBJ))
+                        if (passingSize != structSize)
                         {
-                            if (passingSize != structSize)
-                            {
-                                copyBlkClass = objClass;
-                            }
+                            copyBlkClass = objClass;
                         }
-                        else if (argObj->TypeIs(TYP_STRUCT))
-                        {
-                            assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+                    }
+                    else if (argObj->TypeIs(TYP_STRUCT))
+                    {
+                        assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-                            if (passingSize != structSize)
-                            {
-                                copyBlkClass = objClass;
-                            }
-                        }
-                        else
+                        if (passingSize != structSize)
                         {
-                            // This should only be the case of a value directly producing a known struct type.
-                            if (argEntry->numRegs > 1)
-                            {
-                                copyBlkClass = objClass;
-                            }
+                            copyBlkClass = objClass;
+                        }
+                    }
+                    else
+                    {
+                        // This should only be the case of a value directly producing a known struct type.
+                        if (argEntry->numRegs > 1)
+                        {
+                            copyBlkClass = objClass;
                         }
                     }
 #endif // UNIX_AMD64_ABI
