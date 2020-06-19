@@ -4267,9 +4267,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     // dependent promotion. ARM64 doesn't copy so it always triggers dependent promotion of any
     // struct type that cannot be passed in registers (e.g. a struct with 2-4 INT fields).
     if ((lcl != nullptr) && (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
-#if defined(UNIX_AMD64_ABI)
-        && fgEntryPtr->isPassedInRegisters()
-#endif
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
         && abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr)
 #endif
