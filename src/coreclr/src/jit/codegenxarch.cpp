@@ -7270,33 +7270,12 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-    if (varTypeIsSIMD(srcType))
-    {
-        assert(roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES);
-
-        regNumber srcReg = genConsumeReg(src);
-        assert(genIsValidFloatReg(srcReg));
-
-#if defined(FEATURE_SIMD)
-#if defined(TARGET_AMD64)
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, outArgLclOffs);
+#if defined(TARGET_AMD64) || !defined(FEATURE_SIMD)
+    assert(roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES);
 #else
-        inst_RV_IV(INS_sub, REG_SPBASE, putArgStk->getArgSize(), EA_4BYTE);
-        AddStackLevel(putArgStk->getArgSize());
-
-        if (putArgStk->isSIMD12())
-        {
-            regNumber tmpReg = putArgStk->GetSingleTempReg();
-            genStoreSIMD12ToStack(srcReg, tmpReg);
-        }
-        else
-        {
-            GetEmitter()->emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
-        }
+    assert((roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES) ||
+           putArgStk->isSIMD12());
 #endif
-#endif
-        return;
-    }
 
     if (src->isContained())
     {
@@ -7316,18 +7295,41 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         AddStackLevel(putArgStk->getArgSize());
 #endif
+
+        return;
     }
-    else
-    {
-        regNumber srcReg = genConsumeReg(src);
+
+    regNumber srcReg = genConsumeReg(src);
 
 #if defined(TARGET_AMD64)
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum,
-                                  static_cast<int>(outArgLclOffs));
+    GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum,
+                              static_cast<int>(outArgLclOffs));
 #else
-        genPushReg(srcType, srcReg);
-#endif
+
+#if defined(FEATURE_SIMD)
+    if (varTypeIsSIMD(srcType))
+    {
+        assert(genIsValidFloatReg(srcReg));
+
+        inst_RV_IV(INS_sub, REG_SPBASE, putArgStk->getArgSize(), EA_4BYTE);
+        AddStackLevel(putArgStk->getArgSize());
+
+        if (putArgStk->isSIMD12())
+        {
+            regNumber tmpReg = putArgStk->GetSingleTempReg();
+            genStoreSIMD12ToStack(srcReg, tmpReg);
+        }
+        else
+        {
+            GetEmitter()->emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
+        }
+
+        return;
     }
+#endif
+
+    genPushReg(srcType, srcReg);
+#endif
 }
 
 //---------------------------------------------------------------------
