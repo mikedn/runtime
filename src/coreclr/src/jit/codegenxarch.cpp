@@ -7260,6 +7260,16 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
+    if (srcType == TYP_STRUCT)
+    {
+#if defined(TARGET_AMD64)
+        genPutStructArgStk(putArgStk, outArgLclNum, outArgLclOffs);
+#else
+        genPutStructArgStk(putArgStk);
+#endif
+        return;
+    }
+
     if (varTypeIsSIMD(srcType))
     {
         assert(roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES);
@@ -7284,16 +7294,6 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
             GetEmitter()->emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
         }
 #endif
-#endif
-        return;
-    }
-
-    if (srcType == TYP_STRUCT)
-    {
-#if defined(TARGET_AMD64)
-        genPutStructArgStk(putArgStk, outArgLclNum, outArgLclOffs);
-#else
-        genPutStructArgStk(putArgStk);
 #endif
         return;
     }
