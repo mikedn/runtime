@@ -3128,6 +3128,20 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             {
                 hasMultiFieldPromotedArgs |= abiMorphStructStackArg(argEntry, argObj);
             }
+#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
+            else if (varTypeIsSIMD(argObj->GetType()) &&
+#ifdef TARGET_ARM64
+                     (argEntry->GetRegCount() >= 2) && (argEntry->GetRegCount() <= 4) &&
+                     (argEntry->GetRegType() == TYP_FLOAT)
+#else
+                     (argEntry->GetRegCount() == 2) && (argEntry->GetRegType(0) == TYP_DOUBLE) &&
+                     ((argEntry->GetRegType(1) == TYP_DOUBLE) || (argEntry->GetRegType(1) == TYP_FLOAT))
+#endif
+                         )
+            {
+                // Do not introduce temp copies for SIMD args that are passed in registers.
+            }
+#endif
             else
             {
                 unsigned  roundupSize    = roundUp(originalSize, TARGET_POINTER_SIZE);
@@ -3973,6 +3987,26 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
         }
         else if (fieldType == TYP_FLOAT)
         {
+#ifdef UNIX_AMD64_ABI
+            // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
+            if ((field + 1 < fieldCount) && (reg < argInfo->GetRegCount()) &&
+                genIsValidFloatReg(argInfo->GetRegNum(reg))
+                // TODO-MIKE-Cleanup: The JIT wrongly asserts in various places if it sees SSE intrinsics
+                // because it conflates ISA/intrinsics/feature availability...
+                && supportSIMDTypes())
+            {
+                unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field + 1);
+                LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
+                unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
+                var_types  nextFieldType   = nextFieldLcl->GetType();
+
+                if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
+                {
+                    field++;
+                }
+            }
+#endif // UNIX_AMD64_ABI
+
             reg++;
         }
         else if (fieldType == TYP_LONG)
@@ -4135,6 +4169,32 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
                 fieldNode = gtNewBitCastNode(TYP_INT, fieldNode);
                 fieldType = TYP_INT;
             }
+
+#ifdef UNIX_AMD64_ABI
+            // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
+            if ((field + 1 < fieldCount) && (regType == TYP_DOUBLE))
+            {
+                unsigned   nextFieldLclNum = lcl->GetPromotedFieldLclNum(field + 1);
+                LclVarDsc* nextFieldLcl    = lvaGetDesc(nextFieldLclNum);
+                unsigned   nextFieldOffset = nextFieldLcl->GetPromotedFieldOffset();
+                var_types  nextFieldType   = nextFieldLcl->GetType();
+
+                if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
+                {
+                    GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
+
+                    // TODO-MIKE-CQ: INSERTPS might work better when available, it can insert a float from memory.
+                    fieldNode =
+                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16,
+                                                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
+                                                                          TYP_FLOAT, 16, fieldNode),
+                                                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
+                                                                          TYP_FLOAT, 16, nextFieldNode));
+
+                    field++;
+                }
+            }
+#endif // UNIX_AMD64_ABI
 
             reg++;
         }
@@ -4349,6 +4409,60 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     CORINFO_CLASS_HANDLE objClass = gtGetStructHandleIfPresent(arg);
     noway_assert(objClass != NO_CLASS_HANDLE);
+
+#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
+    // Special case for SIMD args on ARM64 and UNIX_AMD64_ABI: they can be passed in multiple registers
+    // so we need to build a FIELD_LIST. This make the arg tree multi use so we can't avoid introducing
+    // a temp local but at least we can avoid making the temp DNER by extracting the registers values
+    // we need by using SIMDIntrinsicGetItem.
+
+    if (varTypeIsSIMD(arg->GetType()) && !arg->OperIs(GT_OBJ, GT_LCL_FLD, GT_LCL_VAR) &&
+#ifdef TARGET_ARM64
+        (fgEntryPtr->GetRegCount() >= 2) && (fgEntryPtr->GetRegCount() <= 4) && (fgEntryPtr->GetRegType() == TYP_FLOAT)
+#else
+        (fgEntryPtr->GetRegCount() == 2) && (fgEntryPtr->GetRegType(0) == TYP_DOUBLE) &&
+        ((fgEntryPtr->GetRegType(1) == TYP_FLOAT || fgEntryPtr->GetRegType(1) == TYP_DOUBLE))
+#endif
+            )
+    {
+        unsigned          tempLclNum = BAD_VAR_NUM;
+        GenTreeFieldList* newArg     = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+        for (unsigned i = 0, offset = 0; i < fgEntryPtr->GetRegCount(); i++)
+        {
+            var_types fieldType = fgEntryPtr->GetRegType(i);
+            GenTree*  fieldNode;
+
+            GenTree* tempAssign = nullptr;
+
+            if (tempLclNum == BAD_VAR_NUM)
+            {
+                tempLclNum = lvaGrabTemp(true DEBUGARG("MultiReg SIMD arg"));
+                lvaSetStruct(tempLclNum, objClass, false);
+                tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
+            }
+
+            // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
+            // in a SIMD register and at the proper position.
+
+            fieldNode = gtNewSIMDNode(fieldType, SIMDIntrinsicGetItem, fieldType, varTypeSize(arg->GetType()),
+                                      gtNewLclvNode(tempLclNum, arg->GetType()),
+                                      gtNewIconNode(offset / varTypeSize(fieldType)));
+
+            if (tempAssign != nullptr)
+            {
+                fieldNode = gtNewOperNode(GT_COMMA, fieldType, tempAssign, fieldNode);
+            }
+
+            newArg->AddField(this, fieldNode, offset, fieldType);
+
+            offset += varTypeSize(fieldType);
+        }
+
+        return newArg;
+    }
+#endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
+
     unsigned structSize = 0;
 
     if (arg->TypeGet() != TYP_STRUCT)
@@ -4522,21 +4636,48 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
         if (newArg == nullptr)
         {
-            unsigned baseOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
-            unsigned lastOffset = baseOffset + structSize;
+            unsigned  varOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
+            unsigned  varSize   = lvaLclExactSize(varNum);
+            var_types varType   = varDsc->GetType();
+            bool      varIsSIMD = varTypeIsSIMD(varType) && !varDsc->IsPromoted() && !varDsc->lvDoNotEnregister;
 
-            // The allocated size of our LocalVar must be at least as big as lastOffset
-            assert(varDsc->lvSize() >= lastOffset);
+            newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-            lvaSetVarDoNotEnregister(varNum DEBUG_ARG(DNER_LocalField));
-
-            unsigned offset = 0;
-            newArg          = new (this, GT_FIELD_LIST) GenTreeFieldList();
-            for (unsigned inx = 0; inx < elemCount; inx++)
+            for (unsigned i = 0, regOffset = 0; i < elemCount; i++)
             {
-                GenTree* nextLclFld = gtNewLclFldNode(varNum, type[inx], baseOffset + offset);
-                newArg->AddField(this, nextLclFld, offset, type[inx]);
-                offset += genTypeSize(type[inx]);
+                var_types regType     = type[i];
+                unsigned  regSize     = varTypeSize(regType);
+                unsigned  fieldOffset = varOffset + regOffset;
+                GenTree*  fieldNode;
+
+                if (fieldOffset >= varSize)
+                {
+                    // Make sure we add a field for every arg register, even if we somehow end up with
+                    // a smaller local variable as source. If a field is missing, the backend may get
+                    // confused and fail to allocate the register to this arg and instead allocated it
+                    // to the next arg. Just passing a zero is safer and easier to debug.
+                    fieldNode = gtNewZeroConNode(regType);
+                }
+#ifdef FEATURE_SIMD
+                else if (varIsSIMD && varTypeIsFloating(regType) && (fieldOffset % regSize == 0))
+                {
+                    // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
+                    // in a SIMD register and at the proper position.
+
+                    GenTreeIntCon* fieldIndex = gtNewIconNode(fieldOffset / regSize);
+                    fieldNode                 = gtNewLclvNode(varNum, varType);
+                    fieldNode = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, varSize, fieldNode, fieldIndex);
+                }
+                else
+#endif
+                {
+                    fieldNode = gtNewLclFldNode(varNum, regType, fieldOffset);
+
+                    lvaSetVarDoNotEnregister(varNum DEBUG_ARG(DNER_LocalField));
+                }
+
+                newArg->AddField(this, fieldNode, regOffset, regType);
+                regOffset += regSize;
             }
         }
     }
