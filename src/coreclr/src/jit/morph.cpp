@@ -4257,28 +4257,72 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     assert(varTypeIsStruct(arg->TypeGet()));
     assert(fgEntryPtr->GetRegCount() != 0);
 
-#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
-    // This uses fgIsIndirOfAddrOfLocal to match fgMorphArgs.
-    // Other code below only recognizes OBJ(ADDR(LCL_VAR)).
-    GenTreeLclVar* lcl = fgIsIndirOfAddrOfLocal(arg);
+    if (arg->OperIs(GT_OBJ))
+    {
+        GenTreeLclVarCommon* lclNode  = nullptr;
+        unsigned             lclOffs  = 0;
+        FieldSeqNode*        fieldSeq = nullptr;
 
+        if (arg->AsObj()->GetAddr()->IsLocalAddrExpr(this, &lclNode, &lclOffs, &fieldSeq))
+        {
+            ClassLayout* argLayout = arg->AsObj()->GetLayout();
+
+            if (lclOffs == 0)
+            {
+                // TODO-MIKE-Cleanup: This is slighly different from abiMorphStructStackArg because it's more
+                // difficult to extract the size from the registers.
+
+                unsigned argSize = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
+
+                LclVarDsc* lcl     = lvaGetDesc(lclNode);
+                var_types  lclType = lcl->GetType();
+                unsigned   lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
+
+                // With some care in codegen and a few other places we could probably allow any local size
+                // here. We have alreadyd determined what registers the arg uses so it's just matter of
+                // loading the register from whatever location we end up with. If the location is smaller
+                // than the arg type we could zero out registers or just leave them "uninitialized". It's
+                // not clear if there's any good reason to do this.
+                //
+                // As a simple compromise, allow size mismatches if the slot count is the same. This is
+                // sufficient for the special case of SIMD12, which can be treated as SIMD16 on 64 bit.
+
+                if ((lclSize != 0) && (roundUp(lclSize, REGSIZE_BYTES) == argSize))
+                {
+                    arg->ChangeOper(GT_LCL_VAR);
+                    arg->SetType(lclType);
+                    arg->AsLclVar()->SetLclNum(lclNode->GetLclNum());
+                    arg->gtFlags = 0;
+                }
+            }
+
+            if (arg->OperIs(GT_OBJ))
+            {
+                arg->ChangeOper(GT_LCL_FLD);
+                arg->AsLclFld()->SetLclNum(lclNode->GetLclNum());
+                arg->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
+                arg->AsLclFld()->SetLayout(argLayout, this);
+                arg->gtFlags = 0;
+
+                lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
+            }
+        }
+    }
+
+#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
     // TODO-MIKE-Cleanup: Sort out these inconsistencies. ARM32 makes a copy if an independent
     // promoted struct cannot be passed directly in registers due to IR limitations, to avoid
     // dependent promotion. ARM64 doesn't copy so it always triggers dependent promotion of any
     // struct type that cannot be passed in registers (e.g. a struct with 2-4 INT fields).
-    if ((lcl != nullptr) && (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
+    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-        && abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr)
+        && abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(arg->AsLclVar()), fgEntryPtr)
 #endif
             )
     {
-        return abiMorphPromotedStructArgToFieldList(lvaGetDesc(lcl), fgEntryPtr);
+        return abiMorphPromotedStructArgToFieldList(lvaGetDesc(arg->AsLclVar()), fgEntryPtr);
     }
 #endif // defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
-
-#if !defined(TARGET_ARMARCH) && !defined(UNIX_AMD64_ABI)
-    NYI("fgMorphMultiregStructArg requires implementation for this target");
-#endif
 
 #ifdef TARGET_ARM
     // If an argument is passed in registers we'd like to build a FIELD_LIST with
@@ -4293,31 +4337,10 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     if (fgEntryPtr->IsSplit() && (fgEntryPtr->GetSlotCount() + fgEntryPtr->GetRegCount() > 4))
     {
-        GenTreeLclVarCommon* lcl       = nullptr;
-        GenTree*             actualArg = arg->gtEffectiveVal();
-
-        if (actualArg->OperGet() == GT_OBJ)
+        if (arg->OperIs(GT_LCL_VAR) &&
+            (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
         {
-            if (actualArg->gtGetOp1()->OperIs(GT_ADDR) && actualArg->gtGetOp1()->gtGetOp1()->OperIs(GT_LCL_VAR))
-            {
-                lcl = actualArg->gtGetOp1()->gtGetOp1()->AsLclVarCommon();
-            }
-        }
-        else if (actualArg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            lcl = actualArg->AsLclVarCommon();
-        }
-        if (lcl != nullptr)
-        {
-            if (lvaGetPromotionType(lcl->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT)
-            {
-                assert(!lcl->OperIs(GT_LCL_FLD));
-                arg = fgMorphLclArgToFieldlist(lcl);
-            }
-            else if (arg->TypeGet() == TYP_STRUCT)
-            {
-                lvaSetVarDoNotEnregister(lcl->GetLclNum() DEBUG_ARG(DNER_IsStructArg));
-            }
+            arg = fgMorphLclArgToFieldlist(arg->AsLclVar());
         }
 
         return arg;
@@ -4326,7 +4349,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     CORINFO_CLASS_HANDLE objClass = gtGetStructHandleIfPresent(arg);
     noway_assert(objClass != NO_CLASS_HANDLE);
-    GenTree* argValue   = arg; // normally argValue will be arg, but see right below
     unsigned structSize = 0;
 
     if (arg->TypeGet() != TYP_STRUCT)
@@ -4339,24 +4361,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         GenTreeObj* argObj = arg->AsObj();
         structSize         = argObj->GetLayout()->GetSize();
         assert(structSize == info.compCompHnd->getClassSize(objClass));
-
-        // If we have a GT_OBJ of a GT_ADDR then we set argValue to the child node of the GT_ADDR.
-        if (argObj->GetAddr()->OperIs(GT_ADDR))
-        {
-            GenTree* location = argObj->GetAddr()->AsUnOp()->GetOp(0);
-
-            if (location->OperIs(GT_LCL_VAR, GT_LCL_FLD) && (location->GetType() == argValue->GetType()))
-            {
-                unsigned lclOffs = location->OperIs(GT_LCL_VAR) ? 0 : location->AsLclFld()->GetLclOffs();
-
-                // Make sure we don't hit the weird case of an indirection that expands beyond
-                // the end of the local variable, we should not generate LCL_FLDs in such cases.
-                if (lclOffs + structSize <= lvaLclExactSize(location->AsLclVarCommon()->GetLclNum()))
-                {
-                    argValue = location;
-                }
-            }
-        }
     }
     else if (arg->OperGet() == GT_LCL_VAR)
     {
@@ -4416,7 +4420,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         }
 
 #ifndef UNIX_AMD64_ABI
-        if ((argValue->OperGet() == GT_LCL_FLD) || (argValue->OperGet() == GT_LCL_VAR))
+        if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             // We can safely widen this to aligned bytes since we are loading from
             // a GT_LCL_VAR or a GT_LCL_FLD which is properly padded and
@@ -4425,7 +4429,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         }
         else
         {
-            assert(argValue->OperGet() == GT_OBJ);
+            assert(arg->OperIs(GT_OBJ));
 
             // We need to load the struct from an arbitrary address
             // and we can't read past the end of the structSize
@@ -4456,13 +4460,13 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #endif // !UNIX_AMD64_ABI
     }
 
-    assert(varTypeIsStruct(argValue->TypeGet()));
+    assert(varTypeIsStruct(arg->GetType()));
 
     GenTreeFieldList* newArg = nullptr;
 
-    if ((argValue->OperGet() == GT_LCL_FLD) || (argValue->OperGet() == GT_LCL_VAR))
+    if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        GenTreeLclVarCommon* varNode = argValue->AsLclVarCommon();
+        GenTreeLclVarCommon* varNode = arg->AsLclVarCommon();
         unsigned             varNum  = varNode->GetLclNum();
         assert(varNum < lvaCount);
         LclVarDsc* varDsc = &lvaTable[varNum];
@@ -4518,7 +4522,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
         if (newArg == nullptr)
         {
-            unsigned baseOffset = argValue->OperIs(GT_LCL_FLD) ? argValue->AsLclFld()->GetLclOffs() : 0;
+            unsigned baseOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
             unsigned lastOffset = baseOffset + structSize;
 
             // The allocated size of our LocalVar must be at least as big as lastOffset
@@ -4536,22 +4540,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             }
         }
     }
-    else if (argValue->OperGet() == GT_OBJ)
+    else if (arg->OperIs(GT_OBJ))
     {
-        GenTreeObj* argObj   = argValue->AsObj();
+        GenTreeObj* argObj   = arg->AsObj();
         GenTree*    baseAddr = argObj->gtOp1;
         var_types   addrType = baseAddr->TypeGet();
-
-        if (baseAddr->OperGet() == GT_ADDR)
-        {
-            GenTree* addrTaken = baseAddr->AsOp()->gtOp1;
-            if (addrTaken->IsLocal())
-            {
-                GenTreeLclVarCommon* varNode = addrTaken->AsLclVarCommon();
-                unsigned             varNum  = varNode->GetLclNum();
-                lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LocalField));
-            }
-        }
 
         newArg          = new (this, GT_FIELD_LIST) GenTreeFieldList();
         unsigned offset = 0;
@@ -4579,7 +4572,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     }
     else
     {
-        INDEBUG(gtDispTree(argValue);)
+        INDEBUG(gtDispTree(arg);)
         unreached();
     }
 
