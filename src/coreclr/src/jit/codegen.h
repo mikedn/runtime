@@ -1251,7 +1251,6 @@ protected:
                                unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
 #endif // !TARGET_X86
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
 #ifdef TARGET_X86
     void genPreAdjustStackForPutArgStk(unsigned argSize);
     void genPushReg(var_types type, regNumber srcReg);
@@ -1269,7 +1268,6 @@ protected:
 #endif
 #endif
                             );
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 
     void genCodeForStoreBlk(GenTreeBlk* storeBlkNode);
 #ifndef TARGET_X86

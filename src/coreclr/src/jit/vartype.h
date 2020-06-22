@@ -349,6 +349,29 @@ inline var_types varActualType(var_types type)
     return static_cast<var_types>(genActualTypes[type]);
 }
 
+inline var_types varTypeToUnsigned(var_types type)
+{
+    switch (type)
+    {
+        case TYP_BYTE:
+            type = TYP_UBYTE;
+            break;
+        case TYP_SHORT:
+            type = TYP_USHORT;
+            break;
+        case TYP_INT:
+            type = TYP_UINT;
+            break;
+        case TYP_LONG:
+            type = TYP_ULONG;
+            break;
+        default:
+            break;
+    }
+
+    return type;
+}
+
 /*****************************************************************************/
 #endif // _VARTYPE_H_
 /*****************************************************************************/

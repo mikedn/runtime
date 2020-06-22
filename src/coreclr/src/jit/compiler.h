@@ -1641,28 +1641,20 @@ public:
         return numRegs + numSlots == 1;
     }
 
-    // Returns the number of "slots" used, where for this purpose a
-    // register counts as a slot.
-    unsigned getSlotCount()
-    {
-        return numSlots + numRegs;
-    }
-
     unsigned GetRegCount()
     {
         return numRegs;
     }
 
-    unsigned GetStackSlotCount()
+    unsigned GetSlotCount()
     {
         return numSlots;
     }
 
-    // Returns the size as a multiple of pointer-size.
-    // For targets without HFAs, this is the same as getSlotCount().
+    // Returns the size as a multiple of slot-size.
     unsigned getSize()
     {
-        unsigned size = getSlotCount();
+        unsigned size = numSlots + numRegs;
 #ifdef FEATURE_HFA
         if (IsHfaArg() && isPassedInRegisters())
         {
@@ -9907,6 +9899,8 @@ public:
     GenTreeFieldList* abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
 #endif
 #endif
+    bool abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode);
+    void abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* argNode);
 
     bool killGCRefs(GenTree* tree);
 

@@ -1176,13 +1176,6 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
     return true;
 }
 
-#if !defined(FEATURE_PUT_STRUCT_ARG_STK)
-unsigned GenTreePutArgStk::getArgSize()
-{
-    return genTypeSize(genActualType(gtOp1->gtType));
-}
-#endif // !defined(FEATURE_PUT_STRUCT_ARG_STK)
-
 /*****************************************************************************
  *
  *  Returns non-zero if the two trees are identical.
@@ -9953,10 +9946,9 @@ void Compiler::gtDispTree(GenTree*     tree,
                 }
             }
         }
-#if FEATURE_PUT_STRUCT_ARG_STK
         else if (tree->OperGet() == GT_PUTARG_STK)
         {
-            printf(" (%d slots)", tree->AsPutArgStk()->gtNumSlots);
+            printf(" (%d slots)", tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
             const char* kindName;
             switch (tree->AsPutArgStk()->gtPutArgStkKind)
@@ -9975,7 +9967,6 @@ void Compiler::gtDispTree(GenTree*     tree,
                     kindName = "PushAllSlots";
                     break;
 #endif
-#ifdef UNIX_AMD64_ABI
                 case GenTreePutArgStk::Kind::RepInstrXMM:
                     kindName = "RepInstrXMM";
                     break;
@@ -9985,7 +9976,6 @@ void Compiler::gtDispTree(GenTree*     tree,
                 case GenTreePutArgStk::Kind::GCUnrollXMM:
                     kindName = "GCUnrollXMM";
                     break;
-#endif
                 default:
                     kindName = "???";
                     break;
@@ -9993,7 +9983,6 @@ void Compiler::gtDispTree(GenTree*     tree,
             printf(" (%s)", kindName);
 #endif
         }
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 
         if (tree->gtOper == GT_INTRINSIC)
         {

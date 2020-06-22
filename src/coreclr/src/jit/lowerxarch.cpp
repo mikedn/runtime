@@ -501,7 +501,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
     if (src->TypeIs(TYP_STRUCT))
     {
         ClassLayout* layout;
@@ -629,7 +628,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
         return;
     }
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 
     // If the child of GT_PUTARG_STK is a constant, we don't need a register to
     // move it to memory (stack location).

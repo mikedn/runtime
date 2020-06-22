@@ -1050,7 +1050,7 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
         }
 
         GenTreePutArgSplit* argSplit =
-            new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info->GetSlotNum(), info->GetStackSlotCount(),
+            new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info->GetSlotNum(), info->GetSlotCount(),
                                                            info->GetRegCount(), call->IsFastTailCall(), call);
 
         for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
@@ -1136,10 +1136,8 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
         return comp->gtNewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
     }
 
-    return new (comp, GT_PUTARG_STK)
-        GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg,
-                         info->GetSlotNum() PUT_STRUCT_ARG_STK_ONLY_ARG(info->GetStackSlotCount()),
-                         call->IsFastTailCall(), call);
+    return new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg, info->GetSlotNum(),
+                                                      info->GetSlotCount(), call->IsFastTailCall(), call);
 }
 
 void Lowering::LowerCallArgs(GenTreeCall* call)
@@ -1203,7 +1201,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
             // For longs, we will replace the GT_LONG with a GT_FIELD_LIST, and put that under a PUTARG_STK.
             // Although the hi argument needs to be pushed first, that will be handled by the general case,
             // in which the fields will be reversed.
-            assert(argInfo->GetStackSlotCount() == 2);
+            assert(argInfo->GetSlotCount() == 2);
             newArg->SetRegNum(REG_STK);
             BlockRange().InsertBefore(arg, fieldList, newArg);
             argInfo->SetNode(newArg);

@@ -3048,8 +3048,6 @@ void CodeGen::genCodeForCpBlkRepMovs(GenTreeBlk* cpBlkNode)
     instGen(INS_r_movsb);
 }
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-
 //------------------------------------------------------------------------
 // If any Vector3 args are on stack and they are not pass-by-ref, the upper 32bits
 // must be cleared to zeroes. The native compiler doesn't clear the upper bits
@@ -3100,7 +3098,6 @@ void CodeGen::genClearStackVec3ArgUpperBits()
     }
 }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 
 //
 // genCodeForCpObj - Generate code for CpObj nodes to copy structs that have interleaved
@@ -7248,7 +7245,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (src->OperIs(GT_FIELD_LIST))
     {
-#if defined(UNIX_AMD64_ABI)
+#if defined(TARGET_AMD64)
 #if FEATURE_FASTTAILCALL
         // TODO-MIKE-Cleanup: This seems to be sligtly different from ARMARCH's outArgLclSize.
         INDEBUG(unsigned outArgLclSize = putArgStk->putInIncomingArgArea() ? compiler->info.compArgStackSize
@@ -7257,59 +7254,28 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         INDEBUG(unsigned outArgLclSize = compiler->lvaLclSize(outArgLclNum);)
 #endif
         genPutArgStkFieldList(src->AsFieldList(), outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
-#elif defined(TARGET_X86)
+#else
         genPutArgStkFieldList(putArgStk);
-#else
-        // WIN64 passes struct types as integers or by reference.
-        unreached();
-#endif
-        return;
-    }
-
-    if (varTypeIsSIMD(srcType))
-    {
-#if defined(FEATURE_SIMD)
-#if defined(UNIX_AMD64_ABI)
-        regNumber srcReg = genConsumeReg(src);
-        assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
-
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, outArgLclOffs);
-#elif defined(TARGET_X86)
-        regNumber srcReg = genConsumeReg(src);
-        assert((srcReg != REG_NA) && (genIsValidFloatReg(srcReg)));
-
-        inst_RV_IV(INS_sub, REG_SPBASE, putArgStk->getArgSize(), EA_4BYTE);
-        AddStackLevel(putArgStk->getArgSize());
-
-        if (putArgStk->isSIMD12())
-        {
-            regNumber tmpReg = putArgStk->GetSingleTempReg();
-            genStoreSIMD12ToStack(srcReg, tmpReg);
-        }
-        else
-        {
-            GetEmitter()->emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
-        }
-#else
-        // WIN64 passes SIMD types by reference (no vectorcall support).
-        unreached();
-#endif
 #endif
         return;
     }
 
     if (srcType == TYP_STRUCT)
     {
-#if defined(UNIX_AMD64_ABI)
+#if defined(TARGET_AMD64)
         genPutStructArgStk(putArgStk, outArgLclNum, outArgLclOffs);
-#elif defined(TARGET_X86)
-        genPutStructArgStk(putArgStk);
 #else
-        // WIN64 passes register sized structs as integers and the rest by reference.
-        unreached();
+        genPutStructArgStk(putArgStk);
 #endif
         return;
     }
+
+#if defined(TARGET_AMD64) || !defined(FEATURE_SIMD)
+    assert(roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES);
+#else
+    assert((roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES) ||
+           putArgStk->isSIMD12());
+#endif
 
     if (src->isContained())
     {
@@ -7329,18 +7295,41 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         AddStackLevel(putArgStk->getArgSize());
 #endif
+
+        return;
     }
-    else
-    {
-        regNumber srcReg = genConsumeReg(src);
+
+    regNumber srcReg = genConsumeReg(src);
 
 #if defined(TARGET_AMD64)
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum,
-                                  static_cast<int>(outArgLclOffs));
+    GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum,
+                              static_cast<int>(outArgLclOffs));
 #else
-        genPushReg(srcType, srcReg);
-#endif
+
+#if defined(FEATURE_SIMD)
+    if (varTypeIsSIMD(srcType))
+    {
+        assert(genIsValidFloatReg(srcReg));
+
+        inst_RV_IV(INS_sub, REG_SPBASE, putArgStk->getArgSize(), EA_4BYTE);
+        AddStackLevel(putArgStk->getArgSize());
+
+        if (putArgStk->isSIMD12())
+        {
+            regNumber tmpReg = putArgStk->GetSingleTempReg();
+            genStoreSIMD12ToStack(srcReg, tmpReg);
+        }
+        else
+        {
+            GetEmitter()->emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
+        }
+
+        return;
     }
+#endif
+
+    genPushReg(srcType, srcReg);
+#endif
 }
 
 //---------------------------------------------------------------------
@@ -7403,8 +7392,6 @@ void CodeGen::genPushReg(var_types type, regNumber srcReg)
     AddStackLevel(size);
 }
 #endif // TARGET_X86
-
-#if defined(FEATURE_PUT_STRUCT_ARG_STK)
 
 //---------------------------------------------------------------------
 // genPutStructArgStk - Generate code for copying a struct arg on the stack by value.
@@ -7618,7 +7605,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
         // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
         assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
 
-        for (int i = putArgStk->gtNumSlots - 1; i >= 0; --i)
+        for (int i = putArgStk->GetSlotCount() - 1; i >= 0; --i)
         {
             emitAttr slotAttr      = emitTypeSize(srcLayout->GetGCPtrType(i));
             int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
@@ -7721,7 +7708,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
     assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
 
-    unsigned numSlots = putArgStk->gtNumSlots;
+    unsigned numSlots = putArgStk->GetSlotCount();
 
     for (unsigned i = 0; i < numSlots; i++)
     {
@@ -7805,7 +7792,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     }
 #endif // TARGET_AMD64
 }
-#endif // defined(FEATURE_PUT_STRUCT_ARG_STK)
 
 /*****************************************************************************
  *

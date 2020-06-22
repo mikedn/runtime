@@ -1647,7 +1647,6 @@ public:
     }
 
     static inline bool RequiresNonNullOp2(genTreeOps oper);
-    bool IsValidCallArgument();
 #endif // DEBUG
 
     bool IsDblConPositiveZero() const;
@@ -2530,6 +2529,11 @@ public:
     void InsertField(Compiler* compiler, Use* insertAfter, GenTree* node, unsigned offset, var_types type);
     // Insert a new field use after the specified use without updating side effect flags.
     void InsertFieldLIR(Compiler* compiler, Use* insertAfter, GenTree* node, unsigned offset, var_types type);
+
+    void ClearFields()
+    {
+        m_uses = UseList();
+    }
 
     //--------------------------------------------------------------------------
     // Equals: Check if 2 FIELD_LIST nodes are equal.
@@ -6461,10 +6465,14 @@ struct GenTreePutArgStk : public GenTreeUnOp
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
     GenTreeCall* gtCall; // the call node to which this argument belongs
 #endif
-    unsigned gtSlotNum; // Slot number of the argument to be passed on stack
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-    unsigned gtNumSlots; // Number of slots for the argument to be passed on stack
 
+private:
+    unsigned m_slotNum; // Slot number of the argument to be passed on stack
+#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
+    unsigned m_slotCount; // Number of slots for the argument to be passed on stack
+#endif
+
+public:
 #ifdef TARGET_XARCH
     // Instruction selection: during codegen time, what code sequence we will be using
     // to encode this operation.
@@ -6476,11 +6484,9 @@ struct GenTreePutArgStk : public GenTreeUnOp
         Invalid,
         RepInstr,
         Unroll,
-#ifdef UNIX_AMD64_ABI
         RepInstrXMM,
         GCUnroll,
         GCUnrollXMM,
-#endif
 #ifdef TARGET_X86
         Push,
         PushAllSlots,
@@ -6490,7 +6496,6 @@ struct GenTreePutArgStk : public GenTreeUnOp
 
     Kind gtPutArgStkKind;
 #endif // TARGET_XARCH
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 #if FEATURE_FASTTAILCALL
     bool gtPutInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
                                  // By default this is false and will be placed in out-going arg area.
@@ -6502,25 +6507,28 @@ struct GenTreePutArgStk : public GenTreeUnOp
     GenTreePutArgStk(genTreeOps   oper,
                      var_types    type,
                      GenTree*     op1,
-                     unsigned     slotNum
-                     PUT_STRUCT_ARG_STK_ONLY_ARG(unsigned numSlots),
+                     unsigned     slotNum,
+                     unsigned     slotCount,
                      bool         putInIncomingArgArea = false,
                      GenTreeCall* callNode = nullptr)
         : GenTreeUnOp(oper, type, op1)
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
         , gtCall(callNode)
 #endif
-        , gtSlotNum(slotNum)
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-        , gtNumSlots(numSlots)
+        , m_slotNum(slotNum)
+#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
+        , m_slotCount(slotCount)
+#endif
 #ifdef TARGET_XARCH
         , gtPutArgStkKind(Kind::Invalid)
-#endif
 #endif
 #if FEATURE_FASTTAILCALL
         , gtPutInIncomingArgArea(putInIncomingArgArea)
 #endif
     {
+#if defined(TARGET_AMD64) && defined(TARGET_WINDOWS)
+        assert(slotCount == 1);
+#endif
     }
     // clang-format on
 
@@ -6533,25 +6541,37 @@ struct GenTreePutArgStk : public GenTreeUnOp
 #endif
     }
 
+    unsigned GetSlotNum() const
+    {
+        return m_slotNum;
+    }
+
+    unsigned GetSlotCount() const
+    {
+#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
+        return m_slotCount;
+#else
+        return 1;
+#endif
+    }
+
     unsigned getArgOffset()
     {
-        return gtSlotNum * TARGET_POINTER_SIZE;
+        return m_slotNum * TARGET_POINTER_SIZE;
     }
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
     unsigned getArgSize()
     {
-        return gtNumSlots * TARGET_POINTER_SIZE;
+        return GetSlotCount() * TARGET_POINTER_SIZE;
     }
 
+#if defined(FEATURE_SIMD) && defined(TARGET_X86)
     // Return true if this is a PutArgStk of a SIMD12 struct.
     // This is needed because such values are re-typed to SIMD16, and the type of PutArgStk is VOID.
     unsigned isSIMD12()
     {
-        return (varTypeIsSIMD(gtOp1) && (gtNumSlots == 3));
+        return (varTypeIsSIMD(gtOp1) && (m_slotCount == 3));
     }
-#else
-    unsigned getArgSize();
 #endif
 
 #if DEBUGGABLE_GENTREE
@@ -6708,7 +6728,7 @@ public:
     unsigned getArgSize()
     {
 #ifdef TARGET_ARM
-        return (gtNumSlots + gtNumRegs) * REGSIZE_BYTES;
+        return (GetSlotCount() + gtNumRegs) * REGSIZE_BYTES;
 #else
         return 2 * REGSIZE_BYTES;
 #endif
@@ -7336,50 +7356,6 @@ inline bool GenTree::IsSIMDEqualityOrInequality() const
 
     return false;
 }
-
-#ifdef DEBUG
-//------------------------------------------------------------------------
-// IsValidCallArgument: Given an GenTree node that represents an argument
-//                      enforce (or don't enforce) the following invariant.
-//
-// Arguments:
-//    instance method for a GenTree node
-//
-// Return values:
-//    true:      the GenTree node is accepted as a valid argument
-//    false:     the GenTree node is not accepted as a valid argumeny
-//
-// Notes:
-//    For targets that don't support arguments as a list of fields, we do not support GT_FIELD_LIST.
-//
-//    Currently for AMD64 UNIX we allow a limited case where a GT_FIELD_LIST is
-//    allowed but every element must be a GT_LCL_FLD.
-//
-//    For the future targets that allow for Multireg args (and this includes the current ARM64 target),
-//    or that allow for passing promoted structs, we allow a GT_FIELD_LIST of arbitrary nodes.
-//    These would typically start out as GT_LCL_VARs or GT_LCL_FLDS or GT_INDs,
-//    but could be changed into constants or GT_COMMA trees by the later
-//    optimization phases.
-
-inline bool GenTree::IsValidCallArgument()
-{
-    if (OperIs(GT_FIELD_LIST))
-    {
-#if !FEATURE_MULTIREG_ARGS && !FEATURE_PUT_STRUCT_ARG_STK
-
-        return false;
-
-#else // FEATURE_MULTIREG_ARGS or FEATURE_PUT_STRUCT_ARG_STK
-
-        // We allow this GT_FIELD_LIST as an argument
-        return true;
-
-#endif // FEATURE_MULTIREG_ARGS or FEATURE_PUT_STRUCT_ARG_STK
-    }
-    // We don't have either kind of list, so it satisfies the invariant.
-    return true;
-}
-#endif // DEBUG
 
 inline GenTree* GenTree::gtGetOp1() const
 {

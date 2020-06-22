@@ -246,11 +246,6 @@
 #define UNIX_AMD64_ABI_ONLY(x)
 #endif // defined(UNIX_AMD64_ABI)
 
-#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM) || defined(TARGET_ARM64) || defined(TARGET_X86)
-#define FEATURE_PUT_STRUCT_ARG_STK 1
-#define PUT_STRUCT_ARG_STK_ONLY_ARG(x) , x
-#define PUT_STRUCT_ARG_STK_ONLY(x) x
-
 // Arm64 Windows supports FEATURE_ARG_SPLIT, note this is different from
 // the official Arm64 ABI.
 // Case: splitting 16 byte struct between x7 and stack
@@ -259,11 +254,6 @@
 #else
 #define FEATURE_ARG_SPLIT 0
 #endif // (defined(TARGET_ARM) || (defined(TARGET_WINDOWS) && defined(TARGET_ARM64)))
-
-#else
-#define PUT_STRUCT_ARG_STK_ONLY_ARG(x)
-#define PUT_STRUCT_ARG_STK_ONLY(x)
-#endif
 
 #if defined(UNIX_AMD64_ABI)
 #define UNIX_AMD64_ABI_ONLY_ARG(x) , x

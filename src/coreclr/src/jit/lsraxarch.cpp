@@ -512,9 +512,6 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-#if !defined(FEATURE_PUT_STRUCT_ARG_STK)
-        case GT_OBJ:
-#endif
         case GT_BLK:
         case GT_DYN_BLK:
             // These should all be eliminated prior to Lowering.
@@ -522,11 +519,9 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = 0;
             break;
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
         case GT_PUTARG_STK:
             srcCount = BuildPutArgStk(tree->AsPutArgStk());
             break;
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
@@ -1168,7 +1163,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
             // late arg that is not passed in a register
             assert(argNode->gtOper == GT_PUTARG_STK);
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
             // If the node is TYP_STRUCT and it is put on stack with
             // putarg_stk operation, we consume and produce no registers.
             // In this case the embedded Obj node should not produce
@@ -1179,7 +1173,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
                 assert(argNode->gtGetOp1() != nullptr && argNode->gtGetOp1()->OperGet() == GT_OBJ);
                 assert(argNode->gtGetOp1()->isContained());
             }
-#endif // FEATURE_PUT_STRUCT_ARG_STK
+
             continue;
         }
 #ifdef UNIX_AMD64_ABI
@@ -1459,7 +1453,6 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
     return useCount;
 }
 
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
 //------------------------------------------------------------------------
 // BuildPutArgStk: Set the NodeInfo for a GT_PUTARG_STK.
 //
@@ -1477,9 +1470,12 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     {
         assert(src->isContained());
 
-        RefPosition* simdTemp   = nullptr;
-        RefPosition* intTemp    = nullptr;
-        unsigned     prevOffset = putArgStk->getArgSize();
+        RefPosition* simdTemp = nullptr;
+        RefPosition* intTemp  = nullptr;
+#ifdef TARGET_X86
+        unsigned prevOffset = putArgStk->getArgSize();
+#endif
+
         // We need to iterate over the fields twice; once to determine the need for internal temps,
         // and once to actually build the uses.
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
@@ -1521,9 +1517,9 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                     intTemp->registerAssignment &= allByteRegs();
                 }
             }
-#endif // TARGET_X86
 
             prevOffset = fieldOffset;
+#endif // TARGET_X86
         }
 
         int srcCount = 0;
@@ -1613,26 +1609,22 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 }
                 break;
 
-#ifdef UNIX_AMD64_ABI
             case GenTreePutArgStk::Kind::RepInstrXMM:
                 buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
                 SetContainsAVXFlags();
                 __fallthrough;
-#endif
             case GenTreePutArgStk::Kind::RepInstr:
                 buildInternalIntRegisterDefForNode(putArgStk, RBM_RDI);
                 buildInternalIntRegisterDefForNode(putArgStk, RBM_RCX);
                 buildInternalIntRegisterDefForNode(putArgStk, RBM_RSI);
                 break;
 
-#ifdef UNIX_AMD64_ABI
             case GenTreePutArgStk::Kind::GCUnrollXMM:
                 buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
                 SetContainsAVXFlags();
             case GenTreePutArgStk::Kind::GCUnroll:
                 buildInternalIntRegisterDefForNode(putArgStk);
                 break;
-#endif
 
             default:
                 unreached();
@@ -1645,7 +1637,6 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
     return BuildOperandUses(src);
 }
-#endif // FEATURE_PUT_STRUCT_ARG_STK
 
 //------------------------------------------------------------------------
 // BuildLclHeap: Set the NodeInfo for a GT_LCLHEAP.
