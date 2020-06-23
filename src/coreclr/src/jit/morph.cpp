@@ -4503,12 +4503,13 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #ifdef FEATURE_HFA
     if (fgEntryPtr->IsHfaArg())
     {
-        unsigned elemSize = genTypeSize(fgEntryPtr->GetRegType());
-        elemCount         = structSize / elemSize;
-        assert(elemSize * elemCount == structSize);
-        for (unsigned inx = 0; inx < elemCount; inx++)
+        // If it's HFA then it should never be split.
+        assert(fgEntryPtr->GetSlotCount() == 0);
+
+        elemCount = fgEntryPtr->GetRegCount();
+        for (unsigned i = 0; i < elemCount; i++)
         {
-            type[inx] = fgEntryPtr->GetRegType();
+            type[i] = fgEntryPtr->GetRegType(i);
         }
     }
     else
