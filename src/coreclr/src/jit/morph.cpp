@@ -4535,17 +4535,8 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         }
 
 #ifndef UNIX_AMD64_ABI
-        if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (arg->OperIs(GT_OBJ))
         {
-            // We can safely widen this to aligned bytes since we are loading from
-            // a GT_LCL_VAR or a GT_LCL_FLD which is properly padded and
-            // lives in the stack frame or will be a promoted field.
-            structSize = elemCount * TARGET_POINTER_SIZE;
-        }
-        else
-        {
-            assert(arg->OperIs(GT_OBJ));
-
             // We need to load the struct from an arbitrary address
             // and we can't read past the end of the structSize
             // We adjust the last load type here
