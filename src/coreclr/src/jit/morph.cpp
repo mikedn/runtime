@@ -3636,10 +3636,13 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
 
             if (argNode->OperIs(GT_OBJ))
             {
+                ClassLayout* layout = argNode->AsObj()->GetLayout();
+
                 argNode->ChangeOper(GT_LCL_FLD);
                 argNode->AsLclFld()->SetLclNum(lclNode->GetLclNum());
+                argNode->AsLclFld()->SetLclOffs(lclOffs);
                 argNode->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
-                argNode->AsLclFld()->SetLayout(argNode->AsObj()->GetLayout(), this);
+                argNode->AsLclFld()->SetLayout(layout, this);
                 argNode->gtFlags = 0;
 
                 lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
@@ -4360,6 +4363,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             {
                 arg->ChangeOper(GT_LCL_FLD);
                 arg->AsLclFld()->SetLclNum(lclNode->GetLclNum());
+                arg->AsLclFld()->SetLclOffs(lclOffs);
                 arg->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
                 arg->AsLclFld()->SetLayout(argLayout, this);
                 arg->gtFlags = 0;
