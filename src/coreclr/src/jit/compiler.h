@@ -1553,9 +1553,9 @@ public:
         regType = type;
     }
 
-    var_types GetRegType() const
+    var_types GetRegType(unsigned i = 0) const
     {
-        assert(numRegs > 0);
+        assert(i < numRegs);
         return regType;
     }
 #elif defined(UNIX_AMD64_ABI)

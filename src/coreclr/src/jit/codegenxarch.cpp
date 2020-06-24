@@ -4749,7 +4749,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 genConsumeReg(putArgRegNode);
 
                 // Validate the putArgRegNode has the right type.
-                assert(varTypeIsFloating(putArgRegNode->TypeGet()) == genIsValidFloatReg(argReg));
+                assert(varTypeUsesFloatReg(putArgRegNode->GetType()) == genIsValidFloatReg(argReg));
                 if (putArgRegNode->GetRegNum() != argReg)
                 {
                     inst_RV_RV(ins_Move_Extend(putArgRegNode->TypeGet(), false), argReg, putArgRegNode->GetRegNum());
