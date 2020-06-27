@@ -9647,7 +9647,11 @@ void CodeGen::genAllocLclFrame(unsigned  frameSize,
 
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
-    unreached();
+    regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+
+    GetEmitter()->emitIns_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1);
+
+    genProduceReg(instr);
 }
 
 #endif // TARGET_ARM64

@@ -119,6 +119,12 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerStoreIndirCommon(node->AsIndir());
             break;
 
+#ifdef TARGET_ARM64
+        case GT_NOT:
+            LowerNot(node->AsUnOp());
+            break;
+#endif
+
         case GT_ADD:
         {
             GenTree* next = LowerAdd(node->AsOp());

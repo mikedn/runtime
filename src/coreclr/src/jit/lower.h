@@ -292,6 +292,10 @@ private:
     void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
 
+#ifdef TARGET_ARM64
+    void LowerNot(GenTreeUnOp* not);
+#endif
+
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);
 
     bool TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode);

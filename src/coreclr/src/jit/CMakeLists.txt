@@ -268,6 +268,7 @@ set( JIT_ARM64_SOURCES
   lowerarmarch.cpp
   lsraarmarch.cpp
   lsraarm64.cpp
+  lowerarm64.cpp
   simd.cpp
   simdashwintrinsic.cpp
   targetarm64.cpp
