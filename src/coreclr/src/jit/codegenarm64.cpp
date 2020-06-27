@@ -9647,9 +9647,32 @@ void CodeGen::genAllocLclFrame(unsigned  frameSize,
 
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
-    regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+    if (instr->GetNumOps() == 1)
+    {
+        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
 
-    GetEmitter()->emitIns_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1);
+        switch (instr->GetIns())
+        {
+            case INS_asr:
+            case INS_lsr:
+            case INS_lsl:
+            case INS_ror:
+                GetEmitter()->emitIns_R_R_I(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1,
+                                            instr->GetImmediate());
+                break;
+
+            default:
+                GetEmitter()->emitIns_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1);
+                break;
+        }
+    }
+    else if (instr->GetNumOps() == 2)
+    {
+        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+        regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
+
+        GetEmitter()->emitIns_R_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1, srcReg2);
+    }
 
     genProduceReg(instr);
 }

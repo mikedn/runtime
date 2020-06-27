@@ -294,6 +294,7 @@ private:
 
 #ifdef TARGET_ARM64
     void LowerNot(GenTreeUnOp* not);
+    void LowerMultiply(GenTreeOp* mul);
 #endif
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);
