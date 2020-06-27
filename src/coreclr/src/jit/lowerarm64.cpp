@@ -22,6 +22,82 @@ void Lowering::LowerNot(GenTreeUnOp* not)
     instr->SetOp(0, op1);
 }
 
+bool CanEncodeBitmaskImm(ssize_t imm, emitAttr size, unsigned* bitmaskImm)
+{
+    emitter::bitMaskImm bimm;
+    bool                encoded = emitter::canEncodeBitMaskImm(imm, size, &bimm);
+    *bitmaskImm                 = bimm.immNRS;
+    return encoded;
+}
+
+void Lowering::LowerLogical(GenTreeOp* logical)
+{
+    assert(logical->OperIs(GT_AND, GT_OR, GT_XOR));
+
+    GenTree* op1 = logical->GetOp(0);
+    GenTree* op2 = logical->GetOp(1);
+
+    LIR::Use use;
+    if (logical->OperIs(GT_AND) && BlockRange().TryGetUse(logical, &use))
+    {
+        if (use.User()->OperIs(GT_EQ, GT_NE))
+        {
+            // Don't lower EQ|NE(AND(x, y), imm) for now, it is recognized by OptimizeConstCompare.
+            ContainCheckBinary(logical);
+            return;
+        }
+
+        if (use.User()->OperIs(GT_LSH, GT_RSH, GT_RSZ) && (use.User()->AsOp()->GetOp(1) == logical) && op2->IsIntCon())
+        {
+            // Don't lower shift(x, AND(y, imm)) for now, it is recognized by LowerShift.
+            ContainCheckBinary(logical);
+            return;
+        }
+    }
+
+    instruction ins;
+
+    switch (logical->GetOper())
+    {
+        case GT_AND:
+            ins = INS_and;
+            break;
+        case GT_OR:
+            ins = INS_orr;
+            break;
+        default:
+            ins = INS_eor;
+            break;
+    }
+
+    logical->ChangeOper(GT_INSTR);
+
+    GenTreeInstr* instr = logical->AsInstr();
+    instr->SetIns(ins);
+
+    assert((instr->GetAttr() == EA_4BYTE) || (instr->GetAttr() == EA_8BYTE));
+
+    unsigned encodedBitmaskImm;
+
+    if (op2->IsIntCon() && CanEncodeBitmaskImm(op2->AsIntCon()->GetValue(), instr->GetAttr(), &encodedBitmaskImm))
+    {
+        assert(!op2->AsIntCon()->ImmedValNeedsReloc(comp));
+
+        instr->SetNumOps(1);
+        instr->SetImmediate(encodedBitmaskImm);
+        instr->SetOp(0, op1);
+
+        BlockRange().Remove(op2);
+    }
+    else
+    {
+        instr->SetNumOps(2);
+        instr->SetImmediate(0);
+        instr->SetOp(0, op1);
+        instr->SetOp(1, op2);
+    }
+}
+
 void Lowering::LowerMultiply(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL, GT_MULHI));

@@ -294,6 +294,7 @@ private:
 
 #ifdef TARGET_ARM64
     void LowerNot(GenTreeUnOp* not);
+    void LowerLogical(GenTreeOp* logical);
     void LowerMultiply(GenTreeOp* mul);
 #endif
 

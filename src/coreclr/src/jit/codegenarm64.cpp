@@ -9645,6 +9645,13 @@ void CodeGen::genAllocLclFrame(unsigned  frameSize,
     }
 }
 
+ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size)
+{
+    emitter::bitMaskImm imm;
+    imm.immNRS = encoded;
+    return emitter::emitDecodeBitMaskImm(imm, size);
+}
+
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
     if (instr->GetNumOps() == 1)
@@ -9653,6 +9660,13 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 
         switch (instr->GetIns())
         {
+            case INS_and:
+            case INS_orr:
+            case INS_eor:
+                GetEmitter()->emitIns_R_R_I(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1,
+                                            DecodeBitmaskImm(instr->GetImmediate(), instr->GetAttr()));
+                break;
+
             case INS_asr:
             case INS_lsr:
             case INS_lsl:

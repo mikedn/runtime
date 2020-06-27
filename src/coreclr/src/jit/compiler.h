@@ -10978,7 +10978,7 @@ public:
         assert(ins < INS_count);
 
         m_ins  = ins;
-        m_attr = emitTypeSize(GetType());
+        m_attr = emitActualTypeSize(GetType());
 #ifdef TARGET_ARMARCH
         m_opt = INS_OPTS_NONE;
 #endif

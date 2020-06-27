@@ -124,6 +124,12 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerNot(node->AsUnOp());
             break;
 
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+            LowerLogical(node->AsOp());
+            break;
+
         case GT_MUL:
         case GT_MULHI:
             LowerMultiply(node->AsOp());
@@ -147,9 +153,11 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_SUB_HI:
 #endif
         case GT_SUB:
+#ifndef TARGET_ARM64
         case GT_AND:
         case GT_OR:
         case GT_XOR:
+#endif
             ContainCheckBinary(node->AsOp());
             break;
 
