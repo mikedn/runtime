@@ -307,6 +307,7 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeArgPlace)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreePhiArg)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeAllocObj)     <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
 #if FEATURE_ARG_SPLIT
     static_assert_no_msg(sizeof(GenTreePutArgSplit)  <= TREE_NODE_SZ_LARGE);
@@ -1529,6 +1530,9 @@ AGAIN:
             return GenTreeHWIntrinsic::Equals(op1->AsHWIntrinsic(), op2->AsHWIntrinsic());
 #endif
 
+        case GT_INSTR:
+            return GenTreeInstr::Equals(op1->AsInstr(), op2->AsInstr());
+
         case GT_CMPXCHG:
             return Compare(op1->AsCmpXchg()->gtOpLocation, op2->AsCmpXchg()->gtOpLocation) &&
                    Compare(op1->AsCmpXchg()->gtOpValue, op2->AsCmpXchg()->gtOpValue) &&
@@ -1788,6 +1792,16 @@ AGAIN:
             }
             break;
 #endif // FEATURE_SIMD
+
+        case GT_INSTR:
+            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
+            {
+                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                {
+                    return true;
+                }
+            }
+            break;
 
         case GT_CMPXCHG:
             if (gtHasRef(tree->AsCmpXchg()->gtOpLocation, lclNum, defOnly))
@@ -2220,6 +2234,19 @@ AGAIN:
             }
             break;
 #endif // FEATURE_HW_INTRINSICS
+
+        case GT_INSTR:
+            hash = genTreeHashAdd(hash, tree->AsInstr()->GetIns());
+            hash = genTreeHashAdd(hash, tree->AsInstr()->GetAttr());
+#ifdef TARGET_ARMARCH
+            hash = genTreeHashAdd(hash, tree->AsInstr()->GetOption());
+#endif
+            hash = genTreeHashAdd(hash, tree->AsInstr()->GetImmediate());
+            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
+            {
+                hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
+            }
+            break;
 
         case GT_CMPXCHG:
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsCmpXchg()->gtOpLocation));
@@ -4396,6 +4423,21 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
             break;
 #endif // FEATURE_HW_INTRINSICS
+
+        case GT_INSTR:
+            level  = 0;
+            costEx = 1;
+            costSz = 1;
+
+            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
+            {
+                level = max(level, gtSetEvalOrder(use.GetNode()));
+                costEx += use.GetNode()->GetCostEx();
+                costSz += use.GetNode()->GetCostSz();
+            }
+
+            level++;
+            break;
 
         case GT_CMPXCHG:
 
@@ -6907,6 +6949,10 @@ GenTree* Compiler::gtCloneExpr(
         break;
 #endif // FEATURE_HW_INTRINSICS
 
+        case GT_INSTR:
+            copy = new (this, GT_INSTR) GenTreeInstr(tree->AsInstr(), this);
+            break;
+
         case GT_CMPXCHG:
             copy = new (this, GT_CMPXCHG)
                 GenTreeCmpXchg(tree->TypeGet(),
@@ -7678,6 +7724,12 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 #endif // FEATURE_HW_INTRINSICS
 
+        case GT_INSTR:
+            m_statePtr = m_node->AsInstr()->Uses().begin();
+            m_advance  = &GenTreeUseEdgeIterator::AdvanceInstr;
+            AdvanceInstr();
+            return;
+
         case GT_PHI:
             m_statePtr = m_node->AsPhi()->gtUses;
             m_advance  = &GenTreeUseEdgeIterator::AdvancePhi;
@@ -7972,6 +8024,22 @@ void GenTreeUseEdgeIterator::AdvanceHWIntrinsicReverseOp()
     m_advance = &GenTreeUseEdgeIterator::Terminate;
 }
 #endif // FEATURE_HW_INTRINSICS
+
+void GenTreeUseEdgeIterator::AdvanceInstr()
+{
+    assert(m_state == 0);
+
+    if (m_statePtr == m_node->AsInstr()->Uses().end())
+    {
+        m_state = -1;
+    }
+    else
+    {
+        GenTreeInstr::Use* currentUse = static_cast<GenTreeInstr::Use*>(m_statePtr);
+        m_edge                        = &currentUse->NodeRef();
+        m_statePtr                    = currentUse + 1;
+    }
+}
 
 //------------------------------------------------------------------------
 // GenTreeUseEdgeIterator::AdvancePhi: produces the next operand of a Phi node and advances the state.
@@ -8499,28 +8567,10 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
     printf("\n");
 }
 
-//------------------------------------------------------------------------
-// gtDispNode: Print a tree to jitstdout.
-//
-// Arguments:
-//    tree - the tree to be printed
-//    indentStack - the specification for the current level of indentation & arcs
-//    msg         - a contextual method (i.e. from the parent) to print
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    'indentStack' may be null, in which case no indentation or arcs are printed
-//    'msg' may be null
-
-void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z __in_opt const char* msg, bool isLIR)
+// Display the sequence, costs and flags portion of the node dump.
+int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgLength)
 {
-    bool printPointer = true; // always true..
-    bool printFlags   = true; // always true..
-    bool printCost    = true; // always true..
-
-    int msgLength = 25;
+    bool printFlags = true; // always true..
 
     GenTree* prev;
 
@@ -8607,7 +8657,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     if (tree->gtOper >= GT_COUNT)
     {
         printf(" **** ILLEGAL NODE ****");
-        return;
+        return msgLength;
     }
 
     if (printFlags)
@@ -8865,6 +8915,31 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             printf("%c", (flags & GTF_SPILL         ) ? 'Z' : '-');
         */
     }
+
+    return msgLength;
+}
+
+//------------------------------------------------------------------------
+// gtDispNode: Print a tree to jitstdout.
+//
+// Arguments:
+//    tree - the tree to be printed
+//    indentStack - the specification for the current level of indentation & arcs
+//    msg         - a contextual method (i.e. from the parent) to print
+//
+// Return Value:
+//    None.
+//
+// Notes:
+//    'indentStack' may be null, in which case no indentation or arcs are printed
+//    'msg' may be null
+//
+void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z __in_opt const char* msg, bool isLIR)
+{
+    bool printPointer = true; // always true..
+    bool printCost    = true; // always true..
+
+    int msgLength = gtDispNodeHeader(tree, indentStack, 25);
 
     // If we're printing a node for LIR, we use the space normally associated with the message
     // to display the node's temp name (if any)
@@ -10171,6 +10246,27 @@ void Compiler::gtDispTree(GenTree*     tree,
             break;
 #endif // FEATURE_HW_INTRINSICS
 
+        case GT_INSTR:
+            printf(" %s", insName(tree->AsInstr()->GetIns()));
+#ifdef TARGET_ARMARCH
+            if (tree->AsInstr()->GetOption() != 0)
+            {
+                printf(" %s", insOptsName(tree->AsInstr()->GetOption()));
+            }
+#endif
+            printf(" #%u", tree->AsInstr()->GetImmediate());
+            gtDispCommonEndLine(tree);
+
+            if (!topOnly)
+            {
+                for (unsigned i = 0; i < tree->AsInstr()->GetNumOps(); i++)
+                {
+                    gtDispChild(tree->AsInstr()->GetOp(i), indentStack,
+                                (i == tree->AsInstr()->GetNumOps() - 1) ? IIArcBottom : IIArc);
+                }
+            }
+            break;
+
         case GT_PHI:
             gtDispCommonEndLine(tree);
 
@@ -10726,6 +10822,71 @@ void Compiler::gtDispTreeRange(LIR::Range& containingRange, GenTree* tree)
 //
 void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr */)
 {
+    if (GenTreeInstr* instr = node->IsInstr())
+    {
+        if (prefixMsg != nullptr)
+        {
+            printf(prefixMsg);
+        }
+
+        IndentStack indentStack(this);
+        int         msgLength = gtDispNodeHeader(instr, &indentStack, 25);
+
+        if (msgLength < 0)
+        {
+            msgLength = 0;
+        }
+
+        char dest[64] = "";
+
+        if (!instr->TypeIs(TYP_VOID))
+        {
+            int len = sprintf_s(dest, sizeof(dest), "t%u.%s", instr->gtTreeID, varTypeName(instr->GetType()));
+
+            if (instr->gtHasReg())
+            {
+                len += sprintf_s(dest + len, sizeof(dest) - len, " @%s", compRegVarName(instr->GetRegNum()));
+            }
+
+            sprintf_s(dest + len, sizeof(dest) - len, " = ");
+        }
+
+        printf(" %+*s", msgLength, dest);
+        printf("   %s ", insName(instr->GetIns()));
+
+        for (unsigned i = 0; i < instr->GetNumOps(); i++)
+        {
+            GenTree* op = instr->GetOp(i);
+
+            printf("t%u.%s", op->gtTreeID, varTypeName(op->GetType()));
+
+            if (op->gtHasReg())
+            {
+                printf(" @%s", compRegVarName(op->GetRegNum()));
+            }
+
+            if (i != instr->GetNumOps() - 1)
+            {
+                printf(", ");
+            }
+        }
+
+#ifdef TARGET_ARMARCH
+        if (instr->GetOption() != INS_OPTS_NONE)
+        {
+            printf(", %s #%u", insOptsName(instr->GetOption()), instr->GetImmediate());
+        }
+        else
+#endif
+            if (instr->GetImmediate() != 0)
+        {
+            printf(", #%u", instr->GetImmediate());
+        }
+
+        printf("\n");
+        return;
+    }
+
     auto displayOperand = [](GenTree* operand, const char* message, IndentInfo operandArc, IndentStack& indentStack,
                              size_t prefixIndent) {
         assert(operand != nullptr);

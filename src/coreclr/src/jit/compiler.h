@@ -2808,6 +2808,7 @@ public:
 
 #ifdef DEBUG
     void gtDispNode(GenTree* tree, IndentStack* indentStack, __in_z const char* msg, bool isLIR);
+    int gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgLength);
 
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
@@ -10233,6 +10234,17 @@ public:
                 break;
 #endif
 
+            case GT_INSTR:
+                for (GenTreeInstr::Use& use : node->AsInstr()->Uses())
+                {
+                    result = WalkTree(&use.NodeRef(), node);
+                    if (result == fgWalkResult::WALK_ABORT)
+                    {
+                        return result;
+                    }
+                }
+                break;
+
             case GT_CMPXCHG:
             {
                 GenTreeCmpXchg* const cmpXchg = node->AsCmpXchg();
@@ -10857,6 +10869,271 @@ void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars);
 #endif // DEBUG
 
 #include "compiler.hpp" // All the shared inline functions
+
+struct GenTreeInstr : public GenTree
+{
+    using Use = GenTreeUse;
+
+private:
+#if defined(TARGET_ARM64)
+    static constexpr unsigned NUM_OPS_BITS = 2;
+    static constexpr unsigned INS_BITS     = 9;
+    static constexpr unsigned ATTR_BITS    = 9;
+    static constexpr unsigned OPT_BITS     = 4;
+#elif defined(TARGET_ARM)
+    static constexpr unsigned NUM_OPS_BITS = 2;
+    static constexpr unsigned INS_BITS     = 9;
+    static constexpr unsigned ATTR_BITS    = 9;
+    static constexpr unsigned OPT_BITS     = 3;
+#elif defined(TARGET_XARCH)
+    static constexpr unsigned NUM_OPS_BITS = 2;
+    static constexpr unsigned INS_BITS     = 10;
+    static constexpr unsigned ATTR_BITS    = 9;
+#endif
+
+    static_assert_no_msg(INS_count <= (1 << INS_BITS));
+    static_assert_no_msg(EA_BYREF < (1 << ATTR_BITS));
+#if defined(TARGET_ARM64)
+    static_assert_no_msg(INS_OPTS_SXTX < (1 << OPT_BITS));
+#elif defined(TARGET_ARM)
+    static_assert_no_msg(INS_OPTS_ROR < (1 << OPT_BITS));
+#endif
+
+    unsigned    m_numOps : NUM_OPS_BITS;
+    instruction m_ins : INS_BITS;
+    emitAttr    m_attr : ATTR_BITS;
+#ifdef TARGET_ARMARCH
+    insOpts m_opt : OPT_BITS;
+#endif
+    unsigned m_imm;
+
+    union {
+        Use  m_inlineUses[3];
+        Use* m_uses;
+    };
+
+public:
+    GenTreeInstr(var_types type, instruction ins, GenTree* op1)
+        : GenTree(GT_INSTR, type)
+        , m_numOps(1)
+        , m_ins(ins)
+        , m_attr(emitActualTypeSize(type))
+#ifdef TARGET_ARMARCH
+        , m_opt(INS_OPTS_NONE)
+#endif
+        , m_imm(0)
+        , m_inlineUses{op1}
+    {
+    }
+
+    GenTreeInstr(var_types type, instruction ins, GenTree* op1, GenTree* op2)
+        : GenTree(GT_INSTR, type)
+        , m_numOps(2)
+        , m_ins(ins)
+        , m_attr(emitActualTypeSize(type))
+#ifdef TARGET_ARMARCH
+        , m_opt(INS_OPTS_NONE)
+#endif
+        , m_imm(0)
+        , m_inlineUses{op1, op2}
+    {
+    }
+
+    GenTreeInstr(GenTreeInstr* from, Compiler* compiler)
+        : GenTree(from->GetOper(), from->GetType())
+        , m_ins(from->m_ins)
+        , m_attr(from->m_attr)
+#ifdef TARGET_ARMARCH
+        , m_opt(from->m_opt)
+#endif
+        , m_imm(from->m_imm)
+    {
+        SetNumOps(from->m_numOps, compiler->getAllocator(CMK_ASTNode));
+
+        for (unsigned i = 0; i < from->m_numOps; i++)
+        {
+            SetOp(i, compiler->gtCloneExpr(from->GetOp(i)));
+        }
+    }
+
+    instruction GetIns() const
+    {
+        return m_ins;
+    }
+
+    emitAttr GetAttr() const
+    {
+        return m_attr;
+    }
+
+#ifdef TARGET_ARMARCH
+    insOpts GetOption() const
+    {
+        return m_opt;
+    }
+#endif
+
+    void SetIns(instruction ins)
+    {
+        assert(ins < INS_count);
+
+        m_ins  = ins;
+        m_attr = emitTypeSize(GetType());
+#ifdef TARGET_ARMARCH
+        m_opt = INS_OPTS_NONE;
+#endif
+    }
+
+    void SetIns(instruction ins,
+                emitAttr    attr
+#ifdef TARGET_ARMARCH
+                ,
+                insOpts opt = INS_OPTS_NONE
+#endif
+                )
+    {
+        assert(ins < INS_count);
+        assert(attr <= EA_BYREF);
+#if defined(TARGET_ARM64)
+        assert(opt <= INS_OPTS_SXTX);
+#elif defined(TARGET_ARM)
+        assert(opt <= INS_OPTS_ROR);
+#endif
+
+        m_ins  = ins;
+        m_attr = attr;
+#ifdef TARGET_ARMARCH
+        m_opt = opt;
+#endif
+    }
+
+    unsigned GetImmediate() const
+    {
+        return m_imm;
+    }
+
+    void SetImmediate(unsigned imm)
+    {
+        m_imm = imm;
+    }
+
+    unsigned GetNumOps() const
+    {
+        return m_numOps;
+    }
+
+    void SetNumOps(unsigned numOps)
+    {
+        assert(m_numOps == 0);
+
+        m_numOps = static_cast<uint16_t>(numOps);
+        assert(HasInlineUses());
+
+        new (m_inlineUses) Use[numOps]();
+    }
+
+    void SetNumOps(unsigned numOps, CompAllocator alloc)
+    {
+        assert(numOps < UINT16_MAX);
+        assert(m_numOps == 0);
+
+        m_numOps = static_cast<uint16_t>(numOps);
+
+        if (HasInlineUses())
+        {
+            new (m_inlineUses) Use[numOps]();
+        }
+        else
+        {
+            m_uses = new (alloc) Use[numOps]();
+        }
+    }
+
+    GenTree* GetOp(unsigned index) const
+    {
+        return GetUse(index).GetNode();
+    }
+
+    void SetOp(unsigned index, GenTree* node)
+    {
+        assert(node != nullptr);
+        GetUse(index).SetNode(node);
+    }
+
+    const Use& GetUse(unsigned index) const
+    {
+        assert(index < m_numOps);
+        return GetUses()[index];
+    }
+
+    Use& GetUse(unsigned index)
+    {
+        assert(index < m_numOps);
+        return GetUses()[index];
+    }
+
+    IteratorPair<Use*> Uses()
+    {
+        Use* uses = GetUses();
+        return MakeIteratorPair(uses, uses + GetNumOps());
+    }
+
+    static bool Equals(GenTreeInstr* instr1, GenTreeInstr* instr2)
+    {
+        if ((instr1->GetType() != instr2->GetType()) || (instr1->m_ins != instr2->m_ins) ||
+            (instr1->m_attr != instr2->m_attr) ||
+#ifdef TARGET_ARMARCH
+            (instr1->m_opt != instr2->m_opt) ||
+#endif
+            (instr1->m_numOps != instr2->m_numOps))
+        {
+            return false;
+        }
+
+        for (unsigned i = 0; i < instr1->m_numOps; i++)
+        {
+            if (!Compare(instr1->GetOp(i), instr2->GetOp(i)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Delete some functions inherited from GenTree to avoid accidental use, at least
+    // when the node object is accessed via GenTreeInstr* rather than GenTree*.
+    GenTree*           gtGetOp1() const          = delete;
+    GenTree*           gtGetOp2() const          = delete;
+    GenTree*           gtGetOp2IfPresent() const = delete;
+    GenTreeUnOp*       AsUnOp()                  = delete;
+    const GenTreeUnOp* AsUnOp() const            = delete;
+    GenTreeOp*         AsOp()                    = delete;
+    const GenTreeOp*   AsOp() const              = delete;
+
+private:
+    bool HasInlineUses() const
+    {
+        return m_numOps <= _countof(m_inlineUses);
+    }
+
+    Use* GetUses()
+    {
+        return HasInlineUses() ? m_inlineUses : m_uses;
+    }
+
+    const Use* GetUses() const
+    {
+        return HasInlineUses() ? m_inlineUses : m_uses;
+    }
+
+#if DEBUGGABLE_GENTREE
+public:
+    GenTreeInstr() : GenTree()
+    {
+    }
+#endif
+};
 
 /*****************************************************************************/
 #endif //_COMPILER_H_

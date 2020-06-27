@@ -29,7 +29,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *  Returns the string representation of the given CPU instruction.
  */
 
-const char* CodeGen::genInsName(instruction ins)
+const char* insName(instruction ins)
 {
     // clang-format off
     static
@@ -92,7 +92,7 @@ void __cdecl CodeGen::instDisp(instruction ins, bool noNL, const char* fmt, ...)
         /* Display the instruction mnemonic */
         printf("        ");
 
-        printf("            %-8s", genInsName(ins));
+        printf("            %-8s", insName(ins));
 
         if (fmt)
         {

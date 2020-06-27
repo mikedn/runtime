@@ -4398,6 +4398,16 @@ void GenTree::VisitOperands(TVisitor visitor)
             return;
 #endif // FEATURE_HW_INTRINSICS
 
+        case GT_INSTR:
+            for (GenTreeInstr::Use& use : AsInstr()->Uses())
+            {
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
+                {
+                    break;
+                }
+            }
+            return;
+
         case GT_CMPXCHG:
         {
             GenTreeCmpXchg* const cmpXchg = this->AsCmpXchg();

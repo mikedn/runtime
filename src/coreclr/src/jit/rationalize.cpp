@@ -740,7 +740,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, Compiler::Ge
 
         default:
             // These nodes should not be present in HIR.
-            assert(!node->OperIs(GT_CMP, GT_SETCC, GT_JCC, GT_JCMP, GT_LOCKADD));
+            assert(!node->OperIs(GT_CMP, GT_SETCC, GT_JCC, GT_JCMP, GT_LOCKADD, GT_INSTR));
             break;
     }
 

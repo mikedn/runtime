@@ -525,6 +525,10 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             // Do nothing; these nodes are simply markers for debug info.
             break;
 
+        case GT_INSTR:
+            genCodeForInstr(treeNode->AsInstr());
+            break;
+
         default:
         {
 #ifdef DEBUG

@@ -2655,6 +2655,7 @@ class GenTreeUseEdgeIterator final
     void AdvanceHWIntrinsic();
     void AdvanceHWIntrinsicReverseOp();
 #endif
+    void AdvanceInstr();
 
     template <bool ReverseOperands>
     void           AdvanceBinOp();
@@ -4852,6 +4853,7 @@ class GenTreeUse
 {
     friend struct GenTreeSIMD;
     friend struct GenTreeHWIntrinsic;
+    friend struct GenTreeInstr;
 
     GenTree* m_node;
 

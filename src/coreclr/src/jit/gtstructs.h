@@ -122,6 +122,7 @@ GTSTRUCT_1(MultiRegOp  , GT_MUL_LONG)
 #elif defined (TARGET_ARM)
 GTSTRUCT_3(MultiRegOp  , GT_MUL_LONG, GT_PUTARG_REG, GT_BITCAST)
 #endif
+GTSTRUCT_1(Instr       , GT_INSTR)
 /*****************************************************************************/
 #undef  GTSTRUCT_0
 #undef  GTSTRUCT_1

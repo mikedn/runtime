@@ -748,6 +748,10 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
+        case GT_INSTR:
+            srcCount = BuildInstr(tree->AsInstr());
+            break;
+
     } // end switch (tree->OperGet())
 
     if (tree->IsUnusedValue() && (dstCount != 0))

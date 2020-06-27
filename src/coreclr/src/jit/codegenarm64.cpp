@@ -9645,4 +9645,9 @@ void CodeGen::genAllocLclFrame(unsigned  frameSize,
     }
 }
 
+void CodeGen::genCodeForInstr(GenTreeInstr* instr)
+{
+    unreached();
+}
+
 #endif // TARGET_ARM64

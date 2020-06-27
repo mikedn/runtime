@@ -679,6 +679,10 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
+        case GT_INSTR:
+            srcCount = BuildInstr(tree->AsInstr());
+            break;
+
     } // end switch (tree->OperGet())
 
     // We need to be sure that we've set srcCount and dstCount appropriately.
