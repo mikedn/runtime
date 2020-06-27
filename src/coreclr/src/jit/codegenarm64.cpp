@@ -9660,6 +9660,12 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 
         switch (instr->GetIns())
         {
+            case INS_add:
+            case INS_sub:
+                GetEmitter()->emitIns_R_R_I(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1,
+                                            instr->GetImmediate());
+                break;
+
             case INS_and:
             case INS_orr:
             case INS_eor:

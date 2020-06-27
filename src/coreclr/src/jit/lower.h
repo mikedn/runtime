@@ -296,6 +296,7 @@ private:
     void LowerNot(GenTreeUnOp* not);
     void LowerLogical(GenTreeOp* logical);
     void LowerNeg(GenTreeUnOp* neg);
+    void LowerArithmetic(GenTreeOp* arith);
     void LowerMultiply(GenTreeOp* mul);
 #endif
 

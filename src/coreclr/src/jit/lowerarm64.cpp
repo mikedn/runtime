@@ -124,6 +124,89 @@ void Lowering::LowerNeg(GenTreeUnOp* neg)
     instr->SetOp(0, op1);
 }
 
+bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithImm)
+{
+    bool encoded     = emitter::emitIns_valid_imm_for_add(imm, size);
+    *encodedArithImm = static_cast<unsigned>(imm) & 0xFFF'FFF;
+    return encoded;
+}
+
+void Lowering::LowerArithmetic(GenTreeOp* arith)
+{
+    assert(arith->OperIs(GT_ADD, GT_SUB));
+
+    if (arith->gtOverflow())
+    {
+        ContainCheckBinary(arith);
+        return;
+    }
+
+    GenTree* op1 = arith->GetOp(0);
+    GenTree* op2 = arith->GetOp(1);
+
+    LIR::Use use;
+    if (!varTypeIsFloating(arith->GetType()) && BlockRange().TryGetUse(arith, &use))
+    {
+        if (use.User()->OperIs(GT_EQ, GT_NE) && use.User()->AsOp()->GetOp(1)->IsIntCon())
+        {
+            // Don't lower EQ|NE(ADD|SUB(x, y), imm) for now, it is recognized by OptimizeConstCompare.
+            ContainCheckBinary(arith);
+            return;
+        }
+
+        if (use.User()->IsIndir() && use.User()->AsIndir()->GetAddr() == arith)
+        {
+            // Don't lower indir(ADD|SUB(x, y)) for now, it is recognized by ContainCheckIndir & co.
+            ContainCheckBinary(arith);
+            return;
+        }
+    }
+
+    instruction ins;
+
+    if (varTypeIsFloating(arith->GetType()))
+    {
+        ins = arith->OperIs(GT_ADD) ? INS_fadd : INS_fsub;
+    }
+    else
+    {
+        ins = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
+    }
+
+    arith->ChangeOper(GT_INSTR);
+
+    GenTreeInstr* instr = arith->AsInstr();
+
+    if (op2->IsIntCon() && !op2->AsIntCon()->ImmedValNeedsReloc(comp))
+    {
+        ssize_t  imm = op2->AsIntCon()->GetValue();
+        unsigned encodedArithImm;
+
+        if (CanEncodeArithmeticImm(abs(imm), emitActualTypeSize(instr->GetType()), &encodedArithImm))
+        {
+            if (imm < 0)
+            {
+                ins = (ins == INS_add) ? INS_sub : INS_add;
+            }
+
+            instr->SetIns(ins);
+            instr->SetImmediate(encodedArithImm);
+            instr->SetNumOps(1);
+            instr->SetOp(0, op1);
+
+            BlockRange().Remove(op2);
+
+            return;
+        }
+    }
+
+    instr->SetIns(ins);
+    instr->SetImmediate(0);
+    instr->SetNumOps(2);
+    instr->SetOp(0, op1);
+    instr->SetOp(1, op2);
+}
+
 void Lowering::LowerMultiply(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL, GT_MULHI));
