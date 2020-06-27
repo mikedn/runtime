@@ -98,6 +98,32 @@ void Lowering::LowerLogical(GenTreeOp* logical)
     }
 }
 
+void Lowering::LowerNeg(GenTreeUnOp* neg)
+{
+    assert(neg->OperIs(GT_NEG));
+
+    GenTree* op1 = neg->GetOp(0);
+
+    instruction ins;
+
+    if (varTypeIsFloating(neg->GetType()))
+    {
+        ins = INS_fneg;
+    }
+    else
+    {
+        ins = INS_neg;
+    }
+
+    neg->ChangeOper(GT_INSTR);
+
+    GenTreeInstr* instr = neg->AsInstr();
+    instr->SetIns(ins);
+    instr->SetImmediate(0);
+    instr->SetNumOps(1);
+    instr->SetOp(0, op1);
+}
+
 void Lowering::LowerMultiply(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL, GT_MULHI));

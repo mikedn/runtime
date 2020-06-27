@@ -130,6 +130,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerLogical(node->AsOp());
             break;
 
+        case GT_NEG:
+            LowerNeg(node->AsUnOp());
+            break;
+
         case GT_MUL:
         case GT_MULHI:
             LowerMultiply(node->AsOp());
