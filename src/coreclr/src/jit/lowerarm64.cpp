@@ -39,17 +39,6 @@ void Lowering::LowerLogical(GenTreeOp* logical)
     GenTree* op1 = logical->GetOp(0);
     GenTree* op2 = logical->GetOp(1);
 
-    LIR::Use use;
-    if (logical->OperIs(GT_AND) && BlockRange().TryGetUse(logical, &use))
-    {
-        if (use.User()->OperIs(GT_EQ, GT_NE))
-        {
-            // Don't lower EQ|NE(AND(x, y), imm) for now, it is recognized by OptimizeConstCompare.
-            ContainCheckBinary(logical);
-            return;
-        }
-    }
-
     instruction ins;
 
     switch (logical->GetOper())
@@ -299,13 +288,6 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     LIR::Use use;
     if (!varTypeIsFloating(arith->GetType()) && BlockRange().TryGetUse(arith, &use))
     {
-        if (use.User()->OperIs(GT_EQ, GT_NE) && use.User()->AsOp()->GetOp(1)->IsIntCon())
-        {
-            // Don't lower EQ|NE(ADD|SUB(x, y), imm) for now, it is recognized by OptimizeConstCompare.
-            ContainCheckBinary(arith);
-            return;
-        }
-
         if (use.User()->IsIndir() && use.User()->AsIndir()->GetAddr() == arith)
         {
             // Don't lower indir(ADD|SUB(x, y)) for now, it is recognized by ContainCheckIndir & co.
@@ -422,6 +404,240 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
     instr->SetNumOps(2);
     instr->SetOp(0, op1);
     instr->SetOp(1, op2);
+}
+
+instruction GetEquivalentCompareOrTestInstruction(GenTreeInstr* instr)
+{
+    switch (instr->GetIns())
+    {
+        case INS_add:
+            return INS_cmn;
+        case INS_sub:
+            return INS_cmp;
+        case INS_and:
+            return INS_tst;
+        default:
+            return INS_none;
+    }
+}
+
+GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
+{
+    GenTree*       op1      = cmp->GetOp(0);
+    GenTreeIntCon* op2      = cmp->GetOp(1)->AsIntCon();
+    ssize_t        op2Value = op2->GetValue();
+
+    // Eliminate a narrowing cast by testing only the necessary bits. For example:
+    //     GT(CAST.ubyte(x), 0) is TEST_NE(x, 255)
+    //     EQ(CAST.short(x), 0) is TEST_EQ(x, 65535)
+
+    if (cmp->OperIs(GT_EQ, GT_NE, GT_GT) && (op2Value == 0) && op1->IsCast() && !op1->gtOverflow() &&
+        varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
+    {
+        var_types castType = op1->AsCast()->GetCastType();
+
+        if (varTypeIsSmall(castType) && (varTypeIsUnsigned(castType) || !cmp->OperIs(GT_GT)))
+        {
+            BlockRange().Remove(op1);
+
+            op1 = op1->AsCast()->GetOp(0);
+            // CAST may have a contained memory operand but ARM compare/test nodes do not.
+            op1->ClearContained();
+
+            cmp->SetOper(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
+            cmp->SetOp(0, op1);
+            op2->SetValue((ssize_t(1) << varTypeBitSize(castType)) - 1);
+            op2->SetType(varActualType(op1->GetType()));
+
+            return cmp;
+        }
+    }
+
+    // Transform ((x AND y) EQ|NE 0) into (x TEST_EQ|TEST_NE y) if possible.
+
+    if (cmp->OperIs(GT_EQ, GT_NE) && op1->IsInstr() && (op1->AsInstr()->GetIns() == INS_and))
+    {
+        GenTreeInstr* andInstr = op1->AsInstr();
+
+        // If we don't have a 0 compare we can get one by transforming ((x AND mask) EQ|NE mask)
+        // into ((x AND mask) NE|EQ 0) when mask is a single bit. A single bit can be encoded in
+        // a bitmask imm so we don't need to check the non-immediate case.
+
+        if (isPow2(static_cast<size_t>(op2Value)) && (andInstr->GetNumOps() == 1) &&
+            (DecodeBitmaskImm(andInstr->GetImmediate(), andInstr->GetAttr()) == op2Value))
+        {
+            op2Value = 0;
+            cmp->SetOper(GenTree::ReverseRelop(cmp->OperGet()));
+        }
+
+        if (op2Value == 0)
+        {
+            BlockRange().Remove(op1);
+            BlockRange().Remove(op2);
+
+            cmp->SetOper(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
+            cmp->SetOp(0, andInstr->GetOp(0));
+
+            if (andInstr->GetNumOps() == 2)
+            {
+                cmp->SetOp(1, andInstr->GetOp(1));
+            }
+            else
+            {
+                op2->SetValue(DecodeBitmaskImm(andInstr->GetImmediate(), andInstr->GetAttr()));
+                cmp->SetOp(1, op2);
+                BlockRange().InsertBefore(cmp, op2);
+            }
+
+            return cmp;
+        }
+    }
+
+    // Transform EQ|NE(add|sub|and(x, y), 0) into cmn|cmp|tst(x, y) if possible.
+
+    // TODO-CQ: right now the below peep is inexpensive and gets the benefit in most
+    // cases because in majority of cases op1, op2 and cmp would be in that order in
+    // execution. In general we should be able to check that all the nodes that come
+    // after op1 do not modify the flags so that it is safe to avoid generating a
+    // test instruction.
+
+    // TODO-MIKE-Consider: This is based on the XARCH model where there's no alternative
+    // to using flags. But it's not clear if this is useful on ARM64 where CBZ & co. are
+    // available. It's either
+    //     adds x0, x1, x2
+    //     b.eq L1
+    // or
+    //     add x0, x1, x2
+    //     cbz L1
+    // The ARM Cortex optimization guide states that instruction variants that set flags
+    // are less efficient so it seems that the later variant is preferrable. It's also
+    // preferrable to the JIT, considering the rather poor representation of flags in IR.
+    // The only advantage of the flags version is avoiding the need for a temp register.
+    // But the JIT doesn't get that right anyway, the flags version should actually be:
+    //     cmn x1, x2
+    //     b.eq L1
+    //
+    // Of course, if the relop isn't used by a branch there's no alternative to the flags
+    // version since conditional instructions like CSET do use flags.
+
+    if (cmp->OperIs(GT_EQ, GT_NE) && op1->IsInstr() && (op2Value == 0) && (op1->gtNext == op2) && (op2->gtNext == cmp))
+    {
+        GenTreeInstr* op1Instr = op1->AsInstr();
+        instruction   cmpIns   = GetEquivalentCompareOrTestInstruction(op1Instr);
+
+        if (cmpIns != INS_none)
+        {
+            op1Instr->SetIns(cmpIns, op1Instr->GetAttr(), op1Instr->GetOption());
+            op1Instr->SetType(TYP_VOID);
+            op1Instr->gtFlags |= GTF_SET_FLAGS;
+
+            BlockRange().Remove(op2);
+
+            GenTree*   next = cmp->gtNext;
+            GenTree*   cc;
+            genTreeOps ccOp;
+            LIR::Use   cmpUse;
+
+            // Fast check for the common case - relop used by a JTRUE that immediately follows it.
+            if ((next != nullptr) && next->OperIs(GT_JTRUE) && (next->AsUnOp()->GetOp(0) == cmp))
+            {
+                cc   = next;
+                ccOp = GT_JCC;
+                next = nullptr;
+                BlockRange().Remove(cmp);
+            }
+            else if (BlockRange().TryGetUse(cmp, &cmpUse) && cmpUse.User()->OperIs(GT_JTRUE))
+            {
+                cc   = cmpUse.User();
+                ccOp = GT_JCC;
+                next = nullptr;
+                BlockRange().Remove(cmp);
+            }
+            else // The relop is not used by a JTRUE or it is not used at all.
+            {
+                // Transform the relop node it into a SETCC. If it's not used we could remove
+                // it completely but that means doing more work to handle a rare case.
+                cc   = cmp;
+                ccOp = GT_SETCC;
+            }
+
+            GenCondition condition = GenCondition::FromIntegralRelop(cmp);
+            cc->ChangeOper(ccOp);
+            cc->AsCC()->gtCondition = condition;
+            cc->gtFlags |= GTF_USE_FLAGS;
+
+            return next;
+        }
+    }
+
+    return cmp;
+}
+
+GenTree* Lowering::LowerRelop(GenTreeOp* cmp)
+{
+    if (cmp->GetOp(1)->IsIntCon())
+    {
+        if (!comp->opts.MinOpts())
+        {
+            GenTree* next = OptimizeRelopImm(cmp);
+
+            // If OptimizeRelopImm return the compare node as "next" then we need to continue lowering.
+            if (next != cmp)
+            {
+                return next;
+            }
+        }
+
+        CheckImmedAndMakeContained(cmp, cmp->GetOp(1));
+    }
+
+    return cmp->gtNext;
+}
+
+GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
+{
+    GenTree* relop    = jtrue->GetOp(0);
+    GenTree* relopOp2 = relop->AsOp()->GetOp(1);
+
+    if ((relop->gtNext == jtrue) && relopOp2->IsIntCon())
+    {
+        bool     useJCMP   = false;
+        unsigned jcmpFlags = 0;
+
+        if (relop->OperIs(GT_EQ, GT_NE) && relopOp2->IsIntegralConst(0))
+        {
+            // Generate CBZ/CBNZ
+            useJCMP   = true;
+            jcmpFlags = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : 0;
+        }
+        else if (relop->OperIs(GT_TEST_EQ, GT_TEST_NE) && isPow2(relopOp2->AsIntCon()->GetValue()))
+        {
+            // Generate TBZ/TBNZ
+            useJCMP   = true;
+            jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_TEST_EQ) ? GTF_JCMP_EQ : 0);
+        }
+
+        if (useJCMP)
+        {
+            relop->SetOper(GT_JCMP);
+            relop->SetType(TYP_VOID);
+            relop->gtFlags &= ~(GTF_JCMP_TST | GTF_JCMP_EQ);
+            relop->gtFlags |= jcmpFlags;
+
+            relopOp2->SetContained();
+
+            BlockRange().Remove(jtrue);
+
+            assert(relop->gtNext == nullptr);
+            return nullptr;
+        }
+    }
+
+    relop->SetType(TYP_VOID);
+    relop->gtFlags |= GTF_SET_FLAGS;
+
+    assert(jtrue->gtNext == nullptr);
+    return nullptr;
 }
 
 #endif // TARGET_ARM64

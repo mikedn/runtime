@@ -83,7 +83,7 @@ private:
     void ContainCheckArrOffset(GenTreeArrOffs* node);
     void ContainCheckLclHeap(GenTreeOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
-    void ContainCheckJTrue(GenTreeOp* node);
+    void ContainCheckJTrue(GenTreeUnOp* node);
 
     void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
@@ -124,9 +124,11 @@ private:
 #ifndef TARGET_64BIT
     GenTree* DecomposeLongCompare(GenTree* cmp);
 #endif
+#ifndef TARGET_ARM64
     GenTree* OptimizeConstCompare(GenTree* cmp);
     GenTree* LowerCompare(GenTree* cmp);
-    GenTree* LowerJTrue(GenTreeOp* jtrue);
+#endif
+    GenTree* LowerJTrue(GenTreeUnOp* jtrue);
     GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
     void LowerJmpMethod(GenTree* jmp);
     void LowerRet(GenTreeUnOp* ret);
@@ -300,6 +302,8 @@ private:
     void LowerMultiply(GenTreeOp* mul);
     void LowerShiftImmediate(GenTreeOp* shift);
     void LowerShiftVariable(GenTreeOp* shift);
+    GenTree* LowerRelop(GenTreeOp* relop);
+    GenTree* OptimizeRelopImm(GenTreeOp* relop);
 #endif
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);

@@ -9681,6 +9681,16 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
                                             instr->GetImmediate());
                 break;
 
+            case INS_cmp:
+            case INS_cmn:
+                GetEmitter()->emitIns_R_I(instr->GetIns(), instr->GetAttr(), srcReg1, instr->GetImmediate());
+                break;
+
+            case INS_tst:
+                GetEmitter()->emitIns_R_I(instr->GetIns(), instr->GetAttr(), srcReg1,
+                                          DecodeBitmaskImm(instr->GetImmediate(), instr->GetAttr()));
+                break;
+
             default:
                 GetEmitter()->emitIns_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1);
                 break;
@@ -9691,10 +9701,24 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
         regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
         regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
 
-        GetEmitter()->emitIns_R_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1, srcReg2);
+        switch (instr->GetIns())
+        {
+            case INS_cmp:
+            case INS_cmn:
+            case INS_tst:
+                GetEmitter()->emitIns_R_R(instr->GetIns(), instr->GetAttr(), srcReg1, srcReg2);
+                break;
+
+            default:
+                GetEmitter()->emitIns_R_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1, srcReg2);
+                break;
+        }
     }
 
-    genProduceReg(instr);
+    if (!instr->TypeIs(TYP_VOID))
+    {
+        genProduceReg(instr);
+    }
 }
 
 #endif // TARGET_ARM64

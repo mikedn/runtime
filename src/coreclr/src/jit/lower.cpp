@@ -143,6 +143,17 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_MULHI:
             LowerMultiply(node->AsOp());
             break;
+
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+        case GT_EQ:
+        case GT_NE:
+        case GT_TEST_EQ:
+        case GT_TEST_NE:
+        case GT_CMP:
+            return LowerRelop(node->AsOp());
 #else // TARGET_ARM64
         case GT_ADD:
         {
@@ -174,6 +185,17 @@ GenTree* Lowering::LowerNode(GenTree* node)
 #endif
             ContainCheckMul(node->AsOp());
             break;
+
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+        case GT_EQ:
+        case GT_NE:
+        case GT_TEST_EQ:
+        case GT_TEST_NE:
+        case GT_CMP:
+            return LowerCompare(node);
 #endif // !TARGET_ARM64
 
         case GT_UDIV:
@@ -195,19 +217,8 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerCall(node);
             break;
 
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-        case GT_EQ:
-        case GT_NE:
-        case GT_TEST_EQ:
-        case GT_TEST_NE:
-        case GT_CMP:
-            return LowerCompare(node);
-
         case GT_JTRUE:
-            return LowerJTrue(node->AsOp());
+            return LowerJTrue(node->AsUnOp());
 
         case GT_JMP:
             LowerJmpMethod(node);
@@ -2292,6 +2303,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTree* cmp)
 }
 #endif // !TARGET_64BIT
 
+#ifndef TARGET_ARM64
 //------------------------------------------------------------------------
 // Lowering::OptimizeConstCompare: Performs various "compare with const" optimizations.
 //
@@ -2316,12 +2328,11 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
 {
     assert(cmp->gtGetOp2()->IsIntegralConst());
 
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+#if defined(TARGET_XARCH)
     GenTree*       op1      = cmp->gtGetOp1();
     GenTreeIntCon* op2      = cmp->gtGetOp2()->AsIntCon();
     ssize_t        op2Value = op2->IconValue();
 
-#ifdef TARGET_XARCH
     var_types op1Type = op1->TypeGet();
     if (IsContainableMemoryOp(op1) && varTypeIsSmall(op1Type) && genSmallTypeCanRepresentValue(op1Type, op2Value))
     {
@@ -2334,9 +2345,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
 
         op2->gtType = op1Type;
     }
-    else
-#endif
-        if (op1->OperIs(GT_CAST) && !op1->gtOverflow())
+    else if (op1->OperIs(GT_CAST) && !op1->gtOverflow())
     {
         GenTreeCast* cast       = op1->AsCast();
         var_types    castToType = cast->CastToType();
@@ -2355,31 +2364,15 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
             // the result of bool returning calls.
             //
             bool removeCast =
-#ifdef TARGET_ARM64
-                (op2Value == 0) && cmp->OperIs(GT_EQ, GT_NE, GT_GT) &&
-#endif
-                (castOp->OperIs(GT_CALL, GT_LCL_VAR) || castOp->OperIsLogical()
-#ifdef TARGET_XARCH
-                 || IsContainableMemoryOp(castOp)
-#endif
-                     );
+                (castOp->OperIs(GT_CALL, GT_LCL_VAR) || castOp->OperIsLogical() || IsContainableMemoryOp(castOp));
 
             if (removeCast)
             {
                 assert(!castOp->gtOverflowEx()); // Must not be an overflow checking operation
 
-#ifdef TARGET_ARM64
-                bool cmpEq = cmp->OperIs(GT_EQ);
+                castOp->SetType(castToType);
+                op2->SetType(castToType);
 
-                cmp->SetOperRaw(cmpEq ? GT_TEST_EQ : GT_TEST_NE);
-                op2->SetIconValue(0xff);
-                op2->gtType = castOp->gtType;
-                // CAST may have a contained memory operand but ARM compare/test nodes do not.
-                castOp->ClearContained();
-#else
-                castOp->gtType        = castToType;
-                op2->gtType           = castToType;
-#endif
                 // If we have any contained memory ops on castOp, they must now not be contained.
                 if (castOp->OperIsLogical())
                 {
@@ -2436,7 +2429,6 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
             andOp1->ClearContained();
             andOp2->ClearContained();
 
-#ifdef TARGET_XARCH
             if (IsContainableMemoryOp(andOp1) && andOp2->IsIntegralConst())
             {
                 //
@@ -2468,13 +2460,11 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
                     andOp2->gtType = TYP_USHORT;
                 }
             }
-#endif
         }
     }
 
     if (cmp->OperIs(GT_TEST_EQ, GT_TEST_NE))
     {
-#ifdef TARGET_XARCH
         //
         // Transform TEST_EQ|NE(x, LSH(1, y)) into BT(x, y) when possible. Using BT
         // results in smaller and faster code. It also doesn't have special register
@@ -2519,7 +2509,6 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
 
             return cmp->gtNext;
         }
-#endif // TARGET_XARCH
     }
     else if (cmp->OperIs(GT_EQ, GT_NE))
     {
@@ -2533,11 +2522,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
         // test instruction.
 
         if (op2->IsIntegralConst(0) && (op1->gtNext == op2) && (op2->gtNext == cmp) &&
-#ifdef TARGET_XARCH
             op1->OperIs(GT_AND, GT_OR, GT_XOR, GT_ADD, GT_SUB, GT_NEG))
-#else // TARGET_ARM64
-            op1->OperIs(GT_AND, GT_ADD, GT_SUB))
-#endif
         {
             op1->gtFlags |= GTF_SET_FLAGS;
             op1->SetUnusedValue();
@@ -2580,7 +2565,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
             return next;
         }
     }
-#endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
+#endif // defined(TARGET_XARCH)
 
     return cmp;
 }
@@ -2644,56 +2629,14 @@ GenTree* Lowering::LowerCompare(GenTree* cmp)
 // Return Value:
 //    The next node to lower (usually nullptr).
 //
-// Notes:
-//    On ARM64 this may remove the JTRUE node and transform its associated
-//    relop into a JCMP node.
-//
-GenTree* Lowering::LowerJTrue(GenTreeOp* jtrue)
+GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
 {
-#ifdef TARGET_ARM64
-    GenTree* relop    = jtrue->gtGetOp1();
-    GenTree* relopOp2 = relop->AsOp()->gtGetOp2();
-
-    if ((relop->gtNext == jtrue) && relopOp2->IsCnsIntOrI())
-    {
-        bool     useJCMP = false;
-        unsigned flags   = 0;
-
-        if (relop->OperIs(GT_EQ, GT_NE) && relopOp2->IsIntegralConst(0))
-        {
-            // Codegen will use cbz or cbnz in codegen which do not affect the flag register
-            flags   = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : 0;
-            useJCMP = true;
-        }
-        else if (relop->OperIs(GT_TEST_EQ, GT_TEST_NE) && isPow2(relopOp2->AsIntCon()->IconValue()))
-        {
-            // Codegen will use tbz or tbnz in codegen which do not affect the flag register
-            flags   = GTF_JCMP_TST | (relop->OperIs(GT_TEST_EQ) ? GTF_JCMP_EQ : 0);
-            useJCMP = true;
-        }
-
-        if (useJCMP)
-        {
-            relop->SetOper(GT_JCMP);
-            relop->gtFlags &= ~(GTF_JCMP_TST | GTF_JCMP_EQ);
-            relop->gtFlags |= flags;
-            relop->gtType = TYP_VOID;
-
-            relopOp2->SetContained();
-
-            BlockRange().Remove(jtrue);
-
-            assert(relop->gtNext == nullptr);
-            return nullptr;
-        }
-    }
-#endif // TARGET_ARM64
-
     ContainCheckJTrue(jtrue);
 
     assert(jtrue->gtNext == nullptr);
     return nullptr;
 }
+#endif // !TARGET_ARM64
 
 //----------------------------------------------------------------------------------------------
 // LowerNodeCC: Lowers a node that produces a boolean value by setting the condition flags.
@@ -6170,7 +6113,7 @@ void Lowering::ContainCheckNode(GenTree* node)
             break;
 
         case GT_JTRUE:
-            ContainCheckJTrue(node->AsOp());
+            ContainCheckJTrue(node->AsUnOp());
             break;
 
         case GT_ADD:
@@ -6355,7 +6298,7 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
 // Arguments:
 //    node - pointer to the node
 //
-void Lowering::ContainCheckJTrue(GenTreeOp* node)
+void Lowering::ContainCheckJTrue(GenTreeUnOp* node)
 {
     // The compare does not need to be generated into a register.
     GenTree* cmp = node->gtGetOp1();

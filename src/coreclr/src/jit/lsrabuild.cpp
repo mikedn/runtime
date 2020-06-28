@@ -3867,7 +3867,10 @@ int LinearScan::BuildInstr(GenTreeInstr* instr)
         srcCount++;
     }
 
-    BuildDef(instr);
+    if (!instr->TypeIs(TYP_VOID))
+    {
+        BuildDef(instr);
+    }
 
     return srcCount;
 }
