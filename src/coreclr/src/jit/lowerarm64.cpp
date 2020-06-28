@@ -30,6 +30,8 @@ bool CanEncodeBitmaskImm(ssize_t imm, emitAttr size, unsigned* bitmaskImm)
     return encoded;
 }
 
+ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size);
+
 void Lowering::LowerLogical(GenTreeOp* logical)
 {
     assert(logical->OperIs(GT_AND, GT_OR, GT_XOR));
@@ -43,13 +45,6 @@ void Lowering::LowerLogical(GenTreeOp* logical)
         if (use.User()->OperIs(GT_EQ, GT_NE))
         {
             // Don't lower EQ|NE(AND(x, y), imm) for now, it is recognized by OptimizeConstCompare.
-            ContainCheckBinary(logical);
-            return;
-        }
-
-        if (use.User()->OperIs(GT_LSH, GT_RSH, GT_RSZ) && (use.User()->AsOp()->GetOp(1) == logical) && op2->IsIntCon())
-        {
-            // Don't lower shift(x, AND(y, imm)) for now, it is recognized by LowerShift.
             ContainCheckBinary(logical);
             return;
         }
@@ -96,6 +91,163 @@ void Lowering::LowerLogical(GenTreeOp* logical)
         instr->SetOp(0, op1);
         instr->SetOp(1, op2);
     }
+}
+
+void Lowering::LowerShift(GenTreeOp* shift)
+{
+    assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ));
+
+    if (shift->GetOp(1)->IsIntCon())
+    {
+        LowerShiftImmediate(shift);
+    }
+    else
+    {
+        LowerShiftVariable(shift);
+    }
+}
+
+void Lowering::LowerShiftVariable(GenTreeOp* shift)
+{
+    GenTree* op1 = shift->GetOp(0);
+    GenTree* op2 = shift->GetOp(1);
+
+    // ARM64 shift instructions mask the shift count to 5 bits (or 6 bits for 64 bit operations).
+    // TODO-MIKE-Cleanup: This really belongs in morph. The problem is ensuring that various JIT
+    // parts (constant folding, VN etc.) handle shifts according to target specifics (ARM32 masks
+    // only 8 bits thus (i32 << 32) is 0 on ARM32 and i32 on ARM64).
+    // TODO-MIKE-CQ: And of course, any narrowing casts are redundant too, morph doesn't figure
+    // that out either.
+
+    while (GenTreeInstr* instr = op2->IsInstr())
+    {
+        if ((instr->GetNumOps() != 1) || (instr->GetIns() != INS_and))
+        {
+            break;
+        }
+
+        ssize_t shiftImmMask = varTypeIsLong(shift->GetType()) ? 63 : 31;
+        ssize_t andImm       = DecodeBitmaskImm(instr->GetImmediate(), instr->GetAttr());
+
+        if ((andImm & shiftImmMask) != shiftImmMask)
+        {
+            break;
+        }
+
+        BlockRange().Remove(instr);
+        op2 = instr->GetOp(0);
+    }
+
+    instruction ins;
+
+    switch (shift->GetOper())
+    {
+        case GT_LSH:
+            // Use "v" instructions for convenience - when attempting to use shifted register forms
+            // one needs to check for LSL/LSR/ASR instructions and assume they're immediate shifts.
+            ins = INS_lslv;
+            break;
+        case GT_RSH:
+            ins = INS_asrv;
+            break;
+        default:
+            ins = INS_lsrv;
+            break;
+    }
+
+    shift->ChangeOper(GT_INSTR);
+
+    GenTreeInstr* instr = shift->AsInstr();
+    instr->SetIns(ins);
+    instr->SetNumOps(2);
+    instr->SetOp(0, op1);
+    instr->SetOp(1, op2);
+}
+
+void Lowering::LowerShiftImmediate(GenTreeOp* shift)
+{
+    GenTree* op1 = shift->GetOp(0);
+    GenTree* op2 = shift->GetOp(1);
+
+    ssize_t  shiftByMask = varTypeIsLong(shift->GetType()) ? 63 : 31;
+    unsigned shiftByBits = static_cast<unsigned>(op2->AsIntCon()->GetValue() & shiftByMask);
+
+    if ((shiftByBits >= 24) && shift->OperIs(GT_LSH) && comp->opts.OptimizationEnabled())
+    {
+        // Remove source casts if the shift discards the produced sign/zero bits.
+        //
+        // Some of this would probably be better done during morph or some sort
+        // of tree narrowing phase. The problem is that this removes INT to LONG
+        // casts, transforming
+        //     LSH.long(CAST.long(x.int), 32)
+        // into
+        //     LSH.long(x.int, 32)
+        //
+        // While there's nothing intrinsically wrong about having a node with
+        // different source and destination types, it is possible that some
+        // frontend phases might get confused by such a shift node.
+
+        unsigned consumedBits = varTypeBitSize(shift->GetType());
+
+        assert((consumedBits == 32) || (consumedBits == 64));
+        assert(shiftByBits < consumedBits);
+
+        consumedBits -= shiftByBits;
+
+        while (GenTreeCast* cast = op1->IsCast())
+        {
+            if (cast->gtOverflow() || !varTypeIsIntegral(cast->GetOp(0)->GetType()))
+            {
+                break;
+            }
+
+            var_types castType = cast->GetCastType();
+
+            // A (U)LONG - (U)LONG cast would normally produce 64 bits but since it
+            // has no effect we make it produce 32 bits to keep the check simple.
+            // Anyway such a cast should have been removed earlier.
+            unsigned producedBits = varTypeIsSmall(castType) ? varTypeBitSize(castType) : 32;
+
+            if (consumedBits > producedBits)
+            {
+                break;
+            }
+
+            JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->gtTreeID,
+                    producedBits, shift->gtTreeID, consumedBits);
+
+            BlockRange().Remove(op1);
+            op1 = cast->GetOp(0);
+
+            // The CAST operand may be contained but shift doesn't allow contained operands.
+            op1->ClearContained();
+        }
+    }
+
+    instruction ins;
+
+    switch (shift->GetOper())
+    {
+        case GT_LSH:
+            ins = INS_lsl;
+            break;
+        case GT_RSH:
+            ins = INS_asr;
+            break;
+        default:
+            ins = INS_lsr;
+            break;
+    }
+
+    shift->ChangeOper(GT_INSTR);
+
+    GenTreeInstr* instr = shift->AsInstr();
+    instr->SetIns(ins);
+    instr->SetImmediate(shiftByBits);
+    instr->SetNumOps(1);
+    instr->SetOp(0, op1);
+
+    BlockRange().Remove(op2);
 }
 
 void Lowering::LowerNeg(GenTreeUnOp* neg)

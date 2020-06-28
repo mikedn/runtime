@@ -298,6 +298,8 @@ private:
     void LowerNeg(GenTreeUnOp* neg);
     void LowerArithmetic(GenTreeOp* arith);
     void LowerMultiply(GenTreeOp* mul);
+    void LowerShiftImmediate(GenTreeOp* shift);
+    void LowerShiftVariable(GenTreeOp* shift);
 #endif
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);

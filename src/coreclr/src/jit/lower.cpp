@@ -5383,6 +5383,7 @@ GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
     return next;
 }
 
+#ifndef TARGET_ARM64
 //------------------------------------------------------------------------
 // LowerShift: Lower shift nodes
 //
@@ -5532,6 +5533,8 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
     ContainCheckShiftRotate(shift);
 }
+
+#endif // !TARGET_ARM64
 
 void Lowering::WidenSIMD12IfNecessary(GenTreeLclVarCommon* node)
 {
