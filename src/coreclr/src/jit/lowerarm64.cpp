@@ -400,6 +400,36 @@ insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
     return INS_OPTS_NONE;
 }
 
+insOpts GetEquivalentExtendOption(GenTree* node, emitAttr size)
+{
+    if (node->IsCast() && !node->gtOverflow() && varTypeIsIntegral(node->AsCast()->GetOp(0)->GetType()))
+    {
+        switch (node->AsCast()->GetCastType())
+        {
+            case TYP_BOOL:
+            case TYP_UBYTE:
+                return INS_OPTS_UXTB;
+            case TYP_BYTE:
+                return INS_OPTS_SXTB;
+            case TYP_USHORT:
+                return INS_OPTS_UXTH;
+            case TYP_SHORT:
+                return INS_OPTS_SXTH;
+            case TYP_ULONG:
+            case TYP_LONG:
+                if (!varTypeIsLong(node->AsCast()->GetOp(0)->GetType()))
+                {
+                    return node->IsUnsigned() ? INS_OPTS_UXTW : INS_OPTS_SXTW;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    return INS_OPTS_NONE;
+}
+
 instruction GetMultiplyAddInstruction(GenTree* multiply, instruction ins, emitAttr size)
 {
     if (multiply->IsInstr() && (multiply->AsInstr()->GetAttr() == size))
@@ -492,11 +522,28 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     instruction   ins   = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
     insOpts       opt   = INS_OPTS_NONE;
     unsigned      imm   = 0;
+    GenTreeCast*  cast  = nullptr;
     GenTreeInstr* shift = nullptr;
     GenTreeInstr* mul   = nullptr;
     instruction   mins  = INS_none;
 
-    if ((opt = GetEquivalentShiftOptionArithmetic(op2, size)) != INS_OPTS_NONE)
+    if ((opt = GetEquivalentExtendOption(op2, size)) != INS_OPTS_NONE)
+    {
+        cast = op2->AsCast();
+        op2  = cast->GetOp(0);
+        op2->ClearContained();
+
+        BlockRange().Remove(cast);
+    }
+    else if ((ins == INS_add) && (opt = GetEquivalentExtendOption(op1, size)) != INS_OPTS_NONE)
+    {
+        cast = op1->AsCast();
+        op1  = cast->GetOp(0);
+        op1->ClearContained();
+
+        BlockRange().Remove(cast);
+    }
+    else if ((opt = GetEquivalentShiftOptionArithmetic(op2, size)) != INS_OPTS_NONE)
     {
         assert(op2->AsInstr()->GetNumOps() == 1);
 
@@ -505,6 +552,21 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
         imm   = shift->GetImmediate();
 
         BlockRange().Remove(shift);
+
+        if ((opt == INS_OPTS_LSL) && (imm <= 4))
+        {
+            insOpts extendOption = GetEquivalentExtendOption(op2, size);
+
+            if (extendOption != INS_OPTS_NONE)
+            {
+                cast = op2->AsCast();
+                op2  = cast->GetOp(0);
+                op2->ClearContained();
+                opt = extendOption;
+
+                BlockRange().Remove(cast);
+            }
+        }
     }
     else if ((ins == INS_add) && (opt = GetEquivalentShiftOptionArithmetic(op1, size)) != INS_OPTS_NONE)
     {
@@ -517,6 +579,21 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
         std::swap(op1, op2);
 
         BlockRange().Remove(shift);
+
+        if ((opt == INS_OPTS_LSL) && (imm <= 4))
+        {
+            insOpts extendOption = GetEquivalentExtendOption(op1, size);
+
+            if (extendOption != INS_OPTS_NONE)
+            {
+                cast = op1->AsCast();
+                op1  = cast->GetOp(0);
+                op1->ClearContained();
+                opt = extendOption;
+
+                BlockRange().Remove(cast);
+            }
+        }
     }
     else if ((mins = GetMultiplyAddInstruction(op2, ins, size)) != INS_none)
     {
