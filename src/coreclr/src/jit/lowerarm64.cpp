@@ -341,6 +341,20 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     instr->SetOp(1, op2);
 }
 
+GenTreeCast* IsIntToLongCast(GenTree* node)
+{
+    if (GenTreeCast* cast = node->IsCast())
+    {
+        if (!cast->gtOverflow() && cast->TypeIs(TYP_LONG) && (varActualType(cast->GetOp(0)->GetType()) == TYP_INT))
+        {
+            assert((cast->GetCastType() == TYP_LONG) || (cast->GetCastType() == TYP_ULONG));
+            return cast;
+        }
+    }
+
+    return nullptr;
+}
+
 void Lowering::LowerMultiply(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL, GT_MULHI));
@@ -379,7 +393,7 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
         return;
     }
 
-    instruction ins;
+    instruction ins = INS_mul;
 
     if (varTypeIsFloating(mul->GetType()))
     {
@@ -391,9 +405,44 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
 
         ins = mul->IsUnsigned() ? INS_umulh : INS_smulh;
     }
-    else
+    else if (mul->TypeIs(TYP_LONG))
     {
-        ins = INS_mul;
+        assert(op1->TypeIs(TYP_LONG));
+        assert(op2->TypeIs(TYP_LONG));
+
+        if (GenTreeCast* cast1 = IsIntToLongCast(op1))
+        {
+            if (GenTreeCast* cast2 = IsIntToLongCast(op2))
+            {
+                if (cast1->IsUnsigned() == cast2->IsUnsigned())
+                {
+                    ins = cast1->IsUnsigned() ? INS_umull : INS_smull;
+
+                    BlockRange().Remove(cast1);
+                    BlockRange().Remove(cast2);
+
+                    op1 = cast1->GetOp(0);
+                    op2 = cast2->GetOp(0);
+
+                    op1->ClearContained();
+                    op2->ClearContained();
+                }
+            }
+            else if (GenTreeIntCon* con = op2->IsIntCon())
+            {
+                if (cast1->IsUnsigned() ? FitsIn<uint32_t>(con->GetValue()) : FitsIn<int32_t>(con->GetValue()))
+                {
+                    ins = cast1->IsUnsigned() ? INS_umull : INS_smull;
+
+                    BlockRange().Remove(cast1);
+
+                    op1 = cast1->GetOp(0);
+
+                    op1->ClearContained();
+                    op2->SetType(TYP_INT);
+                }
+            }
+        }
     }
 
     mul->ChangeOper(GT_INSTR);
