@@ -380,9 +380,46 @@ bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithIm
     return encoded;
 }
 
+insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
+{
+    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size))
+    {
+        switch (node->AsInstr()->GetIns())
+        {
+            case INS_lsl:
+                return INS_OPTS_LSL;
+            case INS_lsr:
+                return INS_OPTS_LSR;
+            case INS_asr:
+                return INS_OPTS_ASR;
+            default:
+                break;
+        }
+    }
+
+    return INS_OPTS_NONE;
+}
+
 void Lowering::LowerArithmetic(GenTreeOp* arith)
 {
     assert(arith->OperIs(GT_ADD, GT_SUB));
+
+    GenTree* op1 = arith->GetOp(0);
+    GenTree* op2 = arith->GetOp(1);
+
+    if (varTypeIsFloating(arith->GetType()))
+    {
+        arith->ChangeOper(GT_INSTR);
+
+        GenTreeInstr* instr = arith->AsInstr();
+        instr->SetIns(arith->OperIs(GT_ADD) ? INS_fadd : INS_fsub);
+        instr->SetImmediate(0);
+        instr->SetNumOps(2);
+        instr->SetOp(0, op1);
+        instr->SetOp(1, op2);
+
+        return;
+    }
 
     if (arith->gtOverflow())
     {
@@ -390,47 +427,37 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
         return;
     }
 
-    GenTree* op1 = arith->GetOp(0);
-    GenTree* op2 = arith->GetOp(1);
-
     LIR::Use use;
-    if (!varTypeIsFloating(arith->GetType()) && BlockRange().TryGetUse(arith, &use))
+    if (BlockRange().TryGetUse(arith, &use) && use.User()->IsIndir() && (use.User()->AsIndir()->GetAddr() == arith))
     {
-        if (use.User()->IsIndir() && use.User()->AsIndir()->GetAddr() == arith)
-        {
-            // Don't lower indir(ADD|SUB(x, y)) for now, it is recognized by ContainCheckIndir & co.
-            ContainCheckBinary(arith);
-            return;
-        }
+        // Don't lower indir(ADD|SUB(x, y)) for now, it is recognized by ContainCheckIndir & co.
+        ContainCheckBinary(arith);
+        return;
     }
 
-    instruction ins;
-
-    if (varTypeIsFloating(arith->GetType()))
-    {
-        ins = arith->OperIs(GT_ADD) ? INS_fadd : INS_fsub;
-    }
-    else
-    {
-        ins = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
-    }
-
-    arith->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = arith->AsInstr();
+    emitAttr size = emitActualTypeSize(arith->GetType());
 
     if (op2->IsIntCon() && !op2->AsIntCon()->ImmedValNeedsReloc(comp))
     {
         ssize_t  imm = op2->AsIntCon()->GetValue();
         unsigned encodedArithImm;
 
-        if (CanEncodeArithmeticImm(abs(imm), emitActualTypeSize(instr->GetType()), &encodedArithImm))
+        if (CanEncodeArithmeticImm(abs(imm), size, &encodedArithImm))
         {
-            if (imm < 0)
+            instruction ins;
+
+            if (imm >= 0)
             {
-                ins = (ins == INS_add) ? INS_sub : INS_add;
+                ins = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
+            }
+            else
+            {
+                ins = arith->OperIs(GT_ADD) ? INS_sub : INS_add;
             }
 
+            arith->ChangeOper(GT_INSTR);
+
+            GenTreeInstr* instr = arith->AsInstr();
             instr->SetIns(ins);
             instr->SetImmediate(encodedArithImm);
             instr->SetNumOps(1);
@@ -442,8 +469,40 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
         }
     }
 
-    instr->SetIns(ins);
-    instr->SetImmediate(0);
+    insOpts       opt = INS_OPTS_NONE;
+    unsigned      imm = 0;
+    GenTreeInstr* shift;
+
+    if ((opt = GetEquivalentShiftOptionArithmetic(op2, size)) != INS_OPTS_NONE)
+    {
+        assert(op2->AsInstr()->GetNumOps() == 1);
+
+        shift = op2->AsInstr();
+        op2   = shift->GetOp(0);
+        imm   = shift->GetImmediate();
+
+        BlockRange().Remove(shift);
+    }
+    else if (arith->OperIs(GT_ADD) && (opt = GetEquivalentShiftOptionArithmetic(op1, size)) != INS_OPTS_NONE)
+    {
+        assert(op1->AsInstr()->GetNumOps() == 1);
+
+        shift = op1->AsInstr();
+        op1   = shift->GetOp(0);
+        imm   = shift->GetImmediate();
+
+        std::swap(op1, op2);
+
+        BlockRange().Remove(shift);
+    }
+
+    instruction ins = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
+
+    arith->ChangeOper(GT_INSTR);
+
+    GenTreeInstr* instr = arith->AsInstr();
+    instr->SetIns(ins, size, opt);
+    instr->SetImmediate(imm);
     instr->SetNumOps(2);
     instr->SetOp(0, op1);
     instr->SetOp(1, op2);

@@ -9717,6 +9717,8 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 
         switch (ins)
         {
+            case INS_add:
+            case INS_sub:
             case INS_and:
             case INS_bic:
             case INS_orr:
