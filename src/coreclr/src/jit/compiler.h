@@ -10971,6 +10971,11 @@ public:
     {
         return m_opt;
     }
+
+    void SetOption(insOpts opt)
+    {
+        m_opt = opt;
+    }
 #endif
 
     void SetIns(instruction ins)

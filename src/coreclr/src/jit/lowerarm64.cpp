@@ -7,17 +7,52 @@
 
 #ifdef TARGET_ARM64 // This file is ONLY used for ARM64 architectures
 
+insOpts GetEquivalentShiftOptionLogical(GenTree* node, emitAttr size)
+{
+    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size))
+    {
+        switch (node->AsInstr()->GetIns())
+        {
+            case INS_lsl:
+                return INS_OPTS_LSL;
+            case INS_lsr:
+                return INS_OPTS_LSR;
+            case INS_asr:
+                return INS_OPTS_ASR;
+            case INS_ror:
+                return INS_OPTS_ROR;
+            default:
+                break;
+        }
+    }
+
+    return INS_OPTS_NONE;
+}
+
 void Lowering::LowerNot(GenTreeUnOp* not)
 {
     assert(not->OperIs(GT_NOT));
 
     GenTree* op1 = not->GetOp(0);
 
+    emitAttr size = emitActualTypeSize(not->GetType());
+    unsigned imm  = 0;
+    insOpts  opt  = GetEquivalentShiftOptionLogical(op1, size);
+
+    if (opt != INS_OPTS_NONE)
+    {
+        assert(op1->AsInstr()->GetNumOps() == 1);
+
+        BlockRange().Remove(op1);
+        imm = op1->AsInstr()->GetImmediate();
+        op1 = op1->AsInstr()->GetOp(0);
+    }
+
     not->ChangeOper(GT_INSTR);
 
     GenTreeInstr* instr = not->AsInstr();
-    instr->SetIns(INS_mvn);
-    instr->SetImmediate(0);
+    instr->SetIns(INS_mvn, size, opt);
+    instr->SetImmediate(imm);
     instr->SetNumOps(1);
     instr->SetOp(0, op1);
 }
@@ -59,8 +94,6 @@ void Lowering::LowerLogical(GenTreeOp* logical)
     GenTreeInstr* instr = logical->AsInstr();
     instr->SetIns(ins);
 
-    assert((instr->GetAttr() == EA_4BYTE) || (instr->GetAttr() == EA_8BYTE));
-
     unsigned encodedBitmaskImm;
 
     if (op2->IsIntCon() && CanEncodeBitmaskImm(op2->AsIntCon()->GetValue(), instr->GetAttr(), &encodedBitmaskImm))
@@ -72,14 +105,42 @@ void Lowering::LowerLogical(GenTreeOp* logical)
         instr->SetOp(0, op1);
 
         BlockRange().Remove(op2);
+
+        return;
+    }
+
+    unsigned imm = 0;
+    insOpts  opt = GetEquivalentShiftOptionLogical(op2, instr->GetAttr());
+
+    if (opt != INS_OPTS_NONE)
+    {
+        assert(op2->AsInstr()->GetNumOps() == 1);
+
+        BlockRange().Remove(op2);
+        imm = op2->AsInstr()->GetImmediate();
+        op2 = op2->AsInstr()->GetOp(0);
     }
     else
     {
-        instr->SetNumOps(2);
-        instr->SetImmediate(0);
-        instr->SetOp(0, op1);
-        instr->SetOp(1, op2);
+        opt = GetEquivalentShiftOptionLogical(op1, instr->GetAttr());
+
+        if (opt != INS_OPTS_NONE)
+        {
+            assert(op1->AsInstr()->GetNumOps() == 1);
+
+            BlockRange().Remove(op1);
+            imm = op1->AsInstr()->GetImmediate();
+            op1 = op1->AsInstr()->GetOp(0);
+
+            std::swap(op1, op2);
+        }
     }
+
+    instr->SetOption(opt);
+    instr->SetNumOps(2);
+    instr->SetImmediate(imm);
+    instr->SetOp(0, op1);
+    instr->SetOp(1, op2);
 }
 
 void Lowering::LowerShift(GenTreeOp* shift)
@@ -504,7 +565,8 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
 
     // Transform ((x AND y) EQ|NE 0) into (x TEST_EQ|TEST_NE y) if possible.
 
-    if (cmp->OperIs(GT_EQ, GT_NE) && op1->IsInstr() && (op1->AsInstr()->GetIns() == INS_and))
+    if (cmp->OperIs(GT_EQ, GT_NE) && op1->IsInstr() && (op1->AsInstr()->GetIns() == INS_and) &&
+        (op1->AsInstr()->GetOption() == INS_OPTS_NONE))
     {
         GenTreeInstr* andInstr = op1->AsInstr();
 

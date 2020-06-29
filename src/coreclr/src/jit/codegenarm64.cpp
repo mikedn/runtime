@@ -9656,61 +9656,95 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
     if (instr->GetNumOps() == 1)
     {
-        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+        instruction ins     = instr->GetIns();
+        emitAttr    attr    = instr->GetAttr();
+        insOpts     opt     = instr->GetOption();
+        regNumber   dstReg  = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
+        regNumber   srcReg1 = genConsumeReg(instr->GetOp(0));
+        unsigned    imm     = instr->GetImmediate();
 
-        switch (instr->GetIns())
+        switch (ins)
         {
             case INS_add:
             case INS_sub:
-                GetEmitter()->emitIns_R_R_I(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1,
-                                            instr->GetImmediate());
+            case INS_asr:
+            case INS_lsr:
+            case INS_lsl:
+            case INS_ror:
+                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm);
                 break;
 
             case INS_and:
             case INS_orr:
             case INS_eor:
-                GetEmitter()->emitIns_R_R_I(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1,
-                                            DecodeBitmaskImm(instr->GetImmediate(), instr->GetAttr()));
-                break;
-
-            case INS_asr:
-            case INS_lsr:
-            case INS_lsl:
-            case INS_ror:
-                GetEmitter()->emitIns_R_R_I(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1,
-                                            instr->GetImmediate());
+                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, DecodeBitmaskImm(imm, attr));
                 break;
 
             case INS_cmp:
             case INS_cmn:
-                GetEmitter()->emitIns_R_I(instr->GetIns(), instr->GetAttr(), srcReg1, instr->GetImmediate());
+                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, imm);
                 break;
 
             case INS_tst:
-                GetEmitter()->emitIns_R_I(instr->GetIns(), instr->GetAttr(), srcReg1,
-                                          DecodeBitmaskImm(instr->GetImmediate(), instr->GetAttr()));
+                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, DecodeBitmaskImm(imm, attr));
+                break;
+
+            case INS_mvn:
+                if (opt != INS_OPTS_NONE)
+                {
+                    GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm, opt);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1);
+                }
                 break;
 
             default:
-                GetEmitter()->emitIns_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1);
+                GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1);
                 break;
         }
     }
     else if (instr->GetNumOps() == 2)
     {
-        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
-        regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
+        instruction ins     = instr->GetIns();
+        emitAttr    attr    = instr->GetAttr();
+        insOpts     opt     = instr->GetOption();
+        regNumber   dstReg  = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
+        regNumber   srcReg1 = genConsumeReg(instr->GetOp(0));
+        regNumber   srcReg2 = genConsumeReg(instr->GetOp(1));
+        unsigned    imm     = instr->GetImmediate();
 
-        switch (instr->GetIns())
+        switch (ins)
         {
+            case INS_and:
+            case INS_orr:
+            case INS_eor:
+                if (opt != INS_OPTS_NONE)
+                {
+                    GetEmitter()->emitIns_R_R_R_I(ins, attr, dstReg, srcReg1, srcReg2, imm, opt);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
+                }
+                break;
+
             case INS_cmp:
             case INS_cmn:
             case INS_tst:
-                GetEmitter()->emitIns_R_R(instr->GetIns(), instr->GetAttr(), srcReg1, srcReg2);
+                if (opt != INS_OPTS_NONE)
+                {
+                    GetEmitter()->emitIns_R_R_I(ins, attr, srcReg1, srcReg2, imm, opt);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_R(ins, attr, srcReg1, srcReg2);
+                }
                 break;
 
             default:
-                GetEmitter()->emitIns_R_R_R(instr->GetIns(), instr->GetAttr(), instr->GetRegNum(), srcReg1, srcReg2);
+                GetEmitter()->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
                 break;
         }
     }
