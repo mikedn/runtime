@@ -9718,8 +9718,11 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
         switch (ins)
         {
             case INS_and:
+            case INS_bic:
             case INS_orr:
+            case INS_orn:
             case INS_eor:
+            case INS_eon:
                 if (opt != INS_OPTS_NONE)
                 {
                     GetEmitter()->emitIns_R_R_R_I(ins, attr, dstReg, srcReg1, srcReg2, imm, opt);

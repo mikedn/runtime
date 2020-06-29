@@ -7,6 +7,16 @@
 
 #ifdef TARGET_ARM64 // This file is ONLY used for ARM64 architectures
 
+GenTreeInstr* IsInstr(GenTree* node, emitAttr size, instruction ins)
+{
+    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size) && (node->AsInstr()->GetIns() == ins))
+    {
+        return node->AsInstr();
+    }
+
+    return nullptr;
+}
+
 insOpts GetEquivalentShiftOptionLogical(GenTree* node, emitAttr size)
 {
     if (node->IsInstr() && (node->AsInstr()->GetAttr() == size))
@@ -74,32 +84,32 @@ void Lowering::LowerLogical(GenTreeOp* logical)
     GenTree* op1 = logical->GetOp(0);
     GenTree* op2 = logical->GetOp(1);
 
-    instruction ins;
-
-    switch (logical->GetOper())
-    {
-        case GT_AND:
-            ins = INS_and;
-            break;
-        case GT_OR:
-            ins = INS_orr;
-            break;
-        default:
-            ins = INS_eor;
-            break;
-    }
-
-    logical->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = logical->AsInstr();
-    instr->SetIns(ins);
-
+    emitAttr size = emitActualTypeSize(logical->GetType());
     unsigned encodedBitmaskImm;
 
-    if (op2->IsIntCon() && CanEncodeBitmaskImm(op2->AsIntCon()->GetValue(), instr->GetAttr(), &encodedBitmaskImm))
+    if (op2->IsIntCon() && CanEncodeBitmaskImm(op2->AsIntCon()->GetValue(), size, &encodedBitmaskImm))
     {
         assert(!op2->AsIntCon()->ImmedValNeedsReloc(comp));
 
+        instruction ins;
+
+        switch (logical->GetOper())
+        {
+            case GT_AND:
+                ins = INS_and;
+                break;
+            case GT_OR:
+                ins = INS_orr;
+                break;
+            default:
+                ins = INS_eor;
+                break;
+        }
+
+        logical->ChangeOper(GT_INSTR);
+
+        GenTreeInstr* instr = logical->AsInstr();
+        instr->SetIns(ins);
         instr->SetNumOps(1);
         instr->SetImmediate(encodedBitmaskImm);
         instr->SetOp(0, op1);
@@ -109,34 +119,71 @@ void Lowering::LowerLogical(GenTreeOp* logical)
         return;
     }
 
-    unsigned imm = 0;
-    insOpts  opt = GetEquivalentShiftOptionLogical(op2, instr->GetAttr());
+    unsigned      imm   = 0;
+    insOpts       opt   = INS_OPTS_NONE;
+    GenTreeInstr* mvn   = nullptr;
+    GenTreeInstr* shift = nullptr;
 
-    if (opt != INS_OPTS_NONE)
+    if ((mvn = IsInstr(op2, size, INS_mvn)) != nullptr)
+    {
+        op2 = mvn->GetOp(0);
+        imm = mvn->GetImmediate();
+        opt = mvn->GetOption();
+
+        BlockRange().Remove(mvn);
+    }
+    else if ((mvn = IsInstr(op1, size, INS_mvn)) != nullptr)
+    {
+        op1 = mvn->GetOp(0);
+        imm = mvn->GetImmediate();
+        opt = mvn->GetOption();
+
+        std::swap(op1, op2);
+
+        BlockRange().Remove(mvn);
+    }
+    else if ((opt = GetEquivalentShiftOptionLogical(op2, size)) != INS_OPTS_NONE)
     {
         assert(op2->AsInstr()->GetNumOps() == 1);
 
-        BlockRange().Remove(op2);
-        imm = op2->AsInstr()->GetImmediate();
-        op2 = op2->AsInstr()->GetOp(0);
+        shift = op2->AsInstr();
+        op2   = shift->GetOp(0);
+        imm   = shift->GetImmediate();
+
+        BlockRange().Remove(shift);
     }
-    else
+    else if ((opt = GetEquivalentShiftOptionLogical(op1, size)) != INS_OPTS_NONE)
     {
-        opt = GetEquivalentShiftOptionLogical(op1, instr->GetAttr());
+        assert(op1->AsInstr()->GetNumOps() == 1);
 
-        if (opt != INS_OPTS_NONE)
-        {
-            assert(op1->AsInstr()->GetNumOps() == 1);
+        shift = op1->AsInstr();
+        op1   = shift->GetOp(0);
+        imm   = shift->GetImmediate();
 
-            BlockRange().Remove(op1);
-            imm = op1->AsInstr()->GetImmediate();
-            op1 = op1->AsInstr()->GetOp(0);
+        std::swap(op1, op2);
 
-            std::swap(op1, op2);
-        }
+        BlockRange().Remove(shift);
     }
 
-    instr->SetOption(opt);
+    instruction ins;
+
+    switch (logical->GetOper())
+    {
+        case GT_AND:
+            ins = mvn == nullptr ? INS_and : INS_bic;
+            break;
+        case GT_OR:
+            ins = mvn == nullptr ? INS_orr : INS_orn;
+            break;
+        default:
+            ins = mvn == nullptr ? INS_eor : INS_eon;
+            break;
+    }
+
+    logical->ChangeOper(GT_INSTR);
+
+    GenTreeInstr* instr = logical->AsInstr();
+    instr->SetIns(ins, size, opt);
     instr->SetNumOps(2);
     instr->SetImmediate(imm);
     instr->SetOp(0, op1);
@@ -526,6 +573,13 @@ instruction GetEquivalentCompareOrTestInstruction(GenTreeInstr* instr)
             return INS_cmp;
         case INS_and:
             return INS_tst;
+
+        // TODO-MIKE-CQ: There's no "test" like equivalent for bic and the emitter doesn't seem to support ZR as
+        // destination register.
+
+        // case INS_bic:
+        //  return INS_bics;
+
         default:
             return INS_none;
     }
