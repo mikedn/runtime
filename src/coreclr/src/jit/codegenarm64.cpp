@@ -9753,6 +9753,19 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
                 break;
         }
     }
+    else
+    {
+        assert(instr->GetNumOps() == 3);
+
+        instruction ins     = instr->GetIns();
+        emitAttr    attr    = instr->GetAttr();
+        regNumber   dstReg  = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
+        regNumber   srcReg1 = genConsumeReg(instr->GetOp(0));
+        regNumber   srcReg2 = genConsumeReg(instr->GetOp(1));
+        regNumber   srcReg3 = genConsumeReg(instr->GetOp(2));
+
+        GetEmitter()->emitIns_R_R_R_R(ins, attr, dstReg, srcReg1, srcReg2, srcReg3);
+    }
 
     if (!instr->TypeIs(TYP_VOID))
     {

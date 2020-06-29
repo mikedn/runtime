@@ -400,6 +400,26 @@ insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
     return INS_OPTS_NONE;
 }
 
+instruction GetMultiplyAddInstruction(GenTree* multiply, instruction ins, emitAttr size)
+{
+    if (multiply->IsInstr() && (multiply->AsInstr()->GetAttr() == size))
+    {
+        switch (multiply->AsInstr()->GetIns())
+        {
+            case INS_mul:
+                return (ins == INS_add) ? INS_madd : INS_msub;
+            case INS_smull:
+                return (ins == INS_add) ? INS_smaddl : INS_smsubl;
+            case INS_umull:
+                return (ins == INS_add) ? INS_umaddl : INS_umsubl;
+            default:
+                break;
+        }
+    }
+
+    return INS_none;
+}
+
 void Lowering::LowerArithmetic(GenTreeOp* arith)
 {
     assert(arith->OperIs(GT_ADD, GT_SUB));
@@ -469,9 +489,12 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
         }
     }
 
-    insOpts       opt = INS_OPTS_NONE;
-    unsigned      imm = 0;
-    GenTreeInstr* shift;
+    instruction   ins   = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
+    insOpts       opt   = INS_OPTS_NONE;
+    unsigned      imm   = 0;
+    GenTreeInstr* shift = nullptr;
+    GenTreeInstr* mul   = nullptr;
+    instruction   mins  = INS_none;
 
     if ((opt = GetEquivalentShiftOptionArithmetic(op2, size)) != INS_OPTS_NONE)
     {
@@ -483,7 +506,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
 
         BlockRange().Remove(shift);
     }
-    else if (arith->OperIs(GT_ADD) && (opt = GetEquivalentShiftOptionArithmetic(op1, size)) != INS_OPTS_NONE)
+    else if ((ins == INS_add) && (opt = GetEquivalentShiftOptionArithmetic(op1, size)) != INS_OPTS_NONE)
     {
         assert(op1->AsInstr()->GetNumOps() == 1);
 
@@ -495,17 +518,39 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
 
         BlockRange().Remove(shift);
     }
+    else if ((mins = GetMultiplyAddInstruction(op2, ins, size)) != INS_none)
+    {
+        mul = op2->AsInstr();
 
-    instruction ins = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
+        BlockRange().Remove(mul);
+    }
+    else if ((ins == INS_add) && ((mins = GetMultiplyAddInstruction(op1, ins, size)) != INS_none))
+    {
+        mul = op1->AsInstr();
+
+        BlockRange().Remove(mul);
+    }
 
     arith->ChangeOper(GT_INSTR);
 
     GenTreeInstr* instr = arith->AsInstr();
-    instr->SetIns(ins, size, opt);
-    instr->SetImmediate(imm);
-    instr->SetNumOps(2);
-    instr->SetOp(0, op1);
-    instr->SetOp(1, op2);
+
+    if (mul == nullptr)
+    {
+        instr->SetIns(ins, size, opt);
+        instr->SetImmediate(imm);
+        instr->SetNumOps(2);
+        instr->SetOp(0, op1);
+        instr->SetOp(1, op2);
+    }
+    else if (mul != nullptr)
+    {
+        instr->SetIns(mins, size);
+        instr->SetNumOps(3);
+        instr->SetOp(0, mul->GetOp(0));
+        instr->SetOp(1, mul->GetOp(1));
+        instr->SetOp(2, mul == op1 ? op2 : op1);
+    }
 }
 
 GenTreeCast* IsIntToLongCast(GenTree* node)
