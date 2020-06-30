@@ -347,39 +347,6 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
     BlockRange().Remove(op2);
 }
 
-void Lowering::LowerNeg(GenTreeUnOp* neg)
-{
-    assert(neg->OperIs(GT_NEG));
-
-    GenTree* op1 = neg->GetOp(0);
-
-    instruction ins;
-
-    if (varTypeIsFloating(neg->GetType()))
-    {
-        ins = INS_fneg;
-    }
-    else
-    {
-        ins = INS_neg;
-    }
-
-    neg->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = neg->AsInstr();
-    instr->SetIns(ins);
-    instr->SetImmediate(0);
-    instr->SetNumOps(1);
-    instr->SetOp(0, op1);
-}
-
-bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithImm)
-{
-    bool encoded     = emitter::emitIns_valid_imm_for_add(imm, size);
-    *encodedArithImm = static_cast<unsigned>(imm) & 0xFFF'FFF;
-    return encoded;
-}
-
 insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
 {
     if (node->IsInstr() && (node->AsInstr()->GetAttr() == size))
@@ -398,6 +365,57 @@ insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
     }
 
     return INS_OPTS_NONE;
+}
+
+void Lowering::LowerNeg(GenTreeUnOp* neg)
+{
+    assert(neg->OperIs(GT_NEG));
+
+    GenTree* op1 = neg->GetOp(0);
+
+    if (varTypeIsFloating(neg->GetType()))
+    {
+        neg->ChangeOper(GT_INSTR);
+
+        GenTreeInstr* instr = neg->AsInstr();
+        instr->SetIns(INS_fneg);
+        instr->SetImmediate(0);
+        instr->SetNumOps(1);
+        instr->SetOp(0, op1);
+
+        return;
+    }
+
+    emitAttr      size  = emitActualTypeSize(neg->GetType());
+    insOpts       opt   = INS_OPTS_NONE;
+    unsigned      imm   = 0;
+    GenTreeInstr* shift = nullptr;
+
+    if ((opt = GetEquivalentShiftOptionArithmetic(op1, size)) != INS_OPTS_NONE)
+    {
+        assert(op1->AsInstr()->GetNumOps() == 1);
+
+        shift = op1->AsInstr();
+        op1   = shift->GetOp(0);
+        imm   = shift->GetImmediate();
+
+        BlockRange().Remove(shift);
+    }
+
+    neg->ChangeOper(GT_INSTR);
+
+    GenTreeInstr* instr = neg->AsInstr();
+    instr->SetIns(INS_neg, size, opt);
+    instr->SetImmediate(imm);
+    instr->SetNumOps(1);
+    instr->SetOp(0, op1);
+}
+
+bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithImm)
+{
+    bool encoded     = emitter::emitIns_valid_imm_for_add(imm, size);
+    *encodedArithImm = static_cast<unsigned>(imm) & 0xFFF'FFF;
+    return encoded;
 }
 
 insOpts GetEquivalentExtendOption(GenTree* node, emitAttr size)

@@ -9690,6 +9690,7 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
                 break;
 
             case INS_mvn:
+            case INS_neg:
                 if (opt != INS_OPTS_NONE)
                 {
                     GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm, opt);
