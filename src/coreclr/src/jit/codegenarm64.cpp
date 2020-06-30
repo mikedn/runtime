@@ -9701,6 +9701,13 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
                 }
                 break;
 
+            case INS_sbfiz:
+            case INS_ubfiz:
+            case INS_sbfx:
+            case INS_ubfx:
+                GetEmitter()->emitIns_R_R_I_I(ins, attr, dstReg, srcReg1, imm >> 6, imm & 63);
+                break;
+
             default:
                 GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1);
                 break;

@@ -266,8 +266,127 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
     GenTree* op1 = shift->GetOp(0);
     GenTree* op2 = shift->GetOp(1);
 
-    ssize_t  shiftByMask = varTypeIsLong(shift->GetType()) ? 63 : 31;
+    emitAttr size        = emitActualTypeSize(shift->GetType());
+    ssize_t  shiftByMask = (size == EA_8BYTE) ? 63 : 31;
     unsigned shiftByBits = static_cast<unsigned>(op2->AsIntCon()->GetValue() & shiftByMask);
+
+    if (op1->IsCast() && !op1->gtOverflow() && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
+    {
+        // Shift instructions do not have an "extending form" like arithmetic instructions but the
+        // same operation can be performed using bitfield insertion/extraction instructions.
+        // For example:
+        //    - SXTB x0, w0 and LSL x0, x0, #12 <=> SBFIZ x0, x0, #12, #8
+        //    - SXTW x0, w0 and ASR x0, x0, #12 <=> SBFX x0, x0, #12, #20
+
+        GenTreeCast* cast = op1->AsCast();
+
+        unsigned bitFieldWidth = 0;
+        bool     isUnsigned    = false;
+
+        if (varTypeIsSmall(cast->GetCastType()))
+        {
+            // Currently the JIT IR doesn't allow direct extension from small int types to long.
+            // This code likely works fine with such casts but it cannot be tested.
+            assert(varActualType(cast->GetType()) == TYP_INT);
+            assert(size == EA_4BYTE);
+
+            bitFieldWidth = varTypeBitSize(cast->GetCastType());
+            isUnsigned    = varTypeIsUnsigned(cast->GetCastType());
+        }
+        else if (varTypeIsLong(cast->GetCastType()) && !varTypeIsLong(cast->GetOp(0)->GetType()))
+        {
+            assert(size == EA_8BYTE);
+
+            bitFieldWidth = 32;
+            isUnsigned    = cast->IsUnsigned();
+        }
+
+        if (bitFieldWidth != 0)
+        {
+            unsigned    regWidth = size * 8;
+            instruction ins      = INS_none;
+            unsigned    lsb      = 0;
+            unsigned    width    = 0;
+
+            if (shift->OperIs(GT_LSH))
+            {
+                // We don't need to insert if all the extension bits produced by the cast are discarded
+                // by the shift, we'll just generate a LSL in that case.
+
+                if (shiftByBits + bitFieldWidth < regWidth)
+                {
+                    ins   = isUnsigned ? INS_ubfiz : INS_sbfiz;
+                    lsb   = shiftByBits;
+                    width = bitFieldWidth;
+                }
+            }
+            else if (shift->OperIs(GT_RSH))
+            {
+                ins = isUnsigned ? INS_ubfx : INS_sbfx;
+
+                if (bitFieldWidth > shiftByBits)
+                {
+                    // We still have some bits from the casted value that need to be extracted. Extraction
+                    // needs the width of the extracted bitfield, which is smaller than the width of the
+                    // casted value.
+
+                    lsb   = shiftByBits;
+                    width = bitFieldWidth - shiftByBits;
+                }
+                else
+                {
+                    // All the bits of the casted value are discarded by the shift. The only thing that's
+                    // left are the extension bits that the cast produced. These bits can be obtained by
+                    // extracting the sign bit from the casted value.
+
+                    lsb   = bitFieldWidth - 1;
+                    width = 1;
+                }
+            }
+            else
+            {
+                assert(shift->OperIs(GT_RSZ));
+
+                // The cast has to be unsigned because RSZ will only insert 0 bits. If the cast was signed
+                // then we would end up with some zero bits produced by the shift, followed by some sign
+                // bits produced by the cast. Such a mix cannot be reproduced using UBFX/SBFX instructions.
+
+                // Unlike in the RSH case, if all bits are discarded by the shift we'd get 0. We could try
+                // to replace the shift with constant 0 but it seems unlikely to be worth the trouble.
+                // Besides, there's no reason not to do this in morph.
+
+                if (isUnsigned && (bitFieldWidth > shiftByBits))
+                {
+                    ins = INS_ubfx;
+
+                    lsb   = shiftByBits;
+                    width = bitFieldWidth - shiftByBits;
+                }
+            }
+
+            if (ins != INS_none)
+            {
+                assert((0 <= lsb) && (lsb < regWidth));
+                assert((1 <= width) && (width <= regWidth - lsb));
+
+                op1 = cast->GetOp(0);
+                op1->ClearContained();
+
+                shift->ChangeOper(GT_INSTR);
+
+                GenTreeInstr* instr = shift->AsInstr();
+                instr->SetIns(ins, size);
+                instr->SetImmediate((ins == INS_lsr) ? lsb : ((lsb << 6) | width));
+                instr->SetNumOps(1);
+                instr->SetOp(0, op1);
+
+                BlockRange().Remove(cast);
+                BlockRange().Remove(op2);
+
+                return;
+            }
+        }
+    }
 
     if ((shiftByBits >= 24) && shift->OperIs(GT_LSH) && comp->opts.OptimizationEnabled())
     {
