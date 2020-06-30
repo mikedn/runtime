@@ -386,7 +386,24 @@ void Lowering::LowerNeg(GenTreeUnOp* neg)
         return;
     }
 
-    emitAttr      size  = emitActualTypeSize(neg->GetType());
+    emitAttr size = emitActualTypeSize(neg->GetType());
+
+    if (GenTreeInstr* mul = IsInstr(op1, size, INS_mul))
+    {
+        neg->ChangeOper(GT_INSTR);
+
+        GenTreeInstr* instr = neg->AsInstr();
+        instr->SetIns(INS_mneg);
+        instr->SetImmediate(0);
+        instr->SetNumOps(2);
+        instr->SetOp(0, mul->GetOp(0));
+        instr->SetOp(1, mul->GetOp(1));
+
+        BlockRange().Remove(mul);
+
+        return;
+    }
+
     insOpts       opt   = INS_OPTS_NONE;
     unsigned      imm   = 0;
     GenTreeInstr* shift = nullptr;
