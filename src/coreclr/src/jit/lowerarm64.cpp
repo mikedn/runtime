@@ -17,6 +17,27 @@ GenTreeInstr* IsInstr(GenTree* node, emitAttr size, instruction ins)
     return nullptr;
 }
 
+GenTreeInstr* IsInstr(GenTree* node, emitAttr size, instruction ins, unsigned numOps)
+{
+    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size) && (node->AsInstr()->GetIns() == ins) &&
+        (node->AsInstr()->GetNumOps() == numOps))
+    {
+        return node->AsInstr();
+    }
+
+    return nullptr;
+}
+
+GenTreeInstr* IsInstr(GenTree* node, emitAttr size, unsigned numOps)
+{
+    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size) && (node->AsInstr()->GetNumOps() == numOps))
+    {
+        return node->AsInstr();
+    }
+
+    return nullptr;
+}
+
 insOpts GetEquivalentShiftOptionLogical(GenTree* node, emitAttr size)
 {
     if (node->IsInstr() && (node->AsInstr()->GetAttr() == size))
@@ -77,6 +98,119 @@ bool CanEncodeBitmaskImm(ssize_t imm, emitAttr size, unsigned* bitmaskImm)
 
 ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size);
 
+class BitField
+{
+    const unsigned m_lsb;
+    const unsigned m_width;
+
+public:
+    BitField(unsigned lsb, unsigned width) : m_lsb(lsb), m_width(width)
+    {
+        assert(lsb < 64);
+        assert(lsb + width <= 64);
+    }
+
+    operator bool() const
+    {
+        return m_width != 0;
+    }
+
+    unsigned LSB() const
+    {
+        return m_lsb;
+    }
+
+    bool IsRightAligned() const
+    {
+        return m_lsb == 0;
+    }
+
+    unsigned Width() const
+    {
+        return m_width;
+    }
+
+    unsigned MSB() const
+    {
+        return m_lsb + m_width - 1;
+    }
+
+    unsigned IsLeftAligned(unsigned regWidth) const
+    {
+        return m_lsb + m_width == regWidth;
+    }
+};
+
+BitField IsBitFieldMask(uint64_t mask, emitAttr size)
+{
+    if (size == EA_4BYTE)
+    {
+        mask &= UINT32_MAX;
+    }
+    else
+    {
+        assert(size == EA_8BYTE);
+    }
+
+    unsigned lsb   = 0;
+    unsigned width = 0;
+
+    while ((mask & 1) == 0)
+    {
+        lsb++;
+        mask >>= 1;
+    }
+
+    if (isPow2(mask + 1))
+    {
+        width = genLog2(mask + 1);
+    }
+
+    return BitField(lsb, width);
+}
+
+BitField IsBitFieldMaskAt(uint64_t mask, unsigned at, emitAttr size)
+{
+    assert(at < size * 8);
+
+    if (size == EA_4BYTE)
+    {
+        mask &= UINT32_MAX;
+    }
+    else
+    {
+        assert(size == EA_8BYTE);
+    }
+
+    unsigned width   = 0;
+    uint64_t maskLow = (1ULL << at) - 1;
+
+    if ((mask & maskLow) == 0)
+    {
+        mask >>= at;
+
+        if (isPow2(mask + 1))
+        {
+            width = genLog2(mask + 1);
+        }
+    }
+
+    return BitField(at, width);
+}
+
+BitField IsBitFieldMask(GenTreeIntCon* intCon, emitAttr size)
+{
+    return IsBitFieldMask(static_cast<uint64_t>(intCon->GetValue()), size);
+}
+
+unsigned PackBFIImmediate(unsigned lsb, unsigned width, unsigned regWidth)
+{
+    assert((0 <= lsb) && (lsb < regWidth));
+    assert((1 <= width) && (width <= regWidth - lsb));
+
+    return (lsb << 6) | width;
+}
+
 void Lowering::LowerLogical(GenTreeOp* logical)
 {
     assert(logical->OperIs(GT_AND, GT_OR, GT_XOR));
@@ -85,6 +219,105 @@ void Lowering::LowerLogical(GenTreeOp* logical)
     GenTree* op2 = logical->GetOp(1);
 
     emitAttr size = emitActualTypeSize(logical->GetType());
+
+    if (logical->OperIs(GT_AND) && IsInstr(op1, size, 1) && op2->IsIntCon())
+    {
+        assert(!op2->AsIntCon()->ImmedValNeedsReloc(comp));
+
+        unsigned      regWidth    = size * 8;
+        GenTreeInstr* shift       = op1->AsInstr();
+        unsigned      shiftAmount = shift->GetImmediate();
+        uint64_t      mask        = static_cast<uint64_t>(op2->AsIntCon()->GetValue());
+        instruction   ins         = INS_none;
+        unsigned      imm         = 0;
+
+        if (shift->GetIns() == INS_lsl)
+        {
+            // The shift zeroes out bits shiftAmount-1..0 so we don't care what bits the mask has there.
+            mask &= ((regWidth == 64) ? UINT64_MAX : UINT32_MAX) << shiftAmount;
+
+            if (BitField bitfield = IsBitFieldMaskAt(mask, shiftAmount, size))
+            {
+                // AND(LSL(x, N), bfmask(N, W)) = UBFIZ x, x, #N, #W
+
+                ins = INS_ubfiz;
+                imm = PackBFIImmediate(shiftAmount, bitfield.Width(), regWidth);
+            }
+        }
+        else if (shift->GetIns() == INS_lsr)
+        {
+            // The shift zeroes out bits regWidth-1..shiftAmount so we don't care what bits the mask has there.
+            mask &= ((regWidth == 64) ? UINT64_MAX : UINT32_MAX) >> shiftAmount;
+
+            if (BitField bitfield = IsBitFieldMaskAt(mask, 0, size))
+            {
+                unsigned shiftedBitfieldWidth = regWidth - shiftAmount;
+
+                if (shiftedBitfieldWidth <= bitfield.Width())
+                {
+                    // The shifted bitfield is entirely contained within the mask bitfield so masking
+                    // isn't needed, we just need a logical right shift to put the bitfield in place
+                    // and zero out the upper bits.
+
+                    ins = INS_lsr;
+                    imm = shiftAmount;
+                }
+                else
+                {
+                    // A portion of the shifted bitfield is extracted so we need UBFX:
+                    //     AND(LSR(x, N), bfmask(0, W)) = UBFX x, x, #N, #W
+
+                    ins = INS_ubfx;
+                    imm = PackBFIImmediate(shiftAmount, bitfield.Width(), regWidth);
+                }
+            }
+        }
+        else if (shift->GetIns() == INS_asr)
+        {
+            if (BitField bitfield = IsBitFieldMaskAt(mask, 0, size))
+            {
+                unsigned shiftedBitfieldWidth = regWidth - shiftAmount;
+
+                if (shiftedBitfieldWidth == bitfield.Width())
+                {
+                    // The shifted bitfield exactly overlaps the mask bitfield so masking isn't
+                    // needed, we just need a logical right shift to but the bitfield in place
+                    // and zero out the upper bits. The sign bits introduced by ASR would be
+                    // discarded by the mask anyway.
+
+                    ins = INS_lsr;
+                    imm = shiftAmount;
+                }
+                else if (shiftedBitfieldWidth > bitfield.Width())
+                {
+                    // A portion of the shifted bitfield is extracted so we need UBFX:
+                    //     AND(LSR(x, N), bfmask(0, W)) = UBFX x, x, #N, #W
+
+                    ins = INS_ubfx;
+                    imm = PackBFIImmediate(shiftAmount, bitfield.Width(), regWidth);
+                }
+            }
+        }
+
+        if (ins != INS_none)
+        {
+            op1 = shift->GetOp(0);
+            BlockRange().Remove(shift);
+
+            logical->ChangeOper(GT_INSTR);
+
+            GenTreeInstr* instr = logical->AsInstr();
+            instr->SetIns(ins);
+            instr->SetNumOps(1);
+            instr->SetImmediate(imm);
+            instr->SetOp(0, op1);
+
+            BlockRange().Remove(op2);
+
+            return;
+        }
+    }
+
     unsigned encodedBitmaskImm;
 
     if (op2->IsIntCon() && CanEncodeBitmaskImm(op2->AsIntCon()->GetValue(), size, &encodedBitmaskImm))
@@ -269,6 +502,99 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
     emitAttr size        = emitActualTypeSize(shift->GetType());
     ssize_t  shiftByMask = (size == EA_8BYTE) ? 63 : 31;
     unsigned shiftByBits = static_cast<unsigned>(op2->AsIntCon()->GetValue() & shiftByMask);
+
+    if (GenTreeInstr* andInstr = IsInstr(op1, size, INS_and, 1))
+    {
+        uint64_t    andImm   = static_cast<uint64_t>(DecodeBitmaskImm(andInstr->GetImmediate(), size));
+        unsigned    regWidth = size * 8;
+        instruction ins      = INS_none;
+        unsigned    lsb      = 0;
+        unsigned    width    = 0;
+
+        assert(shiftByBits < regWidth);
+
+        if (shift->OperIs(GT_LSH))
+        {
+            if (BitField bf = IsBitFieldMaskAt(andImm, 0, size))
+            {
+                if (shiftByBits + bf.Width() >= regWidth)
+                {
+                    // All the bits to the left of the bitfield (and possibly a part of the bitfield itself)
+                    // are shifted out. These are the same bits that "and" discards so "and" is not needed.
+                    // TODO-MIKE-Cleanup: This transform probably belongs in morph.
+
+                    op1 = andInstr->GetOp(0);
+                    BlockRange().Remove(andInstr);
+                }
+                else
+                {
+                    // Bitfield "bf.width .. 0" is shifted to the left by "shiftByBits" bits. That is, the bitfield
+                    // is inserted at "shiftByBits" so this is "ubfiz x0, x0, #shiftByBits, #bf.width".
+
+                    ins   = INS_ubfiz;
+                    lsb   = shiftByBits;
+                    width = bf.Width();
+                }
+            }
+        }
+        else
+        {
+            assert(shift->OperIs(GT_RSH, GT_RSZ));
+
+            if (BitField bf = IsBitFieldMask(andImm, size))
+            {
+                if (shiftByBits < bf.LSB())
+                {
+                    // The bitfield is not shifted enough to the right, there's nothing that can be done
+                    // in this case.
+                }
+                else if (shiftByBits > bf.MSB())
+                {
+                    // The bitfield is shifted out completly. This always produces 0 but it doesn't seem to
+                    // be a case worth handling. And even if it's useful to handle this, it should be done
+                    // in morph.
+                }
+                else if (bf.IsLeftAligned(regWidth))
+                {
+                    // There are no bits to the left of the bitfield so the "and" is not needed.
+                    // TODO-MIKE-Cleanup: This transform probably belongs in morph.
+
+                    op1 = andInstr->GetOp(0);
+                    BlockRange().Remove(andInstr);
+                }
+                else
+                {
+                    // Bitfield "bf.lsb + bf.width .. bf.lsb" is shifted to the right by "shiftByBits" bits. That
+                    // is, the bitfield is extracted so this is "ubfx x0, x0, #shiftByBits, #bf.width". Except when
+                    // a portion of the bitfield is also shifted out in which case we need to adjust the width.
+                    // The left aligned case has already been handled so the bitfield does not contain the sign bit
+                    // so we can always use "ubfx" even if the shift is arithmetic.
+
+                    ins   = INS_ubfx;
+                    lsb   = shiftByBits;
+                    width = bf.Width() - (shiftByBits - bf.LSB());
+                }
+            }
+        }
+
+        if (ins != INS_none)
+        {
+            op1 = andInstr->GetOp(0);
+
+            shift->ChangeOper(GT_INSTR);
+
+            GenTreeInstr* instr = shift->AsInstr();
+            instr->SetIns(ins, size);
+            instr->SetImmediate(PackBFIImmediate(lsb, width, regWidth));
+            instr->SetNumOps(1);
+            instr->SetOp(0, op1);
+
+            BlockRange().Remove(andInstr);
+            BlockRange().Remove(op2);
+
+            return;
+        }
+    }
 
     if (op1->IsCast() && !op1->gtOverflow() && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
     {
