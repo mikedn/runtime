@@ -1437,6 +1437,21 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
             useJCMP   = true;
             jcmpFlags = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : 0;
         }
+        else if (relop->OperIs(GT_LT, GT_GE) && !relop->IsUnsigned() && (imm == 0))
+        {
+            // Positive/negative checks can test the sign bit using TBZ/TBNZ
+            useJCMP   = true;
+            jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_GE) ? GTF_JCMP_EQ : 0);
+
+            if (varTypeIsLong(relop->AsOp()->GetOp(0)->GetType()))
+            {
+                relopOp2->AsIntCon()->SetValue(63);
+            }
+            else
+            {
+                relopOp2->AsIntCon()->SetValue(31);
+            }
+        }
         else if (relop->OperIs(GT_TEST_EQ, GT_TEST_NE))
         {
             if (!varTypeIsLong(relop->GetOp(0)->GetType()))
