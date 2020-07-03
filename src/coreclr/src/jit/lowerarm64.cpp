@@ -1319,6 +1319,40 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
         }
     }
 
+    if (cmp->OperIs(GT_LT, GT_GE) && (op2Value == 0) && !cmp->IsUnsigned())
+    {
+        // Materialized signed x < 0 is LSR x, #31/#63.
+        // Materialized signed x >= 0 is MVN x, x; LSR x, #31/#63.
+        // The later has the same size as the normal CMP/CSET sequence but LSR
+        // may combine with a subsequent logical/arithmetic instruction. Even
+        // if it doesn't, it's likely still better than the flags based version.
+
+        LIR::Use use;
+
+        if (BlockRange().TryGetUse(cmp, &use) && !use.User()->OperIs(GT_JTRUE))
+        {
+            if (cmp->OperIs(GT_GE))
+            {
+                GenTreeInstr* mvn = new (comp, GT_INSTR) GenTreeInstr(op1->GetType(), INS_mvn, op1);
+                mvn->SetImmediate(0);
+                BlockRange().InsertAfter(op1, mvn);
+                op1 = mvn;
+            }
+
+            cmp->ChangeOper(GT_INSTR);
+
+            GenTreeInstr* instr = cmp->AsInstr();
+            instr->SetIns(INS_lsr, emitActualTypeSize(op1));
+            instr->SetNumOps(1);
+            instr->SetImmediate(varTypeBitSize(varActualType(op1->GetType())) - 1);
+            instr->SetOp(0, op1);
+
+            BlockRange().Remove(op2);
+
+            return instr->gtNext;
+        }
+    }
+
     // Transform EQ|NE(add|sub|and(x, y), 0) into cmn|cmp|tst(x, y) if possible.
 
     // TODO-CQ: right now the below peep is inexpensive and gets the benefit in most
