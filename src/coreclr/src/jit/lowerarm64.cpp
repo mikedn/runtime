@@ -1422,25 +1422,37 @@ GenTree* Lowering::LowerRelop(GenTreeOp* cmp)
 
 GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
 {
-    GenTree* relop    = jtrue->GetOp(0);
-    GenTree* relopOp2 = relop->AsOp()->GetOp(1);
+    GenTreeOp* relop    = jtrue->GetOp(0)->AsOp();
+    GenTree*   relopOp2 = relop->GetOp(1);
 
     if ((relop->gtNext == jtrue) && relopOp2->IsIntCon())
     {
         bool     useJCMP   = false;
         unsigned jcmpFlags = 0;
+        size_t   imm       = static_cast<size_t>(relopOp2->AsIntCon()->GetValue());
 
-        if (relop->OperIs(GT_EQ, GT_NE) && relopOp2->IsIntegralConst(0))
+        if (relop->OperIs(GT_EQ, GT_NE) && (imm == 0))
         {
             // Generate CBZ/CBNZ
             useJCMP   = true;
             jcmpFlags = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : 0;
         }
-        else if (relop->OperIs(GT_TEST_EQ, GT_TEST_NE) && isPow2(relopOp2->AsIntCon()->GetValue()))
+        else if (relop->OperIs(GT_TEST_EQ, GT_TEST_NE))
         {
-            // Generate TBZ/TBNZ
-            useJCMP   = true;
-            jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_TEST_EQ) ? GTF_JCMP_EQ : 0);
+            if (!varTypeIsLong(relop->GetOp(0)->GetType()))
+            {
+                // Discard any spurious sign bits a 32 bit constant may have due to the use of ssize_t.
+                imm &= UINT32_MAX;
+            }
+
+            if (isPow2(imm))
+            {
+                // Generate TBZ/TBNZ
+                useJCMP   = true;
+                jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_TEST_EQ) ? GTF_JCMP_EQ : 0);
+
+                relopOp2->AsIntCon()->SetValue(genLog2(imm));
+            }
         }
 
         if (useJCMP)
