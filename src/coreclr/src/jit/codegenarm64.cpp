@@ -9664,6 +9664,11 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 
         switch (ins)
         {
+            case INS_mul:
+                // Special case - INS_mul with a single operand is treated as ADD ..., x1, x1, LSL #imm
+                GetEmitter()->emitIns_R_R_R_I(INS_add, attr, dstReg, srcReg1, srcReg1, imm, INS_OPTS_LSL);
+                break;
+
             case INS_add:
             case INS_sub:
             case INS_asr:

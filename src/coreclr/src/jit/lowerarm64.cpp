@@ -833,7 +833,7 @@ void Lowering::LowerNeg(GenTreeUnOp* neg)
 
     emitAttr size = emitActualTypeSize(neg->GetType());
 
-    if (GenTreeInstr* mul = IsInstr(op1, size, INS_mul))
+    if (GenTreeInstr* mul = IsInstr(op1, size, INS_mul, 2))
     {
         neg->ChangeOper(GT_INSTR);
 
@@ -912,7 +912,7 @@ insOpts GetEquivalentExtendOption(GenTree* node, emitAttr size)
 
 instruction GetMultiplyAddInstruction(GenTree* multiply, instruction ins, emitAttr size)
 {
-    if (multiply->IsInstr() && (multiply->AsInstr()->GetAttr() == size))
+    if (multiply->IsInstr() && (multiply->AsInstr()->GetAttr() == size) && (multiply->AsInstr()->GetNumOps() == 2))
     {
         switch (multiply->AsInstr()->GetIns())
         {
@@ -1136,45 +1136,101 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
     GenTree* op1 = mul->GetOp(0);
     GenTree* op2 = mul->GetOp(1);
 
-    if (mul->OperIs(GT_MULHI) && !op1->TypeIs(TYP_LONG))
+    if (varTypeIsFloating(mul->GetType()))
     {
-        assert(mul->TypeIs(TYP_INT));
-        assert(varActualType(op1->GetType()) == TYP_INT);
-        assert(varActualType(op2->GetType()) == TYP_INT);
-
-        // TODO-MIKE-Cleanup: Magic division should not produce such a MULHI node. There's no corresponding ARM64
-        // instruction for this operation and we need to insert a right shift to obtain the "hi" 32 bits of the
-        // long result. And in some cases magic division follows up with another right shift that currently doesn't
-        // combine with this one.
-
-        GenTreeInstr* mull =
-            new (comp, GT_INSTR) GenTreeInstr(TYP_LONG, mul->IsUnsigned() ? INS_umull : INS_smull, op1, op2);
-        BlockRange().InsertBefore(mul, mull);
-
         mul->ChangeOper(GT_INSTR);
 
         GenTreeInstr* instr = mul->AsInstr();
-        instr->SetIns(mul->IsUnsigned() ? INS_lsr : INS_asr, EA_8BYTE);
-        instr->SetImmediate(32);
-        instr->SetNumOps(1);
-        instr->SetOp(0, mull);
+        instr->SetIns(INS_fmul);
+        instr->SetImmediate(0);
+        instr->SetNumOps(2);
+        instr->SetOp(0, op1);
+        instr->SetOp(1, op2);
 
         return;
     }
 
+    if (mul->OperIs(GT_MULHI))
+    {
+        bool isUnsigned = mul->IsUnsigned();
+
+        mul->ChangeOper(GT_INSTR);
+        GenTreeInstr* instr = mul->AsInstr();
+
+        if (op1->TypeIs(TYP_LONG))
+        {
+            assert(mul->TypeIs(TYP_LONG));
+
+            instr->SetIns(isUnsigned ? INS_umulh : INS_smulh);
+            instr->SetImmediate(0);
+            instr->SetNumOps(2);
+            instr->SetOp(0, op1);
+            instr->SetOp(1, op2);
+        }
+        else
+        {
+            assert(mul->TypeIs(TYP_INT));
+            assert(varActualType(op1->GetType()) == TYP_INT);
+            assert(varActualType(op2->GetType()) == TYP_INT);
+
+            // TODO-MIKE-Cleanup: Magic division should not produce such a MULHI node. There's no corresponding ARM64
+            // instruction for this operation and we need to insert a right shift to obtain the "hi" 32 bits of the
+            // long result. And in some cases magic division follows up with another right shift that currently doesn't
+            // combine with this one.
+
+            instruction   ins  = isUnsigned ? INS_umull : INS_smull;
+            GenTreeInstr* mull = new (comp, GT_INSTR) GenTreeInstr(TYP_LONG, ins, op1, op2);
+            BlockRange().InsertBefore(mul, mull);
+
+            instr->SetIns(isUnsigned ? INS_lsr : INS_asr, EA_8BYTE);
+            instr->SetImmediate(32);
+            instr->SetNumOps(1);
+            instr->SetOp(0, mull);
+        }
+
+        return;
+    }
+
+    if (GenTreeIntCon* intCon = op2->IsIntCon())
+    {
+        uint64_t value = static_cast<uint64_t>(intCon->GetValue());
+
+        if (!varTypeIsLong(mul->GetType()))
+        {
+            value &= UINT32_MAX;
+        }
+
+        if ((value > 1) && isPow2(value - 1))
+        {
+            // MUL x, C where C is (2 ^ N + 1) can be transformed into ADD x, x, LSL #N
+            // This normally requires making x a LCL_VAR so it can have multiple uses,
+            // to avoid that generate a mul instruction with an immediate that's special
+            // cased in codegen.
+
+            // Unfortunately the similar (2 ^ N - 1) case is a bit more complicated and
+            // requires either a LCL_VAR for multiple uses or special casing is register
+            // allocation as well since it requires 2 instructions:
+            //     lsl t, x, #N
+            //     sub d, t, x
+            // where t may be the destination register if x is marked delay free.
+
+            mul->ChangeOper(GT_INSTR);
+
+            GenTreeInstr* instr = mul->AsInstr();
+            instr->SetIns(INS_mul);
+            instr->SetImmediate(genLog2(value - 1));
+            instr->SetNumOps(1);
+            instr->SetOp(0, op1);
+
+            BlockRange().Remove(op2);
+
+            return;
+        }
+    }
+
     instruction ins = INS_mul;
 
-    if (varTypeIsFloating(mul->GetType()))
-    {
-        ins = INS_fmul;
-    }
-    else if (mul->OperIs(GT_MULHI))
-    {
-        assert(mul->TypeIs(TYP_LONG));
-
-        ins = mul->IsUnsigned() ? INS_umulh : INS_smulh;
-    }
-    else if (mul->TypeIs(TYP_LONG))
+    if (mul->TypeIs(TYP_LONG))
     {
         assert(op1->TypeIs(TYP_LONG));
         assert(op2->TypeIs(TYP_LONG));
