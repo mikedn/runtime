@@ -3204,10 +3204,10 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
     }
 
 #if defined(FEATURE_HFA)
-    if (comp->IsHfa(call))
+    if (comp->IsHfa(call->gtRetClsHnd))
     {
 #if defined(TARGET_ARM64)
-        assert(comp->GetHfaCount(call) == 1);
+        assert(comp->GetHfaCount(call->gtRetClsHnd) == 1);
 #elif defined(TARGET_ARM)
         // ARM returns double in 2 float registers, but
         // `call->HasMultiRegRetVal()` count double registers.
@@ -3215,7 +3215,7 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
 #elif  // !TARGET_ARM64 && !TARGET_ARM
         unreached();
 #endif // !TARGET_ARM64 && !TARGET_ARM
-        var_types hfaType = comp->GetHfaType(call);
+        var_types hfaType = comp->GetHfaType(call->gtRetClsHnd);
         if (call->TypeIs(hfaType))
         {
             return;
