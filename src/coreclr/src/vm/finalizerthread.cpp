@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 // ===========================================================================
 
 #include "common.h"
@@ -125,7 +124,7 @@ void FinalizerThread::FinalizeAllObjects(int bitToCheck)
     Thread *pThread = GetThread();
 
     // Finalize everyone
-    while (fobj)
+    while (fobj && !fQuitFinalizer)
     {
         if (fobj->GetHeader()->GetBits() & bitToCheck)
         {
