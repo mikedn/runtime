@@ -682,7 +682,7 @@ void Lowering::LowerSIMD(GenTreeSIMD* simdNode)
         for (GenTreeSIMD::Use& use : simdNode->Uses())
         {
             assert(use.GetNode()->TypeGet() == simdNode->gtSIMDBaseType);
-            assert(argCount < _countof(constArgValues));
+            assert(argCount < (int)_countof(constArgValues));
 
             if (use.GetNode()->IsCnsFltOrDbl())
             {

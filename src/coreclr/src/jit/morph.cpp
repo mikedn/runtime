@@ -11348,7 +11348,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 return tree;
             }
-            if (tree->TypeIs(TYP_STRUCT) && op1->OperIs(GT_OBJ, GT_BLK))
+            if (varTypeIsStruct(tree) && op1->OperIs(GT_OBJ, GT_BLK))
             {
                 assert(!compDoOldStructRetyping());
                 GenTree* addr = op1->AsBlk()->Addr();

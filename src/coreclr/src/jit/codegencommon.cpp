@@ -6318,7 +6318,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
                 emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
             }
 #if defined(TARGET_AMD64)
-            assert((i == blkSize) || (i + sizeof(int) == blkSize));
+            assert((i == blkSize) || (i + (int)sizeof(int) == blkSize));
             if (i != blkSize)
             {
                 emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
@@ -6379,7 +6379,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
                 {
                     emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
                 }
-                assert((i == alignmentLoBlkSize) || (i + sizeof(int) == alignmentLoBlkSize));
+                assert((i == alignmentLoBlkSize) || (i + (int)sizeof(int) == alignmentLoBlkSize));
                 if (i != alignmentLoBlkSize)
                 {
                     emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
@@ -6497,7 +6497,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
                     emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, alignedLclHi + i);
                 }
 #if defined(TARGET_AMD64)
-                assert((i == alignmentHiBlkSize) || (i + sizeof(int) == alignmentHiBlkSize));
+                assert((i == alignmentHiBlkSize) || (i + (int)sizeof(int) == alignmentHiBlkSize));
                 if (i != alignmentHiBlkSize)
                 {
                     emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, alignedLclHi + i);
