@@ -3296,7 +3296,7 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
 #elif defined(TARGET_ARM)
         // ARM returns double in 2 float registers, but
         // `call->HasMultiRegRetVal()` count double registers.
-        assert(comp->GetHfaCount(call) <= 2);
+        assert(comp->GetHfaCount(call->gtRetClsHnd) <= 2);
 #elif  // !TARGET_ARM64 && !TARGET_ARM
         unreached();
 #endif // !TARGET_ARM64 && !TARGET_ARM
