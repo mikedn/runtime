@@ -717,7 +717,6 @@ regMaskTP GenTree::gtGetRegMask() const
 
     if (IsMultiRegCall())
     {
-        // temporarily cast away const-ness as AsCall() method is not declared const
         resultMask = genRegMask(GetRegNum());
         resultMask |= AsCall()->GetOtherRegMask();
     }
