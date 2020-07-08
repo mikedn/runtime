@@ -736,21 +736,22 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 
     node->ChangeOper(cmpOp);
 
-    node->gtType = TYP_INT;
-    node->SetOp(0, val);
-    node->SetOp(1, zroCns);
+    GenTreeOp* relop = static_cast<GenTree*>(node)->AsOp();
+    relop->SetType(TYP_INT);
+    relop->SetOp(0, val);
+    relop->SetOp(1, zroCns);
 
     // The CompareEqual will set (condition is true) or clear (condition is false) all bits of the respective element
     // The MinAcross then ensures we get either all bits set (all conditions are true) or clear (any condition is false)
     // So, we need to invert the condition from the operation since we compare against zero
 
     GenCondition cmpCnd = (cmpOp == GT_EQ) ? GenCondition::NE : GenCondition::EQ;
-    GenTree*     cc     = LowerNodeCC(node, cmpCnd);
+    GenTree*     cc     = LowerNodeCC(relop, cmpCnd);
 
-    node->gtType = TYP_VOID;
-    node->ClearUnusedValue();
+    relop->SetType(TYP_VOID);
+    relop->ClearUnusedValue();
 
-    LowerNode(node);
+    LowerNode(relop);
 }
 
 //----------------------------------------------------------------------------------------------

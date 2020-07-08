@@ -1355,16 +1355,17 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 
     node->ChangeOper(cmpOp);
 
-    node->gtType = TYP_INT;
-    node->SetOp(0, msk);
-    node->SetOp(1, mskCns);
+    GenTreeOp* relop = static_cast<GenTree*>(node)->AsOp();
+    relop->SetType(TYP_INT);
+    relop->SetOp(0, msk);
+    relop->SetOp(1, mskCns);
 
-    GenTree* cc = LowerNodeCC(node, cmpCnd);
+    GenTree* cc = LowerNodeCC(relop, cmpCnd);
 
-    node->gtType = TYP_VOID;
-    node->ClearUnusedValue();
+    relop->SetType(TYP_VOID);
+    relop->ClearUnusedValue();
 
-    LowerNode(node);
+    LowerNode(relop);
 }
 
 //----------------------------------------------------------------------------------------------
