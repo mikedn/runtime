@@ -943,25 +943,12 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             assert(node->IsTernary());
 
-            GenTree* op2 = node->GetOp(1);
-
-            if (!op2->OperIs(GT_CAST))
-            {
-                break;
-            }
-
             // Insert takes either a 32-bit register or a memory operand.
             // In either case, only gtSIMDBaseType bits are read and so
             // widening or narrowing the operand may be unnecessary and it
             // can just be used directly.
 
-            GenTree* castOp = op2->AsCast()->CastOp();
-
-            if (genTypeSize(castOp->gtType) >= genTypeSize(node->gtSIMDBaseType))
-            {
-                BlockRange().Remove(op2);
-                node->SetOp(1, castOp);
-            }
+            node->SetOp(1, TryRemoveCastIfPresent(node->gtSIMDBaseType, node->GetOp(1));
             break;
         }
 
@@ -969,25 +956,12 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             assert(node->IsBinary());
 
-            GenTree* op2 = node->GetOp(1);
-
-            if (!op2->OperIs(GT_CAST))
-            {
-                break;
-            }
-
             // Crc32 takes either a bit register or a memory operand.
             // In either case, only gtType bits are read and so widening
             // or narrowing the operand may be unnecessary and it can
             // just be used directly.
 
-            GenTree* castOp = op2->AsCast()->CastOp();
-
-            if (genTypeSize(castOp->gtType) >= genTypeSize(node->gtType))
-            {
-                BlockRange().Remove(op2);
-                node->SetOp(1, castOp);
-            }
+            node->SetOp(1, TryRemoveCastIfPresent(node->GetType(), node->GetOp(1));
             break;
         }
 
