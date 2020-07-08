@@ -5449,40 +5449,6 @@ GenTree* Compiler::gtNewSIMDVectorZero(var_types simdType, var_types baseType, u
     initVal->gtType  = baseType;
     return gtNewSIMDNode(simdType, SIMDIntrinsicInit, baseType, size, initVal);
 }
-
-//---------------------------------------------------------------------
-// gtNewSIMDVectorOne: create a GT_SIMD node for Vector<T>.One
-//
-// Arguments:
-//    simdType  -  simd vector type
-//    baseType  -  element type of vector
-//    size      -  size of vector in bytes
-GenTree* Compiler::gtNewSIMDVectorOne(var_types simdType, var_types baseType, unsigned size)
-{
-    GenTree* initVal;
-    if (varTypeIsSmallInt(baseType))
-    {
-        unsigned baseSize = genTypeSize(baseType);
-        int      val;
-        if (baseSize == 1)
-        {
-            val = 0x01010101;
-        }
-        else
-        {
-            val = 0x00010001;
-        }
-        initVal = gtNewIconNode(val);
-    }
-    else
-    {
-        initVal = gtNewOneConNode(baseType);
-    }
-
-    baseType        = genActualType(baseType);
-    initVal->gtType = baseType;
-    return gtNewSIMDNode(simdType, SIMDIntrinsicInit, baseType, size, initVal);
-}
 #endif // FEATURE_SIMD
 
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
@@ -17350,11 +17316,9 @@ bool GenTree::isCommutativeSIMDIntrinsic()
 {
     switch (AsSIMD()->gtSIMDIntrinsicID)
     {
-        case SIMDIntrinsicAdd:
         case SIMDIntrinsicBitwiseAnd:
         case SIMDIntrinsicBitwiseOr:
         case SIMDIntrinsicEqual:
-        case SIMDIntrinsicMul:
             return true;
         default:
             return false;
@@ -17531,6 +17495,43 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
         SetOpLclRelatedToSIMDIntrinsic(use.GetNode());
     }
     return node;
+}
+
+GenTreeHWIntrinsic* Compiler::gtNewSimdCreateBroadcastNode(
+    var_types type, GenTree* op1, var_types baseType, unsigned size, bool isSimdAsHWIntrinsic)
+{
+    NamedIntrinsic hwIntrinsicID = NI_Vector128_Create;
+
+#if defined(TARGET_XARCH)
+#if defined(TARGET_X86)
+    if (varTypeIsLong(baseType) && !op1->IsIntegralConst())
+    {
+        // TODO-XARCH-CQ: It may be beneficial to emit the movq
+        // instruction, which takes a 64-bit memory address and
+        // works on 32-bit x86 systems.
+        unreached();
+    }
+#endif // TARGET_X86
+
+    if (size == 32)
+    {
+        hwIntrinsicID = NI_Vector256_Create;
+    }
+#elif defined(TARGET_ARM64)
+    if (size == 8)
+    {
+        hwIntrinsicID = NI_Vector64_Create;
+    }
+#else
+#error Unsupported platform
+#endif // !TARGET_XARCH && !TARGET_ARM64
+
+    if (isSimdAsHWIntrinsic)
+    {
+        return gtNewSimdAsHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1);
+    }
+
+    return gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)

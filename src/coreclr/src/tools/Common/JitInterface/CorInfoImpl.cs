@@ -1010,8 +1010,10 @@ namespace Internal.JitInterface
                 else
                 {
                     var methodContext = (MethodDesc)typeOrMethodContext;
-                    Debug.Assert(methodContext.GetTypicalMethodDefinition() == owningMethod.GetTypicalMethodDefinition() ||
+                    Debug.Assert((!methodContext.HasInstantiation && !owningMethod.HasInstantiation) ||
+                        methodContext.GetTypicalMethodDefinition() == owningMethod.GetTypicalMethodDefinition() ||
                         (owningMethod.Name == "CreateDefaultInstance" && methodContext.Name == "CreateInstance"));
+                    Debug.Assert(methodContext.OwningType.HasSameTypeDefinition(owningMethod.OwningType));
                     typeInst = methodContext.OwningType.Instantiation;
                     methodInst = methodContext.Instantiation;
                 }
@@ -1184,6 +1186,11 @@ namespace Internal.JitInterface
             var methodIL = (MethodIL)HandleToObject((IntPtr)module);
             var methodSig = (MethodSignature)methodIL.GetObject((int)sigTOK);
             Get_CORINFO_SIG_INFO(methodSig, sig);
+
+            if (sig->callConv == CorInfoCallConv.CORINFO_CALLCONV_UNMANAGED)
+            {
+                throw new NotImplementedException();
+            }
 
 #if !READYTORUN
             // Check whether we need to report this as a fat pointer call

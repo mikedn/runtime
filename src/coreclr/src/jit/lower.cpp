@@ -5363,7 +5363,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
 #elif defined(TARGET_X86)
         size_t mask = 0x1f;
 #elif defined(TARGET_ARM)
-        size_t           mask         = 0xff;
+        size_t   mask         = 0xff;
 #elif
 #error Unknown target
 #endif
