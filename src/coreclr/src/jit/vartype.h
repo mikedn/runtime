@@ -111,6 +111,12 @@ inline bool varTypeIsUnsigned(T vt)
     return ((varTypeClassification[TypeGet(vt)] & (VTF_UNS)) != 0);
 }
 
+template <class T>
+inline bool varTypeIsSigned(T vt)
+{
+    return varTypeIsIntegralOrI(vt) && !varTypeIsUnsigned(vt);
+}
+
 inline var_types_classification varTypeKind(var_types type)
 {
     return static_cast<var_types_classification>(varTypeClassification[type] &
@@ -134,6 +140,32 @@ inline var_types varTypeUnsignedToSigned(var_types vt)
                 return TYP_INT;
             case TYP_ULONG:
                 return TYP_LONG;
+            default:
+                unreached();
+        }
+    }
+    else
+    {
+        return vt;
+    }
+}
+
+// If "vt" is a signed integral type, returns the corresponding unsigned integral type, otherwise
+// return "vt".
+inline var_types varTypeSignedToUnsigned(var_types vt)
+{
+    if (varTypeIsSigned(vt))
+    {
+        switch (vt)
+        {
+            case TYP_BYTE:
+                return TYP_UBYTE;
+            case TYP_SHORT:
+                return TYP_USHORT;
+            case TYP_INT:
+                return TYP_UINT;
+            case TYP_LONG:
+                return TYP_ULONG;
             default:
                 unreached();
         }

@@ -808,16 +808,12 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
     {
         case SIMDIntrinsicInit:
         case SIMDIntrinsicCast:
-        case SIMDIntrinsicSqrt:
-        case SIMDIntrinsicAbs:
         case SIMDIntrinsicConvertToSingle:
         case SIMDIntrinsicConvertToInt32:
         case SIMDIntrinsicConvertToDouble:
         case SIMDIntrinsicConvertToInt64:
         case SIMDIntrinsicWidenLo:
         case SIMDIntrinsicWidenHi:
-        case SIMDIntrinsicCeil:
-        case SIMDIntrinsicFloor:
             // No special handling required.
             break;
 
@@ -864,16 +860,8 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
         case SIMDIntrinsicMul:
         case SIMDIntrinsicDiv:
         case SIMDIntrinsicBitwiseAnd:
-        case SIMDIntrinsicBitwiseAndNot:
         case SIMDIntrinsicBitwiseOr:
-        case SIMDIntrinsicBitwiseXor:
-        case SIMDIntrinsicMin:
-        case SIMDIntrinsicMax:
         case SIMDIntrinsicEqual:
-        case SIMDIntrinsicLessThan:
-        case SIMDIntrinsicGreaterThan:
-        case SIMDIntrinsicLessThanOrEqual:
-        case SIMDIntrinsicGreaterThanOrEqual:
             // No special handling required.
             break;
 
@@ -907,22 +895,28 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             buildUses = false;
             break;
 
-        case SIMDIntrinsicOpEquality:
-        case SIMDIntrinsicOpInEquality:
-            buildInternalFloatRegisterDefForNode(simdTree);
-            break;
-
         case SIMDIntrinsicDotProduct:
             buildInternalFloatRegisterDefForNode(simdTree);
             break;
 
-        case SIMDIntrinsicSelect:
-            // TODO-ARM64-CQ Allow lowering to see SIMDIntrinsicSelect so we can generate BSL VC, VA, VB
-            // bsl target register must be VC.  Reserve a temp in case we need to shuffle things.
-            // This will require a different approach, as GenTreeSIMD has only two operands.
-            assert(!"SIMDIntrinsicSelect not yet supported");
-            buildInternalFloatRegisterDefForNode(simdTree);
-            break;
+        case SIMDIntrinsicInitArrayX:
+        case SIMDIntrinsicInitFixed:
+        case SIMDIntrinsicCopyToArray:
+        case SIMDIntrinsicCopyToArrayX:
+        case SIMDIntrinsicNone:
+        case SIMDIntrinsicGetCount:
+        case SIMDIntrinsicGetOne:
+        case SIMDIntrinsicGetZero:
+        case SIMDIntrinsicGetAllOnes:
+        case SIMDIntrinsicGetX:
+        case SIMDIntrinsicGetY:
+        case SIMDIntrinsicGetZ:
+        case SIMDIntrinsicGetW:
+        case SIMDIntrinsicHWAccel:
+        case SIMDIntrinsicWiden:
+        case SIMDIntrinsicInvalid:
+            assert(!"These intrinsics should not be seen during register allocation");
+            __fallthrough;
 
         default:
             unreached();

@@ -1656,8 +1656,6 @@ public:
 
     inline bool IsBoxedValue();
 
-    inline bool IsSIMDEqualityOrInequality() const;
-
     inline GenTree* gtGetOp1() const;
 
     // Directly return op2. Asserts the node is binary. Might return nullptr if the binary node allows
@@ -7333,7 +7331,45 @@ inline bool GenTree::IsIntegralConstVector(ssize_t constVal)
         assert(AsSIMD()->IsUnary());
         return true;
     }
-#endif
+#endif // FEATURE_SIMD
+
+#ifdef FEATURE_HW_INTRINSICS
+    if (gtOper == GT_HWINTRINSIC)
+    {
+        GenTreeHWIntrinsic* node = AsHWIntrinsic();
+
+        if (!varTypeIsIntegral(node->gtSIMDBaseType))
+        {
+            // Can't be an integral constant
+            return false;
+        }
+
+        NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
+
+        if (node->GetNumOps() == 0)
+        {
+            if (constVal == 0)
+            {
+#if defined(TARGET_XARCH)
+                return (intrinsicId == NI_Vector128_get_Zero) || (intrinsicId == NI_Vector256_get_Zero);
+#elif defined(TARGET_ARM64)
+                return (intrinsicId == NI_Vector64_get_Zero) || (intrinsicId == NI_Vector128_get_Zero);
+#endif // !TARGET_XARCH && !TARGET_ARM64
+            }
+        }
+        else if (node->IsUnary())
+        {
+            if (node->GetOp(0)->IsIntegralConst(constVal))
+            {
+#if defined(TARGET_XARCH)
+                return (intrinsicId == NI_Vector128_Create) || (intrinsicId == NI_Vector256_Create);
+#elif defined(TARGET_ARM64)
+                return (intrinsicId == NI_Vector64_Create) || (intrinsicId == NI_Vector128_Create);
+#endif // !TARGET_XARCH && !TARGET_ARM64
+            }
+        }
+    }
+#endif // FEATURE_HW_INTRINSICS
 
     return false;
 }
@@ -7342,19 +7378,6 @@ inline bool GenTree::IsBoxedValue()
 {
     assert(gtOper != GT_BOX || AsBox()->BoxOp() != nullptr);
     return (gtOper == GT_BOX) && (gtFlags & GTF_BOX_VALUE);
-}
-
-inline bool GenTree::IsSIMDEqualityOrInequality() const
-{
-#ifdef FEATURE_SIMD
-    if (gtOper == GT_SIMD)
-    {
-        SIMDIntrinsicID id = AsSIMD()->gtSIMDIntrinsicID;
-        return (id == SIMDIntrinsicOpEquality) || (id == SIMDIntrinsicOpInEquality);
-    }
-#endif
-
-    return false;
 }
 
 inline GenTree* GenTree::gtGetOp1() const

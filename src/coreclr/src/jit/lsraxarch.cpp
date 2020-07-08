@@ -1883,20 +1883,16 @@ int LinearScan::BuildIntrinsic(GenTree* tree)
 //
 int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
 {
-    // Only SIMDIntrinsicInit can be contained. Other than that,
-    // only SIMDIntrinsicOpEquality and SIMDIntrinsicOpInEquality can have 0 dstCount.
-    int       dstCount      = simdTree->IsValue() ? 1 : 0;
+    // All intrinsics have a dstCount of 1
+    assert(simdTree->IsValue());
+
     bool      buildUses     = true;
     regMaskTP dstCandidates = RBM_NONE;
 
     if (simdTree->isContained())
     {
+        // Only SIMDIntrinsicInit can be contained
         assert(simdTree->gtSIMDIntrinsicID == SIMDIntrinsicInit);
-    }
-    else if (dstCount != 1)
-    {
-        assert((simdTree->gtSIMDIntrinsicID == SIMDIntrinsicOpEquality) ||
-               (simdTree->gtSIMDIntrinsicID == SIMDIntrinsicOpInEquality));
     }
     SetContainsAVXFlags(simdTree->gtSIMDSize);
 
@@ -1966,35 +1962,11 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             noway_assert(varTypeIsFloating(simdTree->gtSIMDBaseType));
             break;
 
-        case SIMDIntrinsicAbs:
-            // float/double vectors: This gets implemented as bitwise-And operation
-            // with a mask and hence should never see  here.
-            //
-            // Must be a Vector<int> or Vector<short> Vector<sbyte>
-            assert(simdTree->gtSIMDBaseType == TYP_INT || simdTree->gtSIMDBaseType == TYP_SHORT ||
-                   simdTree->gtSIMDBaseType == TYP_BYTE);
-            assert(compiler->getSIMDSupportLevel() >= SIMD_SSE4_Supported);
-            break;
-
-        case SIMDIntrinsicSqrt:
-            // SSE2 has no instruction support for sqrt on integer vectors.
-            noway_assert(varTypeIsFloating(simdTree->gtSIMDBaseType));
-            break;
-
-        case SIMDIntrinsicCeil:
-        case SIMDIntrinsicFloor:
-            assert(compiler->getSIMDSupportLevel() >= SIMD_SSE4_Supported);
-            break;
-
         case SIMDIntrinsicAdd:
         case SIMDIntrinsicSub:
         case SIMDIntrinsicMul:
         case SIMDIntrinsicBitwiseAnd:
-        case SIMDIntrinsicBitwiseAndNot:
         case SIMDIntrinsicBitwiseOr:
-        case SIMDIntrinsicBitwiseXor:
-        case SIMDIntrinsicMin:
-        case SIMDIntrinsicMax:
             // SSE2 32-bit integer multiplication requires two temp regs
             if (simdTree->gtSIMDIntrinsicID == SIMDIntrinsicMul && simdTree->gtSIMDBaseType == TYP_INT &&
                 compiler->getSIMDSupportLevel() == SIMD_SSE2_Supported)
@@ -2005,40 +1977,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             break;
 
         case SIMDIntrinsicEqual:
-            break;
-
-        // SSE2 doesn't support < and <= directly on int vectors.
-        // Instead we need to use > and >= with swapped operands.
-        case SIMDIntrinsicLessThan:
-        case SIMDIntrinsicLessThanOrEqual:
-            noway_assert(!varTypeIsIntegral(simdTree->gtSIMDBaseType));
-            break;
-
-        // SIMDIntrinsicEqual is supported only on non-floating point base type vectors.
-        // SSE2 cmpps/pd doesn't support > and >=  directly on float/double vectors.
-        // Instead we need to use <  and <= with swapped operands.
-        case SIMDIntrinsicGreaterThan:
-            noway_assert(!varTypeIsFloating(simdTree->gtSIMDBaseType));
-            break;
-
-        case SIMDIntrinsicOpEquality:
-        case SIMDIntrinsicOpInEquality:
-            if (simdTree->GetOp(1)->isContained())
-            {
-                // If the second operand is contained then ContainCheckSIMD has determined
-                // that PTEST can be used. We only need a single source register and no
-                // internal registers.
-            }
-            else
-            {
-                // Can't use PTEST so we need 2 source registers, 1 internal SIMD register
-                // (to hold the result of PCMPEQD or other similar SIMD compare instruction)
-                // and one internal INT register (to hold the result of PMOVMSKB).
-                buildInternalIntRegisterDefForNode(simdTree);
-                buildInternalFloatRegisterDefForNode(simdTree);
-            }
-            // These SIMD nodes only set the condition flags.
-            dstCount = 0;
             break;
 
         case SIMDIntrinsicDotProduct:
@@ -2263,14 +2201,7 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
     }
 
     buildInternalRegisterUses();
-    if (dstCount == 1)
-    {
-        BuildDef(simdTree, dstCandidates);
-    }
-    else
-    {
-        assert(dstCount == 0);
-    }
+    BuildDef(simdTree, dstCandidates);
     return srcCount;
 }
 

@@ -2518,6 +2518,16 @@ public:
                                                  GenTree*       op4,
                                                  GenTree*       op5);
 
+    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(var_types      type,
+                                                   NamedIntrinsic hwIntrinsicID,
+                                                   var_types      baseType,
+                                                   unsigned       size)
+    {
+        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size);
+        node->gtFlags |= GTF_SIMDASHW_OP;
+        return node;
+    }
+
     GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(
         var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
     {
@@ -7835,9 +7845,7 @@ private:
 
     static bool isRelOpSIMDIntrinsic(SIMDIntrinsicID intrinsicId)
     {
-        return (intrinsicId == SIMDIntrinsicEqual || intrinsicId == SIMDIntrinsicLessThan ||
-                intrinsicId == SIMDIntrinsicLessThanOrEqual || intrinsicId == SIMDIntrinsicGreaterThan ||
-                intrinsicId == SIMDIntrinsicGreaterThanOrEqual);
+        return (intrinsicId == SIMDIntrinsicEqual);
     }
 
     // Returns base type of a TYP_SIMD local.
@@ -7938,21 +7946,8 @@ private:
     // Normalizes TYP_STRUCT value in case of GT_CALL, GT_RET_EXPR and arg nodes.
     GenTree* impSIMDPopStack(var_types type, bool expectAddr = false, CORINFO_CLASS_HANDLE structType = nullptr);
 
-    // Creates a GT_SIMD tree for Select operation
-    GenTree* impSIMDSelect(CORINFO_CLASS_HANDLE typeHnd,
-                           var_types            baseType,
-                           unsigned             simdVectorSize,
-                           GenTree*             op1,
-                           GenTree*             op2,
-                           GenTree*             op3);
-
-    // Creates a GT_SIMD tree for Min/Max operation
-    GenTree* impSIMDMinMax(SIMDIntrinsicID      intrinsicId,
-                           CORINFO_CLASS_HANDLE typeHnd,
-                           var_types            baseType,
-                           unsigned             simdVectorSize,
-                           GenTree*             op1,
-                           GenTree*             op2);
+    // Create a GT_SIMD tree for a Get property of SIMD vector with a fixed index.
+    GenTreeSIMD* impSIMDGetFixed(var_types simdType, var_types baseType, unsigned simdSize, int index);
 
     // Transforms operands and returns the SIMD intrinsic to be applied on
     // transformed operands to obtain given relop result.
@@ -7963,9 +7958,6 @@ private:
                                  GenTree**            op1,
                                  GenTree**            op2);
 
-    // Creates a GT_SIMD tree for Abs intrinsic.
-    GenTree* impSIMDAbs(CORINFO_CLASS_HANDLE typeHnd, var_types baseType, unsigned simdVectorSize, GenTree* op1);
-
 #if defined(TARGET_XARCH)
 
     // Transforms operands and returns the SIMD intrinsic to be applied on
@@ -7974,26 +7966,6 @@ private:
                                           unsigned             simdVectorSize,
                                           GenTree**            op1,
                                           GenTree**            op2);
-
-    // Transforms operands and returns the SIMD intrinsic to be applied on
-    // transformed operands to obtain > comparison result.
-    SIMDIntrinsicID impSIMDLongRelOpGreaterThan(CORINFO_CLASS_HANDLE typeHnd,
-                                                unsigned             simdVectorSize,
-                                                GenTree**            op1,
-                                                GenTree**            op2);
-
-    // Transforms operands and returns the SIMD intrinsic to be applied on
-    // transformed operands to obtain >= comparison result.
-    SIMDIntrinsicID impSIMDLongRelOpGreaterThanOrEqual(CORINFO_CLASS_HANDLE typeHnd,
-                                                       unsigned             simdVectorSize,
-                                                       GenTree**            op1,
-                                                       GenTree**            op2);
-
-    // Transforms operands and returns the SIMD intrinsic to be applied on
-    // transformed operands to obtain >= comparison result in case of int32
-    // and small int base type vectors.
-    SIMDIntrinsicID impSIMDIntegralRelOpGreaterThanOrEqual(
-        CORINFO_CLASS_HANDLE typeHnd, unsigned simdVectorSize, var_types baseType, GenTree** op1, GenTree** op2);
 
 #endif // defined(TARGET_XARCH)
 
