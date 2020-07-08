@@ -5654,6 +5654,7 @@ GenTreeRetExpr* Compiler::gtNewInlineCandidateReturnExpr(GenTree* inlineCandidat
 {
     GenTreeRetExpr* node = new (this, GT_RET_EXPR) GenTreeRetExpr(type, inlineCandidate);
 
+    node->bbFlags = 0;
     if (varTypeIsStruct(inlineCandidate->GetType()) && !inlineCandidate->OperIsBlkOp())
     {
         node->gtRetClsHnd = gtGetStructHandle(inlineCandidate);
