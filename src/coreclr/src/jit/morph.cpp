@@ -10148,6 +10148,22 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             }
         }
 
+        // if (!destLclVar->lvRegStruct || (destLclVar->lvType != dest->TypeGet()))
+        // {
+        //     if (!dest->IsMultiRegLclVar() || (blockWidth != destLclVar->lvExactSize) ||
+        //         (destLclVar->lvCustomLayout && destLclVar->lvContainsHoles))
+        //     {
+        //         // Mark it as DoNotEnregister.
+        //         lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
+        //     }
+        //     else if (dest->IsMultiRegLclVar())
+        //     {
+        //         // Handle this as lvIsMultiRegRet; this signals to SSA that it can't consider these fields
+        //         // SSA candidates (we don't have a way to represent multiple SSANums on MultiRegLclVar nodes).
+        //         destLclVar->lvIsMultiRegRet = true;
+        //     }
+        // }
+
         if (srcLclVar != nullptr)
         {
             if (varTypeIsSIMD(src->GetType()) && (srcLclVar->GetType() == dest->GetType()) && (srcLclOffs == 0))

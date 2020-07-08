@@ -650,7 +650,7 @@ bool GenTree::gtHasReg() const
 //    This does not look at the actual register assignments, if any, and so
 //    is valid after Lowering.
 //
-int GenTree::GetRegisterDstCount() const
+int GenTree::GetRegisterDstCount(Compiler* compiler) const
 {
     assert(!isContained());
     if (!IsMultiRegNode())
@@ -663,7 +663,7 @@ int GenTree::GetRegisterDstCount() const
     }
     else if (IsCopyOrReload())
     {
-        return gtGetOp1()->GetRegisterDstCount();
+        return gtGetOp1()->GetRegisterDstCount(compiler);
     }
 #if FEATURE_ARG_SPLIT
     else if (OperIsPutArgSplit())
@@ -694,6 +694,10 @@ int GenTree::GetRegisterDstCount() const
         return 2;
     }
 #endif
+    if (OperIsScalarLocal())
+    {
+        return AsLclVar()->GetFieldCount(compiler);
+    }
     assert(!"Unexpected multi-reg node");
     return 0;
 }
@@ -4970,7 +4974,7 @@ bool GenTree::OperMayThrow(Compiler* comp)
 // Notes:
 //     This must be a multireg lclVar.
 //
-unsigned int GenTreeLclVar::GetFieldCount(Compiler* compiler)
+unsigned int GenTreeLclVar::GetFieldCount(Compiler* compiler) const
 {
     assert(IsMultiReg());
     LclVarDsc* varDsc = compiler->lvaGetDesc(GetLclNum());
@@ -9048,10 +9052,12 @@ void Compiler::gtDispRegVal(GenTree* tree)
     }
 
 #if FEATURE_MULTIREG_RET
-    if (tree->IsMultiRegCall())
+    if (tree->OperIs(GT_CALL))
     {
         // 0th reg is GetRegNum(), which is already printed above.
         // Print the remaining regs of a multi-reg call node.
+        // Note that, prior to the initialization of the ReturnTypeDesc we won't print
+        // any additional registers.
         const GenTreeCall* call     = tree->AsCall();
         const unsigned     regCount = call->GetReturnTypeDesc()->TryGetReturnRegCount();
         for (unsigned i = 1; i < regCount; ++i)
@@ -9066,14 +9072,11 @@ void Compiler::gtDispRegVal(GenTree* tree)
         unsigned                   regCount     = 0;
         if (op1->OperIs(GT_CALL))
         {
-            if (op1->IsMultiRegCall())
+            regCount = op1->AsCall()->GetReturnTypeDesc()->TryGetReturnRegCount();
+            // If it hasn't yet been initialized, we'd still like to see the registers printed.
+            if (regCount == 0)
             {
-                regCount = op1->AsCall()->GetReturnTypeDesc()->TryGetReturnRegCount();
-                // If it hasn't yet been initialized, we'd still like to see the registers printed.
-                if (regCount == 0)
-                {
-                    regCount = MAX_RET_REG_COUNT;
-                }
+                regCount = MAX_RET_REG_COUNT;
             }
         }
         else if (op1->IsMultiRegLclVar())
@@ -9089,7 +9092,7 @@ void Compiler::gtDispRegVal(GenTree* tree)
         for (unsigned i = 1; i < regCount; i++)
         {
             regNumber reg = tree->AsCopyOrReload()->GetRegNumByIdx(i);
-            printf(",%s", (reg == REG_NA) ? ",NA" : compRegVarName(reg));
+            printf(",%s", (reg == REG_NA) ? "NA" : compRegVarName(reg));
         }
     }
 #endif
@@ -9680,8 +9683,8 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
                             fieldVarDsc->PrintVarReg();
                         }
 
-                        if (fieldVarDsc->lvTracked && fgLocalVarLivenessDone && // Includes local variable liveness
-                            ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+                        if (fieldVarDsc->lvTracked && fgLocalVarLivenessDone && tree->IsMultiRegLclVar() &&
+                            tree->AsLclVar()->IsLastUse(i - varDsc->lvFieldLclStart))
                         {
                             printf(" (last use)");
                         }
