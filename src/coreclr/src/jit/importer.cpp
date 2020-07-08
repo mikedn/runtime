@@ -9049,10 +9049,21 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
     }
     else
     {
+
+#if FEATURE_MULTIREG_RET
+        const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
+        const unsigned        retRegCount = retTypeDesc->GetReturnRegCount();
+        assert(retRegCount != 0);
+        if (!compDoOldStructRetyping() && retRegCount == 1)
+        {
+            return call;
+        }
+#else  // !FEATURE_MULTIREG_RET
         if (!compDoOldStructRetyping())
         {
             return call;
         }
+#endif // !FEATURE_MULTIREG_RET
         assert(returnType != TYP_UNKNOWN);
 
         // See if the struct size is smaller than the return
@@ -9085,9 +9096,6 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
         }
 
 #if FEATURE_MULTIREG_RET
-        const unsigned retRegCount = call->GetReturnTypeDesc()->GetReturnRegCount();
-        assert(retRegCount != 0);
-
         if (retRegCount >= 2)
         {
             if ((!call->CanTailCall()) && (!call->IsInlineCandidate()))
@@ -9119,12 +9127,6 @@ GenTree* Compiler::impFixupStructReturnType(GenTree* op, CORINFO_CLASS_HANDLE re
 {
     assert(varTypeIsStruct(info.compRetType));
     assert(info.compRetBuffArg == BAD_VAR_NUM);
-
-    if (!compDoOldStructRetyping() && (!op->IsCall() || !op->AsCall()->TreatAsHasRetBufArg(this)))
-    {
-        // Don't retype `struct` as a primitive type in `ret` instruction.
-        return op;
-    }
 
     JITDUMP("\nimpFixupStructReturnType: retyping\n");
     DISPTREE(op);
@@ -9239,6 +9241,12 @@ GenTree* Compiler::impFixupStructReturnType(GenTree* op, CORINFO_CLASS_HANDLE re
     }
 
 #endif //  FEATURE_MULTIREG_RET && FEATURE_HFA
+
+    if (!compDoOldStructRetyping() && (!op->IsCall() || !op->AsCall()->TreatAsHasRetBufArg(this)))
+    {
+        // Don't retype `struct` as a primitive type in `ret` instruction.
+        return op;
+    }
 
 REDO_RETURN_NODE:
     // adjust the type away from struct to integral
@@ -15173,6 +15181,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (!compDoOldStructRetyping())
                     {
                         op1->AsCall()->gtRetClsHnd = classHandle;
+#if FEATURE_MULTIREG_RET
+                        op1->AsCall()->InitializeStructReturnType(this, classHandle);
+#endif
                     }
 
                     tiRetVal = typeInfo(TI_STRUCT, classHandle);
@@ -15217,6 +15228,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op1->AsCall()->gtReturnType = GetRuntimeHandleUnderlyingType();
                 if (!compDoOldStructRetyping())
                 {
+#if FEATURE_MULTIREG_RET
+                    op1->AsCall()->InitializeStructReturnType(this, tokenType);
+#endif
                     op1->AsCall()->gtRetClsHnd = tokenType;
                 }
 

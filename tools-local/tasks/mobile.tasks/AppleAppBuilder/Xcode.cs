@@ -21,6 +21,7 @@ internal class Xcode
         string monoInclude,
         bool preferDylibs,
         bool useConsoleUiTemplate,
+        bool useAotForSimulator,
         string? nativeMainSource = null)
     {
         // bundle everything as resources excluding native files
@@ -59,7 +60,7 @@ internal class Xcode
         {
             string libName = Path.GetFileNameWithoutExtension(lib);
             // libmono must always be statically linked, for other librarires we can use dylibs
-            bool dylibExists = libName != "libmono" && dylibs.Any(dylib => Path.GetFileName(dylib) == libName + ".dylib");
+            bool dylibExists = libName != "libmonosgen-2.0" && dylibs.Any(dylib => Path.GetFileName(dylib) == libName + ".dylib");
 
             if (!preferDylibs || !dylibExists)
             {
@@ -80,6 +81,8 @@ internal class Xcode
 
         cmakeLists = cmakeLists.Replace("%NativeLibrariesToLink%", toLink);
         cmakeLists = cmakeLists.Replace("%AotSources%", aotSources);
+        cmakeLists = cmakeLists.Replace("%Defines%", 
+            useAotForSimulator ? "add_definitions(-DUSE_AOT_FOR_SIMULATOR=1)" : "");
 
         string plist = Utils.GetEmbeddedResource("Info.plist.template")
             .Replace("%BundleIdentifier%", projectName);
