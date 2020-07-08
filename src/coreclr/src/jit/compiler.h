@@ -9185,7 +9185,11 @@ public:
     static void compStartup();  // One-time initialization
     static void compShutdown(); // One-time finalization
 
-    void compInit(ArenaAllocator* pAlloc, InlineInfo* inlineInfo);
+    void compInit(ArenaAllocator*       pAlloc,
+                  CORINFO_METHOD_HANDLE methodHnd,
+                  COMP_HANDLE           compHnd,
+                  CORINFO_METHOD_INFO*  methodInfo,
+                  InlineInfo*           inlineInfo);
     void compDone();
 
     static void compDisplayStaticSizes(FILE* fout);
@@ -9208,10 +9212,7 @@ public:
     void compDoComponentUnitTestsOnce();
 #endif // DEBUG
 
-    int compCompile(CORINFO_METHOD_HANDLE methodHnd,
-                    CORINFO_MODULE_HANDLE classPtr,
-                    COMP_HANDLE           compHnd,
-                    CORINFO_METHOD_INFO*  methodInfo,
+    int compCompile(CORINFO_MODULE_HANDLE classPtr,
                     void**                methodCodePtr,
                     ULONG*                methodCodeSize,
                     JitFlags*             compileFlags);
