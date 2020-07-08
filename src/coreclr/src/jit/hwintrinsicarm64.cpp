@@ -487,12 +487,12 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
                 case TYP_DOUBLE:
                     if (simdSize == 16)
                     {
-                        retNode = gtNewSimdHWIntrinsicNode(retType, vectorOp, gtNewIconNode(imm8), valueOp,
-                                                           NI_AdvSimd_Insert, baseType, simdSize);
+                        retNode = gtNewSimdHWIntrinsicNode(retType, NI_AdvSimd_Insert, baseType, simdSize, vectorOp,
+                                                           gtNewIconNode(imm8), valueOp);
                     }
                     else
                     {
-                        retNode = gtNewSimdHWIntrinsicNode(retType, valueOp, NI_Vector64_Create, baseType, simdSize);
+                        retNode = gtNewSimdHWIntrinsicNode(retType, NI_Vector64_Create, baseType, simdSize, valueOp);
                     }
                     break;
 
@@ -503,8 +503,8 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
                 case TYP_USHORT:
                 case TYP_INT:
                 case TYP_UINT:
-                    retNode = gtNewSimdHWIntrinsicNode(retType, vectorOp, gtNewIconNode(imm8), valueOp,
-                                                       NI_AdvSimd_Insert, baseType, simdSize);
+                    retNode = gtNewSimdHWIntrinsicNode(retType, NI_AdvSimd_Insert, baseType, simdSize, vectorOp,
+                                                       gtNewIconNode(imm8), valueOp);
                     break;
 
                 default:
@@ -523,9 +523,9 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
             GenTree* zero  = gtNewSimdHWIntrinsicNode(retType, NI_Vector128_get_Zero, baseType, simdSize);
             ssize_t  index = 8 / genTypeSize(baseType);
 
-            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, op1, zero, gtNewIconNode(index), NI_AdvSimd_ExtractVector128,
-                                               baseType, simdSize);
-            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD8, retNode, NI_Vector128_GetLower, baseType, 8);
+            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_ExtractVector128, baseType, simdSize, op1, zero,
+                                               gtNewIconNode(index));
+            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_GetLower, baseType, 8, retNode);
             break;
         }
 
