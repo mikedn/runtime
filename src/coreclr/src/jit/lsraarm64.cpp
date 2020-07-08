@@ -908,10 +908,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
         case SIMDIntrinsicGetOne:
         case SIMDIntrinsicGetZero:
         case SIMDIntrinsicGetAllOnes:
-        case SIMDIntrinsicGetX:
-        case SIMDIntrinsicGetY:
-        case SIMDIntrinsicGetZ:
-        case SIMDIntrinsicGetW:
         case SIMDIntrinsicHWAccel:
         case SIMDIntrinsicWiden:
         case SIMDIntrinsicInvalid:
