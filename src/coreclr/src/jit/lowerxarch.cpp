@@ -952,7 +952,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             // widening or narrowing the operand may be unnecessary and it
             // can just be used directly.
 
-            node->SetOp(1, TryRemoveCastIfPresent(node->gtSIMDBaseType, node->GetOp(1));
+            node->SetOp(1, TryRemoveCastIfPresent(node->gtSIMDBaseType, node->GetOp(1)));
             break;
         }
 
@@ -965,7 +965,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             // or narrowing the operand may be unnecessary and it can
             // just be used directly.
 
-            node->SetOp(1, TryRemoveCastIfPresent(node->GetType(), node->GetOp(1));
+            node->SetOp(1, TryRemoveCastIfPresent(node->GetType(), node->GetOp(1)));
             break;
         }
 
