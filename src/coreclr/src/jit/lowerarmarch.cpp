@@ -657,8 +657,8 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     //          /--*  op1  simd
     //   node = *  HWINTRINSIC   simd   T op_Equality
 
-    GenTree* op1 = node->gtGetOp1();
-    GenTree* op2 = node->gtGetOp2();
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
 
     NamedIntrinsic cmpIntrinsic;
 
@@ -690,7 +690,7 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
         }
     }
 
-    GenTree* cmp = comp->gtNewSimdHWIntrinsicNode(simdType, op1, op2, cmpIntrinsic, baseType, simdSize);
+    GenTree* cmp = comp->gtNewSimdHWIntrinsicNode(simdType, cmpIntrinsic, baseType, simdSize, op1, op2);
     BlockRange().InsertBefore(node, cmp);
     LowerNode(cmp);
 
@@ -705,21 +705,21 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
         BlockRange().InsertAfter(idxCns, insCns);
 
         GenTree* tmp =
-            comp->gtNewSimdAsHWIntrinsicNode(simdType, cmp, idxCns, insCns, NI_AdvSimd_Insert, TYP_INT, simdSize);
+            comp->gtNewSimdAsHWIntrinsicNode(simdType, NI_AdvSimd_Insert, TYP_INT, simdSize, cmp, idxCns, insCns);
         BlockRange().InsertAfter(insCns, tmp);
         LowerNode(tmp);
 
         cmp = tmp;
     }
 
-    GenTree* msk = comp->gtNewSimdHWIntrinsicNode(simdType, cmp, NI_AdvSimd_Arm64_MinAcross, TYP_UBYTE, simdSize);
+    GenTree* msk = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_MinAcross, TYP_UBYTE, simdSize, cmp);
     BlockRange().InsertAfter(cmp, msk);
     LowerNode(msk);
 
     GenTree* zroCns = comp->gtNewIconNode(0, TYP_INT);
     BlockRange().InsertAfter(msk, zroCns);
 
-    GenTree* val = comp->gtNewSimdAsHWIntrinsicNode(TYP_UBYTE, msk, zroCns, NI_AdvSimd_Extract, TYP_UBYTE, simdSize);
+    GenTree* val = comp->gtNewSimdAsHWIntrinsicNode(TYP_UBYTE, NI_AdvSimd_Extract, TYP_UBYTE, simdSize, msk, zroCns);
     BlockRange().InsertAfter(zroCns, val);
     LowerNode(val);
 
@@ -729,8 +729,8 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     node->ChangeOper(cmpOp);
 
     node->gtType = TYP_INT;
-    node->gtOp1  = val;
-    node->gtOp2  = zroCns;
+    node->SetOp(0, val);
+    node->SetOp(1, zroCns);
 
     // The CompareEqual will set (condition is true) or clear (condition is false) all bits of the respective element
     // The MinAcross then ensures we get either all bits set (all conditions are true) or clear (any condition is false)
