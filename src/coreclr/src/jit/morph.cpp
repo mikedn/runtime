@@ -10001,6 +10001,19 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 #endif // TARGET_ARM
     else if (destPromote && srcPromote)
     {
+        // It is not always profitable to do field by field init for structs that are allocated to memory.
+        // A struct with 8 bool fields will require 8 moves instead of one if we do this transformation.
+        // A simple heuristic when field by field copy is prefered:
+        // - if fields can be enregistered;
+        // - if the struct has GCPtrs (block copy would be done via helper that is expensive);
+        // - if the struct has only one field.
+        // bool dstFldIsProfitable =
+        //    ((destLclVar != nullptr) &&
+        //        (!destLclVar->lvDoNotEnregister || destLclVar->HasGCPtr() || (destLclVar->lvFieldCnt == 1)));
+        // bool srcFldIsProfitable =
+        //    ((srcLclVar != nullptr) &&
+        //        (!srcLclVar->lvDoNotEnregister || srcLclVar->HasGCPtr() || (srcLclVar->lvFieldCnt == 1)));
+
         // Both structs should be of the same type, or each have the same number of fields, each having
         // the same type and offset. Actually, the destination could have less fields than the source
         // but there doesn't appear to be any such case in the entire FX. Copies between variables of
