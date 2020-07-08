@@ -3326,15 +3326,10 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
             case GT_STORE_LCL_VAR:
             case GT_STORE_BLK:
             case GT_STORE_OBJ:
+            case GT_STORE_LCL_FLD:
                 // Leave as is, the user will handle it.
                 assert(user->TypeIs(origType) || varTypeIsSIMD(user->TypeGet()));
                 break;
-
-#ifdef FEATURE_SIMD
-            case GT_STORE_LCL_FLD:
-                assert(varTypeIsSIMD(user) && (returnType == user->TypeGet()));
-                break;
-#endif // FEATURE_SIMD
 
             case GT_STOREIND:
 #ifdef FEATURE_SIMD
