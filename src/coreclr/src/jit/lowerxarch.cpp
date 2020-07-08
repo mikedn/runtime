@@ -931,6 +931,60 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             return;
         }
 
+        case NI_SSE2_Insert:
+        case NI_SSE41_Insert:
+        case NI_SSE41_X64_Insert:
+        {
+            assert(node->IsTernary());
+
+            GenTree* op2 = node->GetOp(1);
+
+            if (!op2->OperIs(GT_CAST))
+            {
+                break;
+            }
+
+            // Insert takes either a 32-bit register or a memory operand.
+            // In either case, only gtSIMDBaseType bits are read and so
+            // widening or narrowing the operand may be unnecessary and it
+            // can just be used directly.
+
+            GenTree* castOp = op2->AsCast()->CastOp();
+
+            if (genTypeSize(castOp->gtType) >= genTypeSize(node->gtSIMDBaseType))
+            {
+                BlockRange().Remove(op2);
+                node->SetOp(1, castOp);
+            }
+            break;
+        }
+
+        case NI_SSE42_Crc32:
+        {
+            assert(node->IsBinary());
+
+            GenTree* op2 = node->GetOp(1);
+
+            if (!op2->OperIs(GT_CAST))
+            {
+                break;
+            }
+
+            // Crc32 takes either a bit register or a memory operand.
+            // In either case, only gtType bits are read and so widening
+            // or narrowing the operand may be unnecessary and it can
+            // just be used directly.
+
+            GenTree* castOp = op2->AsCast()->CastOp();
+
+            if (genTypeSize(castOp->gtType) >= genTypeSize(node->gtType))
+            {
+                BlockRange().Remove(op2);
+                node->SetOp(1, castOp);
+            }
+            break;
+        }
+
         case NI_SSE2_CompareGreaterThan:
         {
             if (node->gtSIMDBaseType != TYP_DOUBLE)
