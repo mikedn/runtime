@@ -343,12 +343,12 @@ protected:
     void genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowestCalleeSavedOffset, int spDelta);
     void genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, int lowestCalleeSavedOffset, int spDelta);
 
-    void genPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed);
+    void genPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegModified);
 #else
     void genPushCalleeSavedRegisters();
 #endif
 
-    void genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn);
+    void genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegModified, regMaskTP maskArgRegsLiveIn);
 
 #if defined(TARGET_ARM)
 
@@ -436,18 +436,18 @@ protected:
 
     void genZeroInitFltRegs(const regMaskTP& initFltRegs, const regMaskTP& initDblRegs, const regNumber& initReg);
 
-    regNumber genGetZeroReg(regNumber initReg, bool* pInitRegZeroed);
+    regNumber genGetZeroReg(regNumber initReg, bool* pInitRegModified);
 
-    void genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed);
+    void genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegModified);
 
-    void genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
+    void genReportGenericContextArg(regNumber initReg, bool* pInitRegModified);
 
-    void genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed);
+    void genSetGSSecurityCookie(regNumber initReg, bool* pInitRegModified);
 
     void genFinalizeFrame();
 
 #ifdef PROFILING_SUPPORTED
-    void genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
+    void genProfilingEnterCallback(regNumber initReg, bool* pInitRegModified);
     void genProfilingLeaveCallback(unsigned helper);
 #endif // PROFILING_SUPPORTED
 
@@ -513,7 +513,7 @@ protected:
     void genFuncletEpilog();
     void genCaptureFuncletPrologEpilogInfo();
 
-    void genSetPSPSym(regNumber initReg, bool* pInitRegZeroed);
+    void genSetPSPSym(regNumber initReg, bool* pInitRegModified);
 
     void genUpdateCurrentFunclet(BasicBlock* block);
 #if defined(TARGET_ARM)
@@ -1082,7 +1082,7 @@ protected:
         // Returns true after the last call to EmitCaseEnd() (i.e. this signals that code generation is done).
         bool Done() const
         {
-            return immValue == immUpperBound;
+            return (immValue > immUpperBound);
         }
 
         // Returns a value of the immediate operand that should be used for a case.
@@ -1103,7 +1103,7 @@ protected:
         bool TestImmOpZeroOrOne() const
         {
             assert(NonConstImmOp());
-            return immUpperBound == 2;
+            return (immLowerBound == 0) && (immUpperBound == 1);
         }
 
         emitter* GetEmitter() const
@@ -1115,6 +1115,7 @@ protected:
         BasicBlock*    endLabel;
         BasicBlock*    nonZeroLabel;
         int            immValue;
+        int            immLowerBound;
         int            immUpperBound;
         regNumber      nonConstImmReg;
         regNumber      branchTargetReg;
