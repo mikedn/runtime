@@ -205,32 +205,6 @@ int HWIntrinsicInfo::lookupImmUpperBound(NamedIntrinsic id)
 }
 
 //------------------------------------------------------------------------
-// isInImmRange: Check if ival is valid for the intrinsic
-//
-// Arguments:
-//    id        -- the NamedIntrinsic associated with the HWIntrinsic to lookup
-//    ival      -- the imm value to be checked
-//    simdType  -- vector size
-//    baseType  -- base type of the Vector64/128<T>
-//
-// Return Value:
-//     true if ival is valid for the intrinsic
-//
-bool HWIntrinsicInfo::isInImmRange(NamedIntrinsic id, int ival, int simdSize, var_types baseType)
-{
-    assert(HWIntrinsicInfo::lookupCategory(id) == HW_Category_IMM);
-
-    if (isAVX2GatherIntrinsic(id))
-    {
-        return ival == 1 || ival == 2 || ival == 4 || ival == 8;
-    }
-    else
-    {
-        return ival <= lookupImmUpperBound(id) && ival >= 0;
-    }
-}
-
-//------------------------------------------------------------------------
 // isAVX2GatherIntrinsic: Check if the intrinsic is AVX Gather*
 //
 // Arguments:
@@ -1512,7 +1486,7 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
             SetOpLclRelatedToSIMDIntrinsic(op1);
 
             retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4, op5);
-            retNode->AsHWIntrinsic()->gtIndexBaseType = indexbaseType;
+            retNode->AsHWIntrinsic()->SetAuxiliaryType(indexbaseType);
             break;
         }
 

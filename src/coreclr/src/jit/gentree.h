@@ -5063,7 +5063,7 @@ struct GenTreeHWIntrinsic : public GenTree
 
     NamedIntrinsic gtHWIntrinsicId;
     var_types      gtSIMDBaseType;  // SIMD vector base type
-    var_types      gtIndexBaseType; // for AVX2 Gather* intrinsics
+    var_types      gtAuxiliaryType; // For intrinsics than need another type (e.g. Avx2.Gather* or SIMD (by element))
     uint16_t       gtSIMDSize;      // SIMD vector size in bytes, use 0 for scalar intrinsics
 
 private:
@@ -5079,7 +5079,7 @@ public:
         : GenTree(GT_HWINTRINSIC, type)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
-        , gtIndexBaseType(TYP_UNKNOWN)
+        , gtAuxiliaryType(TYP_UNKNOWN)
         , gtSIMDSize(static_cast<uint16_t>(size))
         , m_numOps(0)
     {
@@ -5090,7 +5090,7 @@ public:
         : GenTree(GT_HWINTRINSIC, type)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
-        , gtIndexBaseType(TYP_UNKNOWN)
+        , gtAuxiliaryType(TYP_UNKNOWN)
         , gtSIMDSize(static_cast<uint16_t>(size))
         , m_numOps(1)
         , m_inlineUses{op1}
@@ -5110,7 +5110,7 @@ public:
         : GenTree(GT_HWINTRINSIC, type)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
-        , gtIndexBaseType(TYP_UNKNOWN)
+        , gtAuxiliaryType(TYP_UNKNOWN)
         , gtSIMDSize(static_cast<uint16_t>(size))
         , m_numOps(2)
         , m_inlineUses{op1, op2}
@@ -5136,7 +5136,7 @@ public:
         : GenTree(GT_HWINTRINSIC, type)
         , gtHWIntrinsicId(hwIntrinsicID)
         , gtSIMDBaseType(baseType)
-        , gtIndexBaseType(TYP_UNKNOWN)
+        , gtAuxiliaryType(TYP_UNKNOWN)
         , gtSIMDSize(static_cast<uint16_t>(size))
         , m_numOps(3)
         , m_inlineUses{op1, op2, op3}
@@ -5288,14 +5288,14 @@ public:
         return MakeIteratorPair(uses, uses + GetNumOps());
     }
 
-    var_types GetOtherBaseType() const
+    var_types GetAuxiliaryType() const
     {
-        return gtIndexBaseType;
+        return gtAuxiliaryType;
     }
 
-    void SetOtherBaseType(var_types type)
+    void SetAuxiliaryType(var_types type)
     {
-        gtIndexBaseType = type;
+        gtAuxiliaryType = type;
     }
 
     bool isSIMD() const
@@ -5307,7 +5307,7 @@ public:
     {
         if ((simd1->TypeGet() != simd2->TypeGet()) || (simd1->gtHWIntrinsicId != simd2->gtHWIntrinsicId) ||
             (simd1->gtSIMDBaseType != simd2->gtSIMDBaseType) || (simd1->gtSIMDSize != simd2->gtSIMDSize) ||
-            (simd1->gtIndexBaseType != simd2->gtIndexBaseType) || (simd1->m_numOps != simd2->m_numOps))
+            (simd1->gtAuxiliaryType != simd2->gtAuxiliaryType) || (simd1->m_numOps != simd2->m_numOps))
         {
             return false;
         }
