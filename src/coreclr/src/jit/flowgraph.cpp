@@ -23351,6 +23351,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
             const InlArgInfo& argInfo        = inlArgInfo[argNum];
             const bool        argIsSingleDef = !argInfo.argHasLdargaOp && !argInfo.argHasStargOp;
             GenTree* const    argNode        = inlArgInfo[argNum].argNode;
+            unsigned __int64  bbFlags        = inlArgInfo[argNum].bbFlags;
 
             if (argInfo.argHasTmp)
             {
@@ -23413,6 +23414,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     }
 #endif // DEBUG
                 }
+                block->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
             }
             else if (argInfo.argIsByRefToStructLocal)
             {
@@ -23466,7 +23468,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                         //
                         // Chase through any GT_RET_EXPRs to find the actual argument
                         // expression.
-                        GenTree* actualArgNode = argNode->gtRetExprVal();
+                        GenTree* actualArgNode = argNode->gtRetExprVal(&bbFlags);
 
                         // For case (1)
                         //
@@ -23542,6 +23544,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     // since the box itself will be ignored.
                     gtTryRemoveBoxUpstreamEffects(argNode);
                 }
+
+                block->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
             }
         }
     }
