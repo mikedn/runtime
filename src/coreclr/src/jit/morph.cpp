@@ -10274,8 +10274,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         }
         else
         {
-            assert(src->OperIs(GT_CALL) || varTypeIsSIMD(src->GetType()));
-            assert(src->GetType() == dest->GetType());
+            assert(src->IsCall() || varTypeIsSIMD(src->GetType()));
+            assert(src->IsCall() || (src->GetType() == dest->GetType()));
         }
 
         dest->gtFlags |= GTF_DONT_CSE;
