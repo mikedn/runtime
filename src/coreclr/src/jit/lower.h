@@ -495,12 +495,17 @@ private:
     //     Otherwise, it returns the underlying operation that was being casted
     GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
     {
-        if (!op->OperIs(GT_CAST) || op->gtOverflow())
+        if (!op->OperIs(GT_CAST) || op->gtOverflow() || !varTypeIsIntegral(expectedType))
         {
             return op;
         }
 
         GenTree* castOp = op->AsCast()->CastOp();
+
+        if (!varTypeIsIntegral(castOp->GetType()))
+        {
+            return op;
+        }
 
         if (genTypeSize(castOp->gtType) >= genTypeSize(expectedType))
         {
