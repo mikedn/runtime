@@ -1391,7 +1391,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     assert(varTypeIsSIMD(simdType));
     assert(varTypeIsArithmetic(baseType));
-    assert(simdSize != 0);
+    assert((simdSize == 8) || (simdSize == 12) || (simdSize == 16) || (simdSize == 32));
 
     // Spare GenTrees to be used for the lowering logic below
     // Defined upfront to avoid naming conflicts, etc...
@@ -1441,10 +1441,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             BlockRange().Remove(node->GetOp(i));
         }
 
-        assert((simdSize == 16) || (simdSize == 32));
-
         if ((argCnt == 1) ||
-            ((vecCns.i64[0] == vecCns.i64[1]) && ((simdSize <= 16) || (vecCns.i64[2] == vecCns.i64[3]))))
+            ((vecCns.i64[0] == vecCns.i64[1]) &&
+             ((simdSize <= 16) || ((vecCns.i64[0] == vecCns.i64[2]) && (vecCns.i64[0] == vecCns.i64[3])))))
         {
             // If we are a single constant or if all parts are the same, we might be able to optimize
             // this even further for certain values, such as Zero or AllBitsSet.
