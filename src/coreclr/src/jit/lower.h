@@ -495,7 +495,7 @@ private:
     //     Otherwise, it returns the underlying operation that was being casted
     GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
     {
-        if (!op->OperIs(GT_CAST))
+        if (!op->OperIs(GT_CAST) || op->gtOverflow())
         {
             return op;
         }
