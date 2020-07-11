@@ -1,15 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 #include "jitpch.h"
 #include "lower.h"
 
 #ifdef TARGET_ARM64 // This file is ONLY used for ARM64 architectures
 
-GenTreeInstr* IsInstr(GenTree* node, emitAttr size, instruction ins)
+GenTreeInstr* IsInstr(GenTree* node, instruction ins, emitAttr size)
 {
-    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size) && (node->AsInstr()->GetIns() == ins))
+    if (node->IsInstr() && (node->AsInstr()->GetSize() == size) && (node->AsInstr()->GetIns() == ins))
     {
         return node->AsInstr();
     }
@@ -17,10 +16,20 @@ GenTreeInstr* IsInstr(GenTree* node, emitAttr size, instruction ins)
     return nullptr;
 }
 
-GenTreeInstr* IsInstr(GenTree* node, emitAttr size, instruction ins, unsigned numOps)
+GenTreeInstr* IsInstr(GenTree* node, instruction ins, emitAttr size, unsigned numOps)
 {
-    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size) && (node->AsInstr()->GetIns() == ins) &&
+    if (node->IsInstr() && (node->AsInstr()->GetSize() == size) && (node->AsInstr()->GetIns() == ins) &&
         (node->AsInstr()->GetNumOps() == numOps))
+    {
+        return node->AsInstr();
+    }
+
+    return nullptr;
+}
+
+GenTreeInstr* IsInstr(GenTree* node, instruction ins, unsigned numOps)
+{
+    if (node->IsInstr() && (node->AsInstr()->GetIns() == ins) && (node->AsInstr()->GetNumOps() == numOps))
     {
         return node->AsInstr();
     }
@@ -30,7 +39,7 @@ GenTreeInstr* IsInstr(GenTree* node, emitAttr size, instruction ins, unsigned nu
 
 GenTreeInstr* IsInstr(GenTree* node, emitAttr size, unsigned numOps)
 {
-    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size) && (node->AsInstr()->GetNumOps() == numOps))
+    if (node->IsInstr() && (node->AsInstr()->GetSize() == size) && (node->AsInstr()->GetNumOps() == numOps))
     {
         return node->AsInstr();
     }
@@ -40,9 +49,9 @@ GenTreeInstr* IsInstr(GenTree* node, emitAttr size, unsigned numOps)
 
 insOpts GetEquivalentShiftOptionLogical(GenTree* node, emitAttr size)
 {
-    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size))
+    if (GenTreeInstr* instr = IsInstr(node, size, 1))
     {
-        switch (node->AsInstr()->GetIns())
+        switch (instr->GetIns())
         {
             case INS_lsl:
                 return INS_OPTS_LSL;
@@ -60,32 +69,88 @@ insOpts GetEquivalentShiftOptionLogical(GenTree* node, emitAttr size)
     return INS_OPTS_NONE;
 }
 
-void Lowering::LowerNot(GenTreeUnOp* not)
+GenTreeInstr* Lowering::MakeInstr(GenTree* node, instruction ins, emitAttr size)
 {
-    assert(not->OperIs(GT_NOT));
+    node->SetOper(GT_INSTR);
 
-    GenTree* op1 = not->GetOp(0);
+    GenTreeInstr* instr = node->AsInstr();
+    instr->SetIns(ins, size);
+    instr->SetNumOps(0);
+    instr->SetImmediate(0);
+    // Currently INSTR nodes never have side effects. This will need to be adjusted if load/store
+    // nodes are lowered to load/store instructions.
+    instr->gtFlags = 0;
+    return instr;
+}
 
-    emitAttr size = emitActualTypeSize(not->GetType());
-    unsigned imm  = 0;
-    insOpts  opt  = GetEquivalentShiftOptionLogical(op1, size);
-
-    if (opt != INS_OPTS_NONE)
-    {
-        assert(op1->AsInstr()->GetNumOps() == 1);
-
-        BlockRange().Remove(op1);
-        imm = op1->AsInstr()->GetImmediate();
-        op1 = op1->AsInstr()->GetOp(0);
-    }
-
-    not->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = not->AsInstr();
-    instr->SetIns(INS_mvn, size, opt);
-    instr->SetImmediate(imm);
+GenTreeInstr* Lowering::MakeInstr(GenTree* node, instruction ins, emitAttr size, GenTree* op1)
+{
+    GenTreeInstr* instr = MakeInstr(node, ins, size);
     instr->SetNumOps(1);
     instr->SetOp(0, op1);
+    return instr;
+}
+
+GenTreeInstr* Lowering::MakeInstr(GenTree* node, instruction ins, emitAttr size, GenTree* op1, GenTree* op2)
+{
+    GenTreeInstr* instr = MakeInstr(node, ins, size);
+    instr->SetNumOps(2);
+    instr->SetOp(0, op1);
+    instr->SetOp(1, op2);
+    return instr;
+}
+
+GenTreeInstr* Lowering::NewInstrBefore(GenTree* before, var_types type, instruction ins, GenTree* op1)
+{
+    GenTreeInstr* instr = new (comp, GT_INSTR) GenTreeInstr(type, ins, op1);
+    BlockRange().InsertBefore(before, instr);
+    return instr;
+}
+
+GenTreeInstr* Lowering::NewInstrAfter(GenTree* after, var_types type, instruction ins, GenTree* op1)
+{
+    GenTreeInstr* instr = new (comp, GT_INSTR) GenTreeInstr(type, ins, op1);
+    BlockRange().InsertAfter(after, instr);
+    return instr;
+}
+
+GenTreeInstr* Lowering::NewInstrBefore(GenTree* before, var_types type, instruction ins, GenTree* op1, GenTree* op2)
+{
+    GenTreeInstr* instr = new (comp, GT_INSTR) GenTreeInstr(type, ins, op1, op2);
+    BlockRange().InsertBefore(before, instr);
+    return instr;
+}
+
+void Lowering::LowerNot(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_NOT));
+
+    GenTree* op1  = node->GetOp(0);
+    emitAttr size = emitActualTypeSize(node->GetType());
+
+    CombineNot(MakeInstr(node, INS_mvn, size, op1));
+}
+
+void Lowering::CombineNot(GenTreeInstr* instr)
+{
+    assert(instr->GetIns() == INS_mvn);
+
+    GenTree* op1 = instr->GetOp(0);
+
+    if (insOpts opt = GetEquivalentShiftOptionLogical(op1, instr->GetSize()))
+    {
+        GenTreeInstr* shift = op1->AsInstr();
+
+        op1 = shift->GetOp(0);
+
+        assert(IsLegalToMoveUseForward(shift, instr, op1));
+
+        instr->SetOption(opt);
+        instr->SetImmediate(shift->GetImmediate());
+        instr->SetOp(0, op1);
+
+        BlockRange().Remove(shift);
+    }
 }
 
 bool CanEncodeBitmaskImm(ssize_t imm, emitAttr size, unsigned* bitmaskImm)
@@ -96,7 +161,17 @@ bool CanEncodeBitmaskImm(ssize_t imm, emitAttr size, unsigned* bitmaskImm)
     return encoded;
 }
 
-ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size);
+ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size)
+{
+    emitter::bitMaskImm imm;
+    imm.immNRS = encoded;
+    return emitter::emitDecodeBitMaskImm(imm, size);
+}
+
+ssize_t DecodeBitmaskImm(GenTreeInstr* instr)
+{
+    return DecodeBitmaskImm(instr->GetImmediate(), instr->GetSize());
+}
 
 class BitField
 {
@@ -120,11 +195,6 @@ public:
         return m_lsb;
     }
 
-    bool IsRightAligned() const
-    {
-        return m_lsb == 0;
-    }
-
     unsigned Width() const
     {
         return m_width;
@@ -134,52 +204,19 @@ public:
     {
         return m_lsb + m_width - 1;
     }
-
-    unsigned IsLeftAligned(unsigned regWidth) const
-    {
-        return m_lsb + m_width == regWidth;
-    }
 };
 
-BitField IsBitFieldMask(uint64_t mask, emitAttr size)
+BitField IsBitFieldMaskAt(uint64_t mask, unsigned at, unsigned bitSize)
 {
-    if (size == EA_4BYTE)
+    assert(at < bitSize);
+
+    if (bitSize == 32)
     {
         mask &= UINT32_MAX;
     }
     else
     {
-        assert(size == EA_8BYTE);
-    }
-
-    unsigned lsb   = 0;
-    unsigned width = 0;
-
-    while ((mask & 1) == 0)
-    {
-        lsb++;
-        mask >>= 1;
-    }
-
-    if (isPow2(mask + 1))
-    {
-        width = genLog2(mask + 1);
-    }
-
-    return BitField(lsb, width);
-}
-
-BitField IsBitFieldMaskAt(uint64_t mask, unsigned at, emitAttr size)
-{
-    assert(at < size * 8);
-
-    if (size == EA_4BYTE)
-    {
-        mask &= UINT32_MAX;
-    }
-    else
-    {
-        assert(size == EA_8BYTE);
+        assert(bitSize == 64);
     }
 
     unsigned width   = 0;
@@ -198,15 +235,10 @@ BitField IsBitFieldMaskAt(uint64_t mask, unsigned at, emitAttr size)
     return BitField(at, width);
 }
 
-BitField IsBitFieldMask(GenTreeIntCon* intCon, emitAttr size)
+unsigned PackBFIImmediate(unsigned lsb, unsigned width, unsigned bitSize)
 {
-    return IsBitFieldMask(static_cast<uint64_t>(intCon->GetValue()), size);
-}
-
-unsigned PackBFIImmediate(unsigned lsb, unsigned width, unsigned regWidth)
-{
-    assert((0 <= lsb) && (lsb < regWidth));
-    assert((1 <= width) && (width <= regWidth - lsb));
+    assert((0 <= lsb) && (lsb < bitSize));
+    assert((1 <= width) && (width <= bitSize - lsb));
 
     return (lsb << 6) | width;
 }
@@ -215,141 +247,131 @@ void Lowering::LowerLogical(GenTreeOp* logical)
 {
     assert(logical->OperIs(GT_AND, GT_OR, GT_XOR));
 
-    GenTree* op1 = logical->GetOp(0);
-    GenTree* op2 = logical->GetOp(1);
-
+    GenTree* op1  = logical->GetOp(0);
+    GenTree* op2  = logical->GetOp(1);
     emitAttr size = emitActualTypeSize(logical->GetType());
 
-    if (logical->OperIs(GT_AND) && IsInstr(op1, size, 1) && op2->IsIntCon())
+    if (op2->IsIntCon() && !op2->AsIntCon()->ImmedValNeedsReloc(comp))
     {
-        assert(!op2->AsIntCon()->ImmedValNeedsReloc(comp));
-
-        unsigned      regWidth    = size * 8;
-        GenTreeInstr* shift       = op1->AsInstr();
-        unsigned      shiftAmount = shift->GetImmediate();
-        uint64_t      mask        = static_cast<uint64_t>(op2->AsIntCon()->GetValue());
-        instruction   ins         = INS_none;
-        unsigned      imm         = 0;
-
-        if (shift->GetIns() == INS_lsl)
+        if (logical->OperIs(GT_AND) && IsInstr(op1, size, 1))
         {
-            // The shift zeroes out bits shiftAmount-1..0 so we don't care what bits the mask has there.
-            mask &= ((regWidth == 64) ? UINT64_MAX : UINT32_MAX) << shiftAmount;
+            GenTreeInstr* shift       = op1->AsInstr();
+            unsigned      shiftAmount = shift->GetImmediate();
+            unsigned      bitSize     = EA_SIZE_IN_BYTES(size) * 8;
+            uint64_t      mask        = static_cast<uint64_t>(op2->AsIntCon()->GetValue());
+            instruction   ins         = INS_none;
+            unsigned      imm         = 0;
 
-            if (BitField bitfield = IsBitFieldMaskAt(mask, shiftAmount, size))
+            if (shift->GetIns() == INS_lsl)
             {
-                // AND(LSL(x, N), bfmask(N, W)) = UBFIZ x, x, #N, #W
+                // The shift zeroes out bits shiftAmount-1..0 so we don't care what bits the mask has there.
+                mask &= UINT64_MAX << shiftAmount;
 
-                ins = INS_ubfiz;
-                imm = PackBFIImmediate(shiftAmount, bitfield.Width(), regWidth);
-            }
-        }
-        else if (shift->GetIns() == INS_lsr)
-        {
-            // The shift zeroes out bits regWidth-1..shiftAmount so we don't care what bits the mask has there.
-            mask &= ((regWidth == 64) ? UINT64_MAX : UINT32_MAX) >> shiftAmount;
-
-            if (BitField bitfield = IsBitFieldMaskAt(mask, 0, size))
-            {
-                unsigned shiftedBitfieldWidth = regWidth - shiftAmount;
-
-                if (shiftedBitfieldWidth <= bitfield.Width())
+                if (BitField bitfield = IsBitFieldMaskAt(mask, shiftAmount, bitSize))
                 {
-                    // The shifted bitfield is entirely contained within the mask bitfield so masking
-                    // isn't needed, we just need a logical right shift to put the bitfield in place
-                    // and zero out the upper bits.
+                    // AND(LSL(x, N), bfmask(N, W)) = UBFIZ(x, N, W)
 
-                    ins = INS_lsr;
-                    imm = shiftAmount;
-                }
-                else
-                {
-                    // A portion of the shifted bitfield is extracted so we need UBFX:
-                    //     AND(LSR(x, N), bfmask(0, W)) = UBFX x, x, #N, #W
-
-                    ins = INS_ubfx;
-                    imm = PackBFIImmediate(shiftAmount, bitfield.Width(), regWidth);
+                    ins = INS_ubfiz;
+                    imm = PackBFIImmediate(shiftAmount, bitfield.Width(), bitSize);
                 }
             }
-        }
-        else if (shift->GetIns() == INS_asr)
-        {
-            if (BitField bitfield = IsBitFieldMaskAt(mask, 0, size))
+            else if (shift->GetIns() == INS_lsr)
             {
-                unsigned shiftedBitfieldWidth = regWidth - shiftAmount;
+                // The shift zeroes out bits bitSize-1..shiftAmount so we don't care what bits the mask has there.
+                mask &= ((bitSize == 64) ? UINT64_MAX : UINT32_MAX) >> shiftAmount;
 
-                if (shiftedBitfieldWidth == bitfield.Width())
+                if (BitField bitfield = IsBitFieldMaskAt(mask, 0, bitSize))
                 {
-                    // The shifted bitfield exactly overlaps the mask bitfield so masking isn't
-                    // needed, we just need a logical right shift to but the bitfield in place
-                    // and zero out the upper bits. The sign bits introduced by ASR would be
-                    // discarded by the mask anyway.
+                    BitField shifted{shiftAmount, bitSize - shiftAmount};
 
-                    ins = INS_lsr;
-                    imm = shiftAmount;
+                    if (shifted.Width() <= bitfield.Width())
+                    {
+                        // The mask bitfield totally overlaps the shifted bitfield so masking isn't
+                        // needed, we just need a logical right shift to put the bitfield in place
+                        // and zero out the upper bits.
+
+                        // TODO-MIKE-Cleanup: This looks like something that belongs in morph.
+
+                        ins = INS_lsr;
+                        imm = shiftAmount;
+                    }
+                    else
+                    {
+                        // A portion of the shifted bitfield is extracted so we need UBFX:
+                        //     AND(LSR(x, N), bfmask(0, W)) = UBFX(x, N, W)
+
+                        ins = INS_ubfx;
+                        imm = PackBFIImmediate(shiftAmount, bitfield.Width(), bitSize);
+                    }
                 }
-                else if (shiftedBitfieldWidth > bitfield.Width())
+            }
+            else if (shift->GetIns() == INS_asr)
+            {
+                if (BitField bitfield = IsBitFieldMaskAt(mask, 0, bitSize))
                 {
-                    // A portion of the shifted bitfield is extracted so we need UBFX:
-                    //     AND(LSR(x, N), bfmask(0, W)) = UBFX x, x, #N, #W
+                    BitField shifted{shiftAmount, bitSize - shiftAmount};
 
-                    ins = INS_ubfx;
-                    imm = PackBFIImmediate(shiftAmount, bitfield.Width(), regWidth);
+                    if (shifted.Width() == bitfield.Width())
+                    {
+                        // The mask bitfield exactly overlaps the shifted bitfield so masking isn't
+                        // needed, we just need a logical right shift to but the bitfield in place
+                        // and zero out the upper bits. The sign bits introduced by ASR would be
+                        // discarded by the mask anyway.
+
+                        ins = INS_lsr;
+                        imm = shiftAmount;
+                    }
+                    else if (shifted.Width() > bitfield.Width())
+                    {
+                        // A portion of the shifted bitfield is extracted so we need UBFX:
+                        //     AND(LSR(x, N), bfmask(0, W)) = UBFX(x, N, W)
+
+                        ins = INS_ubfx;
+                        imm = PackBFIImmediate(shiftAmount, bitfield.Width(), bitSize);
+                    }
                 }
+            }
+
+            if (ins != INS_none)
+            {
+                op1 = shift->GetOp(0);
+
+                assert(IsLegalToMoveUseForward(shift, logical, op1));
+
+                GenTreeInstr* instr = MakeInstr(logical, ins, size, shift->GetOp(0));
+                instr->SetImmediate(imm);
+
+                BlockRange().Remove(shift);
+                BlockRange().Remove(op2);
+                return;
             }
         }
 
-        if (ins != INS_none)
+        unsigned encodedBitmaskImm;
+
+        if (CanEncodeBitmaskImm(op2->AsIntCon()->GetValue(), size, &encodedBitmaskImm))
         {
-            op1 = shift->GetOp(0);
-            BlockRange().Remove(shift);
-
-            logical->ChangeOper(GT_INSTR);
-
-            GenTreeInstr* instr = logical->AsInstr();
-            instr->SetIns(ins);
-            instr->SetNumOps(1);
-            instr->SetImmediate(imm);
-            instr->SetOp(0, op1);
-
             BlockRange().Remove(op2);
 
+            instruction ins;
+
+            switch (logical->GetOper())
+            {
+                case GT_AND:
+                    ins = INS_and;
+                    break;
+                case GT_OR:
+                    ins = INS_orr;
+                    break;
+                default:
+                    ins = INS_eor;
+                    break;
+            }
+
+            GenTreeInstr* instr = MakeInstr(logical, ins, size, op1);
+            instr->SetImmediate(encodedBitmaskImm);
             return;
         }
-    }
-
-    unsigned encodedBitmaskImm;
-
-    if (op2->IsIntCon() && CanEncodeBitmaskImm(op2->AsIntCon()->GetValue(), size, &encodedBitmaskImm))
-    {
-        assert(!op2->AsIntCon()->ImmedValNeedsReloc(comp));
-
-        instruction ins;
-
-        switch (logical->GetOper())
-        {
-            case GT_AND:
-                ins = INS_and;
-                break;
-            case GT_OR:
-                ins = INS_orr;
-                break;
-            default:
-                ins = INS_eor;
-                break;
-        }
-
-        logical->ChangeOper(GT_INSTR);
-
-        GenTreeInstr* instr = logical->AsInstr();
-        instr->SetIns(ins);
-        instr->SetNumOps(1);
-        instr->SetImmediate(encodedBitmaskImm);
-        instr->SetOp(0, op1);
-
-        BlockRange().Remove(op2);
-
-        return;
     }
 
     unsigned      imm   = 0;
@@ -363,39 +385,35 @@ void Lowering::LowerLogical(GenTreeOp* logical)
         imm = mvn->GetImmediate();
         opt = mvn->GetOption();
 
-        BlockRange().Remove(mvn);
+        assert(IsLegalToMoveUseForward(mvn, logical, op2));
     }
     else if ((mvn = IsInstr(op1, size, INS_mvn)) != nullptr)
     {
-        op1 = mvn->GetOp(0);
+        std::swap(op1, op2);
+
+        op2 = mvn->GetOp(0);
         imm = mvn->GetImmediate();
         opt = mvn->GetOption();
 
-        std::swap(op1, op2);
-
-        BlockRange().Remove(mvn);
+        assert(IsLegalToMoveUseForward(mvn, logical, op2));
     }
     else if ((opt = GetEquivalentShiftOptionLogical(op2, size)) != INS_OPTS_NONE)
     {
-        assert(op2->AsInstr()->GetNumOps() == 1);
+        shift = op2->AsInstr();
+        op2   = shift->GetOp(0);
+        imm   = shift->GetImmediate();
+
+        assert(IsLegalToMoveUseForward(shift, logical, op2));
+    }
+    else if ((opt = GetEquivalentShiftOptionLogical(op1, size)) != INS_OPTS_NONE)
+    {
+        std::swap(op1, op2);
 
         shift = op2->AsInstr();
         op2   = shift->GetOp(0);
         imm   = shift->GetImmediate();
 
-        BlockRange().Remove(shift);
-    }
-    else if ((opt = GetEquivalentShiftOptionLogical(op1, size)) != INS_OPTS_NONE)
-    {
-        assert(op1->AsInstr()->GetNumOps() == 1);
-
-        shift = op1->AsInstr();
-        op1   = shift->GetOp(0);
-        imm   = shift->GetImmediate();
-
-        std::swap(op1, op2);
-
-        BlockRange().Remove(shift);
+        assert(IsLegalToMoveUseForward(shift, logical, op2));
     }
 
     instruction ins;
@@ -413,14 +431,19 @@ void Lowering::LowerLogical(GenTreeOp* logical)
             break;
     }
 
-    logical->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = logical->AsInstr();
-    instr->SetIns(ins, size, opt);
-    instr->SetNumOps(2);
+    GenTreeInstr* instr = MakeInstr(logical, ins, size, op1, op2);
+    instr->SetOption(opt);
     instr->SetImmediate(imm);
-    instr->SetOp(0, op1);
-    instr->SetOp(1, op2);
+
+    if (mvn != nullptr)
+    {
+        BlockRange().Remove(mvn);
+    }
+
+    if (shift != nullptr)
+    {
+        BlockRange().Remove(shift);
+    }
 }
 
 void Lowering::LowerShift(GenTreeOp* shift)
@@ -439,33 +462,33 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
 void Lowering::LowerShiftVariable(GenTreeOp* shift)
 {
-    GenTree* op1 = shift->GetOp(0);
-    GenTree* op2 = shift->GetOp(1);
+    GenTree* op1  = shift->GetOp(0);
+    GenTree* op2  = shift->GetOp(1);
+    emitAttr size = emitActualTypeSize(shift->GetType());
 
     // ARM64 shift instructions mask the shift count to 5 bits (or 6 bits for 64 bit operations).
+    //
     // TODO-MIKE-Cleanup: This really belongs in morph. The problem is ensuring that various JIT
     // parts (constant folding, VN etc.) handle shifts according to target specifics (ARM32 masks
     // only 8 bits thus (i32 << 32) is 0 on ARM32 and i32 on ARM64).
+    //
     // TODO-MIKE-CQ: And of course, any narrowing casts are redundant too, morph doesn't figure
     // that out either.
 
-    while (GenTreeInstr* instr = op2->IsInstr())
+    while (GenTreeInstr* andInstr = IsInstr(op2, INS_and, 1))
     {
-        if ((instr->GetNumOps() != 1) || (instr->GetIns() != INS_and))
-        {
-            break;
-        }
-
-        ssize_t shiftImmMask = varTypeIsLong(shift->GetType()) ? 63 : 31;
-        ssize_t andImm       = DecodeBitmaskImm(instr->GetImmediate(), instr->GetAttr());
+        ssize_t shiftImmMask = (size == EA_4BYTE) ? 31 : 63;
+        ssize_t andImm       = DecodeBitmaskImm(andInstr);
 
         if ((andImm & shiftImmMask) != shiftImmMask)
         {
             break;
         }
 
-        BlockRange().Remove(instr);
-        op2 = instr->GetOp(0);
+        assert(IsLegalToMoveUseForward(andInstr, shift, andInstr->GetOp(0)));
+
+        op2 = andInstr->GetOp(0);
+        BlockRange().Remove(andInstr);
     }
 
     instruction ins;
@@ -485,236 +508,19 @@ void Lowering::LowerShiftVariable(GenTreeOp* shift)
             break;
     }
 
-    shift->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = shift->AsInstr();
-    instr->SetIns(ins);
-    instr->SetNumOps(2);
-    instr->SetOp(0, op1);
-    instr->SetOp(1, op2);
+    MakeInstr(shift, ins, size, op1, op2);
 }
 
 void Lowering::LowerShiftImmediate(GenTreeOp* shift)
 {
-    GenTree* op1 = shift->GetOp(0);
-    GenTree* op2 = shift->GetOp(1);
+    GenTree* op1  = shift->GetOp(0);
+    GenTree* op2  = shift->GetOp(1);
+    emitAttr size = emitActualTypeSize(shift->GetType());
 
-    emitAttr size        = emitActualTypeSize(shift->GetType());
-    ssize_t  shiftByMask = (size == EA_8BYTE) ? 63 : 31;
-    unsigned shiftByBits = static_cast<unsigned>(op2->AsIntCon()->GetValue() & shiftByMask);
+    unsigned bitSize     = EA_SIZE_IN_BYTES(size) * 8;
+    unsigned shiftAmount = static_cast<unsigned>(op2->AsIntCon()->GetValue()) & (bitSize - 1);
 
-    if (GenTreeInstr* andInstr = IsInstr(op1, size, INS_and, 1))
-    {
-        uint64_t    andImm   = static_cast<uint64_t>(DecodeBitmaskImm(andInstr->GetImmediate(), size));
-        unsigned    regWidth = size * 8;
-        instruction ins      = INS_none;
-        unsigned    lsb      = 0;
-        unsigned    width    = 0;
-
-        assert(shiftByBits < regWidth);
-
-        if (shift->OperIs(GT_LSH))
-        {
-            if (BitField bf = IsBitFieldMaskAt(andImm, 0, size))
-            {
-                if (shiftByBits + bf.Width() >= regWidth)
-                {
-                    // All the bits to the left of the bitfield (and possibly a part of the bitfield itself)
-                    // are shifted out. These are the same bits that "and" discards so "and" is not needed.
-                    // TODO-MIKE-Cleanup: This transform probably belongs in morph.
-
-                    op1 = andInstr->GetOp(0);
-                    BlockRange().Remove(andInstr);
-                }
-                else
-                {
-                    // Bitfield "bf.width .. 0" is shifted to the left by "shiftByBits" bits. That is, the bitfield
-                    // is inserted at "shiftByBits" so this is "ubfiz x0, x0, #shiftByBits, #bf.width".
-
-                    ins   = INS_ubfiz;
-                    lsb   = shiftByBits;
-                    width = bf.Width();
-                }
-            }
-        }
-        else
-        {
-            assert(shift->OperIs(GT_RSH, GT_RSZ));
-
-            if (BitField bf = IsBitFieldMask(andImm, size))
-            {
-                if (shiftByBits < bf.LSB())
-                {
-                    // The bitfield is not shifted enough to the right, there's nothing that can be done
-                    // in this case.
-                }
-                else if (shiftByBits > bf.MSB())
-                {
-                    // The bitfield is shifted out completly. This always produces 0 but it doesn't seem to
-                    // be a case worth handling. And even if it's useful to handle this, it should be done
-                    // in morph.
-                }
-                else if (bf.IsLeftAligned(regWidth))
-                {
-                    // There are no bits to the left of the bitfield so the "and" is not needed.
-                    // TODO-MIKE-Cleanup: This transform probably belongs in morph.
-
-                    op1 = andInstr->GetOp(0);
-                    BlockRange().Remove(andInstr);
-                }
-                else
-                {
-                    // Bitfield "bf.lsb + bf.width .. bf.lsb" is shifted to the right by "shiftByBits" bits. That
-                    // is, the bitfield is extracted so this is "ubfx x0, x0, #shiftByBits, #bf.width". Except when
-                    // a portion of the bitfield is also shifted out in which case we need to adjust the width.
-                    // The left aligned case has already been handled so the bitfield does not contain the sign bit
-                    // so we can always use "ubfx" even if the shift is arithmetic.
-
-                    ins   = INS_ubfx;
-                    lsb   = shiftByBits;
-                    width = bf.Width() - (shiftByBits - bf.LSB());
-                }
-            }
-        }
-
-        if (ins != INS_none)
-        {
-            op1 = andInstr->GetOp(0);
-
-            shift->ChangeOper(GT_INSTR);
-
-            GenTreeInstr* instr = shift->AsInstr();
-            instr->SetIns(ins, size);
-            instr->SetImmediate(PackBFIImmediate(lsb, width, regWidth));
-            instr->SetNumOps(1);
-            instr->SetOp(0, op1);
-
-            BlockRange().Remove(andInstr);
-            BlockRange().Remove(op2);
-
-            return;
-        }
-    }
-
-    if (op1->IsCast() && !op1->gtOverflow() && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
-    {
-        // Shift instructions do not have an "extending form" like arithmetic instructions but the
-        // same operation can be performed using bitfield insertion/extraction instructions.
-        // For example:
-        //    - SXTB x0, w0 and LSL x0, x0, #12 <=> SBFIZ x0, x0, #12, #8
-        //    - SXTW x0, w0 and ASR x0, x0, #12 <=> SBFX x0, x0, #12, #20
-
-        GenTreeCast* cast = op1->AsCast();
-
-        unsigned bitFieldWidth = 0;
-        bool     isUnsigned    = false;
-
-        if (varTypeIsSmall(cast->GetCastType()))
-        {
-            // Currently the JIT IR doesn't allow direct extension from small int types to long.
-            // This code likely works fine with such casts but it cannot be tested.
-            assert(varActualType(cast->GetType()) == TYP_INT);
-            assert(size == EA_4BYTE);
-
-            bitFieldWidth = varTypeBitSize(cast->GetCastType());
-            isUnsigned    = varTypeIsUnsigned(cast->GetCastType());
-        }
-        else if (varTypeIsLong(cast->GetCastType()) && !varTypeIsLong(cast->GetOp(0)->GetType()))
-        {
-            assert(size == EA_8BYTE);
-
-            bitFieldWidth = 32;
-            isUnsigned    = cast->IsUnsigned();
-        }
-
-        if (bitFieldWidth != 0)
-        {
-            unsigned    regWidth = size * 8;
-            instruction ins      = INS_none;
-            unsigned    lsb      = 0;
-            unsigned    width    = 0;
-
-            if (shift->OperIs(GT_LSH))
-            {
-                // We don't need to insert if all the extension bits produced by the cast are discarded
-                // by the shift, we'll just generate a LSL in that case.
-
-                if (shiftByBits + bitFieldWidth < regWidth)
-                {
-                    ins   = isUnsigned ? INS_ubfiz : INS_sbfiz;
-                    lsb   = shiftByBits;
-                    width = bitFieldWidth;
-                }
-            }
-            else if (shift->OperIs(GT_RSH))
-            {
-                ins = isUnsigned ? INS_ubfx : INS_sbfx;
-
-                if (bitFieldWidth > shiftByBits)
-                {
-                    // We still have some bits from the casted value that need to be extracted. Extraction
-                    // needs the width of the extracted bitfield, which is smaller than the width of the
-                    // casted value.
-
-                    lsb   = shiftByBits;
-                    width = bitFieldWidth - shiftByBits;
-                }
-                else
-                {
-                    // All the bits of the casted value are discarded by the shift. The only thing that's
-                    // left are the extension bits that the cast produced. These bits can be obtained by
-                    // extracting the sign bit from the casted value.
-
-                    lsb   = bitFieldWidth - 1;
-                    width = 1;
-                }
-            }
-            else
-            {
-                assert(shift->OperIs(GT_RSZ));
-
-                // The cast has to be unsigned because RSZ will only insert 0 bits. If the cast was signed
-                // then we would end up with some zero bits produced by the shift, followed by some sign
-                // bits produced by the cast. Such a mix cannot be reproduced using UBFX/SBFX instructions.
-
-                // Unlike in the RSH case, if all bits are discarded by the shift we'd get 0. We could try
-                // to replace the shift with constant 0 but it seems unlikely to be worth the trouble.
-                // Besides, there's no reason not to do this in morph.
-
-                if (isUnsigned && (bitFieldWidth > shiftByBits))
-                {
-                    ins = INS_ubfx;
-
-                    lsb   = shiftByBits;
-                    width = bitFieldWidth - shiftByBits;
-                }
-            }
-
-            if (ins != INS_none)
-            {
-                assert((0 <= lsb) && (lsb < regWidth));
-                assert((1 <= width) && (width <= regWidth - lsb));
-
-                op1 = cast->GetOp(0);
-                op1->ClearContained();
-
-                shift->ChangeOper(GT_INSTR);
-
-                GenTreeInstr* instr = shift->AsInstr();
-                instr->SetIns(ins, size);
-                instr->SetImmediate((ins == INS_lsr) ? lsb : ((lsb << 6) | width));
-                instr->SetNumOps(1);
-                instr->SetOp(0, op1);
-
-                BlockRange().Remove(cast);
-                BlockRange().Remove(op2);
-
-                return;
-            }
-        }
-    }
-
-    if ((shiftByBits >= 24) && shift->OperIs(GT_LSH) && comp->opts.OptimizationEnabled())
+    if ((shiftAmount >= 24) && shift->OperIs(GT_LSH) && comp->opts.OptimizationEnabled())
     {
         // Remove source casts if the shift discards the produced sign/zero bits.
         //
@@ -729,12 +535,7 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
         // different source and destination types, it is possible that some
         // frontend phases might get confused by such a shift node.
 
-        unsigned consumedBits = varTypeBitSize(shift->GetType());
-
-        assert((consumedBits == 32) || (consumedBits == 64));
-        assert(shiftByBits < consumedBits);
-
-        consumedBits -= shiftByBits;
+        unsigned consumedBits = bitSize - shiftAmount;
 
         while (GenTreeCast* cast = op1->IsCast())
         {
@@ -757,6 +558,8 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
 
             JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->gtTreeID,
                     producedBits, shift->gtTreeID, consumedBits);
+
+            assert(IsLegalToMoveUseForward(cast, shift, op1));
 
             BlockRange().Remove(op1);
             op1 = cast->GetOp(0);
@@ -781,22 +584,241 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
             break;
     }
 
-    shift->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = shift->AsInstr();
-    instr->SetIns(ins);
-    instr->SetImmediate(shiftByBits);
-    instr->SetNumOps(1);
-    instr->SetOp(0, op1);
+    GenTreeInstr* instr = MakeInstr(shift, ins, size, op1);
+    instr->SetImmediate(shiftAmount);
 
     BlockRange().Remove(op2);
+
+    CombineShiftImmediate(instr);
+}
+
+void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
+{
+    GenTree* op1  = shift->GetOp(0);
+    emitAttr size = shift->GetSize();
+
+    unsigned bitSize     = EA_SIZE_IN_BYTES(size) * 8;
+    unsigned shiftAmount = shift->GetImmediate();
+
+    assert(shiftAmount < bitSize);
+
+    if (GenTreeInstr* andInstr = IsInstr(op1, INS_and, size, 1))
+    {
+        uint64_t    mask = static_cast<uint64_t>(DecodeBitmaskImm(andInstr));
+        instruction ins  = INS_none;
+        unsigned    imm  = 0;
+
+        if (shift->GetIns() == INS_lsl)
+        {
+            // The shift discards bits regSize-1..regSize-shiftAmount so we don't care what bits the mask has there.
+            mask &= ((bitSize == 64) ? UINT64_MAX : UINT32_MAX) >> shiftAmount;
+
+            if (BitField bf = IsBitFieldMaskAt(mask, 0, bitSize))
+            {
+                if (shiftAmount + bf.Width() >= bitSize)
+                {
+                    // All the bits to the left of the bitfield (and possibly a part of the bitfield itself)
+                    // are shifted out. These are the same bits that "and" discards so "and" is not needed.
+
+                    // TODO-MIKE-Cleanup: This transform probably belongs in morph.
+
+                    ins = INS_lsl;
+                    imm = shiftAmount;
+                }
+                else
+                {
+                    // LSH(AND(x, bfmask(0, W)), N) = UBFIZ(x, N, W)
+
+                    ins = INS_ubfiz;
+                    imm = PackBFIImmediate(shiftAmount, bf.Width(), bitSize);
+                }
+            }
+        }
+        else
+        {
+            assert((shift->GetIns() == INS_asr) || (shift->GetIns() == INS_lsr));
+
+            // The shift discards bits shiftAmount-1..0 so we don't care what bits the mask has there.
+            mask &= UINT64_MAX << shiftAmount;
+
+            if (BitField bf = IsBitFieldMaskAt(mask, shiftAmount, bitSize))
+            {
+                if (bf.MSB() == bitSize - 1)
+                {
+                    // There are no bits to the left of the bitfield so masking isn't needed.
+                    // This also covers the case of the sign bit being included in the bitfield,
+                    // which would otherwise require sbfx instead of ubfx.
+
+                    // TODO-MIKE-Cleanup: This transform probably belongs in morph.
+
+                    ins = shift->GetIns();
+                    imm = shiftAmount;
+                }
+                else
+                {
+                    // (RSH|RSZ)(AND(x, bfmask(N, W), N) = UBFX(x, N, W)
+
+                    ins = INS_ubfx;
+                    imm = PackBFIImmediate(shiftAmount, bf.Width(), bitSize);
+                }
+            }
+        }
+
+        if (ins != INS_none)
+        {
+            op1 = andInstr->GetOp(0);
+
+            shift->SetIns(ins, size);
+            shift->SetOp(0, op1);
+            shift->SetImmediate(imm);
+
+            BlockRange().Remove(andInstr);
+
+            return;
+        }
+    }
+
+    if (op1->IsCast() && !op1->gtOverflow() && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
+    {
+        // Shift instructions do not have an "extending form" like arithmetic instructions but the
+        // same operation can be performed using bitfield insertion/extraction instructions.
+        // For example:
+        //    - SXTB x0, w0 and LSL x0, x0, #12 <=> SBFIZ x0, x0, #12, #8
+        //    - SXTW x0, w0 and ASR x0, x0, #12 <=> SBFX x0, x0, #12, #20
+
+        GenTreeCast* cast = op1->AsCast();
+
+        unsigned bitFieldWidth = 0;
+        bool     isUnsigned    = false;
+
+        if (varTypeIsSmall(cast->GetCastType()))
+        {
+            // Currently the JIT IR doesn't allow direct extension from small int types to LONG.
+            // This code likely works fine with such casts but it cannot be tested.
+
+            // TODO-MIKE-CQ: This also means that a pattern like "(ulong)x_byte << 6"
+            // isn't transformed into "ubfiz x, 6, 8" but in "uxtb x; ubfiz x, 6, 32".
+            // Such casts could be described in IR as CAST nodes having LONG instead
+            // of INT type. This requires auditing all cast handling code in the JIT,
+            // some of it may assume that if the cast type is small int then the CAST
+            // node's type is always INT.
+
+            // TODO-MIKE-CQ: Another potential issue is that zero extending casts could
+            // be folded together with AND(x, mask) but nothing in the JIT seems to be
+            // doing this so code like "(x_byte & 3) << 6" also generates an extra uxtb.
+
+            assert(varActualType(cast->GetType()) == TYP_INT);
+            assert(size == EA_4BYTE);
+
+            bitFieldWidth = varTypeBitSize(cast->GetCastType());
+            isUnsigned    = varTypeIsUnsigned(cast->GetCastType());
+        }
+        else if (varTypeIsLong(cast->GetCastType()) && !cast->GetOp(0)->TypeIs(TYP_LONG))
+        {
+            assert(size == EA_8BYTE);
+
+            bitFieldWidth = 32;
+            isUnsigned    = cast->IsUnsigned();
+        }
+
+        if (bitFieldWidth != 0)
+        {
+            unsigned    bitSize = EA_SIZE_IN_BYTES(size) * 8;
+            instruction ins     = INS_none;
+            unsigned    imm     = 0;
+
+            if (shift->GetIns() == INS_lsl)
+            {
+                if (bitFieldWidth + shiftAmount >= bitSize)
+                {
+                    // We don't need to insert if all the extension bits produced by the cast are discarded
+                    // by the shift (e.g. LSH(CAST.byte, 56)), we'll just generate a LSL in that case.
+
+                    ins = INS_lsl;
+                    imm = shiftAmount;
+                }
+                else
+                {
+                    // LSH(CAST(x), N) = UBFIZ|SBFIZ(x, N, cast type size)
+
+                    ins = isUnsigned ? INS_ubfiz : INS_sbfiz;
+                    imm = PackBFIImmediate(shiftAmount, bitFieldWidth, bitSize);
+                }
+            }
+            else if (shift->GetIns() == INS_asr)
+            {
+                ins = isUnsigned ? INS_ubfx : INS_sbfx;
+
+                if (shiftAmount >= bitFieldWidth)
+                {
+                    // All the bits of the casted value are discarded by the shift. The only thing that's
+                    // left are the extension bits that the cast produced. These bits can be obtained by
+                    // extracting the sign bit from the casted value.
+
+                    imm = PackBFIImmediate(bitFieldWidth - 1, 1, bitSize);
+                }
+                else
+                {
+                    // We still have some bits from the casted value that need to be extracted. Extraction
+                    // needs the width of the extracted bitfield, which is smaller than the width of the
+                    // casted value.
+
+                    imm = PackBFIImmediate(shiftAmount, bitFieldWidth - shiftAmount, bitSize);
+                }
+            }
+            else
+            {
+                assert(shift->GetIns() == INS_lsr);
+
+                if (isUnsigned)
+                {
+                    if (shiftAmount >= bitFieldWidth)
+                    {
+                        // Unlike in the ASR case, if all bits are discarded by the shift we'd get 0. We could try
+                        // to replace the shift with constant 0 but it seems unlikely to be worth the trouble.
+                        // Besides, there's no reason not to do this in morph.
+                    }
+                    else
+                    {
+                        ins = INS_ubfx;
+                        imm = PackBFIImmediate(shiftAmount, bitFieldWidth - shiftAmount, bitSize);
+                    }
+                }
+                else
+                {
+                    // Sometimes LSR is used to extract the sign bit of a small int value:
+                    //   LSR(CAST.short(x), 31) = UBFX(x, 15, 1)
+
+                    if (shiftAmount == bitSize - 1)
+                    {
+                        ins = INS_ubfx;
+                        imm = PackBFIImmediate(bitFieldWidth - 1, 1, bitSize);
+                    }
+                }
+            }
+
+            if (ins != INS_none)
+            {
+                op1 = cast->GetOp(0);
+                op1->ClearContained();
+
+                shift->SetIns(ins, size);
+                shift->SetOp(0, op1);
+                shift->SetImmediate(imm);
+
+                BlockRange().Remove(cast);
+
+                return;
+            }
+        }
+    }
 }
 
 insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
 {
-    if (node->IsInstr() && (node->AsInstr()->GetAttr() == size))
+    if (GenTreeInstr* instr = IsInstr(node, EA_SIZE(size), 1))
     {
-        switch (node->AsInstr()->GetIns())
+        switch (instr->GetIns())
         {
             case INS_lsl:
                 return INS_OPTS_LSL;
@@ -812,75 +834,7 @@ insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
     return INS_OPTS_NONE;
 }
 
-void Lowering::LowerNeg(GenTreeUnOp* neg)
-{
-    assert(neg->OperIs(GT_NEG));
-
-    GenTree* op1 = neg->GetOp(0);
-
-    if (varTypeIsFloating(neg->GetType()))
-    {
-        neg->ChangeOper(GT_INSTR);
-
-        GenTreeInstr* instr = neg->AsInstr();
-        instr->SetIns(INS_fneg);
-        instr->SetImmediate(0);
-        instr->SetNumOps(1);
-        instr->SetOp(0, op1);
-
-        return;
-    }
-
-    emitAttr size = emitActualTypeSize(neg->GetType());
-
-    if (GenTreeInstr* mul = IsInstr(op1, size, INS_mul, 2))
-    {
-        neg->ChangeOper(GT_INSTR);
-
-        GenTreeInstr* instr = neg->AsInstr();
-        instr->SetIns(INS_mneg);
-        instr->SetImmediate(0);
-        instr->SetNumOps(2);
-        instr->SetOp(0, mul->GetOp(0));
-        instr->SetOp(1, mul->GetOp(1));
-
-        BlockRange().Remove(mul);
-
-        return;
-    }
-
-    insOpts       opt   = INS_OPTS_NONE;
-    unsigned      imm   = 0;
-    GenTreeInstr* shift = nullptr;
-
-    if ((opt = GetEquivalentShiftOptionArithmetic(op1, size)) != INS_OPTS_NONE)
-    {
-        assert(op1->AsInstr()->GetNumOps() == 1);
-
-        shift = op1->AsInstr();
-        op1   = shift->GetOp(0);
-        imm   = shift->GetImmediate();
-
-        BlockRange().Remove(shift);
-    }
-
-    neg->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = neg->AsInstr();
-    instr->SetIns(INS_neg, size, opt);
-    instr->SetImmediate(imm);
-    instr->SetNumOps(1);
-    instr->SetOp(0, op1);
-}
-
-bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithImm)
-{
-    bool encoded     = emitter::emitIns_valid_imm_for_add(imm, size);
-    *encodedArithImm = static_cast<unsigned>(imm) & 0xFFF'FFF;
-    return encoded;
-}
-
-insOpts GetEquivalentExtendOption(GenTree* node, emitAttr size)
+insOpts GetEquivalentExtendOption(GenTree* node)
 {
     if (node->IsCast() && !node->gtOverflow() && varTypeIsIntegral(node->AsCast()->GetOp(0)->GetType()))
     {
@@ -897,7 +851,7 @@ insOpts GetEquivalentExtendOption(GenTree* node, emitAttr size)
                 return INS_OPTS_SXTH;
             case TYP_ULONG:
             case TYP_LONG:
-                if (!varTypeIsLong(node->AsCast()->GetOp(0)->GetType()))
+                if (!node->AsCast()->GetOp(0)->TypeIs(TYP_LONG))
                 {
                     return node->IsUnsigned() ? INS_OPTS_UXTW : INS_OPTS_SXTW;
                 }
@@ -910,11 +864,11 @@ insOpts GetEquivalentExtendOption(GenTree* node, emitAttr size)
     return INS_OPTS_NONE;
 }
 
-instruction GetMultiplyAddInstruction(GenTree* multiply, instruction ins, emitAttr size)
+instruction GetMultiplyAddInstruction(GenTree* node, instruction ins, emitAttr size)
 {
-    if (multiply->IsInstr() && (multiply->AsInstr()->GetAttr() == size) && (multiply->AsInstr()->GetNumOps() == 2))
+    if (GenTreeInstr* instr = IsInstr(node, EA_SIZE(size), 2))
     {
-        switch (multiply->AsInstr()->GetIns())
+        switch (instr->GetIns())
         {
             case INS_mul:
                 return (ins == INS_add) ? INS_madd : INS_msub;
@@ -930,24 +884,68 @@ instruction GetMultiplyAddInstruction(GenTree* multiply, instruction ins, emitAt
     return INS_none;
 }
 
+bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithImm)
+{
+    bool encoded     = emitter::emitIns_valid_imm_for_add(imm, size);
+    *encodedArithImm = static_cast<unsigned>(imm) & 0xFFFFFF;
+    return encoded;
+}
+
+void Lowering::LowerNegate(GenTreeUnOp* neg)
+{
+    assert(neg->OperIs(GT_NEG));
+
+    GenTree* op1  = neg->GetOp(0);
+    emitAttr size = emitActualTypeSize(neg->GetType());
+
+    if (varTypeIsFloating(neg->GetType()))
+    {
+        MakeInstr(neg, INS_fneg, size, op1);
+        return;
+    }
+
+    if (GenTreeInstr* mul = IsInstr(op1, INS_mul, size, 2))
+    {
+        MakeInstr(neg, INS_mneg, size, mul->GetOp(0), mul->GetOp(1));
+        BlockRange().Remove(mul);
+        return;
+    }
+
+    GenTreeInstr* shift = nullptr;
+    insOpts       opt   = INS_OPTS_NONE;
+    unsigned      imm   = 0;
+
+    if ((opt = GetEquivalentShiftOptionArithmetic(op1, size)) != INS_OPTS_NONE)
+    {
+        shift = op1->AsInstr();
+        op1   = shift->GetOp(0);
+        imm   = shift->GetImmediate();
+
+        assert(IsLegalToMoveUseForward(shift, neg, op1));
+    }
+
+    GenTreeInstr* instr = MakeInstr(neg, INS_neg, size, op1);
+    instr->SetOption(opt);
+    instr->SetImmediate(imm);
+
+    if (shift != nullptr)
+    {
+        BlockRange().Remove(shift);
+    }
+}
+
 void Lowering::LowerArithmetic(GenTreeOp* arith)
 {
     assert(arith->OperIs(GT_ADD, GT_SUB));
 
-    GenTree* op1 = arith->GetOp(0);
-    GenTree* op2 = arith->GetOp(1);
+    GenTree* op1  = arith->GetOp(0);
+    GenTree* op2  = arith->GetOp(1);
+    emitAttr size = emitActualTypeSize(arith->GetType());
 
     if (varTypeIsFloating(arith->GetType()))
     {
-        arith->ChangeOper(GT_INSTR);
-
-        GenTreeInstr* instr = arith->AsInstr();
-        instr->SetIns(arith->OperIs(GT_ADD) ? INS_fadd : INS_fsub);
-        instr->SetImmediate(0);
-        instr->SetNumOps(2);
-        instr->SetOp(0, op1);
-        instr->SetOp(1, op2);
-
+        instruction ins = arith->OperIs(GT_ADD) ? INS_fadd : INS_fsub;
+        MakeInstr(arith, ins, size, op1, op2);
         return;
     }
 
@@ -965,8 +963,6 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
         return;
     }
 
-    emitAttr size = emitActualTypeSize(arith->GetType());
-
     if (op2->IsIntCon() && !op2->AsIntCon()->ImmedValNeedsReloc(comp))
     {
         ssize_t  imm = op2->AsIntCon()->GetValue();
@@ -976,137 +972,141 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
         {
             instruction ins;
 
-            if (imm >= 0)
+            if (arith->OperIs(GT_ADD))
             {
-                ins = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
+                ins = imm >= 0 ? INS_add : INS_sub;
             }
             else
             {
-                ins = arith->OperIs(GT_ADD) ? INS_sub : INS_add;
+                ins = imm >= 0 ? INS_sub : INS_add;
             }
 
-            arith->ChangeOper(GT_INSTR);
-
-            GenTreeInstr* instr = arith->AsInstr();
-            instr->SetIns(ins);
+            GenTreeInstr* instr = MakeInstr(arith, ins, size, op1);
             instr->SetImmediate(encodedArithImm);
-            instr->SetNumOps(1);
-            instr->SetOp(0, op1);
-
             BlockRange().Remove(op2);
-
             return;
         }
     }
 
-    instruction   ins   = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
-    insOpts       opt   = INS_OPTS_NONE;
-    unsigned      imm   = 0;
-    GenTreeCast*  cast  = nullptr;
-    GenTreeInstr* shift = nullptr;
-    GenTreeInstr* mul   = nullptr;
-    instruction   mins  = INS_none;
+    instruction   ins     = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
+    insOpts       opt     = INS_OPTS_NONE;
+    unsigned      imm     = 0;
+    GenTreeCast*  extend  = nullptr;
+    GenTreeInstr* shift   = nullptr;
+    GenTreeInstr* mul     = nullptr;
+    instruction   maddIns = INS_none;
 
-    if ((opt = GetEquivalentExtendOption(op2, size)) != INS_OPTS_NONE)
+    // TODO-MIKE-CQ: It most cases it doesn't matter which operand tree matches the pattern,
+    // one way or another we're going to remove an instruction. Extended register forms are
+    // an exception - 2 instructions can be removed, a cast and a shift - so both matches
+    // should be tried and the best one selected. Assuming that diffs show enough hits for
+    // this to warrant the extra throughput cost...
+
+    if ((opt = GetEquivalentShiftOptionArithmetic(op2, size)) != INS_OPTS_NONE)
     {
-        cast = op2->AsCast();
-        op2  = cast->GetOp(0);
-        op2->ClearContained();
-
-        BlockRange().Remove(cast);
-    }
-    else if ((ins == INS_add) && (opt = GetEquivalentExtendOption(op1, size)) != INS_OPTS_NONE)
-    {
-        cast = op1->AsCast();
-        op1  = cast->GetOp(0);
-        op1->ClearContained();
-
-        BlockRange().Remove(cast);
-    }
-    else if ((opt = GetEquivalentShiftOptionArithmetic(op2, size)) != INS_OPTS_NONE)
-    {
-        assert(op2->AsInstr()->GetNumOps() == 1);
-
         shift = op2->AsInstr();
         op2   = shift->GetOp(0);
         imm   = shift->GetImmediate();
 
-        BlockRange().Remove(shift);
+        assert(IsLegalToMoveUseForward(shift, arith, op2));
 
         if ((opt == INS_OPTS_LSL) && (imm <= 4))
         {
-            insOpts extendOption = GetEquivalentExtendOption(op2, size);
+            insOpts extendOption = GetEquivalentExtendOption(op2);
 
             if (extendOption != INS_OPTS_NONE)
             {
-                cast = op2->AsCast();
-                op2  = cast->GetOp(0);
+                extend = op2->AsCast();
+                op2    = extend->GetOp(0);
                 op2->ClearContained();
                 opt = extendOption;
 
-                BlockRange().Remove(cast);
+                assert(IsLegalToMoveUseForward(extend, arith, op2));
             }
         }
     }
     else if ((ins == INS_add) && (opt = GetEquivalentShiftOptionArithmetic(op1, size)) != INS_OPTS_NONE)
     {
-        assert(op1->AsInstr()->GetNumOps() == 1);
-
-        shift = op1->AsInstr();
-        op1   = shift->GetOp(0);
-        imm   = shift->GetImmediate();
-
         std::swap(op1, op2);
 
-        BlockRange().Remove(shift);
+        shift = op2->AsInstr();
+        op2   = shift->GetOp(0);
+        imm   = shift->GetImmediate();
+
+        assert(IsLegalToMoveUseForward(shift, arith, op2));
 
         if ((opt == INS_OPTS_LSL) && (imm <= 4))
         {
-            insOpts extendOption = GetEquivalentExtendOption(op1, size);
+            insOpts extendOption = GetEquivalentExtendOption(op2);
 
             if (extendOption != INS_OPTS_NONE)
             {
-                cast = op1->AsCast();
-                op1  = cast->GetOp(0);
-                op1->ClearContained();
+                extend = op2->AsCast();
+                op2    = extend->GetOp(0);
+                op2->ClearContained();
                 opt = extendOption;
 
-                BlockRange().Remove(cast);
+                assert(IsLegalToMoveUseForward(extend, arith, op2));
             }
         }
     }
-    else if ((mins = GetMultiplyAddInstruction(op2, ins, size)) != INS_none)
+    else if ((opt = GetEquivalentExtendOption(op2)) != INS_OPTS_NONE)
+    {
+        extend = op2->AsCast();
+        op2    = extend->GetOp(0);
+        op2->ClearContained();
+
+        assert(IsLegalToMoveUseForward(extend, arith, op2));
+    }
+    else if ((ins == INS_add) && (opt = GetEquivalentExtendOption(op1)) != INS_OPTS_NONE)
+    {
+        std::swap(op1, op2);
+
+        extend = op2->AsCast();
+        op2    = extend->GetOp(0);
+        op2->ClearContained();
+
+        assert(IsLegalToMoveUseForward(extend, arith, op2));
+    }
+    else if ((maddIns = GetMultiplyAddInstruction(op2, ins, size)) != INS_none)
     {
         mul = op2->AsInstr();
-
-        BlockRange().Remove(mul);
     }
-    else if ((ins == INS_add) && ((mins = GetMultiplyAddInstruction(op1, ins, size)) != INS_none))
+    else if ((ins == INS_add) && ((maddIns = GetMultiplyAddInstruction(op1, ins, size)) != INS_none))
     {
-        mul = op1->AsInstr();
+        std::swap(op1, op2);
 
-        BlockRange().Remove(mul);
+        mul = op2->AsInstr();
     }
-
-    arith->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = arith->AsInstr();
 
     if (mul == nullptr)
     {
-        instr->SetIns(ins, size, opt);
+        GenTreeInstr* instr = MakeInstr(arith, ins, size, op1, op2);
+        instr->SetOption(opt);
         instr->SetImmediate(imm);
-        instr->SetNumOps(2);
-        instr->SetOp(0, op1);
-        instr->SetOp(1, op2);
+
+        if (shift != nullptr)
+        {
+            BlockRange().Remove(shift);
+        }
+
+        if (extend != nullptr)
+        {
+            BlockRange().Remove(extend);
+        }
     }
-    else if (mul != nullptr)
+    else
     {
-        instr->SetIns(mins, size);
+        assert(IsLegalToMoveUseForward(mul, arith, mul->GetOp(0)));
+        assert(IsLegalToMoveUseForward(mul, arith, mul->GetOp(1)));
+
+        GenTreeInstr* instr = MakeInstr(arith, maddIns, size);
         instr->SetNumOps(3);
         instr->SetOp(0, mul->GetOp(0));
         instr->SetOp(1, mul->GetOp(1));
-        instr->SetOp(2, mul == op1 ? op2 : op1);
+        instr->SetOp(2, op1);
+
+        BlockRange().Remove(mul);
     }
 }
 
@@ -1133,20 +1133,13 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
         return;
     }
 
-    GenTree* op1 = mul->GetOp(0);
-    GenTree* op2 = mul->GetOp(1);
+    GenTree* op1  = mul->GetOp(0);
+    GenTree* op2  = mul->GetOp(1);
+    emitAttr size = emitActualTypeSize(mul->GetType());
 
     if (varTypeIsFloating(mul->GetType()))
     {
-        mul->ChangeOper(GT_INSTR);
-
-        GenTreeInstr* instr = mul->AsInstr();
-        instr->SetIns(INS_fmul);
-        instr->SetImmediate(0);
-        instr->SetNumOps(2);
-        instr->SetOp(0, op1);
-        instr->SetOp(1, op2);
-
+        MakeInstr(mul, INS_fmul, size, op1, op2);
         return;
     }
 
@@ -1154,18 +1147,11 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
     {
         bool isUnsigned = mul->IsUnsigned();
 
-        mul->ChangeOper(GT_INSTR);
-        GenTreeInstr* instr = mul->AsInstr();
-
         if (op1->TypeIs(TYP_LONG))
         {
             assert(mul->TypeIs(TYP_LONG));
 
-            instr->SetIns(isUnsigned ? INS_umulh : INS_smulh);
-            instr->SetImmediate(0);
-            instr->SetNumOps(2);
-            instr->SetOp(0, op1);
-            instr->SetOp(1, op2);
+            MakeInstr(mul, isUnsigned ? INS_umulh : INS_smulh, EA_8BYTE, op1, op2);
         }
         else
         {
@@ -1178,14 +1164,10 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             // long result. And in some cases magic division follows up with another right shift that currently doesn't
             // combine with this one.
 
-            instruction   ins  = isUnsigned ? INS_umull : INS_smull;
-            GenTreeInstr* mull = new (comp, GT_INSTR) GenTreeInstr(TYP_LONG, ins, op1, op2);
-            BlockRange().InsertBefore(mul, mull);
-
-            instr->SetIns(isUnsigned ? INS_lsr : INS_asr, EA_8BYTE);
+            instruction   ins   = isUnsigned ? INS_umull : INS_smull;
+            GenTreeInstr* mull  = NewInstrBefore(mul, TYP_LONG, ins, op1, op2);
+            GenTreeInstr* instr = MakeInstr(mul, isUnsigned ? INS_lsr : INS_asr, EA_8BYTE, mull);
             instr->SetImmediate(32);
-            instr->SetNumOps(1);
-            instr->SetOp(0, mull);
         }
 
         return;
@@ -1195,32 +1177,28 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
     {
         uint64_t value = static_cast<uint64_t>(intCon->GetValue());
 
-        if (!varTypeIsLong(mul->GetType()))
+        if (size == EA_4BYTE)
         {
             value &= UINT32_MAX;
         }
 
         if ((value > 1) && isPow2(value - 1))
         {
-            // MUL x, C where C is (2 ^ N + 1) can be transformed into ADD x, x, LSL #N
+            // MUL(x, C) where C is (2 ^ N + 1) can be transformed into ADD(x, x, LSL N)
             // This normally requires making x a LCL_VAR so it can have multiple uses,
-            // to avoid that generate a mul instruction with an immediate that's special
-            // cased in codegen.
+            // to avoid that generate a mul instruction with an immediate that codegen
+            // will special case to emit an add.
 
-            // Unfortunately the similar (2 ^ N - 1) case is a bit more complicated and
-            // requires either a LCL_VAR for multiple uses or special casing is register
-            // allocation as well since it requires 2 instructions:
+            // TODO-MIKE-CQ: Unfortunately the similar (2 ^ N - 1) case is a bit more
+            // complicated and requires either a LCL_VAR for multiple uses or special
+            // casing in register allocation as well, since it emits 2 instructions:
             //     lsl t, x, #N
             //     sub d, t, x
-            // where t may be the destination register if x is marked delay free.
+            // where t needs to be a temp register or the destination register, if x is
+            // marked delay free.
 
-            mul->ChangeOper(GT_INSTR);
-
-            GenTreeInstr* instr = mul->AsInstr();
-            instr->SetIns(INS_mul);
+            GenTreeInstr* instr = MakeInstr(mul, INS_mul, size, op1);
             instr->SetImmediate(genLog2(value - 1));
-            instr->SetNumOps(1);
-            instr->SetOp(0, op1);
 
             BlockRange().Remove(op2);
 
@@ -1243,14 +1221,16 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
                 {
                     ins = cast1->IsUnsigned() ? INS_umull : INS_smull;
 
+                    op1 = cast1->GetOp(0);
+                    op1->ClearContained();
+                    op2 = cast2->GetOp(0);
+                    op2->ClearContained();
+
+                    assert(IsLegalToMoveUseForward(cast1, mul, op1));
+                    assert(IsLegalToMoveUseForward(cast2, mul, op2));
+
                     BlockRange().Remove(cast1);
                     BlockRange().Remove(cast2);
-
-                    op1 = cast1->GetOp(0);
-                    op2 = cast2->GetOp(0);
-
-                    op1->ClearContained();
-                    op2->ClearContained();
                 }
             }
             else if (GenTreeIntCon* con = op2->IsIntCon())
@@ -1259,25 +1239,20 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
                 {
                     ins = cast1->IsUnsigned() ? INS_umull : INS_smull;
 
-                    BlockRange().Remove(cast1);
-
                     op1 = cast1->GetOp(0);
-
                     op1->ClearContained();
+
                     op2->SetType(TYP_INT);
+
+                    assert(IsLegalToMoveUseForward(cast1, mul, op1));
+
+                    BlockRange().Remove(cast1);
                 }
             }
         }
     }
 
-    mul->ChangeOper(GT_INSTR);
-
-    GenTreeInstr* instr = mul->AsInstr();
-    instr->SetIns(ins);
-    instr->SetImmediate(0);
-    instr->SetNumOps(2);
-    instr->SetOp(0, op1);
-    instr->SetOp(1, op2);
+    MakeInstr(mul, ins, size, op1, op2);
 }
 
 instruction GetEquivalentCompareOrTestInstruction(GenTreeInstr* instr)
@@ -1346,7 +1321,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
         // a bitmask imm so we don't need to check the non-immediate case.
 
         if (isPow2(static_cast<size_t>(op2Value)) && (andInstr->GetNumOps() == 1) &&
-            (DecodeBitmaskImm(andInstr->GetImmediate(), andInstr->GetAttr()) == op2Value))
+            (DecodeBitmaskImm(andInstr) == op2Value))
         {
             op2Value = 0;
             cmp->SetOper(GenTree::ReverseRelop(cmp->OperGet()));
@@ -1366,7 +1341,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
             }
             else
             {
-                op2->SetValue(DecodeBitmaskImm(andInstr->GetImmediate(), andInstr->GetAttr()));
+                op2->SetValue(DecodeBitmaskImm(andInstr));
                 cmp->SetOp(1, op2);
                 BlockRange().InsertBefore(cmp, op2);
             }
@@ -1389,19 +1364,15 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
         {
             if (cmp->OperIs(GT_GE))
             {
-                GenTreeInstr* mvn = new (comp, GT_INSTR) GenTreeInstr(op1->GetType(), INS_mvn, op1);
-                mvn->SetImmediate(0);
-                BlockRange().InsertAfter(op1, mvn);
-                op1 = mvn;
+                op1 = NewInstrAfter(op1, op1->GetType(), INS_mvn, op1);
+                CombineNot(op1->AsInstr());
             }
 
-            cmp->ChangeOper(GT_INSTR);
+            emitAttr size = emitActualTypeSize(op1->GetType());
 
-            GenTreeInstr* instr = cmp->AsInstr();
-            instr->SetIns(INS_lsr, emitActualTypeSize(op1));
-            instr->SetNumOps(1);
-            instr->SetImmediate(varTypeBitSize(varActualType(op1->GetType())) - 1);
-            instr->SetOp(0, op1);
+            GenTreeInstr* instr = MakeInstr(cmp, INS_lsr, size, op1);
+            instr->SetImmediate(EA_SIZE_IN_BYTES(size) * 8 - 1);
+            CombineShiftImmediate(instr);
 
             BlockRange().Remove(op2);
 
@@ -1420,18 +1391,16 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
     // TODO-MIKE-Consider: This is based on the XARCH model where there's no alternative
     // to using flags. But it's not clear if this is useful on ARM64 where CBZ & co. are
     // available. It's either
-    //     adds x0, x1, x2
+    //     cmn x1, x2
     //     b.eq L1
     // or
     //     add x0, x1, x2
     //     cbz L1
-    // The ARM Cortex optimization guide states that instruction variants that set flags
+    // Older ARM Cortex optimization guides state that instruction variants that set flags
     // are less efficient so it seems that the later variant is preferrable. It's also
     // preferrable to the JIT, considering the rather poor representation of flags in IR.
-    // The only advantage of the flags version is avoiding the need for a temp register.
-    // But the JIT doesn't get that right anyway, the flags version should actually be:
-    //     cmn x1, x2
-    //     b.eq L1
+    // The only advantage of the flags version is avoiding the need for a temp register,
+    // which given the rather high number of available registers is not that important.
     //
     // Of course, if the relop isn't used by a branch there's no alternative to the flags
     // version since conditional instructions like CSET do use flags.
@@ -1443,7 +1412,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
 
         if (cmpIns != INS_none)
         {
-            op1Instr->SetIns(cmpIns, op1Instr->GetAttr(), op1Instr->GetOption());
+            op1Instr->SetIns(cmpIns, op1Instr->GetSize(), op1Instr->GetOption());
             op1Instr->SetType(TYP_VOID);
             op1Instr->gtFlags |= GTF_SET_FLAGS;
 
@@ -1506,6 +1475,12 @@ GenTree* Lowering::LowerRelop(GenTreeOp* cmp)
 
         CheckImmedAndMakeContained(cmp, cmp->GetOp(1));
     }
+
+    // TODO-MIKE-CQ: Relop lowering doesn't take advantage of the shifted/extended reg forms of CMP/CMN.
+    // Much of the necessary code is already available in LowerArithmetic but transforming a relop into
+    // an INST requires finding its user and changing it to SETCC/JCC which more or less require changing
+    // a lot of stuff - OptimizeRelopImm which already does something like this in specific cases,
+    // LowerJTrue which generates CBZ & co. and possibly liveness/DCE which had some problems with JCCs.
 
     return cmp->gtNext;
 }
@@ -1582,5 +1557,48 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
     assert(jtrue->gtNext == nullptr);
     return nullptr;
 }
+
+#ifdef DEBUG
+bool Lowering::IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTree* def)
+{
+    // Moving forward the use of a LCL_VAR that may be a register candidate requires precautions.
+    // The LCL_VAR node doesn't act like a reg definition, there's only a reg use at the user's
+    // location. If the use is moved forward across another definition of the local then that
+    // definition's value will be used instead of the previous one.
+    //
+    // It's not clear if this can ever happen, the LIR is generated from trees that typically
+    // have stores only at root or inner but non-interfering stores (e.g. CSE temps).
+    //   - This kind of interference is possible in IL but the importer spills trees if it
+    //     encounters it.
+    //   - There's no forward substitution in LIR (or anywhere else in the JIT).
+    //   - VN CopyProp shouldn't be able to introduce such interference because doing so would
+    //     break JIT's SSA.
+    //
+    // So keep this as a debug check for now since it's not clear if the expense of running such
+    // checks any time a node is removed from LIR is worthwhile.
+
+    if (!def->OperIs(GT_LCL_VAR))
+    {
+        return true;
+    }
+
+    LclVarDsc* lcl = comp->lvaGetDesc(def->AsLclVar());
+
+    if (lcl->lvDoNotEnregister)
+    {
+        return true;
+    }
+
+    for (GenTree* node = oldUser->gtNext; node != nullptr && node != newUser; node = node->gtNext)
+    {
+        if (node->OperIs(GT_STORE_LCL_VAR) && (node->AsLclVar()->GetLclNum() == def->AsLclVar()->GetLclNum()))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+#endif
 
 #endif // TARGET_ARM64

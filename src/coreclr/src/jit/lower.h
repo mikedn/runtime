@@ -295,15 +295,24 @@ private:
     void LowerPutArgStk(GenTreePutArgStk* tree);
 
 #ifdef TARGET_ARM64
-    void LowerNot(GenTreeUnOp* not);
+    void LowerNot(GenTreeUnOp* node);
+    void CombineNot(GenTreeInstr* instr);
     void LowerLogical(GenTreeOp* logical);
-    void LowerNeg(GenTreeUnOp* neg);
+    void LowerNegate(GenTreeUnOp* neg);
     void LowerArithmetic(GenTreeOp* arith);
     void LowerMultiply(GenTreeOp* mul);
     void LowerShiftImmediate(GenTreeOp* shift);
+    void CombineShiftImmediate(GenTreeInstr* shift);
     void LowerShiftVariable(GenTreeOp* shift);
     GenTree* LowerRelop(GenTreeOp* relop);
     GenTree* OptimizeRelopImm(GenTreeOp* relop);
+    GenTreeInstr* MakeInstr(GenTree* node, instruction ins, emitAttr size);
+    GenTreeInstr* MakeInstr(GenTree* node, instruction ins, emitAttr size, GenTree* op1);
+    GenTreeInstr* MakeInstr(GenTree* node, instruction ins, emitAttr size, GenTree* op1, GenTree* op2);
+    GenTreeInstr* NewInstrBefore(GenTree* before, var_types type, instruction ins, GenTree* op1);
+    GenTreeInstr* NewInstrAfter(GenTree* after, var_types type, instruction ins, GenTree* op1);
+    GenTreeInstr* NewInstrBefore(GenTree* before, var_types type, instruction ins, GenTree* op1, GenTree* op2);
+    INDEBUG(bool IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTree* def);)
 #endif
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);

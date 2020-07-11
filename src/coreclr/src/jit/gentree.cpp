@@ -2237,7 +2237,7 @@ AGAIN:
 
         case GT_INSTR:
             hash = genTreeHashAdd(hash, tree->AsInstr()->GetIns());
-            hash = genTreeHashAdd(hash, tree->AsInstr()->GetAttr());
+            hash = genTreeHashAdd(hash, tree->AsInstr()->GetSize());
 #ifdef TARGET_ARMARCH
             hash = genTreeHashAdd(hash, tree->AsInstr()->GetOption());
 #endif
@@ -10874,13 +10874,25 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
 #ifdef TARGET_ARMARCH
         if (instr->GetOption() != INS_OPTS_NONE)
         {
-            printf(", %s #%u", insOptsName(instr->GetOption()), instr->GetImmediate());
+            printf(", %s %u", insOptsName(instr->GetOption()), instr->GetImmediate());
         }
         else
 #endif
             if (instr->GetImmediate() != 0)
         {
-            printf(", #%u", instr->GetImmediate());
+            switch (instr->GetIns())
+            {
+#ifdef TARGET_ARM64
+                case INS_and:
+                case INS_orr:
+                case INS_eor:
+                    printf(", 0x%x", DecodeBitmaskImm(instr->GetImmediate(), instr->GetSize()));
+                    break;
+#endif
+                default:
+                    printf(", %u", instr->GetImmediate());
+                    break;
+            }
         }
 
         printf("\n");

@@ -131,7 +131,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_NEG:
-            LowerNeg(node->AsUnOp());
+            LowerNegate(node->AsUnOp());
             break;
 
         case GT_ADD:
@@ -5225,6 +5225,9 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 #endif
     }
 
+    // TODO-MIKE-ARM64-CQ: Signed division by 2 generate a LSR that can be combined with
+    // the subsequent ADD.
+
     // We're committed to the conversion now. Go find the use if any.
     LIR::Use use;
     if (!BlockRange().TryGetUse(node, &use))
@@ -5439,7 +5442,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
 #elif defined(TARGET_X86)
         size_t mask = 0x1f;
 #elif defined(TARGET_ARM)
-        size_t   mask         = 0xff;
+        size_t mask = 0xff;
 #elif
 #error Unknown target
 #endif

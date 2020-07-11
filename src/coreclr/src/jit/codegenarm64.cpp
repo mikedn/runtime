@@ -9644,23 +9644,23 @@ void CodeGen::genAllocLclFrame(unsigned  frameSize,
     }
 }
 
-ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size)
-{
-    emitter::bitMaskImm imm;
-    imm.immNRS = encoded;
-    return emitter::emitDecodeBitMaskImm(imm, size);
-}
-
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
+    instruction ins  = instr->GetIns();
+    emitAttr    attr = instr->GetSize();
+    insOpts     opt  = instr->GetOption();
+    unsigned    imm  = instr->GetImmediate();
+
+    assert(!varTypeIsGC(instr->GetType()) || (emitActualTypeSize(instr->GetType()) == attr));
+
+    regNumber dstReg = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
+
+    // TODO-MIKE-Cleanup: It would be better to add some kind of "format" to GenTreeInstr
+    // in order to be able to simplify all this to a simple switch statement.
+
     if (instr->GetNumOps() == 1)
     {
-        instruction ins     = instr->GetIns();
-        emitAttr    attr    = instr->GetAttr();
-        insOpts     opt     = instr->GetOption();
-        regNumber   dstReg  = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
-        regNumber   srcReg1 = genConsumeReg(instr->GetOp(0));
-        unsigned    imm     = instr->GetImmediate();
+        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
 
         switch (ins)
         {
@@ -9678,15 +9678,15 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
                 GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm);
                 break;
 
+            case INS_cmp:
+            case INS_cmn:
+                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, imm);
+                break;
+
             case INS_and:
             case INS_orr:
             case INS_eor:
                 GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, DecodeBitmaskImm(imm, attr));
-                break;
-
-            case INS_cmp:
-            case INS_cmn:
-                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, imm);
                 break;
 
             case INS_tst:
@@ -9719,13 +9719,8 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
     }
     else if (instr->GetNumOps() == 2)
     {
-        instruction ins     = instr->GetIns();
-        emitAttr    attr    = instr->GetAttr();
-        insOpts     opt     = instr->GetOption();
-        regNumber   dstReg  = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
-        regNumber   srcReg1 = genConsumeReg(instr->GetOp(0));
-        regNumber   srcReg2 = genConsumeReg(instr->GetOp(1));
-        unsigned    imm     = instr->GetImmediate();
+        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+        regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
 
         switch (ins)
         {
@@ -9769,12 +9764,9 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
     {
         assert(instr->GetNumOps() == 3);
 
-        instruction ins     = instr->GetIns();
-        emitAttr    attr    = instr->GetAttr();
-        regNumber   dstReg  = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
-        regNumber   srcReg1 = genConsumeReg(instr->GetOp(0));
-        regNumber   srcReg2 = genConsumeReg(instr->GetOp(1));
-        regNumber   srcReg3 = genConsumeReg(instr->GetOp(2));
+        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+        regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
+        regNumber srcReg3 = genConsumeReg(instr->GetOp(2));
 
         GetEmitter()->emitIns_R_R_R_R(ins, attr, dstReg, srcReg1, srcReg2, srcReg3);
     }
