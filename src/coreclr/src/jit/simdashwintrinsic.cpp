@@ -700,7 +700,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                 case NI_VectorT128_CreateBroadcast:
                 case NI_VectorT256_CreateBroadcast:
                     assert(retType == TYP_VOID);
-                    return impAssignSIMDAddr(op1, gtNewSimdCreateBroadcastNode(simdType, op2, baseType, simdSize, /* isSimdAsHWIntrinsic */ true));
+                    return impAssignSIMDAddr(op1, gtNewSimdCreateBroadcastNode(simdType, op2, baseType, simdSize,
+                                                                               /* isSimdAsHWIntrinsic */ true));
 
                 case NI_Vector2_op_Division:
                 case NI_Vector3_op_Division:
@@ -908,7 +909,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                 case NI_Vector4_CreateBroadcast:
                 case NI_VectorT128_CreateBroadcast:
                     assert(retType == TYP_VOID);
-                    impAssignSIMDAddr(op1, gtNewSimdCreateBroadcastNode(simdType, op2, baseType, simdSize, /* isSimdAsHWIntrinsic */ true));
+                    impAssignSIMDAddr(op1, gtNewSimdCreateBroadcastNode(simdType, op2, baseType, simdSize,
+                                                                        /* isSimdAsHWIntrinsic */ true));
                     break;
 
                 case NI_VectorT128_Max:
