@@ -1025,6 +1025,8 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
                 op2 = op2->AsOp()->gtOp2;
             }
 
+            // printf("create assertion\n");
+
             assertion.op1.kind       = O1K_LCLVAR;
             assertion.op1.lcl.lclNum = lclNum;
             assertion.op1.vn         = vnStore->VNConservativeNormalValue(op1->gtVNPair);
@@ -1087,7 +1089,28 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
                             goto DONE_ASSERTION; // Don't make an assertion
                         }
 #endif // TARGET_ARM
-                        assertion.op2.u1.iconVal   = op2->AsIntCon()->gtIconVal;
+                        // TODO-MIKE-Cleanup: This logic should be in a GenTreeIntCon function.
+                        ssize_t value = op2->AsIntCon()->GetValue();
+                        switch (lclVar->GetType())
+                        {
+                            case TYP_BYTE:
+                                value = static_cast<int8_t>(value);
+                                break;
+                            case TYP_UBYTE:
+                            case TYP_BOOL:
+                                value = static_cast<uint8_t>(value);
+                                break;
+                            case TYP_SHORT:
+                                value = static_cast<int16_t>(value);
+                                break;
+                            case TYP_USHORT:
+                                value = static_cast<uint16_t>(value);
+                                break;
+                            default:
+                                break;
+                        }
+
+                        assertion.op2.u1.iconVal   = value;
                         assertion.op2.u1.iconFlags = op2->GetIconHandleFlag();
 #ifdef TARGET_64BIT
                         if (op2->TypeGet() == TYP_LONG || op2->TypeGet() == TYP_BYREF)
