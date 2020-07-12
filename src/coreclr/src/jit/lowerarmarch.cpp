@@ -1447,16 +1447,52 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
 
     if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType))
     {
-        // TODO-MIKE-CQ: Indirs with contained address mode are problematic. They may
-        // end up requiring a temp register and if the indir itself is made contained
-        // then nobody's going to reserve such a temp register, as this is normally
-        // done in LSRA's BuildIndir.
-        // Perhaps it would be better to not contain the indir and instead retype it
-        // and remove the cast. Unfortunately there's at least on case where this is
-        // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
+        bool isContainable = IsContainableMemoryOp(src);
 
-        if ((!src->OperIs(GT_IND) || !src->AsIndir()->GetAddr()->isContained()) && IsContainableMemoryOp(src) &&
-            (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
+        if (src->OperIs(GT_IND))
+        {
+            GenTree* addr = src->AsIndir()->GetAddr();
+
+            if (src->AsIndir()->IsVolatile())
+            {
+                isContainable = false;
+            }
+            else if (addr->isContained())
+            {
+                // Indirs with contained address modes are problematic, thanks in part to messed up
+                // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
+                // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
+                // need a temp register and if the indir itself is contained then nobody's going to
+                // reserve it, as this is normally done in LSRA's BuildIndir.
+                //
+                // Also, when the indir is contained, the type of the generated load instruction may
+                // be different from the actual indir type, affecting immediate offset validity.
+                //
+                // So allow containment if the address mode is definitely always valid: base+index
+                // of base+offset, if the offset is valid no matter the indir type is.
+                //
+                // Perhaps it would be better to not contain the indir and instead retype it
+                // and remove the cast. Unfortunately there's at least on case where this is
+                // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
+                // The best solution would be to lower indir+cast to the actual load instruction
+                // to be emitted.
+
+                if (!addr->IsAddrMode())
+                {
+                    isContainable = false;
+                }
+                else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->Offset() != 0))
+                {
+                    isContainable = false;
+                }
+                else if (addr->AsAddrMode()->Offset() < -255 || addr->AsAddrMode()->Offset() > 255)
+                {
+                    isContainable = false;
+                }
+            }
+        }
+
+        if (isContainable && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
         {
             // If this isn't an overflow checking cast then we can move it
             // right after the source node to avoid the interference check.
