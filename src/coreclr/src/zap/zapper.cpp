@@ -618,12 +618,10 @@ void Zapper::InitEE(BOOL fForceDebug, BOOL fForceProfile, BOOL fForceInstrument)
             ThrowHR(hr);
         }
 
-        if (altName == NULL)
+        if (altName != NULL)
         {
-            altName = MAKEDLLNAME_W(W("protojit"));
+            LoadAndInitializeJITForNgen(altName, &m_hAltJITCompiler, &m_alternateJit);
         }
-
-        LoadAndInitializeJITForNgen(altName, &m_hAltJITCompiler, &m_alternateJit);
     }
 #endif // ALLOW_SXS_JIT_NGEN
 }
