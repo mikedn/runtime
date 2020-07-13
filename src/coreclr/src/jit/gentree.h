@@ -1268,7 +1268,7 @@ public:
             return true;
         }
 #if defined(TARGET_ARM)
-        if (OperIs(GT_PUTARG_REG, GT_BITCAST))
+        if (OperIs(GT_PUTARG_REG, GT_BITCAST) && TypeIs(TYP_LONG))
         {
             return true;
         }
