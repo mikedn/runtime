@@ -1145,13 +1145,13 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
 
     if (mul->OperIs(GT_MULHI))
     {
-        bool isUnsigned = mul->IsUnsigned();
-
-        if (op1->TypeIs(TYP_LONG))
+        if (size == EA_8BYTE)
         {
             assert(mul->TypeIs(TYP_LONG));
+            assert(op1->TypeIs(TYP_LONG));
+            assert(op2->TypeIs(TYP_LONG));
 
-            MakeInstr(mul, isUnsigned ? INS_umulh : INS_smulh, EA_8BYTE, op1, op2);
+            MakeInstr(mul, mul->IsUnsigned() ? INS_umulh : INS_smulh, EA_8BYTE, op1, op2);
         }
         else
         {
@@ -1164,9 +1164,9 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             // long result. And in some cases magic division follows up with another right shift that currently doesn't
             // combine with this one.
 
-            instruction   ins   = isUnsigned ? INS_umull : INS_smull;
+            instruction   ins   = mul->IsUnsigned() ? INS_umull : INS_smull;
             GenTreeInstr* mull  = NewInstrBefore(mul, TYP_LONG, ins, op1, op2);
-            GenTreeInstr* instr = MakeInstr(mul, isUnsigned ? INS_lsr : INS_asr, EA_8BYTE, mull);
+            GenTreeInstr* instr = MakeInstr(mul, INS_lsr, EA_8BYTE, mull);
             instr->SetImmediate(32);
         }
 
