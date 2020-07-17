@@ -688,20 +688,6 @@ int LinearScan::BuildCast(GenTreeCast* cast)
         buildInternalFloatRegisterDefForNode(cast, RBM_ALLFLOAT);
         setInternalRegsDelayFree = true;
     }
-#else
-    // Overflow checking cast from TYP_LONG to TYP_INT requires a temporary register to
-    // store the min and max immediate values that cannot be encoded in the CMP instruction.
-    if (cast->gtOverflow() && varTypeIsLong(srcType) && !cast->IsUnsigned() && (castType == TYP_INT))
-    {
-        buildInternalIntRegisterDefForNode(cast);
-
-        // If the cast operand ends up being in memory then the value will be loaded directly
-        // into the destination register and thus the internal register has to be different.
-        if (src->isContained() || src->IsRegOptional())
-        {
-            setInternalRegsDelayFree = true;
-        }
-    }
 #endif
 
     int srcCount = BuildOperandUses(src);
