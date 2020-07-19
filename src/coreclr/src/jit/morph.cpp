@@ -3307,27 +3307,31 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                                     argObj->AsLclVarCommon()->SetLclNum(varDsc->lvFieldLclStart);
 
                                     if (varTypeIsEnregisterable(fieldVarDsc->TypeGet()) &&
-                                        (genTypeSize(fieldVarDsc->TypeGet()) == originalSize))
+                                        (varActualType(fieldVarDsc->GetType()) == varActualType(structBaseType)))
                                     {
                                         // Just use the existing field's type
-                                        argObj->gtType = fieldVarDsc->TypeGet();
+                                        argObj->SetType(fieldVarDsc->TypeGet());
                                     }
                                     else
                                     {
                                         // Can't use the existing field's type, so use GT_LCL_FLD to swizzle
                                         // to a new type
                                         argObj->ChangeOper(GT_LCL_FLD);
-                                        argObj->gtType = structBaseType;
+                                        argObj->SetType(structBaseType);
+
+                                        lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
                                     }
+
                                     assert(varTypeIsEnregisterable(argObj->TypeGet()));
                                     assert(copyBlkClass == NO_CLASS_HANDLE);
                                 }
                                 else
                                 {
                                     // use GT_LCL_FLD to swizzle the single field struct to a new type
-                                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
                                     argObj->ChangeOper(GT_LCL_FLD);
-                                    argObj->gtType = structBaseType;
+                                    argObj->SetType(structBaseType);
+
+                                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
                                 }
                             }
                             else
