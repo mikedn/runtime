@@ -55,6 +55,8 @@ enum instruction : unsigned
     INS_count = INS_none
 };
 
+INDEBUG(const char* insName(instruction ins);)
+
 /*****************************************************************************/
 
 enum insUpdateModes
@@ -123,6 +125,9 @@ enum insOpts: unsigned
     INS_OPTS_ASR,
     INS_OPTS_ROR
 };
+
+INDEBUG(const char* insOptsName(insOpts opt);)
+
 #elif defined(TARGET_ARM64)
 enum insOpts : unsigned
 {
@@ -179,6 +184,8 @@ enum insOpts : unsigned
     INS_OPTS_S_TO_H,      // Single to Half
     INS_OPTS_D_TO_H,      // Double to Half
 };
+
+INDEBUG(const char* insOptsName(insOpts opt);)
 
 enum insCond : unsigned
 {

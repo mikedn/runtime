@@ -3856,3 +3856,21 @@ int LinearScan::BuildCmp(GenTree* tree)
     }
     return srcCount;
 }
+
+int LinearScan::BuildInstr(GenTreeInstr* instr)
+{
+    int srcCount = 0;
+
+    for (GenTreeInstr::Use& use : instr->Uses())
+    {
+        BuildUse(use.GetNode());
+        srcCount++;
+    }
+
+    if (!instr->TypeIs(TYP_VOID))
+    {
+        BuildDef(instr);
+    }
+
+    return srcCount;
+}

@@ -2313,7 +2313,7 @@ void emitter::emitIns_R_R(
             break;
         default:
 #ifdef DEBUG
-            printf("did not expect instruction %s\n", codeGen->genInsName(ins));
+            printf("did not expect instruction %s\n", insName(ins));
 #endif
             unreached();
     }
@@ -6600,7 +6600,7 @@ static bool insAlwaysSetFlags(instruction ins)
  */
 void emitter::emitDispInst(instruction ins, insFlags flags)
 {
-    const char* insstr = codeGen->genInsName(ins);
+    const char* insstr = insName(ins);
     size_t      len    = strlen(insstr);
 
     /* Display the instruction name */
@@ -6740,23 +6740,30 @@ void emitter::emitDispRegmask(int imm, bool encodedPC_LR)
     printf("}");
 }
 
-/*****************************************************************************
- *
- *  Returns the encoding for the Shift Type bits to be used in a Thumb-2 encoding
- */
+const char* insOptsName(insOpts opt)
+{
+    switch (opt)
+    {
+        case INS_OPTS_NONE:
+            return "";
+        case INS_OPTS_RRX:
+            return "RRX";
+        case INS_OPTS_LSL:
+            return "LSL";
+        case INS_OPTS_LSR:
+            return "LSR";
+        case INS_OPTS_ASR:
+            return "ASR";
+        case INS_OPTS_ROR:
+            return "ROR";
+        default:
+            return "???";
+    }
+}
 
 void emitter::emitDispShiftOpts(insOpts opt)
 {
-    if (opt == INS_OPTS_LSL)
-        printf(" LSL ");
-    else if (opt == INS_OPTS_LSR)
-        printf(" LSR ");
-    else if (opt == INS_OPTS_ASR)
-        printf(" ASR ");
-    else if (opt == INS_OPTS_ROR)
-        printf(" ROR ");
-    else if (opt == INS_OPTS_RRX)
-        printf(" RRX ");
+    printf(" %s ", insOptsName(opt));
 }
 
 /*****************************************************************************

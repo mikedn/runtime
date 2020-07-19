@@ -1034,7 +1034,7 @@ public:
         if (gtType == TYP_VOID)
         {
             // These are the only operators which can produce either VOID or non-VOID results.
-            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA) || OperIsCompare() || OperIsLong() || OperIsSIMD() ||
+            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || OperIsLong() || OperIsSIMD() ||
                    OperIsHWIntrinsic());
             return false;
         }
@@ -2655,6 +2655,7 @@ class GenTreeUseEdgeIterator final
     void AdvanceHWIntrinsic();
     void AdvanceHWIntrinsicReverseOp();
 #endif
+    void AdvanceInstr();
 
     template <bool ReverseOperands>
     void           AdvanceBinOp();
@@ -4852,6 +4853,7 @@ class GenTreeUse
 {
     friend struct GenTreeSIMD;
     friend struct GenTreeHWIntrinsic;
+    friend struct GenTreeInstr;
 
     GenTree* m_node;
 

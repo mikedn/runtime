@@ -21429,11 +21429,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 break;
 
             default:
-
-#ifdef DEBUG
-                gtDispTree(tree);
-#endif
-
+                INDEBUG(gtDispTree(tree);)
                 assert(!"Unknown operator for fgDebugCheckFlags");
                 break;
         }

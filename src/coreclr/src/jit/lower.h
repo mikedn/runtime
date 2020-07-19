@@ -83,7 +83,7 @@ private:
     void ContainCheckArrOffset(GenTreeArrOffs* node);
     void ContainCheckLclHeap(GenTreeOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
-    void ContainCheckJTrue(GenTreeOp* node);
+    void ContainCheckJTrue(GenTreeUnOp* node);
 
     void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
@@ -124,9 +124,11 @@ private:
 #ifndef TARGET_64BIT
     GenTree* DecomposeLongCompare(GenTree* cmp);
 #endif
+#ifndef TARGET_ARM64
     GenTree* OptimizeConstCompare(GenTree* cmp);
     GenTree* LowerCompare(GenTree* cmp);
-    GenTree* LowerJTrue(GenTreeOp* jtrue);
+#endif
+    GenTree* LowerJTrue(GenTreeUnOp* jtrue);
     GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
     void LowerJmpMethod(GenTree* jmp);
     void LowerRet(GenTreeUnOp* ret);
@@ -291,6 +293,27 @@ private:
     void LowerBlockStoreCommon(GenTreeBlk* blkNode);
     void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
+
+#ifdef TARGET_ARM64
+    void LowerNot(GenTreeUnOp* node);
+    void CombineNot(GenTreeInstr* instr);
+    void LowerLogical(GenTreeOp* logical);
+    void LowerNegate(GenTreeUnOp* neg);
+    void LowerArithmetic(GenTreeOp* arith);
+    void LowerMultiply(GenTreeOp* mul);
+    void LowerShiftImmediate(GenTreeOp* shift);
+    void CombineShiftImmediate(GenTreeInstr* shift);
+    void LowerShiftVariable(GenTreeOp* shift);
+    GenTree* LowerRelop(GenTreeOp* relop);
+    GenTree* OptimizeRelopImm(GenTreeOp* relop);
+    GenTreeInstr* MakeInstr(GenTree* node, instruction ins, emitAttr size);
+    GenTreeInstr* MakeInstr(GenTree* node, instruction ins, emitAttr size, GenTree* op1);
+    GenTreeInstr* MakeInstr(GenTree* node, instruction ins, emitAttr size, GenTree* op1, GenTree* op2);
+    GenTreeInstr* NewInstrBefore(GenTree* before, var_types type, instruction ins, GenTree* op1);
+    GenTreeInstr* NewInstrAfter(GenTree* after, var_types type, instruction ins, GenTree* op1);
+    GenTreeInstr* NewInstrBefore(GenTree* before, var_types type, instruction ins, GenTree* op1, GenTree* op2);
+    INDEBUG(bool IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTree* def);)
+#endif
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);
 

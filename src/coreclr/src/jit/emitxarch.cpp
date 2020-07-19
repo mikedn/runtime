@@ -8176,7 +8176,7 @@ void emitter::emitDispIns(
 
     /* Display the instruction name */
 
-    sstr = codeGen->genInsName(ins);
+    sstr = insName(ins);
 
     if (IsAVXInstruction(ins) && !IsBMIInstruction(ins))
     {

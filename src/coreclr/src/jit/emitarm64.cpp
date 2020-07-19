@@ -11477,7 +11477,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
  */
 void emitter::emitDispInst(instruction ins)
 {
-    const char* insstr = codeGen->genInsName(ins);
+    const char* insstr = insName(ins);
     size_t      len    = strlen(insstr);
 
     /* Display the instruction name */
@@ -11629,73 +11629,56 @@ void emitter::emitDispBarrier(insBarrier barrier)
     printf(armBarriers[imm]);
 }
 
-/*****************************************************************************
- *
- *  Prints the encoding for the Shift Type encoding
- */
+const char* insOptsName(insOpts opt)
+{
+    switch (opt)
+    {
+        case INS_OPTS_NONE:
+            return "";
+        case INS_OPTS_LSL:
+            return "LSL";
+        case INS_OPTS_LSR:
+            return "LSR";
+        case INS_OPTS_ASR:
+            return "ASR";
+        case INS_OPTS_ROR:
+            return "ROR";
+        case INS_OPTS_MSL:
+            return "MSL";
+        case INS_OPTS_UXTB:
+            return "UXTB";
+        case INS_OPTS_UXTH:
+            return "UXTH";
+        case INS_OPTS_UXTW:
+            return "UXTW";
+        case INS_OPTS_UXTX:
+            return "UXTX";
+        case INS_OPTS_SXTB:
+            return "SXTB";
+        case INS_OPTS_SXTH:
+            return "SXTH";
+        case INS_OPTS_SXTW:
+            return "SXTW";
+        case INS_OPTS_SXTX:
+            return "SXTX";
+        default:
+            return "???";
+    }
+}
 
 void emitter::emitDispShiftOpts(insOpts opt)
 {
-    if (opt == INS_OPTS_LSL)
-        printf(" LSL ");
-    else if (opt == INS_OPTS_LSR)
-        printf(" LSR ");
-    else if (opt == INS_OPTS_ASR)
-        printf(" ASR ");
-    else if (opt == INS_OPTS_ROR)
-        printf(" ROR ");
-    else if (opt == INS_OPTS_MSL)
-        printf(" MSL ");
-    else
-        assert(!"Bad value");
+    printf(" %s ", insOptsName(opt));
 }
-
-/*****************************************************************************
- *
- *  Prints the encoding for the Extend Type encoding
- */
 
 void emitter::emitDispExtendOpts(insOpts opt)
 {
-    if (opt == INS_OPTS_UXTB)
-        printf("UXTB");
-    else if (opt == INS_OPTS_UXTH)
-        printf("UXTH");
-    else if (opt == INS_OPTS_UXTW)
-        printf("UXTW");
-    else if (opt == INS_OPTS_UXTX)
-        printf("UXTX");
-    else if (opt == INS_OPTS_SXTB)
-        printf("SXTB");
-    else if (opt == INS_OPTS_SXTH)
-        printf("SXTH");
-    else if (opt == INS_OPTS_SXTW)
-        printf("SXTW");
-    else if (opt == INS_OPTS_SXTX)
-        printf("SXTX");
-    else
-        assert(!"Bad value");
+    printf("%s", insOptsName(opt));
 }
-
-/*****************************************************************************
- *
- *  Prints the encoding for the Extend Type encoding in loads/stores
- */
 
 void emitter::emitDispLSExtendOpts(insOpts opt)
 {
-    if (opt == INS_OPTS_LSL)
-        printf("LSL");
-    else if (opt == INS_OPTS_UXTW)
-        printf("UXTW");
-    else if (opt == INS_OPTS_UXTX)
-        printf("UXTX");
-    else if (opt == INS_OPTS_SXTW)
-        printf("SXTW");
-    else if (opt == INS_OPTS_SXTX)
-        printf("SXTX");
-    else
-        assert(!"Bad value");
+    printf("%s", insOptsName(opt));
 }
 
 //------------------------------------------------------------------------

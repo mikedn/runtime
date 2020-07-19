@@ -14805,6 +14805,14 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             break;
 #endif // FEATURE_SIMD
 
+        case GT_INSTR:
+            assert(compRationalIRForm);
+            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
+            {
+                use.SetNode(fgMorphTree(use.GetNode()));
+            }
+            break;
+
         case GT_CMPXCHG:
             tree->AsCmpXchg()->gtOpLocation  = fgMorphTree(tree->AsCmpXchg()->gtOpLocation);
             tree->AsCmpXchg()->gtOpValue     = fgMorphTree(tree->AsCmpXchg()->gtOpValue);

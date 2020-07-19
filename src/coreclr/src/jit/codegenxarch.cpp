@@ -1836,6 +1836,10 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             // Do nothing; these nodes are simply markers for debug info.
             break;
 
+        case GT_INSTR:
+            genCodeForInstr(treeNode->AsInstr());
+            break;
+
         default:
         {
 #ifdef DEBUG
@@ -8687,5 +8691,10 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
 #endif // TARGET_AMD64
 
 #endif // PROFILING_SUPPORTED
+
+void CodeGen::genCodeForInstr(GenTreeInstr* instr)
+{
+    unreached();
+}
 
 #endif // TARGET_XARCH

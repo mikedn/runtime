@@ -1846,4 +1846,9 @@ void CodeGen::genAllocLclFrame(unsigned  frameSize,
 #endif // USING_SCOPE_INFO
 }
 
+void CodeGen::genCodeForInstr(GenTreeInstr* instr)
+{
+    unreached();
+}
+
 #endif // TARGET_ARM

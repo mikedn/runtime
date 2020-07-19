@@ -3541,14 +3541,13 @@ void CodeGen::genCodeForJumpCompare(GenTreeOp* tree)
 
     if (tree->gtFlags & GTF_JCMP_TST)
     {
-        ssize_t compareImm = op2->AsIntCon()->IconValue();
+        size_t imm = static_cast<size_t>(op2->AsIntCon()->GetValue());
 
-        assert(isPow2(compareImm));
+        assert(imm < EA_SIZE(attr) * 8);
 
         instruction ins = (tree->gtFlags & GTF_JCMP_EQ) ? INS_tbz : INS_tbnz;
-        int         imm = genLog2((size_t)compareImm);
 
-        GetEmitter()->emitIns_J_R_I(ins, attr, compiler->compCurBB->bbJumpDest, reg, imm);
+        GetEmitter()->emitIns_J_R_I(ins, attr, compiler->compCurBB->bbJumpDest, reg, static_cast<int>(imm));
     }
     else
     {
@@ -9642,6 +9641,139 @@ void CodeGen::genAllocLclFrame(unsigned  frameSize,
 
         regSet.verifyRegUsed(initReg);
         *pInitRegModified = true;
+    }
+}
+
+void CodeGen::genCodeForInstr(GenTreeInstr* instr)
+{
+    instruction ins  = instr->GetIns();
+    emitAttr    attr = instr->GetSize();
+    insOpts     opt  = instr->GetOption();
+    unsigned    imm  = instr->GetImmediate();
+
+    assert(!varTypeIsGC(instr->GetType()) || (emitActualTypeSize(instr->GetType()) == attr));
+
+    regNumber dstReg = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
+
+    // TODO-MIKE-Cleanup: It would be better to add some kind of "format" to GenTreeInstr
+    // in order to be able to simplify all this to a simple switch statement.
+
+    if (instr->GetNumOps() == 1)
+    {
+        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+
+        switch (ins)
+        {
+            case INS_mul:
+                // Special case - INS_mul with a single operand is treated as ADD ..., x1, x1, LSL #imm
+                GetEmitter()->emitIns_R_R_R_I(INS_add, attr, dstReg, srcReg1, srcReg1, imm, INS_OPTS_LSL);
+                break;
+
+            case INS_add:
+            case INS_sub:
+            case INS_asr:
+            case INS_lsr:
+            case INS_lsl:
+            case INS_ror:
+                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm);
+                break;
+
+            case INS_cmp:
+            case INS_cmn:
+                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, imm);
+                break;
+
+            case INS_and:
+            case INS_orr:
+            case INS_eor:
+                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, DecodeBitmaskImm(imm, attr));
+                break;
+
+            case INS_tst:
+                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, DecodeBitmaskImm(imm, attr));
+                break;
+
+            case INS_mvn:
+            case INS_neg:
+                if (opt != INS_OPTS_NONE)
+                {
+                    GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, imm, opt);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1);
+                }
+                break;
+
+            case INS_sbfiz:
+            case INS_ubfiz:
+            case INS_sbfx:
+            case INS_ubfx:
+                GetEmitter()->emitIns_R_R_I_I(ins, attr, dstReg, srcReg1, imm >> 6, imm & 63);
+                break;
+
+            default:
+                GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1);
+                break;
+        }
+    }
+    else if (instr->GetNumOps() == 2)
+    {
+        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+        regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
+
+        switch (ins)
+        {
+            case INS_add:
+            case INS_sub:
+            case INS_and:
+            case INS_bic:
+            case INS_orr:
+            case INS_orn:
+            case INS_eor:
+            case INS_eon:
+                if (opt != INS_OPTS_NONE)
+                {
+                    GetEmitter()->emitIns_R_R_R_I(ins, attr, dstReg, srcReg1, srcReg2, imm, opt);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
+                }
+                break;
+
+            case INS_cmp:
+            case INS_cmn:
+            case INS_tst:
+                if (opt != INS_OPTS_NONE)
+                {
+                    GetEmitter()->emitIns_R_R_I(ins, attr, srcReg1, srcReg2, imm, opt);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_R(ins, attr, srcReg1, srcReg2);
+                }
+                break;
+
+            default:
+                GetEmitter()->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
+                break;
+        }
+    }
+    else
+    {
+        assert(instr->GetNumOps() == 3);
+
+        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+        regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
+        regNumber srcReg3 = genConsumeReg(instr->GetOp(2));
+
+        GetEmitter()->emitIns_R_R_R_R(ins, attr, dstReg, srcReg1, srcReg2, srcReg3);
+    }
+
+    if (!instr->TypeIs(TYP_VOID))
+    {
+        genProduceReg(instr);
     }
 }
 

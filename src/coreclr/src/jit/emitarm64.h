@@ -125,6 +125,7 @@ bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src
 * that is listed as imm(N,r,s) and referred to as 'bitmask immediate'
 */
 
+public:
 union bitMaskImm {
     struct
     {
@@ -145,6 +146,7 @@ static emitter::bitMaskImm emitEncodeBitMaskImm(INT64 imm, emitAttr size);
 
 static INT64 emitDecodeBitMaskImm(const emitter::bitMaskImm bmImm, emitAttr size);
 
+private:
 /************************************************************************
 *
 * This union is used to to encode/decode the special ARM64 immediate values

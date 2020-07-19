@@ -215,8 +215,6 @@ protected:
 #ifdef DEBUG
     // Last instr we have displayed for dspInstrs
     unsigned genCurDispOffset;
-
-    static const char* genInsName(instruction ins);
 #endif // DEBUG
 
     //-------------------------------------------------------------------------
@@ -1207,6 +1205,7 @@ protected:
     void genCodeForPhysReg(GenTreePhysReg* tree);
     void genCodeForNullCheck(GenTreeIndir* tree);
     void genCodeForCmpXchg(GenTreeCmpXchg* tree);
+    void genCodeForInstr(GenTreeInstr* instr);
 
     void genAlignStackBeforeCall(GenTreePutArgStk* putArgStk);
     void genAlignStackBeforeCall(GenTreeCall* call);

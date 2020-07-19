@@ -525,6 +525,10 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             // Do nothing; these nodes are simply markers for debug info.
             break;
 
+        case GT_INSTR:
+            genCodeForInstr(treeNode->AsInstr());
+            break;
+
         default:
         {
 #ifdef DEBUG
@@ -2861,7 +2865,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             genJumpToThrowHlpBlk(EJ_lt, SCK_OVERFLOW);
             break;
 
-#ifdef TARGET_64BIT
+#ifdef TARGET_ARM64
         case GenIntCastDesc::CHECK_UINT_RANGE:
             // We need to check if the value is not greater than 0xFFFFFFFF but this value
             // cannot be encoded in the immediate operand of CMP. Use TST instead to check
@@ -2879,17 +2883,9 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             break;
 
         case GenIntCastDesc::CHECK_INT_RANGE:
-        {
-            const regNumber tempReg = cast->GetSingleTempReg();
-            assert(tempReg != reg);
-            instGen_Set_Reg_To_Imm(EA_8BYTE, tempReg, INT32_MAX);
-            GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, reg, tempReg);
-            genJumpToThrowHlpBlk(EJ_gt, SCK_OVERFLOW);
-            instGen_Set_Reg_To_Imm(EA_8BYTE, tempReg, INT32_MIN);
-            GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, reg, tempReg);
-            genJumpToThrowHlpBlk(EJ_lt, SCK_OVERFLOW);
-        }
-        break;
+            GetEmitter()->emitIns_R_R_I(INS_cmp, EA_8BYTE, reg, reg, 0, INS_OPTS_SXTW);
+            genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+            break;
 #endif
 
         default:
@@ -2898,6 +2894,19 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             const int castMaxValue = desc.CheckSmallIntMax();
             const int castMinValue = desc.CheckSmallIntMin();
 
+#ifdef TARGET_ARM64
+            if (castMinValue != 0)
+            {
+                assert(((castMinValue == -128) && (castMaxValue == 127)) ||
+                       ((castMinValue == -32768) && (castMaxValue == 32767)));
+
+                GetEmitter()->emitIns_R_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, reg, 0,
+                                            castMinValue == -128 ? INS_OPTS_SXTB : INS_OPTS_SXTH);
+                genJumpToThrowHlpBlk(EJ_ne, SCK_OVERFLOW);
+                break;
+            }
+#endif
+
             // Values greater than 255 cannot be encoded in the immediate operand of CMP.
             // Replace (x > max) with (x >= max + 1) where max + 1 (a power of 2) can be
             // encoded. We could do this for all max values but on ARM32 "cmp r0, 255"
@@ -2905,18 +2914,18 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
             if (castMaxValue > 255)
             {
                 assert((castMaxValue == 32767) || (castMaxValue == 65535));
-                GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMaxValue + 1);
+                GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMaxValue + 1);
                 genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hs : EJ_ge, SCK_OVERFLOW);
             }
             else
             {
-                GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMaxValue);
+                GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMaxValue);
                 genJumpToThrowHlpBlk((castMinValue == 0) ? EJ_hi : EJ_gt, SCK_OVERFLOW);
             }
 
             if (castMinValue != 0)
             {
-                GetEmitter()->emitIns_R_I(INS_cmp, EA_SIZE(desc.CheckSrcSize()), reg, castMinValue);
+                GetEmitter()->emitIns_R_I(INS_cmp, EA_ATTR(desc.CheckSrcSize()), reg, castMinValue);
                 genJumpToThrowHlpBlk(EJ_lt, SCK_OVERFLOW);
             }
         }

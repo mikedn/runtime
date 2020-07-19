@@ -809,6 +809,10 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
+        case GT_INSTR:
+            srcCount = BuildInstr(tree->AsInstr());
+            break;
+
         default:
 #ifdef DEBUG
             char message[256];
