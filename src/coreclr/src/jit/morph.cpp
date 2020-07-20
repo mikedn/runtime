@@ -3290,66 +3290,28 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                             argx = temp;
                         }
                     }
-                    if (argObj->gtOper == GT_LCL_VAR)
+
+                    if (argObj->OperIs(GT_LCL_VAR))
                     {
-                        unsigned   lclNum = argObj->AsLclVarCommon()->GetLclNum();
-                        LclVarDsc* varDsc = &lvaTable[lclNum];
+                        LclVarDsc* varDsc = lvaGetDesc(argObj->AsLclVar());
 
-                        if (varDsc->lvPromoted && !varDsc->lvDoNotEnregister)
+                        if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
                         {
-                            if (varDsc->lvFieldCnt == 1)
+                            GenTree* newArg =
+                                abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), structBaseType, originalSize);
+
+                            if (newArg != nullptr)
                             {
-                                // get the first and only promoted field
-                                LclVarDsc* fieldVarDsc = &lvaTable[varDsc->lvFieldLclStart];
-                                if (genTypeSize(fieldVarDsc->TypeGet()) >= originalSize)
-                                {
-                                    // we will use the first and only promoted field
-                                    argObj->AsLclVarCommon()->SetLclNum(varDsc->lvFieldLclStart);
-
-                                    if (varTypeIsEnregisterable(fieldVarDsc->TypeGet()) &&
-                                        (varActualType(fieldVarDsc->GetType()) == varActualType(structBaseType)))
-                                    {
-                                        // Just use the existing field's type
-                                        argObj->SetType(fieldVarDsc->TypeGet());
-                                    }
-                                    else
-                                    {
-                                        // Can't use the existing field's type, so use GT_LCL_FLD to swizzle
-                                        // to a new type
-                                        argObj->ChangeOper(GT_LCL_FLD);
-                                        argObj->SetType(structBaseType);
-
-                                        lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
-                                    }
-
-                                    assert(varTypeIsEnregisterable(argObj->TypeGet()));
-                                    assert(copyBlkClass == NO_CLASS_HANDLE);
-                                }
-                                else
-                                {
-                                    // use GT_LCL_FLD to swizzle the single field struct to a new type
-                                    argObj->ChangeOper(GT_LCL_FLD);
-                                    argObj->SetType(structBaseType);
-
-                                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
-                                }
+                                argObj = newArg;
+                                args->SetNode(newArg);
+                                argx = newArg;
                             }
                             else
                             {
-                                GenTree* newArg = abiMorphPromotedRegisterCallArg(varDsc, structBaseType);
-
-                                if (newArg != nullptr)
-                                {
-                                    argObj = newArg;
-                                    args->SetNode(newArg);
-                                    argx = newArg;
-                                }
-                                else
-                                {
-                                    // The struct fits into a single register, but it has been promoted into its
-                                    // constituent fields, and so we have to re-assemble it
-                                    copyBlkClass = objClass;
-                                }
+                                // The struct fits into a single register, but it has been promoted into its
+                                // constituent fields, and so we have to re-assemble it in a temp to avoid
+                                // DNERing the promoted local.
+                                copyBlkClass = objClass;
                             }
                         }
                         else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(structBaseType))
@@ -3788,25 +3750,55 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
     }
 }
 
-// Attempt to pack the fields of a promoted struct arg into a single value of call argument's type.
-//
-GenTree* Compiler::abiMorphPromotedRegisterCallArg(LclVarDsc* lcl, var_types argType)
+GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize)
 {
-    assert(lcl->IsPromoted());
+    LclVarDsc* lcl = lvaGetDesc(arg);
 
-    if ((argType != TYP_BYTE) && (argType != TYP_SHORT) && (argType != TYP_INT) && (argType != TYP_LONG))
+    if (lcl->GetPromotedFieldCount() == 1)
+    {
+        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+        assert(varTypeIsEnregisterable(fieldLcl->GetType()));
+
+        if (argSize <= varTypeSize(fieldLcl->GetType()))
+        {
+            arg->SetLclNum(lcl->GetPromotedFieldLclNum(0));
+
+            if (varActualType(fieldLcl->GetType()) == varActualType(argRegType))
+            {
+                arg->SetType(fieldLcl->GetType());
+            }
+            else
+            {
+                arg->ChangeOper(GT_LCL_FLD);
+                arg->SetType(argRegType);
+
+                lvaSetVarDoNotEnregister(arg->GetLclNum() DEBUGARG(DNER_LocalField));
+            }
+        }
+        else
+        {
+            arg->ChangeOper(GT_LCL_FLD);
+            arg->SetType(argRegType);
+
+            lvaSetVarDoNotEnregister(arg->GetLclNum() DEBUGARG(DNER_LocalField));
+        }
+
+        return arg;
+    }
+
+    if ((argRegType != TYP_BYTE) && (argRegType != TYP_SHORT) && (argRegType != TYP_INT) && (argRegType != TYP_LONG))
     {
         return nullptr;
     }
 
-    if (lcl->lvExactSize > varTypeSize(argType))
+    if (lcl->lvExactSize > varTypeSize(argRegType))
     {
         return nullptr;
     }
 
-    argType = varActualType(argType);
+    argRegType = varActualType(argRegType);
 
-    GenTree* arg = nullptr;
+    GenTree* newArg = nullptr;
 
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
     {
@@ -3832,7 +3824,7 @@ GenTree* Compiler::abiMorphPromotedRegisterCallArg(LclVarDsc* lcl, var_types arg
         {
             field = gtNewBitCastNode(TYP_INT, field);
         }
-        else if ((fieldLcl->GetType() == TYP_DOUBLE) && (argType == TYP_LONG))
+        else if ((fieldLcl->GetType() == TYP_DOUBLE) && (argRegType == TYP_LONG))
         {
             // TODO-MIKE-Cleanup: Handle this separately since we never need to pack a double
             // field with any other field. Also, the LONG BITCAST doesn't work on 32 bit targets.
@@ -3843,33 +3835,33 @@ GenTree* Compiler::abiMorphPromotedRegisterCallArg(LclVarDsc* lcl, var_types arg
         {
             // This shouldn't really happen. The only potential case that isn't handled
             // above is SIMD8 but that would have to be a struct with a single field and
-            // that case is currently handled by the caller.
+            // that case is already handled above.
             return nullptr;
         }
 
-        if ((argType == TYP_LONG) && (field->GetType() != TYP_LONG))
+        if ((argRegType == TYP_LONG) && (field->GetType() != TYP_LONG))
         {
             field = gtNewCastNode(TYP_LONG, field, true, TYP_LONG);
         }
 
         if (fieldLcl->GetPromotedFieldOffset() != 0)
         {
-            // TODO-MIKE-CQ: On ARMARCH OR + LSH should produced a single ORR with shifted register
+            // TODO-MIKE-CQ: On ARM32 OR + LSH should produced a single ORR with shifted register
             // instruction but lowering/codegen doesn't know that.
-            field = gtNewOperNode(GT_LSH, argType, field, gtNewIconNode(fieldLcl->GetPromotedFieldOffset() * 8));
+            field = gtNewOperNode(GT_LSH, argRegType, field, gtNewIconNode(fieldLcl->GetPromotedFieldOffset() * 8));
         }
 
-        if (arg == nullptr)
+        if (newArg == nullptr)
         {
-            arg = field;
+            newArg = field;
         }
         else
         {
-            arg = gtNewOperNode(GT_OR, argType, arg, field);
+            newArg = gtNewOperNode(GT_OR, argRegType, newArg, field);
         }
     }
 
-    return arg;
+    return newArg;
 }
 
 #if FEATURE_MULTIREG_ARGS
@@ -4063,7 +4055,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
 
         if (reg * REGSIZE_BYTES != fieldOffset)
         {
-            // TODO-MIKE-CQ: Use abiMorphPromotedRegisterCallArg to handle the case of multiple
+            // TODO-MIKE-CQ: Use abiMorphPromotedStructArgToSingleReg to handle the case of multiple
             // small int, INT or FLOAT fields being passed in a single register.
             return false;
         }
