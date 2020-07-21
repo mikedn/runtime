@@ -3763,12 +3763,29 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
         {
             arg->SetLclNum(lcl->GetPromotedFieldLclNum(0));
 
-            if (varActualType(fieldLcl->GetType()) == varActualType(argRegType))
+            if ((varTypeUsesFloatReg(fieldLcl->GetType()) == varTypeUsesFloatReg(argRegType))
+#ifndef TARGET_64BIT
+                // Don't allow LONG fields on 32 bit targets. There's no way to pass a LONG in a single
+                // register so this means that some kind of reinterpretation ocurred and the field is
+                // actually passed in an INT register. If this is allowed the backend will get confused
+                // because the local has to be decomposed and the call doesn't know what to do with the
+                // resulting GT_LONG. We could insert a cast to INT but it's unlikely that's it's worth
+                // the trouble to support such cases.
+                && (fieldLcl->GetType() != TYP_LONG)
+#endif
+                    )
             {
                 arg->SetType(fieldLcl->GetType());
             }
             else
             {
+                // Some float/int reg mismatches can be handled by inserting BITCAST but currently
+                // such cases occur only due to struct reinterpretation so it's not worth the trouble.
+
+                // TODO-MIKE-CQ: Once single float field struct promotion is unblocked this may
+                // need to be fixed to handle the case of a single float/double field struct
+                // being passed in an int/long register on win-x64.
+
                 arg->ChangeOper(GT_LCL_FLD);
                 arg->SetType(argRegType);
 
@@ -3777,6 +3794,12 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
         }
         else
         {
+            // TODO-MIKE-Cleanup: It's not clear if it's worthwhile to have special handling for
+            // this case. It can only happen due to reinterpretation, such as passing a struct
+            // containing a single BYTE field as a struct containing an INT field. Well, that's
+            // undefined behavior anyway so may as well pass the register loaded from the BYTE
+            // field as is.
+
             arg->ChangeOper(GT_LCL_FLD);
             arg->SetType(argRegType);
 
