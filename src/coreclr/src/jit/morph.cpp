@@ -3809,6 +3809,39 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
         return arg;
     }
 
+#ifdef UNIX_AMD64_ABI
+    // Special case for UNIX_AMD64_ABI - an eightbyte with 2 floats is passed in a single XMM reg.
+    if ((argRegType == TYP_DOUBLE) && (lcl->GetPromotedFieldCount() >= 2))
+    {
+        unsigned   field0LclNum = lcl->GetPromotedFieldLclNum(0);
+        LclVarDsc* field0Lcl    = lvaGetDesc(field0LclNum);
+        unsigned   field1LclNum = lcl->GetPromotedFieldLclNum(1);
+        LclVarDsc* field1Lcl    = lvaGetDesc(field1LclNum);
+
+        if ((field0Lcl->GetType() == TYP_FLOAT) && (field0Lcl->GetPromotedFieldOffset() == 0) &&
+            (field1Lcl->GetType() == TYP_FLOAT) && (field1Lcl->GetPromotedFieldOffset() == 4))
+        {
+            GenTreeLclVar* field0LclNode = gtNewLclvNode(field0LclNum, TYP_FLOAT);
+            GenTreeLclVar* field1LclNode = gtNewLclvNode(field1LclNum, TYP_FLOAT);
+
+            // TODO-MIKE-CQ: INSERTPS might work better when available, it can insert a float from memory.
+            // Also, there's no constant folding for intrinsics so this produces poor code when both fields
+            // are constant. Though not worse than the previous approach of going through memory...
+            // Attempting to recognize constants here and generate a constant DOUBLE directly might be too
+            // early because these are promoted struct fields and it's unlikely they'll ever be constant in
+            // the absence of some sort of constant propagation. Yet local assertion propagation would be
+            // sufficient to handle the typical case (e.g. Draw(new PointF(20, 30), new PointF(40, 50))) but
+            // apparently it doesn't have any effect now.
+
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16,
+                                            gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
+                                                                     TYP_FLOAT, 16, field0LclNode),
+                                            gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
+                                                                     TYP_FLOAT, 16, field1LclNode));
+        }
+    }
+#endif // UNIX_AMD64_ABI
+
     if ((argRegType != TYP_BYTE) && (argRegType != TYP_SHORT) && (argRegType != TYP_INT) && (argRegType != TYP_LONG))
     {
         return nullptr;
