@@ -3759,7 +3759,7 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
         LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
         assert(varTypeIsEnregisterable(fieldLcl->GetType()));
 
-        if (argSize <= varTypeSize(fieldLcl->GetType()))
+        if ((argSize <= varTypeSize(fieldLcl->GetType())) && (fieldLcl->GetPromotedFieldOffset() == 0))
         {
             arg->SetLclNum(lcl->GetPromotedFieldLclNum(0));
 
