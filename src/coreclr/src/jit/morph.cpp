@@ -3847,11 +3847,6 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
         return nullptr;
     }
 
-    if (lcl->lvExactSize > varTypeSize(argRegType))
-    {
-        return nullptr;
-    }
-
     argRegType = varActualType(argRegType);
 
     GenTree* newArg = nullptr;
@@ -3860,7 +3855,13 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
     {
         unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
         LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-        GenTree*   field       = gtNewLclvNode(fieldLclNum, fieldLcl->GetType());
+
+        if (fieldLcl->GetPromotedFieldOffset() >= argSize)
+        {
+            break;
+        }
+
+        GenTree* field = gtNewLclvNode(fieldLclNum, fieldLcl->GetType());
 
         if (varTypeIsSmall(fieldLcl->GetType()))
         {
