@@ -9916,6 +9916,7 @@ public:
 
 #endif // defined(UNIX_AMD64_ABI)
 
+    GenTree* abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
 #if FEATURE_MULTIREG_ARGS
     void fgMorphMultiregStructArgs(GenTreeCall* call);
     GenTree* fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr);

@@ -1915,7 +1915,7 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
     }
     else
     {
-        assert(genTypeSize(targetType) <= REGSIZE_BYTES);
+        assert((dataReg != REG_ZR) || (genTypeSize(targetType) <= REGSIZE_BYTES));
         emit->emitIns_S_R(ins_Store(targetType), emitActualTypeSize(targetType), dataReg, varNum, offset);
     }
 

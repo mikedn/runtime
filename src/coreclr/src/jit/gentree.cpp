@@ -10228,10 +10228,11 @@ void Compiler::gtDispTree(GenTree*     tree,
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            printf(" %s %s", tree->AsHWIntrinsic()->gtSIMDBaseType == TYP_UNKNOWN
-                                 ? ""
-                                 : varTypeName(tree->AsHWIntrinsic()->gtSIMDBaseType),
-                   HWIntrinsicInfo::lookupName(tree->AsHWIntrinsic()->gtHWIntrinsicId));
+            printf(" %s %s %u", HWIntrinsicInfo::lookupName(tree->AsHWIntrinsic()->gtHWIntrinsicId),
+                   tree->AsHWIntrinsic()->gtSIMDBaseType == TYP_UNKNOWN
+                       ? ""
+                       : varTypeName(tree->AsHWIntrinsic()->gtSIMDBaseType),
+                   tree->AsHWIntrinsic()->gtSIMDSize);
 
             gtDispCommonEndLine(tree);
 

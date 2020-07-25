@@ -708,7 +708,6 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
             // doing this so code like "(x_byte & 3) << 6" also generates an extra uxtb.
 
             assert(varActualType(cast->GetType()) == TYP_INT);
-            assert(size == EA_4BYTE);
 
             bitFieldWidth = varTypeBitSize(cast->GetCastType());
             isUnsigned    = varTypeIsUnsigned(cast->GetCastType());

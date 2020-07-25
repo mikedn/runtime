@@ -2188,14 +2188,17 @@ ZapImage::CompileStatus ZapImage::TryCompileMethodWorker(CORINFO_METHOD_HANDLE h
                 level = CORZAP_LOGLEVEL_INFO;
             }
 
-            m_zapper->Print(level, W("%s while compiling method %s\n"), message.GetUnicode(), zapInfo.m_currentMethodName.GetUnicode());
-
-            if ((result == COMPILE_FAILED) && (m_stats != NULL))
+            if (hrException != CORJIT_SKIPPED)
             {
-                if (!m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB))
-                    m_stats->m_failedMethods++;
-                else
-                    m_stats->m_failedILStubs++;
+                m_zapper->Print(level, W("%s while compiling method %s\n"), message.GetUnicode(), zapInfo.m_currentMethodName.GetUnicode());
+
+                if ((result == COMPILE_FAILED) && (m_stats != NULL))
+                {
+                    if (!m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB))
+                        m_stats->m_failedMethods++;
+                    else
+                        m_stats->m_failedILStubs++;
+                }
             }
         }
     }

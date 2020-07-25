@@ -3290,51 +3290,21 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                             argx = temp;
                         }
                     }
-                    if (argObj->gtOper == GT_LCL_VAR)
+
+                    if (argObj->OperIs(GT_LCL_VAR))
                     {
-                        unsigned   lclNum = argObj->AsLclVarCommon()->GetLclNum();
-                        LclVarDsc* varDsc = &lvaTable[lclNum];
+                        LclVarDsc* varDsc = lvaGetDesc(argObj->AsLclVar());
 
-                        if (varDsc->lvPromoted && !varDsc->lvDoNotEnregister)
+                        if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
                         {
-                            if (varDsc->lvFieldCnt == 1)
-                            {
-                                // get the first and only promoted field
-                                LclVarDsc* fieldVarDsc = &lvaTable[varDsc->lvFieldLclStart];
-                                if (genTypeSize(fieldVarDsc->TypeGet()) >= originalSize)
-                                {
-                                    // we will use the first and only promoted field
-                                    argObj->AsLclVarCommon()->SetLclNum(varDsc->lvFieldLclStart);
+                            GenTree* newArg =
+                                abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), structBaseType, originalSize);
 
-                                    if (varTypeIsEnregisterable(fieldVarDsc->TypeGet()) &&
-                                        (genTypeSize(fieldVarDsc->TypeGet()) == originalSize))
-                                    {
-                                        // Just use the existing field's type
-                                        argObj->gtType = fieldVarDsc->TypeGet();
-                                    }
-                                    else
-                                    {
-                                        // Can't use the existing field's type, so use GT_LCL_FLD to swizzle
-                                        // to a new type
-                                        argObj->ChangeOper(GT_LCL_FLD);
-                                        argObj->gtType = structBaseType;
-                                    }
-                                    assert(varTypeIsEnregisterable(argObj->TypeGet()));
-                                    assert(copyBlkClass == NO_CLASS_HANDLE);
-                                }
-                                else
-                                {
-                                    // use GT_LCL_FLD to swizzle the single field struct to a new type
-                                    lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
-                                    argObj->ChangeOper(GT_LCL_FLD);
-                                    argObj->gtType = structBaseType;
-                                }
-                            }
-                            else
+                            if (newArg != argObj)
                             {
-                                // The struct fits into a single register, but it has been promoted into its
-                                // constituent fields, and so we have to re-assemble it
-                                copyBlkClass = objClass;
+                                argObj = newArg;
+                                args->SetNode(newArg);
+                                argx = newArg;
                             }
                         }
                         else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(structBaseType))
@@ -3773,6 +3743,239 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
     }
 }
 
+GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize)
+{
+    assert(argSize <= varTypeSize(argRegType));
+    assert(varTypeIsSingleReg(argRegType));
+
+    LclVarDsc* lcl = lvaGetDesc(arg);
+
+    // Don't bother if the struct arg is larger than the struct local, that's simply undefined behavior.
+    // TODO-MIKE-Cleanup: This shouldn't be needed once LCL_VAR/FLD are all converted in LocalAddressVisitor.
+    if (argSize > lcl->lvExactSize)
+    {
+        lvaSetVarAddrExposed(arg->GetLclNum());
+        return gtNewOperNode(GT_IND, argRegType, gtNewOperNode(GT_ADDR, TYP_I_IMPL, arg));
+    }
+
+    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+    assert(varTypeIsEnregisterable(fieldLcl->GetType()));
+
+    if ((fieldLcl->GetPromotedFieldOffset() == 0) && (argSize <= varTypeSize(fieldLcl->GetType())) &&
+        varTypeIsSingleReg(fieldLcl->GetType()))
+    {
+        // Handle the common case when the first field of the struct is large enough and can be loaded
+        // directly into the arg register. That's almost all single field structs, except those having
+        // a floating point or SIMD8 field that may need to be passed in an integer register (win-x64,
+        // win-arm64 varargs).
+
+        if (varTypeUsesFloatReg(fieldLcl->GetType()) == varTypeUsesFloatReg(argRegType))
+        {
+            arg->SetLclNum(lcl->GetPromotedFieldLclNum(0));
+            arg->SetType(fieldLcl->GetType());
+            return arg;
+        }
+
+#ifdef TARGET_64BIT
+        // Handle the win-x64 and win-arm64 varargs case. This doesn't occur now for floating point
+        // because single FLOAT/DOUBLE field structs aren't promoted. But it can be tested by
+        // reinterpreting a struct with more than one field.
+
+        if (((fieldLcl->GetType() == TYP_FLOAT) && (argRegType == TYP_INT)) ||
+            ((fieldLcl->GetType() == TYP_DOUBLE) && (argRegType == TYP_LONG)) ||
+            ((fieldLcl->GetType() == TYP_SIMD8) && (argRegType == TYP_LONG)))
+        {
+            arg->SetLclNum(lcl->GetPromotedFieldLclNum(0));
+            arg->SetType(fieldLcl->GetType());
+            return gtNewBitCastNode(argRegType, arg);
+        }
+#endif // TARGET_64BIT
+    }
+
+#ifdef TARGET_AMD64
+    // Special case for AMD64 ABIs - 2 float fields are passed in a single XMM reg on linux-x64 and
+    // an integer (LONG) reg on win-x64.
+    if ((lcl->GetPromotedFieldCount() >= 2) &&
+#ifdef UNIX_AMD64_ABI
+        (argRegType == TYP_DOUBLE)
+#else
+        (argRegType == TYP_LONG)
+#endif
+            )
+    {
+        LclVarDsc* field0Lcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+        LclVarDsc* field1Lcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(1));
+
+        if ((field0Lcl->GetType() == TYP_FLOAT) && (field0Lcl->GetPromotedFieldOffset() == 0) &&
+            (field1Lcl->GetType() == TYP_FLOAT) && (field1Lcl->GetPromotedFieldOffset() == 4))
+        {
+            GenTreeLclVar* field0LclNode = gtNewLclvNode(lcl->GetPromotedFieldLclNum(0), TYP_FLOAT);
+            GenTreeLclVar* field1LclNode = gtNewLclvNode(lcl->GetPromotedFieldLclNum(1), TYP_FLOAT);
+
+            // TODO-MIKE-CQ: INSERTPS might work better when available, it can insert a float from memory.
+            // Also, there's no constant folding for intrinsics so this produces poor code when both fields
+            // are constant. Though not worse than the previous approach of going through memory...
+            // Attempting to recognize constants here and generate a constant DOUBLE directly might be too
+            // early because these are promoted struct fields and it's unlikely they'll ever be constant in
+            // the absence of some sort of constant propagation. Yet local assertion propagation would be
+            // sufficient to handle the typical case (e.g. Draw(new PointF(20, 30), new PointF(40, 50))) but
+            // apparently it doesn't have any effect now.
+
+            GenTree* doubleValue =
+                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16,
+                                         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
+                                                                  TYP_FLOAT, 16, field0LclNode),
+                                         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
+                                                                  TYP_FLOAT, 16, field1LclNode));
+
+#ifdef UNIX_AMD64_ABI
+            return doubleValue;
+#else
+            return gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, doubleValue);
+#endif
+        }
+    }
+#endif // TARGET_AMD64
+
+    // At this point the only remaining interesting cases are structs with more than one integer field
+    // passed in an integer register (e.g. 4 UBYTE fields passed in an INT register). Also, on 64 bit
+    // targets a FLOAT and an INT may be passed in a LONG register.
+    //
+    // Other interesting cases may arise due to reinterpretation but it's not clear which ones would be
+    // useful so let's keep this simple for now. One potential such case would be passing vector like
+    // structs as real vectors (e.g. a 4 FLOAT field struct passed as SIMD16).
+
+    GenTree* newArg = nullptr;
+
+    if (varTypeIsIntegral(argRegType))
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        {
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
+            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
+            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+            unsigned   fieldSize   = varTypeSize(fieldLcl->GetType());
+
+            if (fieldOffset >= argSize)
+            {
+                // The local struct has more fields but we don't need all of them if the arg is smaller.
+                break;
+            }
+
+#ifdef TARGET_64BIT
+            // Even if the arg reg type is LONG we don't have to use LONG all other the place.
+            // For example, the first 2 SHORT fields of a 3 SHORT field struct can be packed using
+            // 32 bit operations. This reduces the need for INT to LONG casts, that the JIT doesn't
+            // handle very well. On X64 this also reduces the need for REX prefixes.
+            var_types newArgType = fieldOffset + fieldSize > 4 ? TYP_LONG : TYP_INT;
+#else
+            var_types newArgType = TYP_INT;
+#endif
+
+            GenTree* field = gtNewLclvNode(fieldLclNum, fieldLcl->GetType());
+
+            if (varTypeIsSmall(fieldLcl->GetType()))
+            {
+                // Promoted fields are always normalize on load currently.
+                assert(fieldLcl->lvNormalizeOnLoad());
+
+                // In general we need to zero extend small int values so the upper bits don't
+                // interfere with subsequent fields.
+                bool needZeroExtend = true;
+
+                if (fieldOffset + fieldSize >= argSize)
+                {
+                    // Field is at the end of the arg struct, bits past the end of the arg struct
+                    // aren't required to have any particular value in any ABI.
+                    needZeroExtend = false;
+                }
+                else if ((argSize > 4) && (newArgType == TYP_INT) && ((i + 1) < lcl->GetPromotedFieldCount()) &&
+                         (lvaGetDesc(lcl->GetPromotedFieldLclNum(i + 1))->GetPromotedFieldOffset() >= 4))
+                {
+                    // This is the last field in an intermediary INT value. There may be padding
+                    // bits after it but they're not required to have a specific value. And we're
+                    // going to zero extend to LONG so the upper 32 bit will be zero anyway.
+                    // This covers the case of Nullable<int|float> and other similar "tagged" values,
+                    // such as SqlInt32.
+                    needZeroExtend = false;
+                }
+
+                if (needZeroExtend)
+                {
+                    var_types type = varTypeToUnsigned(field->GetType());
+
+                    if (!optLocalAssertionProp ||
+                        (optAssertionIsSubrange(field, TYP_INT, type, apFull) == NO_ASSERTION_INDEX))
+                    {
+                        field->SetType(TYP_INT);
+                        field = gtNewCastNode(TYP_INT, field, false, type);
+                    }
+                }
+            }
+#ifdef TARGET_64BIT
+            else if (fieldLcl->GetType() == TYP_INT)
+            {
+                // INT may need to be widened to LONG later.
+            }
+            else if (fieldLcl->GetType() == TYP_FLOAT)
+            {
+                // On 64 bit targets a FLOAT and and INT field may end up being passed in a LONG register.
+                field = gtNewBitCastNode(TYP_INT, field);
+            }
+#endif
+            else
+            {
+                // We've run into a LONG/REF/BYREF/DOUBLE/SIMDn field. The normal cases involving such types have
+                // already been handled so this can only happen due to weird reinterpretation (e.g. struct with a
+                // LONG field being passed as a struct with an INT field). Just give up and use LCL_FLD.
+                newArg = nullptr;
+                break;
+            }
+
+#ifdef TARGET_64BIT
+            if (newArgType == TYP_LONG)
+            {
+                field = gtNewCastNode(TYP_LONG, field, true, TYP_LONG);
+            }
+#endif
+
+            if (fieldOffset != 0)
+            {
+                // TODO-MIKE-CQ: On ARM32 OR + LSH should produced a single ORR with shifted register
+                // instruction but lowering/codegen doesn't know that. ARM64 does generate ORR with
+                // shifter register and UBFX but not BFI and sometimes that would be useful too.
+                field = gtNewOperNode(GT_LSH, newArgType, field, gtNewIconNode(static_cast<ssize_t>(fieldOffset) * 8));
+            }
+
+            if (newArg == nullptr)
+            {
+                newArg = field;
+            }
+            else
+            {
+#ifdef TARGET_64BIT
+                if (newArg->GetType() != newArgType)
+                {
+                    newArg = gtNewCastNode(TYP_LONG, newArg, true, TYP_LONG);
+                }
+#endif
+
+                newArg = gtNewOperNode(GT_OR, newArgType, newArg, field);
+            }
+        }
+    }
+
+    if (newArg == nullptr)
+    {
+        arg->ChangeOper(GT_LCL_FLD);
+        arg->SetType(argRegType);
+        lvaSetVarDoNotEnregister(arg->GetLclNum() DEBUGARG(DNER_LocalField));
+        return arg;
+    }
+
+    return newArg;
+}
+
 #if FEATURE_MULTIREG_ARGS
 //-----------------------------------------------------------------------------
 // fgMorphMultiregStructArgs:  Locate the TYP_STRUCT arguments and
@@ -3964,7 +4167,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
 
         if (reg * REGSIZE_BYTES != fieldOffset)
         {
-            // TODO-MIKE-CQ: Use MorphPromotedRegisterCallArg to handle the case of multiple
+            // TODO-MIKE-CQ: Use abiMorphPromotedStructArgToSingleReg to handle the case of multiple
             // small int, INT or FLOAT fields being passed in a single register.
             return false;
         }

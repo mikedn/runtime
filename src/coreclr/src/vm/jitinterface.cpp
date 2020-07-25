@@ -12691,6 +12691,12 @@ void ThrowExceptionForJit(HRESULT res)
             COMPlusThrow(kInvalidProgramException, (UINT) IDS_EE_JIT_COMPILER_ERROR);
             break;
 
+#if defined(CROSSGEN_COMPILE)
+        case CORJIT_SKIPPED:
+            ThrowHR(res);
+            break;
+#endif
+
         case CORJIT_BADCODE:
         default:
             COMPlusThrow(kInvalidProgramException);

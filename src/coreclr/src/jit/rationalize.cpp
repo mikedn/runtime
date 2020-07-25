@@ -714,8 +714,6 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, Compiler::Ge
                 break;
             }
 
-            noway_assert(comp->supportSIMDTypes());
-
             // TODO-1stClassStructs: This should be handled more generally for enregistered or promoted
             // structs that are passed or returned in a different register type than their enregistered
             // type(s).
