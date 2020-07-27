@@ -5779,7 +5779,7 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     for (unsigned i = 0; i < argCount; i++)
     {
         curArgTabEntry = argTable[i];
-        if (curArgTabEntry->isLateArg() && (curArgTabEntry->lateUse == use))
+        if (curArgTabEntry->HasLateUse() && (curArgTabEntry->lateUse == use))
         {
             return curArgTabEntry;
         }
@@ -10973,7 +10973,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
                 fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(operand);
                 assert(curArgTabEntry);
 
-                if (!curArgTabEntry->isLateArg())
+                if (!curArgTabEntry->HasLateUse())
                 {
                     gtGetArgMsg(call, operand, curArgTabEntry->argNum, -1, buf, sizeof(buf));
                 }

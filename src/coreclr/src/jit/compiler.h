@@ -1525,7 +1525,7 @@ public:
         GetUse()->SetNode(node);
     }
 
-    bool isLateArg() const
+    bool HasLateUse() const
     {
         return lateUse != nullptr;
     }

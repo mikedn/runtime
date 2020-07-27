@@ -1505,210 +1505,141 @@ GenTree* Compiler::fgMakeTmpArgNode(GenTreeCall* call, CallArgInfo* argInfo)
 #endif
 }
 
-//------------------------------------------------------------------------------
-// EvalArgsToTemps : Create temp assignments and populate the LateArgs list.
-
 void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 {
     assert(argsSorted);
 
-    // Now go through the argument table and perform the necessary evaluation into temps
-    GenTreeCall::Use* tmpRegArgNext = nullptr;
-    for (unsigned curInx = 0; curInx < argCount; curInx++)
+    GenTreeCall::Use* lateArgUseListTail = nullptr;
+
+    for (unsigned i = 0; i < argCount; i++)
     {
-        fgArgTabEntry* curArgTabEntry = argTable[curInx];
+        CallArgInfo* argInfo = argTable[i];
 
-        assert(curArgTabEntry->lateUse == nullptr);
-
-        GenTree* argx = curArgTabEntry->GetNode();
-        GenTree* defArg;
-
-        // fgMorphArgs should have transformed all MKREFANY args.
-        assert(!argx->OperIs(GT_MKREFANY));
+        assert(!argInfo->HasLateUse());
 
 #if !FEATURE_FIXED_OUT_ARGS
         // Only ever set for FEATURE_FIXED_OUT_ARGS
-        assert(curArgTabEntry->needPlace == false);
+        assert(!argInfo->needPlace);
 
         // On x86 and other archs that use push instructions to pass arguments:
         //   Only the register arguments need to be replaced with placeholder nodes.
         //   Stacked arguments are evaluated and pushed (or stored into the stack) in order.
         //
-        if (curArgTabEntry->GetRegCount() == 0)
+        if (argInfo->GetRegCount() == 0)
         {
             continue;
         }
 #endif
 
+        GenTree* arg      = argInfo->GetNode();
         GenTree* setupArg = nullptr;
+        GenTree* lateArg  = nullptr;
 
-        if (curArgTabEntry->needTmp)
+        // fgMorphArgs should have transformed all MKREFANY args.
+        assert(!arg->OperIs(GT_MKREFANY));
+
+        if (argInfo->needTmp)
         {
-            if (curArgTabEntry->HasTemp())
+            if (argInfo->HasTemp())
             {
-                // Create a copy of the temp to go into the late argument list
-                defArg = compiler->fgMakeTmpArgNode(call, curArgTabEntry);
+                JITDUMPTREE(arg, "Arg temp is already created:\n");
 
-                // mark the original node as a late argument
-                argx->gtFlags |= GTF_LATE_ARG;
+                lateArg = compiler->fgMakeTmpArgNode(call, argInfo);
+                arg->gtFlags |= GTF_LATE_ARG;
             }
             else
             {
-                // Create a temp assignment for the argument
-                // Put the temp in the gtCallLateArgs list
-                CLANG_FORMAT_COMMENT_ANCHOR;
+                JITDUMPTREE(arg, "Creating temp for arg:\n");
 
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    printf("Argument with 'side effect'...\n");
-                    compiler->gtDispTree(argx);
-                }
-#endif
-
-                unsigned tmpVarNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
-                setupArg           = compiler->gtNewTempAssign(tmpVarNum, argx);
-
-                LclVarDsc* varDsc     = compiler->lvaTable + tmpVarNum;
-                var_types  lclVarType = genActualType(argx->gtType);
+                unsigned   tempLclNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
+                LclVarDsc* tempLcl    = compiler->lvaGetDesc(tempLclNum);
+                var_types  tempType   = varActualType(arg->GetType());
                 var_types  scalarType = TYP_UNKNOWN;
+
+                argInfo->tmpNum = tempLclNum;
+                setupArg        = compiler->gtNewTempAssign(tempLclNum, arg);
 
                 if (setupArg->OperIsCopyBlkOp())
                 {
                     setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
-#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
-                    if (lclVarType == TYP_STRUCT)
-                    {
-                        // This scalar LclVar widening step is only performed for ARM architectures.
-                        //
-                        CORINFO_CLASS_HANDLE clsHnd     = compiler->lvaGetStruct(tmpVarNum);
-                        unsigned             structSize = varDsc->lvExactSize;
 
-                        scalarType = compiler->getPrimitiveTypeForStruct(structSize, clsHnd, call->IsVarargs());
+#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
+                    if (tempType == TYP_STRUCT)
+                    {
+                        scalarType =
+                            compiler->getPrimitiveTypeForStruct(tempLcl->lvExactSize,
+                                                                tempLcl->lvVerTypeInfo.GetClassHandleForValueClass(),
+                                                                call->IsVarargs());
                     }
-#endif // TARGET_ARMARCH || defined (UNIX_AMD64_ABI)
+#endif
                 }
 
-                // scalarType can be set to a wider type for ARM or unix amd64 architectures: (3 => 4)  or (5,6,7 =>
-                // 8)
-                if ((scalarType != TYP_UNKNOWN) && (scalarType != lclVarType))
+                // scalarType can be set to a wider type for ARM or unix amd64 architectures: (3 => 4)  or (5,6,7 => 8)
+
+                if ((scalarType != TYP_UNKNOWN) && (scalarType != tempType))
                 {
-                    // Create a GT_LCL_FLD using the wider type to go to the late argument list
-                    defArg = compiler->gtNewLclFldNode(tmpVarNum, scalarType, 0);
+                    lateArg = compiler->gtNewLclFldNode(tempLclNum, scalarType, 0);
                 }
                 else
                 {
-                    // Create a copy of the temp to go to the late argument list
-                    defArg = compiler->gtNewLclvNode(tmpVarNum, lclVarType);
+                    lateArg = compiler->gtNewLclvNode(tempLclNum, tempType);
                 }
-
-                curArgTabEntry->tmpNum = tmpVarNum;
-
-                /* mark the assignment as a late argument */
-                setupArg->gtFlags |= GTF_LATE_ARG;
-
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    printf("\n  Evaluate to a temp:\n");
-                    compiler->gtDispTree(setupArg);
-                }
-#endif
             }
         }
-        else // curArgTabEntry->needTmp == false
+        else if ((argInfo->GetRegCount() != 0) || argInfo->needPlace)
         {
-            //   On x86 -
-            //      Only register args are replaced with placeholder nodes
-            //      and the stack based arguments are evaluated and pushed in order.
-            //
-            //   On Arm/x64 - When needTmp is false and needPlace is false,
-            //      the non-register arguments are evaluated and stored in order.
-            //      When needPlace is true we have a nested call that comes after
-            //      this argument so we have to replace it in the gtCallArgs list
-            //      (the initial argument evaluation list) with a placeholder.
-            //
-            if ((curArgTabEntry->GetRegCount() == 0) && (curArgTabEntry->needPlace == false))
-            {
-                continue;
-            }
-
-            /* No temp needed - move the whole node to the gtCallLateArgs list */
-
-            /* The argument is deferred and put in the late argument list */
-
-            defArg = argx;
-
-            // Create a placeholder node to put in its place in gtCallLateArgs.
+            JITDUMPTREE(arg, "Creating placeholder for arg:\n");
 
             // For a struct type we also need to record the class handle of the arg.
-            CORINFO_CLASS_HANDLE clsHnd = NO_CLASS_HANDLE;
+            CORINFO_CLASS_HANDLE argClass = NO_CLASS_HANDLE;
 
-            if (defArg->TypeGet() == TYP_STRUCT)
+            if (arg->TypeIs(TYP_STRUCT))
             {
-                clsHnd = compiler->gtGetStructHandleIfPresent(defArg);
-                noway_assert(clsHnd != NO_CLASS_HANDLE);
+                argClass = compiler->gtGetStructHandleIfPresent(arg);
+                noway_assert(argClass != NO_CLASS_HANDLE);
             }
 
-            setupArg = compiler->gtNewArgPlaceHolderNode(defArg->gtType, clsHnd);
+            setupArg = compiler->gtNewArgPlaceHolderNode(arg->GetType(), argClass);
 
-            /* mark the placeholder node as a late argument */
-            setupArg->gtFlags |= GTF_LATE_ARG;
+            // No temp needed - the arg tree itself is moved to the late arg list.
+            lateArg = arg;
+        }
 
-#ifdef DEBUG
-            if (compiler->verbose)
+        if (lateArg != nullptr)
+        {
+            if (setupArg != nullptr)
             {
-                if (curArgTabEntry->GetRegCount() == 0)
-                {
-                    printf("Deferred stack argument :\n");
-                }
-                else
-                {
-                    printf("Deferred argument ('%s'):\n", getRegName(curArgTabEntry->GetRegNum()));
-                }
+                JITDUMPTREE(setupArg, "Created arg setup/placeholder tree:\n");
 
-                compiler->gtDispTree(argx);
-                printf("Replaced with placeholder node:\n");
-                compiler->gtDispTree(setupArg);
+                setupArg->gtFlags |= GTF_LATE_ARG;
+                argInfo->use->SetNode(setupArg);
             }
-#endif
+
+            GenTreeCall::Use* lateArgUse = compiler->gtNewCallArgs(lateArg);
+
+            if (lateArgUseListTail == nullptr)
+            {
+                call->gtCallLateArgs = lateArgUse;
+            }
+            else
+            {
+                lateArgUseListTail->SetNext(lateArgUse);
+            }
+
+            lateArgUseListTail = lateArgUse;
+            argInfo->lateUse   = lateArgUse;
         }
-
-        if (setupArg != nullptr)
-        {
-            noway_assert(curArgTabEntry->use->GetNode() == argx);
-            curArgTabEntry->use->SetNode(setupArg);
-        }
-
-        /* deferred arg goes into the late argument list */
-
-        if (tmpRegArgNext == nullptr)
-        {
-            tmpRegArgNext        = compiler->gtNewCallArgs(defArg);
-            call->gtCallLateArgs = tmpRegArgNext;
-        }
-        else
-        {
-            noway_assert(tmpRegArgNext->GetNode() != nullptr);
-            tmpRegArgNext->SetNext(compiler->gtNewCallArgs(defArg));
-
-            tmpRegArgNext = tmpRegArgNext->GetNext();
-        }
-
-        curArgTabEntry->lateUse = tmpRegArgNext;
     }
 
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("\nShuffled argument table:    ");
-        for (unsigned curInx = 0; curInx < argCount; curInx++)
+        printf("\nShuffled argument table: ");
+        for (unsigned i = 0; i < argCount; i++)
         {
-            fgArgTabEntry* curArgTabEntry = argTable[curInx];
-
-            if (curArgTabEntry->GetRegCount() != 0)
+            if (argTable[i]->GetRegCount() != 0)
             {
-                printf("%s ", getRegName(curArgTabEntry->GetRegNum()));
+                printf("%s ", getRegName(argTable[i]->GetRegNum()));
             }
         }
         printf("\n");
