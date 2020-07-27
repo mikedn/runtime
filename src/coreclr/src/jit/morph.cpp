@@ -878,13 +878,12 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
 {
     bool hasStructRegArg = false;
 
-    for (unsigned curInx = 0; curInx < argCount; curInx++)
+    for (unsigned argIndex = 0; argIndex < argCount; argIndex++)
     {
-        fgArgTabEntry* curArgTabEntry = argTable[curInx];
-        assert(curArgTabEntry != nullptr);
-        GenTree* argx = curArgTabEntry->GetNode();
+        CallArgInfo* argInfo = argTable[argIndex];
+        GenTree*     arg     = argInfo->GetNode();
 
-        if (curArgTabEntry->GetRegCount() == 0)
+        if (argInfo->GetRegCount() == 0)
         {
             assert(HasStackArgs());
 #if !FEATURE_FIXED_OUT_ARGS
@@ -896,7 +895,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
 #endif
         }
 #if FEATURE_ARG_SPLIT
-        else if (curArgTabEntry->IsSplit())
+        else if (argInfo->IsSplit())
         {
             hasStructRegArg = true;
             assert(HasStackArgs());
@@ -904,58 +903,61 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
 #endif       // FEATURE_ARG_SPLIT
         else // we have a register argument, next we look for a struct type.
         {
-            if (varTypeIsStruct(argx) UNIX_AMD64_ABI_ONLY(|| curArgTabEntry->isStruct))
+            if (varTypeIsStruct(arg->GetType()) UNIX_AMD64_ABI_ONLY(|| argInfo->isStruct))
             {
                 hasStructRegArg = true;
             }
         }
 
-        /* If the argument tree contains an assignment (GTF_ASG) then the argument and
-           and every earlier argument (except constants) must be evaluated into temps
-           since there may be other arguments that follow and they may use the value being assigned.
+        // If the argument tree contains an assignment (GTF_ASG) then the argument and
+        // and every earlier argument (except constants) must be evaluated into temps
+        // since there may be other arguments that follow and they may use the value being assigned.
+        //
+        // EXAMPLE: ArgTab is "a, a=5, a"
+        //          -> when we see the second arg "a=5"
+        //             we know the first two arguments "a, a=5" have to be evaluated into temps
+        //
+        // For the case of an assignment, we only know that there exist some assignment someplace
+        // in the tree.  We don't know what is being assigned so we are very conservative here
+        // and assume that any local variable could have been assigned.
 
-           EXAMPLE: ArgTab is "a, a=5, a"
-                    -> when we see the second arg "a=5"
-                       we know the first two arguments "a, a=5" have to be evaluated into temps
-
-           For the case of an assignment, we only know that there exist some assignment someplace
-           in the tree.  We don't know what is being assigned so we are very conservative here
-           and assume that any local variable could have been assigned.
-         */
-
-        if (argx->gtFlags & GTF_ASG)
+        if ((arg->gtFlags & GTF_ASG) != 0)
         {
             // If this is not the only argument, or it's a copyblk, or it already evaluates the expression to
             // a tmp, then we need a temp in the late arg list.
-            if ((argCount > 1) || argx->OperIsCopyBlkOp()
+            if ((argCount > 1) || arg->OperIsCopyBlkOp()
 #ifdef FEATURE_FIXED_OUT_ARGS
-                || curArgTabEntry->HasTemp() // I protect this by "FEATURE_FIXED_OUT_ARGS" to preserve the property
-                                             // that we only have late non-register args when that feature is on.
-#endif                                       // FEATURE_FIXED_OUT_ARGS
+                || argInfo->HasTemp() // I protect this by "FEATURE_FIXED_OUT_ARGS" to preserve the property
+                                      // that we only have late non-register args when that feature is on.
+#endif                                // FEATURE_FIXED_OUT_ARGS
                 )
             {
-                curArgTabEntry->needTmp = true;
-                needsTemps              = true;
+                argInfo->needTmp = true;
+                needsTemps       = true;
             }
 
             // For all previous arguments, unless they are a simple constant
-            //  we require that they be evaluated into temps
-            for (unsigned prevInx = 0; prevInx < curInx; prevInx++)
-            {
-                fgArgTabEntry* prevArgTabEntry = argTable[prevInx];
-                assert(prevArgTabEntry->argNum < curArgTabEntry->argNum);
+            // we require that they be evaluated into temps
 
-                // TODO-CQ: We should also allow LCL_VAR_ADDR and LCL_FLD_ADDR here, they're
-                // side effect free leaf nodes that like constant can be evaluated at any point.
-                if (prevArgTabEntry->GetNode()->gtOper != GT_CNS_INT)
+            // TODO-MIKE-CQ: We should also allow LCL_VAR_ADDR and LCL_FLD_ADDR here, they're
+            // side effect free leaf nodes that like constant can be evaluated at any point.
+
+            for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
+            {
+                CallArgInfo* prevArgInfo = argTable[prevArgIndex];
+
+                assert(prevArgInfo->argNum < argInfo->argNum);
+
+                if (!prevArgInfo->GetNode()->OperIs(GT_CNS_INT))
                 {
-                    prevArgTabEntry->needTmp = true;
-                    needsTemps               = true;
+                    prevArgInfo->needTmp = true;
+                    needsTemps           = true;
                 }
             }
         }
 
-        bool treatLikeCall = ((argx->gtFlags & GTF_CALL) != 0);
+        bool treatLikeCall = ((arg->gtFlags & GTF_CALL) != 0);
+
 #if FEATURE_FIXED_OUT_ARGS
         // Like calls, if this argument has a tree that will do an inline throw,
         // a call to a jit helper, then we need to treat it like a call (but only
@@ -963,18 +965,13 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
         // This means unnesting, sorting, etc.  Technically this is overly
         // conservative, but I want to avoid as much special-case debug-only code
         // as possible, so leveraging the GTF_CALL flag is the easiest.
-        //
-        if (!treatLikeCall && (argx->gtFlags & GTF_EXCEPT) && (argCount > 1) && compiler->opts.compDbgCode &&
-            (compiler->fgWalkTreePre(&argx, Compiler::fgChkThrowCB) == Compiler::WALK_ABORT))
-        {
-            for (unsigned otherInx = 0; otherInx < argCount; otherInx++)
-            {
-                if (otherInx == curInx)
-                {
-                    continue;
-                }
 
-                if (argTable[otherInx]->GetRegCount() == 0)
+        if (!treatLikeCall && ((arg->gtFlags & GTF_EXCEPT) != 0) && (argCount > 1) && compiler->opts.compDbgCode &&
+            (compiler->fgWalkTreePre(&arg, Compiler::fgChkThrowCB) == Compiler::WALK_ABORT))
+        {
+            for (unsigned otherArgIndex = 0; otherArgIndex < argCount; otherArgIndex++)
+            {
+                if ((otherArgIndex != argIndex) && (argTable[otherArgIndex]->GetRegCount() == 0))
                 {
                     treatLikeCall = true;
                     break;
@@ -983,53 +980,53 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
         }
 #endif // FEATURE_FIXED_OUT_ARGS
 
-        /* If it contains a call (GTF_CALL) then itself and everything before the call
-           with a GLOB_EFFECT must eval to temp (this is because everything with SIDE_EFFECT
-           has to be kept in the right order since we will move the call to the first position)
-
-           For calls we don't have to be quite as conservative as we are with an assignment
-           since the call won't be modifying any non-address taken LclVars.
-         */
+        // If it contains a call (GTF_CALL) then itself and everything before the call
+        // with a GLOB_EFFECT must eval to temp (this is because everything with SIDE_EFFECT
+        // has to be kept in the right order since we will move the call to the first position)
+        //
+        // For calls we don't have to be quite as conservative as we are with an assignment
+        // since the call won't be modifying any non-address taken LclVars.
 
         if (treatLikeCall)
         {
             if (argCount > 1) // If this is not the only argument
             {
-                curArgTabEntry->needTmp = true;
-                needsTemps              = true;
+                argInfo->needTmp = true;
+                needsTemps       = true;
             }
-            else if (varTypeIsFloating(argx->TypeGet()) && (argx->OperGet() == GT_CALL))
+            else if (varTypeIsFloating(arg->GetType()) && arg->IsCall())
             {
                 // Spill all arguments that are floating point calls
-                curArgTabEntry->needTmp = true;
-                needsTemps              = true;
+                argInfo->needTmp = true;
+                needsTemps       = true;
             }
 
             // All previous arguments may need to be evaluated into temps
-            for (unsigned prevInx = 0; prevInx < curInx; prevInx++)
+            for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
             {
-                fgArgTabEntry* prevArgTabEntry = argTable[prevInx];
-                assert(prevArgTabEntry->argNum < curArgTabEntry->argNum);
+                CallArgInfo* prevArgInfo = argTable[prevArgIndex];
+
+                assert(prevArgInfo->argNum < argInfo->argNum);
 
                 // For all previous arguments, if they have any GTF_ALL_EFFECT
                 //  we require that they be evaluated into a temp
-                if ((prevArgTabEntry->GetNode()->gtFlags & GTF_ALL_EFFECT) != 0)
+                if ((prevArgInfo->GetNode()->gtFlags & GTF_ALL_EFFECT) != 0)
                 {
-                    prevArgTabEntry->needTmp = true;
-                    needsTemps               = true;
+                    prevArgInfo->needTmp = true;
+                    needsTemps           = true;
                 }
 #if FEATURE_FIXED_OUT_ARGS
                 // Or, if they are stored into the FIXED_OUT_ARG area
                 // we require that they be moved to the gtCallLateArgs
                 // and replaced with a placeholder node
-                else if (prevArgTabEntry->GetRegCount() == 0)
+                else if (prevArgInfo->GetRegCount() == 0)
                 {
-                    prevArgTabEntry->needPlace = true;
+                    prevArgInfo->needPlace = true;
                 }
 #if FEATURE_ARG_SPLIT
-                else if (prevArgTabEntry->IsSplit())
+                else if (prevArgInfo->IsSplit())
                 {
-                    prevArgTabEntry->needPlace = true;
+                    prevArgInfo->needPlace = true;
                 }
 #endif // TARGET_ARM
 #endif
@@ -1040,7 +1037,6 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
     // We only care because we can't spill structs and qmarks involve a lot of spilling, but
     // if we don't have qmarks, then it doesn't matter.
     // So check for Qmark's globally once here, instead of inside the loop.
-    //
     const bool hasStructRegArgWeCareAbout = (hasStructRegArg && compiler->compQmarkUsed);
 
 #if FEATURE_FIXED_OUT_ARGS
@@ -1048,7 +1044,6 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
     // For Arm/x64 we only care because we can't reorder a register
     // argument that uses GT_LCLHEAP.  This is an optimization to
     // save a check inside the below loop.
-    //
     const bool hasStackArgsWeCareAbout = HasStackArgs() && compiler->compLocallocUsed;
 
 #else
@@ -1063,62 +1058,59 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
     // Technically we only a required to handle the following two cases:
     //     a GT_IND with GTF_IND_RNGCHK (only on x86) or
     //     a GT_LCLHEAP node that allocates stuff on the stack
-    //
+
     if (hasStackArgsWeCareAbout || hasStructRegArgWeCareAbout)
     {
-        for (unsigned curInx = 0; curInx < argCount; curInx++)
+        for (unsigned i = 0; i < argCount; i++)
         {
-            fgArgTabEntry* curArgTabEntry = argTable[curInx];
-            assert(curArgTabEntry != nullptr);
-            GenTree* argx = curArgTabEntry->GetNode();
+            CallArgInfo* argInfo = argTable[i];
+            GenTree*     arg     = argInfo->GetNode();
 
-            // Examine the register args that are currently not marked needTmp
-            //
-            if (!curArgTabEntry->needTmp && (curArgTabEntry->GetRegCount() != 0))
+            if (argInfo->needTmp || (argInfo->GetRegCount() == 0))
             {
-                if (hasStackArgsWeCareAbout)
-                {
-#if !FEATURE_FIXED_OUT_ARGS
-                    // On x86 we previously recorded a stack depth of zero when
-                    // morphing the register arguments of any GT_IND with a GTF_IND_RNGCHK flag
-                    // Thus we can not reorder the argument after any stack based argument
-                    // (Note that GT_LCLHEAP sets the GTF_EXCEPT flag so we don't need to
-                    // check for it explicitly.)
-                    //
-                    if (argx->gtFlags & GTF_EXCEPT)
-                    {
-                        curArgTabEntry->needTmp = true;
-                        needsTemps              = true;
-                        continue;
-                    }
-#else
-                    // For Arm/X64 we can't reorder a register argument that uses a GT_LCLHEAP
-                    //
-                    if (argx->gtFlags & GTF_EXCEPT)
-                    {
-                        assert(compiler->compLocallocUsed);
+                continue;
+            }
 
-                        // Returns WALK_ABORT if a GT_LCLHEAP node is encountered in the argx tree
-                        //
-                        if (compiler->fgWalkTreePre(&argx, Compiler::fgChkLocAllocCB) == Compiler::WALK_ABORT)
-                        {
-                            curArgTabEntry->needTmp = true;
-                            needsTemps              = true;
-                            continue;
-                        }
-                    }
-#endif
-                }
-                if (hasStructRegArgWeCareAbout)
+            if (hasStackArgsWeCareAbout)
+            {
+#if !FEATURE_FIXED_OUT_ARGS
+                // On x86 we previously recorded a stack depth of zero when
+                // morphing the register arguments of any GT_IND with a GTF_IND_RNGCHK flag
+                // Thus we can not reorder the argument after any stack based argument
+                // (Note that GT_LCLHEAP sets the GTF_EXCEPT flag so we don't need to
+                // check for it explicitly.)
+
+                if ((arg->gtFlags & GTF_EXCEPT) != 0)
                 {
-                    // Returns true if a GT_QMARK node is encountered in the argx tree
-                    //
-                    if (compiler->fgWalkTreePre(&argx, Compiler::fgChkQmarkCB) == Compiler::WALK_ABORT)
+                    argInfo->needTmp = true;
+                    needsTemps       = true;
+                    continue;
+                }
+#else
+                // For Arm/X64 we can't reorder a register argument that uses a GT_LCLHEAP
+                if ((arg->gtFlags & GTF_EXCEPT) != 0)
+                {
+                    assert(compiler->compLocallocUsed);
+
+                    // Returns WALK_ABORT if a GT_LCLHEAP node is encountered in the arg tree
+                    if (compiler->fgWalkTreePre(&arg, Compiler::fgChkLocAllocCB) == Compiler::WALK_ABORT)
                     {
-                        curArgTabEntry->needTmp = true;
-                        needsTemps              = true;
+                        argInfo->needTmp = true;
+                        needsTemps       = true;
                         continue;
                     }
+                }
+#endif
+            }
+
+            if (hasStructRegArgWeCareAbout)
+            {
+                // Returns true if a GT_QMARK node is encountered in the arg tree
+                if (compiler->fgWalkTreePre(&arg, Compiler::fgChkQmarkCB) == Compiler::WALK_ABORT)
+                {
+                    argInfo->needTmp = true;
+                    needsTemps       = true;
+                    continue;
                 }
             }
         }
