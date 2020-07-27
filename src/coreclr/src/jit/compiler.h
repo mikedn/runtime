@@ -1460,8 +1460,10 @@ struct fgArgTabEntry
     unsigned slotNum;  // When an argument is passed in the OutArg area this is the slot number in the OutArg area
     unsigned numSlots; // Count of number of slots that this argument uses
 
-    unsigned tmpNum; // the LclVar number if we had to force evaluation of this arg
+private:
+    unsigned tempLclNum; // the LclVar number if we had to force evaluation of this arg
 
+public:
     var_types argType; // The type used to pass this argument. This is generally the original argument type, but when a
                        // struct is passed as a scalar type, this is that type.
                        // Note that if a struct is passed by reference, this will still be the struct type.
@@ -1493,7 +1495,7 @@ public:
         , argNum(argNum)
         , slotNum(0)
         , numSlots(0)
-        , tmpNum(BAD_VAR_NUM)
+        , tempLclNum(BAD_VAR_NUM)
         , argType(TYP_UNDEF)
         , needTmp(false)
         , needPlace(false)
@@ -1532,12 +1534,18 @@ public:
 
     bool HasTemp() const
     {
-        return tmpNum != BAD_VAR_NUM;
+        return tempLclNum != BAD_VAR_NUM;
     }
 
     unsigned GetTempLclNum() const
     {
-        return tmpNum;
+        return tempLclNum;
+    }
+
+    void SetTempLclNum(unsigned lclNum)
+    {
+        assert(tempLclNum == BAD_VAR_NUM);
+        tempLclNum = lclNum;
     }
 
     void SetRegNum(unsigned int i, regNumber regNum)
@@ -1796,8 +1804,6 @@ public:
     void AddArg(CallArgInfo* argInfo);
 
     unsigned AllocateStackSlots(unsigned slotCount, unsigned alignment);
-
-    void EvalToTmp(fgArgTabEntry* curArgTabEntry, unsigned tmpNum, GenTree* newNode);
 
     void ArgsComplete(Compiler* compiler);
     void SortArgs(Compiler* compiler, GenTreeCall* call);

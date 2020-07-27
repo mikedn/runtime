@@ -712,7 +712,7 @@ void fgArgTabEntry::Dump()
     }
     if (HasTemp())
     {
-        printf(", tmpNum=V%02u", tmpNum);
+        printf(", tmpNum=V%02u", tempLclNum);
     }
     if (needPlace)
     {
@@ -872,26 +872,6 @@ unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
     unsigned firstSlot = roundUp(nextSlotNum, alignment);
     nextSlotNum        = firstSlot + slotCount;
     return firstSlot;
-}
-
-//------------------------------------------------------------------------
-// EvalToTmp: Replace the node in the given fgArgTabEntry with a temp
-//
-// Arguments:
-//    curArgTabEntry - the fgArgTabEntry for the argument
-//    tmpNum         - the varNum for the temp
-//    newNode        - the assignment of the argument value to the temp
-//
-// Notes:
-//    Although the name of this method is EvalToTmp, it doesn't actually create
-//    the temp or the copy.
-//
-void fgArgInfo::EvalToTmp(fgArgTabEntry* curArgTabEntry, unsigned tmpNum, GenTree* newNode)
-{
-    assert(curArgTabEntry->use->GetNode() == newNode);
-
-    assert(curArgTabEntry->GetNode() == newNode);
-    curArgTabEntry->tmpNum = tmpNum;
 }
 
 void fgArgInfo::ArgsComplete(Compiler* compiler)
@@ -1556,8 +1536,8 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 var_types  tempType   = varActualType(arg->GetType());
                 var_types  scalarType = TYP_UNKNOWN;
 
-                argInfo->tmpNum = tempLclNum;
-                setupArg        = compiler->gtNewTempAssign(tempLclNum, arg);
+                argInfo->SetTempLclNum(tempLclNum);
+                setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
 
                 if (setupArg->OperIsCopyBlkOp())
                 {
@@ -2947,7 +2927,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             args->SetNode(asg);
 
             // EvalArgsToTemps will cause tmp to actually get loaded as the argument
-            call->fgArgInfo->EvalToTmp(argEntry, tmp, asg);
+            argEntry->SetTempLclNum(tmp);
             lvaSetVarAddrExposed(tmp);
 
 #if FEATURE_MULTIREG_ARGS
@@ -4916,7 +4896,7 @@ void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argIn
     GenTree* copyBlk = gtNewBlkOpNode(dest, argx, false /* not volatile */, true /* copyBlock */);
     copyBlk          = fgMorphCopyBlock(copyBlk->AsOp());
     argInfo->SetNode(copyBlk);
-    call->fgArgInfo->EvalToTmp(argInfo, tmp, copyBlk);
+    argInfo->SetTempLclNum(tmp);
 }
 #endif // FEATURE_FIXED_OUT_ARGS
 
