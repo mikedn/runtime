@@ -1512,7 +1512,6 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 {
     assert(argsSorted);
 
-    unsigned regArgInx = 0;
     // Now go through the argument table and perform the necessary evaluation into temps
     GenTreeCall::Use* tmpRegArgNext = nullptr;
     for (unsigned curInx = 0; curInx < argCount; curInx++)
@@ -1521,8 +1520,7 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
         assert(curArgTabEntry->lateUse == nullptr);
 
-        GenTree* argx     = curArgTabEntry->GetNode();
-        GenTree* setupArg = nullptr;
+        GenTree* argx = curArgTabEntry->GetNode();
         GenTree* defArg;
 
         // fgMorphArgs should have transformed all MKREFANY args.
@@ -1541,6 +1539,8 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             continue;
         }
 #endif
+
+        GenTree* setupArg = nullptr;
 
         if (curArgTabEntry->needTmp)
         {
@@ -1567,54 +1567,42 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 #endif
 
                 unsigned tmpVarNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
+                setupArg           = compiler->gtNewTempAssign(tmpVarNum, argx);
 
-                if (setupArg != nullptr)
+                LclVarDsc* varDsc     = compiler->lvaTable + tmpVarNum;
+                var_types  lclVarType = genActualType(argx->gtType);
+                var_types  scalarType = TYP_UNKNOWN;
+
+                if (setupArg->OperIsCopyBlkOp())
                 {
-                    // Now keep the mkrefany for the late argument list
-                    defArg = argx;
+                    setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
+#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
+                    if (lclVarType == TYP_STRUCT)
+                    {
+                        // This scalar LclVar widening step is only performed for ARM architectures.
+                        //
+                        CORINFO_CLASS_HANDLE clsHnd     = compiler->lvaGetStruct(tmpVarNum);
+                        unsigned             structSize = varDsc->lvExactSize;
 
-                    // Clear the side-effect flags because now both op1 and op2 have no side-effects
-                    defArg->gtFlags &= ~GTF_ALL_EFFECT;
+                        scalarType = compiler->getPrimitiveTypeForStruct(structSize, clsHnd, call->IsVarargs());
+                    }
+#endif // TARGET_ARMARCH || defined (UNIX_AMD64_ABI)
+                }
+
+                // scalarType can be set to a wider type for ARM or unix amd64 architectures: (3 => 4)  or (5,6,7 =>
+                // 8)
+                if ((scalarType != TYP_UNKNOWN) && (scalarType != lclVarType))
+                {
+                    // Create a GT_LCL_FLD using the wider type to go to the late argument list
+                    defArg = compiler->gtNewLclFldNode(tmpVarNum, scalarType, 0);
                 }
                 else
                 {
-                    setupArg = compiler->gtNewTempAssign(tmpVarNum, argx);
-
-                    LclVarDsc* varDsc     = compiler->lvaTable + tmpVarNum;
-                    var_types  lclVarType = genActualType(argx->gtType);
-                    var_types  scalarType = TYP_UNKNOWN;
-
-                    if (setupArg->OperIsCopyBlkOp())
-                    {
-                        setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
-#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
-                        if (lclVarType == TYP_STRUCT)
-                        {
-                            // This scalar LclVar widening step is only performed for ARM architectures.
-                            //
-                            CORINFO_CLASS_HANDLE clsHnd     = compiler->lvaGetStruct(tmpVarNum);
-                            unsigned             structSize = varDsc->lvExactSize;
-
-                            scalarType = compiler->getPrimitiveTypeForStruct(structSize, clsHnd, call->IsVarargs());
-                        }
-#endif // TARGET_ARMARCH || defined (UNIX_AMD64_ABI)
-                    }
-
-                    // scalarType can be set to a wider type for ARM or unix amd64 architectures: (3 => 4)  or (5,6,7 =>
-                    // 8)
-                    if ((scalarType != TYP_UNKNOWN) && (scalarType != lclVarType))
-                    {
-                        // Create a GT_LCL_FLD using the wider type to go to the late argument list
-                        defArg = compiler->gtNewLclFldNode(tmpVarNum, scalarType, 0);
-                    }
-                    else
-                    {
-                        // Create a copy of the temp to go to the late argument list
-                        defArg = compiler->gtNewLclvNode(tmpVarNum, lclVarType);
-                    }
-
-                    curArgTabEntry->tmpNum = tmpVarNum;
+                    // Create a copy of the temp to go to the late argument list
+                    defArg = compiler->gtNewLclvNode(tmpVarNum, lclVarType);
                 }
+
+                curArgTabEntry->tmpNum = tmpVarNum;
 
                 /* mark the assignment as a late argument */
                 setupArg->gtFlags |= GTF_LATE_ARG;
@@ -1708,7 +1696,6 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         }
 
         curArgTabEntry->lateUse = tmpRegArgNext;
-        regArgInx++;
     }
 
 #ifdef DEBUG
@@ -1727,29 +1714,6 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         printf("\n");
     }
 #endif
-}
-
-// Return a conservative estimate of the stack size in bytes.
-// It will be used only on the intercepted-for-host code path to copy the arguments.
-int Compiler::fgEstimateCallStackSize(GenTreeCall* call)
-{
-    int numArgs = 0;
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        numArgs++;
-    }
-
-    int numStkArgs;
-    if (numArgs > MAX_REG_ARG)
-    {
-        numStkArgs = numArgs - MAX_REG_ARG;
-    }
-    else
-    {
-        numStkArgs = 0;
-    }
-
-    return numStkArgs * REGSIZE_BYTES;
 }
 
 //------------------------------------------------------------------------------
@@ -5024,48 +4988,6 @@ void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argIn
     call->fgArgInfo->EvalToTmp(argInfo, tmp, copyBlk);
 }
 #endif // FEATURE_FIXED_OUT_ARGS
-
-#ifdef TARGET_ARM
-// See declaration for specification comment.
-void Compiler::fgAddSkippedRegsInPromotedStructArg(LclVarDsc* varDsc,
-                                                   unsigned   firstArgRegNum,
-                                                   regMaskTP* pArgSkippedRegMask)
-{
-    assert(varDsc->lvPromoted);
-    // There's no way to do these calculations without breaking abstraction and assuming that
-    // integer register arguments are consecutive ints.  They are on ARM.
-
-    // To start, figure out what register contains the last byte of the first argument.
-    LclVarDsc* firstFldVarDsc = &lvaTable[varDsc->lvFieldLclStart];
-    unsigned   lastFldRegOfLastByte =
-        (firstFldVarDsc->lvFldOffset + firstFldVarDsc->lvExactSize - 1) / TARGET_POINTER_SIZE;
-    ;
-
-    // Now we're keeping track of the register that the last field ended in; see what registers
-    // subsequent fields start in, and whether any are skipped.
-    // (We assume here the invariant that the fields are sorted in offset order.)
-    for (unsigned fldVarOffset = 1; fldVarOffset < varDsc->lvFieldCnt; fldVarOffset++)
-    {
-        unsigned   fldVarNum    = varDsc->lvFieldLclStart + fldVarOffset;
-        LclVarDsc* fldVarDsc    = &lvaTable[fldVarNum];
-        unsigned   fldRegOffset = fldVarDsc->lvFldOffset / TARGET_POINTER_SIZE;
-        assert(fldRegOffset >= lastFldRegOfLastByte); // Assuming sorted fields.
-        // This loop should enumerate the offsets of any registers skipped.
-        // Find what reg contains the last byte:
-        // And start at the first register after that.  If that isn't the first reg of the current
-        for (unsigned skippedRegOffsets = lastFldRegOfLastByte + 1; skippedRegOffsets < fldRegOffset;
-             skippedRegOffsets++)
-        {
-            // If the register number would not be an arg reg, we're done.
-            if (firstArgRegNum + skippedRegOffsets >= MAX_REG_ARG)
-                return;
-            *pArgSkippedRegMask |= genRegMask(regNumber(firstArgRegNum + skippedRegOffsets));
-        }
-        lastFldRegOfLastByte = (fldVarDsc->lvFldOffset + fldVarDsc->lvExactSize - 1) / TARGET_POINTER_SIZE;
-    }
-}
-
-#endif // TARGET_ARM
 
 //****************************************************************************
 //  fgFixupStructReturn:
