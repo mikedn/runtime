@@ -690,49 +690,61 @@ REMOVE_CAST:
 #ifdef DEBUG
 void fgArgTabEntry::Dump()
 {
-    printf("fgArgTabEntry[arg %u", argNum);
-    printf(" %d.%s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()));
-    printf(" %s", varTypeName(argType));
-    printf(" (%s)", passedByRef ? "By ref" : "By value");
+    printf("arg %u:", argNum);
+    printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(argType));
+
+    if (isStruct)
+    {
+        printf(", isStruct, %s", passedByRef ? "byRef" : "byValue");
+    }
+
     if (numRegs != 0)
     {
-        printf(", %u reg%s:", numRegs, numRegs == 1 ? "" : "s");
+        printf(", %u reg%s (", numRegs, numRegs == 1 ? "" : "s");
         for (unsigned i = 0; i < numRegs; i++)
         {
-            printf(" %s", getRegName(regNums[i]));
+#if defined(FEATURE_HFA) || defined(UNIX_AMD64_ABI)
+            printf("%s%s %s", i == 0 ? "" : ", ", getRegName(regNums[i]), varTypeName(GetRegType(i)));
+#else
+            printf("%s%s", i == 0 ? "" : ", ", getRegName(regNums[i]));
+#endif
         }
+        printf(")");
     }
-    if (numSlots > 0)
+
+    if (numSlots == 1)
     {
-        printf(", numSlots=%u, slotNum=%u", numSlots, slotNum);
+        printf(", 1 slot (%u)", slotNum);
     }
-    if (IsSplit())
+    else if (numSlots > 1)
     {
-        printf(", isSplit");
+        printf(", %u slots (%u..%u)", numSlots, slotNum, slotNum + numSlots - 1);
     }
+
     if (HasTemp())
     {
-        printf(", tmpNum=V%02u", tempLclNum);
+        printf(", temp V%02u", tempLclNum);
     }
+
     if (needPlace)
     {
         printf(", needPlace");
     }
-#ifdef FEATURE_HFA
-    if (IsHfaArg() && isPassedInRegisters())
-    {
-        printf(", isHfa(%s)", varTypeName(regType));
-    }
-#endif
+
     if (isNonStandard)
     {
         printf(", isNonStandard");
     }
-    if (isStruct)
+
+    printf("\n");
+}
+
+void fgArgInfo::Dump()
+{
+    for (unsigned i = 0; i < argCount; i++)
     {
-        printf(", isStruct");
+        argTable[i]->Dump();
     }
-    printf("]\n");
 }
 #endif
 
@@ -1121,14 +1133,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
 
 void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 {
-    assert(argsComplete == true);
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("\nSorting the arguments:\n");
-    }
-#endif
+    assert(argsComplete);
 
     /* Shuffle the arguments around before we build the gtCallLateArgs list.
        The idea is to move all "simple" arguments like constants and local vars
@@ -1396,18 +1401,16 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 #endif // !FEATURE_FIXED_OUT_ARGS
 
     argsSorted = true;
-}
 
 #ifdef DEBUG
-void fgArgInfo::Dump(Compiler* compiler)
-{
-    for (unsigned curInx = 0; curInx < ArgCount(); curInx++)
+    if (compiler->verbose)
     {
-        fgArgTabEntry* curArgEntry = ArgTable()[curInx];
-        curArgEntry->Dump();
+        printf("\nSorted arg table:\n");
+        Dump();
+        printf("\n");
     }
-}
 #endif
+}
 
 //------------------------------------------------------------------------------
 // fgMakeTmpArgNode: Create a tree for a call arg that requires a temp.
@@ -1585,6 +1588,8 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
                 setupArg->gtFlags |= GTF_LATE_ARG;
                 argInfo->use->SetNode(setupArg);
+
+                JITDUMP("\n");
             }
 
             GenTreeCall::Use* lateArgUse = compiler->gtNewCallArgs(lateArg);
@@ -1602,21 +1607,6 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             argInfo->lateUse   = lateArgUse;
         }
     }
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("\nShuffled argument table: ");
-        for (unsigned i = 0; i < argCount; i++)
-        {
-            if (argTable[i]->GetRegCount() != 0)
-            {
-                printf("%s ", getRegName(argTable[i]->GetRegNum()));
-            }
-        }
-        printf("\n");
-    }
-#endif
 }
 
 //------------------------------------------------------------------------------
@@ -1725,7 +1715,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // We've already initialized and set the fgArgInfo.
         return;
     }
-    JITDUMP("Initializing arg info for %d.%s:\n", call->gtTreeID, GenTree::OpName(call->gtOper));
+
+    JITDUMP("\nInitializing call [%06u] arg info\n", call->gtTreeID);
 
     // At this point, we should never have gtCallLateArgs, as this needs to be done before those are determined.
     assert(call->gtCallLateArgs == nullptr);
@@ -2709,6 +2700,10 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                                                                                  structDesc.eightByteSizes[i]));
                 }
             }
+            else
+            {
+                newArgEntry->SetRegType(0, argx->GetType());
+            }
 #elif defined(FEATURE_MULTIREG_ARGS)
             newArgEntry->SetMultiRegNums();
 #endif
@@ -2742,9 +2737,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef DEBUG
     if (verbose)
     {
-        JITDUMP("ArgTable for %d.%s after fgInitArgInfo:\n", call->gtTreeID, GenTree::OpName(call->gtOper));
-        call->fgArgInfo->Dump(this);
-        JITDUMP("\n");
+        printf("Call [%06u] arg table after fgInitArgInfo:\n", call->gtTreeID);
+        call->fgArgInfo->Dump();
+        printf("\n");
     }
 #endif
 }
@@ -2795,7 +2790,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     bool reMorphing = call->AreArgsComplete();
     fgInitArgInfo(call);
 
-    JITDUMP("%sMorphing args for %d.%s:\n", (reMorphing) ? "Re" : "", call->gtTreeID, GenTree::OpName(call->gtOper));
+    JITDUMP("%s call [%06u] args\n", reMorphing ? "Remorphing" : "Morphing", call->gtTreeID);
 
     unsigned flagsSummary = 0;
 
@@ -3006,11 +3001,11 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #ifdef DEBUG
     if (verbose)
     {
-        JITDUMP("ArgTable for %d.%s after fgMorphArgs:\n", call->gtTreeID, GenTree::OpName(call->gtOper));
-        call->fgArgInfo->Dump(this);
-        JITDUMP("\n");
+        printf("Call [%06u] arg table after fgMorphArgs:\n", call->gtTreeID);
+        call->fgArgInfo->Dump();
     }
 #endif
+
     return call;
 }
 #ifdef _PREFAST_
@@ -4681,8 +4676,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         INDEBUG(gtDispTree(arg);)
         unreached();
     }
-
-    JITDUMPTREE(newArg, "fgMorphMultiregStructArg created tree:\n");
 
     // consider calling fgMorphTree(newArg);
     return newArg;

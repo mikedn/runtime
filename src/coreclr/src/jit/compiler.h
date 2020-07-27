@@ -1881,7 +1881,7 @@ public:
     }
 #endif // defined(UNIX_X86_ABI)
 
-    void Dump(Compiler* compiler);
+    void Dump();
 };
 
 typedef fgArgInfo CallInfo;
