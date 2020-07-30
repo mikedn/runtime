@@ -403,6 +403,11 @@ inline var_types varTypeToUnsigned(var_types type)
     return type;
 }
 
+inline var_types varTypePointerAdd(var_types type)
+{
+    return (type == TYP_REF) ? TYP_BYREF : type;
+}
+
 /*****************************************************************************/
 #endif // _VARTYPE_H_
 /*****************************************************************************/

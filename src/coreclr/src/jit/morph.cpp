@@ -1069,84 +1069,67 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
 
         if ((varTypeIsStruct(argx->TypeGet())) && (curArgTabEntry->needTmp == false))
         {
-            if (isMultiRegArg && ((argx->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0))
+#if defined(FEATURE_SIMD) && defined(TARGET_ARM64)
+            if (isMultiRegArg && varTypeIsSIMD(argx->TypeGet()))
             {
-                // Spill multireg struct arguments that have Assignments or Calls embedded in them
-                curArgTabEntry->needTmp = true;
-                needsTemps              = true;
-            }
-            else
-            {
-                // We call gtPrepareCost to measure the cost of evaluating this tree
-                compiler->gtPrepareCost(argx);
-
-                if (isMultiRegArg && (argx->GetCostEx() > (6 * IND_COST_EX)))
+                // SIMD types do not need the optimization below due to their sizes
+                if (argx->OperIsSimdOrHWintrinsic() || (argx->OperIs(GT_OBJ) && argx->AsObj()->gtOp1->OperIs(GT_ADDR) &&
+                                                        argx->AsObj()->gtOp1->AsOp()->gtOp1->OperIsSimdOrHWintrinsic()))
                 {
-                    // Spill multireg struct arguments that are expensive to evaluate twice
                     curArgTabEntry->needTmp = true;
                     needsTemps              = true;
                 }
-#if defined(FEATURE_SIMD) && defined(TARGET_ARM64)
-                else if (isMultiRegArg && varTypeIsSIMD(argx->TypeGet()))
-                {
-                    // SIMD types do not need the optimization below due to their sizes
-                    if (argx->OperIsSimdOrHWintrinsic() ||
-                        (argx->OperIs(GT_OBJ) && argx->AsObj()->gtOp1->OperIs(GT_ADDR) &&
-                         argx->AsObj()->gtOp1->AsOp()->gtOp1->OperIsSimdOrHWintrinsic()))
-                    {
-                        curArgTabEntry->needTmp = true;
-                        needsTemps              = true;
-                    }
-                }
+
+                continue;
+            }
 #endif
 #ifndef TARGET_ARM
-                // TODO-Arm: This optimization is not implemented for ARM32
-                // so we skip this for ARM32 until it is ported to use RyuJIT backend
-                //
-                else if (argx->OperIs(GT_OBJ) && (curArgTabEntry->GetRegCount() != 0))
+            // TODO-Arm: This optimization is not implemented for ARM32
+            // so we skip this for ARM32 until it is ported to use RyuJIT backend
+            //
+            if (argx->OperIs(GT_OBJ) && (curArgTabEntry->GetRegCount() != 0))
+            {
+                GenTreeObj* argObj     = argx->AsObj();
+                unsigned    structSize = argObj->GetLayout()->GetSize();
+                switch (structSize)
                 {
-                    GenTreeObj* argObj     = argx->AsObj();
-                    unsigned    structSize = argObj->GetLayout()->GetSize();
-                    switch (structSize)
-                    {
-                        case 3:
-                        case 5:
-                        case 6:
-                        case 7:
-                            // If we have a stack based LclVar we can perform a wider read of 4 or 8 bytes
-                            //
-                            if (argObj->AsObj()->gtOp1->IsLocalAddrExpr() == nullptr) // Is the source not a LclVar?
-                            {
-                                // If we don't have a LclVar we need to read exactly 3,5,6 or 7 bytes
-                                // For now we use a a GT_CPBLK to copy the exact size into a GT_LCL_VAR temp.
-                                //
-                                curArgTabEntry->needTmp = true;
-                                needsTemps              = true;
-                            }
-                            break;
-                        case 11:
-                        case 13:
-                        case 14:
-                        case 15:
-                            // Spill any GT_OBJ multireg structs that are difficult to extract
-                            //
-                            // When we have a GT_OBJ of a struct with the above sizes we would need
-                            // to use 3 or 4 load instructions to load the exact size of this struct.
-                            // Instead we spill the GT_OBJ into a new GT_LCL_VAR temp and this sequence
-                            // will use a GT_CPBLK to copy the exact size into the GT_LCL_VAR temp.
-                            // Then we can just load all 16 bytes of the GT_LCL_VAR temp when passing
-                            // the argument.
+                    case 3:
+                    case 5:
+                    case 6:
+                    case 7:
+                        // If we have a stack based LclVar we can perform a wider read of 4 or 8 bytes
+                        //
+                        if (argObj->AsObj()->gtOp1->IsLocalAddrExpr() == nullptr) // Is the source not a LclVar?
+                        {
+                            // If we don't have a LclVar we need to read exactly 3,5,6 or 7 bytes
+                            // For now we use a a GT_CPBLK to copy the exact size into a GT_LCL_VAR temp.
                             //
                             curArgTabEntry->needTmp = true;
                             needsTemps              = true;
-                            break;
+                        }
+                        break;
+                    case 11:
+                    case 13:
+                    case 14:
+                    case 15:
+                        // Spill any GT_OBJ multireg structs that are difficult to extract
+                        //
+                        // When we have a GT_OBJ of a struct with the above sizes we would need
+                        // to use 3 or 4 load instructions to load the exact size of this struct.
+                        // Instead we spill the GT_OBJ into a new GT_LCL_VAR temp and this sequence
+                        // will use a GT_CPBLK to copy the exact size into the GT_LCL_VAR temp.
+                        // Then we can just load all 16 bytes of the GT_LCL_VAR temp when passing
+                        // the argument.
+                        //
+                        curArgTabEntry->needTmp = true;
+                        needsTemps              = true;
+                        break;
 
-                        default:
-                            break;
-                    }
+                    default:
+                        break;
                 }
-#endif // !TARGET_ARM
             }
+#endif // !TARGET_ARM
         }
 #endif // FEATURE_MULTIREG_ARGS
     }
@@ -4885,32 +4868,77 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     }
     else if (arg->OperIs(GT_OBJ))
     {
-        GenTreeObj* argObj   = arg->AsObj();
-        GenTree*    baseAddr = argObj->gtOp1;
-        var_types   addrType = baseAddr->TypeGet();
+        unsigned argSize    = arg->AsObj()->GetLayout()->GetSize();
+        GenTree* addr       = arg->AsObj()->GetAddr();
+        ssize_t  addrOffset = 0;
 
-        newArg          = new (this, GT_FIELD_LIST) GenTreeFieldList();
-        unsigned offset = 0;
-        for (unsigned inx = 0; inx < elemCount; inx++)
+        // Extract constant offsets that appear when passing struct typed class fields
+        // so they can be folded with the register offset.
+        if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
         {
-            GenTree* curAddr = baseAddr;
-            if (offset != 0)
-            {
-                GenTree* baseAddrDup = gtCloneExpr(baseAddr);
-                noway_assert(baseAddrDup != nullptr);
-                curAddr = gtNewOperNode(GT_ADD, addrType, baseAddrDup, gtNewIconNode(offset, TYP_I_IMPL));
-            }
-            else
-            {
-                curAddr = baseAddr;
-            }
-            GenTree* curItem = gtNewIndir(type[inx], curAddr);
+            ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
 
-            // For safety all GT_IND should have at least GT_GLOB_REF set.
-            curItem->gtFlags |= GTF_GLOB_REF;
+#if defined(TARGET_AMD64)
+            if ((offset >= INT32_MIN) && (offset <= INT32_MAX - argSize))
+#elif defined(TARGET_ARMARCH)
+            // For simplicity limit the offset to values that are valid address mode
+            // offsets no matter what the indirection type is.
+            if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(argSize)))
+#else
+#error Unknown target.
+#endif
+            {
+                addr       = addr->AsOp()->GetOp(0);
+                addrOffset = offset;
+            }
+        }
 
-            newArg->AddField(this, curItem, offset, type[inx]);
-            offset += genTypeSize(type[inx]);
+        // We need to use the address tree multiple times. If it has side effects or
+        // it is too expensive to evaluate then we need to "spill" it to a temp.
+        bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
+
+        if (!addrTempRequired)
+        {
+            gtPrepareCost(addr);
+            addrTempRequired = addr->GetCostEx() > 6 * IND_COST_EX;
+        }
+
+        GenTree* addrAsg = nullptr;
+
+        if (addrTempRequired)
+        {
+            unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
+            GenTree* addrDef    = gtNewLclvNode(addrLclNum, addr->GetType());
+
+            addrAsg = gtNewAssignNode(addrDef, addr);
+            addr    = gtNewLclvNode(addrLclNum, addr->GetType());
+        }
+
+        newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+        for (unsigned i = 0, regOffset = 0; i < elemCount; i++)
+        {
+            GenTree* regAddr = (i == 0) ? addr : gtCloneExpr(addr);
+
+            if (addrOffset + regOffset != 0)
+            {
+                regAddr = gtNewOperNode(GT_ADD, varTypePointerAdd(regAddr->GetType()), regAddr,
+                                        gtNewIconNode(addrOffset + regOffset, TYP_I_IMPL));
+                regAddr->gtFlags |= GTF_DONT_CSE;
+            }
+
+            GenTree* indir = gtNewIndir(type[i], regAddr);
+            indir->gtFlags |= GTF_GLOB_REF;
+
+            if ((i == 0) && (addrAsg != nullptr))
+            {
+                indir = gtNewOperNode(GT_COMMA, indir->GetType(), addrAsg, indir);
+            }
+
+            newArg->AddField(this, indir, regOffset, type[i]);
+            regOffset += varTypeSize(type[i]);
+
+            assert(regOffset <= argSize);
         }
     }
     else
