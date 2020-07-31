@@ -3323,11 +3323,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #if FEATURE_MULTIREG_ARGS
         if (argEntry->isStruct)
         {
-            if (((argEntry->numRegs + argEntry->numSlots) > 1) ||
-                (argEntry->IsHfaArg() && argx->TypeGet() == TYP_STRUCT))
-            {
-                hasMultiregStructArgs |= argEntry->GetRegCount() != 0;
-            }
+            hasMultiregStructArgs |=
+                (argEntry->GetRegCount() != 0) && (argEntry->GetRegCount() + argEntry->GetSlotCount() > 1);
         }
 #ifdef TARGET_ARM
         else if ((argEntry->argType == TYP_LONG) || (argEntry->argType == TYP_DOUBLE))
@@ -3951,44 +3948,11 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
             continue;
         }
 
-        unsigned size = (fgEntryPtr->numRegs + fgEntryPtr->numSlots);
-        if ((size > 1) || (fgEntryPtr->IsHfaArg() && argx->TypeGet() == TYP_STRUCT))
+        if (fgEntryPtr->GetRegCount() + fgEntryPtr->GetSlotCount() > 1)
         {
             INDEBUG(foundStructArg = true;)
             if (varTypeIsStruct(argx) && !argx->OperIs(GT_FIELD_LIST))
             {
-#ifdef FEATURE_HFA
-                if (fgEntryPtr->IsHfaArg() && fgEntryPtr->isPassedInRegisters())
-                {
-                    var_types hfaType = fgEntryPtr->GetRegType();
-                    unsigned  structSize;
-                    if (argx->OperIs(GT_OBJ))
-                    {
-                        structSize = argx->AsObj()->GetLayout()->GetSize();
-                    }
-                    else if (argx->OperIs(GT_LCL_VAR))
-                    {
-                        structSize = lvaGetDesc(argx->AsLclVar())->lvExactSize;
-                    }
-                    else
-                    {
-                        assert(argx->OperIs(GT_LCL_FLD));
-                        structSize = argx->AsLclFld()->GetLayout(this)->GetSize();
-                    }
-
-                    assert(structSize > 0);
-                    if (structSize == genTypeSize(hfaType))
-                    {
-                        if (argx->OperIs(GT_OBJ))
-                        {
-                            argx->SetOper(GT_IND);
-                        }
-
-                        argx->gtType = hfaType;
-                    }
-                }
-#endif // FEATURE_HFA
-
                 GenTree* newArgx = fgMorphMultiregStructArg(argx, fgEntryPtr);
 
                 // Did we replace 'argx' with a new tree?
