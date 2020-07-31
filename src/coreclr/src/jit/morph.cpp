@@ -1056,7 +1056,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
             }
         }
 
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64) || (UNIX_AMD64_ABI)
         if (!curArgTabEntry->needTmp && (curArgTabEntry->GetRegCount() > 1) && varTypeIsSIMD(argx->GetType()))
         {
             if (argx->OperIsSimdOrHWintrinsic() ||
