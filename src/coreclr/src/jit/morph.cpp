@@ -1059,9 +1059,8 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
 #if defined(TARGET_ARM64) || (UNIX_AMD64_ABI)
         if (!curArgTabEntry->needTmp && (curArgTabEntry->GetRegCount() > 1) && varTypeIsSIMD(argx->GetType()))
         {
-            if (argx->OperIsSimdOrHWintrinsic() ||
-                (argx->OperIs(GT_OBJ) && argx->AsObj()->GetAddr()->OperIs(GT_ADDR) &&
-                 argx->AsObj()->GetAddr()->AsUnOp()->GetOp(0)->OperIsSimdOrHWintrinsic()))
+            if (argx->OperIs(GT_OBJ) && argx->AsObj()->GetAddr()->OperIs(GT_ADDR) &&
+                argx->AsObj()->GetAddr()->AsUnOp()->GetOp(0)->OperIsSimdOrHWintrinsic())
             {
                 curArgTabEntry->needTmp = true;
                 needsTemps              = true;
