@@ -3144,11 +3144,10 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     }
                     else
                     {
-                        // This should only be the case of a value directly producing a known struct type.
-                        if (argEntry->numRegs > 1)
-                        {
-                            copyBlkClass = objClass;
-                        }
+                        // We can't get a SIMD arg here, Vector2 is in the "canTransform" path, Vector3/4 are
+                        // passed in 2 XMM regs and have been special cased above, Vector/Vector128/Vector256
+                        // are passed on stack due to the VM's ABI being broken.
+                        unreached();
                     }
 #endif // UNIX_AMD64_ABI
 #elif defined(TARGET_ARM64)
