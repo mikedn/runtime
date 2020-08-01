@@ -3426,7 +3426,7 @@ void Compiler::abiMorphSingleRegStructArg(
     // size (3, 5, 6...) and that will require additional processing.
     assert(structSize <= varTypeSize(structBaseType));
 
-    if (!isPow2(structSize) && (fgIsIndirOfAddrOfLocal(argObj) == nullptr))
+    if (argObj->OperIs(GT_OBJ) && !isPow2(structSize) && (argObj->AsObj()->GetAddr()->IsLocalAddrExpr() == nullptr))
     {
 #ifdef TARGET_64BIT
         assert((structSize == 3) || (structSize == 5) || (structSize == 6) || (structSize == 7));
