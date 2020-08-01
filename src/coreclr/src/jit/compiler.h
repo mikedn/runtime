@@ -3214,6 +3214,7 @@ public:
     bool lvaHaveManyLocals() const;
 
     unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
+    unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
 
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason));
@@ -9920,6 +9921,7 @@ public:
 #if FEATURE_MULTIREG_ARGS
     void fgMorphMultiregStructArgs(GenTreeCall* call);
     GenTree* fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr);
+    GenTree* abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
     GenTreeFieldList* fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl);
 #if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
     bool abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
