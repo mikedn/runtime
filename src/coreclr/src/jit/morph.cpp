@@ -4803,7 +4803,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         if (!addrTempRequired)
         {
             gtPrepareCost(addr);
-            addrTempRequired = addr->GetCostEx() > 6 * IND_COST_EX;
+            addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
         }
 
         GenTree* addrAsg = nullptr;
