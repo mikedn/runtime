@@ -3428,12 +3428,11 @@ void Compiler::abiMorphSingleRegStructArg(
 
     GenTreeLclVar* lclVar       = fgIsIndirOfAddrOfLocal(argObj);
     bool           canTransform = false;
-    unsigned       passingSize  = structSize;
 
-    if (isPow2(passingSize))
+    if (isPow2(structSize))
     {
 #ifdef FEATURE_HFA
-        canTransform = (!argEntry->IsHfaArg() || (passingSize == genTypeSize(argEntry->GetHfaType())));
+        canTransform = (!argEntry->IsHfaArg() || (structSize == varTypeSize(argEntry->GetHfaType())));
 #else
         canTransform = true;
 #endif
@@ -3446,7 +3445,6 @@ void Compiler::abiMorphSingleRegStructArg(
     else
     {
         canTransform = (lclVar != nullptr);
-        passingSize  = genTypeSize(structBaseType);
     }
 #endif //  TARGET_ARM64 || UNIX_AMD64_ABI
 
@@ -3463,7 +3461,7 @@ void Compiler::abiMorphSingleRegStructArg(
         // actually passed in registers.
         if (argObj->OperIs(GT_OBJ))
         {
-            if (passingSize != structSize)
+            if (varTypeSize(structBaseType) != structSize)
             {
                 copyBlkClass = objClass;
             }
@@ -3472,7 +3470,7 @@ void Compiler::abiMorphSingleRegStructArg(
         {
             assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-            if (passingSize != structSize)
+            if (varTypeSize(structBaseType) != structSize)
             {
                 copyBlkClass = objClass;
             }
@@ -3485,13 +3483,13 @@ void Compiler::abiMorphSingleRegStructArg(
             unreached();
         }
 #elif defined(TARGET_ARM64)
-        if ((passingSize != structSize) && (lclVar == nullptr))
+        if ((varTypeSize(structBaseType) != structSize) && (lclVar == nullptr))
         {
             copyBlkClass = objClass;
         }
 #elif defined(TARGET_ARM)
         // TODO-1stClassStructs: Unify these conditions across targets.
-        if (argObj->OperIs(GT_OBJ) && (passingSize != structSize))
+        if (argObj->OperIs(GT_OBJ) && (varTypeSize(structBaseType) != structSize))
         {
             copyBlkClass = objClass;
         }
