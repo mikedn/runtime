@@ -3471,6 +3471,9 @@ void Compiler::abiMorphSingleRegStructArg(
 
     if (argObj->OperIs(GT_LCL_VAR))
     {
+        // Independent promoted locals require special handling. This includes promoted SIMD locals,
+        // such as a promoted SIMD8 local being passed in a LONG register on win-x64.
+
         LclVarDsc* varDsc = lvaGetDesc(argObj->AsLclVar());
 
         if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
@@ -3489,7 +3492,19 @@ void Compiler::abiMorphSingleRegStructArg(
 
             return;
         }
+    }
 
+#ifdef TARGET_64BIT
+    if (argObj->TypeIs(TYP_SIMD8) && (argRegType == TYP_LONG))
+    {
+        // win-x64 and win-arm64 varargs pass SIMD8 in a LONG register.
+        argEntry->use->SetNode(gtNewBitCastNode(argRegType, argObj));
+        return;
+    }
+#endif
+
+    if (argObj->OperIs(GT_LCL_VAR))
+    {
         if (varActualType(argObj->GetType()) != varActualType(argRegType))
         {
             argObj->ChangeOper(GT_LCL_FLD);
