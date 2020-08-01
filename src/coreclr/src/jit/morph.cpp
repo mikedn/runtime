@@ -3531,25 +3531,26 @@ void Compiler::abiMorphSingleRegStructArg(
         return;
     }
 
-    if (argObj->OperIs(GT_LCL_VAR))
+    // Normally at this point we should have a STRUCT or suitable SIMD typed LCL_VAR|FLD
+    // but due to reinterpretation via OBJ(ADDR(LCL_VAR)) the LCL_VAR|FLD may also have
+    // primtive type or an unexpected SIMD type (e.g. SIMD16 local passed in an INT reg).
+    // For now use LCL_FLD to handle all such cases. In some cases BITCAST may be used
+    // but it's not clear which such cases, if any, are useful.
+
+    if (argObj->TypeIs(TYP_STRUCT) || (varTypeUsesFloatReg(argRegType) != varTypeUsesFloatReg(argObj->GetType())))
     {
-        if (varActualType(argObj->GetType()) != varActualType(argRegType))
+        if (argObj->OperIs(GT_LCL_FLD))
+        {
+            argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+        }
+        else
         {
             argObj->ChangeOper(GT_LCL_FLD);
-            argObj->SetType(argRegType);
-
-            lvaSetVarDoNotEnregister(argObj->AsLclFld()->GetLclNum() DEBUGARG(DNER_LocalField));
         }
 
-        return;
-    }
+        argObj->SetType(argRegType);
 
-    // Not a GT_LCL_VAR, so we can just change the type on the node
-    argObj->SetType(argRegType);
-
-    if (argObj->OperIs(GT_LCL_FLD))
-    {
-        argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+        lvaSetVarDoNotEnregister(argObj->AsLclFld()->GetLclNum() DEBUGARG(DNER_LocalField));
     }
 }
 
