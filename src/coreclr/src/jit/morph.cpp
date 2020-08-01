@@ -2400,7 +2400,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
         }
 #else  // !UNIX_AMD64_ABI
-        size             = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
+        size         = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
 #endif // UNIX_AMD64_ABI
 #elif defined(TARGET_ARM64)
         if (isStructArg)
@@ -3417,9 +3417,10 @@ void Compiler::abiMorphSingleRegStructArg(
 
     CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
 
-    unsigned  roundupSize    = roundUp(structSize, TARGET_POINTER_SIZE);
     unsigned  passingSize    = structSize;
     var_types structBaseType = argEntry->argType;
+
+    assert(varTypeSize(structBaseType) >= structSize);
 
     // Check to see if we can transform this struct load (GT_OBJ) into a GT_IND of the appropriate size.
     // When it can do this is platform-dependent:
@@ -3430,29 +3431,26 @@ void Compiler::abiMorphSingleRegStructArg(
     GenTreeLclVar* lclVar       = fgIsIndirOfAddrOfLocal(argObj);
     bool           canTransform = false;
 
-    if (structBaseType != TYP_STRUCT)
+    if (isPow2(passingSize))
     {
-        if (isPow2(passingSize))
-        {
 #ifdef FEATURE_HFA
-            canTransform = (!argEntry->IsHfaArg() || (passingSize == genTypeSize(argEntry->GetHfaType())));
+        canTransform = (!argEntry->IsHfaArg() || (passingSize == genTypeSize(argEntry->GetHfaType())));
 #else
-            canTransform = true;
+        canTransform = true;
 #endif
-        }
+    }
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-        // For ARM64 or AMD64/UX we can pass non-power-of-2 structs in a register, but we can
-        // only transform in that case if the arg is a local.
-        // TODO-CQ: This transformation should be applicable in general, not just for the ARM64
-        // or UNIX_AMD64_ABI cases where they will be passed in registers.
-        else
-        {
-            canTransform = (lclVar != nullptr);
-            passingSize  = genTypeSize(structBaseType);
-        }
-#endif //  TARGET_ARM64 || UNIX_AMD64_ABI
+    // For ARM64 or AMD64/UX we can pass non-power-of-2 structs in a register, but we can
+    // only transform in that case if the arg is a local.
+    // TODO-CQ: This transformation should be applicable in general, not just for the ARM64
+    // or UNIX_AMD64_ABI cases where they will be passed in registers.
+    else
+    {
+        canTransform = (lclVar != nullptr);
+        passingSize  = genTypeSize(structBaseType);
     }
+#endif //  TARGET_ARM64 || UNIX_AMD64_ABI
 
     if (!canTransform)
     {
@@ -3515,8 +3513,6 @@ void Compiler::abiMorphSingleRegStructArg(
         // Change our argument, as needed, into a value of the appropriate type.
         CLANG_FORMAT_COMMENT_ANCHOR;
 
-        assert((structBaseType != TYP_STRUCT) && (genTypeSize(structBaseType) >= structSize));
-
         if (argObj->OperIs(GT_OBJ))
         {
             argObj->ChangeOper(GT_IND);
@@ -3574,31 +3570,6 @@ void Compiler::abiMorphSingleRegStructArg(
         assert(varTypeIsEnregisterable(argObj->TypeGet()) ||
                ((copyBlkClass != NO_CLASS_HANDLE) && varTypeIsEnregisterable(structBaseType)));
     }
-
-#ifndef UNIX_AMD64_ABI
-    if ((structBaseType == TYP_STRUCT) && !(argEntry->IsHfaArg() && argEntry->isPassedInFloatRegisters()))
-    {
-        // If the valuetype size is not a multiple of TARGET_POINTER_SIZE,
-        // we must copyblk to a temp before doing the obj to avoid
-        // the obj reading memory past the end of the valuetype
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-        if (roundupSize > structSize)
-        {
-            copyBlkClass = objClass;
-
-            // There are a few special cases where we can omit using a CopyBlk
-            // where we normally would need to use one.
-
-            if (argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
-                (argObj->OperIs(GT_OBJ) && (argObj->AsObj()->gtGetOp1()->IsLocalAddrExpr() != nullptr)))
-            {
-                copyBlkClass = NO_CLASS_HANDLE;
-            }
-        }
-    }
-
-#endif // !UNIX_AMD64_ABI
 
     if (copyBlkClass != NO_CLASS_HANDLE)
     {
