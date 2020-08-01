@@ -3427,17 +3427,51 @@ void Compiler::abiMorphSingleRegStructArg(
                 return;
             }
         }
+
+        if (argObj->OperIs(GT_OBJ))
+        {
+#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
+            // On win-x64 only register sized structs are passed in a register, others are passed by reference.
+            assert(argSize == varTypeSize(argRegType));
+#else
+            // On all other targets structs smaller than register size can be passed in a register, this includes
+            // structs that not only that they're smaller but they also don't match any available load instruction
+            // size (3, 5, 6...) and that will require additional processing.
+            assert(argSize <= varTypeSize(argRegType));
+
+            if (!isPow2(argSize))
+            {
+#ifdef TARGET_64BIT
+                assert((argSize == 3) || (argSize == 5) || (argSize == 6) || (argSize == 7));
+#else
+                assert(argSize == 3);
+#endif
+
+                assert(argObj->TypeIs(TYP_STRUCT));
+
+                fgMakeOutgoingStructArgCopy(call, args, argIndex, argLayout->GetClassHandle());
+                return;
+            }
+#endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
+
+            argObj->ChangeOper(GT_IND);
+            argObj->SetType(argRegType);
+
+            // TODO-MIKE: Investigate whether the OBJ(ADDR(SIMD|HWINTRINSIC)) crap affects single reg args as well,
+            // probably vector args on ARM64...
+
+            // TODO-MIKE: Investigate whether it is necessary to simplify OBJ(ADDR(X)) to X like the old code did.
+            // The important case - when X is a local - has been handled.
+
+            return;
+        }
     }
 
     unsigned structSize;
 
     if (argObj->TypeGet() == TYP_STRUCT)
     {
-        if (argObj->OperIs(GT_OBJ))
-        {
-            structSize = argObj->AsObj()->GetLayout()->GetSize();
-        }
-        else if (argObj->OperIs(GT_LCL_FLD))
+        if (argObj->OperIs(GT_LCL_FLD))
         {
             structSize = argObj->AsLclFld()->GetLayout(this)->GetSize();
         }
@@ -3454,55 +3488,6 @@ void Compiler::abiMorphSingleRegStructArg(
     }
 
     var_types structBaseType = argEntry->argType;
-
-#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
-    // On win-x64 only register sized structs are passed in a register, others are passed by reference.
-    assert(structSize == varTypeSize(structBaseType));
-#else
-    // On all other targets structs smaller than register size can be passed in a register, this includes
-    // structs that not only that they're smaller but they also don't match any available load instruction
-    // size (3, 5, 6...) and that will require additional processing.
-    assert(structSize <= varTypeSize(structBaseType));
-
-    if (argObj->OperIs(GT_OBJ) && !isPow2(structSize) && (argObj->AsObj()->GetAddr()->IsLocalAddrExpr() == nullptr))
-    {
-#ifdef TARGET_64BIT
-        assert((structSize == 3) || (structSize == 5) || (structSize == 6) || (structSize == 7));
-#else
-        assert(structSize == 3);
-#endif
-
-        assert(argObj->TypeIs(TYP_STRUCT));
-
-        fgMakeOutgoingStructArgCopy(call, args, argIndex, argObj->AsObj()->GetLayout()->GetClassHandle());
-        return;
-    }
-#endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
-
-    // We have a struct argument that fits into a register, and it is either a power of 2,
-    // or a local.
-    // Change our argument, as needed, into a value of the appropriate type.
-
-    if (argObj->OperIs(GT_OBJ))
-    {
-        argObj->ChangeOper(GT_IND);
-
-        // Now see if we can fold *(&X) into X
-        if (argObj->AsOp()->gtOp1->gtOper == GT_ADDR)
-        {
-            GenTree* temp = argObj->AsOp()->gtOp1->AsOp()->gtOp1;
-
-            // Keep the DONT_CSE flag in sync
-            // (as the addr always marks it for its op1)
-            temp->gtFlags &= ~GTF_DONT_CSE;
-            temp->gtFlags |= (argObj->gtFlags & GTF_DONT_CSE);
-            DEBUG_DESTROY_NODE(argObj->AsOp()->gtOp1); // GT_ADDR
-            DEBUG_DESTROY_NODE(argObj);                // GT_IND
-
-            argObj = temp;
-            args->SetNode(temp);
-        }
-    }
 
     if (argObj->OperIs(GT_LCL_VAR))
     {
