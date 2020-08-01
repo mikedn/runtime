@@ -3415,8 +3415,6 @@ void Compiler::abiMorphSingleRegStructArg(
         assert(structSize == info.compCompHnd->getClassSize(objClass));
     }
 
-    CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
-
     unsigned  passingSize    = structSize;
     var_types structBaseType = argEntry->argType;
 
@@ -3454,6 +3452,8 @@ void Compiler::abiMorphSingleRegStructArg(
 
     if (!canTransform)
     {
+        CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
+
 #if defined(TARGET_AMD64)
 #ifndef UNIX_AMD64_ABI
         copyBlkClass = objClass;
@@ -3505,76 +3505,76 @@ void Compiler::abiMorphSingleRegStructArg(
             copyBlkClass = objClass;
         }
 #endif // TARGET_ARM
+
+        if (copyBlkClass != NO_CLASS_HANDLE)
+        {
+            fgMakeOutgoingStructArgCopy(call, args, argIndex, copyBlkClass);
+        }
+
+        return;
+    }
+
+    // We have a struct argument that fits into a register, and it is either a power of 2,
+    // or a local.
+    // Change our argument, as needed, into a value of the appropriate type.
+    CLANG_FORMAT_COMMENT_ANCHOR;
+
+    if (argObj->OperIs(GT_OBJ))
+    {
+        argObj->ChangeOper(GT_IND);
+
+        // Now see if we can fold *(&X) into X
+        if (argObj->AsOp()->gtOp1->gtOper == GT_ADDR)
+        {
+            GenTree* temp = argObj->AsOp()->gtOp1->AsOp()->gtOp1;
+
+            // Keep the DONT_CSE flag in sync
+            // (as the addr always marks it for its op1)
+            temp->gtFlags &= ~GTF_DONT_CSE;
+            temp->gtFlags |= (argObj->gtFlags & GTF_DONT_CSE);
+            DEBUG_DESTROY_NODE(argObj->AsOp()->gtOp1); // GT_ADDR
+            DEBUG_DESTROY_NODE(argObj);                // GT_IND
+
+            argObj = temp;
+            args->SetNode(temp);
+            argx = temp;
+        }
+    }
+
+    if (argObj->OperIs(GT_LCL_VAR))
+    {
+        LclVarDsc* varDsc = lvaGetDesc(argObj->AsLclVar());
+
+        if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
+        {
+            GenTree* newArg = abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), structBaseType, structSize);
+
+            if (newArg != argObj)
+            {
+                argObj = newArg;
+                args->SetNode(newArg);
+                argx = newArg;
+            }
+        }
+        else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(structBaseType))
+        {
+            // Not a promoted struct, so just swizzle the type by using GT_LCL_FLD
+            argObj->ChangeOper(GT_LCL_FLD);
+            argObj->gtType = structBaseType;
+        }
     }
     else
     {
-        // We have a struct argument that fits into a register, and it is either a power of 2,
-        // or a local.
-        // Change our argument, as needed, into a value of the appropriate type.
-        CLANG_FORMAT_COMMENT_ANCHOR;
+        // Not a GT_LCL_VAR, so we can just change the type on the node
+        argObj->SetType(structBaseType);
 
-        if (argObj->OperIs(GT_OBJ))
+        if (argObj->OperIs(GT_LCL_FLD))
         {
-            argObj->ChangeOper(GT_IND);
-
-            // Now see if we can fold *(&X) into X
-            if (argObj->AsOp()->gtOp1->gtOper == GT_ADDR)
-            {
-                GenTree* temp = argObj->AsOp()->gtOp1->AsOp()->gtOp1;
-
-                // Keep the DONT_CSE flag in sync
-                // (as the addr always marks it for its op1)
-                temp->gtFlags &= ~GTF_DONT_CSE;
-                temp->gtFlags |= (argObj->gtFlags & GTF_DONT_CSE);
-                DEBUG_DESTROY_NODE(argObj->AsOp()->gtOp1); // GT_ADDR
-                DEBUG_DESTROY_NODE(argObj);                // GT_IND
-
-                argObj = temp;
-                args->SetNode(temp);
-                argx = temp;
-            }
+            argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
         }
-
-        if (argObj->OperIs(GT_LCL_VAR))
-        {
-            LclVarDsc* varDsc = lvaGetDesc(argObj->AsLclVar());
-
-            if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
-            {
-                GenTree* newArg = abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), structBaseType, structSize);
-
-                if (newArg != argObj)
-                {
-                    argObj = newArg;
-                    args->SetNode(newArg);
-                    argx = newArg;
-                }
-            }
-            else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(structBaseType))
-            {
-                // Not a promoted struct, so just swizzle the type by using GT_LCL_FLD
-                argObj->ChangeOper(GT_LCL_FLD);
-                argObj->gtType = structBaseType;
-            }
-        }
-        else
-        {
-            // Not a GT_LCL_VAR, so we can just change the type on the node
-            argObj->SetType(structBaseType);
-
-            if (argObj->OperIs(GT_LCL_FLD))
-            {
-                argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-            }
-        }
-        assert(varTypeIsEnregisterable(argObj->TypeGet()) ||
-               ((copyBlkClass != NO_CLASS_HANDLE) && varTypeIsEnregisterable(structBaseType)));
     }
 
-    if (copyBlkClass != NO_CLASS_HANDLE)
-    {
-        fgMakeOutgoingStructArgCopy(call, args, argIndex, copyBlkClass);
-    }
+    assert(varTypeIsEnregisterable(argObj->TypeGet()));
 }
 
 GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize)
