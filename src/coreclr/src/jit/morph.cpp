@@ -3490,11 +3490,12 @@ void Compiler::abiMorphSingleRegStructArg(
             return;
         }
 
-        if (genTypeSize(varDsc->TypeGet()) != genTypeSize(argRegType))
+        if (varActualType(argObj->GetType()) != varActualType(argRegType))
         {
-            // Not a promoted struct, so just swizzle the type by using GT_LCL_FLD
             argObj->ChangeOper(GT_LCL_FLD);
-            argObj->gtType = argRegType;
+            argObj->SetType(argRegType);
+
+            lvaSetVarDoNotEnregister(argObj->AsLclFld()->GetLclNum() DEBUGARG(DNER_LocalField));
         }
 
         return;
