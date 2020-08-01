@@ -3431,11 +3431,7 @@ void Compiler::abiMorphSingleRegStructArg(
 
     if (isPow2(structSize))
     {
-#ifdef FEATURE_HFA
-        canTransform = (!argEntry->IsHfaArg() || (structSize == varTypeSize(argEntry->GetHfaType())));
-#else
         canTransform = true;
-#endif
     }
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
     // For ARM64 or AMD64/UX we can pass non-power-of-2 structs in a register, but we can
