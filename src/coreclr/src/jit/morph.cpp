@@ -3426,19 +3426,9 @@ void Compiler::abiMorphSingleRegStructArg(
     // size (3, 5, 6...) and that will require additional processing.
     assert(structSize <= varTypeSize(structBaseType));
 
-    GenTreeLclVar* lclVar       = fgIsIndirOfAddrOfLocal(argObj);
-    bool           canTransform = false;
+    GenTreeLclVar* lclVar = fgIsIndirOfAddrOfLocal(argObj);
 
-    if (isPow2(structSize))
-    {
-        canTransform = true;
-    }
-    else
-    {
-        canTransform = (lclVar != nullptr);
-    }
-
-    if (!canTransform)
+    if (!isPow2(structSize) && (lclVar == nullptr))
     {
         CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
 
