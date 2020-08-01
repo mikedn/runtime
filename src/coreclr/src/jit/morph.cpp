@@ -3016,7 +3016,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #endif
             else
             {
-                abiMorphSingleRegStructArg(call, argEntry, args, argIndex, argx, argObj);
+                abiMorphSingleRegStructArg(call, argEntry, args, argIndex, argObj);
             }
         }
 #endif // !TARGET_X86
@@ -3382,7 +3382,7 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
 #ifndef TARGET_X86
 
 void Compiler::abiMorphSingleRegStructArg(
-    GenTreeCall* call, CallArgInfo* argEntry, GenTreeCall::Use* args, unsigned argIndex, GenTree* argx, GenTree* argObj)
+    GenTreeCall* call, CallArgInfo* argEntry, GenTreeCall::Use* args, unsigned argIndex, GenTree* argObj)
 {
     assert((argEntry->GetRegCount() == 1) && (argEntry->GetSlotCount() == 0));
 
@@ -3411,7 +3411,7 @@ void Compiler::abiMorphSingleRegStructArg(
     }
     else
     {
-        structSize = genTypeSize(argx);
+        structSize = varTypeSize(argObj->GetType());
         assert(structSize == info.compCompHnd->getClassSize(objClass));
     }
 
@@ -3535,7 +3535,6 @@ void Compiler::abiMorphSingleRegStructArg(
 
             argObj = temp;
             args->SetNode(temp);
-            argx = temp;
         }
     }
 
@@ -3551,7 +3550,6 @@ void Compiler::abiMorphSingleRegStructArg(
             {
                 argObj = newArg;
                 args->SetNode(newArg);
-                argx = newArg;
             }
         }
         else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(structBaseType))
