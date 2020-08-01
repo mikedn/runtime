@@ -3428,46 +3428,15 @@ void Compiler::abiMorphSingleRegStructArg(
 
     if (!isPow2(structSize) && (fgIsIndirOfAddrOfLocal(argObj) == nullptr))
     {
-        CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
-
-#if defined(UNIX_AMD64_ABI)
-        // On Unix, structs are always passed by value.
-        // We only need a copy if we have one of the following:
-        // - The sizes don't match for a non-lclVar argument.
-        // - We have a known struct type (e.g. SIMD) that requires multiple registers.
-        // TODO-Amd64-Unix-Throughput: We don't need to keep the structDesc in the argEntry if it's not
-        // actually passed in registers.
-        if (argObj->OperIs(GT_OBJ))
-        {
-            copyBlkClass = objClass;
-        }
-        else if (argObj->TypeIs(TYP_STRUCT))
-        {
-            assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
-            copyBlkClass = objClass;
-        }
-        else
-        {
-            // We can't get a SIMD arg here, Vector2 is in the "canTransform" path, Vector3/4 are
-            // passed in 2 XMM regs and have been special cased above, Vector/Vector128/Vector256
-            // are passed on stack due to the VM's ABI being broken.
-            unreached();
-        }
-#elif defined(TARGET_ARM64)
-        copyBlkClass = objClass;
-#elif defined(TARGET_ARM)
-        // TODO-1stClassStructs: Unify these conditions across targets.
-        copyBlkClass = objClass;
+#ifdef TARGET_64BIT
+        assert((structSize == 3) || (structSize == 5) || (structSize == 6) || (structSize == 7));
 #else
-#error Unknown target.
+        assert(structSize == 3);
 #endif
 
-        if (copyBlkClass != NO_CLASS_HANDLE)
-        {
-            fgMakeOutgoingStructArgCopy(call, args, argIndex, copyBlkClass);
-        }
+        assert(argObj->TypeIs(TYP_STRUCT));
 
+        fgMakeOutgoingStructArgCopy(call, args, argIndex, objClass);
         return;
     }
 #endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
