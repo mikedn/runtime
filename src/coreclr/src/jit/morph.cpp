@@ -2400,7 +2400,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
         }
 #else  // !UNIX_AMD64_ABI
-        size         = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
+        size = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
 #endif // UNIX_AMD64_ABI
 #elif defined(TARGET_ARM64)
         if (isStructArg)
@@ -3415,19 +3415,20 @@ void Compiler::abiMorphSingleRegStructArg(
         assert(structSize == info.compCompHnd->getClassSize(objClass));
     }
 
-    unsigned  passingSize    = structSize;
     var_types structBaseType = argEntry->argType;
 
-    assert(varTypeSize(structBaseType) >= structSize);
-
-    // Check to see if we can transform this struct load (GT_OBJ) into a GT_IND of the appropriate size.
-    // When it can do this is platform-dependent:
-    // - In general, it can be done for power of 2 structs that fit in a single register.
-    // - For ARM and ARM64 it must also be a non-HFA struct, or have a single field.
-    // - This is irrelevant for X86, since structs are always passed by value on the stack.
+#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
+    // On win-x64 only register sized structs are passed in a register, others are passed by reference.
+    assert(structSize == varTypeSize(structBaseType));
+#else
+    // On all other targets structs smaller than register size can be passed in a register, this includes
+    // structs that not only that they're smaller but they also don't match any available load instruction
+    // size (3, 5, 6...) and that will require additional processing.
+    assert(structSize <= varTypeSize(structBaseType));
 
     GenTreeLclVar* lclVar       = fgIsIndirOfAddrOfLocal(argObj);
     bool           canTransform = false;
+    unsigned       passingSize  = structSize;
 
     if (isPow2(passingSize))
     {
@@ -3437,7 +3438,6 @@ void Compiler::abiMorphSingleRegStructArg(
         canTransform = true;
 #endif
     }
-
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
     // For ARM64 or AMD64/UX we can pass non-power-of-2 structs in a register, but we can
     // only transform in that case if the arg is a local.
@@ -3454,10 +3454,7 @@ void Compiler::abiMorphSingleRegStructArg(
     {
         CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
 
-#if defined(TARGET_AMD64)
-#ifndef UNIX_AMD64_ABI
-        copyBlkClass = objClass;
-#else  // UNIX_AMD64_ABI
+#if defined(UNIX_AMD64_ABI)
         // On Unix, structs are always passed by value.
         // We only need a copy if we have one of the following:
         // - The sizes don't match for a non-lclVar argument.
@@ -3487,7 +3484,6 @@ void Compiler::abiMorphSingleRegStructArg(
             // are passed on stack due to the VM's ABI being broken.
             unreached();
         }
-#endif // UNIX_AMD64_ABI
 #elif defined(TARGET_ARM64)
         if ((passingSize != structSize) && (lclVar == nullptr))
         {
@@ -3504,7 +3500,9 @@ void Compiler::abiMorphSingleRegStructArg(
         {
             copyBlkClass = objClass;
         }
-#endif // TARGET_ARM
+#else
+#error Unknown target.
+#endif
 
         if (copyBlkClass != NO_CLASS_HANDLE)
         {
@@ -3513,11 +3511,11 @@ void Compiler::abiMorphSingleRegStructArg(
 
         return;
     }
+#endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
 
     // We have a struct argument that fits into a register, and it is either a power of 2,
     // or a local.
     // Change our argument, as needed, into a value of the appropriate type.
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
     if (argObj->OperIs(GT_OBJ))
     {
