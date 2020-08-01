@@ -3386,21 +3386,17 @@ void Compiler::abiMorphSingleRegStructArg(
 {
     assert((argEntry->GetRegCount() == 1) && (argEntry->GetSlotCount() == 0));
 
-    CORINFO_CLASS_HANDLE objClass = gtGetStructHandle(argObj);
-    unsigned             structSize;
+    unsigned structSize;
 
     if (argObj->TypeGet() == TYP_STRUCT)
     {
         if (argObj->OperIs(GT_OBJ))
         {
-            // Get the size off the OBJ node.
             structSize = argObj->AsObj()->GetLayout()->GetSize();
-            assert(structSize == info.compCompHnd->getClassSize(objClass));
         }
         else if (argObj->OperIs(GT_LCL_FLD))
         {
             structSize = argObj->AsLclFld()->GetLayout(this)->GetSize();
-            assert(structSize == info.compCompHnd->getClassSize(objClass));
         }
         else
         {
@@ -3412,7 +3408,6 @@ void Compiler::abiMorphSingleRegStructArg(
     else
     {
         structSize = varTypeSize(argObj->GetType());
-        assert(structSize == info.compCompHnd->getClassSize(objClass));
     }
 
     var_types structBaseType = argEntry->argType;
@@ -3436,7 +3431,7 @@ void Compiler::abiMorphSingleRegStructArg(
 
         assert(argObj->TypeIs(TYP_STRUCT));
 
-        fgMakeOutgoingStructArgCopy(call, args, argIndex, objClass);
+        fgMakeOutgoingStructArgCopy(call, args, argIndex, argObj->AsObj()->GetLayout()->GetClassHandle());
         return;
     }
 #endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
