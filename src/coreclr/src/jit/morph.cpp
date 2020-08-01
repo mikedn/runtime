@@ -3386,6 +3386,49 @@ void Compiler::abiMorphSingleRegStructArg(
 {
     assert((argEntry->GetRegCount() == 1) && (argEntry->GetSlotCount() == 0));
 
+    if (argObj->OperIs(GT_OBJ))
+    {
+        ClassLayout* argLayout  = argObj->AsObj()->GetLayout();
+        unsigned     argSize    = argLayout->GetSize();
+        var_types    argRegType = argEntry->argType;
+
+        assert(argSize <= argRegType);
+
+        // TODO-MIKE-Cleanup: This OBJ(ADDR(LCL_VAR)) simplification should be confined to LocalAddressVisitor.
+
+        GenTreeLclVarCommon* lclNode  = nullptr;
+        unsigned             lclOffs  = 0;
+        FieldSeqNode*        fieldSeq = nullptr;
+
+        if (argObj->AsObj()->GetAddr()->IsLocalAddrExpr(this, &lclNode, &lclOffs, &fieldSeq))
+        {
+            LclVarDsc* lcl     = lvaGetDesc(lclNode);
+            var_types  lclType = lcl->GetType();
+            unsigned   lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
+
+            if ((lclOffs == 0) && (argSize <= lclSize))
+            {
+                argObj->ChangeOper(GT_LCL_VAR);
+                argObj->SetType(lclType);
+                argObj->AsLclVar()->SetLclNum(lclNode->GetLclNum());
+                argObj->gtFlags = 0;
+            }
+            else if (lclOffs + argSize <= lclSize)
+            {
+                argObj->ChangeOper(GT_LCL_FLD);
+                argObj->SetType(argRegType);
+                argObj->AsLclFld()->SetLclNum(lclNode->GetLclNum());
+                argObj->AsLclFld()->SetLclOffs(lclOffs);
+                argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+                argObj->gtFlags = 0;
+
+                lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
+
+                return;
+            }
+        }
+    }
+
     unsigned structSize;
 
     if (argObj->TypeGet() == TYP_STRUCT)
