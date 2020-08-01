@@ -3503,6 +3503,34 @@ void Compiler::abiMorphSingleRegStructArg(
     }
 #endif
 
+    // At this point we have either an arbitrary SIMD tree or a LCL_VAR|FLD of
+    // either SIMD or primitive type. The arbitrary SIMD tree should already be
+    // using the correct register type but the LCL_VAR may have the wrong type
+    // due to reinterpretation.
+
+    if (!argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+#if defined(UNIX_AMD64_ABI)
+        // SIMD8 is the only SIMD type passed in a single register on UNIX_AMD64_ABI.
+        // SIMD16 & SIMD32 should also be passed in a single XMM register but the ABI
+        // is currently broken.
+        assert(argObj->TypeIs(TYP_SIMD8) && (argRegType == TYP_DOUBLE));
+#elif defined(TARGET_AMD64)
+        // On win-x64 the only SIMD type passed in a register is SIMD8 and we have
+        // already handled that case. vectorcall is not currently supported.
+        unreached();
+#elif defined(TARGET_ARM64)
+        // On ARM64 SIMD8 and SIMD16 types may be passed in a vector register.
+        // SIMD12 is always a HFA and SIMD32 doesn't exist.
+        assert(argObj->TypeIs(TYP_SIMD8, TYP_SIMD16));
+        assert(argRegType == argObj->GetType());
+#else
+        // Other targets don't have SIMD types or pass them on the stack (x86).
+        unreached();
+#endif
+        return;
+    }
+
     if (argObj->OperIs(GT_LCL_VAR))
     {
         if (varActualType(argObj->GetType()) != varActualType(argRegType))
