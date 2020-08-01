@@ -3439,19 +3439,13 @@ void Compiler::abiMorphSingleRegStructArg(
         // actually passed in registers.
         if (argObj->OperIs(GT_OBJ))
         {
-            if (varTypeSize(structBaseType) != structSize)
-            {
-                copyBlkClass = objClass;
-            }
+            copyBlkClass = objClass;
         }
         else if (argObj->TypeIs(TYP_STRUCT))
         {
             assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-            if (varTypeSize(structBaseType) != structSize)
-            {
-                copyBlkClass = objClass;
-            }
+            copyBlkClass = objClass;
         }
         else
         {
@@ -3461,21 +3455,10 @@ void Compiler::abiMorphSingleRegStructArg(
             unreached();
         }
 #elif defined(TARGET_ARM64)
-        if (varTypeSize(structBaseType) != structSize)
-        {
-            copyBlkClass = objClass;
-        }
+        copyBlkClass = objClass;
 #elif defined(TARGET_ARM)
         // TODO-1stClassStructs: Unify these conditions across targets.
-        if (argObj->OperIs(GT_OBJ) && (varTypeSize(structBaseType) != structSize))
-        {
-            copyBlkClass = objClass;
-        }
-
-        if (structSize < TARGET_POINTER_SIZE)
-        {
-            copyBlkClass = objClass;
-        }
+        copyBlkClass = objClass;
 #else
 #error Unknown target.
 #endif
