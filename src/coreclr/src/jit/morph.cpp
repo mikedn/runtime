@@ -3386,11 +3386,13 @@ void Compiler::abiMorphSingleRegStructArg(
 {
     assert((argEntry->GetRegCount() == 1) && (argEntry->GetSlotCount() == 0));
 
+    var_types argRegType = argEntry->argType;
+    unsigned  argSize    = 0;
+
     if (argObj->OperIs(GT_OBJ))
     {
-        ClassLayout* argLayout  = argObj->AsObj()->GetLayout();
-        unsigned     argSize    = argLayout->GetSize();
-        var_types    argRegType = argEntry->argType;
+        ClassLayout* argLayout = argObj->AsObj()->GetLayout();
+        argSize                = argLayout->GetSize();
 
         assert(argSize <= argRegType);
 
@@ -3467,35 +3469,18 @@ void Compiler::abiMorphSingleRegStructArg(
         }
     }
 
-    unsigned structSize;
-
-    if (argObj->TypeGet() == TYP_STRUCT)
-    {
-        if (argObj->OperIs(GT_LCL_FLD))
-        {
-            structSize = argObj->AsLclFld()->GetLayout(this)->GetSize();
-        }
-        else
-        {
-            // We have a BADCODE assert for this in fgInitArgInfo.
-            assert(argObj->OperIs(GT_LCL_VAR));
-            structSize = lvaGetDesc(argObj->AsLclVarCommon())->lvExactSize;
-        }
-    }
-    else
-    {
-        structSize = varTypeSize(argObj->GetType());
-    }
-
-    var_types structBaseType = argEntry->argType;
-
     if (argObj->OperIs(GT_LCL_VAR))
     {
         LclVarDsc* varDsc = lvaGetDesc(argObj->AsLclVar());
 
         if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
         {
-            GenTree* newArg = abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), structBaseType, structSize);
+            if (argSize == 0)
+            {
+                argSize = varDsc->GetLayout()->GetSize();
+            }
+
+            GenTree* newArg = abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), argRegType, argSize);
 
             if (newArg != argObj)
             {
@@ -3503,17 +3488,17 @@ void Compiler::abiMorphSingleRegStructArg(
                 args->SetNode(newArg);
             }
         }
-        else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(structBaseType))
+        else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(argRegType))
         {
             // Not a promoted struct, so just swizzle the type by using GT_LCL_FLD
             argObj->ChangeOper(GT_LCL_FLD);
-            argObj->gtType = structBaseType;
+            argObj->gtType = argRegType;
         }
     }
     else
     {
         // Not a GT_LCL_VAR, so we can just change the type on the node
-        argObj->SetType(structBaseType);
+        argObj->SetType(argRegType);
 
         if (argObj->OperIs(GT_LCL_FLD))
         {
