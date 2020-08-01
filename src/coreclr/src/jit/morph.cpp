@@ -1055,18 +1055,6 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
 #endif
             }
         }
-
-#if defined(TARGET_ARM64) || (UNIX_AMD64_ABI)
-        if (!curArgTabEntry->needTmp && (curArgTabEntry->GetRegCount() > 1) && varTypeIsSIMD(argx->GetType()))
-        {
-            if (argx->OperIs(GT_OBJ) && argx->AsObj()->GetAddr()->OperIs(GT_ADDR) &&
-                argx->AsObj()->GetAddr()->AsUnOp()->GetOp(0)->OperIsSimdOrHWintrinsic())
-            {
-                curArgTabEntry->needTmp = true;
-                needsTemps              = true;
-            }
-        }
-#endif // TARGET_ARM64
     }
 
     // We only care because we can't spill structs and qmarks involve a lot of spilling, but
@@ -4428,6 +4416,17 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
                 lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
             }
+        }
+        else if (arg->AsObj()->GetAddr()->OperIs(GT_ADDR) &&
+                 arg->AsObj()->GetAddr()->AsUnOp()->GetOp(0)->OperIsSimdOrHWintrinsic())
+        {
+            assert(varTypeIsSIMD(arg->GetType()));
+
+            // Convert the OBJ(ADDR(SIMD|HWINTRINSIC)) created by impNormStructVal back to SIMD|HWINTRINSIC.
+            // We've already decided how the argument is passed so no longer need the layout from the OBJ.
+            arg = arg->AsObj()->GetAddr()->AsUnOp()->GetOp(0);
+
+            assert(varTypeIsSIMD(arg->GetType()));
         }
     }
 

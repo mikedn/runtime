@@ -902,7 +902,7 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 #ifdef DEBUG
             if (verbose)
             {
-                printf("Calling impNormStructVal on:\n");
+                printf("Calling impNormStructVal(%s) on:\n", eeGetClassName(structType));
                 gtDispTree(temp);
             }
 #endif
