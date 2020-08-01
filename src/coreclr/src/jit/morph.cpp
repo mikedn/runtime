@@ -3484,29 +3484,29 @@ void Compiler::abiMorphSingleRegStructArg(
 
             if (newArg != argObj)
             {
-                argObj = newArg;
                 args->SetNode(newArg);
             }
+
+            return;
         }
-        else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(argRegType))
+
+        if (genTypeSize(varDsc->TypeGet()) != genTypeSize(argRegType))
         {
             // Not a promoted struct, so just swizzle the type by using GT_LCL_FLD
             argObj->ChangeOper(GT_LCL_FLD);
             argObj->gtType = argRegType;
         }
+
+        return;
     }
-    else
+
+    // Not a GT_LCL_VAR, so we can just change the type on the node
+    argObj->SetType(argRegType);
+
+    if (argObj->OperIs(GT_LCL_FLD))
     {
-        // Not a GT_LCL_VAR, so we can just change the type on the node
-        argObj->SetType(argRegType);
-
-        if (argObj->OperIs(GT_LCL_FLD))
-        {
-            argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-        }
+        argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
     }
-
-    assert(varTypeIsEnregisterable(argObj->TypeGet()));
 }
 
 GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize)
