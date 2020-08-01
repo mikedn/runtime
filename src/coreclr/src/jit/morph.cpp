@@ -3419,14 +3419,7 @@ void Compiler::abiMorphSingleRegStructArg(
 
     unsigned  roundupSize    = roundUp(structSize, TARGET_POINTER_SIZE);
     unsigned  passingSize    = structSize;
-    unsigned  size           = argEntry->getSize();
     var_types structBaseType = argEntry->argType;
-
-    assert(size != 0);
-
-    // Check to see if we can transform this into load of a primitive type.
-    // 'size' must be the number of pointer sized items
-    assert(size == roundupSize / TARGET_POINTER_SIZE);
 
     // Check to see if we can transform this struct load (GT_OBJ) into a GT_IND of the appropriate size.
     // When it can do this is platform-dependent:
@@ -3465,9 +3458,6 @@ void Compiler::abiMorphSingleRegStructArg(
     {
 #if defined(TARGET_AMD64)
 #ifndef UNIX_AMD64_ABI
-        // On Windows structs are always copied and passed by reference (handled above) unless they are
-        // passed by value in a single register.
-        assert(size == 1);
         copyBlkClass = objClass;
 #else  // UNIX_AMD64_ABI
         // On Unix, structs are always passed by value.
@@ -3524,12 +3514,6 @@ void Compiler::abiMorphSingleRegStructArg(
         // or a local.
         // Change our argument, as needed, into a value of the appropriate type.
         CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_ARM
-        assert((size == 1) || ((structBaseType == TYP_DOUBLE) && (size == 2)));
-#else
-        assert((size == 1) || (varTypeIsSIMD(structBaseType) && size == (genTypeSize(structBaseType) / REGSIZE_BYTES)));
-#endif
 
         assert((structBaseType != TYP_STRUCT) && (genTypeSize(structBaseType) >= structSize));
 
