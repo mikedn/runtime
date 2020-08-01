@@ -3049,18 +3049,13 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             {
                 hasMultiFieldPromotedArgs |= abiMorphStructStackArg(argEntry, argObj);
             }
-#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-            else if (varTypeIsSIMD(argObj->GetType()) &&
-#ifdef TARGET_ARM64
-                     (argEntry->GetRegCount() >= 2) && (argEntry->GetRegCount() <= 4) &&
-                     (argEntry->GetRegType() == TYP_FLOAT)
-#else
-                     (argEntry->GetRegCount() == 2) && (argEntry->GetRegType(0) == TYP_DOUBLE) &&
-                     ((argEntry->GetRegType(1) == TYP_DOUBLE) || (argEntry->GetRegType(1) == TYP_FLOAT))
-#endif
-                         )
+#if FEATURE_MULTIREG_ARGS
+            else if (argEntry->GetRegCount() + argEntry->GetSlotCount() > 1)
             {
-                // Do not introduce temp copies for SIMD args that are passed in registers.
+                // We don't need to do anything for multireg args. fgMorphMultiregStructArg
+                // will introduce temps as needed.
+
+                hasMultiregStructArgs |= true;
             }
 #endif
             else
@@ -3258,8 +3253,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                         // where we normally would need to use one.
 
                         if (argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
-                            (argObj->OperIs(GT_OBJ) && ((argObj->AsObj()->gtGetOp1()->IsLocalAddrExpr() != nullptr) ||
-                                                        !argEntry->isSingleRegOrSlot())))
+                            (argObj->OperIs(GT_OBJ) && (argObj->AsObj()->gtGetOp1()->IsLocalAddrExpr() != nullptr)))
                         {
                             copyBlkClass = NO_CLASS_HANDLE;
                         }
@@ -3316,26 +3310,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             lvaSetVarAddrExposed(tmp);
 #endif // !TARGET_X86
         }
-
-#if FEATURE_MULTIREG_ARGS
-        if (argEntry->isStruct)
-        {
-            hasMultiregStructArgs |=
-                (argEntry->GetRegCount() != 0) && (argEntry->GetRegCount() + argEntry->GetSlotCount() > 1);
-        }
-#ifdef TARGET_ARM
-        else if ((argEntry->argType == TYP_LONG) || (argEntry->argType == TYP_DOUBLE))
-        {
-            assert((argEntry->numRegs == 2) || (argEntry->numSlots == 2));
-        }
-#endif
-        else
-        {
-            // We must have exactly one register or slot.
-            assert(((argEntry->numRegs == 1) && (argEntry->numSlots == 0)) ||
-                   ((argEntry->numRegs == 0) && (argEntry->numSlots == 1)));
-        }
-#endif
 
 #if defined(TARGET_X86)
         if (argEntry->isStruct)
