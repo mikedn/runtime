@@ -3426,9 +3426,7 @@ void Compiler::abiMorphSingleRegStructArg(
     // size (3, 5, 6...) and that will require additional processing.
     assert(structSize <= varTypeSize(structBaseType));
 
-    GenTreeLclVar* lclVar = fgIsIndirOfAddrOfLocal(argObj);
-
-    if (!isPow2(structSize) && (lclVar == nullptr))
+    if (!isPow2(structSize) && (fgIsIndirOfAddrOfLocal(argObj) == nullptr))
     {
         CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
 
@@ -3463,7 +3461,7 @@ void Compiler::abiMorphSingleRegStructArg(
             unreached();
         }
 #elif defined(TARGET_ARM64)
-        if ((varTypeSize(structBaseType) != structSize) && (lclVar == nullptr))
+        if (varTypeSize(structBaseType) != structSize)
         {
             copyBlkClass = objClass;
         }
