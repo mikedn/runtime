@@ -3387,39 +3387,38 @@ void Compiler::abiMorphSingleRegStructArg(
     assert((argEntry->GetRegCount() == 1) && (argEntry->GetSlotCount() == 0));
 
     CORINFO_CLASS_HANDLE objClass = gtGetStructHandle(argObj);
-    unsigned             originalSize;
+    unsigned             structSize;
 
     if (argObj->TypeGet() == TYP_STRUCT)
     {
         if (argObj->OperIs(GT_OBJ))
         {
             // Get the size off the OBJ node.
-            originalSize = argObj->AsObj()->GetLayout()->GetSize();
-            assert(originalSize == info.compCompHnd->getClassSize(objClass));
+            structSize = argObj->AsObj()->GetLayout()->GetSize();
+            assert(structSize == info.compCompHnd->getClassSize(objClass));
         }
         else if (argObj->OperIs(GT_LCL_FLD))
         {
-            originalSize = argObj->AsLclFld()->GetLayout(this)->GetSize();
-            assert(originalSize == info.compCompHnd->getClassSize(objClass));
+            structSize = argObj->AsLclFld()->GetLayout(this)->GetSize();
+            assert(structSize == info.compCompHnd->getClassSize(objClass));
         }
         else
         {
             // We have a BADCODE assert for this in fgInitArgInfo.
             assert(argObj->OperIs(GT_LCL_VAR));
-            originalSize = lvaGetDesc(argObj->AsLclVarCommon())->lvExactSize;
+            structSize = lvaGetDesc(argObj->AsLclVarCommon())->lvExactSize;
         }
     }
     else
     {
-        originalSize = genTypeSize(argx);
-        assert(originalSize == info.compCompHnd->getClassSize(objClass));
+        structSize = genTypeSize(argx);
+        assert(structSize == info.compCompHnd->getClassSize(objClass));
     }
 
     CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
 
-    unsigned  roundupSize    = roundUp(originalSize, TARGET_POINTER_SIZE);
-    unsigned  structSize     = originalSize;
-    unsigned  passingSize    = originalSize;
+    unsigned  roundupSize    = roundUp(structSize, TARGET_POINTER_SIZE);
+    unsigned  passingSize    = structSize;
     unsigned  size           = argEntry->getSize();
     var_types structBaseType = argEntry->argType;
 
@@ -3532,7 +3531,7 @@ void Compiler::abiMorphSingleRegStructArg(
         assert((size == 1) || (varTypeIsSIMD(structBaseType) && size == (genTypeSize(structBaseType) / REGSIZE_BYTES)));
 #endif
 
-        assert((structBaseType != TYP_STRUCT) && (genTypeSize(structBaseType) >= originalSize));
+        assert((structBaseType != TYP_STRUCT) && (genTypeSize(structBaseType) >= structSize));
 
         if (argObj->OperIs(GT_OBJ))
         {
@@ -3562,8 +3561,7 @@ void Compiler::abiMorphSingleRegStructArg(
 
             if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
             {
-                GenTree* newArg =
-                    abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), structBaseType, originalSize);
+                GenTree* newArg = abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), structBaseType, structSize);
 
                 if (newArg != argObj)
                 {
@@ -3601,7 +3599,7 @@ void Compiler::abiMorphSingleRegStructArg(
         // the obj reading memory past the end of the valuetype
         CLANG_FORMAT_COMMENT_ANCHOR;
 
-        if (roundupSize > originalSize)
+        if (roundupSize > structSize)
         {
             copyBlkClass = objClass;
 
