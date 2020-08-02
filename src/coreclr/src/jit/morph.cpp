@@ -3016,7 +3016,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #endif
             else
             {
-                abiMorphSingleRegStructArg(call, argEntry, args, argIndex, argObj);
+                abiMorphSingleRegStructArg(argEntry, args, argObj);
             }
         }
 #endif // !TARGET_X86
@@ -3381,8 +3381,7 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
 
 #ifndef TARGET_X86
 
-void Compiler::abiMorphSingleRegStructArg(
-    GenTreeCall* call, CallArgInfo* argEntry, GenTreeCall::Use* args, unsigned argIndex, GenTree* argObj)
+void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argEntry, GenTreeCall::Use* args, GenTree* argObj)
 {
     assert((argEntry->GetRegCount() == 1) && (argEntry->GetSlotCount() == 0));
 
