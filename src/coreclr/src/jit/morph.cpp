@@ -3504,6 +3504,9 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                     addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
                 }
 
+                // TODO-MIKE-CQ: This should be done after ArgsComplete to avoid introducing more temps
+                // due to the GTF_ASG this temp assigment will add to the arg.
+
                 GenTree* addrAsg = nullptr;
 
                 if (addrTempRequired)
@@ -3522,10 +3525,6 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
             arg->ChangeOper(GT_IND);
             arg->SetType(argRegType);
-
-            // TODO-MIKE: Investigate whether it is necessary to simplify OBJ(ADDR(X)) to X like the old code did.
-            // The important case - when X is a local - has been handled.
-
             return;
         }
     }
