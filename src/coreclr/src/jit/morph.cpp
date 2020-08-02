@@ -3388,6 +3388,13 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     var_types argRegType = argInfo->argType;
     unsigned  argSize    = 0;
 
+    if (varTypeIsSmall(argRegType))
+    {
+        // This being a struct, sign extension isn't needed so use unsigned small int types.
+        // On XARCH we get MOVZX which may end up being shorter than MOVSX.
+        argRegType = varTypeToUnsigned(argRegType);
+    }
+
     if (arg->OperIs(GT_OBJ))
     {
         ClassLayout* argLayout = arg->AsObj()->GetLayout();
