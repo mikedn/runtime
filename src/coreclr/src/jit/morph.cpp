@@ -3412,7 +3412,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                 arg->ChangeOper(GT_LCL_VAR);
                 arg->SetType(lclType);
                 arg->AsLclVar()->SetLclNum(lclNode->GetLclNum());
-                arg->gtFlags = 0;
+                arg->gtFlags = lcl->lvAddrExposed ? GTF_GLOB_REF : 0;
             }
             else if (lclOffs + argSize <= lclSize)
             {
@@ -3421,7 +3421,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                 arg->AsLclFld()->SetLclNum(lclNode->GetLclNum());
                 arg->AsLclFld()->SetLclOffs(lclOffs);
                 arg->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-                arg->gtFlags = 0;
+                arg->gtFlags = lcl->lvAddrExposed ? GTF_GLOB_REF : 0;
 
                 lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
 
