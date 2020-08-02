@@ -3429,6 +3429,18 @@ void Compiler::abiMorphSingleRegStructArg(
                 return;
             }
         }
+        else if (argObj->AsObj()->GetAddr()->OperIs(GT_ADDR) &&
+                 argObj->AsObj()->GetAddr()->AsUnOp()->GetOp(0)->OperIsSimdOrHWintrinsic())
+        {
+            assert(varTypeIsSIMD(argObj->GetType()));
+
+            // Convert the OBJ(ADDR(SIMD|HWINTRINSIC)) created by impNormStructVal back to SIMD|HWINTRINSIC.
+            // We've already decided how the argument is passed so no longer need the layout from the OBJ.
+            argObj = argObj->AsObj()->GetAddr()->AsUnOp()->GetOp(0);
+            argEntry->use->SetNode(argObj);
+
+            assert(varTypeIsSIMD(argObj->GetType()));
+        }
 
         if (argObj->OperIs(GT_OBJ))
         {
@@ -3458,9 +3470,6 @@ void Compiler::abiMorphSingleRegStructArg(
 
             argObj->ChangeOper(GT_IND);
             argObj->SetType(argRegType);
-
-            // TODO-MIKE: Investigate whether the OBJ(ADDR(SIMD|HWINTRINSIC)) crap affects single reg args as well,
-            // probably vector args on ARM64...
 
             // TODO-MIKE: Investigate whether it is necessary to simplify OBJ(ADDR(X)) to X like the old code did.
             // The important case - when X is a local - has been handled.
