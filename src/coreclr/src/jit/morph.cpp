@@ -2400,7 +2400,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
         }
 #else  // !UNIX_AMD64_ABI
-        size                         = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
+        size = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
 #endif // UNIX_AMD64_ABI
 #elif defined(TARGET_ARM64)
         if (isStructArg)
@@ -2993,45 +2993,13 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         if (argEntry->isStruct && varTypeIsStruct(argObj) &&
             !argObj->OperIs(GT_ASG, GT_MKREFANY, GT_FIELD_LIST, GT_ARGPLACE))
         {
-            CORINFO_CLASS_HANDLE objClass = gtGetStructHandle(argObj);
-            unsigned             originalSize;
-
-            if (argObj->TypeGet() == TYP_STRUCT)
-            {
-                if (argObj->OperIs(GT_OBJ))
-                {
-                    // Get the size off the OBJ node.
-                    originalSize = argObj->AsObj()->GetLayout()->GetSize();
-                    assert(originalSize == info.compCompHnd->getClassSize(objClass));
-                }
-                else if (argObj->OperIs(GT_LCL_FLD))
-                {
-                    originalSize = argObj->AsLclFld()->GetLayout(this)->GetSize();
-                    assert(originalSize == info.compCompHnd->getClassSize(objClass));
-                }
-                else
-                {
-                    // We have a BADCODE assert for this in fgInitArgInfo.
-                    assert(argObj->OperIs(GT_LCL_VAR));
-                    originalSize = lvaGetDesc(argObj->AsLclVarCommon())->lvExactSize;
-                }
-            }
-            else
-            {
-                originalSize = genTypeSize(argx);
-                assert(originalSize == info.compCompHnd->getClassSize(objClass));
-            }
-
-            CORINFO_CLASS_HANDLE copyBlkClass = NO_CLASS_HANDLE;
-
-            // First, handle the case where the argument is passed by reference.
             if (argEntry->passedByRef)
             {
                 assert(argEntry->getSize() == 1);
-                copyBlkClass = objClass;
 #ifdef UNIX_AMD64_ABI
                 assert(!"Structs are not passed by reference on x64/ux");
-#endif // UNIX_AMD64_ABI
+#endif
+                fgMakeOutgoingStructArgCopy(call, args, argIndex, gtGetStructHandle(argObj));
             }
             else if (argEntry->GetRegCount() == 0)
             {
@@ -3048,212 +3016,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #endif
             else
             {
-                unsigned  roundupSize    = roundUp(originalSize, TARGET_POINTER_SIZE);
-                unsigned  structSize     = originalSize;
-                unsigned  passingSize    = originalSize;
-                unsigned  size           = argEntry->getSize();
-                var_types structBaseType = argEntry->argType;
-
-                assert(size != 0);
-
-                // Check to see if we can transform this into load of a primitive type.
-                // 'size' must be the number of pointer sized items
-                assert(size == roundupSize / TARGET_POINTER_SIZE);
-
-                // Check to see if we can transform this struct load (GT_OBJ) into a GT_IND of the appropriate size.
-                // When it can do this is platform-dependent:
-                // - In general, it can be done for power of 2 structs that fit in a single register.
-                // - For ARM and ARM64 it must also be a non-HFA struct, or have a single field.
-                // - This is irrelevant for X86, since structs are always passed by value on the stack.
-
-                GenTreeLclVar* lclVar       = fgIsIndirOfAddrOfLocal(argObj);
-                bool           canTransform = false;
-
-                if (structBaseType != TYP_STRUCT)
-                {
-                    if (isPow2(passingSize))
-                    {
-#ifdef FEATURE_HFA
-                        canTransform = (!argEntry->IsHfaArg() || (passingSize == genTypeSize(argEntry->GetHfaType())));
-#else
-                        canTransform = true;
-#endif
-                    }
-
-#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-                    // For ARM64 or AMD64/UX we can pass non-power-of-2 structs in a register, but we can
-                    // only transform in that case if the arg is a local.
-                    // TODO-CQ: This transformation should be applicable in general, not just for the ARM64
-                    // or UNIX_AMD64_ABI cases where they will be passed in registers.
-                    else
-                    {
-                        canTransform = (lclVar != nullptr);
-                        passingSize  = genTypeSize(structBaseType);
-                    }
-#endif //  TARGET_ARM64 || UNIX_AMD64_ABI
-                }
-
-                if (!canTransform)
-                {
-#if defined(TARGET_AMD64)
-#ifndef UNIX_AMD64_ABI
-                    // On Windows structs are always copied and passed by reference (handled above) unless they are
-                    // passed by value in a single register.
-                    assert(size == 1);
-                    copyBlkClass = objClass;
-#else  // UNIX_AMD64_ABI
-                    // On Unix, structs are always passed by value.
-                    // We only need a copy if we have one of the following:
-                    // - The sizes don't match for a non-lclVar argument.
-                    // - We have a known struct type (e.g. SIMD) that requires multiple registers.
-                    // TODO-Amd64-Unix-Throughput: We don't need to keep the structDesc in the argEntry if it's not
-                    // actually passed in registers.
-                    if (argObj->OperIs(GT_OBJ))
-                    {
-                        if (passingSize != structSize)
-                        {
-                            copyBlkClass = objClass;
-                        }
-                    }
-                    else if (argObj->TypeIs(TYP_STRUCT))
-                    {
-                        assert(argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-
-                        if (passingSize != structSize)
-                        {
-                            copyBlkClass = objClass;
-                        }
-                    }
-                    else
-                    {
-                        // We can't get a SIMD arg here, Vector2 is in the "canTransform" path, Vector3/4 are
-                        // passed in 2 XMM regs and have been special cased above, Vector/Vector128/Vector256
-                        // are passed on stack due to the VM's ABI being broken.
-                        unreached();
-                    }
-#endif // UNIX_AMD64_ABI
-#elif defined(TARGET_ARM64)
-                    if ((passingSize != structSize) && (lclVar == nullptr))
-                    {
-                        copyBlkClass = objClass;
-                    }
-#elif defined(TARGET_ARM)
-                    // TODO-1stClassStructs: Unify these conditions across targets.
-                    if (argObj->OperIs(GT_OBJ) && (passingSize != structSize))
-                    {
-                        copyBlkClass = objClass;
-                    }
-
-                    if (structSize < TARGET_POINTER_SIZE)
-                    {
-                        copyBlkClass = objClass;
-                    }
-#endif // TARGET_ARM
-                }
-                else
-                {
-                    // We have a struct argument that fits into a register, and it is either a power of 2,
-                    // or a local.
-                    // Change our argument, as needed, into a value of the appropriate type.
-                    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_ARM
-                    assert((size == 1) || ((structBaseType == TYP_DOUBLE) && (size == 2)));
-#else
-                    assert((size == 1) ||
-                           (varTypeIsSIMD(structBaseType) && size == (genTypeSize(structBaseType) / REGSIZE_BYTES)));
-#endif
-
-                    assert((structBaseType != TYP_STRUCT) && (genTypeSize(structBaseType) >= originalSize));
-
-                    if (argObj->OperIs(GT_OBJ))
-                    {
-                        argObj->ChangeOper(GT_IND);
-
-                        // Now see if we can fold *(&X) into X
-                        if (argObj->AsOp()->gtOp1->gtOper == GT_ADDR)
-                        {
-                            GenTree* temp = argObj->AsOp()->gtOp1->AsOp()->gtOp1;
-
-                            // Keep the DONT_CSE flag in sync
-                            // (as the addr always marks it for its op1)
-                            temp->gtFlags &= ~GTF_DONT_CSE;
-                            temp->gtFlags |= (argObj->gtFlags & GTF_DONT_CSE);
-                            DEBUG_DESTROY_NODE(argObj->AsOp()->gtOp1); // GT_ADDR
-                            DEBUG_DESTROY_NODE(argObj);                // GT_IND
-
-                            argObj = temp;
-                            args->SetNode(temp);
-                            argx = temp;
-                        }
-                    }
-
-                    if (argObj->OperIs(GT_LCL_VAR))
-                    {
-                        LclVarDsc* varDsc = lvaGetDesc(argObj->AsLclVar());
-
-                        if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
-                        {
-                            GenTree* newArg =
-                                abiMorphPromotedStructArgToSingleReg(argObj->AsLclVar(), structBaseType, originalSize);
-
-                            if (newArg != argObj)
-                            {
-                                argObj = newArg;
-                                args->SetNode(newArg);
-                                argx = newArg;
-                            }
-                        }
-                        else if (genTypeSize(varDsc->TypeGet()) != genTypeSize(structBaseType))
-                        {
-                            // Not a promoted struct, so just swizzle the type by using GT_LCL_FLD
-                            argObj->ChangeOper(GT_LCL_FLD);
-                            argObj->gtType = structBaseType;
-                        }
-                    }
-                    else
-                    {
-                        // Not a GT_LCL_VAR, so we can just change the type on the node
-                        argObj->SetType(structBaseType);
-
-                        if (argObj->OperIs(GT_LCL_FLD))
-                        {
-                            argObj->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-                        }
-                    }
-                    assert(varTypeIsEnregisterable(argObj->TypeGet()) ||
-                           ((copyBlkClass != NO_CLASS_HANDLE) && varTypeIsEnregisterable(structBaseType)));
-                }
-
-#ifndef UNIX_AMD64_ABI
-                if ((structBaseType == TYP_STRUCT) && !(argEntry->IsHfaArg() && argEntry->isPassedInFloatRegisters()))
-                {
-                    // If the valuetype size is not a multiple of TARGET_POINTER_SIZE,
-                    // we must copyblk to a temp before doing the obj to avoid
-                    // the obj reading memory past the end of the valuetype
-                    CLANG_FORMAT_COMMENT_ANCHOR;
-
-                    if (roundupSize > originalSize)
-                    {
-                        copyBlkClass = objClass;
-
-                        // There are a few special cases where we can omit using a CopyBlk
-                        // where we normally would need to use one.
-
-                        if (argObj->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
-                            (argObj->OperIs(GT_OBJ) && (argObj->AsObj()->gtGetOp1()->IsLocalAddrExpr() != nullptr)))
-                        {
-                            copyBlkClass = NO_CLASS_HANDLE;
-                        }
-                    }
-                }
-
-#endif // !UNIX_AMD64_ABI
-            }
-
-            if (copyBlkClass != NO_CLASS_HANDLE)
-            {
-                fgMakeOutgoingStructArgCopy(call, args, argIndex, copyBlkClass);
+                abiMorphSingleRegStructArg(argEntry, argObj);
             }
         }
 #endif // !TARGET_X86
@@ -3616,20 +3379,248 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
     }
 }
 
+#ifndef TARGET_X86
+
+void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
+{
+    assert((argInfo->GetRegCount() == 1) && (argInfo->GetSlotCount() == 0));
+
+    var_types argRegType = argInfo->argType;
+    unsigned  argSize    = 0;
+
+    if (varTypeIsSmall(argRegType))
+    {
+        // This being a struct, sign extension isn't needed so use unsigned small int types.
+        // On XARCH we get MOVZX which may end up being shorter than MOVSX.
+        argRegType = varTypeToUnsigned(argRegType);
+    }
+
+    if (arg->OperIs(GT_OBJ))
+    {
+        ClassLayout* argLayout = arg->AsObj()->GetLayout();
+        argSize                = argLayout->GetSize();
+
+        assert(argSize <= argRegType);
+
+        // TODO-MIKE-Cleanup: This OBJ(ADDR(LCL_VAR)) simplification should be confined to LocalAddressVisitor.
+
+        GenTreeLclVarCommon* lclNode  = nullptr;
+        unsigned             lclOffs  = 0;
+        FieldSeqNode*        fieldSeq = nullptr;
+
+        if (arg->AsObj()->GetAddr()->IsLocalAddrExpr(this, &lclNode, &lclOffs, &fieldSeq))
+        {
+            LclVarDsc* lcl     = lvaGetDesc(lclNode);
+            var_types  lclType = lcl->GetType();
+            unsigned   lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
+
+            if ((lclOffs == 0) && (argSize <= lclSize))
+            {
+                arg->ChangeOper(GT_LCL_VAR);
+                arg->SetType(lclType);
+                arg->AsLclVar()->SetLclNum(lclNode->GetLclNum());
+                arg->gtFlags = lcl->lvAddrExposed ? GTF_GLOB_REF : 0;
+            }
+            else if (lclOffs + argSize <= lclSize)
+            {
+                arg->ChangeOper(GT_LCL_FLD);
+                arg->SetType(argRegType);
+                arg->AsLclFld()->SetLclNum(lclNode->GetLclNum());
+                arg->AsLclFld()->SetLclOffs(lclOffs);
+                arg->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+                arg->gtFlags = lcl->lvAddrExposed ? GTF_GLOB_REF : 0;
+
+                lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
+
+                return;
+            }
+        }
+        else if (arg->AsObj()->GetAddr()->OperIs(GT_ADDR) &&
+                 arg->AsObj()->GetAddr()->AsUnOp()->GetOp(0)->OperIsSimdOrHWintrinsic())
+        {
+            assert(varTypeIsSIMD(arg->GetType()));
+
+            // Convert the OBJ(ADDR(SIMD|HWINTRINSIC)) created by impNormStructVal back to SIMD|HWINTRINSIC.
+            // We've already decided how the argument is passed so no longer need the layout from the OBJ.
+            arg = arg->AsObj()->GetAddr()->AsUnOp()->GetOp(0);
+            argInfo->use->SetNode(arg);
+
+            assert(varTypeIsSIMD(arg->GetType()));
+        }
+
+        if (arg->OperIs(GT_OBJ))
+        {
+#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
+            // On win-x64 only register sized structs are passed in a register, others are passed by reference.
+            assert(argSize == varTypeSize(argRegType));
+#else
+            // On all other targets structs smaller than register size can be passed in a register, this includes
+            // structs that not only that they're smaller but they also don't match any available load instruction
+            // size (3, 5, 6...) and that will require additional processing.
+            assert(argSize <= varTypeSize(argRegType));
+
+            if (!isPow2(argSize))
+            {
+#ifdef TARGET_64BIT
+                assert((argSize == 3) || (argSize == 5) || (argSize == 6) || (argSize == 7));
+#else
+                assert(argSize == 3);
+#endif
+                assert(arg->TypeIs(TYP_STRUCT));
+
+                // TODO-MIKE-Cleanup: Addr temp generation code copied from fgMorphMultiregStructArg
+
+                GenTree* addr       = arg->AsObj()->GetAddr();
+                ssize_t  addrOffset = 0;
+
+                // Extract constant offsets that appear when passing struct typed class fields
+                // so they can be folded with the register offset.
+                if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
+                {
+                    ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+
+#if defined(TARGET_AMD64)
+                    if ((offset >= INT32_MIN) && (offset <= INT32_MAX - argSize))
+#elif defined(TARGET_ARMARCH)
+                    // For simplicity limit the offset to values that are valid address mode
+                    // offsets no matter what the indirection type is.
+                    if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(argSize)))
+#else
+#error Unknown target.
+#endif
+                    {
+                        addr       = addr->AsOp()->GetOp(0);
+                        addrOffset = offset;
+                    }
+                }
+
+                // We need to use the address tree multiple times. If it has side effects or
+                // it is too expensive to evaluate then we need to "spill" it to a temp.
+                bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
+
+                if (!addrTempRequired)
+                {
+                    gtPrepareCost(addr);
+                    addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
+                }
+
+                // TODO-MIKE-CQ: This should be done after ArgsComplete to avoid introducing more temps
+                // due to the GTF_ASG this temp assigment will add to the arg.
+
+                GenTree* addrAsg = nullptr;
+
+                if (addrTempRequired)
+                {
+                    unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
+                    GenTree* addrDef    = gtNewLclvNode(addrLclNum, addr->GetType());
+
+                    addrAsg = gtNewAssignNode(addrDef, addr);
+                    addr    = gtNewLclvNode(addrLclNum, addr->GetType());
+                }
+
+                argInfo->use->SetNode(abiNewMultiloadIndir(addr, addrOffset, argSize));
+                return;
+            }
+#endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
+
+            arg->ChangeOper(GT_IND);
+            arg->SetType(argRegType);
+            return;
+        }
+    }
+
+    if (arg->OperIs(GT_LCL_VAR))
+    {
+        // Independent promoted locals require special handling. This includes promoted SIMD locals,
+        // such as a promoted SIMD8 local being passed in a LONG register on win-x64.
+
+        LclVarDsc* varDsc = lvaGetDesc(arg->AsLclVar());
+
+        if (varDsc->IsPromoted())
+        {
+            if (argSize == 0)
+            {
+                argSize = varDsc->GetLayout()->GetSize();
+            }
+
+            GenTree* newArg = abiMorphPromotedStructArgToSingleReg(arg->AsLclVar(), argRegType, argSize);
+
+            if (newArg != arg)
+            {
+                argInfo->use->SetNode(newArg);
+            }
+
+            return;
+        }
+    }
+
+#ifdef TARGET_64BIT
+    if (arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_LONG))
+    {
+        // win-x64 and win-arm64 varargs pass SIMD8 in a LONG register.
+        argInfo->use->SetNode(gtNewBitCastNode(argRegType, arg));
+        return;
+    }
+#endif
+
+    // At this point we have either an arbitrary SIMD tree or a LCL_VAR|FLD of
+    // either SIMD or primitive type. The arbitrary SIMD tree should already be
+    // using the correct register type but the LCL_VAR may have the wrong type
+    // due to reinterpretation.
+
+    if (!arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+#if defined(UNIX_AMD64_ABI)
+        // SIMD8 is the only SIMD type passed in a single register on UNIX_AMD64_ABI.
+        // SIMD16 & SIMD32 should also be passed in a single XMM register but the ABI
+        // is currently broken.
+        assert(arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_DOUBLE));
+#elif defined(TARGET_AMD64)
+        // On win-x64 the only SIMD type passed in a register is SIMD8 and we have
+        // already handled that case. vectorcall is not currently supported.
+        unreached();
+#elif defined(TARGET_ARM64)
+        // On ARM64 SIMD8 and SIMD16 types may be passed in a vector register.
+        // SIMD12 is always a HFA and SIMD32 doesn't exist.
+        assert(arg->TypeIs(TYP_SIMD8, TYP_SIMD16));
+        assert(argRegType == arg->GetType());
+#else
+        // Other targets don't have SIMD types or pass them on the stack (x86).
+        unreached();
+#endif
+        return;
+    }
+
+    // Normally at this point we should have a STRUCT or suitable SIMD typed LCL_VAR|FLD
+    // but due to reinterpretation via OBJ(ADDR(LCL_VAR)) the LCL_VAR|FLD may also have
+    // primtive type or an unexpected SIMD type (e.g. SIMD16 local passed in an INT reg).
+    // For now use LCL_FLD to handle all such cases. In some cases BITCAST may be used
+    // but it's not clear which such cases, if any, are useful.
+
+    if (arg->TypeIs(TYP_STRUCT) || (varTypeUsesFloatReg(argRegType) != varTypeUsesFloatReg(arg->GetType())))
+    {
+        if (arg->OperIs(GT_LCL_FLD))
+        {
+            arg->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+        }
+        else
+        {
+            arg->ChangeOper(GT_LCL_FLD);
+        }
+
+        arg->SetType(argRegType);
+
+        lvaSetVarDoNotEnregister(arg->AsLclFld()->GetLclNum() DEBUGARG(DNER_LocalField));
+    }
+}
+
 GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize)
 {
     assert(argSize <= varTypeSize(argRegType));
     assert(varTypeIsSingleReg(argRegType));
 
     LclVarDsc* lcl = lvaGetDesc(arg);
-
-    // Don't bother if the struct arg is larger than the struct local, that's simply undefined behavior.
-    // TODO-MIKE-Cleanup: This shouldn't be needed once LCL_VAR/FLD are all converted in LocalAddressVisitor.
-    if (argSize > lcl->lvExactSize)
-    {
-        lvaSetVarAddrExposed(arg->GetLclNum());
-        return gtNewOperNode(GT_IND, argRegType, gtNewOperNode(GT_ADDR, TYP_I_IMPL, arg));
-    }
+    assert(argSize <= lcl->GetLayout()->GetSize());
 
     LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
     assert(varTypeIsEnregisterable(fieldLcl->GetType()));
@@ -3663,6 +3654,16 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
             return gtNewBitCastNode(argRegType, arg);
         }
 #endif // TARGET_64BIT
+    }
+
+    if (lcl->lvDoNotEnregister)
+    {
+        // If we need to use more than one field and the local is already DNER then just use LCL_FLD.
+        // Otherwise we'd just be generating multiple memory loads.
+
+        arg->ChangeOper(GT_LCL_FLD);
+        arg->SetType(argRegType);
+        return arg;
     }
 
 #ifdef TARGET_AMD64
@@ -3848,6 +3849,8 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
 
     return newArg;
 }
+
+#endif // !TARGET_X86
 
 #if FEATURE_MULTIREG_ARGS
 //-----------------------------------------------------------------------------

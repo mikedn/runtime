@@ -1215,17 +1215,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     }
 #endif // !defined(TARGET_64BIT)
 
-#if defined(FEATURE_SIMD) && defined(TARGET_AMD64)
-    // TYP_SIMD8 parameters that are passed as longs
-    // TODO-MIKE-CQ: This should be moved to morph.
-    if (arg->TypeIs(TYP_SIMD8) && (argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum()))
-    {
-        GenTreeUnOp* bitcast = comp->gtNewBitCastNode(TYP_LONG, arg);
-        BlockRange().InsertAfter(arg, bitcast);
-        arg = bitcast;
-        argInfo->SetNode(bitcast);
-    }
-#elif defined(TARGET_ARMARCH)
+#if defined(TARGET_ARMARCH)
     if (call->IsVarargs() || comp->opts.compUseSoftFP)
     {
         // For vararg call or on armel, reg args should be all integer.
