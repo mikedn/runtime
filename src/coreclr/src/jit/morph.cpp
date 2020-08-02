@@ -3530,7 +3530,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
         LclVarDsc* varDsc = lvaGetDesc(arg->AsLclVar());
 
-        if (varDsc->IsPromoted() && !varDsc->lvDoNotEnregister)
+        if (varDsc->IsPromoted())
         {
             if (argSize == 0)
             {
@@ -3648,6 +3648,16 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
             return gtNewBitCastNode(argRegType, arg);
         }
 #endif // TARGET_64BIT
+    }
+
+    if (lcl->lvDoNotEnregister)
+    {
+        // If we need to use more than one field and the local is already DNER then just use LCL_FLD.
+        // Otherwise we'd just be generating multiple memory loads.
+
+        arg->ChangeOper(GT_LCL_FLD);
+        arg->SetType(argRegType);
+        return arg;
     }
 
 #ifdef TARGET_AMD64
