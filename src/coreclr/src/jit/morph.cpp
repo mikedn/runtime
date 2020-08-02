@@ -3881,7 +3881,6 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
     assert(foundStructArg);
 }
 
-#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
 bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo)
 {
     // Keep in sync with the logic in abiMorphPromotedStructArgToFieldList. It's unfortunate
@@ -4277,7 +4276,6 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 
     return list;
 }
-#endif // defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
 
 //-----------------------------------------------------------------------------
 // fgMorphMultiregStructArg:  Given a TYP_STRUCT arg from a call argument list,
