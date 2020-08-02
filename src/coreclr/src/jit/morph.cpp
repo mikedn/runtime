@@ -3614,14 +3614,7 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
     assert(varTypeIsSingleReg(argRegType));
 
     LclVarDsc* lcl = lvaGetDesc(arg);
-
-    // Don't bother if the struct arg is larger than the struct local, that's simply undefined behavior.
-    // TODO-MIKE-Cleanup: This shouldn't be needed once LCL_VAR/FLD are all converted in LocalAddressVisitor.
-    if (argSize > lcl->lvExactSize)
-    {
-        lvaSetVarAddrExposed(arg->GetLclNum());
-        return gtNewOperNode(GT_IND, argRegType, gtNewOperNode(GT_ADDR, TYP_I_IMPL, arg));
-    }
+    assert(argSize <= lcl->GetLayout()->GetSize());
 
     LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
     assert(varTypeIsEnregisterable(fieldLcl->GetType()));
