@@ -4391,8 +4391,8 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
                 unsigned argSize = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
 
-                var_types  lclType = lcl->GetType();
-                unsigned   lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
+                var_types lclType = lcl->GetType();
+                unsigned  lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
 
                 // With some care in codegen and a few other places we could probably allow any local size
                 // here. We have already determined what registers the arg uses so it's just matter of
@@ -4707,7 +4707,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                     {
                         if (typeInfo::AreEquivalent(lvaGetDesc(tempLclNum)->lvVerTypeInfo,
                                                     typeInfo(TI_STRUCT, varDsc->GetLayout()->GetClassHandle())) &&
-                            !fgCurrentlyInUseArgTemps->testBit(varNum))
+                            !fgCurrentlyInUseArgTemps->testBit(tempLclNum))
                         {
                             varNum = tempLclNum;
                             found  = true;
