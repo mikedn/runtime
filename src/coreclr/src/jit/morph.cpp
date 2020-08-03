@@ -2970,7 +2970,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #if FEATURE_MULTIREG_ARGS
     if (hasMultiregStructArgs)
     {
-        fgMorphMultiregStructArgs(call);
+        abiMorphMultiregStructArgs(call);
     }
 #endif
 
@@ -3696,8 +3696,8 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
 
 #if FEATURE_MULTIREG_ARGS
 //-----------------------------------------------------------------------------
-// fgMorphMultiregStructArgs:  Locate the TYP_STRUCT arguments and
-//                             call fgMorphMultiregStructArg on each of them.
+// abiMorphMultiregStructArgs:  Locate the TYP_STRUCT arguments and
+//                             call abiMorphMultiregStructArg on each of them.
 //
 // Arguments:
 //    call - a GenTreeCall node that has one or more TYP_STRUCT multireg arguments.
@@ -3708,7 +3708,7 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
 //    register and at least one stack slot.
 //    If this method fails to find such arguments it will assert.
 //
-void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
+void Compiler::abiMorphMultiregStructArgs(GenTreeCall* call)
 {
     INDEBUG(bool foundStructArg = false;)
 
@@ -3731,7 +3731,7 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
             continue;
         }
 
-        GenTree* newArgNode = fgMorphMultiregStructArg(argNode, argInfo);
+        GenTree* newArgNode = abiMorphMultiregStructArg(argInfo, argNode);
 
         if (newArgNode != argNode)
         {
@@ -4140,12 +4140,8 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 }
 
 //-----------------------------------------------------------------------------
-// fgMorphMultiregStructArg:  Given a TYP_STRUCT arg from a call argument list,
+// abiMorphMultiregStructArg: Given a TYP_STRUCT arg from a call argument list,
 //     morph the argument as needed to be passed correctly.
-//
-// Arguments:
-//     arg        - A GenTree node containing a TYP_STRUCT arg
-//     fgEntryPtr - the fgArgTabEntry information for the current 'arg'
 //
 // Notes:
 //    The arg must be a GT_OBJ or GT_LCL_VAR or GT_LCL_FLD of TYP_STRUCT.
@@ -4165,10 +4161,18 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 //    indirections.
 //    Currently the implementation handles ARM64/ARM and will NYI for other architectures.
 //
-GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr)
+GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Morphing multireg struct argument: ");
+        argInfo->Dump();
+    }
+#endif
+
     assert(varTypeIsStruct(arg->TypeGet()));
-    assert(fgEntryPtr->GetRegCount() != 0);
+    assert(argInfo->GetRegCount() != 0);
 
     if (arg->OperIs(GT_OBJ))
     {
@@ -4235,9 +4239,9 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     }
 
     if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
-        abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(arg->AsLclVar()), fgEntryPtr))
+        abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(arg->AsLclVar()), argInfo))
     {
-        return abiMorphPromotedStructArgToFieldList(lvaGetDesc(arg->AsLclVar()), fgEntryPtr);
+        return abiMorphPromotedStructArgToFieldList(lvaGetDesc(arg->AsLclVar()), argInfo);
     }
 
 #ifdef TARGET_ARM
@@ -4254,7 +4258,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     // otherwise the number of promoted fields being limited to 4 it's not easy to exceed
     // the number of reg and slots that is also 4).
 
-    if (fgEntryPtr->IsSplit() && (fgEntryPtr->GetSlotCount() + fgEntryPtr->GetRegCount() > MAX_ARG_REG_COUNT))
+    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
     {
         if (arg->OperIs(GT_LCL_VAR))
         {
@@ -4265,8 +4269,8 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     }
 #endif
 
-    CORINFO_CLASS_HANDLE objClass = gtGetStructHandleIfPresent(arg);
-    noway_assert(objClass != NO_CLASS_HANDLE);
+    CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
+    noway_assert(argClass != NO_CLASS_HANDLE);
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
     // Special case for SIMD args on ARM64 and UNIX_AMD64_ABI: they can be passed in multiple registers
@@ -4276,19 +4280,19 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     if (varTypeIsSIMD(arg->GetType()) && !arg->OperIs(GT_OBJ, GT_LCL_FLD, GT_LCL_VAR) &&
 #ifdef TARGET_ARM64
-        (fgEntryPtr->GetRegCount() >= 2) && (fgEntryPtr->GetRegCount() <= 4) && (fgEntryPtr->GetRegType() == TYP_FLOAT)
+        (argInfo->GetRegCount() >= 2) && (argInfo->GetRegCount() <= 4) && (argInfo->GetRegType() == TYP_FLOAT)
 #else
-        (fgEntryPtr->GetRegCount() == 2) && (fgEntryPtr->GetRegType(0) == TYP_DOUBLE) &&
-        ((fgEntryPtr->GetRegType(1) == TYP_FLOAT || fgEntryPtr->GetRegType(1) == TYP_DOUBLE))
+        (argInfo->GetRegCount() == 2) && (argInfo->GetRegType(0) == TYP_DOUBLE) &&
+        (((argInfo->GetRegType(1) == TYP_FLOAT) || (argInfo->GetRegType(1) == TYP_DOUBLE)))
 #endif
             )
     {
         unsigned          tempLclNum = BAD_VAR_NUM;
         GenTreeFieldList* newArg     = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-        for (unsigned i = 0, offset = 0; i < fgEntryPtr->GetRegCount(); i++)
+        for (unsigned i = 0, offset = 0; i < argInfo->GetRegCount(); i++)
         {
-            var_types fieldType = fgEntryPtr->GetRegType(i);
+            var_types fieldType = argInfo->GetRegType(i);
             GenTree*  fieldNode;
 
             GenTree* tempAssign = nullptr;
@@ -4296,7 +4300,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             if (tempLclNum == BAD_VAR_NUM)
             {
                 tempLclNum = lvaGrabTemp(true DEBUGARG("MultiReg SIMD arg"));
-                lvaSetStruct(tempLclNum, objClass, false);
+                lvaSetStruct(tempLclNum, argClass, false);
                 tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
             }
 
@@ -4323,72 +4327,67 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     unsigned structSize = 0;
 
-    if (arg->TypeGet() != TYP_STRUCT)
+    if (arg->GetType() != TYP_STRUCT)
     {
-        structSize = genTypeSize(arg->TypeGet());
-        assert(structSize == info.compCompHnd->getClassSize(objClass));
+        structSize = genTypeSize(arg->GetType());
+        assert(structSize == info.compCompHnd->getClassSize(argClass));
     }
-    else if (arg->OperGet() == GT_OBJ)
+    else if (arg->OperIs(GT_OBJ))
     {
         GenTreeObj* argObj = arg->AsObj();
         structSize         = argObj->GetLayout()->GetSize();
-        assert(structSize == info.compCompHnd->getClassSize(objClass));
+        assert(structSize == info.compCompHnd->getClassSize(argClass));
     }
-    else if (arg->OperGet() == GT_LCL_VAR)
+    else if (arg->OperIs(GT_LCL_VAR))
     {
-        GenTreeLclVarCommon* varNode = arg->AsLclVarCommon();
-        unsigned             varNum  = varNode->GetLclNum();
-        assert(varNum < lvaCount);
-        LclVarDsc* varDsc = &lvaTable[varNum];
-
-        structSize = varDsc->lvExactSize;
-        assert(structSize == info.compCompHnd->getClassSize(objClass));
+        LclVarDsc* varDsc = lvaGetDesc(arg->AsLclVar());
+        structSize        = varDsc->lvExactSize;
+        assert(structSize == info.compCompHnd->getClassSize(argClass));
     }
     else if (arg->OperIs(GT_LCL_FLD))
     {
         structSize = arg->AsLclFld()->GetLayout(this)->GetSize();
-        assert(structSize == info.compCompHnd->getClassSize(objClass));
+        assert(structSize == info.compCompHnd->getClassSize(argClass));
     }
     else
     {
-        structSize = info.compCompHnd->getClassSize(objClass);
+        structSize = info.compCompHnd->getClassSize(argClass);
     }
-    noway_assert(objClass != NO_CLASS_HANDLE);
 
-    unsigned  elemCount               = 0;
-    var_types type[MAX_ARG_REG_COUNT] = {};
+    unsigned  regCount                    = 0;
+    var_types regTypes[MAX_ARG_REG_COUNT] = {};
 
 #ifdef FEATURE_HFA
-    if (fgEntryPtr->IsHfaArg())
+    if (argInfo->IsHfaArg())
     {
         // If it's HFA then it should never be split.
-        assert(fgEntryPtr->GetSlotCount() == 0);
+        assert(argInfo->GetSlotCount() == 0);
 
-        elemCount = fgEntryPtr->GetRegCount();
-        for (unsigned i = 0; i < elemCount; i++)
+        regCount = argInfo->GetRegCount();
+        for (unsigned i = 0; i < regCount; i++)
         {
-            type[i] = fgEntryPtr->GetRegType(i);
+            regTypes[i] = argInfo->GetRegType(i);
         }
     }
     else
 #endif // FEATURE_HFA
     {
-        assert(structSize <= MAX_ARG_REG_COUNT * TARGET_POINTER_SIZE);
+        assert(structSize <= MAX_ARG_REG_COUNT * REGSIZE_BYTES);
         BYTE gcPtrs[MAX_ARG_REG_COUNT];
-        elemCount = roundUp(structSize, TARGET_POINTER_SIZE) / TARGET_POINTER_SIZE;
-        info.compCompHnd->getClassGClayout(objClass, &gcPtrs[0]);
+        regCount = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+        info.compCompHnd->getClassGClayout(argClass, &gcPtrs[0]);
 
-        for (unsigned inx = 0; inx < elemCount; inx++)
+        for (unsigned i = 0; i < regCount; i++)
         {
 #ifdef UNIX_AMD64_ABI
-            if (gcPtrs[inx] == TYPE_GC_NONE)
+            if (gcPtrs[i] == TYPE_GC_NONE)
             {
-                type[inx] = fgEntryPtr->GetRegType(inx);
+                regTypes[i] = argInfo->GetRegType(i);
             }
             else
 #endif // UNIX_AMD64_ABI
             {
-                type[inx] = getJitGCType(gcPtrs[inx]);
+                regTypes[i] = getJitGCType(gcPtrs[i]);
             }
         }
     }
@@ -4399,21 +4398,12 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        GenTreeLclVarCommon* varNode = arg->AsLclVarCommon();
-        unsigned             varNum  = varNode->GetLclNum();
-        assert(varNum < lvaCount);
-        LclVarDsc* varDsc = &lvaTable[varNum];
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            JITDUMP("Multireg struct argument V%02u : ", varNum);
-            fgEntryPtr->Dump();
-        }
-#endif
+        GenTreeLclVarCommon* lclNode = arg->AsLclVarCommon();
+        unsigned             lclNum  = lclNode->GetLclNum();
+        LclVarDsc*           lcl     = lvaGetDesc(lclNum);
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-        if (varDsc->lvPromoted && (varDsc->lvFieldCnt == 2) && (elemCount == 2))
+        if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 2) && (regCount == 2))
         {
             // If we have 2 promoted fields that start at offset 0 and 8 then we can pass them using FIELD_LIST.
             // If there are more fields it means that 2 or more fields go into the same register, currently this
@@ -4431,23 +4421,23 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
             //   - The generated LCL_FLDs have type TYP_LONG even when perhaps the type was a smaller int, this
             //     makes the code larger due to extra REX prefixes.
 
-            unsigned loVarNum = lvaGetFieldLocal(varDsc, 0);
-            unsigned hiVarNum = lvaGetFieldLocal(varDsc, TARGET_POINTER_SIZE);
+            unsigned loVarNum = lvaGetFieldLocal(lcl, 0);
+            unsigned hiVarNum = lvaGetFieldLocal(lcl, 8);
 
             if ((loVarNum != BAD_VAR_NUM) && (hiVarNum != BAD_VAR_NUM))
             {
-                LclVarDsc* loVarDsc = &lvaTable[loVarNum];
-                LclVarDsc* hiVarDsc = &lvaTable[hiVarNum];
+                LclVarDsc* loVarDsc = lvaGetDesc(loVarNum);
+                LclVarDsc* hiVarDsc = lvaGetDesc(hiVarNum);
 
-                var_types loType = loVarDsc->lvType;
-                var_types hiType = hiVarDsc->lvType;
+                var_types loType = loVarDsc->GetType();
+                var_types hiType = hiVarDsc->GetType();
 
-                if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(type[0])) &&
-                    (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(type[1])))
+                if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(regTypes[0])) &&
+                    (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(regTypes[1])))
                 {
                     newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
                     newArg->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
-                    newArg->AddField(this, gtNewLclvNode(hiVarNum, hiType), TARGET_POINTER_SIZE, hiType);
+                    newArg->AddField(this, gtNewLclvNode(hiVarNum, hiType), 8, hiType);
                 }
             }
         }
@@ -4455,11 +4445,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
         if (newArg == nullptr)
         {
-            unsigned  varOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
-            unsigned  varSize   = lvaLclExactSize(varNum);
-            var_types varType   = varDsc->GetType();
+            unsigned  lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
+            unsigned  lclSize   = lvaLclExactSize(lclNum);
+            var_types lclType   = lcl->GetType();
 #ifdef FEATURE_SIMD
-            bool varIsSIMD = varTypeIsSIMD(varType) && !varDsc->IsPromoted() && !varDsc->lvDoNotEnregister;
+            bool lclIsSIMD = varTypeIsSIMD(lclType) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
 #endif
 
 #ifdef TARGET_ARM
@@ -4486,7 +4476,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
             GenTree* tempAssign = nullptr;
 
-            if (varNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(varNum) == PROMOTION_TYPE_INDEPENDENT))
+            if (lclNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
             {
                 // TODO-MIKE-Cleanup: Temp reusal code copied from fgMakeOutgoingStructArgCopy
 
@@ -4503,10 +4493,10 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                     FOREACH_HBV_BIT_SET(tempLclNum, fgOutgoingArgTemps)
                     {
                         if (typeInfo::AreEquivalent(lvaGetDesc(tempLclNum)->lvVerTypeInfo,
-                                                    typeInfo(TI_STRUCT, varDsc->GetLayout()->GetClassHandle())) &&
+                                                    typeInfo(TI_STRUCT, lcl->GetLayout()->GetClassHandle())) &&
                             !fgCurrentlyInUseArgTemps->testBit(tempLclNum))
                         {
-                            varNum = tempLclNum;
+                            lclNum = tempLclNum;
                             found  = true;
                             JITDUMP("reusing outgoing struct arg");
                             break;
@@ -4517,19 +4507,19 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
                 if (!found)
                 {
-                    varNum = lvaNewTemp(varDsc->GetLayout(), true DEBUGARG("call arg temp"));
+                    lclNum = lvaNewTemp(lcl->GetLayout(), true DEBUGARG("call arg temp"));
 
                     if (fgOutgoingArgTemps != nullptr)
                     {
-                        fgOutgoingArgTemps->setBit(varNum);
+                        fgOutgoingArgTemps->setBit(lclNum);
                     }
                 }
 
-                fgCurrentlyInUseArgTemps->setBit(varNum);
+                fgCurrentlyInUseArgTemps->setBit(lclNum);
 
-                GenTreeLclVar* dst = gtNewLclvNode(varNum, varType);
+                GenTreeLclVar* dst = gtNewLclvNode(lclNum, lclType);
                 dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-                tempAssign = gtNewOperNode(GT_ASG, varType, dst, varNode);
+                tempAssign = gtNewOperNode(GT_ASG, lclType, dst, lclNode);
                 tempAssign->gtFlags |= GTF_ASG;
                 tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
             }
@@ -4537,14 +4527,14 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
             newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-            for (unsigned i = 0, regOffset = 0; i < elemCount; i++)
+            for (unsigned i = 0, regOffset = 0; i < regCount; i++)
             {
-                var_types regType     = type[i];
+                var_types regType     = regTypes[i];
                 unsigned  regSize     = varTypeSize(regType);
-                unsigned  fieldOffset = varOffset + regOffset;
+                unsigned  fieldOffset = lclOffset + regOffset;
                 GenTree*  fieldNode;
 
-                if (fieldOffset >= varSize)
+                if (fieldOffset >= lclSize)
                 {
                     // Make sure we add a field for every arg register, even if we somehow end up with
                     // a smaller local variable as source. If a field is missing, the backend may get
@@ -4553,21 +4543,21 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                     fieldNode = gtNewZeroConNode(regType);
                 }
 #ifdef FEATURE_SIMD
-                else if (varIsSIMD && varTypeIsFloating(regType) && (fieldOffset % regSize == 0))
+                else if (lclIsSIMD && varTypeIsFloating(regType) && (fieldOffset % regSize == 0))
                 {
                     // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
                     // in a SIMD register and at the proper position.
 
                     GenTreeIntCon* fieldIndex = gtNewIconNode(fieldOffset / regSize);
-                    fieldNode                 = gtNewLclvNode(varNum, varType);
-                    fieldNode = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, varSize, fieldNode, fieldIndex);
+                    fieldNode                 = gtNewLclvNode(lclNum, lclType);
+                    fieldNode = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, lclSize, fieldNode, fieldIndex);
                 }
                 else
 #endif
                 {
-                    fieldNode = gtNewLclFldNode(varNum, regType, fieldOffset);
+                    fieldNode = gtNewLclFldNode(lclNum, regType, fieldOffset);
 
-                    lvaSetVarDoNotEnregister(varNum DEBUG_ARG(DNER_LocalField));
+                    lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(DNER_LocalField));
                 }
 
 #ifdef TARGET_ARM
@@ -4633,9 +4623,9 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
         newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-        for (unsigned i = 0, regOffset = 0; i < elemCount; i++)
+        for (unsigned i = 0, regOffset = 0; i < regCount; i++)
         {
-            var_types regType = type[i];
+            var_types regType = regTypes[i];
             GenTree*  regAddr = (i == 0) ? addr : gtCloneExpr(addr);
             GenTree*  regIndir;
             unsigned  regIndirSize;
