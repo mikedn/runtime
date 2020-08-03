@@ -3033,7 +3033,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             fieldList->AddField(this, argx->AsOp()->gtGetOp2(), OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
             args->SetNode(fieldList);
             assert(argEntry->GetNode() == fieldList);
-#else  // !TARGET_X86
+#else // !TARGET_X86
 
             // Get a new temp
             // Here we don't need unsafe value cls check since the addr of temp is used only in mkrefany
@@ -3059,6 +3059,10 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             // EvalArgsToTemps will cause tmp to actually get loaded as the argument
             call->fgArgInfo->EvalToTmp(argEntry, tmp, asg);
             lvaSetVarAddrExposed(tmp);
+
+#if FEATURE_MULTIREG_ARGS
+            hasMultiregStructArgs |= argEntry->GetRegCount() != 0;
+#endif
 #endif // !TARGET_X86
         }
 
