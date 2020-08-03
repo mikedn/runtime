@@ -4820,11 +4820,6 @@ void Compiler::abiMakeImplicityByRefStructArgCopy(GenTreeCall* call, CallArgInfo
     {
         tempLclNum = lvaGrabTemp(true DEBUGARG("implicit by-ref arg temp"));
         lvaSetStruct(tempLclNum, argClass, false);
-        if (call->IsVarargs())
-        {
-            lvaSetStructUsedAsVarArg(tempLclNum);
-        }
-
         fgOutgoingArgTemps->setBit(tempLclNum);
     }
 
