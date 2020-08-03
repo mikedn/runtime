@@ -837,7 +837,7 @@ private:
                                // parameters, this gets hijacked from fgResetImplicitByRefRefCount
                                // through fgMarkDemotedImplicitByRefArgs, to provide a static
                                // appearance count (computed during address-exposed analysis)
-                               // that fgMakeOutgoingStructArgCopy consults during global morph
+                               // that abiMakeImplicityByRefStructArgCopy consults during global morph
                                // to determine if eliding its copy is legal.
 
     BasicBlock::weight_t m_lvRefCntWtd; // weighted reference count
@@ -5409,7 +5409,7 @@ private:
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
 
 #ifdef FEATURE_FIXED_OUT_ARGS
-    void fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argInfo, CORINFO_CLASS_HANDLE copyBlkClass);
+    void abiMakeImplicityByRefStructArgCopy(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 
     void fgFixupStructReturn(GenTree* call);

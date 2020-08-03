@@ -1486,7 +1486,7 @@ private:
     //    lclNum - the local number to update the count for.
     //
     // Notes:
-    //    fgMakeOutgoingStructArgCopy checks the ref counts for implicit byref params when it decides
+    //    abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when it decides
     //    if it's legal to elide certain copies of them;
     //    fgRetypeImplicitByRefArgs checks the ref counts when it decides to undo promotions.
     //
@@ -1508,7 +1508,7 @@ private:
         //
         // It can be approximate, so the pattern match below need not be exhaustive.
         // But the pattern should at least subset the implicit byref cases that are
-        // handled in fgCanFastTailCall and fgMakeOutgoingStructArgCopy.
+        // handled in fgCanFastTailCall and abiMakeImplicityByRefStructArgCopy.
         //
         // CALL(OBJ(ADDR(LCL_VAR...)))
         bool isArgToCall   = false;

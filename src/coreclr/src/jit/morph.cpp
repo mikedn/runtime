@@ -2866,7 +2866,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
                 assert(!"Structs are not passed by reference on x64/ux");
 #endif
-                fgMakeOutgoingStructArgCopy(call, argEntry, gtGetStructHandle(argObj));
+                abiMakeImplicityByRefStructArgCopy(call, argEntry);
             }
             else if (argEntry->GetRegCount() == 0)
             {
@@ -4478,7 +4478,7 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
             if (lclNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
             {
-                // TODO-MIKE-Cleanup: Temp reusal code copied from fgMakeOutgoingStructArgCopy
+                // TODO-MIKE-Cleanup: Temp reusal code copied from abiMakeImplicityByRefStructArgCopy
 
                 bool found = false;
 
@@ -4737,36 +4737,26 @@ GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsig
 #endif // FEATURE_MULTIREG_ARGS
 
 #ifdef FEATURE_FIXED_OUT_ARGS
+
 //------------------------------------------------------------------------
-// fgMakeOutgoingStructArgCopy: make a copy of a struct variable if necessary,
-//   to pass to a callee.
+// abiMakeImplicityByRefStructArgCopy: Create a copy for an implicit by-ref struct arg.
 //
-// Arguments:
-//    call - call being processed
-//    argInfo - call arg info
-//    copyBlkClass - class handle for the struct
-//
-// Return value:
-//    tree that computes address of the outgoing arg
-//
-void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argInfo, CORINFO_CLASS_HANDLE copyBlkClass)
+void Compiler::abiMakeImplicityByRefStructArgCopy(GenTreeCall* call, CallArgInfo* argInfo)
 {
-    GenTree* argx = argInfo->GetNode();
-    noway_assert(argx->gtOper != GT_MKREFANY);
+    GenTree* arg = argInfo->GetNode();
+    assert(!arg->OperIs(GT_MKREFANY));
 
     // If we're optimizing, see if we can avoid making a copy.
-    //
     // We don't need a copy if this is the last use of an implicit by-ref local.
-    //
     if (opts.OptimizationEnabled())
     {
-        GenTreeLclVar* const lcl = argx->IsImplicitByrefParameterValue(this);
+        GenTreeLclVar* const lclNode = arg->IsImplicitByrefParameterValue(this);
 
-        if (lcl != nullptr)
+        if (lclNode != nullptr)
         {
-            const unsigned       varNum           = lcl->GetLclNum();
-            LclVarDsc* const     varDsc           = lvaGetDesc(varNum);
-            const unsigned short totalAppearances = varDsc->lvRefCnt(RCS_EARLY);
+            const unsigned   lclNum           = lclNode->GetLclNum();
+            LclVarDsc* const lcl              = lvaGetDesc(lclNum);
+            const unsigned   totalAppearances = lcl->lvRefCnt(RCS_EARLY);
 
             // We don't have liveness so we rely on other indications of last use.
             //
@@ -4788,10 +4778,10 @@ void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argIn
             const bool isNoReturnLastUse = (totalAppearances == 1) && call->IsNoReturn();
             if (isTailCallLastUse || isCallLastUse || isNoReturnLastUse)
             {
-                varDsc->setLvRefCnt(0, RCS_EARLY);
-                argInfo->SetNode(lcl);
+                lcl->setLvRefCnt(0, RCS_EARLY);
+                argInfo->SetNode(lclNode);
 
-                JITDUMP("did not need to make outgoing copy for last use of implicit byref V%2d\n", varNum);
+                JITDUMP("did not need to make outgoing copy for last use of implicit byref V%02u\n", lclNum);
                 return;
             }
         }
@@ -4804,75 +4794,70 @@ void Compiler::fgMakeOutgoingStructArgCopy(GenTreeCall* call, CallArgInfo* argIn
         fgOutgoingArgTemps = hashBv::Create(this);
     }
 
-    unsigned tmp   = 0;
-    bool     found = false;
+    CORINFO_CLASS_HANDLE argClass   = gtGetStructHandle(arg);
+    unsigned             tempLclNum = BAD_VAR_NUM;
 
-    // Attempt to find a local we have already used for an outgoing struct and reuse it.
+    // Attempt to find a local we have already used for implicit by-ref temps and reuse it.
     // We do not reuse within a statement.
     if (!opts.MinOpts())
     {
         indexType lclNum;
         FOREACH_HBV_BIT_SET(lclNum, fgOutgoingArgTemps)
         {
-            LclVarDsc* varDsc = &lvaTable[lclNum];
-            if (typeInfo::AreEquivalent(varDsc->lvVerTypeInfo, typeInfo(TI_STRUCT, copyBlkClass)) &&
+            if (typeInfo::AreEquivalent(lvaGetDesc(static_cast<unsigned>(lclNum))->lvVerTypeInfo,
+                                        typeInfo(TI_STRUCT, argClass)) &&
                 !fgCurrentlyInUseArgTemps->testBit(lclNum))
             {
-                tmp   = (unsigned)lclNum;
-                found = true;
-                JITDUMP("reusing outgoing struct arg");
+                tempLclNum = static_cast<unsigned>(lclNum);
+                JITDUMP("Reusing implicit by-ref arg temp V%02u\n", tempLclNum);
                 break;
             }
         }
         NEXT_HBV_BIT_SET;
     }
 
-    // Create the CopyBlk tree and insert it.
-    if (!found)
+    if (tempLclNum == BAD_VAR_NUM)
     {
-        // Get a new temp
-        // Here We don't need unsafe value cls check, since the addr of this temp is used only in copyblk.
-        tmp = lvaGrabTemp(true DEBUGARG("by-value struct argument"));
-        lvaSetStruct(tmp, copyBlkClass, false);
+        tempLclNum = lvaGrabTemp(true DEBUGARG("implicit by-ref arg temp"));
+        lvaSetStruct(tempLclNum, argClass, false);
         if (call->IsVarargs())
         {
-            lvaSetStructUsedAsVarArg(tmp);
+            lvaSetStructUsedAsVarArg(tempLclNum);
         }
 
-        fgOutgoingArgTemps->setBit(tmp);
+        fgOutgoingArgTemps->setBit(tempLclNum);
     }
 
-    fgCurrentlyInUseArgTemps->setBit(tmp);
+    fgCurrentlyInUseArgTemps->setBit(tempLclNum);
 
     // TYP_SIMD structs should not be enregistered, since ABI requires it to be
     // allocated on stack and address of it needs to be passed.
-    if (lclVarIsSIMDType(tmp))
+    if (lclVarIsSIMDType(tempLclNum))
     {
-        lvaSetVarDoNotEnregister(tmp DEBUGARG(DNER_IsStruct));
+        lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(DNER_IsStruct));
     }
 
-    // Create a reference to the temp
-    GenTree* dest = gtNewLclvNode(tmp, lvaTable[tmp].lvType);
-    dest->gtFlags |= (GTF_DONT_CSE | GTF_VAR_DEF); // This is a def of the local, "entire" by construction.
-
-    if (argx->gtOper == GT_OBJ)
+    if (arg->OperIs(GT_OBJ))
     {
-        argx->gtFlags &= ~(GTF_ALL_EFFECT) | (argx->AsBlk()->Addr()->gtFlags & GTF_ALL_EFFECT);
-        argx->SetIndirExceptionFlags(this);
+        arg->gtFlags &= ~GTF_ALL_EFFECT | (arg->AsObj()->GetAddr()->gtFlags & GTF_ALL_EFFECT);
+        arg->SetIndirExceptionFlags(this);
     }
     else
     {
-        argx->gtFlags |= GTF_DONT_CSE;
+        arg->gtFlags |= GTF_DONT_CSE;
     }
 
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
 
-    GenTree* copyBlk = gtNewBlkOpNode(dest, argx, false /* not volatile */, true /* copyBlock */);
-    copyBlk          = fgMorphCopyBlock(copyBlk->AsOp());
-    argInfo->SetNode(copyBlk);
-    argInfo->SetTempLclNum(tmp);
+    GenTree* dest = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
+    GenTree* asg  = gtNewBlkOpNode(dest, arg, false /* not volatile */, true /* copyBlock */);
+    asg           = fgMorphCopyBlock(asg->AsOp());
+
+    argInfo->SetNode(asg);
+    argInfo->SetTempLclNum(tempLclNum);
 }
+
 #endif // FEATURE_FIXED_OUT_ARGS
 
 //****************************************************************************
