@@ -5337,8 +5337,8 @@ public:
     bool compCanEncodePtrArgCntMax();
 
 private:
-    hashBv* fgOutgoingArgTemps;
-    hashBv* fgCurrentlyInUseArgTemps;
+    hashBv* m_abiStructArgTemps;
+    hashBv* m_abiStructArgTempsInUse;
 
     void fgSetRngChkTarget(GenTree* tree, bool delay = true);
 
@@ -9914,6 +9914,8 @@ public:
 
     void abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg);
     GenTree* abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
+    unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);
+    void abiFreeAllStructArgTemps();
 #if FEATURE_MULTIREG_ARGS
     void abiMorphMultiregStructArgs(GenTreeCall* call);
     GenTree* abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg);

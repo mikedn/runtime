@@ -4478,44 +4478,7 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
             if (lclNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
             {
-                // TODO-MIKE-Cleanup: Temp reusal code copied from abiMakeImplicityByRefStructArgCopy
-
-                bool found = false;
-
-                if (!opts.MinOpts())
-                {
-                    if (fgOutgoingArgTemps == nullptr)
-                    {
-                        fgOutgoingArgTemps = hashBv::Create(this);
-                    }
-
-                    unsigned tempLclNum;
-                    FOREACH_HBV_BIT_SET(tempLclNum, fgOutgoingArgTemps)
-                    {
-                        if (typeInfo::AreEquivalent(lvaGetDesc(tempLclNum)->lvVerTypeInfo,
-                                                    typeInfo(TI_STRUCT, lcl->GetLayout()->GetClassHandle())) &&
-                            !fgCurrentlyInUseArgTemps->testBit(tempLclNum))
-                        {
-                            lclNum = tempLclNum;
-                            found  = true;
-                            JITDUMP("reusing outgoing struct arg");
-                            break;
-                        }
-                    }
-                    NEXT_HBV_BIT_SET;
-                }
-
-                if (!found)
-                {
-                    lclNum = lvaNewTemp(lcl->GetLayout(), true DEBUGARG("call arg temp"));
-
-                    if (fgOutgoingArgTemps != nullptr)
-                    {
-                        fgOutgoingArgTemps->setBit(lclNum);
-                    }
-                }
-
-                fgCurrentlyInUseArgTemps->setBit(lclNum);
+                lclNum = abiAllocateStructArgTemp(lcl->GetLayout()->GetClassHandle());
 
                 GenTreeLclVar* dst = gtNewLclvNode(lclNum, lclType);
                 dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
@@ -4736,6 +4699,64 @@ GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsig
 
 #endif // FEATURE_MULTIREG_ARGS
 
+unsigned Compiler::abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass)
+{
+    assert(info.compCompHnd->isValueClass(argClass));
+
+    unsigned tempLclNum = BAD_VAR_NUM;
+
+    if (!opts.MinOpts())
+    {
+        if (m_abiStructArgTemps == nullptr)
+        {
+            m_abiStructArgTemps      = hashBv::Create(this);
+            m_abiStructArgTempsInUse = hashBv::Create(this);
+        }
+        else
+        {
+            indexType lclNum;
+            FOREACH_HBV_BIT_SET(lclNum, m_abiStructArgTemps)
+            {
+                if (typeInfo::AreEquivalent(lvaGetDesc(static_cast<unsigned>(lclNum))->lvVerTypeInfo,
+                    typeInfo(TI_STRUCT, argClass)) &&
+                    !m_abiStructArgTempsInUse->testBit(lclNum))
+                {
+                    tempLclNum = static_cast<unsigned>(lclNum);
+                    JITDUMP("Reusing struct arg temp V%02u\n", tempLclNum);
+                    break;
+                }
+            }
+            NEXT_HBV_BIT_SET;
+        }
+    }
+
+    if (tempLclNum == BAD_VAR_NUM)
+    {
+        tempLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+        lvaSetStruct(tempLclNum, argClass, false);
+
+        if (m_abiStructArgTemps != nullptr)
+        {
+            m_abiStructArgTemps->setBit(tempLclNum);
+        }
+    }
+
+    if (m_abiStructArgTempsInUse != nullptr)
+    {
+        m_abiStructArgTempsInUse->setBit(tempLclNum);
+    }
+
+    return tempLclNum;
+}
+
+void Compiler::abiFreeAllStructArgTemps()
+{
+    if (m_abiStructArgTempsInUse != nullptr)
+    {
+        m_abiStructArgTempsInUse->ZeroAll();
+    }
+}
+
 #ifdef FEATURE_FIXED_OUT_ARGS
 
 //------------------------------------------------------------------------
@@ -4789,41 +4810,7 @@ void Compiler::abiMakeImplicityByRefStructArgCopy(GenTreeCall* call, CallArgInfo
 
     JITDUMP("making an outgoing copy for struct arg\n");
 
-    if (fgOutgoingArgTemps == nullptr)
-    {
-        fgOutgoingArgTemps = hashBv::Create(this);
-    }
-
-    CORINFO_CLASS_HANDLE argClass   = gtGetStructHandle(arg);
-    unsigned             tempLclNum = BAD_VAR_NUM;
-
-    // Attempt to find a local we have already used for implicit by-ref temps and reuse it.
-    // We do not reuse within a statement.
-    if (!opts.MinOpts())
-    {
-        indexType lclNum;
-        FOREACH_HBV_BIT_SET(lclNum, fgOutgoingArgTemps)
-        {
-            if (typeInfo::AreEquivalent(lvaGetDesc(static_cast<unsigned>(lclNum))->lvVerTypeInfo,
-                                        typeInfo(TI_STRUCT, argClass)) &&
-                !fgCurrentlyInUseArgTemps->testBit(lclNum))
-            {
-                tempLclNum = static_cast<unsigned>(lclNum);
-                JITDUMP("Reusing implicit by-ref arg temp V%02u\n", tempLclNum);
-                break;
-            }
-        }
-        NEXT_HBV_BIT_SET;
-    }
-
-    if (tempLclNum == BAD_VAR_NUM)
-    {
-        tempLclNum = lvaGrabTemp(true DEBUGARG("implicit by-ref arg temp"));
-        lvaSetStruct(tempLclNum, argClass, false);
-        fgOutgoingArgTemps->setBit(tempLclNum);
-    }
-
-    fgCurrentlyInUseArgTemps->setBit(tempLclNum);
+    unsigned tempLclNum = abiAllocateStructArgTemp(gtGetStructHandle(arg));
 
     // TYP_SIMD structs should not be enregistered, since ABI requires it to be
     // allocated on stack and address of it needs to be passed.
@@ -15469,8 +15456,6 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
 
     *lnot = *loadw = false;
 
-    fgCurrentlyInUseArgTemps = hashBv::Create(this);
-
     for (Statement* stmt : block->Statements())
     {
         if (fgRemoveRestOfBlock)
@@ -15514,7 +15499,7 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
 
         // mark any outgoing arg temps as free so we can reuse them in the next statement.
 
-        fgCurrentlyInUseArgTemps->ZeroAll();
+        abiFreeAllStructArgTemps();
 
         // Has fgMorphStmt been sneakily changed ?
 
