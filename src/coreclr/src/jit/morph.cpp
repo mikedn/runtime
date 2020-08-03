@@ -4382,6 +4382,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         if (arg->AsObj()->GetAddr()->IsLocalAddrExpr(this, &lclNode, &lclOffs, &fieldSeq))
         {
             ClassLayout* argLayout = arg->AsObj()->GetLayout();
+            LclVarDsc*   lcl       = lvaGetDesc(lclNode);
 
             if (lclOffs == 0)
             {
@@ -4390,7 +4391,6 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
                 unsigned argSize = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
 
-                LclVarDsc* lcl     = lvaGetDesc(lclNode);
                 var_types  lclType = lcl->GetType();
                 unsigned   lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
 
@@ -4408,7 +4408,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                     arg->ChangeOper(GT_LCL_VAR);
                     arg->SetType(lclType);
                     arg->AsLclVar()->SetLclNum(lclNode->GetLclNum());
-                    arg->gtFlags = 0;
+                    arg->gtFlags = lcl->lvAddrExposed ? GTF_GLOB_REF : 0;
                 }
             }
 
@@ -4419,7 +4419,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                 arg->AsLclFld()->SetLclOffs(lclOffs);
                 arg->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
                 arg->AsLclFld()->SetLayout(argLayout, this);
-                arg->gtFlags = 0;
+                arg->gtFlags = lcl->lvAddrExposed ? GTF_GLOB_REF : 0;
 
                 lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
             }
