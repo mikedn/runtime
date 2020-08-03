@@ -3033,7 +3033,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             fieldList->AddField(this, argx->AsOp()->gtGetOp2(), OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
             args->SetNode(fieldList);
             assert(argEntry->GetNode() == fieldList);
-#else  // !TARGET_X86
+#else // !TARGET_X86
 
             // Get a new temp
             // Here we don't need unsafe value cls check since the addr of temp is used only in mkrefany
@@ -3059,6 +3059,10 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             // EvalArgsToTemps will cause tmp to actually get loaded as the argument
             call->fgArgInfo->EvalToTmp(argEntry, tmp, asg);
             lvaSetVarAddrExposed(tmp);
+
+#if FEATURE_MULTIREG_ARGS
+            hasMultiregStructArgs |= argEntry->GetRegCount() != 0;
+#endif
 #endif // !TARGET_X86
         }
 
@@ -4378,6 +4382,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
         if (arg->AsObj()->GetAddr()->IsLocalAddrExpr(this, &lclNode, &lclOffs, &fieldSeq))
         {
             ClassLayout* argLayout = arg->AsObj()->GetLayout();
+            LclVarDsc*   lcl       = lvaGetDesc(lclNode);
 
             if (lclOffs == 0)
             {
@@ -4386,12 +4391,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 
                 unsigned argSize = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
 
-                LclVarDsc* lcl     = lvaGetDesc(lclNode);
-                var_types  lclType = lcl->GetType();
-                unsigned   lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
+                var_types lclType = lcl->GetType();
+                unsigned  lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
 
                 // With some care in codegen and a few other places we could probably allow any local size
-                // here. We have alreadyd determined what registers the arg uses so it's just matter of
+                // here. We have already determined what registers the arg uses so it's just matter of
                 // loading the register from whatever location we end up with. If the location is smaller
                 // than the arg type we could zero out registers or just leave them "uninitialized". It's
                 // not clear if there's any good reason to do this.
@@ -4404,7 +4408,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                     arg->ChangeOper(GT_LCL_VAR);
                     arg->SetType(lclType);
                     arg->AsLclVar()->SetLclNum(lclNode->GetLclNum());
-                    arg->gtFlags = 0;
+                    arg->gtFlags = lcl->lvAddrExposed ? GTF_GLOB_REF : 0;
                 }
             }
 
@@ -4415,7 +4419,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                 arg->AsLclFld()->SetLclOffs(lclOffs);
                 arg->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
                 arg->AsLclFld()->SetLayout(argLayout, this);
-                arg->gtFlags = 0;
+                arg->gtFlags = lcl->lvAddrExposed ? GTF_GLOB_REF : 0;
 
                 lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
             }
@@ -4446,16 +4450,18 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     // with one field per slot isn't an option because there may be too many and
     // having one field for all slots doesn't work either because we don't have a
     // layout to describe such a partial "view" of a struct.
-    // So we give up if there are too many slots, with the exception of the promoted
-    // struct case that is always converted to a FIELD_LIST because the number of
-    // promoted fields is bounded.
+    // So we give up if there are too many slots.
+    //
+    // For promoted struct locals this means that we'll end up with dependent promotion.
+    // This isn't very common (because it means the struct has long or double fields,
+    // otherwise the number of promoted fields being limited to 4 it's not easy to exceed
+    // the number of reg and slots that is also 4).
 
-    if (fgEntryPtr->IsSplit() && (fgEntryPtr->GetSlotCount() + fgEntryPtr->GetRegCount() > 4))
+    if (fgEntryPtr->IsSplit() && (fgEntryPtr->GetSlotCount() + fgEntryPtr->GetRegCount() > MAX_ARG_REG_COUNT))
     {
-        if (arg->OperIs(GT_LCL_VAR) &&
-            (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
+        if (arg->OperIs(GT_LCL_VAR))
         {
-            arg = fgMorphLclArgToFieldlist(arg->AsLclVar());
+            lvaSetVarDoNotEnregister(arg->AsLclVar()->GetLclNum() DEBUGARG(DNER_IsStructArg));
         }
 
         return arg;
@@ -4701,7 +4707,7 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                     {
                         if (typeInfo::AreEquivalent(lvaGetDesc(tempLclNum)->lvVerTypeInfo,
                                                     typeInfo(TI_STRUCT, varDsc->GetLayout()->GetClassHandle())) &&
-                            !fgCurrentlyInUseArgTemps->testBit(varNum))
+                            !fgCurrentlyInUseArgTemps->testBit(tempLclNum))
                         {
                             varNum = tempLclNum;
                             found  = true;
@@ -4935,32 +4941,6 @@ GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsig
 #endif
 }
 
-//------------------------------------------------------------------------
-// fgMorphLclArgToFieldlist: Morph a GT_LCL_VAR node to a GT_FIELD_LIST of its promoted fields
-//
-// Arguments:
-//    lcl  - The GT_LCL_VAR node we will transform
-//
-// Return value:
-//    The new GT_FIELD_LIST that we have created.
-//
-GenTreeFieldList* Compiler::fgMorphLclArgToFieldlist(GenTreeLclVarCommon* lcl)
-{
-    LclVarDsc* varDsc = lvaGetDesc(lcl);
-    assert(varDsc->lvPromoted);
-    unsigned fieldCount  = varDsc->lvFieldCnt;
-    unsigned fieldLclNum = varDsc->lvFieldLclStart;
-
-    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-    for (unsigned i = 0; i < fieldCount; i++)
-    {
-        LclVarDsc* fieldVarDsc = lvaGetDesc(fieldLclNum);
-        GenTree*   lclVar      = gtNewLclvNode(fieldLclNum, fieldVarDsc->TypeGet());
-        fieldList->AddField(this, lclVar, fieldVarDsc->lvFldOffset, fieldVarDsc->TypeGet());
-        fieldLclNum++;
-    }
-    return fieldList;
-}
 #endif // FEATURE_MULTIREG_ARGS
 
 //------------------------------------------------------------------------
