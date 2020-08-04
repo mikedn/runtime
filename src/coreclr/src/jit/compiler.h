@@ -9912,6 +9912,7 @@ public:
 
 #endif // defined(UNIX_AMD64_ABI)
 
+    void abiMorphMkRefAnyArg(CallArgInfo* argInfo, GenTreeOp* mkrefany);
     void abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg);
     GenTree* abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
     unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);

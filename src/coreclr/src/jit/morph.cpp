@@ -2892,31 +2892,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             // 'Lower' the MKREFANY tree and insert it.
             noway_assert(!reMorphing);
 
-            // Get a new temp
-            // Here we don't need unsafe value cls check since the addr of temp is used only in mkrefany
-            unsigned tmp = lvaGrabTemp(true DEBUGARG("by-value mkrefany struct argument"));
-            lvaSetStruct(tmp, impGetRefAnyClass(), false);
-
-            // Build the mkrefany as a comma node:
-            // (tmp.ptr=argx),(tmp.type=handle)
-            GenTreeLclFld* destPtrSlot  = gtNewLclFldNode(tmp, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__dataPtr);
-            GenTreeLclFld* destTypeSlot = gtNewLclFldNode(tmp, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
-            destPtrSlot->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyDataField()));
-            destPtrSlot->gtFlags |= GTF_VAR_DEF;
-            destTypeSlot->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
-            destTypeSlot->gtFlags |= GTF_VAR_DEF;
-
-            GenTree* asgPtrSlot  = gtNewAssignNode(destPtrSlot, argx->AsOp()->gtOp1);
-            GenTree* asgTypeSlot = gtNewAssignNode(destTypeSlot, argx->AsOp()->gtOp2);
-            GenTree* asg         = gtNewOperNode(GT_COMMA, TYP_VOID, asgPtrSlot, asgTypeSlot);
-
-            // Change the expression to "(tmp=val)"
-            args->SetNode(asg);
-
-            // EvalArgsToTemps will cause tmp to actually get loaded as the argument
-            argEntry->SetTempLclNum(tmp);
-            lvaSetVarAddrExposed(tmp);
-
+            abiMorphMkRefAnyArg(argEntry, argx->AsOp());
 #if FEATURE_MULTIREG_ARGS
             hasMultiregStructArgs |= argEntry->GetRegCount() != 0;
 #endif
@@ -3697,6 +3673,34 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
     }
 
     return newArg;
+}
+
+void Compiler::abiMorphMkRefAnyArg(CallArgInfo* argInfo, GenTreeOp* mkrefany)
+{
+    // Get a new temp
+    // Here we don't need unsafe value cls check since the addr of temp is used only in mkrefany
+    unsigned tmp = lvaGrabTemp(true DEBUGARG("by-value mkrefany struct argument"));
+    lvaSetStruct(tmp, impGetRefAnyClass(), false);
+
+    // Build the mkrefany as a comma node:
+    // (tmp.ptr=argx),(tmp.type=handle)
+    GenTreeLclFld* destPtrSlot  = gtNewLclFldNode(tmp, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__dataPtr);
+    GenTreeLclFld* destTypeSlot = gtNewLclFldNode(tmp, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
+    destPtrSlot->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyDataField()));
+    destPtrSlot->gtFlags |= GTF_VAR_DEF;
+    destTypeSlot->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
+    destTypeSlot->gtFlags |= GTF_VAR_DEF;
+
+    GenTree* asgPtrSlot  = gtNewAssignNode(destPtrSlot, mkrefany->gtOp1);
+    GenTree* asgTypeSlot = gtNewAssignNode(destTypeSlot, mkrefany->gtOp2);
+    GenTree* asg         = gtNewOperNode(GT_COMMA, TYP_VOID, asgPtrSlot, asgTypeSlot);
+
+    // Change the expression to "(tmp=val)"
+    argInfo->use->SetNode(asg);
+
+    // EvalArgsToTemps will cause tmp to actually get loaded as the argument
+    argInfo->SetTempLclNum(tmp);
+    lvaSetVarAddrExposed(tmp);
 }
 
 #endif // !TARGET_X86
