@@ -1426,7 +1426,7 @@ GenTree* Compiler::fgMakeTmpArgNode(GenTreeCall* call, CallArgInfo* argInfo)
     }
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-    if (argInfo->isSingleRegOrSlot())
+    if (argInfo->IsSingleRegOrSlot())
     {
         var_types passedAsPrimitiveType =
             getPrimitiveTypeForStruct(lvaLclExactSize(argInfo->GetTempLclNum()), varDsc->lvVerTypeInfo.GetClassHandle(),
@@ -2780,11 +2780,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 //    into the fixed argument area until after the call. If the argument did not
 //    otherwise need to be computed into a temp, it is moved to gtCallLateArgs and
 //    replaced in the "early" arg list (gtCallArgs) with a placeholder node.
-
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
+//
 GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 {
     bool reMorphing = call->AreArgsComplete();
@@ -2792,118 +2788,108 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
     JITDUMP("%s call [%06u] args\n", reMorphing ? "Remorphing" : "Morphing", call->gtTreeID);
 
-    unsigned flagsSummary = 0;
-
-    // If we are remorphing, process the late arguments (which were determined by a previous caller).
-    if (reMorphing)
-    {
-        for (GenTreeCall::Use& use : call->LateArgs())
-        {
-            use.SetNode(fgMorphTree(use.GetNode()));
-            flagsSummary |= use.GetNode()->gtFlags;
-        }
-
-        assert(call->fgArgInfo != nullptr);
-    }
-
-    // First we morph the argument subtrees ('this' pointer, arguments, etc.).
-    // During the first call to fgMorphArgs we also record the
-    // information about late arguments we have in 'fgArgInfo'.
-    // This information is used later to contruct the gtCallLateArgs */
-
-    unsigned argIndex = 0;
-
-    if (call->gtCallThisArg != nullptr)
-    {
-        GenTree* argNode = call->gtCallThisArg->GetNode();
-        argNode          = fgMorphTree(argNode);
-        call->gtCallThisArg->SetNode(argNode);
-        flagsSummary |= argNode->gtFlags;
-        argIndex++;
-    }
-
+    unsigned argsSideEffects = 0;
+    unsigned argNum          = 0;
 #ifndef TARGET_X86
+    // Sometimes we need a second pass to morph args, most commonly for arguments
+    // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
+    // so if the args needs a temp EvalArgsToTemps won't be able to allocate one.
+    // Then the first pass does minimal or no morphing of the arg and the second
+    // pass replaces the arg with a FIELD_LIST node.
     bool requires2ndPass = false;
 #endif
 
-    for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
+    if (call->gtCallThisArg != nullptr)
     {
-        fgArgTabEntry* argEntry = call->GetArgInfoByArgNum(argIndex);
+        GenTree* arg = call->gtCallThisArg->GetNode();
+        arg          = fgMorphTree(arg);
+        call->gtCallThisArg->SetNode(arg);
+        argsSideEffects |= arg->gtFlags;
+        argNum++;
+    }
 
-        // Morph the arg node, and update the parent and argEntry pointers.
-        GenTree* argx = args->GetNode();
-        argx          = fgMorphTree(argx);
-        args->SetNode(argx);
+    for (GenTreeCall::Use *argUse = call->gtCallArgs; argUse != nullptr; argUse = argUse->GetNext(), argNum++)
+    {
+        CallArgInfo* argInfo = call->GetArgInfoByArgNum(argNum);
 
-        if (argEntry->isNonStandard)
+        GenTree* arg = argUse->GetNode();
+        arg          = fgMorphTree(arg);
+        argUse->SetNode(arg);
+
+        if (argInfo->isNonStandard)
         {
-            flagsSummary |= argx->gtFlags;
+            argsSideEffects |= arg->gtFlags;
             continue;
         }
 
-        if (argx->IsLocalAddrExpr() != nullptr)
+        if (arg->IsLocalAddrExpr() != nullptr)
         {
-            argx->gtType = TYP_I_IMPL;
+            arg->SetType(TYP_I_IMPL);
         }
 
 #ifdef TARGET_X86
-        if (argEntry->isStruct)
+        if (argInfo->isStruct)
         {
-            abiMorphStructStackArg(argEntry, argx);
+            abiMorphStructStackArg(argInfo, arg);
         }
 #else // !TARGET_X86
-        if (argx->OperIs(GT_MKREFANY))
+        if (arg->OperIs(GT_MKREFANY))
         {
-            abiMorphMkRefAnyArg(argEntry, argx->AsOp());
+            abiMorphMkRefAnyArg(argInfo, arg->AsOp());
 #if FEATURE_MULTIREG_ARGS
-            requires2ndPass |= argEntry->GetRegCount() != 0;
+            requires2ndPass |= argInfo->GetRegCount() != 0;
 #endif
-            flagsSummary |= args->GetNode()->gtFlags;
+            argsSideEffects |= argUse->GetNode()->gtFlags;
             continue;
         }
 
-        GenTree* argObj = argx->gtEffectiveVal(true /*commaOnly*/);
+        GenTree* argVal = arg->gtEffectiveVal(true /*commaOnly*/);
 
-        if (argEntry->isStruct && varTypeIsStruct(argObj) && !argObj->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE))
+        if (argInfo->isStruct && varTypeIsStruct(argVal->GetType()) &&
+            !argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE))
         {
-            if (argEntry->passedByRef)
+            if (argInfo->passedByRef)
             {
-                assert(argEntry->getSize() == 1);
+                assert(argInfo->IsSingleRegOrSlot());
 #ifdef UNIX_AMD64_ABI
                 assert(!"Structs are not passed by reference on x64/ux");
 #endif
-                abiMakeImplicityByRefStructArgCopy(call, argEntry);
+                abiMakeImplicityByRefStructArgCopy(call, argInfo);
             }
-            else if (argEntry->GetRegCount() == 0)
+            else if (argInfo->GetRegCount() == 0)
             {
-                requires2ndPass |= abiMorphStructStackArg(argEntry, argObj);
+                requires2ndPass |= abiMorphStructStackArg(argInfo, argVal);
             }
 #if FEATURE_MULTIREG_ARGS
-            else if (argEntry->GetRegCount() + argEntry->GetSlotCount() > 1)
+            else if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
             {
-                // We don't need to do anything for multireg args. fgMorphMultiregStructArg
-                // will introduce temps as needed.
-
                 requires2ndPass |= true;
             }
 #endif
             else
             {
-                abiMorphSingleRegStructArg(argEntry, argObj);
+                abiMorphSingleRegStructArg(argInfo, argVal);
             }
         }
 #endif // !TARGET_X86
 
-        flagsSummary |= args->GetNode()->gtFlags;
+        argsSideEffects |= argUse->GetNode()->gtFlags;
+    }
 
-    } // end foreach argument loop
+    if (reMorphing)
+    {
+        for (GenTreeCall::Use& use : call->LateArgs())
+        {
+            use.SetNode(fgMorphTree(use.GetNode()));
+            argsSideEffects |= use.GetNode()->gtFlags;
+        }
 
-    if (!reMorphing)
+        assert(call->fgArgInfo != nullptr);
+    }
+    else
     {
         call->fgArgInfo->ArgsComplete(this);
     }
-
-    /* Process the function address, if indirect call */
 
     if (call->gtCallType == CT_INDIRECT)
     {
@@ -2925,15 +2911,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         call->gtFlags &= ~GTF_EXCEPT;
     }
 
-    // Union in the side effect flags from the call's operands
-    call->gtFlags |= flagsSummary & GTF_ALL_EFFECT;
+    call->gtFlags |= argsSideEffects & GTF_ALL_EFFECT;
 
     // If we are remorphing or don't have any register arguments or other arguments that need
     // temps, then we don't need to call SortArgs() and EvalArgsToTemps().
-    //
     if (!reMorphing && (call->fgArgInfo->HasRegArgs() || call->fgArgInfo->NeedsTemps()))
     {
-        // Do the 'defer or eval to temp' analysis.
         call->fgArgInfo->SortArgs(this, call);
         call->fgArgInfo->EvalArgsToTemps(this, call);
     }
@@ -2955,9 +2938,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
     return call;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
 {

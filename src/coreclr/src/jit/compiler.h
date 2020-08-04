@@ -1650,7 +1650,7 @@ public:
 #endif
     }
 
-    bool isSingleRegOrSlot()
+    bool IsSingleRegOrSlot()
     {
         return numRegs + numSlots == 1;
     }
@@ -1663,40 +1663,6 @@ public:
     unsigned GetSlotCount()
     {
         return numSlots;
-    }
-
-    // Returns the size as a multiple of slot-size.
-    unsigned getSize()
-    {
-        unsigned size = numSlots + numRegs;
-#ifdef FEATURE_HFA
-        if (IsHfaArg() && isPassedInRegisters())
-        {
-#ifdef TARGET_ARM
-            // We counted the number of regs, but if they are DOUBLE hfa regs we have to double the size.
-            if (regType == TYP_DOUBLE)
-            {
-                assert(!IsSplit());
-                size <<= 1;
-            }
-#elif defined(TARGET_ARM64)
-            // We counted the number of regs, but if they are FLOAT hfa regs we have to halve the size,
-            // or if they are SIMD16 vector hfa regs we have to double the size.
-            if (regType == TYP_FLOAT)
-            {
-                // Round up in case of odd HFA count.
-                size = (size + 1) >> 1;
-            }
-#ifdef FEATURE_SIMD
-            else if (regType == TYP_SIMD16)
-            {
-                size <<= 1;
-            }
-#endif // FEATURE_SIMD
-#endif // TARGET_ARM64
-        }
-#endif // FEATURE_HFA
-        return size;
     }
 
     // Set the register numbers for a multireg argument.
