@@ -9926,6 +9926,9 @@ public:
     GenTreeFieldList* abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
 #endif
 #endif
+#ifndef TARGET_X86
+    void abiMorphArgs2ndPass(GenTreeCall* call);
+#endif
     bool abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode);
     void abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* argNode);
 

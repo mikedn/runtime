@@ -2948,29 +2948,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     }
 #endif
 
+#ifndef TARGET_X86
     if (hasMultiFieldPromotedArgs)
     {
-        // TODO-MIKE-Cleanup: Consolidate with fgMorphMultiregStructArgs.
-
-        for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
-        {
-            CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
-
-            if (argInfo->GetRegCount() != 0)
-            {
-                continue;
-            }
-
-            GenTree* argNode = argInfo->GetNode()->gtEffectiveVal(true);
-
-            if (!argNode->OperIs(GT_LCL_VAR))
-            {
-                continue;
-            }
-
-            abiMorphPromotedStructStackArg(argInfo, argNode->AsLclVar());
-        }
+        abiMorphArgs2ndPass(call);
     }
+#endif
 
 #ifdef DEBUG
     if (verbose)
@@ -3196,6 +3179,28 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
 }
 
 #ifndef TARGET_X86
+
+void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
+{
+    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
+    {
+        CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
+
+        if (argInfo->GetRegCount() != 0)
+        {
+            continue;
+        }
+
+        GenTree* argNode = argInfo->GetNode()->gtEffectiveVal(true);
+
+        if (!argNode->OperIs(GT_LCL_VAR))
+        {
+            continue;
+        }
+
+        abiMorphPromotedStructStackArg(argInfo, argNode->AsLclVar());
+    }
+}
 
 void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
