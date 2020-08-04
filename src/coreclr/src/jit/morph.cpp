@@ -2822,12 +2822,9 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         argIndex++;
     }
 
-#if FEATURE_MULTIREG_ARGS
-    // Note that this name is a bit of a misnomer - it indicates that there are struct args
-    // that occupy more than a single slot that are passed by value (not necessarily in regs).
-    bool hasMultiregStructArgs = false;
+#ifndef TARGET_X86
+    bool requires2ndPass = false;
 #endif
-    bool hasMultiFieldPromotedArgs = false;
 
     for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
@@ -2859,7 +2856,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         {
             abiMorphMkRefAnyArg(argEntry, argx->AsOp());
 #if FEATURE_MULTIREG_ARGS
-            hasMultiregStructArgs |= argEntry->GetRegCount() != 0;
+            requires2ndPass |= argEntry->GetRegCount() != 0;
 #endif
             flagsSummary |= args->GetNode()->gtFlags;
             continue;
@@ -2879,7 +2876,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             }
             else if (argEntry->GetRegCount() == 0)
             {
-                hasMultiFieldPromotedArgs |= abiMorphStructStackArg(argEntry, argObj);
+                requires2ndPass |= abiMorphStructStackArg(argEntry, argObj);
             }
 #if FEATURE_MULTIREG_ARGS
             else if (argEntry->GetRegCount() + argEntry->GetSlotCount() > 1)
@@ -2887,7 +2884,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 // We don't need to do anything for multireg args. fgMorphMultiregStructArg
                 // will introduce temps as needed.
 
-                hasMultiregStructArgs |= true;
+                requires2ndPass |= true;
             }
 #endif
             else
@@ -2941,15 +2938,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         call->fgArgInfo->EvalArgsToTemps(this, call);
     }
 
-#if FEATURE_MULTIREG_ARGS
-    if (hasMultiregStructArgs)
-    {
-        abiMorphMultiregStructArgs(call);
-    }
-#endif
-
 #ifndef TARGET_X86
-    if (hasMultiFieldPromotedArgs)
+    if (requires2ndPass)
     {
         abiMorphArgs2ndPass(call);
     }
@@ -3186,19 +3176,36 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
     {
         CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
 
-        if (argInfo->GetRegCount() != 0)
+        if (argInfo->GetRegCount() == 0)
         {
+            GenTree* argNode = argInfo->GetNode()->gtEffectiveVal(true);
+
+            if (argNode->OperIs(GT_LCL_VAR))
+            {
+                abiMorphPromotedStructStackArg(argInfo, argNode->AsLclVar());
+            }
+
             continue;
         }
 
-        GenTree* argNode = argInfo->GetNode()->gtEffectiveVal(true);
-
-        if (!argNode->OperIs(GT_LCL_VAR))
+#if FEATURE_MULTIREG_ARGS
+        if (argInfo->isStruct && (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1))
         {
+            GenTree* argNode = argInfo->GetNode();
+
+            if (varTypeIsStruct(argNode->GetType()) && !argNode->OperIs(GT_FIELD_LIST))
+            {
+                GenTree* newArgNode = abiMorphMultiregStructArg(argInfo, argNode);
+
+                if (newArgNode != argNode)
+                {
+                    argInfo->SetNode(newArgNode);
+                }
+            }
+
             continue;
         }
-
-        abiMorphPromotedStructStackArg(argInfo, argNode->AsLclVar());
+#endif
     }
 }
 
@@ -3700,53 +3707,6 @@ void Compiler::abiMorphMkRefAnyArg(CallArgInfo* argInfo, GenTreeOp* mkrefany)
 #endif // !TARGET_X86
 
 #if FEATURE_MULTIREG_ARGS
-//-----------------------------------------------------------------------------
-// abiMorphMultiregStructArgs:  Locate the TYP_STRUCT arguments and
-//                             call abiMorphMultiregStructArg on each of them.
-//
-// Arguments:
-//    call - a GenTreeCall node that has one or more TYP_STRUCT multireg arguments.
-//
-// Notes:
-//    We only call fgMorphMultiregStructArg for struct arguments that are passed in
-//    multiple registers. This includes split args which may be passed in only one
-//    register and at least one stack slot.
-//    If this method fails to find such arguments it will assert.
-//
-void Compiler::abiMorphMultiregStructArgs(GenTreeCall* call)
-{
-    INDEBUG(bool foundStructArg = false;)
-
-    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
-    {
-        CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
-
-        if (!argInfo->isStruct || (argInfo->GetRegCount() == 0) ||
-            (argInfo->GetRegCount() + argInfo->GetSlotCount() <= 1))
-        {
-            continue;
-        }
-
-        INDEBUG(foundStructArg = true;)
-
-        GenTree* argNode = argInfo->GetNode();
-
-        if (!varTypeIsStruct(argNode->GetType()) || argNode->OperIs(GT_FIELD_LIST))
-        {
-            continue;
-        }
-
-        GenTree* newArgNode = abiMorphMultiregStructArg(argInfo, argNode);
-
-        if (newArgNode != argNode)
-        {
-            argInfo->SetNode(newArgNode);
-        }
-    }
-
-    // We should only call this method when we actually have one or more multireg struct args
-    assert(foundStructArg);
-}
 
 bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo)
 {
