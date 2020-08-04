@@ -3360,7 +3360,14 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                     addr    = gtNewLclvNode(addrLclNum, addr->GetType());
                 }
 
-                argInfo->use->SetNode(abiNewMultiloadIndir(addr, addrOffset, argSize));
+                arg = abiNewMultiloadIndir(addr, addrOffset, argSize);
+
+                if (addrAsg != nullptr)
+                {
+                    arg = gtNewOperNode(GT_COMMA, arg->GetType(), addrAsg, arg);
+                }
+
+                argInfo->use->SetNode(arg);
                 return;
             }
 #endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
@@ -4718,7 +4725,7 @@ unsigned Compiler::abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass)
             FOREACH_HBV_BIT_SET(lclNum, m_abiStructArgTemps)
             {
                 if (typeInfo::AreEquivalent(lvaGetDesc(static_cast<unsigned>(lclNum))->lvVerTypeInfo,
-                    typeInfo(TI_STRUCT, argClass)) &&
+                                            typeInfo(TI_STRUCT, argClass)) &&
                     !m_abiStructArgTempsInUse->testBit(lclNum))
                 {
                     tempLclNum = static_cast<unsigned>(lclNum);
