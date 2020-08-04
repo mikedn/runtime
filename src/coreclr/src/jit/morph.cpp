@@ -2855,10 +2855,19 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             abiMorphStructStackArg(argEntry, argx);
         }
 #else // !TARGET_X86
+        if (argx->OperIs(GT_MKREFANY))
+        {
+            abiMorphMkRefAnyArg(argEntry, argx->AsOp());
+#if FEATURE_MULTIREG_ARGS
+            hasMultiregStructArgs |= argEntry->GetRegCount() != 0;
+#endif
+            flagsSummary |= args->GetNode()->gtFlags;
+            continue;
+        }
+
         GenTree* argObj = argx->gtEffectiveVal(true /*commaOnly*/);
 
-        if (argEntry->isStruct && varTypeIsStruct(argObj) &&
-            !argObj->OperIs(GT_ASG, GT_MKREFANY, GT_FIELD_LIST, GT_ARGPLACE))
+        if (argEntry->isStruct && varTypeIsStruct(argObj) && !argObj->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE))
         {
             if (argEntry->passedByRef)
             {
@@ -2885,17 +2894,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             {
                 abiMorphSingleRegStructArg(argEntry, argObj);
             }
-        }
-
-        if (argx->gtOper == GT_MKREFANY)
-        {
-            // 'Lower' the MKREFANY tree and insert it.
-            noway_assert(!reMorphing);
-
-            abiMorphMkRefAnyArg(argEntry, argx->AsOp());
-#if FEATURE_MULTIREG_ARGS
-            hasMultiregStructArgs |= argEntry->GetRegCount() != 0;
-#endif
         }
 #endif // !TARGET_X86
 
@@ -3677,30 +3675,21 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
 
 void Compiler::abiMorphMkRefAnyArg(CallArgInfo* argInfo, GenTreeOp* mkrefany)
 {
-    // Get a new temp
-    // Here we don't need unsafe value cls check since the addr of temp is used only in mkrefany
-    unsigned tmp = lvaGrabTemp(true DEBUGARG("by-value mkrefany struct argument"));
-    lvaSetStruct(tmp, impGetRefAnyClass(), false);
+    unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("by-value mkrefany struct argument"));
+    lvaSetStruct(tempLclNum, impGetRefAnyClass(), false);
 
-    // Build the mkrefany as a comma node:
-    // (tmp.ptr=argx),(tmp.type=handle)
-    GenTreeLclFld* destPtrSlot  = gtNewLclFldNode(tmp, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__dataPtr);
-    GenTreeLclFld* destTypeSlot = gtNewLclFldNode(tmp, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
-    destPtrSlot->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyDataField()));
-    destPtrSlot->gtFlags |= GTF_VAR_DEF;
-    destTypeSlot->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
-    destTypeSlot->gtFlags |= GTF_VAR_DEF;
+    GenTreeLclFld* destPtrField = gtNewLclFldNode(tempLclNum, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__dataPtr);
+    destPtrField->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyDataField()));
+    GenTree* asgPtrField = gtNewAssignNode(destPtrField, mkrefany->GetOp(0));
 
-    GenTree* asgPtrSlot  = gtNewAssignNode(destPtrSlot, mkrefany->gtOp1);
-    GenTree* asgTypeSlot = gtNewAssignNode(destTypeSlot, mkrefany->gtOp2);
-    GenTree* asg         = gtNewOperNode(GT_COMMA, TYP_VOID, asgPtrSlot, asgTypeSlot);
+    GenTreeLclFld* destTypeField = gtNewLclFldNode(tempLclNum, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
+    destTypeField->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
+    GenTree* asgTypeField = gtNewAssignNode(destTypeField, mkrefany->GetOp(1));
 
-    // Change the expression to "(tmp=val)"
-    argInfo->use->SetNode(asg);
+    argInfo->use->SetNode(gtNewOperNode(GT_COMMA, TYP_VOID, asgPtrField, asgTypeField));
 
-    // EvalArgsToTemps will cause tmp to actually get loaded as the argument
-    argInfo->SetTempLclNum(tmp);
-    lvaSetVarAddrExposed(tmp);
+    argInfo->SetTempLclNum(tempLclNum);
+    lvaSetVarAddrExposed(tempLclNum);
 }
 
 #endif // !TARGET_X86
