@@ -1468,8 +1468,10 @@ public:
                        // struct is passed as a scalar type, this is that type.
                        // Note that if a struct is passed by reference, this will still be the struct type.
 
-    bool needTmp : 1;       // True when we force this argument's evaluation into a temp LclVar
-    bool needPlace : 1;     // True when we must replace this argument with a placeholder node
+    bool needTmp : 1; // True when we force this argument's evaluation into a temp LclVar
+#if FEATURE_FIXED_OUT_ARGS
+    bool m_placeholderNeeded : 1; // True when we must replace this argument with a placeholder node
+#endif
     bool isNonStandard : 1; // True if it is an arg that is passed in a reg other than a standard arg reg, or is forced
                             // to be on the stack despite its arg list position.
     bool isStruct : 1;      // True if this is a struct arg
@@ -1498,7 +1500,9 @@ public:
         , tempLclNum(BAD_VAR_NUM)
         , argType(TYP_UNDEF)
         , needTmp(false)
-        , needPlace(false)
+#if FEATURE_FIXED_OUT_ARGS
+        , m_placeholderNeeded(false)
+#endif
         , isNonStandard(false)
         , isStruct(isStruct)
         , passedByRef(false)
@@ -1547,6 +1551,23 @@ public:
         assert(tempLclNum == BAD_VAR_NUM);
         tempLclNum = lclNum;
     }
+
+    bool IsPlaceholderNeeded() const
+    {
+#if FEATURE_FIXED_OUT_ARGS
+        return m_placeholderNeeded;
+#else
+        return false;
+#endif
+    }
+
+#if FEATURE_FIXED_OUT_ARGS
+    void SetPlaceholderNeeded()
+    {
+        assert(numSlots != 0);
+        m_placeholderNeeded = true;
+    }
+#endif
 
     void SetRegNum(unsigned int i, regNumber regNum)
     {

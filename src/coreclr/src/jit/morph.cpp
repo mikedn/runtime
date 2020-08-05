@@ -726,10 +726,12 @@ void fgArgTabEntry::Dump()
         printf(", temp V%02u", tempLclNum);
     }
 
-    if (needPlace)
+#if FEATURE_FIXED_OUT_ARGS
+    if (m_placeholderNeeded)
     {
         printf(", needPlace");
     }
+#endif
 
     if (isNonStandard)
     {
@@ -1031,16 +1033,10 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
                 // Or, if they are stored into the FIXED_OUT_ARG area
                 // we require that they be moved to the gtCallLateArgs
                 // and replaced with a placeholder node
-                else if (prevArgInfo->GetRegCount() == 0)
+                else if (prevArgInfo->GetSlotCount() != 0)
                 {
-                    prevArgInfo->needPlace = true;
+                    prevArgInfo->SetPlaceholderNeeded();
                 }
-#if FEATURE_ARG_SPLIT
-                else if (prevArgInfo->IsSplit())
-                {
-                    prevArgInfo->needPlace = true;
-                }
-#endif // TARGET_ARM
 #endif
             }
         }
@@ -1426,7 +1422,7 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
 #if !FEATURE_FIXED_OUT_ARGS
         // Only ever set for FEATURE_FIXED_OUT_ARGS
-        assert(!argInfo->needPlace);
+        assert(!argInfo->IsPlaceholderNeeded());
 
         // On x86 and other archs that use push instructions to pass arguments:
         //   Only the register arguments need to be replaced with placeholder nodes.
@@ -1472,8 +1468,6 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
                     lateArg = compiler->gtNewLclvNode(argInfo->GetTempLclNum(), tempLcl->GetType());
                 }
-
-                arg->gtFlags |= GTF_LATE_ARG;
             }
             else
             {
@@ -1514,7 +1508,7 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 }
             }
         }
-        else if ((argInfo->GetRegCount() != 0) || argInfo->needPlace)
+        else if ((argInfo->GetRegCount() != 0) || argInfo->IsPlaceholderNeeded())
         {
             JITDUMPTREE(arg, "Creating placeholder for arg:\n");
 
@@ -1543,6 +1537,10 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 argInfo->use->SetNode(setupArg);
 
                 JITDUMP("\n");
+            }
+            else
+            {
+                arg->gtFlags |= GTF_LATE_ARG;
             }
 
             GenTreeCall::Use* lateArgUse = compiler->gtNewCallArgs(lateArg);

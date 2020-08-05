@@ -10346,32 +10346,32 @@ void Compiler::gtDispTree(GenTree*     tree,
 
                 if (call->gtCallThisArg != nullptr)
                 {
-                    if (!call->gtCallThisArg->GetNode()->OperIs(GT_NOP, GT_ARGPLACE))
+                    if ((call->gtCallThisArg->GetNode()->gtFlags & GTF_LATE_ARG) != 0)
                     {
-                        if (call->gtCallThisArg->GetNode()->OperIs(GT_ASG))
-                        {
-                            sprintf_s(bufp, sizeof(buf), "this SETUP%c", argnum);
-                        }
-                        else
-                        {
-                            sprintf_s(bufp, sizeof(buf), "this in %s%c", compRegVarName(REG_ARG_0), argnum);
-                        }
-                        gtDispChild(call->gtCallThisArg->GetNode(), indentStack,
-                                    (call->gtCallThisArg->GetNode() == lastChild) ? IIArcBottom : IIArc, bufp, topOnly);
+                        sprintf_s(bufp, sizeof(buf), "this SETUP%c", argnum);
                     }
-
+                    else
+                    {
+                        sprintf_s(bufp, sizeof(buf), "this in %s%c", compRegVarName(REG_ARG_0), argnum);
+                    }
+                    gtDispChild(call->gtCallThisArg->GetNode(), indentStack,
+                                (call->gtCallThisArg->GetNode() == lastChild) ? IIArcBottom : IIArc, bufp, topOnly);
                     argnum++;
                 }
 
                 for (GenTreeCall::Use& use : call->Args())
                 {
                     GenTree* argNode = use.GetNode();
-                    if (!argNode->IsNothingNode() && !argNode->IsArgPlaceHolderNode())
-                    {
-                        gtGetArgMsg(call, argNode, argnum, -1, buf, sizeof(buf));
-                        gtDispChild(argNode, indentStack, (argNode == lastChild) ? IIArcBottom : IIArc, buf, false);
-                    }
+                    gtGetArgMsg(call, argNode, argnum, -1, buf, sizeof(buf));
+                    gtDispChild(argNode, indentStack, (argNode == lastChild) ? IIArcBottom : IIArc, buf, false);
                     argnum++;
+                }
+
+                for (GenTreeCall::Use& use : call->LateArgs())
+                {
+                    IndentInfo arcType = (use.GetNext() == nullptr) ? IIArcBottom : IIArc;
+                    gtGetLateArgMsg(call, use.GetNode(), call->GetArgInfoByLateArgUse(&use), -1, bufp, sizeof(buf));
+                    gtDispChild(use.GetNode(), indentStack, arcType, bufp, topOnly);
                 }
 
                 if (call->gtCallType == CT_INDIRECT)
@@ -10384,18 +10384,6 @@ void Compiler::gtDispTree(GenTree*     tree,
                 {
                     gtDispChild(call->gtControlExpr, indentStack,
                                 (call->gtControlExpr == lastChild) ? IIArcBottom : IIArc, "control expr", topOnly);
-                }
-
-#if !FEATURE_FIXED_OUT_ARGS
-                regList list = call->regArgList;
-#endif
-                int lateArgIndex = 0;
-                for (GenTreeCall::Use& use : call->LateArgs())
-                {
-                    IndentInfo arcType = (use.GetNext() == nullptr) ? IIArcBottom : IIArc;
-                    gtGetLateArgMsg(call, use.GetNode(), call->GetArgInfoByLateArgUse(&use), -1, bufp, sizeof(buf));
-                    gtDispChild(use.GetNode(), indentStack, arcType, bufp, topOnly);
-                    lateArgIndex++;
                 }
             }
         }
