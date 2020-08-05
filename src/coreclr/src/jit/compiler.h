@@ -5058,7 +5058,6 @@ public:
 
     bool fgCastNeeded(GenTree* tree, var_types toType);
     GenTree* fgDoNormalizeOnStore(GenTree* tree);
-    GenTree* fgMakeTmpArgNode(GenTreeCall* call, CallArgInfo* argInfo);
 
     // The following check for loops that don't execute calls
     bool fgLoopCallMarked;

@@ -1412,74 +1412,6 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 #endif
 }
 
-//------------------------------------------------------------------------------
-// fgMakeTmpArgNode: Create a tree for a call arg that requires a temp.
-//
-GenTree* Compiler::fgMakeTmpArgNode(GenTreeCall* call, CallArgInfo* argInfo)
-{
-    LclVarDsc* varDsc = lvaGetDesc(argInfo->GetTempLclNum());
-    assert(varDsc->lvIsTemp);
-
-    if (!varTypeIsStruct(varDsc->GetType()))
-    {
-        return gtNewLclvNode(argInfo->GetTempLclNum(), varDsc->GetType());
-    }
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-    if (argInfo->IsSingleRegOrSlot())
-    {
-        var_types passedAsPrimitiveType =
-            getPrimitiveTypeForStruct(lvaLclExactSize(argInfo->GetTempLclNum()), varDsc->lvVerTypeInfo.GetClassHandle(),
-                                      call->IsVarargs());
-
-        if (passedAsPrimitiveType != TYP_UNKNOWN)
-        {
-#if defined(UNIX_AMD64_ABI)
-            // TODO-Cleanup: This is inelegant, but eventually we'll track this in the fgArgTabEntry,
-            // and otherwise we'd have to either modify getPrimitiveTypeForStruct() to take
-            // a structDesc or call eeGetSystemVAmd64PassStructInRegisterDescriptor yet again.
-            if ((argInfo->GetRegCount() != 0) && genIsValidFloatReg(argInfo->GetRegNum()))
-            {
-                if (passedAsPrimitiveType == TYP_INT)
-                {
-                    passedAsPrimitiveType = TYP_FLOAT;
-                }
-                else
-                {
-                    assert(passedAsPrimitiveType == TYP_LONG);
-                    passedAsPrimitiveType = TYP_DOUBLE;
-                }
-            }
-#endif
-            // TODO-MIKE-Cleanup: Why doesn't this code set DNER_LocalField?
-            return gtNewLclFldNode(argInfo->GetTempLclNum(), passedAsPrimitiveType, 0);
-        }
-    }
-#endif
-
-    lvaSetVarAddrExposed(argInfo->GetTempLclNum());
-
-#if defined(TARGET_ARM64) || (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI))
-#if defined(TARGET_ARM64)
-    if (!lvaIsMultiregStruct(varDsc, call->IsVarargs()))
-#endif
-    {
-        return gtNewLclVarAddrNode(argInfo->GetTempLclNum());
-    }
-#endif
-
-#if defined(TARGET_ARM64) || defined(TARGET_ARM) || defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
-    GenTree* arg = gtNewLclvNode(argInfo->GetTempLclNum(), varDsc->GetType());
-    arg->gtFlags |= GTF_DONT_CSE;
-    arg = gtNewOperNode(GT_ADDR, TYP_BYREF, arg);
-    // We will create a GT_OBJ for the argument below.
-    // This will be passed by value in two registers.
-    return gtNewObjNode(lvaGetStruct(argInfo->GetTempLclNum()), arg);
-#elif !defined(TARGET_AMD64)
-#error Unknown ABI
-#endif
-}
-
 void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 {
     assert(argsSorted);
@@ -1519,7 +1451,28 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             {
                 JITDUMPTREE(arg, "Arg temp is already created:\n");
 
-                lateArg = compiler->fgMakeTmpArgNode(call, argInfo);
+                // fgMorphArgs creates temps only for implicit by-ref args or MKREFANY args,
+                // which makes handling this case trivial - the late arg is the address of
+                // the temp local or a use of the temp local. In the later case the LCL_VAR
+                // will either be used as is, if it's a stack arg, or it will be morphed to
+                // a FIELD_LIST in pass 2.
+
+                if (argInfo->passedByRef)
+                {
+                    compiler->lvaSetVarAddrExposed(argInfo->GetTempLclNum());
+
+                    lateArg = compiler->gtNewLclVarAddrNode(argInfo->GetTempLclNum());
+                }
+                else
+                {
+                    LclVarDsc* tempLcl = compiler->lvaGetDesc(argInfo->GetTempLclNum());
+
+                    assert(tempLcl->lvVerTypeInfo.GetClassHandle() == compiler->impGetRefAnyClass());
+                    assert(argInfo->GetRegCount() + argInfo->GetSlotCount() == 2);
+
+                    lateArg = compiler->gtNewLclvNode(argInfo->GetTempLclNum(), tempLcl->GetType());
+                }
+
                 arg->gtFlags |= GTF_LATE_ARG;
             }
             else
