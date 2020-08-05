@@ -1475,8 +1475,6 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
                 unsigned   tempLclNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
                 LclVarDsc* tempLcl    = compiler->lvaGetDesc(tempLclNum);
-                var_types  tempType   = varActualType(arg->GetType());
-                var_types  scalarType = TYP_UNKNOWN;
 
                 argInfo->SetTempLclNum(tempLclNum);
                 setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
@@ -1484,28 +1482,9 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 if (setupArg->OperIsCopyBlkOp())
                 {
                     setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
-
-#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
-                    if (tempType == TYP_STRUCT)
-                    {
-                        scalarType =
-                            compiler->getPrimitiveTypeForStruct(tempLcl->lvExactSize,
-                                                                tempLcl->lvVerTypeInfo.GetClassHandleForValueClass(),
-                                                                call->IsVarargs());
-                    }
-#endif
                 }
 
-                // scalarType can be set to a wider type for ARM or unix amd64 architectures: (3 => 4)  or (5,6,7 => 8)
-
-                if ((scalarType != TYP_UNKNOWN) && (scalarType != tempType))
-                {
-                    lateArg = compiler->gtNewLclFldNode(tempLclNum, scalarType, 0);
-                }
-                else
-                {
-                    lateArg = compiler->gtNewLclvNode(tempLclNum, tempType);
-                }
+                lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(arg->GetType()));
             }
         }
         else if ((argInfo->GetRegCount() != 0) || argInfo->IsPlaceholderNeeded())
