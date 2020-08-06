@@ -890,8 +890,6 @@ unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
 
 void fgArgInfo::ArgsComplete(Compiler* compiler)
 {
-    bool hasStructRegArg = false;
-
     for (unsigned argIndex = 0; argIndex < argCount; argIndex++)
     {
         CallArgInfo* argInfo = argTable[argIndex];
@@ -911,17 +909,9 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
 #if FEATURE_ARG_SPLIT
         else if (argInfo->IsSplit())
         {
-            hasStructRegArg = true;
             assert(HasStackArgs());
         }
-#endif       // FEATURE_ARG_SPLIT
-        else // we have a register argument, next we look for a struct type.
-        {
-            if (varTypeIsStruct(arg->GetType()) UNIX_AMD64_ABI_ONLY(|| argInfo->isStruct))
-            {
-                hasStructRegArg = true;
-            }
-        }
+#endif // FEATURE_ARG_SPLIT
 
         // If the argument tree contains an assignment (GTF_ASG) then the argument and
         // and every earlier argument (except constants) must be evaluated into temps
@@ -1042,22 +1032,13 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
         }
     }
 
-    // We only care because we can't spill structs and qmarks involve a lot of spilling, but
-    // if we don't have qmarks, then it doesn't matter.
-    // So check for Qmark's globally once here, instead of inside the loop.
-    const bool hasStructRegArgWeCareAbout = (hasStructRegArg && compiler->compQmarkUsed);
-
 #if FEATURE_FIXED_OUT_ARGS
-
     // For Arm/x64 we only care because we can't reorder a register
     // argument that uses GT_LCLHEAP.  This is an optimization to
     // save a check inside the below loop.
     const bool hasStackArgsWeCareAbout = HasStackArgs() && compiler->compLocallocUsed;
-
 #else
-
     const bool hasStackArgsWeCareAbout = HasStackArgs();
-
 #endif // FEATURE_FIXED_OUT_ARGS
 
     // If we have any stack args we have to force the evaluation
@@ -1067,7 +1048,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
     //     a GT_IND with GTF_IND_RNGCHK (only on x86) or
     //     a GT_LCLHEAP node that allocates stuff on the stack
 
-    if (hasStackArgsWeCareAbout || hasStructRegArgWeCareAbout)
+    if (hasStackArgsWeCareAbout)
     {
         for (unsigned i = 0; i < argCount; i++)
         {
@@ -1079,48 +1060,34 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
                 continue;
             }
 
-            if (hasStackArgsWeCareAbout)
-            {
 #if !FEATURE_FIXED_OUT_ARGS
-                // On x86 we previously recorded a stack depth of zero when
-                // morphing the register arguments of any GT_IND with a GTF_IND_RNGCHK flag
-                // Thus we can not reorder the argument after any stack based argument
-                // (Note that GT_LCLHEAP sets the GTF_EXCEPT flag so we don't need to
-                // check for it explicitly.)
+            // On x86 we previously recorded a stack depth of zero when
+            // morphing the register arguments of any GT_IND with a GTF_IND_RNGCHK flag
+            // Thus we can not reorder the argument after any stack based argument
+            // (Note that GT_LCLHEAP sets the GTF_EXCEPT flag so we don't need to
+            // check for it explicitly.)
 
-                if ((arg->gtFlags & GTF_EXCEPT) != 0)
-                {
-                    argInfo->needTmp = true;
-                    needsTemps       = true;
-                    continue;
-                }
-#else
-                // For Arm/X64 we can't reorder a register argument that uses a GT_LCLHEAP
-                if ((arg->gtFlags & GTF_EXCEPT) != 0)
-                {
-                    assert(compiler->compLocallocUsed);
-
-                    // Returns WALK_ABORT if a GT_LCLHEAP node is encountered in the arg tree
-                    if (compiler->fgWalkTreePre(&arg, Compiler::fgChkLocAllocCB) == Compiler::WALK_ABORT)
-                    {
-                        argInfo->needTmp = true;
-                        needsTemps       = true;
-                        continue;
-                    }
-                }
-#endif
-            }
-
-            if (hasStructRegArgWeCareAbout)
+            if ((arg->gtFlags & GTF_EXCEPT) != 0)
             {
-                // Returns true if a GT_QMARK node is encountered in the arg tree
-                if (compiler->fgWalkTreePre(&arg, Compiler::fgChkQmarkCB) == Compiler::WALK_ABORT)
+                argInfo->needTmp = true;
+                needsTemps       = true;
+                continue;
+            }
+#else
+            // For Arm/X64 we can't reorder a register argument that uses a GT_LCLHEAP
+            if ((arg->gtFlags & GTF_EXCEPT) != 0)
+            {
+                assert(compiler->compLocallocUsed);
+
+                // Returns WALK_ABORT if a GT_LCLHEAP node is encountered in the arg tree
+                if (compiler->fgWalkTreePre(&arg, Compiler::fgChkLocAllocCB) == Compiler::WALK_ABORT)
                 {
                     argInfo->needTmp = true;
                     needsTemps       = true;
                     continue;
                 }
             }
+#endif
         }
     }
 
