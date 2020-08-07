@@ -1627,47 +1627,12 @@ public:
 #endif
     }
 
-    unsigned stackSize()
-    {
-        return (TARGET_POINTER_SIZE * this->numSlots);
-    }
-
-#ifdef FEATURE_HFA
-    var_types GetHfaType()
-    {
-        return regType == TYP_I_IMPL ? TYP_UNDEF : regType;
-    }
-
-    void SetHfaType(var_types type)
-    {
-        assert(varTypeIsFloating(type) || varTypeIsSIMD(type));
-        assert((numRegs != 0) || (numSlots != 0));
-        assert(regType == TYP_I_IMPL);
-
-        regType = type;
-    }
-#endif // FEATURE_HFA
-
     bool IsSplit() const
     {
 #ifdef FEATURE_ARG_SPLIT
         return (numRegs != 0) && (numSlots != 0);
 #else
         return false;
-#endif
-    }
-
-    bool isPassedInRegisters()
-    {
-        return (numRegs != 0) && (numSlots == 0);
-    }
-
-    bool isPassedInFloatRegisters()
-    {
-#ifdef TARGET_X86
-        return false;
-#else
-        return (numRegs != 0) && isValidFloatArgReg(GetRegNum(0));
 #endif
     }
 

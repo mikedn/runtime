@@ -2609,13 +2609,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, isStructArg, 0);
             newArgEntry->SetStackSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
-#ifdef FEATURE_HFA
-            if (isHfaArg)
-            {
-                // TODO-MIKE-Cleanup: We should not need to set the HFA type on stack args.
-                newArgEntry->SetHfaType(hfaType);
-            }
-#endif
         }
 
         if (newArgEntry->isStruct)
@@ -6334,7 +6327,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     {
         fgArgTabEntry* arg = callee->GetArgInfoByArgNum(index);
 
-        calleeArgStackSize += arg->stackSize();
+        calleeArgStackSize += arg->GetSlotCount() * REGSIZE_BYTES;
     }
 
     auto reportFastTailCallDecision = [&](const char* thisFailReason) {
