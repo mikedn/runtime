@@ -2987,7 +2987,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             argx->gtType = TYP_I_IMPL;
         }
 
-#ifndef TARGET_X86
+#ifdef TARGET_X86
+        if (argEntry->isStruct)
+        {
+            abiMorphStructStackArg(argEntry, argx);
+        }
+#else // !TARGET_X86
         GenTree* argObj = argx->gtEffectiveVal(true /*commaOnly*/);
 
         if (argEntry->isStruct && varTypeIsStruct(argObj) &&
@@ -3019,21 +3024,11 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 abiMorphSingleRegStructArg(argEntry, argObj);
             }
         }
-#endif // !TARGET_X86
 
         if (argx->gtOper == GT_MKREFANY)
         {
             // 'Lower' the MKREFANY tree and insert it.
             noway_assert(!reMorphing);
-
-#ifdef TARGET_X86
-            // Build the mkrefany as a GT_FIELD_LIST
-            GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-            fieldList->AddField(this, argx->AsOp()->gtGetOp1(), OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
-            fieldList->AddField(this, argx->AsOp()->gtGetOp2(), OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
-            args->SetNode(fieldList);
-            assert(argEntry->GetNode() == fieldList);
-#else // !TARGET_X86
 
             // Get a new temp
             // Here we don't need unsafe value cls check since the addr of temp is used only in mkrefany
@@ -3063,47 +3058,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #if FEATURE_MULTIREG_ARGS
             hasMultiregStructArgs |= argEntry->GetRegCount() != 0;
 #endif
+        }
 #endif // !TARGET_X86
-        }
-
-#if defined(TARGET_X86)
-        if (argEntry->isStruct)
-        {
-            GenTree* lclNode = argx->OperIs(GT_LCL_VAR) ? argx : fgIsIndirOfAddrOfLocal(argx);
-            if ((lclNode != nullptr) &&
-                (lvaGetPromotionType(lclNode->AsLclVarCommon()->GetLclNum()) == Compiler::PROMOTION_TYPE_INDEPENDENT))
-            {
-                // Make a GT_FIELD_LIST of the field lclVars.
-                GenTreeLclVarCommon* lcl       = lclNode->AsLclVarCommon();
-                LclVarDsc*           varDsc    = lvaGetDesc(lcl);
-                GenTreeFieldList*    fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-                args->SetNode(fieldList);
-                assert(argEntry->GetNode() == fieldList);
-
-                for (unsigned fieldLclNum = varDsc->lvFieldLclStart;
-                     fieldLclNum < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++fieldLclNum)
-                {
-                    LclVarDsc* fieldVarDsc = lvaGetDesc(fieldLclNum);
-                    GenTree*   fieldLcl;
-
-                    if (fieldLclNum == varDsc->lvFieldLclStart)
-                    {
-                        lcl->SetLclNum(fieldLclNum);
-                        lcl->ChangeOper(GT_LCL_VAR);
-                        lcl->gtType = fieldVarDsc->TypeGet();
-                        fieldLcl    = lcl;
-                    }
-                    else
-                    {
-                        fieldLcl = gtNewLclvNode(fieldLclNum, fieldVarDsc->TypeGet());
-                    }
-
-                    fieldList->AddField(this, fieldLcl, fieldVarDsc->lvFldOffset, fieldVarDsc->TypeGet());
-                }
-            }
-        }
-#endif // TARGET_X86
 
         flagsSummary |= args->GetNode()->gtFlags;
 
@@ -3199,6 +3155,17 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
     assert(argInfo->GetRegCount() == 0);
     assert(varTypeIsStruct(argNode->GetType()));
 
+#ifdef TARGET_X86
+    if (argNode->OperIs(GT_MKREFANY))
+    {
+        GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
+        fieldList->AddField(this, argNode->AsOp()->GetOp(0), OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
+        fieldList->AddField(this, argNode->AsOp()->GetOp(1), OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
+        argInfo->use->SetNode(fieldList);
+        return false;
+    }
+#endif
+
     if (argNode->OperIs(GT_OBJ))
     {
         // TODO-MIKE-Cleanup: This OBJ(ADDR(LCL_VAR)) simplification should be confined to LocalAddressVisitor.
@@ -3231,7 +3198,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
                 unsigned   lclSize = (lclType == TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lclType);
 
                 // With some care in codegen and a few other places we could probably allow any local size
-                // here. We have alreadyd determined how many slots the arg uses so it's just matter of not
+                // here. We have already determined how many slots the arg uses so it's just matter of not
                 // storing more slots if the struct is larger and not pushing less (on X86) if the struct is
                 // smaller. It's not clear if there's any good reason to do this.
                 //
@@ -3244,6 +3211,8 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
                     argNode->SetType(lclType);
                     argNode->AsLclVar()->SetLclNum(lclNode->GetLclNum());
                     argNode->gtFlags = 0;
+
+                    argInfo->isStruct = varTypeIsStruct(lclType);
                 }
             }
 
@@ -3274,8 +3243,15 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
             // If this argument ends up needing a temp then EvalArgsToTemps will
             // need the struct layout to create the temp and FIELD_LIST doesn't
             // have layout. So we have to do this transform after EvalArgsToTemps.
+            // On x86 we never need temps for stack args so we do it here.
+            CLANG_FORMAT_COMMENT_ANCHOR;
 
+#ifdef TARGET_X86
+            abiMorphPromotedStructStackArg(argInfo, argNode->AsLclVar());
+            return false;
+#else
             return true;
+#endif
         }
 
         LclVarDsc* fieldLcl  = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
@@ -3287,7 +3263,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
         argNode->SetType(fieldType);
         argNode->gtFlags = 0;
 
-        argInfo->isStruct = false;
+        argInfo->isStruct = varTypeIsStruct(fieldType);
         argInfo->argType  = fieldType;
 
         return false;
@@ -3304,7 +3280,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
         // VN be able to convert from a "zero map" to any primitive type in order to
         // const propagate default struct initialization?
 
-        assert(argInfo->GetSlotCount() == 1);
+        assert(argInfo->GetSlotCount() * REGSIZE_BYTES == roundUp(varTypeSize(argInfo->argType), REGSIZE_BYTES));
 
         var_types argType   = argInfo->argType;
         bool      canRetype = false;
@@ -3328,7 +3304,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
                 argNode->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
             }
         }
-        else
+        else if (argNode->OperIs(GT_LCL_VAR))
         {
             canRetype = true;
             lvaSetVarDoNotEnregister(argNode->AsLclVar()->GetLclNum() DEBUGARG(DNER_LocalField));
@@ -3345,7 +3321,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
             }
 
             argNode->SetType(argType);
-            argInfo->isStruct = false;
+            argInfo->isStruct = varTypeIsStruct(argType);
         }
     }
 
