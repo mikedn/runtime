@@ -6234,6 +6234,11 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     {
         if (tree->gtFlags & GTF_IND_TLS_REF)
         {
+            // TODO-MIKE-Cleanup: It looks like all this code should be ifdef-ed out on all targets but win-x86.
+            // There's no way it would work on win-x64 because the TLS array's TEB offset isn't 0x2c like on x86.
+            // The name and description of GTF_ICON_TLS_HDL is also messed up, it has nothing to do with TLS,
+            // it just indicates that the constant is an offset in the TEB.
+
             // Thread Local Storage static field reference
             //
             // Field ref is a TLS 'Thread-Local-Storage' reference
