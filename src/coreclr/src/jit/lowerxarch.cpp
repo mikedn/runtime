@@ -653,6 +653,14 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         src->SetContained();
     }
 #if defined(TARGET_X86)
+    else if (src->IsDblCon() && src->TypeIs(TYP_FLOAT))
+    {
+        float value = static_cast<float>(src->AsDblCon()->GetValue());
+        src->ChangeOperConst(GT_CNS_INT);
+        src->SetType(TYP_INT);
+        src->AsIntCon()->SetValue(jitstd::bit_cast<int>(value));
+        src->SetContained();
+    }
     else
     {
         unsigned srcSize = varTypeSize(src->GetType());
