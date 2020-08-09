@@ -2971,8 +2971,7 @@ void emitter::emitInsLoadInd(instruction ins, emitAttr attr, regNumber dstReg, G
     }
 
     assert(addr->OperIsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
-    ssize_t    offset = mem->Offset();
-    instrDesc* id     = emitNewInstrAmd(attr, offset);
+    instrDesc* id = emitNewInstrAmd(attr, mem->Offset());
     id->idIns(ins);
     id->idReg1(dstReg);
     emitHandleMemOp(mem, id, IF_RWR_ARD, ins);
@@ -2980,6 +2979,40 @@ void emitter::emitInsLoadInd(instruction ins, emitAttr attr, regNumber dstReg, G
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
+}
+
+void emitter::emitIns_A(instruction ins, emitAttr attr, GenTreeIndir* indir)
+{
+    assert(indir->OperIs(GT_IND));
+
+    GenTree* addr = indir->GetAddr();
+
+    if (addr->OperIs(GT_CLS_VAR_ADDR))
+    {
+        emitIns_C(ins, attr, addr->AsClsVar()->gtClsVarHnd, 0);
+        return;
+    }
+
+    // TODO-MIKE-Cleanup: IND with GT_LCL_VAR|FLD_ADDR address are nonsense.
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        unsigned lclOffs = addr->OperIs(GT_LCL_FLD_ADDR) ? addr->AsLclFld()->GetLclOffs() : 0;
+        emitIns_S(ins, attr, addr->AsLclVarCommon()->GetLclNum(), lclOffs);
+        codeGen->genUpdateLife(addr);
+        return;
+    }
+
+    assert(addr->OperIsAddrMode() || (addr->IsCnsIntOrI() && addr->isContained()) || !addr->isContained());
+    instrDesc* id = emitNewInstrAmd(attr, indir->Offset());
+    id->idIns(ins);
+    emitHandleMemOp(indir, id, IF_ARD, ins);
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+
+    emitAdjustStackDepthPushPop(ins);
 }
 
 //------------------------------------------------------------------------

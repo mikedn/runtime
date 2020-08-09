@@ -7241,25 +7241,46 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
            putArgStk->isSIMD12());
 #endif
 
-    if (src->isContained())
+    if (!src->isUsedFromReg())
     {
-        ssize_t value = src->AsIntCon()->GetValue();
-
 #if defined(TARGET_AMD64)
         GetEmitter()->emitIns_S_I(ins_Store(srcType), emitTypeSize(srcType), outArgLclNum,
-                                  static_cast<int>(outArgLclOffs), static_cast<int>(value));
+                                  static_cast<int>(outArgLclOffs), static_cast<int>(src->AsIntCon()->GetValue()));
 #else
-        if (src->IsIconHandle())
+        assert(putArgStk->GetSlotCount() == 1);
+
+        emitAttr attr = emitActualTypeSize(src->GetType());
+
+        assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
+
+        if (src->isUsedFromSpillTemp())
         {
-            inst_IV_handle(INS_push, value);
+            genConsumeRegs(src);
+            TempDsc* tmp = getSpillTempDsc(src);
+            GetEmitter()->emitIns_S(INS_push, attr, tmp->tdTempNum(), 0);
+            regSet.tmpRlsTemp(tmp);
+        }
+        else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            genConsumeRegs(src);
+            unsigned lclOffs = src->OperIs(GT_LCL_VAR) ? 0 : src->AsLclFld()->GetLclOffs();
+            GetEmitter()->emitIns_S(INS_push, attr, src->AsLclVarCommon()->GetLclNum(), lclOffs);
+        }
+        else if (src->OperIs(GT_IND))
+        {
+            genConsumeRegs(src);
+            GetEmitter()->emitIns_A(INS_push, attr, src->AsIndir());
+        }
+        else if (src->IsIconHandle())
+        {
+            inst_IV_handle(INS_push, src->AsIntCon()->GetValue());
         }
         else
         {
-            inst_IV(INS_push, value);
+            inst_IV(INS_push, src->AsIntCon()->GetValue());
         }
-        AddStackLevel(putArgStk->getArgSize());
+        AddStackLevel(REGSIZE_BYTES);
 #endif
-
         return;
     }
 

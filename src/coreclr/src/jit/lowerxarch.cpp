@@ -650,8 +650,45 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif // TARGET_AMD64
             )
     {
-        MakeSrcContained(putArgStk, src);
+        src->SetContained();
     }
+#if defined(TARGET_X86)
+    else if (src->IsDblCon() && src->TypeIs(TYP_FLOAT))
+    {
+        float value = static_cast<float>(src->AsDblCon()->GetValue());
+        src->ChangeOperConst(GT_CNS_INT);
+        src->SetType(TYP_INT);
+        src->AsIntCon()->SetValue(jitstd::bit_cast<int>(value));
+        src->SetContained();
+    }
+    else
+    {
+        unsigned srcSize = varTypeSize(src->GetType());
+
+        // For containment we need a slot sized memory operand - INT, FLOAT, REF, BYREF. Yes, it can be FLOAT
+        // because it's a memory operation and the type doesn't really matter, only the size does.
+        //
+        // For reg optional things are a bit more complicated:
+        //    - anything other than LCL_VAR can be reg-optional even if it's a small int type because the
+        //      spilled value is really INT (e.g. ushort IND automatically zero extends to INT and the
+        //      resulting value is spilled to an INT spill temp).
+        //    - LCL_VAR must be slot sized because we don't know yet if the local will be a reg candidate.
+        //      If it's not a reg candidate then it is treated as contained thus the size restriction.
+        //      Note that the local itself may have small int type but if we get a LCL_VAR here then it
+        //      means that it is "normalize on store" or that the frontend elided the normalization cast.
+        //      Most LCL_VARs that reference small int local end up having type INT, with the notable
+        //      exception of promoted struct field which may have small int type.
+
+        if ((srcSize == REGSIZE_BYTES) && IsContainableMemoryOp(src) && IsSafeToContainMem(putArgStk, src))
+        {
+            src->SetContained();
+        }
+        else if (src->OperIs(GT_LCL_VAR) ? (srcSize == REGSIZE_BYTES) : (srcSize <= REGSIZE_BYTES))
+        {
+            src->SetRegOptional();
+        }
+    }
+#endif
 }
 
 #ifdef FEATURE_SIMD
