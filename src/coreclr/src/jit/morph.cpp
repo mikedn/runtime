@@ -764,8 +764,6 @@ fgArgInfo::fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
 
     hasRegArgs   = false;
     argsComplete = false;
-    argsSorted   = false;
-    needsTemps   = false;
 
     if (numArgs == 0)
     {
@@ -868,7 +866,6 @@ fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldC
     nextSlotNum  = oldArgInfo->nextSlotNum;
     hasRegArgs   = oldArgInfo->hasRegArgs;
     argsComplete = true;
-    argsSorted   = true;
 }
 
 void fgArgInfo::AddArg(CallArgInfo* argInfo)
@@ -888,8 +885,12 @@ unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
     return firstSlot;
 }
 
-void fgArgInfo::ArgsComplete(Compiler* compiler)
+void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 {
+    assert(!argsComplete);
+
+    bool needsTemps = false;
+
     for (unsigned argIndex = 0; argIndex < argCount; argIndex++)
     {
         CallArgInfo* argInfo = argTable[argIndex];
@@ -1092,6 +1093,12 @@ void fgArgInfo::ArgsComplete(Compiler* compiler)
     }
 
     argsComplete = true;
+
+    if (HasRegArgs() || needsTemps)
+    {
+        SortArgs(compiler, call);
+        EvalArgsToTemps(compiler, call);
+    }
 }
 
 void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
@@ -1363,8 +1370,6 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     }
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-    argsSorted = true;
-
 #ifdef DEBUG
     if (compiler->verbose)
     {
@@ -1377,8 +1382,6 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 
 void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 {
-    assert(argsSorted);
-
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
     for (unsigned i = 0; i < argCount; i++)
@@ -2778,7 +2781,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     }
     else
     {
-        call->fgArgInfo->ArgsComplete(this);
+        call->fgArgInfo->ArgsComplete(this, call);
     }
 
     if (call->gtCallType == CT_INDIRECT)
@@ -2802,14 +2805,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     }
 
     call->gtFlags |= argsSideEffects & GTF_ALL_EFFECT;
-
-    // If we are remorphing or don't have any register arguments or other arguments that need
-    // temps, then we don't need to call SortArgs() and EvalArgsToTemps().
-    if (!reMorphing && (call->fgArgInfo->HasRegArgs() || call->fgArgInfo->NeedsTemps()))
-    {
-        call->fgArgInfo->SortArgs(this, call);
-        call->fgArgInfo->EvalArgsToTemps(this, call);
-    }
 
 #ifndef TARGET_X86
     if (requires2ndPass)

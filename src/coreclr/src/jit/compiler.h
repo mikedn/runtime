@@ -1746,8 +1746,9 @@ class fgArgInfo
 #endif
     bool hasRegArgs : 1;   // true if we have one or more register arguments
     bool argsComplete : 1; // marker for state
-    bool argsSorted : 1;   // marker for state
-    bool needsTemps : 1;   // one or more arguments must be copied to a temp by EvalArgsToTemps
+
+    void SortArgs(Compiler* compiler, GenTreeCall* call);
+    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call);
 
 public:
     fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned argCount);
@@ -1757,9 +1758,7 @@ public:
 
     unsigned AllocateStackSlots(unsigned slotCount, unsigned alignment);
 
-    void ArgsComplete(Compiler* compiler);
-    void SortArgs(Compiler* compiler, GenTreeCall* call);
-    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call);
+    void ArgsComplete(Compiler* compiler, GenTreeCall* call);
 
     unsigned GetArgCount() const
     {
@@ -1776,26 +1775,27 @@ public:
     {
         return argCount;
     }
+
     fgArgTabEntry** ArgTable()
     {
         return argTable;
     }
+
     unsigned GetNextSlotNum()
     {
         return nextSlotNum;
     }
+
     bool HasRegArgs()
     {
         return hasRegArgs;
     }
-    bool NeedsTemps()
-    {
-        return needsTemps;
-    }
+
     bool HasStackArgs()
     {
         return nextSlotNum != INIT_ARG_STACK_SLOT;
     }
+
     bool AreArgsComplete() const
     {
         return argsComplete;
