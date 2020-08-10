@@ -1466,7 +1466,7 @@ public:
                        // struct is passed as a scalar type, this is that type.
                        // Note that if a struct is passed by reference, this will still be the struct type.
 
-    bool needTmp : 1; // True when we force this argument's evaluation into a temp LclVar
+    bool m_tempNeeded : 1; // True when we force this argument's evaluation into a temp LclVar
 #if FEATURE_FIXED_OUT_ARGS
     bool m_placeholderNeeded : 1; // True when we must replace this argument with a placeholder node
 #endif
@@ -1497,7 +1497,7 @@ public:
         , numSlots(0)
         , tempLclNum(BAD_VAR_NUM)
         , argType(TYP_UNDEF)
-        , needTmp(false)
+        , m_tempNeeded(false)
 #if FEATURE_FIXED_OUT_ARGS
         , m_placeholderNeeded(false)
 #endif
@@ -1548,6 +1548,16 @@ public:
     {
         assert(tempLclNum == BAD_VAR_NUM);
         tempLclNum = lclNum;
+    }
+
+    bool IsTempNeeded() const
+    {
+        return m_tempNeeded;
+    }
+
+    void SetTempNeeded()
+    {
+        m_tempNeeded = true;
     }
 
     bool IsPlaceholderNeeded() const

@@ -914,6 +914,11 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         }
 #endif // FEATURE_ARG_SPLIT
 
+        if (argInfo->HasTemp())
+        {
+            needsTemps = true;
+        }
+
         // If the argument tree contains an assignment (GTF_ASG) then the argument and
         // and every earlier argument (except constants) must be evaluated into temps
         // since there may be other arguments that follow and they may use the value being assigned.
@@ -928,17 +933,18 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
         if ((arg->gtFlags & GTF_ASG) != 0)
         {
-            // If this is not the only argument, or it's a copyblk, or it already evaluates the expression to
-            // a tmp, then we need a temp in the late arg list.
-            if ((argCount > 1) || arg->OperIsCopyBlkOp()
-#ifdef FEATURE_FIXED_OUT_ARGS
-                || argInfo->HasTemp() // I protect this by "FEATURE_FIXED_OUT_ARGS" to preserve the property
-                                      // that we only have late non-register args when that feature is on.
-#endif                                // FEATURE_FIXED_OUT_ARGS
-                )
+            // TODO-MIKE-Review: This check seems overly conservative. If an arg contains an
+            // assignment then it only needs a temp if it will be moved to the late arg list
+            // (because, say, it's a register arg), so the assignment doesn't reorder with
+            // subsequent args that may use whatver location the assignment changes.
+            //
+            // Likewise, previous arguments only need temps if they're going to be moved to
+            // the late arg list.
+
+            if (argCount > 1)
             {
-                argInfo->needTmp = true;
-                needsTemps       = true;
+                argInfo->SetTempNeeded();
+                needsTemps = true;
             }
 
             // For all previous arguments, unless they are a simple constant
@@ -955,8 +961,8 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
                 if (!prevArgInfo->GetNode()->OperIs(GT_CNS_INT))
                 {
-                    prevArgInfo->needTmp = true;
-                    needsTemps           = true;
+                    prevArgInfo->SetTempNeeded();
+                    needsTemps = true;
                 }
             }
         }
@@ -996,14 +1002,14 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         {
             if (argCount > 1) // If this is not the only argument
             {
-                argInfo->needTmp = true;
-                needsTemps       = true;
+                argInfo->SetTempNeeded();
+                needsTemps = true;
             }
             else if (varTypeIsFloating(arg->GetType()) && arg->IsCall())
             {
                 // Spill all arguments that are floating point calls
-                argInfo->needTmp = true;
-                needsTemps       = true;
+                argInfo->SetTempNeeded();
+                needsTemps = true;
             }
 
             // All previous arguments may need to be evaluated into temps
@@ -1017,8 +1023,8 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
                 //  we require that they be evaluated into a temp
                 if ((prevArgInfo->GetNode()->gtFlags & GTF_ALL_EFFECT) != 0)
                 {
-                    prevArgInfo->needTmp = true;
-                    needsTemps           = true;
+                    prevArgInfo->SetTempNeeded();
+                    needsTemps = true;
                 }
 #if FEATURE_FIXED_OUT_ARGS
                 // Or, if they are stored into the FIXED_OUT_ARG area
@@ -1056,7 +1062,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             CallArgInfo* argInfo = argTable[i];
             GenTree*     arg     = argInfo->GetNode();
 
-            if (argInfo->needTmp || (argInfo->GetRegCount() == 0))
+            if (argInfo->IsTempNeeded() || argInfo->HasTemp() || (argInfo->GetRegCount() == 0))
             {
                 continue;
             }
@@ -1070,8 +1076,8 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
             if ((arg->gtFlags & GTF_EXCEPT) != 0)
             {
-                argInfo->needTmp = true;
-                needsTemps       = true;
+                argInfo->SetTempNeeded();
+                needsTemps = true;
                 continue;
             }
 #else
@@ -1083,8 +1089,8 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
                 // Returns WALK_ABORT if a GT_LCLHEAP node is encountered in the arg tree
                 if (compiler->fgWalkTreePre(&arg, Compiler::fgChkLocAllocCB) == Compiler::WALK_ABORT)
                 {
-                    argInfo->needTmp = true;
-                    needsTemps       = true;
+                    argInfo->SetTempNeeded();
+                    needsTemps = true;
                     continue;
                 }
             }
@@ -1118,7 +1124,7 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
            +------------------------------------+
            | remaining arguments sorted by cost |
            +------------------------------------+
-           | temps (argTable[].needTmp = true)  |
+           | temps - argTable[].IsTempNeeded()  |
            +------------------------------------+
            |  args with calls (GTF_CALL)        |
            +------------------------------------+  <--- argTable[0]
@@ -1205,7 +1211,7 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
         {
             fgArgTabEntry* curArgTabEntry = argTable[curInx];
 
-            if (curArgTabEntry->needTmp)
+            if (curArgTabEntry->IsTempNeeded() || curArgTabEntry->HasTemp())
             {
                 // place curArgTabEntry at the begTab position by performing a swap
                 //
@@ -1384,51 +1390,48 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         // fgMorphArgs should have transformed all MKREFANY args.
         assert(!arg->OperIs(GT_MKREFANY));
 
-        if (argInfo->needTmp)
+        if (argInfo->HasTemp())
         {
-            if (argInfo->HasTemp())
+            JITDUMPTREE(arg, "Arg temp is already created:\n");
+
+            // fgMorphArgs creates temps only for implicit by-ref args or MKREFANY args,
+            // which makes handling this case trivial - the late arg is the address of
+            // the temp local or a use of the temp local. In the later case the LCL_VAR
+            // will either be used as is, if it's a stack arg, or it will be morphed to
+            // a FIELD_LIST in pass 2.
+
+            if (argInfo->passedByRef)
             {
-                JITDUMPTREE(arg, "Arg temp is already created:\n");
+                compiler->lvaSetVarAddrExposed(argInfo->GetTempLclNum());
 
-                // fgMorphArgs creates temps only for implicit by-ref args or MKREFANY args,
-                // which makes handling this case trivial - the late arg is the address of
-                // the temp local or a use of the temp local. In the later case the LCL_VAR
-                // will either be used as is, if it's a stack arg, or it will be morphed to
-                // a FIELD_LIST in pass 2.
-
-                if (argInfo->passedByRef)
-                {
-                    compiler->lvaSetVarAddrExposed(argInfo->GetTempLclNum());
-
-                    lateArg = compiler->gtNewLclVarAddrNode(argInfo->GetTempLclNum());
-                }
-                else
-                {
-                    LclVarDsc* tempLcl = compiler->lvaGetDesc(argInfo->GetTempLclNum());
-
-                    assert(tempLcl->lvVerTypeInfo.GetClassHandle() == compiler->impGetRefAnyClass());
-                    assert(argInfo->GetRegCount() + argInfo->GetSlotCount() == 2);
-
-                    lateArg = compiler->gtNewLclvNode(argInfo->GetTempLclNum(), tempLcl->GetType());
-                }
+                lateArg = compiler->gtNewLclVarAddrNode(argInfo->GetTempLclNum());
             }
             else
             {
-                JITDUMPTREE(arg, "Creating temp for arg:\n");
+                LclVarDsc* tempLcl = compiler->lvaGetDesc(argInfo->GetTempLclNum());
 
-                unsigned   tempLclNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
-                LclVarDsc* tempLcl    = compiler->lvaGetDesc(tempLclNum);
+                assert(tempLcl->lvVerTypeInfo.GetClassHandle() == compiler->impGetRefAnyClass());
+                assert(argInfo->GetRegCount() + argInfo->GetSlotCount() == 2);
 
-                argInfo->SetTempLclNum(tempLclNum);
-                setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
-
-                if (setupArg->OperIsCopyBlkOp())
-                {
-                    setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
-                }
-
-                lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(arg->GetType()));
+                lateArg = compiler->gtNewLclvNode(argInfo->GetTempLclNum(), tempLcl->GetType());
             }
+        }
+        else if (argInfo->IsTempNeeded())
+        {
+            JITDUMPTREE(arg, "Creating temp for arg:\n");
+
+            unsigned   tempLclNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
+            LclVarDsc* tempLcl    = compiler->lvaGetDesc(tempLclNum);
+
+            argInfo->SetTempLclNum(tempLclNum);
+            setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
+
+            if (setupArg->OperIsCopyBlkOp())
+            {
+                setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
+            }
+
+            lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(arg->GetType()));
         }
         else if ((argInfo->GetRegCount() != 0) || argInfo->IsPlaceholderNeeded())
         {
