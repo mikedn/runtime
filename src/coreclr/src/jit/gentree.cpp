@@ -7098,11 +7098,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
         argsTail  = &((*argsTail)->NextRef());
     }
 
-#if !FEATURE_FIXED_OUT_ARGS
-    copy->regArgList      = tree->regArgList;
-    copy->regArgListCount = tree->regArgListCount;
-#endif
-
     // The call sig comes from the EE and doesn't change throughout the compilation process, meaning
     // we only really need one physical copy of it. Therefore a shallow pointer copy will suffice.
     // (Note that this still holds even if the tree we are cloning was created by an inlinee compiler,
@@ -7447,48 +7442,15 @@ GenTree* Compiler::gtGetThisArg(GenTreeCall* call)
         return nullptr;
     }
 
-    GenTree* thisArg = call->gtCallThisArg->GetNode();
-    if (thisArg->OperIs(GT_NOP, GT_ASG) == false)
+    if (call->GetInfo() == nullptr)
     {
-        if ((thisArg->gtFlags & GTF_LATE_ARG) == 0)
-        {
-            return thisArg;
-        }
+        return call->gtCallThisArg->GetNode();
     }
 
-    if (call->gtCallLateArgs != nullptr)
-    {
-        GenTree* result = call->GetArgNodeByArgNum(0);
-
-        // Assert if we used DEBUG_DESTROY_NODE.
-        assert(result->gtOper != GT_COUNT);
-
-#if !FEATURE_FIXED_OUT_ARGS && defined(DEBUG)
-        // Check that call->fgArgInfo used in gtArgEntryByArgNum was not
-        // left outdated by assertion propogation updates.
-        // There is no information about registers of late args for platforms
-        // with FEATURE_FIXED_OUT_ARGS that is why this debug check is under
-        // !FEATURE_FIXED_OUT_ARGS.
-        regNumber thisReg = REG_ARG_0;
-        regList   list    = call->regArgList;
-        int       index   = 0;
-        for (GenTreeCall::Use& use : call->LateArgs())
-        {
-            assert(index < call->regArgListCount);
-            regNumber curArgReg = list[index];
-            if (curArgReg == thisReg)
-            {
-                assert(result == use.GetNode());
-            }
-
-            index++;
-        }
-#endif // !FEATURE_FIXED_OUT_ARGS && defined(DEBUG)
-
-        return result;
-    }
-
-    return nullptr;
+    CallArgInfo* argInfo = call->GetArgInfoByArgNum(0);
+    assert(argInfo->use == call->gtCallThisArg);
+    assert(argInfo->GetRegNum() == REG_ARG_0);
+    return argInfo->GetNode();
 }
 
 bool GenTree::gtSetFlags() const

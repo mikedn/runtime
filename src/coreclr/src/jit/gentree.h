@@ -21,7 +21,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "vartype.h"   // For "var_types"
 #include "target.h"    // For "regNumber"
 #include "ssaconfig.h" // For "SsaConfig::RESERVED_SSA_NUM"
-#include "reglist.h"
 #include "valuenumtype.h"
 #include "jitstd.h"
 #include "jithashtable.h"
@@ -4033,15 +4032,8 @@ struct GenTreeCall final : public GenTree
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
     CallArgInfo* GetArgInfoByLateArgUse(Use* use) const;
 
-#if !FEATURE_FIXED_OUT_ARGS
-    int     regArgListCount;
-    regList regArgList;
-#endif
-
-#ifdef DEBUG
     // Used to register callsites with the EE
-    CORINFO_SIG_INFO* callSig;
-#endif
+    INDEBUG(CORINFO_SIG_INFO* callSig;)
 
     TailCallSiteInfo* tailCallInfo;
 

@@ -1126,7 +1126,6 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 
     /* Set the beginning and end for the new argument table */
     unsigned curInx;
-    int      regCount      = 0;
     unsigned begTab        = 0;
     unsigned endTab        = argCount - 1;
     unsigned argsRemaining = argCount;
@@ -1140,11 +1139,6 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
         curInx--;
 
         fgArgTabEntry* curArgTabEntry = argTable[curInx];
-
-        if (curArgTabEntry->GetRegCount() != 0)
-        {
-            regCount++;
-        }
 
         assert(curArgTabEntry->lateUse == nullptr);
 
@@ -1348,27 +1342,6 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     // and regArgsRemaining should be zero
     assert(begTab == (endTab + 1));
     assert(argsRemaining == 0);
-
-#if !FEATURE_FIXED_OUT_ARGS
-    // Finally build the regArgList
-    //
-    call->regArgList      = nullptr;
-    call->regArgListCount = regCount;
-
-    unsigned regInx = 0;
-    for (curInx = 0; curInx < argCount; curInx++)
-    {
-        fgArgTabEntry* curArgTabEntry = argTable[curInx];
-
-        if (curArgTabEntry->GetRegCount() != 0)
-        {
-            // Encode the argument register in the register mask
-            //
-            call->regArgList[regInx] = curArgTabEntry->GetRegNum();
-            regInx++;
-        }
-    }
-#endif // !FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG
     if (compiler->verbose)
