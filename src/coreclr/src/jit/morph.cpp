@@ -1039,62 +1039,72 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         }
     }
 
-#if FEATURE_FIXED_OUT_ARGS
-    // For Arm/x64 we only care because we can't reorder a register
-    // argument that uses GT_LCLHEAP.  This is an optimization to
-    // save a check inside the below loop.
-    const bool hasStackArgsWeCareAbout = HasStackArgs() && compiler->compLocallocUsed;
-#else
-    const bool hasStackArgsWeCareAbout = HasStackArgs();
-#endif // FEATURE_FIXED_OUT_ARGS
-
-    // If we have any stack args we have to force the evaluation
-    // of any arguments passed in registers that might throw an exception
+    // TODO-MIKE-Cleanup: It's not entirely clear what the code below is trying to do.
+    //   * Introduces temps for args that contain LCLHEAP, only on non-x86 targets.
+    //     Obviously, you cannot stack allocate after some args have already been stored
+    //     to the outgoing area since stack allocation moves the outgoing area. But:
+    //     - The same is true on x86 - once args have been pushed, no stack allocation
+    //       can be done. This was lumped together with GTF_EXCEPT checks but the two
+    //       are slighly different.
+    //     - Introducing a temp for the arg that uses LCLHEAP solves only one part of
+    //       the problem. Temps must also be introduced for any previous stack args.
+    //     - But IL requires the stack be empty before localalloc so it's not clear
+    //       if it's possible to have a LCLHEAP in the middle of the arg list.
+    //       Inlining a method that uses LCLHEAP? But that's currently blocked.
+    //       And if only the first arg can contain LCLHEAP then we don't need to do
+    //       anything, even if it's a stack arg, because the arg will be stored to the
+    //       stack only after stack allocation happens.
+    //     - Except that on x86 the first IL arg may be pushed last if StdCall/Cdecl
+    //       calling conventions are used.
+    //   * On x86 this code also introduces temps for reg args that may throw exceptions.
+    //     That's because they're going to be moved to the late arg list so we need to
+    //     ensure that the exception is still thrown at the right time. But:
+    //     - What about non-x86 targets? These too have reg args that get moved to the
+    //       late arg list. Well, that's simple - exception are incorectly reordered on
+    //       such targets: Sink(x, y, z, x / y, a[x]); throws DivByZero on x86 and NullRef
+    //       on all other targets.
+    //     - Also, such temps are not always required. They're only needed if subsequent
+    //       args have interfering side effects.
+    //     - Old comments gave a different justification to the introduction of temps on
+    //       x86 - "we previously recorded a stack depth of zero when morphing the register
+    //       arguments of any GT_IND with a GTF_IND_RNGCHK flag". The flag no longer exists
+    //       and the "recorded stack depth" likely refers to work that's no done post lowering
+    //       by StackLevelSetter.
+    //   * And on top of it all it's not clear why this need to be done in a loop separate
+    //     from the one above that deals with assignments and calls.
     //
-    // Technically we only a required to handle the following two cases:
-    //     a GT_IND with GTF_IND_RNGCHK (only on x86) or
-    //     a GT_LCLHEAP node that allocates stuff on the stack
+    //     The usual mess.
+    //
+    CLANG_FORMAT_COMMENT_ANCHOR;
 
-    if (hasStackArgsWeCareAbout)
+#if FEATURE_FIXED_OUT_ARGS
+    if (HasStackArgs() && compiler->compLocallocUsed)
+#else
+    if (HasStackArgs())
+#endif
     {
         for (unsigned i = 0; i < argCount; i++)
         {
             CallArgInfo* argInfo = argTable[i];
-            GenTree*     arg     = argInfo->GetNode();
 
             if (argInfo->IsTempNeeded() || argInfo->HasTemp() || (argInfo->GetRegCount() == 0))
             {
                 continue;
             }
 
-#if !FEATURE_FIXED_OUT_ARGS
-            // On x86 we previously recorded a stack depth of zero when
-            // morphing the register arguments of any GT_IND with a GTF_IND_RNGCHK flag
-            // Thus we can not reorder the argument after any stack based argument
-            // (Note that GT_LCLHEAP sets the GTF_EXCEPT flag so we don't need to
-            // check for it explicitly.)
+            GenTree* arg = argInfo->GetNode();
 
             if ((arg->gtFlags & GTF_EXCEPT) != 0)
             {
-                argInfo->SetTempNeeded();
-                needsTemps = true;
-                continue;
-            }
-#else
-            // For Arm/X64 we can't reorder a register argument that uses a GT_LCLHEAP
-            if ((arg->gtFlags & GTF_EXCEPT) != 0)
-            {
-                assert(compiler->compLocallocUsed);
-
+#if FEATURE_FIXED_OUT_ARGS
                 // Returns WALK_ABORT if a GT_LCLHEAP node is encountered in the arg tree
                 if (compiler->fgWalkTreePre(&arg, Compiler::fgChkLocAllocCB) == Compiler::WALK_ABORT)
+#endif
                 {
                     argInfo->SetTempNeeded();
                     needsTemps = true;
-                    continue;
                 }
             }
-#endif
         }
     }
 
@@ -1109,245 +1119,135 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
 void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 {
-    assert(argsComplete);
+    // Shuffle the arguments around before we build the gtCallLateArgs list.
+    // The idea is to move all "simple" arguments like constants and local vars
+    // to the end of the table, and move the complex arguments towards the beginning
+    // of the table. This will help prevent registers from being spilled by
+    // allowing us to evaluate the more complex arguments before the simpler arguments.
+    // The argTable ends up looking like:
+    //     +------------------------------------+  <--- argTable[argCount - 1]
+    //     |          constants                 |
+    //     +------------------------------------+
+    //     |    local var / local field         |
+    //     +------------------------------------+
+    //     | remaining arguments sorted by cost |
+    //     +------------------------------------+
+    //     | temps - argTable[].IsTempNeeded()  |
+    //     +------------------------------------+
+    //     |  args with calls (GTF_CALL)        |
+    //     +------------------------------------+  <--- argTable[0]
 
-    /* Shuffle the arguments around before we build the gtCallLateArgs list.
-       The idea is to move all "simple" arguments like constants and local vars
-       to the end of the table, and move the complex arguments towards the beginning
-       of the table. This will help prevent registers from being spilled by
-       allowing us to evaluate the more complex arguments before the simpler arguments.
-       The argTable ends up looking like:
-           +------------------------------------+  <--- argTable[argCount - 1]
-           |          constants                 |
-           +------------------------------------+
-           |    local var / local field         |
-           +------------------------------------+
-           | remaining arguments sorted by cost |
-           +------------------------------------+
-           | temps - argTable[].IsTempNeeded()  |
-           +------------------------------------+
-           |  args with calls (GTF_CALL)        |
-           +------------------------------------+  <--- argTable[0]
-     */
+    // TODO-MIKE-Cleanup: Arg table sorting is kind of weird. It seems the resulting order is only
+    // used in EvalArgsToTemps so:
+    //   - It only affects the ordering of the late args, sorting "normal" args is probably a waste.
+    //   - The number of args is typically low so it may be better to allocate a separate array and
+    //     pass that to EvalArgsToTemps. That would avoid the need to linear search by arg number
+    //     in GetArgInfoByArgNum.
+    //   - Sorting isn't stable. For example, when const args are moved to the end of the table their
+    //     relative order is preserved. But the args they're displacing lose their ordering relative
+    //     to the non-displaced args. This would probably be a bug if it weren't for the first issue,
+    //     the new order is relevant only to late args. If 2 args with calls get reordered in doesn't
+    //     matter because such args get temps and only temp uses in the arg list get ordered. So it
+    //     seems that stability doesn't matter, except for the added confusion.
 
-    /* Set the beginning and end for the new argument table */
-    unsigned curInx;
-    unsigned begTab        = 0;
-    unsigned endTab        = argCount - 1;
-    unsigned argsRemaining = argCount;
+    int first = 0;
+    int last  = static_cast<int>(argCount - 1);
 
-    // First take care of arguments that are constants.
-    // [We use a backward iterator pattern]
-    //
-    curInx = argCount;
-    do
+    // Move all constant args to the end of the arg table.
+    for (int i = last; i >= first; i--)
     {
-        curInx--;
-
-        fgArgTabEntry* curArgTabEntry = argTable[curInx];
-
-        assert(curArgTabEntry->lateUse == nullptr);
-
-        GenTree* argx = curArgTabEntry->GetNode();
-
-        // put constants at the end of the table
-        //
-        if (argx->gtOper == GT_CNS_INT)
+        if (argTable[i]->GetNode()->OperIs(GT_CNS_INT))
         {
-            noway_assert(curInx <= endTab);
-
-            // place curArgTabEntry at the endTab position by performing a swap
-            //
-            if (curInx != endTab)
-            {
-                argTable[curInx] = argTable[endTab];
-                argTable[endTab] = curArgTabEntry;
-            }
-
-            endTab--;
-            argsRemaining--;
-        }
-    } while (curInx > 0);
-
-    if (argsRemaining > 0)
-    {
-        // Next take care of arguments that are calls.
-        // [We use a forward iterator pattern]
-        //
-        for (curInx = begTab; curInx <= endTab; curInx++)
-        {
-            fgArgTabEntry* curArgTabEntry = argTable[curInx];
-
-            GenTree* argx = curArgTabEntry->GetNode();
-
-            // put calls at the beginning of the table
-            //
-            if (argx->gtFlags & GTF_CALL)
-            {
-                // place curArgTabEntry at the begTab position by performing a swap
-                //
-                if (curInx != begTab)
-                {
-                    argTable[curInx] = argTable[begTab];
-                    argTable[begTab] = curArgTabEntry;
-                }
-
-                begTab++;
-                argsRemaining--;
-            }
+            std::swap(argTable[i], argTable[last]);
+            last--;
         }
     }
 
-    if (argsRemaining > 0)
+    // Move all call args to the beginning of the arg table.
+    for (int i = first; i <= last; i++)
     {
-        // Next take care arguments that are temps.
-        // These temps come before the arguments that are
-        // ordinary local vars or local fields
-        // since this will give them a better chance to become
-        // enregistered into their actual argument register.
-        // [We use a forward iterator pattern]
-        //
-        for (curInx = begTab; curInx <= endTab; curInx++)
+        if ((argTable[i]->GetNode()->gtFlags & GTF_CALL) != 0)
         {
-            fgArgTabEntry* curArgTabEntry = argTable[curInx];
-
-            if (curArgTabEntry->IsTempNeeded() || curArgTabEntry->HasTemp())
-            {
-                // place curArgTabEntry at the begTab position by performing a swap
-                //
-                if (curInx != begTab)
-                {
-                    argTable[curInx] = argTable[begTab];
-                    argTable[begTab] = curArgTabEntry;
-                }
-
-                begTab++;
-                argsRemaining--;
-            }
+            std::swap(argTable[i], argTable[first]);
+            first++;
         }
     }
 
-    if (argsRemaining > 0)
+    // Move all args with temps to the beginning of the arg table, after the calls.
+    for (int i = first; i <= last; i++)
     {
-        // Next take care of local var and local field arguments.
-        // These are moved towards the end of the argument evaluation.
-        // [We use a backward iterator pattern]
-        //
-        curInx = endTab + 1;
-        do
+        if (argTable[i]->IsTempNeeded() || argTable[i]->HasTemp())
         {
-            curInx--;
-
-            fgArgTabEntry* curArgTabEntry = argTable[curInx];
-
-            GenTree* argx = curArgTabEntry->GetNode();
-
-            if (argx->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !argx->TypeIs(TYP_STRUCT))
-            {
-                noway_assert(curInx <= endTab);
-
-                // place curArgTabEntry at the endTab position by performing a swap
-                //
-                if (curInx != endTab)
-                {
-                    argTable[curInx] = argTable[endTab];
-                    argTable[endTab] = curArgTabEntry;
-                }
-
-                endTab--;
-                argsRemaining--;
-            }
-        } while (curInx > begTab);
+            std::swap(argTable[i], argTable[first]);
+            first++;
+        }
     }
 
-    // Finally, take care of all the remaining arguments.
-    // Note that we fill in one arg at a time using a while loop.
-    bool costsPrepared = false; // Only prepare tree costs once, the first time through this loop
-    while (argsRemaining > 0)
+    // Move all local args to the end of the arg table, before the constants.
+    for (int i = last; i >= first; i--)
     {
-        /* Find the most expensive arg remaining and evaluate it next */
-
-        fgArgTabEntry* expensiveArgTabEntry = nullptr;
-        unsigned       expensiveArg         = UINT_MAX;
-        unsigned       expensiveArgCost     = 0;
-
-        // [We use a forward iterator pattern]
-        //
-        for (curInx = begTab; curInx <= endTab; curInx++)
+        // Ignore STRUCT locals because they were previously wrapped in OBJ(ADDR(...)) so they were treated differently.
+        if (argTable[i]->GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !argTable[i]->GetNode()->TypeIs(TYP_STRUCT))
         {
-            fgArgTabEntry* curArgTabEntry = argTable[curInx];
+            std::swap(argTable[i], argTable[last]);
+            last--;
+        }
+    }
 
-            GenTree* argx = curArgTabEntry->GetNode();
+    // Order any remaining args by execution cost.
 
-            // We should have already handled these kinds of args
-            assert(!argx->OperIs(GT_LCL_VAR, GT_LCL_FLD) || argx->TypeIs(TYP_STRUCT));
-            assert(!argx->OperIs(GT_CNS_INT));
+    // TODO-MIKE-Cleanup: Why execution cost?! It makes no difference if one arg takes 30 cycles
+    // to be computed and another only 3. What matters is how many registers each arg tree needs
+    // for evaluation (so the "cost" should really be the value returned by gtSetEvalOrder - a
+    // Sethi-Ullman number approximation). Not surprisingly, attempting to change this results
+    // in diffs that aren't all improvements.
 
-            // This arg should either have no persistent side effects or be the last one in our table
-            // assert(((argx->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) == 0) || (curInx == (argCount-1)));
+    if (first < last)
+    {
+        for (int i = first; i <= last; i++)
+        {
+            GenTree* arg = argTable[i]->GetNode();
 
-            if (argsRemaining == 1)
+            // Try to keep STRUCT typed LCL_VAR args in the same position they were when wrapped in OBJs
+            // by setting the same costs an OBJ(ADDR(LCL_VAR|FLD)) tree would have.
+
+            // TODO-MIKE-Cleanup: These should probably be moved to gtSetEvalOrder, they're here only to
+            // keep diffs small.
+
+            if (arg->OperIs(GT_LCL_VAR))
             {
-                // This is the last arg to place
-                expensiveArg         = curInx;
-                expensiveArgTabEntry = curArgTabEntry;
-                assert(begTab == endTab);
-                break;
+                arg->SetCosts(9, 7);
+            }
+            else if (arg->OperIs(GT_LCL_FLD))
+            {
+                arg->SetCosts(9, 9);
             }
             else
             {
-                if (!costsPrepared)
-                {
-                    // Try to keep STRUCT typed LCL_VAR args in the same position they were when wrapped in OBJs
-                    // by setting the same costs an OBJ(ADDR(LCL_VAR|FLD)) tree would have.
-                    // TODO-MIKE-Cleanup: These should probably be moved to gtSetEvalOrder, they're here only to
-                    // keep diffs small. That said, what do costs have to do with call arg evaluation *order*!?
-                    if (argx->OperIs(GT_LCL_VAR))
-                    {
-                        argx->SetCosts(9, 7);
-                    }
-                    else if (argx->OperIs(GT_LCL_FLD))
-                    {
-                        argx->SetCosts(9, 9);
-                    }
-                    else
-                    {
-                        /* We call gtPrepareCost to measure the cost of evaluating this tree */
-                        compiler->gtPrepareCost(argx);
-                    }
-                }
-
-                if (argx->GetCostEx() > expensiveArgCost)
-                {
-                    // Remember this arg as the most expensive one that we have yet seen
-                    expensiveArgCost     = argx->GetCostEx();
-                    expensiveArg         = curInx;
-                    expensiveArgTabEntry = curArgTabEntry;
-                }
+                compiler->gtPrepareCost(arg);
             }
         }
 
-        noway_assert(expensiveArg != UINT_MAX);
+        // TODO-MIKE-Cleanup: This could use jitstd::sort but there are a few diffs caused by sorting instability.
 
-        // put the most expensive arg towards the beginning of the table
-        // place expensiveArgTabEntry at the begTab position by performing a swap
-        //
-        if (expensiveArg != begTab)
+        while (first < last)
         {
-            argTable[expensiveArg] = argTable[begTab];
-            argTable[begTab]       = expensiveArgTabEntry;
+            int maxCost      = argTable[first]->GetNode()->GetCostEx();
+            int maxCostIndex = first;
+
+            for (int i = first + 1; i <= last; i++)
+            {
+                if (argTable[i]->GetNode()->GetCostEx() > maxCost)
+                {
+                    maxCost      = argTable[i]->GetNode()->GetCostEx();
+                    maxCostIndex = i;
+                }
+            }
+
+            std::swap(argTable[maxCostIndex], argTable[first]);
+            first++;
         }
-
-        begTab++;
-        argsRemaining--;
-
-        costsPrepared = true; // If we have more expensive arguments, don't re-evaluate the tree cost on the next loop
     }
-
-    // The table should now be completely filled and thus begTab should now be adjacent to endTab
-    // and regArgsRemaining should be zero
-    assert(begTab == (endTab + 1));
-    assert(argsRemaining == 0);
 
 #ifdef DEBUG
     if (compiler->verbose)
