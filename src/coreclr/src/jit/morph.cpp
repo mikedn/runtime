@@ -4040,6 +4040,47 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
         LclVarDsc*           lcl       = lvaGetDesc(lclNum);
         ClassLayout*         argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
 
+#ifdef TARGET_ARM
+        // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
+        // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
+        //
+        // However, attempting to enable this on other targets results in code size regressions and disabling
+        // this on ARM32 results in code size improvements. More investigation is required to determine which
+        // is better so for now let's keep this as it was.
+        //
+        // Speaking of how it was - this code was originally in fgMorphArgs so the temp was introduced before
+        // ArgsComplete/SortArgs/EvalArgsToTemps. Neither place is ideal:
+        //    - Introducing one temp before ArgsComplete is problematic because ArgsComplete can blindly
+        //      introduce even more temps due to the presence of GTF_ASG.
+        //    - Introducing a temp for a promoted local after ArgsComplete "misses" the nested call args case
+        //      so we risk spilling the promoted fields before the call, reload them after the call and then
+        //      store them again to memory (because this temp is DNER).
+        // What may be best is to introduce the temp in ArgsComplete itself so we can do it before any nested
+        // call and avoid unnecessary spilling. But it may not be worth the trouble:
+        //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
+        //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
+        //    - Doing this here instead of fgMorphArgs shows practically no diffs (actually a 8 bytes improvement).
+        //    - Doing this here minimizes the use of the messy "late" arg mechanism.
+
+        GenTree* tempAssign = nullptr;
+
+        if (lclNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
+        {
+            unsigned tempLclNum = abiAllocateStructArgTemp(argLayout->GetClassHandle());
+
+            lcl = lvaGetDesc(lclNum);
+
+            GenTreeLclVar* dst = gtNewLclvNode(tempLclNum, lcl->GetType());
+            dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+            tempAssign = gtNewOperNode(GT_ASG, lcl->GetType(), dst, lclNode);
+            tempAssign->gtFlags |= GTF_ASG;
+            tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
+
+            lclNum = tempLclNum;
+            lcl    = lvaGetDesc(lclNum);
+        }
+#endif // TARGET_ARM
+
         unsigned regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
         assert(regCount <= MAX_ARG_REG_COUNT);
         var_types regTypes[MAX_ARG_REG_COUNT] = {};
@@ -4129,42 +4170,6 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 #ifdef FEATURE_SIMD
         bool lclIsSIMD = varTypeIsSIMD(lclType) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
 #endif
-
-#ifdef TARGET_ARM
-        // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
-        // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
-        //
-        // However, attempting to enable this on other targets results in code size regressions and disabling
-        // this on ARM32 results in code size improvements. More investigation is required to determine which
-        // is better so for now let's keep this as it was.
-        //
-        // Speaking of how it was - this code was originally in fgMorphArgs so the temp was introduced before
-        // ArgsComplete/SortArgs/EvalArgsToTemps. Neither place is ideal:
-        //    - Introducing one temp before ArgsComplete is problematic because ArgsComplete can blindly
-        //      introduce even more temps due to the presence of GTF_ASG.
-        //    - Introducing a temp for a promoted local after ArgsComplete "misses" the nested call args case
-        //      so we risk spilling the promoted fields before the call, reload them after the call and then
-        //      store them again to memory (because this temp is DNER).
-        // What may be best is to introduce the temp in ArgsComplete itself so we can do it before any nested
-        // call and avoid unnecessary spilling. But it may not be worth the trouble:
-        //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
-        //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
-        //    - Doing this here instead of fgMorphArgs shows practically no diffs (actually a 8 bytes improvement).
-        //    - Doing this here minimizes the use of the messy "late" arg mechanism.
-
-        GenTree* tempAssign = nullptr;
-
-        if (lclNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
-        {
-            lclNum = abiAllocateStructArgTemp(lcl->GetLayout()->GetClassHandle());
-
-            GenTreeLclVar* dst = gtNewLclvNode(lclNum, lclType);
-            dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-            tempAssign = gtNewOperNode(GT_ASG, lclType, dst, lclNode);
-            tempAssign->gtFlags |= GTF_ASG;
-            tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
-        }
-#endif // TARGET_ARM
 
         GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
