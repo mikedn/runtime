@@ -3836,7 +3836,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 #ifdef UNIX_AMD64_ABI
         var_types regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_LONG;
 #else
-        var_types regType = TYP_I_IMPL;
+        var_types regType   = TYP_I_IMPL;
 #endif
 
         list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
@@ -4037,7 +4037,11 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        unsigned  regCount                    = 0;
+        GenTreeLclVarCommon* lclNode = arg->AsLclVarCommon();
+        unsigned             lclNum  = lclNode->GetLclNum();
+        LclVarDsc*           lcl     = lvaGetDesc(lclNum);
+
+        unsigned  regCount;
         var_types regTypes[MAX_ARG_REG_COUNT] = {};
 
 #ifdef FEATURE_HFA
@@ -4047,6 +4051,8 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
             assert(argInfo->GetSlotCount() == 0);
 
             regCount = argInfo->GetRegCount();
+            assert(regCount <= MAX_ARG_REG_COUNT);
+
             for (unsigned i = 0; i < regCount; i++)
             {
                 regTypes[i] = argInfo->GetRegType(i);
@@ -4055,51 +4061,47 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
         else
 #endif // FEATURE_HFA
         {
-            CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
-            noway_assert(argClass != NO_CLASS_HANDLE);
+            regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
+            assert(regCount <= MAX_ARG_REG_COUNT);
 
-            unsigned structSize = 0;
+            ClassLayout* argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
 
-            if (arg->GetType() != TYP_STRUCT)
+            for (unsigned i = 0, regOffset = 0; i < regCount; i++)
             {
-                structSize = genTypeSize(arg->GetType());
-                assert(structSize == info.compCompHnd->getClassSize(argClass));
-            }
-            else if (arg->OperIs(GT_LCL_VAR))
-            {
-                LclVarDsc* varDsc = lvaGetDesc(arg->AsLclVar());
-                structSize        = varDsc->lvExactSize;
-                assert(structSize == info.compCompHnd->getClassSize(argClass));
-            }
-            else
-            {
-                structSize = arg->AsLclFld()->GetLayout(this)->GetSize();
-                assert(structSize == info.compCompHnd->getClassSize(argClass));
-            }
+                var_types regType;
 
-            assert(structSize <= MAX_ARG_REG_COUNT * REGSIZE_BYTES);
-            BYTE gcPtrs[MAX_ARG_REG_COUNT];
-            regCount = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-            info.compCompHnd->getClassGClayout(argClass, &gcPtrs[0]);
-
-            for (unsigned i = 0; i < regCount; i++)
-            {
-#ifdef UNIX_AMD64_ABI
-                if (gcPtrs[i] == TYPE_GC_NONE)
+#if FEATURE_ARG_SPLIT
+                if (i >= argInfo->GetRegCount())
                 {
-                    regTypes[i] = argInfo->GetRegType(i);
+                    regType = TYP_I_IMPL;
                 }
                 else
-#endif // UNIX_AMD64_ABI
+#endif
                 {
-                    regTypes[i] = getJitGCType(gcPtrs[i]);
+                    regType = argInfo->GetRegType(i);
                 }
+
+                if (regType == TYP_I_IMPL)
+                {
+                    // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
+                    // but on other targets we only get TYP_I_IMPL. Also, other targets may have
+                    // split args and we don't have any type info for the stack slots.
+
+                    assert(regOffset % REGSIZE_BYTES == 0);
+
+#ifdef UNIX_AMD64_ABI
+                    assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
+#else
+                    regType = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
+#endif
+                }
+
+                regTypes[i] = regType;
+                regOffset += varTypeSize(regType);
+
+                assert(regOffset <= roundUp(argLayout->GetSize(), REGSIZE_BYTES));
             }
         }
-
-        GenTreeLclVarCommon* lclNode = arg->AsLclVarCommon();
-        unsigned             lclNum  = lclNode->GetLclNum();
-        LclVarDsc*           lcl     = lvaGetDesc(lclNum);
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
         if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 2) && (regCount == 2))

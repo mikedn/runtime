@@ -1595,25 +1595,29 @@ public:
         assert(numRegs > 0);
         regType = type;
     }
-
-    var_types GetRegType(unsigned i = 0) const
-    {
-        assert(i < numRegs);
-        return regType;
-    }
 #elif defined(UNIX_AMD64_ABI)
     void SetRegType(unsigned i, var_types type)
     {
         assert(i < numRegs);
         regTypes[i] = type;
     }
+#endif
 
+#if defined(UNIX_AMD64_ABI)
     var_types GetRegType(unsigned i) const
+#else
+    var_types GetRegType(unsigned i = 0) const
+#endif
     {
         assert(i < numRegs);
+#if defined(UNIX_AMD64_ABI)
         return regTypes[i];
-    }
+#elif defined(FEATURE_HFA)
+        return regType;
+#else
+        return TYP_I_IMPL;
 #endif
+    }
 
     unsigned GetSlotNum() const
     {
