@@ -4033,8 +4033,6 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     assert(varTypeIsStruct(arg->GetType()));
 
-    GenTreeFieldList* newArg = nullptr;
-
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         GenTreeLclVarCommon* lclNode   = arg->AsLclVarCommon();
@@ -4115,108 +4113,110 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
                 if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(regTypes[0])) &&
                     (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(regTypes[1])))
                 {
-                    newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
+                    GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
                     newArg->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
                     newArg->AddField(this, gtNewLclvNode(hiVarNum, hiType), 8, hiType);
+
+                    return newArg;
                 }
             }
         }
 #endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
 
-        if (newArg == nullptr)
-        {
-            unsigned  lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
-            unsigned  lclSize   = lvaLclExactSize(lclNum);
-            var_types lclType   = lcl->GetType();
+        unsigned  lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
+        unsigned  lclSize   = lvaLclExactSize(lclNum);
+        var_types lclType   = lcl->GetType();
 #ifdef FEATURE_SIMD
-            bool lclIsSIMD = varTypeIsSIMD(lclType) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
+        bool lclIsSIMD = varTypeIsSIMD(lclType) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
 #endif
 
 #ifdef TARGET_ARM
-            // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
-            // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
-            //
-            // However, attempting to enable this on other targets results in code size regressions and disabling
-            // this on ARM32 results in code size improvements. More investigation is required to determine which
-            // is better so for now let's keep this as it was.
-            //
-            // Speaking of how it was - this code was originally in fgMorphArgs so the temp was introduced before
-            // ArgsComplete/SortArgs/EvalArgsToTemps. Neither place is ideal:
-            //    - Introducing one temp before ArgsComplete is problematic because ArgsComplete can blindly
-            //      introduce even more temps due to the presence of GTF_ASG.
-            //    - Introducing a temp for a promoted local after ArgsComplete "misses" the nested call args case
-            //      so we risk spilling the promoted fields before the call, reload them after the call and then
-            //      store them again to memory (because this temp is DNER).
-            // What may be best is to introduce the temp in ArgsComplete itself so we can do it before any nested
-            // call and avoid unnecessary spilling. But it may not be worth the trouble:
-            //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
-            //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
-            //    - Doing this here instead of fgMorphArgs shows practically no diffs (actually a 8 bytes improvement).
-            //    - Doing this here minimizes the use of the messy "late" arg mechanism.
+        // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
+        // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
+        //
+        // However, attempting to enable this on other targets results in code size regressions and disabling
+        // this on ARM32 results in code size improvements. More investigation is required to determine which
+        // is better so for now let's keep this as it was.
+        //
+        // Speaking of how it was - this code was originally in fgMorphArgs so the temp was introduced before
+        // ArgsComplete/SortArgs/EvalArgsToTemps. Neither place is ideal:
+        //    - Introducing one temp before ArgsComplete is problematic because ArgsComplete can blindly
+        //      introduce even more temps due to the presence of GTF_ASG.
+        //    - Introducing a temp for a promoted local after ArgsComplete "misses" the nested call args case
+        //      so we risk spilling the promoted fields before the call, reload them after the call and then
+        //      store them again to memory (because this temp is DNER).
+        // What may be best is to introduce the temp in ArgsComplete itself so we can do it before any nested
+        // call and avoid unnecessary spilling. But it may not be worth the trouble:
+        //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
+        //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
+        //    - Doing this here instead of fgMorphArgs shows practically no diffs (actually a 8 bytes improvement).
+        //    - Doing this here minimizes the use of the messy "late" arg mechanism.
 
-            GenTree* tempAssign = nullptr;
+        GenTree* tempAssign = nullptr;
 
-            if (lclNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
-            {
-                lclNum = abiAllocateStructArgTemp(lcl->GetLayout()->GetClassHandle());
+        if (lclNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
+        {
+            lclNum = abiAllocateStructArgTemp(lcl->GetLayout()->GetClassHandle());
 
-                GenTreeLclVar* dst = gtNewLclvNode(lclNum, lclType);
-                dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-                tempAssign = gtNewOperNode(GT_ASG, lclType, dst, lclNode);
-                tempAssign->gtFlags |= GTF_ASG;
-                tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
-            }
+            GenTreeLclVar* dst = gtNewLclvNode(lclNum, lclType);
+            dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+            tempAssign = gtNewOperNode(GT_ASG, lclType, dst, lclNode);
+            tempAssign->gtFlags |= GTF_ASG;
+            tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
+        }
 #endif // TARGET_ARM
 
-            newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
+        GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-            for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+        for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+        {
+            var_types regType     = regTypes[i];
+            unsigned  regSize     = varTypeSize(regType);
+            unsigned  fieldOffset = lclOffset + regOffset;
+            GenTree*  fieldNode;
+
+            if (fieldOffset >= lclSize)
             {
-                var_types regType     = regTypes[i];
-                unsigned  regSize     = varTypeSize(regType);
-                unsigned  fieldOffset = lclOffset + regOffset;
-                GenTree*  fieldNode;
-
-                if (fieldOffset >= lclSize)
-                {
-                    // Make sure we add a field for every arg register, even if we somehow end up with
-                    // a smaller local variable as source. If a field is missing, the backend may get
-                    // confused and fail to allocate the register to this arg and instead allocated it
-                    // to the next arg. Just passing a zero is safer and easier to debug.
-                    fieldNode = gtNewZeroConNode(regType);
-                }
+                // Make sure we add a field for every arg register, even if we somehow end up with
+                // a smaller local variable as source. If a field is missing, the backend may get
+                // confused and fail to allocate the register to this arg and instead allocated it
+                // to the next arg. Just passing a zero is safer and easier to debug.
+                fieldNode = gtNewZeroConNode(regType);
+            }
 #ifdef FEATURE_SIMD
-                else if (lclIsSIMD && varTypeIsFloating(regType) && (fieldOffset % regSize == 0))
-                {
-                    // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
-                    // in a SIMD register and at the proper position.
+            else if (lclIsSIMD && varTypeIsFloating(regType) && (fieldOffset % regSize == 0))
+            {
+                // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
+                // in a SIMD register and at the proper position.
 
-                    GenTreeIntCon* fieldIndex = gtNewIconNode(fieldOffset / regSize);
-                    fieldNode                 = gtNewLclvNode(lclNum, lclType);
-                    fieldNode = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, lclSize, fieldNode, fieldIndex);
-                }
-                else
+                GenTreeIntCon* fieldIndex = gtNewIconNode(fieldOffset / regSize);
+                fieldNode                 = gtNewLclvNode(lclNum, lclType);
+                fieldNode = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, lclSize, fieldNode, fieldIndex);
+            }
+            else
 #endif
-                {
-                    fieldNode = gtNewLclFldNode(lclNum, regType, fieldOffset);
+            {
+                fieldNode = gtNewLclFldNode(lclNum, regType, fieldOffset);
 
-                    lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(DNER_LocalField));
-                }
+                lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(DNER_LocalField));
+            }
 
 #ifdef TARGET_ARM
-                if (tempAssign != nullptr)
-                {
-                    fieldNode  = gtNewOperNode(GT_COMMA, fieldNode->GetType(), tempAssign, fieldNode);
-                    tempAssign = nullptr;
-                }
+            if (tempAssign != nullptr)
+            {
+                fieldNode  = gtNewOperNode(GT_COMMA, fieldNode->GetType(), tempAssign, fieldNode);
+                tempAssign = nullptr;
+            }
 #endif
 
-                newArg->AddField(this, fieldNode, regOffset, regType);
-                regOffset += regSize;
-            }
+            newArg->AddField(this, fieldNode, regOffset, regType);
+            regOffset += regSize;
         }
+
+        return newArg;
     }
-    else if (arg->OperIs(GT_OBJ))
+
+    if (arg->OperIs(GT_OBJ))
     {
         ClassLayout* argLayout  = arg->AsObj()->GetLayout();
         unsigned     argSize    = argLayout->GetSize();
@@ -4265,7 +4265,7 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
             addr    = gtNewLclvNode(addrLclNum, addr->GetType());
         }
 
-        newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
+        GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
         unsigned regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
 
@@ -4333,15 +4333,11 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
             assert(regOffset <= argSize);
         }
-    }
-    else
-    {
-        INDEBUG(gtDispTree(arg);)
-        unreached();
+
+        return newArg;
     }
 
-    // consider calling fgMorphTree(newArg);
-    return newArg;
+    unreached();
 }
 
 GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize)
