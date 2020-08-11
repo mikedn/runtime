@@ -1068,7 +1068,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     //     - Old comments gave a different justification to the introduction of temps on
     //       x86 - "we previously recorded a stack depth of zero when morphing the register
     //       arguments of any GT_IND with a GTF_IND_RNGCHK flag". The flag no longer exists
-    //       and the "recorded stack depth" likely refers to work that's no done post lowering
+    //       and the "recorded stack depth" likely refers to work that's now done post lowering
     //       by StackLevelSetter.
     //   * And on top of it all it's not clear why this need to be done in a loop separate
     //     from the one above that deals with assignments and calls.
@@ -1108,13 +1108,13 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         }
     }
 
-    argsComplete = true;
-
     if (HasRegArgs() || needsTemps)
     {
         SortArgs(compiler, call);
         EvalArgsToTemps(compiler, call);
     }
+
+    argsComplete = true;
 }
 
 void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
@@ -1137,7 +1137,7 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     //     |  args with calls (GTF_CALL)        |
     //     +------------------------------------+  <--- argTable[0]
 
-    // TODO-MIKE-Cleanup: Arg table sorting is kind of weird. It seems the resulting order is only
+    // TODO-MIKE-Cleanup: Arg table sorting is kind of weird. It seems that the resulting order is only
     // used in EvalArgsToTemps so:
     //   - It only affects the ordering of the late args, sorting "normal" args is probably a waste.
     //   - The number of args is typically low so it may be better to allocate a separate array and
@@ -1150,13 +1150,13 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     //     matter because such args get temps and only temp uses in the arg list get ordered. So it
     //     seems that stability doesn't matter, except for the added confusion.
 
-    int first = 0;
-    int last  = static_cast<int>(argCount - 1);
+    ssize_t first = 0;
+    ssize_t last  = static_cast<ssize_t>(argCount) - 1;
 
     // Move all constant args to the end of the arg table.
-    for (int i = last; i >= first; i--)
+    for (ssize_t i = last; i >= first; i--)
     {
-        if (argTable[i]->GetNode()->OperIs(GT_CNS_INT))
+        if (argTable[i]->use->GetNode()->OperIs(GT_CNS_INT))
         {
             std::swap(argTable[i], argTable[last]);
             last--;
@@ -1164,9 +1164,9 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     }
 
     // Move all call args to the beginning of the arg table.
-    for (int i = first; i <= last; i++)
+    for (ssize_t i = first; i <= last; i++)
     {
-        if ((argTable[i]->GetNode()->gtFlags & GTF_CALL) != 0)
+        if ((argTable[i]->use->GetNode()->gtFlags & GTF_CALL) != 0)
         {
             std::swap(argTable[i], argTable[first]);
             first++;
@@ -1174,7 +1174,7 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     }
 
     // Move all args with temps to the beginning of the arg table, after the calls.
-    for (int i = first; i <= last; i++)
+    for (ssize_t i = first; i <= last; i++)
     {
         if (argTable[i]->IsTempNeeded() || argTable[i]->HasTemp())
         {
@@ -1184,10 +1184,11 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
     }
 
     // Move all local args to the end of the arg table, before the constants.
-    for (int i = last; i >= first; i--)
+    for (ssize_t i = last; i >= first; i--)
     {
         // Ignore STRUCT locals because they were previously wrapped in OBJ(ADDR(...)) so they were treated differently.
-        if (argTable[i]->GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !argTable[i]->GetNode()->TypeIs(TYP_STRUCT))
+        if (argTable[i]->use->GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) &&
+            !argTable[i]->use->GetNode()->TypeIs(TYP_STRUCT))
         {
             std::swap(argTable[i], argTable[last]);
             last--;
@@ -1204,9 +1205,9 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 
     if (first < last)
     {
-        for (int i = first; i <= last; i++)
+        for (ssize_t i = first; i <= last; i++)
         {
-            GenTree* arg = argTable[i]->GetNode();
+            GenTree* arg = argTable[i]->use->GetNode();
 
             // Try to keep STRUCT typed LCL_VAR args in the same position they were when wrapped in OBJs
             // by setting the same costs an OBJ(ADDR(LCL_VAR|FLD)) tree would have.
@@ -1232,14 +1233,14 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 
         while (first < last)
         {
-            int maxCost      = argTable[first]->GetNode()->GetCostEx();
-            int maxCostIndex = first;
+            unsigned maxCost      = argTable[first]->use->GetNode()->GetCostEx();
+            ssize_t  maxCostIndex = first;
 
-            for (int i = first + 1; i <= last; i++)
+            for (ssize_t i = first + 1; i <= last; i++)
             {
-                if (argTable[i]->GetNode()->GetCostEx() > maxCost)
+                if (argTable[i]->use->GetNode()->GetCostEx() > maxCost)
                 {
-                    maxCost      = argTable[i]->GetNode()->GetCostEx();
+                    maxCost      = argTable[i]->use->GetNode()->GetCostEx();
                     maxCostIndex = i;
                 }
             }
