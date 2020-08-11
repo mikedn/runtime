@@ -3836,7 +3836,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
 #ifdef UNIX_AMD64_ABI
         var_types regType = genIsValidFloatReg(argInfo->GetRegNum(reg)) ? TYP_DOUBLE : TYP_LONG;
 #else
-        var_types regType   = TYP_I_IMPL;
+        var_types regType = TYP_I_IMPL;
 #endif
 
         list->AddField(this, gtNewZeroConNode(regType), reg * REGSIZE_BYTES, regType);
@@ -4037,70 +4037,49 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        GenTreeLclVarCommon* lclNode = arg->AsLclVarCommon();
-        unsigned             lclNum  = lclNode->GetLclNum();
-        LclVarDsc*           lcl     = lvaGetDesc(lclNum);
+        GenTreeLclVarCommon* lclNode   = arg->AsLclVarCommon();
+        unsigned             lclNum    = lclNode->GetLclNum();
+        LclVarDsc*           lcl       = lvaGetDesc(lclNum);
+        ClassLayout*         argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
 
-        unsigned  regCount;
+        unsigned regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
+        assert(regCount <= MAX_ARG_REG_COUNT);
         var_types regTypes[MAX_ARG_REG_COUNT] = {};
 
-#ifdef FEATURE_HFA
-        if (argInfo->IsHfaArg())
+        for (unsigned i = 0, regOffset = 0; i < regCount; i++)
         {
-            // If it's HFA then it should never be split.
-            assert(argInfo->GetSlotCount() == 0);
-
-            regCount = argInfo->GetRegCount();
-            assert(regCount <= MAX_ARG_REG_COUNT);
-
-            for (unsigned i = 0; i < regCount; i++)
-            {
-                regTypes[i] = argInfo->GetRegType(i);
-            }
-        }
-        else
-#endif // FEATURE_HFA
-        {
-            regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-            assert(regCount <= MAX_ARG_REG_COUNT);
-
-            ClassLayout* argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
-
-            for (unsigned i = 0, regOffset = 0; i < regCount; i++)
-            {
-                var_types regType;
+            var_types regType;
 
 #if FEATURE_ARG_SPLIT
-                if (i >= argInfo->GetRegCount())
-                {
-                    regType = TYP_I_IMPL;
-                }
-                else
+            if (i >= argInfo->GetRegCount())
+            {
+                regType = TYP_I_IMPL;
+            }
+            else
 #endif
-                {
-                    regType = argInfo->GetRegType(i);
-                }
+            {
+                regType = argInfo->GetRegType(i);
+            }
 
-                if (regType == TYP_I_IMPL)
-                {
-                    // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
-                    // but on other targets we only get TYP_I_IMPL. Also, other targets may have
-                    // split args and we don't have any type info for the stack slots.
+            if (regType == TYP_I_IMPL)
+            {
+                // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
+                // but on other targets we only get TYP_I_IMPL. Also, other targets may have
+                // split args and we don't have any type info for the stack slots.
 
-                    assert(regOffset % REGSIZE_BYTES == 0);
+                assert(regOffset % REGSIZE_BYTES == 0);
 
 #ifdef UNIX_AMD64_ABI
-                    assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
+                assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
 #else
-                    regType = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
+                regType   = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
 #endif
-                }
-
-                regTypes[i] = regType;
-                regOffset += varTypeSize(regType);
-
-                assert(regOffset <= roundUp(argLayout->GetSize(), REGSIZE_BYTES));
             }
+
+            regTypes[i] = regType;
+            regOffset += varTypeSize(regType);
+
+            assert(regOffset <= roundUp(argLayout->GetSize(), REGSIZE_BYTES));
         }
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
