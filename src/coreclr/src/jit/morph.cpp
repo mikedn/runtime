@@ -3976,9 +3976,6 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 #endif
 
-    CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
-    noway_assert(argClass != NO_CLASS_HANDLE);
-
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
     // Special case for SIMD args on ARM64 and UNIX_AMD64_ABI: they can be passed in multiple registers
     // so we need to build a FIELD_LIST. This make the arg tree multi use so we can't avoid introducing
@@ -4006,7 +4003,9 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
             if (tempLclNum == BAD_VAR_NUM)
             {
-                tempLclNum = lvaGrabTemp(true DEBUGARG("MultiReg SIMD arg"));
+                tempLclNum                    = lvaGrabTemp(true DEBUGARG("MultiReg SIMD arg"));
+                CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
+                noway_assert(argClass != NO_CLASS_HANDLE);
                 lvaSetStruct(tempLclNum, argClass, false);
                 tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
             }
@@ -4032,35 +4031,6 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 #endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
 
-    unsigned structSize = 0;
-
-    if (arg->GetType() != TYP_STRUCT)
-    {
-        structSize = genTypeSize(arg->GetType());
-        assert(structSize == info.compCompHnd->getClassSize(argClass));
-    }
-    else if (arg->OperIs(GT_OBJ))
-    {
-        GenTreeObj* argObj = arg->AsObj();
-        structSize         = argObj->GetLayout()->GetSize();
-        assert(structSize == info.compCompHnd->getClassSize(argClass));
-    }
-    else if (arg->OperIs(GT_LCL_VAR))
-    {
-        LclVarDsc* varDsc = lvaGetDesc(arg->AsLclVar());
-        structSize        = varDsc->lvExactSize;
-        assert(structSize == info.compCompHnd->getClassSize(argClass));
-    }
-    else if (arg->OperIs(GT_LCL_FLD))
-    {
-        structSize = arg->AsLclFld()->GetLayout(this)->GetSize();
-        assert(structSize == info.compCompHnd->getClassSize(argClass));
-    }
-    else
-    {
-        structSize = info.compCompHnd->getClassSize(argClass);
-    }
-
     unsigned  regCount                    = 0;
     var_types regTypes[MAX_ARG_REG_COUNT] = {};
 
@@ -4079,6 +4049,38 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
     else
 #endif // FEATURE_HFA
     {
+        CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
+        noway_assert(argClass != NO_CLASS_HANDLE);
+
+        unsigned structSize = 0;
+
+        if (arg->GetType() != TYP_STRUCT)
+        {
+            structSize = genTypeSize(arg->GetType());
+            assert(structSize == info.compCompHnd->getClassSize(argClass));
+        }
+        else if (arg->OperIs(GT_OBJ))
+        {
+            GenTreeObj* argObj = arg->AsObj();
+            structSize         = argObj->GetLayout()->GetSize();
+            assert(structSize == info.compCompHnd->getClassSize(argClass));
+        }
+        else if (arg->OperIs(GT_LCL_VAR))
+        {
+            LclVarDsc* varDsc = lvaGetDesc(arg->AsLclVar());
+            structSize        = varDsc->lvExactSize;
+            assert(structSize == info.compCompHnd->getClassSize(argClass));
+        }
+        else if (arg->OperIs(GT_LCL_FLD))
+        {
+            structSize = arg->AsLclFld()->GetLayout(this)->GetSize();
+            assert(structSize == info.compCompHnd->getClassSize(argClass));
+        }
+        else
+        {
+            structSize = info.compCompHnd->getClassSize(argClass);
+        }
+
         assert(structSize <= MAX_ARG_REG_COUNT * REGSIZE_BYTES);
         BYTE gcPtrs[MAX_ARG_REG_COUNT];
         regCount = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
