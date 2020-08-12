@@ -3212,10 +3212,9 @@ public:
     void lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars);
     void lvaDispVarSet(VARSET_VALARG_TP set);
 
-#endif
-
 #ifdef TARGET_ARMARCH
-    unsigned InferOpSizeAlign(GenTree* op);
+    unsigned lvaStressLclFldGetAlignment(GenTreeLclVar* lclNode);
+#endif
 #endif
 
 #ifdef TARGET_ARM

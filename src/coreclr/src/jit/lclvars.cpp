@@ -7612,7 +7612,7 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
 
     Compiler* const  pComp      = ((lvaStressLclFldArgs*)data->pCallbackData)->m_pCompiler;
     const bool       bFirstPass = ((lvaStressLclFldArgs*)data->pCallbackData)->m_bFirstPass;
-    const unsigned   lclNum     = lcl->AsLclVarCommon()->GetLclNum();
+    const unsigned   lclNum     = lcl->AsLclVar()->GetLclNum();
     var_types        type       = lcl->TypeGet();
     LclVarDsc* const varDsc     = pComp->lvaGetDesc(lclNum);
 
@@ -7682,7 +7682,7 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
 
 #ifdef TARGET_ARMARCH
         // We need to support alignment requirements to access memory on ARM ARCH
-        unsigned alignment = roundUp(pComp->InferOpSizeAlign(lcl), REGSIZE_BYTES);
+        unsigned alignment = pComp->lvaStressLclFldGetAlignment(lcl->AsLclVar());
         padding            = roundUp(padding, alignment);
 #endif // TARGET_ARMARCH
 
@@ -7728,48 +7728,22 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
 
 #ifdef TARGET_ARMARCH
 
-unsigned Compiler::InferOpSizeAlign(GenTree* op)
+unsigned Compiler::lvaStressLclFldGetAlignment(GenTreeLclVar* lclNode)
 {
-    if (op->TypeIs(TYP_STRUCT) || op->OperIsCopyBlkOp())
+    if (lclNode->TypeIs(TYP_STRUCT))
     {
-        op = op->gtEffectiveVal(true);
-
-        if (op->OperIs(GT_OBJ))
-        {
-            CORINFO_CLASS_HANDLE clsHnd = op->AsObj()->GetLayout()->GetClassHandle();
-            return roundUp(info.compCompHnd->getClassAlignmentRequirement(clsHnd), REGSIZE_BYTES);
-        }
-
-        if (op->OperIs(GT_LCL_FLD))
-        {
-            ClassLayout*         layout = op->AsLclFld()->GetLayout(this);
-            CORINFO_CLASS_HANDLE clsHnd = layout->GetClassHandle();
-            return roundUp(info.compCompHnd->getClassAlignmentRequirement(clsHnd), REGSIZE_BYTES);
-        }
-
-        if (op->OperIs(GT_LCL_VAR))
-        {
-            LclVarDsc* varDsc = lvaGetDesc(op->AsLclVar());
-            assert(varDsc->GetType() == TYP_STRUCT);
+        LclVarDsc* lcl = lvaGetDesc(lclNode);
+        assert(lcl->GetType() == TYP_STRUCT);
 #ifndef TARGET_64BIT
-            if (varDsc->lvStructDoubleAlign)
-            {
-                return REGSIZE_BYTES * 2;
-            }
-#endif
-            return REGSIZE_BYTES;
-        }
-
-        if (op->OperIs(GT_MKREFANY))
+        if (lcl->lvStructDoubleAlign)
         {
-            return REGSIZE_BYTES;
+            return REGSIZE_BYTES * 2;
         }
-
-        assert(!"Unhandled gtOper");
+#endif
         return REGSIZE_BYTES;
     }
 
-    return genTypeAlignments[op->GetType()];
+    return roundUp(static_cast<unsigned>(genTypeAlignments[lclNode->GetType()]), REGSIZE_BYTES);
 }
 
 #endif // TARGET_ARMARCH
