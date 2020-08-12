@@ -7683,7 +7683,7 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
 #ifdef TARGET_ARMARCH
         // We need to support alignment requirements to access memory on ARM ARCH
         unsigned alignment = 1;
-        pComp->codeGen->InferOpSizeAlign(lcl, &alignment);
+        pComp->InferOpSizeAlign(lcl, &alignment);
         alignment = roundUp(alignment, TARGET_POINTER_SIZE);
         padding   = roundUp(padding, alignment);
 #endif // TARGET_ARMARCH
@@ -7728,7 +7728,90 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
     return WALK_SKIP_SUBTREES;
 }
 
-/*****************************************************************************/
+#ifdef TARGET_ARMARCH
+
+unsigned Compiler::InferOpSizeAlign(GenTree* op, unsigned* alignmentWB)
+{
+    unsigned alignment = 0;
+    unsigned opSize    = 0;
+
+    if (op->gtType == TYP_STRUCT || op->OperIsCopyBlkOp())
+    {
+        opSize = InferStructOpSizeAlign(op, &alignment);
+    }
+    else
+    {
+        alignment = genTypeAlignments[op->TypeGet()];
+        opSize    = genTypeSizes[op->TypeGet()];
+    }
+
+    assert(opSize != 0);
+    assert(alignment != 0);
+
+    (*alignmentWB) = alignment;
+    return opSize;
+}
+
+unsigned Compiler::InferStructOpSizeAlign(GenTree* op, unsigned* alignmentWB)
+{
+    unsigned alignment = 0;
+    unsigned opSize    = 0;
+
+    while (op->gtOper == GT_COMMA)
+    {
+        op = op->AsOp()->gtOp2;
+    }
+
+    if (op->gtOper == GT_OBJ)
+    {
+        CORINFO_CLASS_HANDLE clsHnd = op->AsObj()->GetLayout()->GetClassHandle();
+        opSize                      = op->AsObj()->GetLayout()->GetSize();
+        alignment = roundUp(info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
+    }
+    else if (op->OperIs(GT_LCL_FLD))
+    {
+        ClassLayout*         layout = op->AsLclFld()->GetLayout(this);
+        CORINFO_CLASS_HANDLE clsHnd = layout->GetClassHandle();
+        opSize                      = layout->GetSize();
+        alignment = roundUp(info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
+    }
+    else if (op->gtOper == GT_LCL_VAR)
+    {
+        unsigned   varNum = op->AsLclVarCommon()->GetLclNum();
+        LclVarDsc* varDsc = lvaGetDesc(varNum);
+        assert(varDsc->lvType == TYP_STRUCT);
+        opSize = varDsc->lvSize();
+#ifndef TARGET_64BIT
+        if (varDsc->lvStructDoubleAlign)
+        {
+            alignment = TARGET_POINTER_SIZE * 2;
+        }
+        else
+#endif // !TARGET_64BIT
+        {
+            alignment = TARGET_POINTER_SIZE;
+        }
+    }
+    else if (op->gtOper == GT_MKREFANY)
+    {
+        opSize    = TARGET_POINTER_SIZE * 2;
+        alignment = TARGET_POINTER_SIZE;
+    }
+    else
+    {
+        assert(!"Unhandled gtOper");
+        opSize    = TARGET_POINTER_SIZE;
+        alignment = TARGET_POINTER_SIZE;
+    }
+
+    assert(opSize != 0);
+    assert(alignment != 0);
+
+    (*alignmentWB) = alignment;
+    return opSize;
+}
+
+#endif // TARGET_ARMARCH
 
 void Compiler::lvaStressLclFld()
 {

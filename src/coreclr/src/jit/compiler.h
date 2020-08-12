@@ -3214,6 +3214,11 @@ public:
 
 #endif
 
+#ifdef TARGET_ARMARCH
+    unsigned InferStructOpSizeAlign(GenTree* op, unsigned* alignmentWB);
+    unsigned InferOpSizeAlign(GenTree* op, unsigned* alignmentWB);
+#endif
+
 #ifdef TARGET_ARM
     int lvaFrameAddress(int varNum, bool mustBeFPBased, regNumber* pBaseReg, int addrModeOffset, bool isFloatUsage);
 #else

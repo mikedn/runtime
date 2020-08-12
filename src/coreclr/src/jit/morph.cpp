@@ -1955,7 +1955,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         bool passUsingIntRegs = passUsingFloatRegs ? false : (intArgRegNum < MAX_REG_ARG);
 
         // We don't use the "size" return value from InferOpSizeAlign().
-        codeGen->InferOpSizeAlign(argx, &argAlign);
+        InferOpSizeAlign(argx, &argAlign);
 
         argAlign = roundUp(argAlign, TARGET_POINTER_SIZE);
         argAlign /= TARGET_POINTER_SIZE;
