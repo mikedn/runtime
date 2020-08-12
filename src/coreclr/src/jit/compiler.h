@@ -3215,7 +3215,6 @@ public:
 #endif
 
 #ifdef TARGET_ARMARCH
-    unsigned InferStructOpSizeAlign(GenTree* op);
     unsigned InferOpSizeAlign(GenTree* op);
 #endif
 
