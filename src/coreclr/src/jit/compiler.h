@@ -2583,8 +2583,6 @@ public:
 
     GenTree* gtNewNothingNode();
 
-    GenTree* gtNewArgPlaceHolderNode(var_types type, CORINFO_CLASS_HANDLE clsHnd);
-
     GenTree* gtUnusedValNode(GenTree* expr);
 
     GenTreeCast* gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType);

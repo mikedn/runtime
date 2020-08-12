@@ -304,7 +304,6 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeArgPlace)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreePhiArg)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeAllocObj)     <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
@@ -1307,14 +1306,7 @@ AGAIN:
                 return true;
 
             case GT_LABEL:
-                return true;
-
             case GT_ARGPLACE:
-                if ((op1->gtType == TYP_STRUCT) &&
-                    (op1->AsArgPlace()->gtArgPlaceClsHnd != op2->AsArgPlace()->gtArgPlaceClsHnd))
-                {
-                    break;
-                }
                 return true;
 
             default:
@@ -6576,7 +6568,7 @@ GenTree* Compiler::gtCloneExpr(
                 goto DONE;
 
             case GT_ARGPLACE:
-                copy = gtNewArgPlaceHolderNode(tree->gtType, tree->AsArgPlace()->gtArgPlaceClsHnd);
+                copy = new (this, GT_ARGPLACE) GenTree(GT_ARGPLACE, tree->GetType());
                 goto DONE;
 
             case GT_FTN_ADDR:
@@ -9007,11 +8999,6 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
                     printf("(P?!)"); // Promoted struct
                 }
             }
-        }
-
-        if (tree->IsArgPlaceHolderNode() && (tree->AsArgPlace()->gtArgPlaceClsHnd != nullptr))
-        {
-            printf(" => [clsHnd=%08X]", dspPtr(tree->AsArgPlace()->gtArgPlaceClsHnd));
         }
 
         if (tree->gtOper == GT_RUNTIMELOOKUP)
@@ -16207,9 +16194,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 break;
             case GT_RET_EXPR:
                 structHnd = tree->AsRetExpr()->gtRetClsHnd;
-                break;
-            case GT_ARGPLACE:
-                structHnd = tree->AsArgPlace()->gtArgPlaceClsHnd;
                 break;
             case GT_INDEX:
                 structHnd = tree->AsIndex()->gtStructElemClass;

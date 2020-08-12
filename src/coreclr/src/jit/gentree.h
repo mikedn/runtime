@@ -6430,22 +6430,6 @@ struct GenTreeClsVar : public GenTree
 #endif
 };
 
-/* gtArgPlace -- 'register argument placeholder' (GT_ARGPLACE) */
-
-struct GenTreeArgPlace : public GenTree
-{
-    CORINFO_CLASS_HANDLE gtArgPlaceClsHnd; // Needed when we have a TYP_STRUCT argument
-
-    GenTreeArgPlace(var_types type, CORINFO_CLASS_HANDLE clsHnd) : GenTree(GT_ARGPLACE, type), gtArgPlaceClsHnd(clsHnd)
-    {
-    }
-#if DEBUGGABLE_GENTREE
-    GenTreeArgPlace() : GenTree()
-    {
-    }
-#endif
-};
-
 /* gtPhiArg -- phi node rhs argument, var = phi(phiarg, phiarg, phiarg...); GT_PHI_ARG */
 struct GenTreePhiArg : public GenTreeLclVarCommon
 {

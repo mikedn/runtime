@@ -1332,16 +1332,7 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         {
             JITDUMPTREE(arg, "Creating placeholder for arg:\n");
 
-            // For a struct type we also need to record the class handle of the arg.
-            CORINFO_CLASS_HANDLE argClass = NO_CLASS_HANDLE;
-
-            if (arg->TypeIs(TYP_STRUCT))
-            {
-                argClass = compiler->gtGetStructHandleIfPresent(arg);
-                noway_assert(argClass != NO_CLASS_HANDLE);
-            }
-
-            setupArg = compiler->gtNewArgPlaceHolderNode(arg->GetType(), argClass);
+            setupArg = new (compiler, GT_ARGPLACE) GenTree(GT_ARGPLACE, arg->GetType());
 
             // No temp needed - the arg tree itself is moved to the late arg list.
             lateArg = arg;
