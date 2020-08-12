@@ -3980,190 +3980,7 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        GenTreeLclVarCommon* lclNode   = arg->AsLclVarCommon();
-        unsigned             lclNum    = lclNode->GetLclNum();
-        LclVarDsc*           lcl       = lvaGetDesc(lclNum);
-        ClassLayout*         argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
-
-#ifdef TARGET_ARM
-        // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
-        // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
-        //
-        // However, attempting to enable this on other targets results in code size regressions and disabling
-        // this on ARM32 results in code size improvements. More investigation is required to determine which
-        // is better so for now let's keep this as it was.
-        //
-        // Speaking of how it was - this code was originally in fgMorphArgs so the temp was introduced before
-        // ArgsComplete/SortArgs/EvalArgsToTemps. Neither place is ideal:
-        //    - Introducing one temp before ArgsComplete is problematic because ArgsComplete can blindly
-        //      introduce even more temps due to the presence of GTF_ASG.
-        //    - Introducing a temp for a promoted local after ArgsComplete "misses" the nested call args case
-        //      so we risk spilling the promoted fields before the call, reload them after the call and then
-        //      store them again to memory (because this temp is DNER).
-        // What may be best is to introduce the temp in ArgsComplete itself so we can do it before any nested
-        // call and avoid unnecessary spilling. But it may not be worth the trouble:
-        //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
-        //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
-        //    - Doing this here instead of fgMorphArgs shows practically no diffs (actually a 8 bytes improvement).
-        //    - Doing this here minimizes the use of the messy "late" arg mechanism.
-
-        GenTree* tempAssign = nullptr;
-
-        if (lclNode->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
-        {
-            unsigned tempLclNum = abiAllocateStructArgTemp(argLayout->GetClassHandle());
-
-            lcl = lvaGetDesc(lclNum);
-
-            GenTreeLclVar* dst = gtNewLclvNode(tempLclNum, lcl->GetType());
-            dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-            tempAssign = gtNewOperNode(GT_ASG, lcl->GetType(), dst, lclNode);
-            tempAssign->gtFlags |= GTF_ASG;
-            tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
-
-            lclNum = tempLclNum;
-            lcl    = lvaGetDesc(lclNum);
-        }
-#endif // TARGET_ARM
-
-        unsigned regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-        assert(regCount <= MAX_ARG_REG_COUNT);
-        var_types regTypes[MAX_ARG_REG_COUNT] = {};
-
-        for (unsigned i = 0, regOffset = 0; i < regCount; i++)
-        {
-            var_types regType;
-
-#if FEATURE_ARG_SPLIT
-            if (i >= argInfo->GetRegCount())
-            {
-                regType = TYP_I_IMPL;
-            }
-            else
-#endif
-            {
-                regType = argInfo->GetRegType(i);
-            }
-
-            if (regType == TYP_I_IMPL)
-            {
-                // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
-                // but on other targets we only get TYP_I_IMPL. Also, other targets may have
-                // split args and we don't have any type info for the stack slots.
-
-                assert(regOffset % REGSIZE_BYTES == 0);
-
-#ifdef UNIX_AMD64_ABI
-                assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
-#else
-                regType   = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
-#endif
-            }
-
-            regTypes[i] = regType;
-            regOffset += varTypeSize(regType);
-
-            assert(regOffset <= roundUp(argLayout->GetSize(), REGSIZE_BYTES));
-        }
-
-#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-        if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 2) && (regCount == 2))
-        {
-            // If we have 2 promoted fields that start at offset 0 and 8 then we can pass them using FIELD_LIST.
-            // If there are more fields it means that 2 or more fields go into the same register, currently this
-            // isn't handled and LCL_FLDs will be used instead, making the struct var dependent promoted.
-
-            // TODO-MIKE-Cleanup: This is a very primitive version of abiMorphPromotedStructArgToFieldList. The
-            // difference is that abiMorphPromotedStructArgToFieldList is currently used only with independent
-            // promoted structs while this is used, mostly as a fallback, in the dependent case. It would likely
-            // be better to get rid of this and use abiMorphPromotedStructArgToFieldList in all cases.
-            //
-            // It may seem pointless to attempt to use the promoted fields in the dependent case, since they're
-            // in memory anyway we could just use the non-promoted code path which creates LCL_FLDs. But:
-            //   - The generated LCL_FLDs do not have field sequences so we lose CSE, const prop and whatever else
-            //     relies on value numbering.
-            //   - The generated LCL_FLDs have type TYP_LONG even when perhaps the type was a smaller int, this
-            //     makes the code larger due to extra REX prefixes.
-
-            unsigned loVarNum = lvaGetFieldLocal(lcl, 0);
-            unsigned hiVarNum = lvaGetFieldLocal(lcl, 8);
-
-            if ((loVarNum != BAD_VAR_NUM) && (hiVarNum != BAD_VAR_NUM))
-            {
-                LclVarDsc* loVarDsc = lvaGetDesc(loVarNum);
-                LclVarDsc* hiVarDsc = lvaGetDesc(hiVarNum);
-
-                var_types loType = loVarDsc->GetType();
-                var_types hiType = hiVarDsc->GetType();
-
-                if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(regTypes[0])) &&
-                    (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(regTypes[1])))
-                {
-                    GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
-                    newArg->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
-                    newArg->AddField(this, gtNewLclvNode(hiVarNum, hiType), 8, hiType);
-
-                    return newArg;
-                }
-            }
-        }
-#endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-
-        unsigned  lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
-        unsigned  lclSize   = lvaLclExactSize(lclNum);
-        var_types lclType   = lcl->GetType();
-#ifdef FEATURE_SIMD
-        bool lclIsSIMD = varTypeIsSIMD(lclType) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
-#endif
-
-        GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-        for (unsigned i = 0, regOffset = 0; i < regCount; i++)
-        {
-            var_types regType     = regTypes[i];
-            unsigned  regSize     = varTypeSize(regType);
-            unsigned  fieldOffset = lclOffset + regOffset;
-            GenTree*  fieldNode;
-
-            if (fieldOffset >= lclSize)
-            {
-                // Make sure we add a field for every arg register, even if we somehow end up with
-                // a smaller local variable as source. If a field is missing, the backend may get
-                // confused and fail to allocate the register to this arg and instead allocated it
-                // to the next arg. Just passing a zero is safer and easier to debug.
-                fieldNode = gtNewZeroConNode(regType);
-            }
-#ifdef FEATURE_SIMD
-            else if (lclIsSIMD && varTypeIsFloating(regType) && (fieldOffset % regSize == 0))
-            {
-                // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
-                // in a SIMD register and at the proper position.
-
-                GenTreeIntCon* fieldIndex = gtNewIconNode(fieldOffset / regSize);
-                fieldNode                 = gtNewLclvNode(lclNum, lclType);
-                fieldNode = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, lclSize, fieldNode, fieldIndex);
-            }
-            else
-#endif
-            {
-                fieldNode = gtNewLclFldNode(lclNum, regType, fieldOffset);
-
-                lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(DNER_LocalField));
-            }
-
-#ifdef TARGET_ARM
-            if (tempAssign != nullptr)
-            {
-                fieldNode  = gtNewOperNode(GT_COMMA, fieldNode->GetType(), tempAssign, fieldNode);
-                tempAssign = nullptr;
-            }
-#endif
-
-            newArg->AddField(this, fieldNode, regOffset, regType);
-            regOffset += regSize;
-        }
-
-        return newArg;
+        return abiMorphMultiregLclArg(argInfo, arg->AsLclVarCommon());
     }
 
     if (arg->OperIs(GT_OBJ))
@@ -4236,6 +4053,193 @@ GenTreeFieldList* Compiler::abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTre
 }
 
 #endif // FEATURE_SIMD
+
+GenTree* Compiler::abiMorphMultiregLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg)
+{
+    unsigned     lclNum    = arg->GetLclNum();
+    LclVarDsc*   lcl       = lvaGetDesc(lclNum);
+    ClassLayout* argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
+
+#ifdef TARGET_ARM
+    // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
+    // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
+    //
+    // However, attempting to enable this on other targets results in code size regressions and disabling
+    // this on ARM32 results in code size improvements. More investigation is required to determine which
+    // is better so for now let's keep this as it was.
+    //
+    // Speaking of how it was - this code was originally in fgMorphArgs so the temp was introduced before
+    // ArgsComplete/SortArgs/EvalArgsToTemps. Neither place is ideal:
+    //    - Introducing one temp before ArgsComplete is problematic because ArgsComplete can blindly
+    //      introduce even more temps due to the presence of GTF_ASG.
+    //    - Introducing a temp for a promoted local after ArgsComplete "misses" the nested call args case
+    //      so we risk spilling the promoted fields before the call, reload them after the call and then
+    //      store them again to memory (because this temp is DNER).
+    // What may be best is to introduce the temp in ArgsComplete itself so we can do it before any nested
+    // call and avoid unnecessary spilling. But it may not be worth the trouble:
+    //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
+    //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
+    //    - Doing this here instead of fgMorphArgs shows practically no diffs (actually a 8 bytes improvement).
+    //    - Doing this here minimizes the use of the messy "late" arg mechanism.
+
+    GenTree* tempAssign = nullptr;
+
+    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
+    {
+        unsigned tempLclNum = abiAllocateStructArgTemp(argLayout->GetClassHandle());
+
+        lcl = lvaGetDesc(lclNum);
+
+        GenTreeLclVar* dst = gtNewLclvNode(tempLclNum, lcl->GetType());
+        dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+        tempAssign = gtNewOperNode(GT_ASG, lcl->GetType(), dst, arg);
+        tempAssign->gtFlags |= GTF_ASG;
+        tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
+
+        lclNum = tempLclNum;
+        lcl    = lvaGetDesc(lclNum);
+    }
+#endif // TARGET_ARM
+
+    unsigned regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
+    assert(regCount <= MAX_ARG_REG_COUNT);
+    var_types regTypes[MAX_ARG_REG_COUNT] = {};
+
+    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+    {
+        var_types regType;
+
+#if FEATURE_ARG_SPLIT
+        if (i >= argInfo->GetRegCount())
+        {
+            regType = TYP_I_IMPL;
+        }
+        else
+#endif
+        {
+            regType = argInfo->GetRegType(i);
+        }
+
+        if (regType == TYP_I_IMPL)
+        {
+            // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
+            // but on other targets we only get TYP_I_IMPL. Also, other targets may have
+            // split args and we don't have any type info for the stack slots.
+
+            assert(regOffset % REGSIZE_BYTES == 0);
+
+#ifdef UNIX_AMD64_ABI
+            assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
+#else
+            regType = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
+#endif
+        }
+
+        regTypes[i] = regType;
+        regOffset += varTypeSize(regType);
+
+        assert(regOffset <= roundUp(argLayout->GetSize(), REGSIZE_BYTES));
+    }
+
+#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
+    if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 2) && (regCount == 2))
+    {
+        // If we have 2 promoted fields that start at offset 0 and 8 then we can pass them using FIELD_LIST.
+        // If there are more fields it means that 2 or more fields go into the same register, currently this
+        // isn't handled and LCL_FLDs will be used instead, making the struct var dependent promoted.
+
+        // TODO-MIKE-Cleanup: This is a very primitive version of abiMorphPromotedStructArgToFieldList. The
+        // difference is that abiMorphPromotedStructArgToFieldList is currently used only with independent
+        // promoted structs while this is used, mostly as a fallback, in the dependent case. It would likely
+        // be better to get rid of this and use abiMorphPromotedStructArgToFieldList in all cases.
+        //
+        // It may seem pointless to attempt to use the promoted fields in the dependent case, since they're
+        // in memory anyway we could just use the non-promoted code path which creates LCL_FLDs. But:
+        //   - The generated LCL_FLDs do not have field sequences so we lose CSE, const prop and whatever else
+        //     relies on value numbering.
+        //   - The generated LCL_FLDs have type TYP_LONG even when perhaps the type was a smaller int, this
+        //     makes the code larger due to extra REX prefixes.
+
+        unsigned loVarNum = lvaGetFieldLocal(lcl, 0);
+        unsigned hiVarNum = lvaGetFieldLocal(lcl, 8);
+
+        if ((loVarNum != BAD_VAR_NUM) && (hiVarNum != BAD_VAR_NUM))
+        {
+            LclVarDsc* loVarDsc = lvaGetDesc(loVarNum);
+            LclVarDsc* hiVarDsc = lvaGetDesc(hiVarNum);
+
+            var_types loType = loVarDsc->GetType();
+            var_types hiType = hiVarDsc->GetType();
+
+            if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(regTypes[0])) &&
+                (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(regTypes[1])))
+            {
+                GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
+                newArg->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
+                newArg->AddField(this, gtNewLclvNode(hiVarNum, hiType), 8, hiType);
+
+                return newArg;
+            }
+        }
+    }
+#endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
+
+    unsigned  lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
+    unsigned  lclSize   = lvaLclExactSize(lclNum);
+    var_types lclType   = lcl->GetType();
+#ifdef FEATURE_SIMD
+    bool lclIsSIMD = varTypeIsSIMD(lclType) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
+#endif
+
+    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+    {
+        var_types regType     = regTypes[i];
+        unsigned  regSize     = varTypeSize(regType);
+        unsigned  fieldOffset = lclOffset + regOffset;
+        GenTree*  fieldNode;
+
+        if (fieldOffset >= lclSize)
+        {
+            // Make sure we add a field for every arg register, even if we somehow end up with
+            // a smaller local variable as source. If a field is missing, the backend may get
+            // confused and fail to allocate the register to this arg and instead allocated it
+            // to the next arg. Just passing a zero is safer and easier to debug.
+            fieldNode = gtNewZeroConNode(regType);
+        }
+#ifdef FEATURE_SIMD
+        else if (lclIsSIMD && varTypeIsFloating(regType) && (fieldOffset % regSize == 0))
+        {
+            // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
+            // in a SIMD register and at the proper position.
+
+            GenTreeIntCon* fieldIndex = gtNewIconNode(fieldOffset / regSize);
+            fieldNode                 = gtNewLclvNode(lclNum, lclType);
+            fieldNode = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, lclSize, fieldNode, fieldIndex);
+        }
+        else
+#endif
+        {
+            fieldNode = gtNewLclFldNode(lclNum, regType, fieldOffset);
+
+            lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(DNER_LocalField));
+        }
+
+#ifdef TARGET_ARM
+        if (tempAssign != nullptr)
+        {
+            fieldNode  = gtNewOperNode(GT_COMMA, fieldNode->GetType(), tempAssign, fieldNode);
+            tempAssign = nullptr;
+        }
+#endif
+
+        fieldList->AddField(this, fieldNode, regOffset, regType);
+        regOffset += regSize;
+    }
+
+    return fieldList;
+}
 
 GenTree* Compiler::abiMorphMultiregObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
 {
