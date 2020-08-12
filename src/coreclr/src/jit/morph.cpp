@@ -4168,123 +4168,7 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_OBJ))
     {
-        ClassLayout* argLayout  = arg->AsObj()->GetLayout();
-        unsigned     argSize    = argLayout->GetSize();
-        GenTree*     addr       = arg->AsObj()->GetAddr();
-        ssize_t      addrOffset = 0;
-
-        // Extract constant offsets that appear when passing struct typed class fields
-        // so they can be folded with the register offset.
-        if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
-        {
-            ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-
-#if defined(TARGET_AMD64)
-            if ((offset >= INT32_MIN) && (offset <= INT32_MAX - argSize))
-#elif defined(TARGET_ARMARCH)
-            // For simplicity limit the offset to values that are valid address mode
-            // offsets no matter what the indirection type is.
-            if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(argSize)))
-#else
-#error Unknown target.
-#endif
-            {
-                addr       = addr->AsOp()->GetOp(0);
-                addrOffset = offset;
-            }
-        }
-
-        // We need to use the address tree multiple times. If it has side effects or
-        // it is too expensive to evaluate then we need to "spill" it to a temp.
-        bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
-
-        if (!addrTempRequired)
-        {
-            gtPrepareCost(addr);
-            addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
-        }
-
-        GenTree* addrAsg = nullptr;
-
-        if (addrTempRequired)
-        {
-            unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
-            GenTree* addrDef    = gtNewLclvNode(addrLclNum, addr->GetType());
-
-            addrAsg = gtNewAssignNode(addrDef, addr);
-            addr    = gtNewLclvNode(addrLclNum, addr->GetType());
-        }
-
-        GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-        unsigned regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-
-        for (unsigned i = 0, regOffset = 0; i < regCount; i++)
-        {
-            var_types regType;
-
-#if FEATURE_ARG_SPLIT
-            if (i >= argInfo->GetRegCount())
-            {
-                regType = TYP_I_IMPL;
-            }
-            else
-#endif
-            {
-                regType = argInfo->GetRegType(i);
-            }
-
-            if (regType == TYP_I_IMPL)
-            {
-                // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
-                // but on other targets we only get TYP_I_IMPL. Also, other targets may have
-                // split args and we don't have any type info for the stack slots.
-
-                assert(regOffset % REGSIZE_BYTES == 0);
-
-#ifdef UNIX_AMD64_ABI
-                assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
-#else
-                regType = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
-#endif
-            }
-
-            GenTree* regAddr = (i == 0) ? addr : gtCloneExpr(addr);
-            GenTree* regIndir;
-            unsigned regIndirSize;
-
-            if (!varTypeIsIntegral(regType) || (argSize - regOffset >= REGSIZE_BYTES))
-            {
-                regIndirSize = varTypeSize(regType);
-
-                if (addrOffset + regOffset != 0)
-                {
-                    regAddr = gtNewOperNode(GT_ADD, varTypePointerAdd(regAddr->GetType()), regAddr,
-                                            gtNewIconNode(addrOffset + regOffset, TYP_I_IMPL));
-                    regAddr->gtFlags |= GTF_DONT_CSE;
-                }
-
-                regIndir = gtNewIndir(regType, regAddr);
-                regIndir->gtFlags |= GTF_GLOB_REF;
-            }
-            else
-            {
-                regIndirSize = argSize - regOffset;
-                regIndir     = abiNewMultiloadIndir(regAddr, addrOffset + regOffset, regIndirSize);
-            }
-
-            if ((i == 0) && (addrAsg != nullptr))
-            {
-                regIndir = gtNewOperNode(GT_COMMA, regType, addrAsg, regIndir);
-            }
-
-            newArg->AddField(this, regIndir, regOffset, regType);
-            regOffset += regIndirSize;
-
-            assert(regOffset <= argSize);
-        }
-
-        return newArg;
+        return abiMorphMultiregObjArg(argInfo, arg->AsObj());
     }
 
 #ifdef FEATURE_SIMD
@@ -4352,6 +4236,123 @@ GenTreeFieldList* Compiler::abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTre
 }
 
 #endif // FEATURE_SIMD
+
+GenTree* Compiler::abiMorphMultiregObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
+{
+    ClassLayout* argLayout  = arg->GetLayout();
+    unsigned     argSize    = argLayout->GetSize();
+    GenTree*     addr       = arg->GetAddr();
+    ssize_t      addrOffset = 0;
+
+    // Extract constant offsets that appear when passing struct typed class fields
+    // so they can be folded with the register offset.
+    if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
+    {
+        ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+
+#if defined(TARGET_AMD64)
+        if ((offset >= INT32_MIN) && (offset <= INT32_MAX - argSize))
+#elif defined(TARGET_ARMARCH)
+        // For simplicity limit the offset to values that are valid address mode
+        // offsets no matter what the indirection type is.
+        if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(argSize)))
+#else
+#error Unknown target.
+#endif
+        {
+            addr       = addr->AsOp()->GetOp(0);
+            addrOffset = offset;
+        }
+    }
+
+    // We need to use the address tree multiple times. If it has side effects or
+    // it is too expensive to evaluate then we need to "spill" it to a temp.
+    bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
+
+    if (!addrTempRequired)
+    {
+        gtPrepareCost(addr);
+        addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
+    }
+
+    GenTree* addrAsg = nullptr;
+
+    if (addrTempRequired)
+    {
+        unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
+        GenTree* addrDef    = gtNewLclvNode(addrLclNum, addr->GetType());
+
+        addrAsg = gtNewAssignNode(addrDef, addr);
+        addr    = gtNewLclvNode(addrLclNum, addr->GetType());
+    }
+
+    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    unsigned regCount = argInfo->GetRegCount();
+#if FEATURE_ARG_SPLIT
+    regCount += argInfo->GetSlotCount();
+#endif
+
+    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+    {
+#if FEATURE_ARG_SPLIT
+        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
+        var_types regType = argInfo->GetRegType(i);
+#endif
+
+        if (regType == TYP_I_IMPL)
+        {
+            // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
+            // but on other targets we only get TYP_I_IMPL. Also, other targets may have
+            // split args and we don't have any type info for the stack slots.
+
+            assert(regOffset % REGSIZE_BYTES == 0);
+
+#ifdef UNIX_AMD64_ABI
+            assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
+#else
+            regType       = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
+#endif
+        }
+
+        GenTree* regAddr = (i == 0) ? addr : gtCloneExpr(addr);
+        GenTree* regIndir;
+        unsigned regIndirSize;
+
+        if (!varTypeIsIntegral(regType) || (argSize - regOffset >= REGSIZE_BYTES))
+        {
+            regIndirSize = varTypeSize(regType);
+
+            if (addrOffset + regOffset != 0)
+            {
+                regAddr = gtNewOperNode(GT_ADD, varTypePointerAdd(regAddr->GetType()), regAddr,
+                                        gtNewIconNode(addrOffset + regOffset, TYP_I_IMPL));
+                regAddr->gtFlags |= GTF_DONT_CSE;
+            }
+
+            regIndir = gtNewIndir(regType, regAddr);
+            regIndir->gtFlags |= GTF_GLOB_REF;
+        }
+        else
+        {
+            regIndirSize = argSize - regOffset;
+            regIndir     = abiNewMultiloadIndir(regAddr, addrOffset + regOffset, regIndirSize);
+        }
+
+        if ((i == 0) && (addrAsg != nullptr))
+        {
+            regIndir = gtNewOperNode(GT_COMMA, regType, addrAsg, regIndir);
+        }
+
+        fieldList->AddField(this, regIndir, regOffset, regType);
+        regOffset += regIndirSize;
+
+        assert(regOffset <= argSize);
+    }
+
+    return fieldList;
+}
 
 GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize)
 {

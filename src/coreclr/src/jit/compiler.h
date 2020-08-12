@@ -9883,6 +9883,7 @@ public:
 #if FEATURE_MULTIREG_ARGS
     void abiMorphMultiregStructArgs(GenTreeCall* call);
     GenTree* abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg);
+    GenTree* abiMorphMultiregObjArg(CallArgInfo* argInfo, GenTreeObj* arg);
     GenTree* abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
 #if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
     bool abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
