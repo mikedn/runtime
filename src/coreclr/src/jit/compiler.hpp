@@ -1587,6 +1587,15 @@ inline unsigned Compiler::lvaNewTemp(ClassLayout* layout, bool shortLifetime DEB
     return lclNum;
 }
 
+inline unsigned Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason))
+{
+    assert(info.compCompHnd->isValueClass(classHandle));
+
+    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    lvaSetStruct(lclNum, classHandle, false);
+    return lclNum;
+}
+
 /*****************************************************************************
  *
  *  Allocate a temporary variable or a set of temp variables.

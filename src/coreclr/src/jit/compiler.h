@@ -3185,6 +3185,7 @@ public:
 
     unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
+    unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
 
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason));
@@ -9886,6 +9887,9 @@ public:
 #if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
     bool abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
     GenTreeFieldList* abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
+#endif
+#ifdef FEATURE_SIMD
+    GenTreeFieldList* abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTree* arg);
 #endif
 #endif
 #ifndef TARGET_X86

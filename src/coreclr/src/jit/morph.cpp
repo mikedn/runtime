@@ -3976,61 +3976,6 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 #endif
 
-#if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-    // Special case for SIMD args on ARM64 and UNIX_AMD64_ABI: they can be passed in multiple registers
-    // so we need to build a FIELD_LIST. This make the arg tree multi use so we can't avoid introducing
-    // a temp local but at least we can avoid making the temp DNER by extracting the registers values
-    // we need by using SIMDIntrinsicGetItem.
-
-    if (varTypeIsSIMD(arg->GetType()) && !arg->OperIs(GT_OBJ, GT_LCL_FLD, GT_LCL_VAR) &&
-#ifdef TARGET_ARM64
-        (argInfo->GetRegCount() >= 2) && (argInfo->GetRegCount() <= 4) && (argInfo->GetRegType() == TYP_FLOAT)
-#else
-        (argInfo->GetRegCount() == 2) && (argInfo->GetRegType(0) == TYP_DOUBLE) &&
-        (((argInfo->GetRegType(1) == TYP_FLOAT) || (argInfo->GetRegType(1) == TYP_DOUBLE)))
-#endif
-            )
-    {
-        unsigned          tempLclNum = BAD_VAR_NUM;
-        GenTreeFieldList* newArg     = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-        for (unsigned i = 0, offset = 0; i < argInfo->GetRegCount(); i++)
-        {
-            var_types fieldType = argInfo->GetRegType(i);
-            GenTree*  fieldNode;
-
-            GenTree* tempAssign = nullptr;
-
-            if (tempLclNum == BAD_VAR_NUM)
-            {
-                tempLclNum                    = lvaGrabTemp(true DEBUGARG("MultiReg SIMD arg"));
-                CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
-                noway_assert(argClass != NO_CLASS_HANDLE);
-                lvaSetStruct(tempLclNum, argClass, false);
-                tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
-            }
-
-            // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
-            // in a SIMD register and at the proper position.
-
-            fieldNode = gtNewSIMDNode(fieldType, SIMDIntrinsicGetItem, fieldType, varTypeSize(arg->GetType()),
-                                      gtNewLclvNode(tempLclNum, arg->GetType()),
-                                      gtNewIconNode(offset / varTypeSize(fieldType)));
-
-            if (tempAssign != nullptr)
-            {
-                fieldNode = gtNewOperNode(GT_COMMA, fieldType, tempAssign, fieldNode);
-            }
-
-            newArg->AddField(this, fieldNode, offset, fieldType);
-
-            offset += varTypeSize(fieldType);
-        }
-
-        return newArg;
-    }
-#endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-
     assert(varTypeIsStruct(arg->GetType()));
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
@@ -4342,8 +4287,61 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
         return newArg;
     }
 
+#ifdef FEATURE_SIMD
+    // If it's neither a local nor OBJ then it must be an arbitrary SIMD tree.
+    return abiMorphMultiregSimdArg(argInfo, arg);
+#else
     unreached();
+#endif
 }
+
+#ifdef FEATURE_SIMD
+
+GenTreeFieldList* Compiler::abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTree* arg)
+{
+    assert(varTypeIsSIMD(arg->GetType()));
+    assert(arg->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ));
+
+#if defined(TARGET_ARM64)
+    assert((argInfo->GetRegCount() >= 2) && (argInfo->GetRegCount() <= 4));
+    assert(argInfo->GetRegType() == TYP_FLOAT);
+#elif defined(UNIX_AMD64_ABI)
+    assert(argInfo->GetRegCount() == 2);
+    assert(argInfo->GetRegType(0) == TYP_DOUBLE);
+    assert((argInfo->GetRegType(1) == TYP_FLOAT) || (argInfo->GetRegType(1) == TYP_DOUBLE));
+#else
+#error Unknown target.
+#endif
+
+    unsigned tempLclNum = lvaNewTemp(gtGetStructHandle(arg), true DEBUGARG("multi-reg SIMD arg temp"));
+    GenTree* tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
+
+    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    for (unsigned i = 0, offset = 0; i < argInfo->GetRegCount(); i++)
+    {
+        var_types fieldType = argInfo->GetRegType(i);
+        GenTree*  fieldNode = gtNewLclvNode(tempLclNum, arg->GetType());
+
+        // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
+        // in a SIMD register and at the proper position.
+
+        fieldNode = gtNewSIMDNode(fieldType, SIMDIntrinsicGetItem, fieldType, varTypeSize(arg->GetType()), fieldNode,
+                                  gtNewIconNode(offset / varTypeSize(fieldType)));
+
+        if (i == 0)
+        {
+            fieldNode = gtNewOperNode(GT_COMMA, fieldType, tempAssign, fieldNode);
+        }
+
+        fieldList->AddField(this, fieldNode, offset, fieldType);
+        offset += varTypeSize(fieldType);
+    }
+
+    return fieldList;
+}
+
+#endif // FEATURE_SIMD
 
 GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize)
 {
