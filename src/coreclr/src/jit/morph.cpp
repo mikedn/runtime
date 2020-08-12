@@ -4302,11 +4302,16 @@ GenTreeFieldList* Compiler::abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTre
     assert(varTypeIsSIMD(arg->GetType()));
     assert(arg->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ));
 
+    unsigned regCount = argInfo->GetRegCount();
+#if FEATURE_ARG_SPLIT
+    regCount += argInfo->GetSlotCount();
+#endif
+
 #if defined(TARGET_ARM64)
-    assert((argInfo->GetRegCount() >= 2) && (argInfo->GetRegCount() <= 4));
-    assert(argInfo->GetRegType() == TYP_FLOAT);
+    assert((regCount >= 2) && (regCount <= 4));
+    assert((argInfo->GetRegType() == TYP_FLOAT) || (argInfo->GetRegType() == TYP_I_IMPL));
 #elif defined(UNIX_AMD64_ABI)
-    assert(argInfo->GetRegCount() == 2);
+    assert(regCount == 2);
     assert(argInfo->GetRegType(0) == TYP_DOUBLE);
     assert((argInfo->GetRegType(1) == TYP_FLOAT) || (argInfo->GetRegType(1) == TYP_DOUBLE));
 #else
@@ -4318,10 +4323,15 @@ GenTreeFieldList* Compiler::abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTre
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-    for (unsigned i = 0, offset = 0; i < argInfo->GetRegCount(); i++)
+    for (unsigned i = 0, offset = 0; i < regCount; i++)
     {
+#if FEATURE_ARG_SPLIT
+        var_types fieldType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
         var_types fieldType = argInfo->GetRegType(i);
-        GenTree*  fieldNode = gtNewLclvNode(tempLclNum, arg->GetType());
+#endif
+
+        GenTree* fieldNode = gtNewLclvNode(tempLclNum, arg->GetType());
 
         // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
         // in a SIMD register and at the proper position.
