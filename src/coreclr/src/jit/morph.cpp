@@ -1288,34 +1288,17 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         GenTree* setupArg = nullptr;
         GenTree* lateArg  = nullptr;
 
-        // fgMorphArgs should have transformed all MKREFANY args.
-        assert(!arg->OperIs(GT_MKREFANY));
-
         if (argInfo->HasTemp())
         {
             JITDUMPTREE(arg, "Arg temp is already created:\n");
 
-            // fgMorphArgs creates temps only for implicit by-ref args or MKREFANY args,
-            // which makes handling this case trivial - the late arg is the address of
-            // the temp local or a use of the temp local. In the later case the LCL_VAR
-            // will either be used as is, if it's a stack arg, or it will be morphed to
-            // a FIELD_LIST in pass 2.
+            // fgMorphArgs creates temps only for implicit by-ref args, which makes handling
+            // this case trivial - the late arg is the address of the created temp local.
 
-            if (argInfo->passedByRef)
-            {
-                compiler->lvaSetVarAddrExposed(argInfo->GetTempLclNum());
+            assert(argInfo->passedByRef);
 
-                lateArg = compiler->gtNewLclVarAddrNode(argInfo->GetTempLclNum());
-            }
-            else
-            {
-                LclVarDsc* tempLcl = compiler->lvaGetDesc(argInfo->GetTempLclNum());
-
-                assert(tempLcl->lvVerTypeInfo.GetClassHandle() == compiler->impGetRefAnyClass());
-                assert(argInfo->GetRegCount() + argInfo->GetSlotCount() == 2);
-
-                lateArg = compiler->gtNewLclvNode(argInfo->GetTempLclNum(), tempLcl->GetType());
-            }
+            compiler->lvaSetVarAddrExposed(argInfo->GetTempLclNum());
+            lateArg = compiler->gtNewLclVarAddrNode(argInfo->GetTempLclNum());
         }
         else if (argInfo->IsTempNeeded())
         {
@@ -1325,11 +1308,22 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             LclVarDsc* tempLcl    = compiler->lvaGetDesc(tempLclNum);
 
             argInfo->SetTempLclNum(tempLclNum);
-            setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
 
-            if (setupArg->OperIsCopyBlkOp())
+#ifndef TARGET_X86
+            if (arg->OperIs(GT_MKREFANY))
             {
-                setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
+                compiler->lvaSetStruct(tempLclNum, compiler->impGetRefAnyClass(), false);
+                setupArg = compiler->abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp());
+            }
+            else
+#endif
+            {
+                setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
+
+                if (setupArg->OperIsCopyBlkOp())
+                {
+                    setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
+                }
             }
 
             lateArg = compiler->gtNewLclvNode(tempLclNum, varActualType(arg->GetType()));
@@ -2603,16 +2597,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             abiMorphStructStackArg(argInfo, arg);
         }
 #else // !TARGET_X86
-        if (arg->OperIs(GT_MKREFANY))
-        {
-            abiMorphMkRefAnyArg(argInfo, arg->AsOp());
-#if FEATURE_MULTIREG_ARGS
-            requires2ndPass |= argInfo->GetRegCount() != 0;
-#endif
-            argsSideEffects |= argUse->GetNode()->gtFlags;
-            continue;
-        }
-
         GenTree* argVal = arg->gtEffectiveVal(true /*commaOnly*/);
 
         if (argInfo->isStruct && varTypeIsStruct(argVal->GetType()) &&
@@ -2624,7 +2608,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
                 assert(!"Structs are not passed by reference on x64/ux");
 #endif
-                abiMakeImplicityByRefStructArgCopy(call, argInfo);
+                abiMorphImplicityByRefStructArg(call, argInfo);
             }
             else if (argInfo->GetRegCount() == 0)
             {
@@ -2706,16 +2690,15 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
     assert(argInfo->GetRegCount() == 0);
     assert(varTypeIsStruct(argNode->GetType()));
 
-#ifdef TARGET_X86
     if (argNode->OperIs(GT_MKREFANY))
     {
-        GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-        fieldList->AddField(this, argNode->AsOp()->GetOp(0), OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
-        fieldList->AddField(this, argNode->AsOp()->GetOp(1), OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
-        argInfo->use->SetNode(fieldList);
+#ifdef TARGET_X86
+        abiMorphMkRefAnyToFieldList(argInfo, argNode->AsOp());
         return false;
-    }
+#else
+        return true;
 #endif
+    }
 
     if (argNode->OperIs(GT_OBJ))
     {
@@ -2892,9 +2875,7 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
 
     assert(lcl->GetPromotedFieldCount() > 1);
 
-    argNode->ChangeOper(GT_FIELD_LIST);
-
-    GenTreeFieldList* fieldList = argNode->AsFieldList();
+    GenTreeFieldList* fieldList = abiMakeFieldList(argNode);
 
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
     {
@@ -2910,6 +2891,27 @@ void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVa
     }
 }
 
+void Compiler::abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* arg)
+{
+    assert(argInfo->GetRegCount() + argInfo->GetSlotCount() == 2);
+
+    GenTree* dataPtr = arg->GetOp(0);
+    GenTree* type    = arg->GetOp(1);
+
+    GenTreeFieldList* fieldList = abiMakeFieldList(arg);
+    fieldList->gtFlags          = 0;
+    fieldList->AddField(this, dataPtr, OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
+    fieldList->AddField(this, type, OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
+}
+
+GenTreeFieldList* Compiler::abiMakeFieldList(GenTree* arg)
+{
+    arg->ChangeOper(GT_FIELD_LIST);
+    arg->SetType(TYP_STRUCT);
+    arg->gtFlags = GTF_CONTAINED;
+    return arg->AsFieldList();
+}
+
 #ifndef TARGET_X86
 
 void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
@@ -2917,24 +2919,28 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
     for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
     {
         CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
+        GenTree*     argNode = argInfo->GetNode();
+
+        if (argNode->OperIs(GT_MKREFANY))
+        {
+            abiMorphMkRefAnyToFieldList(argInfo, argNode->AsOp());
+            continue;
+        }
 
         if (argInfo->GetRegCount() == 0)
         {
-            GenTree* argNode = argInfo->GetNode()->gtEffectiveVal(true);
+            argNode = argNode->gtEffectiveVal(true);
 
             if (argNode->OperIs(GT_LCL_VAR))
             {
                 abiMorphPromotedStructStackArg(argInfo, argNode->AsLclVar());
             }
-
             continue;
         }
 
 #if FEATURE_MULTIREG_ARGS
         if (argInfo->isStruct && (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1))
         {
-            GenTree* argNode = argInfo->GetNode();
-
             if (varTypeIsStruct(argNode->GetType()) && !argNode->OperIs(GT_FIELD_LIST))
             {
                 GenTree* newArgNode = abiMorphMultiregStructArg(argInfo, argNode);
@@ -3427,11 +3433,8 @@ GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_
     return newArg;
 }
 
-void Compiler::abiMorphMkRefAnyArg(CallArgInfo* argInfo, GenTreeOp* mkrefany)
+GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany)
 {
-    unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("by-value mkrefany struct argument"));
-    lvaSetStruct(tempLclNum, impGetRefAnyClass(), false);
-
     GenTreeLclFld* destPtrField = gtNewLclFldNode(tempLclNum, TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__dataPtr);
     destPtrField->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyDataField()));
     GenTree* asgPtrField = gtNewAssignNode(destPtrField, mkrefany->GetOp(0));
@@ -3440,10 +3443,7 @@ void Compiler::abiMorphMkRefAnyArg(CallArgInfo* argInfo, GenTreeOp* mkrefany)
     destTypeField->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
     GenTree* asgTypeField = gtNewAssignNode(destTypeField, mkrefany->GetOp(1));
 
-    argInfo->use->SetNode(gtNewOperNode(GT_COMMA, TYP_VOID, asgPtrField, asgTypeField));
-
-    argInfo->SetTempLclNum(tempLclNum);
-    lvaSetVarAddrExposed(tempLclNum);
+    return gtNewOperNode(GT_COMMA, TYP_VOID, asgPtrField, asgTypeField);
 }
 
 #endif // !TARGET_X86
@@ -4481,15 +4481,20 @@ void Compiler::abiFreeAllStructArgTemps()
     }
 }
 
-#ifdef FEATURE_FIXED_OUT_ARGS
+#if FEATURE_FIXED_OUT_ARGS
 
-//------------------------------------------------------------------------
-// abiMakeImplicityByRefStructArgCopy: Create a copy for an implicit by-ref struct arg.
-//
-void Compiler::abiMakeImplicityByRefStructArgCopy(GenTreeCall* call, CallArgInfo* argInfo)
+void Compiler::abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
     GenTree* arg = argInfo->GetNode();
-    assert(!arg->OperIs(GT_MKREFANY));
+
+    if (arg->OperIs(GT_MKREFANY))
+    {
+        unsigned tempLclNum = abiAllocateStructArgTemp(impGetRefAnyClass());
+        argInfo->SetNode(abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp()));
+        argInfo->SetTempLclNum(tempLclNum);
+
+        return;
+    }
 
     // If we're optimizing, see if we can avoid making a copy.
     // We don't need a copy if this is the last use of an implicit by-ref local.

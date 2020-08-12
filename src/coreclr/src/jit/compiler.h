@@ -5372,7 +5372,7 @@ private:
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
 
 #ifdef FEATURE_FIXED_OUT_ARGS
-    void abiMakeImplicityByRefStructArgCopy(GenTreeCall* call, CallArgInfo* argInfo);
+    void abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 
     void fgFixupStructReturn(GenTree* call);
@@ -9875,7 +9875,7 @@ public:
 
 #endif // defined(UNIX_AMD64_ABI)
 
-    void abiMorphMkRefAnyArg(CallArgInfo* argInfo, GenTreeOp* mkrefany);
+    GenTree* abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany);
     void abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg);
     GenTree* abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
     unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);
@@ -9899,6 +9899,8 @@ public:
 #endif
     bool abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode);
     void abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* argNode);
+    void abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* mkrefany);
+    GenTreeFieldList* abiMakeFieldList(GenTree* arg);
 
     bool killGCRefs(GenTree* tree);
 
