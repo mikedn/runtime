@@ -1954,8 +1954,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         passUsingFloatRegs    = !callIsVararg && (isHfaArg || varTypeIsFloating(argx)) && !opts.compUseSoftFP;
         bool passUsingIntRegs = passUsingFloatRegs ? false : (intArgRegNum < MAX_REG_ARG);
 
-        // We don't use the "size" return value from InferOpSizeAlign().
-        InferOpSizeAlign(argx, &argAlign);
+        argAlign = InferOpSizeAlign(argx);
 
         argAlign = roundUp(argAlign, TARGET_POINTER_SIZE);
         argAlign /= TARGET_POINTER_SIZE;
