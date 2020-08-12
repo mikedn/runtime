@@ -1928,12 +1928,26 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     case GT_OBJ:
                         structSize = actualArg->AsObj()->GetLayout()->GetSize();
                         assert(structSize == info.compCompHnd->getClassSize(objClass));
+#ifdef TARGET_ARM
+                        argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(objClass), REGSIZE_BYTES) /
+                                   REGSIZE_BYTES;
+#endif
                         break;
                     case GT_LCL_VAR:
-                        structSize = lvaGetDesc(actualArg->AsLclVarCommon())->lvExactSize;
+                        structSize = lvaGetDesc(actualArg->AsLclVar())->lvExactSize;
+#ifdef TARGET_ARM
+                        if (lvaGetDesc(actualArg->AsLclVar())->lvStructDoubleAlign)
+                        {
+                            argAlign = 2;
+                        }
+#endif
                         break;
                     case GT_LCL_FLD:
                         structSize = actualArg->AsLclFld()->GetLayout(this)->GetSize();
+#ifdef TARGET_ARM
+                        argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(objClass), REGSIZE_BYTES) /
+                                   REGSIZE_BYTES;
+#endif
                         break;
                     case GT_MKREFANY:
                         structSize = info.compCompHnd->getClassSize(objClass);
@@ -1945,16 +1959,24 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
             else
             {
+#ifdef FEATURE_SIMD
                 structSize = genTypeSize(argx);
                 assert(structSize == info.compCompHnd->getClassSize(objClass));
+#else
+                unreached();
+#endif
             }
+        }
+        else
+        {
+#ifdef TARGET_ARM
+            argAlign = roundUp(genTypeAlignments[argx->GetType()], REGSIZE_BYTES) / REGSIZE_BYTES;
+#endif
         }
 
 #ifdef TARGET_ARM
         passUsingFloatRegs    = !callIsVararg && (isHfaArg || varTypeIsFloating(argx)) && !opts.compUseSoftFP;
         bool passUsingIntRegs = passUsingFloatRegs ? false : (intArgRegNum < MAX_REG_ARG);
-
-        argAlign = roundUp(InferOpSizeAlign(argx), REGSIZE_BYTES) / REGSIZE_BYTES;
 
         if (argAlign == 2)
         {
