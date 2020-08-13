@@ -3051,61 +3051,15 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 #endif
                 assert(arg->TypeIs(TYP_STRUCT));
 
-                // TODO-MIKE-Cleanup: Addr temp generation code copied from fgMorphMultiregStructArg
-
-                GenTree* addr       = arg->AsObj()->GetAddr();
-                ssize_t  addrOffset = 0;
-
-                // Extract constant offsets that appear when passing struct typed class fields
-                // so they can be folded with the register offset.
-                if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
-                {
-                    ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-
-#if defined(TARGET_AMD64)
-                    if ((offset >= INT32_MIN) && (offset <= INT32_MAX - argSize))
-#elif defined(TARGET_ARMARCH)
-                    // For simplicity limit the offset to values that are valid address mode
-                    // offsets no matter what the indirection type is.
-                    if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(argSize)))
-#else
-#error Unknown target.
-#endif
-                    {
-                        addr       = addr->AsOp()->GetOp(0);
-                        addrOffset = offset;
-                    }
-                }
-
-                // We need to use the address tree multiple times. If it has side effects or
-                // it is too expensive to evaluate then we need to "spill" it to a temp.
-                bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
-
-                if (!addrTempRequired)
-                {
-                    gtPrepareCost(addr);
-                    addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
-                }
-
-                // TODO-MIKE-CQ: This should be done after ArgsComplete to avoid introducing more temps
-                // due to the GTF_ASG this temp assigment will add to the arg.
-
-                GenTree* addrAsg = nullptr;
-
-                if (addrTempRequired)
-                {
-                    unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
-                    GenTree* addrDef    = gtNewLclvNode(addrLclNum, addr->GetType());
-
-                    addrAsg = gtNewAssignNode(addrDef, addr);
-                    addr    = gtNewLclvNode(addrLclNum, addr->GetType());
-                }
+                GenTree* addr           = arg->AsObj()->GetAddr();
+                ssize_t  addrOffset     = 0;
+                GenTree* addrTempAssign = abiMakeIndirAddrMultiUse(&addr, &addrOffset, argSize);
 
                 arg = abiNewMultiLoadIndir(addr, addrOffset, argSize);
 
-                if (addrAsg != nullptr)
+                if (addrTempAssign != nullptr)
                 {
-                    arg = gtNewOperNode(GT_COMMA, arg->GetType(), addrAsg, arg);
+                    arg = gtNewOperNode(GT_COMMA, arg->GetType(), addrTempAssign, arg);
                 }
 
                 argInfo->use->SetNode(arg);
@@ -4205,52 +4159,12 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
 GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
 {
-    ClassLayout* argLayout  = arg->GetLayout();
-    unsigned     argSize    = argLayout->GetSize();
-    GenTree*     addr       = arg->GetAddr();
-    ssize_t      addrOffset = 0;
+    ClassLayout* argLayout = arg->GetLayout();
+    unsigned     argSize   = argLayout->GetSize();
 
-    // Extract constant offsets that appear when passing struct typed class fields
-    // so they can be folded with the register offset.
-    if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
-    {
-        ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-
-#if defined(TARGET_AMD64)
-        if ((offset >= INT32_MIN) && (offset <= INT32_MAX - argSize))
-#elif defined(TARGET_ARMARCH)
-        // For simplicity limit the offset to values that are valid address mode
-        // offsets no matter what the indirection type is.
-        if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(argSize)))
-#else
-#error Unknown target.
-#endif
-        {
-            addr       = addr->AsOp()->GetOp(0);
-            addrOffset = offset;
-        }
-    }
-
-    // We need to use the address tree multiple times. If it has side effects or
-    // it is too expensive to evaluate then we need to "spill" it to a temp.
-    bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
-
-    if (!addrTempRequired)
-    {
-        gtPrepareCost(addr);
-        addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
-    }
-
-    GenTree* addrAsg = nullptr;
-
-    if (addrTempRequired)
-    {
-        unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
-        GenTree* addrDef    = gtNewLclvNode(addrLclNum, addr->GetType());
-
-        addrAsg = gtNewAssignNode(addrDef, addr);
-        addr    = gtNewLclvNode(addrLclNum, addr->GetType());
-    }
+    GenTree* addr           = arg->GetAddr();
+    ssize_t  addrOffset     = 0;
+    GenTree* addrTempAssign = abiMakeIndirAddrMultiUse(&addr, &addrOffset, argSize);
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
@@ -4306,9 +4220,9 @@ GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
             regIndir     = abiNewMultiLoadIndir(regAddr, addrOffset + regOffset, regIndirSize);
         }
 
-        if ((i == 0) && (addrAsg != nullptr))
+        if ((i == 0) && (addrTempAssign != nullptr))
         {
-            regIndir = gtNewOperNode(GT_COMMA, regType, addrAsg, regIndir);
+            regIndir = gtNewOperNode(GT_COMMA, regType, addrTempAssign, regIndir);
         }
 
         fieldList->AddField(this, regIndir, regOffset, regType);
@@ -4318,6 +4232,58 @@ GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
     }
 
     return fieldList;
+}
+
+GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize)
+{
+    GenTree* addr       = *addrInOut;
+    ssize_t  addrOffset = 0;
+
+    // Extract constant offsets that appear when passing struct typed class fields
+    // so they can be folded with the register offset.
+    if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
+    {
+        ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+
+#if defined(TARGET_AMD64)
+        if ((offset >= INT32_MIN) && (offset <= INT32_MAX - indirSize))
+#elif defined(TARGET_ARMARCH)
+        // For simplicity, limit the offset to values that are valid address mode
+        // offsets, no matter what the indirection type is.
+        if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(indirSize)))
+#else
+#error Unknown target.
+#endif
+        {
+            addr       = addr->AsOp()->GetOp(0);
+            addrOffset = offset;
+        }
+    }
+
+    // We need to use the address tree multiple times. If it has side effects or
+    // it is too expensive to evaluate then we need to "spill" it to a temp.
+    bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
+
+    if (!addrTempRequired)
+    {
+        gtPrepareCost(addr);
+        addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
+    }
+
+    GenTree* addrAsg = nullptr;
+
+    if (addrTempRequired)
+    {
+        unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
+        GenTree* addrDef    = gtNewLclvNode(addrLclNum, addr->GetType());
+
+        addrAsg = gtNewAssignNode(addrDef, addr);
+        addr    = gtNewLclvNode(addrLclNum, addr->GetType());
+    }
+
+    *addrInOut     = addr;
+    *addrOffsetOut = addrOffset;
+    return addrAsg;
 }
 
 GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize)

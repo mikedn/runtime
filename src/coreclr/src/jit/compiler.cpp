@@ -1919,9 +1919,11 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     // We start with the flow graph in tree-order
     fgOrder = FGOrderTree;
 
-    m_classLayoutTable       = nullptr;
+    m_classLayoutTable = nullptr;
+#ifndef TARGET_X86
     m_abiStructArgTemps      = nullptr;
     m_abiStructArgTempsInUse = nullptr;
+#endif
 
 #ifdef FEATURE_SIMD
     m_simdHandleCache = nullptr;
