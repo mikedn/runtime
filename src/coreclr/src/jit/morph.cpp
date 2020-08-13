@@ -4063,8 +4063,7 @@ GenTreeFieldList* Compiler::abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTre
 
 GenTree* Compiler::abiMorphMultiregLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg)
 {
-    unsigned     lclNum    = arg->GetLclNum();
-    LclVarDsc*   lcl       = lvaGetDesc(lclNum);
+    LclVarDsc*   lcl       = lvaGetDesc(arg);
     ClassLayout* argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
 
 #ifdef TARGET_ARM
@@ -4091,62 +4090,24 @@ GenTree* Compiler::abiMorphMultiregLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     GenTree* tempAssign = nullptr;
 
-    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(lclNum) == PROMOTION_TYPE_INDEPENDENT))
+    if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
     {
         unsigned tempLclNum = abiAllocateStructArgTemp(argLayout->GetClassHandle());
+        lcl                 = lvaGetDesc(tempLclNum);
 
-        lcl = lvaGetDesc(lclNum);
-
-        GenTreeLclVar* dst = gtNewLclvNode(tempLclNum, lcl->GetType());
-        dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
-        tempAssign = gtNewOperNode(GT_ASG, lcl->GetType(), dst, arg);
-        tempAssign->gtFlags |= GTF_ASG;
+        tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, lcl->GetType()), arg);
         tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
 
-        lclNum = tempLclNum;
-        lcl    = lvaGetDesc(lclNum);
+        arg->SetLclNum(tempLclNum);
     }
 #endif // TARGET_ARM
 
-    unsigned regCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
-    assert(regCount <= MAX_ARG_REG_COUNT);
-    var_types regTypes[MAX_ARG_REG_COUNT] = {};
-
-    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
-    {
-        var_types regType;
-
+    unsigned regCount = argInfo->GetRegCount();
 #if FEATURE_ARG_SPLIT
-        if (i >= argInfo->GetRegCount())
-        {
-            regType = TYP_I_IMPL;
-        }
-        else
+    regCount += argInfo->GetSlotCount();
 #endif
-        {
-            regType = argInfo->GetRegType(i);
-        }
 
-        if (regType == TYP_I_IMPL)
-        {
-            // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
-            // but on other targets we only get TYP_I_IMPL. Also, other targets may have
-            // split args and we don't have any type info for the stack slots.
-
-            assert(regOffset % REGSIZE_BYTES == 0);
-
-#ifdef UNIX_AMD64_ABI
-            assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
-#else
-            regType = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
-#endif
-        }
-
-        regTypes[i] = regType;
-        regOffset += varTypeSize(regType);
-
-        assert(regOffset <= roundUp(argLayout->GetSize(), REGSIZE_BYTES));
-    }
+    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
 #if defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
     if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 2) && (regCount == 2))
@@ -4178,71 +4139,89 @@ GenTree* Compiler::abiMorphMultiregLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
             var_types loType = loVarDsc->GetType();
             var_types hiType = hiVarDsc->GetType();
 
-            if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(regTypes[0])) &&
-                (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(regTypes[1])))
+            if ((varTypeUsesFloatReg(loType) == varTypeUsesFloatReg(argInfo->GetRegType(0))) &&
+                (varTypeUsesFloatReg(hiType) == varTypeUsesFloatReg(argInfo->GetRegType(1))))
             {
-                GenTreeFieldList* newArg = new (this, GT_FIELD_LIST) GenTreeFieldList();
-                newArg->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
-                newArg->AddField(this, gtNewLclvNode(hiVarNum, hiType), 8, hiType);
+                fieldList->AddField(this, gtNewLclvNode(loVarNum, loType), 0, loType);
+                fieldList->AddField(this, gtNewLclvNode(hiVarNum, hiType), 8, hiType);
 
-                return newArg;
+                return fieldList;
             }
         }
     }
 #endif // defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
 
-    unsigned  lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
-    unsigned  lclSize   = lvaLclExactSize(lclNum);
-    var_types lclType   = lcl->GetType();
+    unsigned lclNum    = arg->GetLclNum();
+    unsigned lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
+    unsigned lclSize   = lvaLclExactSize(lclNum);
 #ifdef FEATURE_SIMD
-    bool lclIsSIMD = varTypeIsSIMD(lclType) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
+    bool lclIsSIMD = varTypeIsSIMD(lcl->GetType()) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
 #endif
-
-    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
     for (unsigned i = 0, regOffset = 0; i < regCount; i++)
     {
-        var_types regType     = regTypes[i];
-        unsigned  regSize     = varTypeSize(regType);
-        unsigned  fieldOffset = lclOffset + regOffset;
-        GenTree*  fieldNode;
+#if FEATURE_ARG_SPLIT
+        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
+        var_types regType = argInfo->GetRegType(i);
+#endif
 
-        if (fieldOffset >= lclSize)
+        if (regType == TYP_I_IMPL)
+        {
+            // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
+            // but on other targets we only get TYP_I_IMPL. Also, other targets may have
+            // split args and we don't have any type info for stack slots.
+
+            assert(regOffset % REGSIZE_BYTES == 0);
+
+#ifdef UNIX_AMD64_ABI
+            assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
+#else
+            regType = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
+#endif
+        }
+
+        unsigned  regSize = varTypeSize(regType);
+        GenTree*  regValue;
+
+        if (lclOffset >= lclSize)
         {
             // Make sure we add a field for every arg register, even if we somehow end up with
             // a smaller local variable as source. If a field is missing, the backend may get
             // confused and fail to allocate the register to this arg and instead allocated it
             // to the next arg. Just passing a zero is safer and easier to debug.
-            fieldNode = gtNewZeroConNode(regType);
+            regValue = gtNewZeroConNode(regType);
         }
 #ifdef FEATURE_SIMD
-        else if (lclIsSIMD && varTypeIsFloating(regType) && (fieldOffset % regSize == 0))
+        else if (lclIsSIMD && varTypeIsFloating(regType) && (lclOffset % regSize == 0))
         {
             // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
             // in a SIMD register and at the proper position.
 
-            GenTreeIntCon* fieldIndex = gtNewIconNode(fieldOffset / regSize);
-            fieldNode                 = gtNewLclvNode(lclNum, lclType);
-            fieldNode = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, lclSize, fieldNode, fieldIndex);
+            GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
+            GenTree* simdValue    = gtNewLclvNode(lclNum, lcl->GetType());
+
+            regValue = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, lclSize, simdValue, elementIndex);
         }
         else
 #endif
         {
-            fieldNode = gtNewLclFldNode(lclNum, regType, fieldOffset);
-
             lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(DNER_LocalField));
+
+            regValue = gtNewLclFldNode(lclNum, regType, lclOffset);
         }
 
 #ifdef TARGET_ARM
         if (tempAssign != nullptr)
         {
-            fieldNode  = gtNewOperNode(GT_COMMA, fieldNode->GetType(), tempAssign, fieldNode);
+            regValue   = gtNewOperNode(GT_COMMA, regValue->GetType(), tempAssign, regValue);
             tempAssign = nullptr;
         }
 #endif
 
-        fieldList->AddField(this, fieldNode, regOffset, regType);
+        fieldList->AddField(this, regValue, regOffset, regType);
         regOffset += regSize;
+        lclOffset += regSize;
     }
 
     return fieldList;
