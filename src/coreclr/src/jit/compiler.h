@@ -5301,8 +5301,10 @@ public:
     bool compCanEncodePtrArgCntMax();
 
 private:
+#ifndef TARGET_X86
     hashBv* m_abiStructArgTemps;
     hashBv* m_abiStructArgTempsInUse;
+#endif
 
     void fgSetRngChkTarget(GenTree* tree, bool delay = true);
 
@@ -5371,10 +5373,6 @@ private:
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
-
-#ifdef FEATURE_FIXED_OUT_ARGS
-    void abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
-#endif
 
     void fgFixupStructReturn(GenTree* call);
     GenTree* fgMorphLocalVar(GenTree* tree, bool forceRemorph);
@@ -9876,32 +9874,32 @@ public:
 
 #endif // defined(UNIX_AMD64_ABI)
 
-    GenTree* abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany);
-    void abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg);
-    GenTree* abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
-    unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);
-    void abiFreeAllStructArgTemps();
-#if FEATURE_MULTIREG_ARGS
-    void abiMorphMultiregStructArgs(GenTreeCall* call);
-    GenTree* abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg);
-    GenTree* abiMorphMultiregLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg);
-    GenTree* abiMorphMultiregObjArg(CallArgInfo* argInfo, GenTreeObj* arg);
-    GenTree* abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
-#if defined(TARGET_ARMARCH) || defined(UNIX_AMD64_ABI)
-    bool abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
-    GenTreeFieldList* abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo);
-#endif
-#ifdef FEATURE_SIMD
-    GenTreeFieldList* abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTree* arg);
-#endif
-#endif
-#ifndef TARGET_X86
-    void abiMorphArgs2ndPass(GenTreeCall* call);
-#endif
     bool abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg);
-    void abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* arg);
+    void abiMorphStructStackArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
     void abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* mkrefany);
     GenTreeFieldList* abiMakeFieldList(GenTree* arg);
+#ifndef TARGET_X86
+    void abiMorphArgs2ndPass(GenTreeCall* call);
+    void abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg);
+    GenTree* abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
+    GenTree* abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany);
+#if FEATURE_MULTIREG_ARGS
+    bool abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
+    GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl);
+    GenTree* abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg);
+#ifdef FEATURE_SIMD
+    GenTree* abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg);
+#endif
+    GenTree* abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg);
+    GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg);
+    GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
+#endif
+    unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);
+    void abiFreeAllStructArgTemps();
+#if FEATURE_FIXED_OUT_ARGS
+    void abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
+#endif
+#endif // !TARGET_X86
 
     bool killGCRefs(GenTree* tree);
 

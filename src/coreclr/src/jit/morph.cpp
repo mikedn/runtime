@@ -2790,7 +2790,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg)
             CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_X86
-            abiMorphPromotedStructStackArg(argInfo, arg->AsLclVar());
+            abiMorphStructStackArgPromoted(argInfo, arg->AsLclVar());
             return false;
 #else
             return true;
@@ -2870,7 +2870,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg)
     return false;
 }
 
-void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* arg)
+void Compiler::abiMorphStructStackArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
 {
     assert(argInfo->GetRegCount() == 0);
 
@@ -2940,7 +2940,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
 
             if (arg->OperIs(GT_LCL_VAR))
             {
-                abiMorphPromotedStructStackArg(argInfo, arg->AsLclVar());
+                abiMorphStructStackArgPromoted(argInfo, arg->AsLclVar());
             }
             continue;
         }
@@ -2950,7 +2950,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
         {
             if (varTypeIsStruct(arg->GetType()) && !arg->OperIs(GT_FIELD_LIST))
             {
-                GenTree* newArg = abiMorphMultiregStructArg(argInfo, arg);
+                GenTree* newArg = abiMorphMultiRegStructArg(argInfo, arg);
 
                 if (newArg != arg)
                 {
@@ -3101,7 +3101,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                     addr    = gtNewLclvNode(addrLclNum, addr->GetType());
                 }
 
-                arg = abiNewMultiloadIndir(addr, addrOffset, argSize);
+                arg = abiNewMultiLoadIndir(addr, addrOffset, argSize);
 
                 if (addrAsg != nullptr)
                 {
@@ -3133,7 +3133,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                 argSize = varDsc->GetLayout()->GetSize();
             }
 
-            GenTree* newArg = abiMorphPromotedStructArgToSingleReg(arg->AsLclVar(), argRegType, argSize);
+            GenTree* newArg = abiMorphSingleRegLclArgPromoted(arg->AsLclVar(), argRegType, argSize);
 
             if (newArg != arg)
             {
@@ -3204,7 +3204,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 }
 
-GenTree* Compiler::abiMorphPromotedStructArgToSingleReg(GenTreeLclVar* arg, var_types argRegType, unsigned argSize)
+GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types argRegType, unsigned argSize)
 {
     assert(argSize <= varTypeSize(argRegType));
     assert(varTypeIsSingleReg(argRegType));
@@ -3453,14 +3453,12 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
     return gtNewOperNode(GT_COMMA, TYP_VOID, asgPtrField, asgTypeField);
 }
 
-#endif // !TARGET_X86
-
 #if FEATURE_MULTIREG_ARGS
 
-bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo)
+bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl)
 {
-    // Keep in sync with the logic in abiMorphPromotedStructArgToFieldList. It's unfortunate
-    // that this logic needs to be duplicated. Perhaps abiMorphPromotedStructArgToFieldList
+    // Keep in sync with the logic in abiMorphMultiRegLclArgPromoted. It's unfortunate
+    // that this logic needs to be duplicated. Perhaps abiMorphMultiRegLclArgPromoted
     // could be used during the initial argument morphing instead of being deferred to the
     // multireg argument morphing. Probably the main issue is that arg sorting doesn't have
     // special handling for FIELD_LIST like it does for LCL_VAR and this may have a negative
@@ -3526,7 +3524,7 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
 
         if (reg * REGSIZE_BYTES != fieldOffset)
         {
-            // TODO-MIKE-CQ: Use abiMorphPromotedStructArgToSingleReg to handle the case of multiple
+            // TODO-MIKE-CQ: Use abiMorphSingleRegLclArgPromoted to handle the case of multiple
             // small int, INT or FLOAT fields being passed in a single register.
             return false;
         }
@@ -3634,11 +3632,11 @@ bool Compiler::abiCanMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgIn
     return true;
 }
 
-GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl, CallArgInfo* argInfo)
+GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc* lcl)
 {
     GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-    // Keep in sync with the logic in abiCanMorphPromotedStructArgToFieldList.
+    // Keep in sync with the logic in abiCanMorphMultiRegLclArgPromoted.
 
     unsigned fieldCount      = lcl->GetPromotedFieldCount();
     unsigned field           = 0;
@@ -3853,29 +3851,7 @@ GenTreeFieldList* Compiler::abiMorphPromotedStructArgToFieldList(LclVarDsc* lcl,
     return list;
 }
 
-//-----------------------------------------------------------------------------
-// abiMorphMultiregStructArg: Given a TYP_STRUCT arg from a call argument list,
-//     morph the argument as needed to be passed correctly.
-//
-// Notes:
-//    The arg must be a GT_OBJ or GT_LCL_VAR or GT_LCL_FLD of TYP_STRUCT.
-//    If 'arg' is a lclVar passed on the stack, we will ensure that any lclVars that must be on the
-//    stack are marked as doNotEnregister, and then we return.
-//
-//    If it is passed by register, we mutate the argument into the GT_FIELD_LIST form
-//    which is only used for struct arguments.
-//
-//    If arg is a LclVar we check if it is struct promoted and has the right number of fields
-//    and if they are at the appropriate offsets we will use the struct promted fields
-//    in the GT_FIELD_LIST nodes that we create.
-//    If we have a GT_LCL_VAR that isn't struct promoted or doesn't meet the requirements
-//    we will use a set of GT_LCL_FLDs nodes to access the various portions of the struct
-//    this also forces the struct to be stack allocated into the local frame.
-//    For the GT_OBJ case will clone the address expression and generate two (or more)
-//    indirections.
-//    Currently the implementation handles ARM64/ARM and will NYI for other architectures.
-//
-GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
+GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
 #ifdef DEBUG
     if (verbose)
@@ -3953,9 +3929,9 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 
     if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
-        abiCanMorphPromotedStructArgToFieldList(lvaGetDesc(arg->AsLclVar()), argInfo))
+        abiCanMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar())))
     {
-        return abiMorphPromotedStructArgToFieldList(lvaGetDesc(arg->AsLclVar()), argInfo);
+        return abiMorphMultiRegLclArgPromoted(argInfo, lvaGetDesc(arg->AsLclVar()));
     }
 
 #ifdef TARGET_ARM
@@ -3987,17 +3963,17 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        return abiMorphMultiregLclArg(argInfo, arg->AsLclVarCommon());
+        return abiMorphMultiRegLclArg(argInfo, arg->AsLclVarCommon());
     }
 
     if (arg->OperIs(GT_OBJ))
     {
-        return abiMorphMultiregObjArg(argInfo, arg->AsObj());
+        return abiMorphMultiRegObjArg(argInfo, arg->AsObj());
     }
 
 #ifdef FEATURE_SIMD
     // If it's neither a local nor OBJ then it must be an arbitrary SIMD tree.
-    return abiMorphMultiregSimdArg(argInfo, arg);
+    return abiMorphMultiRegSimdArg(argInfo, arg);
 #else
     unreached();
 #endif
@@ -4005,7 +3981,7 @@ GenTree* Compiler::abiMorphMultiregStructArg(CallArgInfo* argInfo, GenTree* arg)
 
 #ifdef FEATURE_SIMD
 
-GenTreeFieldList* Compiler::abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTree* arg)
+GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 {
     assert(varTypeIsSIMD(arg->GetType()));
     assert(arg->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ));
@@ -4061,7 +4037,7 @@ GenTreeFieldList* Compiler::abiMorphMultiregSimdArg(CallArgInfo* argInfo, GenTre
 
 #endif // FEATURE_SIMD
 
-GenTree* Compiler::abiMorphMultiregLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg)
+GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg)
 {
     LclVarDsc*   lcl       = lvaGetDesc(arg);
     ClassLayout* argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
@@ -4177,12 +4153,12 @@ GenTree* Compiler::abiMorphMultiregLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 #ifdef UNIX_AMD64_ABI
             assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
 #else
-            regType = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
+            regType       = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
 #endif
         }
 
-        unsigned  regSize = varTypeSize(regType);
-        GenTree*  regValue;
+        unsigned regSize = varTypeSize(regType);
+        GenTree* regValue;
 
         if (lclOffset >= lclSize)
         {
@@ -4227,7 +4203,7 @@ GenTree* Compiler::abiMorphMultiregLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
     return fieldList;
 }
 
-GenTree* Compiler::abiMorphMultiregObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
+GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
 {
     ClassLayout* argLayout  = arg->GetLayout();
     unsigned     argSize    = argLayout->GetSize();
@@ -4327,7 +4303,7 @@ GenTree* Compiler::abiMorphMultiregObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
         else
         {
             regIndirSize = argSize - regOffset;
-            regIndir     = abiNewMultiloadIndir(regAddr, addrOffset + regOffset, regIndirSize);
+            regIndir     = abiNewMultiLoadIndir(regAddr, addrOffset + regOffset, regIndirSize);
         }
 
         if ((i == 0) && (addrAsg != nullptr))
@@ -4344,7 +4320,7 @@ GenTree* Compiler::abiMorphMultiregObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
     return fieldList;
 }
 
-GenTree* Compiler::abiNewMultiloadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize)
+GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize)
 {
     auto Indir = [&](var_types type, GenTree* addr, ssize_t offset) {
         if (offset != 0)
@@ -4556,6 +4532,8 @@ void Compiler::abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* a
 }
 
 #endif // FEATURE_FIXED_OUT_ARGS
+
+#endif // !TARGET_X86
 
 //****************************************************************************
 //  fgFixupStructReturn:
@@ -15212,9 +15190,11 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
 
         GenTree* morphedTree = fgMorphTree(oldTree);
 
-        // mark any outgoing arg temps as free so we can reuse them in the next statement.
+// mark any outgoing arg temps as free so we can reuse them in the next statement.
 
+#ifndef TARGET_X86
         abiFreeAllStructArgTemps();
+#endif
 
         // Has fgMorphStmt been sneakily changed ?
 
