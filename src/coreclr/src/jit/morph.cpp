@@ -2694,22 +2694,22 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     return call;
 }
 
-bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
+bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg)
 {
     assert(argInfo->GetRegCount() == 0);
-    assert(varTypeIsStruct(argNode->GetType()));
+    assert(varTypeIsStruct(arg->GetType()));
 
-    if (argNode->OperIs(GT_MKREFANY))
+    if (arg->OperIs(GT_MKREFANY))
     {
 #ifdef TARGET_X86
-        abiMorphMkRefAnyToFieldList(argInfo, argNode->AsOp());
+        abiMorphMkRefAnyToFieldList(argInfo, arg->AsOp());
         return false;
 #else
         return true;
 #endif
     }
 
-    if (argNode->OperIs(GT_OBJ))
+    if (arg->OperIs(GT_OBJ))
     {
         // TODO-MIKE-Cleanup: This OBJ(ADDR(LCL_VAR)) simplification should be confined to LocalAddressVisitor.
         //
@@ -2730,7 +2730,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
         unsigned             lclOffs  = 0;
         FieldSeqNode*        fieldSeq = nullptr;
 
-        if (argNode->AsObj()->GetAddr()->IsLocalAddrExpr(this, &lclNode, &lclOffs, &fieldSeq))
+        if (arg->AsObj()->GetAddr()->IsLocalAddrExpr(this, &lclNode, &lclOffs, &fieldSeq))
         {
             if (lclOffs == 0)
             {
@@ -2750,35 +2750,35 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
 
                 if ((lclSize != 0) && (roundUp(lclSize, REGSIZE_BYTES) == argSize))
                 {
-                    argNode->ChangeOper(GT_LCL_VAR);
-                    argNode->SetType(lclType);
-                    argNode->AsLclVar()->SetLclNum(lclNode->GetLclNum());
-                    argNode->gtFlags = 0;
+                    arg->ChangeOper(GT_LCL_VAR);
+                    arg->SetType(lclType);
+                    arg->AsLclVar()->SetLclNum(lclNode->GetLclNum());
+                    arg->gtFlags = 0;
 
                     argInfo->isStruct = varTypeIsStruct(lclType);
                 }
             }
 
-            if (argNode->OperIs(GT_OBJ))
+            if (arg->OperIs(GT_OBJ))
             {
-                ClassLayout* layout = argNode->AsObj()->GetLayout();
+                ClassLayout* layout = arg->AsObj()->GetLayout();
 
-                argNode->ChangeOper(GT_LCL_FLD);
-                argNode->AsLclFld()->SetLclNum(lclNode->GetLclNum());
-                argNode->AsLclFld()->SetLclOffs(lclOffs);
-                argNode->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
-                argNode->AsLclFld()->SetLayout(layout, this);
-                argNode->gtFlags = 0;
+                arg->ChangeOper(GT_LCL_FLD);
+                arg->AsLclFld()->SetLclNum(lclNode->GetLclNum());
+                arg->AsLclFld()->SetLclOffs(lclOffs);
+                arg->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
+                arg->AsLclFld()->SetLayout(layout, this);
+                arg->gtFlags = 0;
 
                 lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
             }
         }
     }
 
-    if (argNode->OperIs(GT_LCL_VAR) && varTypeIsStruct(argNode->GetType()) &&
-        (lvaGetPromotionType(argNode->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
+    if (arg->OperIs(GT_LCL_VAR) && varTypeIsStruct(arg->GetType()) &&
+        (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
     {
-        LclVarDsc* lcl = lvaGetDesc(argNode->AsLclVar());
+        LclVarDsc* lcl = lvaGetDesc(arg->AsLclVar());
 
         if (lcl->GetPromotedFieldCount() > 1)
         {
@@ -2790,7 +2790,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
             CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_X86
-            abiMorphPromotedStructStackArg(argInfo, argNode->AsLclVar());
+            abiMorphPromotedStructStackArg(argInfo, arg->AsLclVar());
             return false;
 #else
             return true;
@@ -2802,9 +2802,9 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
 
         assert(roundUp(varTypeSize(fieldType), REGSIZE_BYTES) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
 
-        argNode->AsLclVar()->SetLclNum(lcl->GetPromotedFieldLclNum(0));
-        argNode->SetType(fieldType);
-        argNode->gtFlags = 0;
+        arg->AsLclVar()->SetLclNum(lcl->GetPromotedFieldLclNum(0));
+        arg->SetType(fieldType);
+        arg->gtFlags = 0;
 
         argInfo->isStruct = varTypeIsStruct(fieldType);
         argInfo->argType  = fieldType;
@@ -2812,7 +2812,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
         return false;
     }
 
-    if (argNode->TypeIs(TYP_STRUCT) && (argInfo->argType != TYP_STRUCT))
+    if (arg->TypeIs(TYP_STRUCT) && (argInfo->argType != TYP_STRUCT))
     {
         // While not required for corectness, we can change the type of a struct arg to
         // be a primitive type of suitable size (e.g. a 2 byte struct can be treated as
@@ -2828,30 +2828,29 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
         var_types argType   = argInfo->argType;
         bool      canRetype = false;
 
-        if (argNode->OperIs(GT_OBJ))
+        if (arg->OperIs(GT_OBJ))
         {
-            canRetype = varTypeSize(argType) <= argNode->AsObj()->GetLayout()->GetSize();
+            canRetype = varTypeSize(argType) <= arg->AsObj()->GetLayout()->GetSize();
 
             if (canRetype)
             {
-                argNode->ChangeOper(GT_IND);
+                arg->ChangeOper(GT_IND);
             }
         }
-        else if (argNode->OperIs(GT_LCL_FLD))
+        else if (arg->OperIs(GT_LCL_FLD))
         {
-            canRetype =
-                argNode->AsLclFld()->GetLclOffs() + varTypeSize(argType) <= lvaGetDesc(argNode->AsLclFld())->lvSize();
+            canRetype = arg->AsLclFld()->GetLclOffs() + varTypeSize(argType) <= lvaGetDesc(arg->AsLclFld())->lvSize();
 
             if (canRetype)
             {
-                argNode->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+                arg->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
             }
         }
-        else if (argNode->OperIs(GT_LCL_VAR))
+        else if (arg->OperIs(GT_LCL_VAR))
         {
             canRetype = true;
-            lvaSetVarDoNotEnregister(argNode->AsLclVar()->GetLclNum() DEBUGARG(DNER_LocalField));
-            argNode->ChangeOper(GT_LCL_FLD);
+            lvaSetVarDoNotEnregister(arg->AsLclVar()->GetLclNum() DEBUGARG(DNER_LocalField));
+            arg->ChangeOper(GT_LCL_FLD);
         }
 
         if (canRetype)
@@ -2863,7 +2862,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
                 argType = varTypeToUnsigned(argType);
             }
 
-            argNode->SetType(argType);
+            arg->SetType(argType);
             argInfo->isStruct = varTypeIsStruct(argType);
         }
     }
@@ -2871,20 +2870,19 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode)
     return false;
 }
 
-void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* argNode)
+void Compiler::abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* arg)
 {
     assert(argInfo->GetRegCount() == 0);
 
-    LclVarDsc* lcl = lvaGetDesc(argNode);
-
-    if (lvaGetPromotionType(argNode->GetLclNum()) != PROMOTION_TYPE_INDEPENDENT)
+    if (lvaGetPromotionType(arg->GetLclNum()) != PROMOTION_TYPE_INDEPENDENT)
     {
         return;
     }
 
+    LclVarDsc* lcl = lvaGetDesc(arg);
     assert(lcl->GetPromotedFieldCount() > 1);
 
-    GenTreeFieldList* fieldList = abiMakeFieldList(argNode);
+    GenTreeFieldList* fieldList = abiMakeFieldList(arg);
 
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
     {
@@ -2928,21 +2926,21 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
     for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
     {
         CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
-        GenTree*     argNode = argInfo->GetNode();
+        GenTree*     arg     = argInfo->GetNode();
 
-        if (argNode->OperIs(GT_MKREFANY))
+        if (arg->OperIs(GT_MKREFANY))
         {
-            abiMorphMkRefAnyToFieldList(argInfo, argNode->AsOp());
+            abiMorphMkRefAnyToFieldList(argInfo, arg->AsOp());
             continue;
         }
 
         if (argInfo->GetRegCount() == 0)
         {
-            argNode = argNode->gtEffectiveVal(true);
+            arg = arg->gtEffectiveVal(true);
 
-            if (argNode->OperIs(GT_LCL_VAR))
+            if (arg->OperIs(GT_LCL_VAR))
             {
-                abiMorphPromotedStructStackArg(argInfo, argNode->AsLclVar());
+                abiMorphPromotedStructStackArg(argInfo, arg->AsLclVar());
             }
             continue;
         }
@@ -2950,13 +2948,13 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
 #if FEATURE_MULTIREG_ARGS
         if (argInfo->isStruct && (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1))
         {
-            if (varTypeIsStruct(argNode->GetType()) && !argNode->OperIs(GT_FIELD_LIST))
+            if (varTypeIsStruct(arg->GetType()) && !arg->OperIs(GT_FIELD_LIST))
             {
-                GenTree* newArgNode = abiMorphMultiregStructArg(argInfo, argNode);
+                GenTree* newArg = abiMorphMultiregStructArg(argInfo, arg);
 
-                if (newArgNode != argNode)
+                if (newArg != arg)
                 {
-                    argInfo->SetNode(newArgNode);
+                    argInfo->SetNode(newArg);
                 }
             }
 

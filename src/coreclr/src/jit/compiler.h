@@ -9898,8 +9898,8 @@ public:
 #ifndef TARGET_X86
     void abiMorphArgs2ndPass(GenTreeCall* call);
 #endif
-    bool abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* argNode);
-    void abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* argNode);
+    bool abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg);
+    void abiMorphPromotedStructStackArg(CallArgInfo* argInfo, GenTreeLclVar* arg);
     void abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* mkrefany);
     GenTreeFieldList* abiMakeFieldList(GenTree* arg);
 
