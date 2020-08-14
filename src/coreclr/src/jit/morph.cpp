@@ -2562,14 +2562,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
     unsigned argsSideEffects = 0;
     unsigned argNum          = 0;
-#ifndef TARGET_X86
     // Sometimes we need a second pass to morph args, most commonly for arguments
     // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
     // so if the args needs a temp EvalArgsToTemps won't be able to allocate one.
     // Then the first pass does minimal or no morphing of the arg and the second
     // pass replaces the arg with a FIELD_LIST node.
     bool requires2ndPass = false;
-#endif
 
     if (call->gtCallThisArg != nullptr)
     {
@@ -2588,51 +2586,62 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         arg          = fgMorphTree(arg);
         argUse->SetNode(arg);
 
-        if (argInfo->isNonStandard)
-        {
-            argsSideEffects |= arg->gtFlags;
-            continue;
-        }
-
         if (arg->IsLocalAddrExpr() != nullptr)
         {
             arg->SetType(TYP_I_IMPL);
         }
 
-#ifdef TARGET_X86
-        if (varTypeIsStruct(arg->GetType()))
+        if (!varTypeIsStruct(arg->GetType()))
         {
-            abiMorphStructStackArg(argInfo, arg);
+            // Non-struct args do not require any additional transformations.
+            // For ARM soft-fp we could bitcast floating point arguments to INT/LONG but
+            // BITCAST LONG isn't currently supported on 32 bit targets so we leave it
+            // to lowering to handle this case.
+            argsSideEffects |= arg->gtFlags;
+            continue;
         }
-#else // !TARGET_X86
+
+        // Non-standard args are expected to have primitive type.
+        assert(!argInfo->isNonStandard);
+
+        // TODO-MIKE-Review: Can we get COMMAs here other than those generated for
+        // temp arg copies? The struct arg morph code below doesn't handle that.
         GenTree* argVal = arg->gtEffectiveVal(true /*commaOnly*/);
 
-        if (varTypeIsStruct(argVal->GetType()) && !argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE))
+        if (argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE))
         {
-            if (argInfo->passedByRef)
-            {
-                assert(argInfo->IsSingleRegOrSlot());
+            // Skip arguments that have already been transformed.
+            argsSideEffects |= arg->gtFlags;
+            continue;
+        }
+
+#ifndef TARGET_X86
+        if (argInfo->passedByRef)
+        {
+            assert(argInfo->IsSingleRegOrSlot());
 #ifdef UNIX_AMD64_ABI
-                assert(!"Structs are not passed by reference on x64/ux");
+            assert(!"Structs are not passed by reference on x64/ux");
 #endif
-                abiMorphImplicityByRefStructArg(call, argInfo);
-            }
-            else if (argInfo->GetRegCount() == 0)
-            {
-                requires2ndPass |= abiMorphStructStackArg(argInfo, argVal);
-            }
+            abiMorphImplicityByRefStructArg(call, argInfo);
+        }
+        else if (argInfo->GetRegCount() != 0)
+        {
 #if FEATURE_MULTIREG_ARGS
-            else if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
+            if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
             {
                 requires2ndPass |= true;
             }
-#endif
             else
+#endif
             {
                 abiMorphSingleRegStructArg(argInfo, argVal);
             }
         }
+        else
 #endif // !TARGET_X86
+        {
+            requires2ndPass |= abiMorphStructStackArg(argInfo, argVal);
+        }
 
         argsSideEffects |= argUse->GetNode()->gtFlags;
     }
@@ -2674,7 +2683,9 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
     call->gtFlags |= argsSideEffects & GTF_ALL_EFFECT;
 
-#ifndef TARGET_X86
+#ifdef TARGET_X86
+    assert(!requires2ndPass);
+#else
     if (requires2ndPass)
     {
         abiMorphArgs2ndPass(call);
