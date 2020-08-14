@@ -1472,7 +1472,6 @@ public:
 #endif
     bool isNonStandard : 1; // True if it is an arg that is passed in a reg other than a standard arg reg, or is forced
                             // to be on the stack despite its arg list position.
-    bool isStruct : 1;      // True if this is a struct arg
     bool passedByRef : 1;   // True iff the argument is passed by reference.
 
     uint8_t numRegs; // Count of number of registers that this argument uses.
@@ -1489,7 +1488,7 @@ private:
                                                // arguments passed on the stack
 
 public:
-    fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, bool isStruct, unsigned regCount)
+    fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, unsigned regCount)
         : use(use)
         , lateUse(nullptr)
         , argNum(argNum)
@@ -1502,7 +1501,6 @@ public:
         , m_placeholderNeeded(false)
 #endif
         , isNonStandard(false)
-        , isStruct(isStruct)
         , passedByRef(false)
         , numRegs(static_cast<uint8_t>(regCount))
 #ifdef FEATURE_HFA
@@ -1692,45 +1690,7 @@ public:
 #endif // FEATURE_MULTIREG_ARGS && !defined(UNIX_AMD64_ABI)
     }
 
-    // Check that the value of 'isStruct' is consistent.
-    // A struct arg must be one of the following:
-    // - A node of struct type,
-    // - A GT_FIELD_LIST, or
-    // - A node of a scalar type, passed in a single register or slot
-    //   (or two slots in the case of a struct pass on the stack as TYP_DOUBLE).
-    //
-    void checkIsStruct()
-    {
-        GenTree* node = GetNode();
-        if (isStruct)
-        {
-            if (!varTypeIsStruct(node) && !node->OperIs(GT_FIELD_LIST))
-            {
-                // This is the case where we are passing a struct as a primitive type.
-                // On most targets, this is always a single register or slot.
-                // However, on ARM this could be two slots if it is TYP_DOUBLE.
-                bool isPassedAsPrimitiveType = ((numRegs == 1) || ((numRegs == 0) && (numSlots == 1)));
-#ifdef TARGET_ARM
-                if (!isPassedAsPrimitiveType)
-                {
-                    if (node->TypeGet() == TYP_DOUBLE && numRegs == 0 && (numSlots == 2))
-                    {
-                        isPassedAsPrimitiveType = true;
-                    }
-                }
-#endif // TARGET_ARM
-                assert(isPassedAsPrimitiveType);
-            }
-        }
-        else
-        {
-            assert(!varTypeIsStruct(node));
-        }
-    }
-
-#ifdef DEBUG
-    void Dump();
-#endif
+    INDEBUG(void Dump();)
 };
 
 typedef fgArgTabEntry CallArgInfo;
