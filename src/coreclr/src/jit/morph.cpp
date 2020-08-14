@@ -3938,7 +3938,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 {
     assert(varTypeIsSIMD(arg->GetType()));
-    assert(arg->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ));
+    assert(!arg->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ));
 
     unsigned regCount = argInfo->GetRegCount();
 #if FEATURE_ARG_SPLIT
