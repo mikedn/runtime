@@ -1472,7 +1472,9 @@ public:
 #endif
     bool isNonStandard : 1; // True if it is an arg that is passed in a reg other than a standard arg reg, or is forced
                             // to be on the stack despite its arg list position.
-    bool passedByRef : 1;   // True iff the argument is passed by reference.
+#ifdef TARGET_64BIT
+    bool m_isImplicitByRef : 1;
+#endif
 
     uint8_t numRegs; // Count of number of registers that this argument uses.
                      // Note that on ARM, if we have a double hfa, this reflects the number
@@ -1501,7 +1503,9 @@ public:
         , m_placeholderNeeded(false)
 #endif
         , isNonStandard(false)
-        , passedByRef(false)
+#ifdef TARGET_64BIT
+        , m_isImplicitByRef(false)
+#endif
         , numRegs(static_cast<uint8_t>(regCount))
 #ifdef FEATURE_HFA
         , regType(TYP_I_IMPL)
@@ -1659,6 +1663,26 @@ public:
     unsigned GetSlotCount()
     {
         return numSlots;
+    }
+
+    bool IsImplicitByRef() const
+    {
+#ifdef TARGET_64BIT
+        return m_isImplicitByRef;
+#else
+        return false;
+#endif
+    }
+
+    void SetIsImplicitByRef(bool isImplicitByRef)
+    {
+// UNIX_AMD64_ABI has implicit by-ref parameters but they're C++ specific
+// and thus not expected to appear in CLR programs.
+#if defined(TARGET_64BIT) && !defined(UNIX_AMD64_ABI)
+        m_isImplicitByRef = isImplicitByRef;
+#else
+        assert(!isImplicitByRef);
+#endif
     }
 
     // Set the register numbers for a multireg argument.
@@ -9857,7 +9881,7 @@ public:
 #endif
     unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);
     void abiFreeAllStructArgTemps();
-#if FEATURE_FIXED_OUT_ARGS
+#if TARGET_64BIT
     void abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 #endif // !TARGET_X86

@@ -693,7 +693,7 @@ void fgArgTabEntry::Dump()
     printf("arg %u:", argNum);
     printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(argType));
 
-    if (passedByRef)
+    if (IsImplicitByRef())
     {
         printf(", implicit by-ref");
     }
@@ -1292,13 +1292,17 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         {
             JITDUMPTREE(arg, "Arg temp is already created:\n");
 
+#ifdef TARGET_64BIT
             // fgMorphArgs creates temps only for implicit by-ref args, which makes handling
             // this case trivial - the late arg is the address of the created temp local.
 
-            assert(argInfo->passedByRef);
+            assert(argInfo->IsImplicitByRef());
 
             compiler->lvaSetVarAddrExposed(argInfo->GetTempLclNum());
             lateArg = compiler->gtNewLclVarAddrNode(argInfo->GetTempLclNum());
+#else
+            unreached();
+#endif
         }
         else if (argInfo->IsTempNeeded())
         {
@@ -2495,8 +2499,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         if (isStructArg)
         {
-            newArgEntry->passedByRef = passStructByRef;
-            newArgEntry->argType     = (structBaseType == TYP_UNKNOWN) ? argx->TypeGet() : structBaseType;
+            newArgEntry->SetIsImplicitByRef(passStructByRef);
+            newArgEntry->argType = (structBaseType == TYP_UNKNOWN) ? argx->TypeGet() : structBaseType;
         }
         else
         {
@@ -2615,16 +2619,18 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             continue;
         }
 
-#ifndef TARGET_X86
-        if (argInfo->passedByRef)
+#ifdef TARGET_64BIT
+        if (argInfo->IsImplicitByRef())
         {
             assert(argInfo->IsSingleRegOrSlot());
-#ifdef UNIX_AMD64_ABI
-            assert(!"Structs are not passed by reference on x64/ux");
-#endif
             abiMorphImplicityByRefStructArg(call, argInfo);
+            argsSideEffects |= argUse->GetNode()->gtFlags;
+            continue;
         }
-        else if (argInfo->GetRegCount() != 0)
+#endif
+
+#ifndef TARGET_X86
+        if (argInfo->GetRegCount() != 0)
         {
 #if FEATURE_MULTIREG_ARGS
             if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
@@ -2636,13 +2642,13 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
             {
                 abiMorphSingleRegStructArg(argInfo, argVal);
             }
-        }
-        else
-#endif // !TARGET_X86
-        {
-            requires2ndPass |= abiMorphStructStackArg(argInfo, argVal);
-        }
 
+            argsSideEffects |= argUse->GetNode()->gtFlags;
+            continue;
+        }
+#endif // !TARGET_X86
+
+        requires2ndPass |= abiMorphStructStackArg(argInfo, argVal);
         argsSideEffects |= argUse->GetNode()->gtFlags;
     }
 
@@ -4414,7 +4420,7 @@ void Compiler::abiFreeAllStructArgTemps()
     }
 }
 
-#if FEATURE_FIXED_OUT_ARGS
+#if TARGET_64BIT
 
 void Compiler::abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
@@ -4502,7 +4508,7 @@ void Compiler::abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* a
     argInfo->SetTempLclNum(tempLclNum);
 }
 
-#endif // FEATURE_FIXED_OUT_ARGS
+#endif // TARGET_64BIT
 
 #endif // !TARGET_X86
 
@@ -6323,7 +6329,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
     {
         fgArgTabEntry* arg = callee->GetArgInfoByArgNum(index);
 
-        if (arg->passedByRef)
+        if (arg->IsImplicitByRef())
         {
             // Generally a byref arg will block tail calling, as we have to
             // make a local copy of the struct for the callee.
@@ -6388,7 +6394,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
                                 DISPTREE(arg2->GetNode());
 
                                 // Do we pass 'lcl' more than once to the callee?
-                                if (arg2->passedByRef)
+                                if (arg2->IsImplicitByRef())
                                 {
                                     GenTreeLclVarCommon* const lcl2 =
                                         arg2->GetNode()->IsImplicitByrefParameterValue(this);
