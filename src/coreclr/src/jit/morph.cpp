@@ -4487,16 +4487,6 @@ void Compiler::abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* a
         lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(DNER_IsStruct));
     }
 
-    if (arg->OperIs(GT_OBJ))
-    {
-        arg->gtFlags &= ~GTF_ALL_EFFECT | (arg->AsObj()->GetAddr()->gtFlags & GTF_ALL_EFFECT);
-        arg->SetIndirExceptionFlags(this);
-    }
-    else
-    {
-        arg->gtFlags |= GTF_DONT_CSE;
-    }
-
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
 
