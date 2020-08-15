@@ -304,7 +304,6 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeArgPlace)     <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreePhiArg)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeAllocObj)     <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
@@ -1307,14 +1306,7 @@ AGAIN:
                 return true;
 
             case GT_LABEL:
-                return true;
-
             case GT_ARGPLACE:
-                if ((op1->gtType == TYP_STRUCT) &&
-                    (op1->AsArgPlace()->gtArgPlaceClsHnd != op2->AsArgPlace()->gtArgPlaceClsHnd))
-                {
-                    break;
-                }
                 return true;
 
             default:
@@ -5779,7 +5771,7 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     for (unsigned i = 0; i < argCount; i++)
     {
         curArgTabEntry = argTable[i];
-        if (curArgTabEntry->isLateArg() && (curArgTabEntry->lateUse == use))
+        if (curArgTabEntry->HasLateUse() && (curArgTabEntry->lateUse == use))
         {
             return curArgTabEntry;
         }
@@ -6576,7 +6568,7 @@ GenTree* Compiler::gtCloneExpr(
                 goto DONE;
 
             case GT_ARGPLACE:
-                copy = gtNewArgPlaceHolderNode(tree->gtType, tree->AsArgPlace()->gtArgPlaceClsHnd);
+                copy = new (this, GT_ARGPLACE) GenTree(GT_ARGPLACE, tree->GetType());
                 goto DONE;
 
             case GT_FTN_ADDR:
@@ -7098,11 +7090,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
         argsTail  = &((*argsTail)->NextRef());
     }
 
-#if !FEATURE_FIXED_OUT_ARGS
-    copy->regArgList      = tree->regArgList;
-    copy->regArgListCount = tree->regArgListCount;
-#endif
-
     // The call sig comes from the EE and doesn't change throughout the compilation process, meaning
     // we only really need one physical copy of it. Therefore a shallow pointer copy will suffice.
     // (Note that this still holds even if the tree we are cloning was created by an inlinee compiler,
@@ -7447,48 +7434,15 @@ GenTree* Compiler::gtGetThisArg(GenTreeCall* call)
         return nullptr;
     }
 
-    GenTree* thisArg = call->gtCallThisArg->GetNode();
-    if (thisArg->OperIs(GT_NOP, GT_ASG) == false)
+    if (call->GetInfo() == nullptr)
     {
-        if ((thisArg->gtFlags & GTF_LATE_ARG) == 0)
-        {
-            return thisArg;
-        }
+        return call->gtCallThisArg->GetNode();
     }
 
-    if (call->gtCallLateArgs != nullptr)
-    {
-        GenTree* result = call->GetArgNodeByArgNum(0);
-
-        // Assert if we used DEBUG_DESTROY_NODE.
-        assert(result->gtOper != GT_COUNT);
-
-#if !FEATURE_FIXED_OUT_ARGS && defined(DEBUG)
-        // Check that call->fgArgInfo used in gtArgEntryByArgNum was not
-        // left outdated by assertion propogation updates.
-        // There is no information about registers of late args for platforms
-        // with FEATURE_FIXED_OUT_ARGS that is why this debug check is under
-        // !FEATURE_FIXED_OUT_ARGS.
-        regNumber thisReg = REG_ARG_0;
-        regList   list    = call->regArgList;
-        int       index   = 0;
-        for (GenTreeCall::Use& use : call->LateArgs())
-        {
-            assert(index < call->regArgListCount);
-            regNumber curArgReg = list[index];
-            if (curArgReg == thisReg)
-            {
-                assert(result == use.GetNode());
-            }
-
-            index++;
-        }
-#endif // !FEATURE_FIXED_OUT_ARGS && defined(DEBUG)
-
-        return result;
-    }
-
-    return nullptr;
+    CallArgInfo* argInfo = call->GetArgInfoByArgNum(0);
+    assert(argInfo->use == call->gtCallThisArg);
+    assert(argInfo->GetRegNum() == REG_ARG_0);
+    return argInfo->GetNode();
 }
 
 bool GenTree::gtSetFlags() const
@@ -9047,11 +9001,6 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             }
         }
 
-        if (tree->IsArgPlaceHolderNode() && (tree->AsArgPlace()->gtArgPlaceClsHnd != nullptr))
-        {
-            printf(" => [clsHnd=%08X]", dspPtr(tree->AsArgPlace()->gtArgPlaceClsHnd));
-        }
-
         if (tree->gtOper == GT_RUNTIMELOOKUP)
         {
 #ifdef TARGET_64BIT
@@ -10346,32 +10295,32 @@ void Compiler::gtDispTree(GenTree*     tree,
 
                 if (call->gtCallThisArg != nullptr)
                 {
-                    if (!call->gtCallThisArg->GetNode()->OperIs(GT_NOP, GT_ARGPLACE))
+                    if ((call->gtCallThisArg->GetNode()->gtFlags & GTF_LATE_ARG) != 0)
                     {
-                        if (call->gtCallThisArg->GetNode()->OperIs(GT_ASG))
-                        {
-                            sprintf_s(bufp, sizeof(buf), "this SETUP%c", argnum);
-                        }
-                        else
-                        {
-                            sprintf_s(bufp, sizeof(buf), "this in %s%c", compRegVarName(REG_ARG_0), argnum);
-                        }
-                        gtDispChild(call->gtCallThisArg->GetNode(), indentStack,
-                                    (call->gtCallThisArg->GetNode() == lastChild) ? IIArcBottom : IIArc, bufp, topOnly);
+                        sprintf_s(bufp, sizeof(buf), "this SETUP%c", argnum);
                     }
-
+                    else
+                    {
+                        sprintf_s(bufp, sizeof(buf), "this in %s%c", compRegVarName(REG_ARG_0), argnum);
+                    }
+                    gtDispChild(call->gtCallThisArg->GetNode(), indentStack,
+                                (call->gtCallThisArg->GetNode() == lastChild) ? IIArcBottom : IIArc, bufp, topOnly);
                     argnum++;
                 }
 
                 for (GenTreeCall::Use& use : call->Args())
                 {
                     GenTree* argNode = use.GetNode();
-                    if (!argNode->IsNothingNode() && !argNode->IsArgPlaceHolderNode())
-                    {
-                        gtGetArgMsg(call, argNode, argnum, -1, buf, sizeof(buf));
-                        gtDispChild(argNode, indentStack, (argNode == lastChild) ? IIArcBottom : IIArc, buf, false);
-                    }
+                    gtGetArgMsg(call, argNode, argnum, -1, buf, sizeof(buf));
+                    gtDispChild(argNode, indentStack, (argNode == lastChild) ? IIArcBottom : IIArc, buf, false);
                     argnum++;
+                }
+
+                for (GenTreeCall::Use& use : call->LateArgs())
+                {
+                    IndentInfo arcType = (use.GetNext() == nullptr) ? IIArcBottom : IIArc;
+                    gtGetLateArgMsg(call, use.GetNode(), call->GetArgInfoByLateArgUse(&use), -1, bufp, sizeof(buf));
+                    gtDispChild(use.GetNode(), indentStack, arcType, bufp, topOnly);
                 }
 
                 if (call->gtCallType == CT_INDIRECT)
@@ -10384,18 +10333,6 @@ void Compiler::gtDispTree(GenTree*     tree,
                 {
                     gtDispChild(call->gtControlExpr, indentStack,
                                 (call->gtControlExpr == lastChild) ? IIArcBottom : IIArc, "control expr", topOnly);
-                }
-
-#if !FEATURE_FIXED_OUT_ARGS
-                regList list = call->regArgList;
-#endif
-                int lateArgIndex = 0;
-                for (GenTreeCall::Use& use : call->LateArgs())
-                {
-                    IndentInfo arcType = (use.GetNext() == nullptr) ? IIArcBottom : IIArc;
-                    gtGetLateArgMsg(call, use.GetNode(), call->GetArgInfoByLateArgUse(&use), -1, bufp, sizeof(buf));
-                    gtDispChild(use.GetNode(), indentStack, arcType, bufp, topOnly);
-                    lateArgIndex++;
                 }
             }
         }
@@ -10973,7 +10910,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
                 fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(operand);
                 assert(curArgTabEntry);
 
-                if (!curArgTabEntry->isLateArg())
+                if (!curArgTabEntry->HasLateUse())
                 {
                     gtGetArgMsg(call, operand, curArgTabEntry->argNum, -1, buf, sizeof(buf));
                 }
@@ -16257,9 +16194,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 break;
             case GT_RET_EXPR:
                 structHnd = tree->AsRetExpr()->gtRetClsHnd;
-                break;
-            case GT_ARGPLACE:
-                structHnd = tree->AsArgPlace()->gtArgPlaceClsHnd;
                 break;
             case GT_INDEX:
                 structHnd = tree->AsIndex()->gtStructElemClass;

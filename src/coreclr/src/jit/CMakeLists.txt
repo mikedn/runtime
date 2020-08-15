@@ -166,7 +166,6 @@ if (CLR_CMAKE_TARGET_WIN32)
     regalloc.h
     register_arg_convention.h
     register.h
-    reglist.h
     regset.h
     sideeffects.h
     simd.h
@@ -181,7 +180,6 @@ if (CLR_CMAKE_TARGET_WIN32)
     ssarenamestate.h
     stacklevelsetter.h
     target.h
-    tinyarray.h
     titypes.h
     treelifeupdater.h
     typelist.h

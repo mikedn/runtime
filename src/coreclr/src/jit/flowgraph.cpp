@@ -23823,20 +23823,6 @@ Compiler::fgWalkResult Compiler::fgChkLocAllocCB(GenTree** pTree, fgWalkData* da
     return Compiler::WALK_CONTINUE;
 }
 
-/*****************************************************************************/
-/*static*/
-Compiler::fgWalkResult Compiler::fgChkQmarkCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-
-    if (tree->gtOper == GT_QMARK)
-    {
-        return Compiler::WALK_ABORT;
-    }
-
-    return Compiler::WALK_CONTINUE;
-}
-
 void Compiler::fgLclFldAssign(unsigned lclNum)
 {
     assert(varTypeIsStruct(lvaTable[lclNum].lvType));

@@ -1920,6 +1920,10 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     fgOrder = FGOrderTree;
 
     m_classLayoutTable = nullptr;
+#ifndef TARGET_X86
+    m_abiStructArgTemps      = nullptr;
+    m_abiStructArgTempsInUse = nullptr;
+#endif
 
 #ifdef FEATURE_SIMD
     m_simdHandleCache = nullptr;
@@ -4358,8 +4362,6 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
 
         // Initialize the BlockSet epoch
         NewBasicBlockEpoch();
-
-        fgOutgoingArgTemps = nullptr;
 
         // Insert call to class constructor as the first basic block if
         // we were asked to do so.

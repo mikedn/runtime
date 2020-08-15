@@ -1329,17 +1329,6 @@ inline void GenTree::gtBashToNOP()
     gtFlags &= ~(GTF_ALL_EFFECT | GTF_REVERSE_OPS);
 }
 
-// return new arg placeholder node.  Does not do anything but has a type associated
-// with it so we can keep track of register arguments in lists associated w/ call nodes
-
-inline GenTree* Compiler::gtNewArgPlaceHolderNode(var_types type, CORINFO_CLASS_HANDLE clsHnd)
-{
-    GenTree* node = new (this, GT_ARGPLACE) GenTreeArgPlace(type, clsHnd);
-    return node;
-}
-
-/*****************************************************************************/
-
 inline GenTree* Compiler::gtUnusedValNode(GenTree* expr)
 {
     return gtNewOperNode(GT_COMMA, TYP_VOID, expr, gtNewNothingNode());
@@ -1584,6 +1573,15 @@ inline unsigned Compiler::lvaNewTemp(ClassLayout* layout, bool shortLifetime DEB
 
     unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
     lvaSetStruct(lclNum, layout->GetClassHandle(), false);
+    return lclNum;
+}
+
+inline unsigned Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason))
+{
+    assert(info.compCompHnd->isValueClass(classHandle));
+
+    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    lvaSetStruct(lclNum, classHandle, false);
     return lclNum;
 }
 

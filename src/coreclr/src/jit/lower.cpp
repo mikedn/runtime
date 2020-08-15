@@ -1174,9 +1174,6 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     // Real call arguments should not have GTF_LATE_ARG, only arg setup nodes do.
     assert((arg->gtFlags & GTF_LATE_ARG) == 0);
 
-    // Make sure the argument type is consistent with arg info's state.
-    argInfo->checkIsStruct();
-
 #if !defined(TARGET_64BIT)
     if (arg->TypeIs(TYP_LONG))
     {

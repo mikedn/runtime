@@ -7612,7 +7612,7 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
 
     Compiler* const  pComp      = ((lvaStressLclFldArgs*)data->pCallbackData)->m_pCompiler;
     const bool       bFirstPass = ((lvaStressLclFldArgs*)data->pCallbackData)->m_bFirstPass;
-    const unsigned   lclNum     = lcl->AsLclVarCommon()->GetLclNum();
+    const unsigned   lclNum     = lcl->AsLclVar()->GetLclNum();
     var_types        type       = lcl->TypeGet();
     LclVarDsc* const varDsc     = pComp->lvaGetDesc(lclNum);
 
@@ -7682,10 +7682,8 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
 
 #ifdef TARGET_ARMARCH
         // We need to support alignment requirements to access memory on ARM ARCH
-        unsigned alignment = 1;
-        pComp->codeGen->InferOpSizeAlign(lcl, &alignment);
-        alignment = roundUp(alignment, TARGET_POINTER_SIZE);
-        padding   = roundUp(padding, alignment);
+        unsigned alignment = pComp->lvaStressLclFldGetAlignment(lcl->AsLclVar());
+        padding            = roundUp(padding, alignment);
 #endif // TARGET_ARMARCH
 
         // Change the variable to a TYP_BLK
@@ -7728,7 +7726,27 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
     return WALK_SKIP_SUBTREES;
 }
 
-/*****************************************************************************/
+#ifdef TARGET_ARMARCH
+
+unsigned Compiler::lvaStressLclFldGetAlignment(GenTreeLclVar* lclNode)
+{
+    if (lclNode->TypeIs(TYP_STRUCT))
+    {
+        LclVarDsc* lcl = lvaGetDesc(lclNode);
+        assert(lcl->GetType() == TYP_STRUCT);
+#ifndef TARGET_64BIT
+        if (lcl->lvStructDoubleAlign)
+        {
+            return REGSIZE_BYTES * 2;
+        }
+#endif
+        return REGSIZE_BYTES;
+    }
+
+    return roundUp(static_cast<unsigned>(genTypeAlignments[lclNode->GetType()]), REGSIZE_BYTES);
+}
+
+#endif // TARGET_ARMARCH
 
 void Compiler::lvaStressLclFld()
 {

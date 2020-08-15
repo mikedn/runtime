@@ -115,7 +115,7 @@ extern const BYTE opcodeArgKinds[] = {
 
 /*****************************************************************************/
 
-const char* varTypeName(var_types vt)
+const char* varTypeName(var_types type)
 {
     static const char* const varTypeNames[] = {
 #define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) nm,
@@ -123,9 +123,7 @@ const char* varTypeName(var_types vt)
 #undef DEF_TP
     };
 
-    assert((unsigned)vt < _countof(varTypeNames));
-
-    return varTypeNames[vt];
+    return type < _countof(varTypeNames) ? varTypeNames[type] : "TYP_???";
 }
 
 #if defined(DEBUG) || defined(LATE_DISASM)
