@@ -9858,8 +9858,8 @@ public:
 
 #endif // defined(UNIX_AMD64_ABI)
 
-    bool abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg);
-    void abiMorphStructStackArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
+    bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
+    void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
     void abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* mkrefany);
     GenTreeFieldList* abiMakeFieldList(GenTree* arg);
 #ifndef TARGET_X86

@@ -2648,7 +2648,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         }
 #endif // !TARGET_X86
 
-        requires2ndPass |= abiMorphStructStackArg(argInfo, argVal);
+        requires2ndPass |= abiMorphStackStructArg(argInfo, argVal);
         argsSideEffects |= argUse->GetNode()->gtFlags;
     }
 
@@ -2709,7 +2709,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     return call;
 }
 
-bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg)
+bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
     assert(argInfo->GetRegCount() == 0);
     assert(varTypeIsStruct(arg->GetType()));
@@ -2803,7 +2803,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg)
             CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_X86
-            abiMorphStructStackArgPromoted(argInfo, arg->AsLclVar());
+            abiMorphStackLclArgPromoted(argInfo, arg->AsLclVar());
             return false;
 #else
             return true;
@@ -2881,7 +2881,7 @@ bool Compiler::abiMorphStructStackArg(CallArgInfo* argInfo, GenTree* arg)
     return false;
 }
 
-void Compiler::abiMorphStructStackArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
+void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
 {
     assert(argInfo->GetRegCount() == 0);
 
@@ -2951,7 +2951,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
 
             if (arg->OperIs(GT_LCL_VAR))
             {
-                abiMorphStructStackArgPromoted(argInfo, arg->AsLclVar());
+                abiMorphStackLclArgPromoted(argInfo, arg->AsLclVar());
             }
             continue;
         }
@@ -3842,7 +3842,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
             if (lclOffs == 0)
             {
-                // TODO-MIKE-Cleanup: This is slighly different from abiMorphStructStackArg because it's more
+                // TODO-MIKE-Cleanup: This is slighly different from abiMorphStackStructArg because it's more
                 // difficult to extract the size from the registers.
 
                 unsigned argSize = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
@@ -3972,29 +3972,29 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
 
-    for (unsigned i = 0, offset = 0; i < regCount; i++)
+    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
     {
 #if FEATURE_ARG_SPLIT
-        var_types fieldType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
 #else
-        var_types fieldType = argInfo->GetRegType(i);
+        var_types regType = argInfo->GetRegType(i);
 #endif
-
-        GenTree* fieldNode = gtNewLclvNode(tempLclNum, arg->GetType());
+        unsigned regSize  = varTypeSize(regType);
+        GenTree* regValue = gtNewLclvNode(tempLclNum, arg->GetType());
 
         // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
         // in a SIMD register and at the proper position.
 
-        fieldNode = gtNewSIMDNode(fieldType, SIMDIntrinsicGetItem, fieldType, varTypeSize(arg->GetType()), fieldNode,
-                                  gtNewIconNode(offset / varTypeSize(fieldType)));
+        regValue = gtNewSIMDNode(regType, SIMDIntrinsicGetItem, regType, varTypeSize(arg->GetType()), regValue,
+                                 gtNewIconNode(regOffset / regSize));
 
         if (i == 0)
         {
-            fieldNode = gtNewOperNode(GT_COMMA, fieldType, tempAssign, fieldNode);
+            regValue = gtNewOperNode(GT_COMMA, regType, tempAssign, regValue);
         }
 
-        fieldList->AddField(this, fieldNode, offset, fieldType);
-        offset += varTypeSize(fieldType);
+        fieldList->AddField(this, regValue, regOffset, regType);
+        regOffset += regSize;
     }
 
     return fieldList;
