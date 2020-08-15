@@ -4749,6 +4749,14 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
                     lvaSetVarDoNotEnregister(varNum DEBUG_ARG(DNER_LocalField));
                 }
 
+#ifdef TARGET_ARM
+                if (tempAssign != nullptr)
+                {
+                    fieldNode  = gtNewOperNode(GT_COMMA, fieldNode->GetType(), tempAssign, fieldNode);
+                    tempAssign = nullptr;
+                }
+#endif
+
                 newArg->AddField(this, fieldNode, regOffset, regType);
                 regOffset += regSize;
             }
