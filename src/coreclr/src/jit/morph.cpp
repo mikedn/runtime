@@ -16517,18 +16517,33 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
     GenTreeOp* asg = stmt->GetRootNode()->AsOp();
     assert(asg->OperIs(GT_ASG));
 
-    unsigned  index;
-    var_types baseType;
-    unsigned  simdSize;
-    GenTree*  simdStructNode = getSIMDStructFromField(asg->GetOp(1), &baseType, &index, &simdSize);
+    auto IsSIMDGetItem = [](GenTree* node, unsigned index) -> GenTreeSIMD* {
+        if (!node->OperIs(GT_SIMD))
+        {
+            return nullptr;
+        }
 
-    if ((simdStructNode == nullptr) || (index != 0) || (baseType != TYP_FLOAT))
+        GenTreeSIMD* simdElement = node->AsSIMD();
+
+        if ((simdElement->GetIntrinsic() != SIMDIntrinsicGetItem) || (simdElement->GetSIMDBaseType() != TYP_FLOAT) ||
+            !simdElement->GetOp(0)->OperIs(GT_LCL_VAR) || !simdElement->GetOp(1)->IsIntegralConst(index))
+        {
+            return nullptr;
+        }
+
+        return simdElement;
+    };
+
+    GenTreeSIMD* firstGetItem = IsSIMDGetItem(asg->GetOp(1), 0);
+
+    if (firstGetItem == nullptr)
     {
-        // if the RHS is not from a SIMD vector field X, then there is no need to check further.
         return;
     }
 
-    assert(simdStructNode->OperIs(GT_LCL_VAR) && varTypeIsSIMD(simdStructNode->TypeGet()));
+    unsigned       simdSize       = firstGetItem->GetSIMDSize();
+    var_types      baseType       = firstGetItem->GetSIMDBaseType();
+    GenTreeLclVar* simdStructNode = firstGetItem->GetOp(0)->AsLclVar();
 
     unsigned   assignmentsCount = simdSize / genTypeSize(baseType);
     GenTreeOp* prevAsg          = asg;
@@ -16548,8 +16563,19 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
             return;
         }
 
-        if (!areArgumentsContiguous(prevAsg->GetOp(0), nextAsg->AsOp()->GetOp(0)) ||
-            !areArgumentsContiguous(prevAsg->GetOp(1), nextAsg->AsOp()->GetOp(1)))
+        GenTreeSIMD* nextGetItem = IsSIMDGetItem(nextAsg->AsOp()->GetOp(1), i);
+
+        if (nextGetItem == nullptr)
+        {
+            return;
+        }
+
+        if (nextGetItem->GetOp(0)->AsLclVar()->GetLclNum() != simdStructNode->GetLclNum())
+        {
+            return;
+        }
+
+        if (!areArgumentsContiguous(prevAsg->GetOp(0), nextAsg->AsOp()->GetOp(0)))
         {
             return;
         }
