@@ -352,21 +352,18 @@ public:
 
         WalkTree(stmt->GetRootNodePointer(), nullptr);
 
-        // We could have something a statement like IND(ADDR(LCL_VAR)) so we need to escape
-        // the location here. This doesn't seem to happen often, if ever. The importer
-        // tends to wrap such a tree in a COMMA.
-        if (TopValue(0).IsLocation())
+        // We could have a statement like IND(ADDR(LCL_VAR)) that EscapeLocation would simplify
+        // to LCL_VAR. But since it's unused (and currently can't have any side effects) we'll
+        // just change the statment to NOP. This way we avoid complications associated with
+        // passing a null user to EscapeLocation.
+        // This doesn't seem to happen often, if ever. The importer tends to wrap such a tree
+        // in a COMMA.
+        if (TopValue(0).IsLocation() || TopValue(0).IsAddress())
         {
-            EscapeLocation(TopValue(0), nullptr);
-        }
-        else
-        {
-            // If we have an address on the stack then we don't need to do anything.
-            // The address tree isn't actually used and it will be discarded during
-            // morphing. So just mark any value as consumed to keep PopValue happy.
-            INDEBUG(TopValue(0).Consume();)
+            stmt->SetRootNode(m_compiler->gtNewNothingNode());
         }
 
+        INDEBUG(TopValue(0).Consume();)
         PopValue();
         assert(m_valueStack.Empty());
 
@@ -684,6 +681,7 @@ private:
     {
         assert(val.IsLocation());
         INDEBUG(val.Consume();)
+        assert(user != nullptr);
 
         if (val.Node()->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
@@ -845,7 +843,7 @@ private:
         // - It can be a GT_OBJ that has a correct size, but different than the size of the LHS.
         //   The LHS size takes precedence.
         // Just take the LHS size in all cases.
-        if (user != nullptr && user->OperIs(GT_ASG) && (indir == user->gtGetOp2()))
+        if (user->OperIs(GT_ASG) && (indir == user->AsOp()->GetOp(1)))
         {
             indir = user->gtGetOp1();
 
@@ -971,7 +969,7 @@ private:
         {
             // TODO-MIKE-Cleanup: This likely makes a bunch of IND morphing code in fgMorphSmpOp redundant.
 
-            const bool isDef = (user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
+            const bool isDef = user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
 
             const var_types indirType = indir->GetType();
             const var_types lclType   = varDsc->GetType();
@@ -1238,7 +1236,7 @@ private:
 
         unsigned flags = 0;
 
-        if ((user != nullptr) && user->OperIs(GT_ASG) && (user->AsOp()->gtGetOp1() == indir))
+        if (user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir))
         {
             flags |= GTF_VAR_DEF | GTF_DONT_CSE;
 
@@ -1253,7 +1251,7 @@ private:
                 }
             }
         }
-        else if (indir->TypeIs(TYP_STRUCT) && (user != nullptr) && user->IsCall())
+        else if (indir->TypeIs(TYP_STRUCT) && user->IsCall())
         {
             flags |= GTF_DONT_CSE;
         }
