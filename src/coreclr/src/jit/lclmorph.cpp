@@ -1117,13 +1117,6 @@ private:
             return;
         }
 
-        if (varDsc->lvPromoted)
-        {
-            // TODO-ADDR: For now we ignore promoted variables, they may require
-            // additional changes in subsequent phases.
-            return;
-        }
-
         ClassLayout*  structLayout = nullptr;
         FieldSeqNode* fieldSeq     = val.FieldSeq();
 
@@ -1217,7 +1210,8 @@ private:
             indir->ChangeOper(GT_LCL_VAR);
             indir->AsLclVar()->SetLclNum(val.LclNum());
         }
-        else
+        else if (!varDsc->IsPromoted() || varDsc->lvDoNotEnregister || (val.Offset() != 0) ||
+                 (structLayout == nullptr) || (structLayout->GetSize() != varDsc->GetLayout()->GetSize()))
         {
             indir->ChangeOper(GT_LCL_FLD);
             indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1232,6 +1226,29 @@ private:
             // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
             // later transformed into a LCL_VAR and the variable cannot be enregistered.
             m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
+        }
+        else
+        {
+            // TODO-ADDR: For now we do not attempt to create LCL_FLDs for certain indirect
+            // accesses to promoted locals - when the indirection exactly overlaps the local
+            // but has a different layout.
+            //
+            // We may end up needing to do this in some cases, like Memory/ReadOnlyMemory
+            // reinterpretation, that should not result in dependent promotion due to DNER.
+            // Eventually we should handle this by creating the LCL_FLD but not DNERing the
+            // promoted local here and instead doing that during global morphing.
+            //
+            // In general this is a problem only for call args, as we need to preserve the
+            // original layout we get from FIELD/OBJ. For block copies we should be able to
+            // ignore differences in layout and use a LCL_VAR instead of a LCL_FLD to avoid
+            // this issue.
+            //
+            // Even for call args, cases like Memory/ReadOnlyMemory can be handled by checking
+            // if the 2 layouts are identical. Though this is slightly more cumbersome to do
+            // because we only have the list of field of the promoted local, for the layout
+            // we get from the OBJ we'll need to query the VM to get its fields. Or just
+            // cache the fields in the layout to avoid repeated VM queries...
+            return;
         }
 
         unsigned flags = 0;
