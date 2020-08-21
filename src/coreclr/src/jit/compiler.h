@@ -439,6 +439,29 @@ public:
     unsigned char lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
 #endif                                   // defined(TARGET_AMD64) || defined(TARGET_ARM64)
 
+    bool IsImplicitByRefParam() const
+    {
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+        assert(!lvIsImplicitByRef || lvIsParam);
+        assert(!lvIsImplicitByRef || varTypeIsStruct(lvType) || (lvType == TYP_BYREF));
+
+        return lvIsImplicitByRef;
+#else
+        return false;
+#endif
+    }
+
+    ClassLayout* GetImplicitByRefParamLayout() const
+    {
+        assert(IsImplicitByRefParam());
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+        assert(m_layout != nullptr);
+        return m_layout;
+#else
+        return nullptr;
+#endif
+    }
+
 #if OPT_BOOL_OPS
     unsigned char lvIsBoolean : 1; // set if variable is boolean
 #endif
@@ -540,6 +563,11 @@ public:
     bool IsPromoted() const
     {
         return lvPromoted;
+    }
+
+    bool IsPromotedField() const
+    {
+        return lvIsStructField;
     }
 
     unsigned GetPromotedFieldCount() const
@@ -3213,21 +3241,9 @@ public:
     BOOL lvaIsOriginalThisReadOnly();           // return TRUE if there is no place in the code
                                                 // that writes to arg0
 
-    // For x64 this is 3, 5, 6, 7, >8 byte structs that are passed by reference.
-    // For ARM64, this is structs larger than 16 bytes that are passed by reference.
     bool lvaIsImplicitByRefLocal(unsigned varNum)
     {
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        LclVarDsc* varDsc = lvaGetDesc(varNum);
-        if (varDsc->lvIsImplicitByRef)
-        {
-            assert(varDsc->lvIsParam);
-
-            assert(varTypeIsStruct(varDsc) || (varDsc->lvType == TYP_BYREF));
-            return true;
-        }
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        return false;
+        return lvaGetDesc(varNum)->IsImplicitByRefParam();
     }
 
     // Returns true if this local var is a multireg struct
