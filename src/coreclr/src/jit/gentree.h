@@ -931,7 +931,6 @@ public:
                                                //               of the static field; in both of those cases, the constant
                                                //               is what gets flagged.
 
-#define GTF_BLK_VOLATILE            GTF_IND_VOLATILE  // GT_ASG, GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_DYNBLK -- is a volatile block operation
 #define GTF_BLK_UNALIGNED           GTF_IND_UNALIGNED // GT_ASG, GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_DYNBLK -- is an unaligned block operation
 
 #define GTF_OVERFLOW                0x10000000 // Supported for: GT_ADD, GT_SUB, GT_MUL and GT_CAST.
@@ -6472,6 +6471,11 @@ struct GenTreeIndir : public GenTreeOp
     bool IsVolatile() const
     {
         return (gtFlags & GTF_IND_VOLATILE) != 0;
+    }
+
+    void SetVolatile()
+    {
+        gtFlags |= GTF_IND_VOLATILE;
     }
 
     // True if this indirection is an unaligned memory operation.

@@ -1419,7 +1419,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
     // return an assignment node, to be appended
     GenTreeOp* asgNode = gtNewAssignNode(dest, src);
-    gtInitStructAsg(asgNode, false);
+    gtInitStructAsg(asgNode);
 
     // TODO-1stClassStructs: Clean up the settings of GTF_DONT_CSE on the lhs
     // of assignments.
@@ -18462,7 +18462,7 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
     GenTree* initValue = gtNewIconNode(0);
 
     GenTreeOp* asg = gtNewAssignNode(dst, initValue);
-    gtInitStructAsg(asg, false);
+    gtInitStructAsg(asg);
     return asg;
 }
 
@@ -18511,13 +18511,13 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructAsg(asg, false);
+    gtInitStructAsg(asg);
     return asg;
 }
 
 GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)
 {
-    GenTree* dst;
+    GenTreeIndir* dst;
 
     if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
     {
@@ -18527,6 +18527,11 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
     else
     {
         dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
+    }
+
+    if (isVolatile)
+    {
+        dst->SetVolatile();
     }
 
     if (!initValue->IsIntegralConst(0))
@@ -18535,13 +18540,13 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
     }
 
     GenTreeOp* asg = gtNewAssignNode(dst, initValue);
-    gtInitStructAsg(asg, isVolatile);
+    gtInitStructAsg(asg);
     return asg;
 }
 
 GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
 {
-    GenTree* dst;
+    GenTreeIndir* dst;
 
     if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
     {
@@ -18553,15 +18558,25 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
         dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
     }
 
+    if (isVolatile)
+    {
+        dst->SetVolatile();
+    }
+
     GenTree* src;
 
-    if (srcAddr->OperIs(GT_ADDR))
+    if (!isVolatile && srcAddr->OperIs(GT_ADDR))
     {
         src = srcAddr->AsUnOp()->GetOp(0);
     }
     else
     {
         src = gtNewOperNode(GT_IND, TYP_STRUCT, srcAddr);
+
+        if (isVolatile)
+        {
+            src->AsIndir()->SetVolatile();
+        }
     }
 
     // TODO-MIKE-CQ: This should probably be removed, it's here only because
@@ -18571,6 +18586,6 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructAsg(asg, isVolatile);
+    gtInitStructAsg(asg);
     return asg;
 }

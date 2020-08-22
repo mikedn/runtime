@@ -6033,7 +6033,7 @@ GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructAsg(asg, false);
+    gtInitStructAsg(asg);
     return asg;
 }
 
@@ -6254,14 +6254,13 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
 // gtInitStructAsg: Initializes a struct assignment
 //
 // Arguments:
-//    result     - an assignment node that is to be initialized.
-//    isVolatile - specifies whether this node is a volatile memory operation.
+//    result - an assignment node that is to be initialized.
 //
 // Notes:
 //    This procedure centralizes all the logic to both enforce proper structure and
 //    to properly construct any InitBlk/CpBlk node.
 //
-void Compiler::gtInitStructAsg(GenTreeOp* asg, bool isVolatile)
+void Compiler::gtInitStructAsg(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));
 
@@ -6314,11 +6313,6 @@ void Compiler::gtInitStructAsg(GenTreeOp* asg, bool isVolatile)
             asg->gtBashToNOP();
             return;
         }
-    }
-
-    if (isVolatile)
-    {
-        asg->gtFlags |= GTF_BLK_VOLATILE;
     }
 
 #ifdef FEATURE_SIMD
