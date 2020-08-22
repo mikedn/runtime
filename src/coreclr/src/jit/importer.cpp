@@ -1385,7 +1385,6 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         if (asgType == TYP_STRUCT)
         {
             dest = gtNewObjNode(structHnd, destAddr);
-            gtSetObjGcInfo(dest->AsObj());
             // Although an obj as a call argument was always assumed to be a globRef
             // (which is itself overly conservative), that is not true of the operands
             // of a block assignment.

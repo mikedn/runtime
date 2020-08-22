@@ -5981,23 +5981,6 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
 }
 
 //------------------------------------------------------------------------
-// gtSetObjGcInfo: Set the GC info on an object node
-//
-// Arguments:
-//    objNode - The object node of interest
-
-void Compiler::gtSetObjGcInfo(GenTreeObj* objNode)
-{
-    assert(varTypeIsStruct(objNode->TypeGet()));
-    assert(objNode->TypeGet() == impNormStructType(objNode->GetLayout()->GetClassHandle()));
-
-    if (!objNode->GetLayout()->HasGCPtr())
-    {
-        objNode->SetOper(objNode->OperIs(GT_OBJ) ? GT_BLK : GT_STORE_BLK);
-    }
-}
-
-//------------------------------------------------------------------------
 // gtNewStructVal: Return a node that represents a struct value
 //
 // Arguments:
@@ -6090,7 +6073,7 @@ GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
         unsigned     size   = layout->GetSize();
         assert((layout->GetGCPtrCount() == 0) || (roundUp(size, REGSIZE_BYTES) == size));
 #endif
-        gtSetObjGcInfo(lhsObj);
+        assert(lhsObj->GetType() == impNormStructType(lhsObj->GetLayout()->GetClassHandle()));
     }
 
     if (srcAddr->OperGet() == GT_ADDR)

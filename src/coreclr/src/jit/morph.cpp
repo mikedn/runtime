@@ -9034,7 +9034,6 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
             else
             {
                 tree = gtNewObjNode(structHnd, addr);
-                gtSetObjGcInfo(tree->AsObj());
             }
         }
         else

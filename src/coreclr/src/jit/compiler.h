@@ -2030,7 +2030,6 @@ protected:
 
 public:
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
-    void gtSetObjGcInfo(GenTreeObj* objNode);
     GenTree* gtNewStructVal(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
     GenTree* gtNewBlockVal(GenTree* addr, unsigned size);
 
