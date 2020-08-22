@@ -22353,10 +22353,24 @@ GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HAND
     {
         // Inlinee is not a call, so just create a copy block to the tmp.
 
-        GenTree* dstAddr = inlGetStructAddress(dst);
         GenTree* srcAddr = inlGetStructAddress(src);
 
-        newAsg = gtNewCpObjNode(dstAddr, srcAddr, structHandle);
+        if (srcAddr->OperIs(GT_ADDR))
+        {
+            src = srcAddr->AsUnOp()->GetOp(0);
+        }
+        else
+        {
+            src = gtNewObjNode(structHandle, srcAddr);
+        }
+
+        // TODO-MIKE-CQ: This should probably be removed, it's here only because
+        // a previous implementation (gtNewBlkOpNode) was setting it. And it
+        // probably blocks SIMD tree CSEing.
+        src->gtFlags |= GTF_DONT_CSE;
+
+        newAsg = gtNewAssignNode(dst, src);
+        gtInitStructCopyAsg(newAsg->AsOp());
     }
 
     return gtNewOperNode(GT_COMMA, dst->GetType(), newAsg, gtNewLclvNode(tempLclNum, dst->GetType()));
