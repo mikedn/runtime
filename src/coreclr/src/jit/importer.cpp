@@ -1418,8 +1418,8 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     destFlags = dest->gtFlags;
 
     // return an assignment node, to be appended
-    GenTree* asgNode = gtNewAssignNode(dest, src);
-    gtBlockOpInit(asgNode, dest, src, false);
+    GenTreeOp* asgNode = gtNewAssignNode(dest, src);
+    gtInitStructAsg(asgNode, false);
 
     // TODO-1stClassStructs: Clean up the settings of GTF_DONT_CSE on the lhs
     // of assignments.
@@ -18461,8 +18461,8 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
 
     GenTree* initValue = gtNewIconNode(0);
 
-    GenTree* asg = gtNewAssignNode(dst, initValue);
-    gtBlockOpInit(asg, dst, initValue, isVolatile);
+    GenTreeOp* asg = gtNewAssignNode(dst, initValue);
+    gtInitStructAsg(asg, isVolatile);
     return asg;
 }
 
@@ -18510,8 +18510,8 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     // probably blocks SIMD tree CSEing.
     src->gtFlags |= GTF_DONT_CSE;
 
-    GenTree* asg = gtNewAssignNode(dst, src);
-    gtBlockOpInit(asg, dst, src, isVolatile);
+    GenTreeOp* asg = gtNewAssignNode(dst, src);
+    gtInitStructAsg(asg, isVolatile);
     return asg;
 }
 
@@ -18534,8 +18534,8 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
         initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
     }
 
-    GenTree* asg = gtNewAssignNode(dst, initValue);
-    gtBlockOpInit(asg, dst, initValue, isVolatile);
+    GenTreeOp* asg = gtNewAssignNode(dst, initValue);
+    gtInitStructAsg(asg, isVolatile);
     return asg;
 }
 
@@ -18570,7 +18570,7 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
     // copy struct values so it probably doesn't matter.
     src->gtFlags |= GTF_DONT_CSE;
 
-    GenTree* asg = gtNewAssignNode(dst, src);
-    gtBlockOpInit(asg, dst, src, isVolatile);
+    GenTreeOp* asg = gtNewAssignNode(dst, src);
+    gtInitStructAsg(asg, isVolatile);
     return asg;
 }

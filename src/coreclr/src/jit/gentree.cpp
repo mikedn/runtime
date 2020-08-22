@@ -6032,8 +6032,8 @@ GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     // probably blocks SIMD tree CSEing.
     src->gtFlags |= GTF_DONT_CSE;
 
-    GenTree* asg = gtNewAssignNode(dst, src);
-    gtBlockOpInit(asg, dst, src, false);
+    GenTreeOp* asg = gtNewAssignNode(dst, src);
+    gtInitStructAsg(asg, false);
     return asg;
 }
 
@@ -6250,29 +6250,27 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
     }
 }
 
-//
 //------------------------------------------------------------------------
-// gtBlockOpInit: Initializes a BlkOp GenTree
+// gtInitStructAsg: Initializes a struct assignment
 //
 // Arguments:
 //    result     - an assignment node that is to be initialized.
-//    dst        - the target (destination) we want to either initialize or copy to.
-//    src        - the init value for InitBlk or the source struct for CpBlk/CpObj.
 //    isVolatile - specifies whether this node is a volatile memory operation.
-//
-// Assumptions:
-//    'result' is an assignment that is newly constructed.
-//    If 'dst' is TYP_STRUCT, then it must be a block node or lclVar.
 //
 // Notes:
 //    This procedure centralizes all the logic to both enforce proper structure and
 //    to properly construct any InitBlk/CpBlk node.
-
-void Compiler::gtBlockOpInit(GenTree* result, GenTree* dst, GenTree* srcOrFillVal, bool isVolatile)
+//
+void Compiler::gtInitStructAsg(GenTreeOp* asg, bool isVolatile)
 {
-    if (!result->OperIsBlkOp())
+    assert(asg->OperIs(GT_ASG));
+
+    GenTree* dst = asg->GetOp(0);
+    GenTree* src = asg->GetOp(1);
+
+    if (!asg->OperIsBlkOp())
     {
-        assert(dst->TypeGet() != TYP_STRUCT);
+        assert(dst->GetType() != TYP_STRUCT);
         return;
     }
 
@@ -6294,9 +6292,9 @@ void Compiler::gtBlockOpInit(GenTree* result, GenTree* dst, GenTree* srcOrFillVa
     * surface if struct promotion is ON (which is the case on x86/arm).  But still the
     * fundamental issue exists that needs to be addressed.
     */
-    if (result->OperIsCopyBlkOp())
+    if (asg->OperIsCopyBlkOp())
     {
-        GenTree* currSrc = srcOrFillVal;
+        GenTree* currSrc = src;
         GenTree* currDst = dst;
 
         if (currSrc->OperIsBlk() && (currSrc->AsBlk()->Addr()->OperGet() == GT_ADDR))
@@ -6313,47 +6311,47 @@ void Compiler::gtBlockOpInit(GenTree* result, GenTree* dst, GenTree* srcOrFillVa
         {
             // Make this a NOP
             // TODO-Cleanup: probably doesn't matter, but could do this earlier and avoid creating a GT_ASG
-            result->gtBashToNOP();
+            asg->gtBashToNOP();
             return;
         }
     }
 
     // Propagate all effect flags from children
-    result->gtFlags |= dst->gtFlags & GTF_ALL_EFFECT;
-    result->gtFlags |= result->AsOp()->gtOp2->gtFlags & GTF_ALL_EFFECT;
+    asg->gtFlags |= dst->gtFlags & GTF_ALL_EFFECT;
+    asg->gtFlags |= src->gtFlags & GTF_ALL_EFFECT;
 
-    result->gtFlags |= (dst->gtFlags & GTF_EXCEPT) | (srcOrFillVal->gtFlags & GTF_EXCEPT);
+    asg->gtFlags |= (dst->gtFlags & GTF_EXCEPT) | (src->gtFlags & GTF_EXCEPT);
 
     if (isVolatile)
     {
-        result->gtFlags |= GTF_BLK_VOLATILE;
+        asg->gtFlags |= GTF_BLK_VOLATILE;
     }
 
 #ifdef FEATURE_SIMD
-    if (result->OperIsCopyBlkOp() && varTypeIsSIMD(srcOrFillVal))
+    if (asg->OperIsCopyBlkOp() && varTypeIsSIMD(src->GetType()))
     {
         // If the source is a GT_SIMD node of SIMD type, then the dst lclvar struct
         // should be labeled as simd intrinsic related struct.
         // This is done so that the morpher can transform any field accesses into
         // intrinsics, thus avoiding conflicting access methods (fields vs. whole-register).
 
-        GenTree* src = srcOrFillVal;
-        if (src->OperIsIndir() && (src->AsIndir()->Addr()->OperGet() == GT_ADDR))
+        if (src->OperIsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_ADDR))
         {
-            src = src->AsIndir()->Addr()->gtGetOp1();
+            src = src->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
         }
+
 #ifdef FEATURE_HW_INTRINSICS
-        if ((src->OperGet() == GT_SIMD) || (src->OperGet() == GT_HWINTRINSIC))
+        if (src->OperIs(GT_SIMD, GT_HWINTRINSIC))
 #else
-        if (src->OperGet() == GT_SIMD)
+        if (src->OperIs(GT_SIMD))
 #endif // FEATURE_HW_INTRINSICS
         {
-            if (dst->OperIsBlk() && (dst->AsIndir()->Addr()->OperGet() == GT_ADDR))
+            if (dst->OperIsBlk() && dst->AsIndir()->GetAddr()->OperIs(GT_ADDR))
             {
-                dst = dst->AsIndir()->Addr()->gtGetOp1();
+                dst = dst->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
             }
 
-            if (dst->OperIsLocal() && varTypeIsStruct(dst))
+            if (dst->OperIsLocal() && varTypeIsStruct(dst->GetType()))
             {
                 setLclRelatedToSIMDIntrinsic(dst);
             }

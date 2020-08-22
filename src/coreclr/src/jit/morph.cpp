@@ -4454,7 +4454,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     GenTree* dest = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
     GenTree* asg  = gtNewAssignNode(dest, arg);
-    gtBlockOpInit(asg, dest, arg, false);
+    gtInitStructAsg(asg->AsOp(), false);
     asg = fgMorphCopyBlock(asg->AsOp());
 
     argInfo->SetNode(asg);
