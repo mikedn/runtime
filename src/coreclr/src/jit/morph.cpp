@@ -8200,7 +8200,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
                                          gtNewLclvNode(var->AsLclVar()->GetLclNum(), var->TypeGet()));
             }
         }
-        GenTree* copyBlk = gtNewCpObjNode(origDest, retValVarAddr, structHnd, false);
+        GenTree* copyBlk = gtNewCpObjNode(origDest, retValVarAddr, structHnd);
         copyBlk          = fgMorphTree(copyBlk);
         GenTree* result  = gtNewOperNode(GT_COMMA, TYP_VOID, call, copyBlk);
 #ifdef DEBUG

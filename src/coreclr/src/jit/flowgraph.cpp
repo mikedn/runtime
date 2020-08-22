@@ -22364,7 +22364,7 @@ GenTree* Compiler::fgAssignStructInlineeToVar(GenTree* child, CORINFO_CLASS_HAND
         src              = child;
         GenTree* dstAddr = fgGetStructAsStructPtr(dst);
         GenTree* srcAddr = fgGetStructAsStructPtr(src);
-        newInlinee       = gtNewCpObjNode(dstAddr, srcAddr, retClsHnd, false);
+        newInlinee       = gtNewCpObjNode(dstAddr, srcAddr, retClsHnd);
     }
 
     GenTree* production = gtNewLclvNode(tmpNum, structType);
@@ -22407,7 +22407,7 @@ void Compiler::fgAttachStructInlineeToAsg(GenTree* tree, GenTree* child, CORINFO
             ? fgAssignStructInlineeToVar(child, retClsHnd) // Assign to a variable if it is a call.
             : child);                                      // Just get the address, if not a call.
 
-    tree->ReplaceWith(gtNewCpObjNode(dstAddr, srcAddr, retClsHnd, false), this);
+    tree->ReplaceWith(gtNewCpObjNode(dstAddr, srcAddr, retClsHnd), this);
 }
 
 #endif // FEATURE_MULTIREG_RET

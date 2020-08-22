@@ -2029,7 +2029,7 @@ protected:
 public:
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
 
-    GenTree* gtNewCpObjNode(GenTree* dst, GenTree* src, CORINFO_CLASS_HANDLE structHnd, bool isVolatile);
+    GenTree* gtNewCpObjNode(GenTree* dst, GenTree* src, CORINFO_CLASS_HANDLE structHnd);
 
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);

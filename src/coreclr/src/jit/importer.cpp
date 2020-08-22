@@ -18468,7 +18468,51 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
 
 GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle, bool isVolatile)
 {
-    return gtNewCpObjNode(dstAddr, srcAddr, classHandle, isVolatile);
+    GenTree*     dst    = nullptr;
+    ClassLayout* layout = nullptr;
+
+    if (dstAddr->OperIs(GT_ADDR))
+    {
+        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR))
+        {
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
+                (lcl->GetLayout()->GetClassHandle() == classHandle))
+            {
+                dst    = location;
+                layout = lcl->GetLayout();
+            }
+        }
+    }
+
+    if (dst == nullptr)
+    {
+        dst    = gtNewObjNode(classHandle, dstAddr);
+        layout = dst->AsObj()->GetLayout();
+    }
+
+    GenTree* src = nullptr;
+
+    if (srcAddr->OperIs(GT_ADDR))
+    {
+        src = srcAddr->AsUnOp()->GetOp(0);
+    }
+    else
+    {
+        src = gtNewObjNode(classHandle, srcAddr);
+    }
+
+    // TODO-MIKE-CQ: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. And it
+    // probably blocks SIMD tree CSEing.
+    src->gtFlags |= GTF_DONT_CSE;
+
+    GenTree* asg = gtNewAssignNode(dst, src);
+    gtBlockOpInit(asg, dst, src, isVolatile);
+    return asg;
 }
 
 GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)

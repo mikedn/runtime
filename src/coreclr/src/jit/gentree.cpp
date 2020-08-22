@@ -5987,9 +5987,8 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
 //  srcAddr    - The source to copy the struct from
 //  structHnd  - A class token that represents the type of object being copied. May be null
 //               if FEATURE_SIMD is enabled and the source has a SIMD type.
-//  isVolatile - Is this marked as volatile memory?
 
-GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE structHnd, bool isVolatile)
+GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE structHnd)
 {
     GenTree*     dst    = nullptr;
     ClassLayout* layout = nullptr;
@@ -6034,7 +6033,7 @@ GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTree* asg = gtNewAssignNode(dst, src);
-    gtBlockOpInit(asg, dst, src, isVolatile);
+    gtBlockOpInit(asg, dst, src, false);
     return asg;
 }
 
