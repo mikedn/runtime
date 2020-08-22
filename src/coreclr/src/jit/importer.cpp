@@ -13955,7 +13955,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                op1 = impImportInitObj(impPopStack().val, resolvedToken.hClass, (prefixFlags & PREFIX_VOLATILE) != 0);
+                op1 = impImportInitObj(impPopStack().val, resolvedToken.hClass);
                 goto SPILL_APPEND;
 
             case CEE_INITBLK:
@@ -13998,7 +13998,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 op2 = impPopStack().val; // Src
                 op1 = impPopStack().val; // Dest
-                op1 = impImportCpObj(op1, op2, resolvedToken.hClass, (prefixFlags & PREFIX_VOLATILE) != 0);
+                op1 = impImportCpObj(op1, op2, resolvedToken.hClass);
                 goto SPILL_APPEND;
 
             case CEE_STOBJ:
@@ -18424,7 +18424,7 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     return false;
 }
 
-GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle, bool isVolatile)
+GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle)
 {
     unsigned size = info.compCompHnd->getClassSize(classHandle);
     GenTree* dst  = nullptr;
@@ -18462,11 +18462,11 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
     GenTree* initValue = gtNewIconNode(0);
 
     GenTreeOp* asg = gtNewAssignNode(dst, initValue);
-    gtInitStructAsg(asg, isVolatile);
+    gtInitStructAsg(asg, false);
     return asg;
 }
 
-GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle, bool isVolatile)
+GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle)
 {
     GenTree*     dst    = nullptr;
     ClassLayout* layout = nullptr;
@@ -18511,7 +18511,7 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructAsg(asg, isVolatile);
+    gtInitStructAsg(asg, false);
     return asg;
 }
 
