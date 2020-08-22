@@ -6556,7 +6556,6 @@ public:
     {
         assert(OperIsBlk(oper));
         assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
-        gtFlags |= (addr->gtFlags & GTF_ALL_EFFECT);
     }
 
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* data, ClassLayout* layout)
@@ -6569,8 +6568,6 @@ public:
     {
         assert(OperIsBlk(oper));
         assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
-        gtFlags |= (addr->gtFlags & GTF_ALL_EFFECT);
-        gtFlags |= (data->gtFlags & GTF_ALL_EFFECT);
     }
 
     GenTreeBlk(GenTreeBlk* copyFrom)
@@ -6613,11 +6610,6 @@ struct GenTreeObj : public GenTreeBlk
 
     GenTreeObj(GenTreeObj* copyFrom) : GenTreeBlk(copyFrom)
     {
-        // TODO-MIKE-Cleanup: Calling GenTreeBlk's constructor results in side effects
-        // being "inherited" from operands so to get an exact copy we need to manually
-        // copy the flags here. Should add a "copy constructor" to GenTreeBlk (and all
-        // other classes in the inheritance chain).
-        gtFlags = copyFrom->gtFlags;
     }
 
 #if DEBUGGABLE_GENTREE
