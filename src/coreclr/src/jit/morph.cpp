@@ -7113,9 +7113,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         GenTree* dst     = gtNewObjNode(info.compMethodInfo->args.retTypeClass, dstAddr);
         GenTree* src     = gtNewLclvNode(tmpRetBufNum, tmpRetBufType);
 
-        constexpr bool isVolatile  = false;
-        constexpr bool isCopyBlock = true;
-        copyToRetBufNode           = gtNewBlkOpNode(dst, src, isVolatile, isCopyBlock);
+        copyToRetBufNode = gtNewAssignNode(dst, src);
 
         if (origCall->gtType != TYP_VOID)
         {

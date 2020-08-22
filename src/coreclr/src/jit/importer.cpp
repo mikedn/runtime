@@ -18459,7 +18459,11 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
         dst = new (this, GT_BLK) GenTreeBlk(GT_BLK, type, dstAddr, typGetBlkLayout(size));
     }
 
-    return gtNewBlkOpNode(dst, gtNewIconNode(0), isVolatile, false);
+    GenTree* initValue = gtNewIconNode(0);
+
+    GenTree* asg = gtNewAssignNode(dst, initValue);
+    gtBlockOpInit(asg, dst, initValue, isVolatile);
+    return asg;
 }
 
 GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle, bool isVolatile)
@@ -18481,7 +18485,14 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
         dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
     }
 
-    return gtNewBlkOpNode(dst, initValue, isVolatile, false);
+    if (!initValue->IsIntegralConst(0))
+    {
+        initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
+    }
+
+    GenTree* asg = gtNewAssignNode(dst, initValue);
+    gtBlockOpInit(asg, dst, initValue, isVolatile);
+    return asg;
 }
 
 GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
@@ -18509,5 +18520,13 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
         src = gtNewOperNode(GT_IND, TYP_STRUCT, srcAddr);
     }
 
-    return gtNewBlkOpNode(dst, src, isVolatile, true);
+    // TODO-MIKE-CQ: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. This might
+    // block SIMD tree CSEing, though it would be unusual to use CPBLK to
+    // copy struct values so it probably doesn't matter.
+    src->gtFlags |= GTF_DONT_CSE;
+
+    GenTree* asg = gtNewAssignNode(dst, src);
+    gtBlockOpInit(asg, dst, src, isVolatile);
+    return asg;
 }

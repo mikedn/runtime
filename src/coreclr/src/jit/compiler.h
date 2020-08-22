@@ -2021,8 +2021,6 @@ public:
     GenTree* gtNewSIMDVectorZero(var_types simdType, var_types baseType, unsigned size);
 #endif
 
-    GenTree* gtNewBlkOpNode(GenTree* dst, GenTree* srcOrFillVal, bool isVolatile, bool isCopyBlock);
-
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
 protected:
