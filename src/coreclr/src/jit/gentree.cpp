@@ -6028,7 +6028,14 @@ GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
         src = gtNewObjNode(structHnd, srcAddr);
     }
 
-    return gtNewBlkOpNode(dst, src, isVolatile, true);
+    // TODO-MIKE-CQ: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. And it
+    // probably blocks SIMD tree CSEing.
+    src->gtFlags |= GTF_DONT_CSE;
+
+    GenTree* asg = gtNewAssignNode(dst, src);
+    gtBlockOpInit(asg, dst, src, isVolatile);
+    return asg;
 }
 
 //------------------------------------------------------------------------

@@ -4447,9 +4447,15 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.
 
+    // TODO-MIKE-CQ: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. And it
+    // probably blocks SIMD tree CSEing.
+    arg->gtFlags |= GTF_DONT_CSE;
+
     GenTree* dest = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
-    GenTree* asg  = gtNewBlkOpNode(dest, arg, false /* not volatile */, true /* copyBlock */);
-    asg           = fgMorphCopyBlock(asg->AsOp());
+    GenTree* asg  = gtNewAssignNode(dest, arg);
+    gtBlockOpInit(asg, dest, arg, false);
+    asg = fgMorphCopyBlock(asg->AsOp());
 
     argInfo->SetNode(asg);
     argInfo->SetTempLclNum(tempLclNum);
@@ -7779,10 +7785,8 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
                     GenTree* init = nullptr;
                     if (varTypeIsStruct(lclType))
                     {
-                        const bool isVolatile  = false;
-                        const bool isCopyBlock = false;
-                        init                   = gtNewBlkOpNode(lcl, gtNewIconNode(0), isVolatile, isCopyBlock);
-                        init                   = fgMorphInitBlock(init->AsOp());
+                        init = gtNewAssignNode(lcl, gtNewIconNode(0));
+                        init = fgMorphInitBlock(init->AsOp());
                     }
                     else
                     {

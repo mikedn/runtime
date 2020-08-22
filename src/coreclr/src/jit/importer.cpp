@@ -3294,10 +3294,13 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     src->gtGetOp1()->AsIntCon()->gtTargetHandle = THT_IntializeArrayIntrinsics;
 #endif
 
-    return gtNewBlkOpNode(dst,   // dst
-                          src,   // src
-                          false, // volatile
-                          true); // copyBlock
+    // TODO-MIKE-Cleanup: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. It's unlikely
+    // that is has any effect since the source is a STRUCT IND with no layout so
+    // CSE can't do anything with it.
+    src->gtFlags |= GTF_DONT_CSE;
+
+    return gtNewAssignNode(dst, src);
 }
 
 //------------------------------------------------------------------------
@@ -12310,23 +12313,17 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         bool bbInALoop  = impBlockIsInALoop(block);
                         bool bbIsReturn = (block->bbJumpKind == BBJ_RETURN) &&
                                           (!compIsForInlining() || (impInlineInfo->iciBlock->bbJumpKind == BBJ_RETURN));
-                        LclVarDsc* const lclDsc = lvaGetDesc(lclNum);
+                        LclVarDsc* const lcl = lvaGetDesc(lclNum);
                         if (fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
                         {
-                            // Append a tree to zero-out the temp
-                            newObjThisPtr = gtNewLclvNode(lclNum, lclDsc->TypeGet());
-
-                            newObjThisPtr = gtNewBlkOpNode(newObjThisPtr,    // Dest
-                                                           gtNewIconNode(0), // Value
-                                                           false,            // isVolatile
-                                                           false);           // not copyBlock
-                            impAppendTree(newObjThisPtr, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+                            GenTree* init = gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0));
+                            impAppendTree(init, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
                         }
                         else
                         {
                             JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
-                            lclDsc->lvSuppressedZeroInit = 1;
-                            compSuppressedZeroInit       = true;
+                            lcl->lvSuppressedZeroInit = 1;
+                            compSuppressedZeroInit    = true;
                         }
 
                         // Obtain the address of the temp

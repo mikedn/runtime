@@ -23459,8 +23459,6 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
     InlArgInfo*    inlArgInfo = inlineInfo->inlArgInfo;
     InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
 
-    GenTree* tree;
-
     // Create the null check statement (but not appending it to the statement list yet) for the 'this' pointer if
     // necessary.
     // The NULL check should be done after "argument setup statements".
@@ -23737,8 +23735,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
     {
         CORINFO_CLASS_HANDLE exactClass = eeGetClassFromContext(inlineInfo->inlineCandidateInfo->exactContextHnd);
 
-        tree    = fgGetSharedCCtor(exactClass);
-        newStmt = gtNewStmt(tree, callILOffset);
+        GenTree* tree = fgGetSharedCCtor(exactClass);
+        newStmt       = gtNewStmt(tree, callILOffset);
         fgInsertStmtAfter(block, afterStmt, newStmt);
         afterStmt = newStmt;
     }
@@ -23803,12 +23801,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                 }
                 else
                 {
-                    tree = gtNewBlkOpNode(gtNewLclvNode(tmpNum, lclTyp), // Dest
-                                          gtNewIconNode(0),              // Value
-                                          false,                         // isVolatile
-                                          false);                        // not copyBlock
-
-                    newStmt = gtNewStmt(tree, callILOffset);
+                    GenTree* init = gtNewAssignNode(gtNewLclvNode(tmpNum, lclTyp), gtNewIconNode(0));
+                    newStmt       = gtNewStmt(init, callILOffset);
                     fgInsertStmtAfter(block, afterStmt, newStmt);
                     afterStmt = newStmt;
                 }

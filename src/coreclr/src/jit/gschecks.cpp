@@ -514,8 +514,8 @@ void Compiler::gsParamsToShadows()
             continue;
         }
 
-        const LclVarDsc* shadowVarDsc = &lvaTable[shadowVarNum];
-        var_types        type         = shadowVarDsc->TypeGet();
+        LclVarDsc* shadowVarDsc = &lvaTable[shadowVarNum];
+        var_types  type         = shadowVarDsc->TypeGet();
 
         GenTree* src = gtNewLclvNode(lclNum, varDsc->TypeGet());
         GenTree* dst = gtNewLclvNode(shadowVarNum, type);
@@ -523,21 +523,15 @@ void Compiler::gsParamsToShadows()
         src->gtFlags |= GTF_DONT_CSE;
         dst->gtFlags |= GTF_DONT_CSE;
 
-        GenTree* opAssign = nullptr;
         if (type == TYP_STRUCT)
         {
             // We don't need unsafe value cls check here since we are copying the params and this flag
             // would have been set on the original param before reaching here.
             lvaSetStruct(shadowVarNum, varDsc->GetLayout()->GetClassHandle(), false);
+        }
 
-            opAssign = gtNewBlkOpNode(dst, src, false, true);
-        }
-        else
-        {
-            opAssign = gtNewAssignNode(dst, src);
-        }
         fgEnsureFirstBBisScratch();
-        (void)fgNewStmtAtBeg(fgFirstBB, fgMorphTree(opAssign));
+        fgNewStmtAtBeg(fgFirstBB, fgMorphTree(gtNewAssignNode(dst, src)));
     }
 
     // If the method has "Jmp CalleeMethod", then we need to copy shadow params back to original
@@ -576,17 +570,7 @@ void Compiler::gsParamsToShadows()
                 src->gtFlags |= GTF_DONT_CSE;
                 dst->gtFlags |= GTF_DONT_CSE;
 
-                GenTree* opAssign = nullptr;
-                if (varDsc->TypeGet() == TYP_STRUCT)
-                {
-                    opAssign = gtNewBlkOpNode(dst, src, false, true);
-                }
-                else
-                {
-                    opAssign = gtNewAssignNode(dst, src);
-                }
-
-                (void)fgNewStmtNearEnd(block, fgMorphTree(opAssign));
+                fgNewStmtNearEnd(block, fgMorphTree(gtNewAssignNode(dst, src)));
             }
         }
     }
