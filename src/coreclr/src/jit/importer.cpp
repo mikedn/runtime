@@ -9971,7 +9971,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             GenTree*   op3;
             genTreeOps oper;
-            unsigned   size;
 
             int val;
 
@@ -13964,18 +13963,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val; // Value
                 op1 = impPopStack().val; // Dest
 
-                if (op3->IsCnsIntOrI())
-                {
-                    size = (unsigned)op3->AsIntConCommon()->IconValue();
-                    op1  = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, op1, typGetBlkLayout(size));
-                }
-                else
-                {
-                    op1  = new (this, GT_DYN_BLK) GenTreeDynBlk(op1, op3);
-                    size = 0;
-                }
-                op1 = gtNewBlkOpNode(op1, op2, (prefixFlags & PREFIX_VOLATILE) != 0, false);
-
+                op1 = impImportInitBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
                 goto SPILL_APPEND;
 
             case CEE_CPBLK:
@@ -13983,26 +13971,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val; // Src
                 op1 = impPopStack().val; // Dest
 
-                if (op3->IsCnsIntOrI())
-                {
-                    size = (unsigned)op3->AsIntConCommon()->IconValue();
-                    op1  = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, op1, typGetBlkLayout(size));
-                }
-                else
-                {
-                    op1  = new (this, GT_DYN_BLK) GenTreeDynBlk(op1, op3);
-                    size = 0;
-                }
-                if (op2->OperGet() == GT_ADDR)
-                {
-                    op2 = op2->AsOp()->gtOp1;
-                }
-                else
-                {
-                    op2 = gtNewOperNode(GT_IND, TYP_STRUCT, op2);
-                }
-
-                op1 = gtNewBlkOpNode(op1, op2, (prefixFlags & PREFIX_VOLATILE) != 0, true);
+                op1 = impImportCpBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
                 goto SPILL_APPEND;
 
             case CEE_CPOBJ:
@@ -14029,7 +13998,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 op2 = impPopStack().val; // Src
                 op1 = impPopStack().val; // Dest
-                op1 = gtNewCpObjNode(op1, op2, resolvedToken.hClass, ((prefixFlags & PREFIX_VOLATILE) != 0));
+                op1 = impImportCpObj(op1, op2, resolvedToken.hClass, (prefixFlags & PREFIX_VOLATILE) != 0);
                 goto SPILL_APPEND;
 
             case CEE_STOBJ:
@@ -18491,4 +18460,54 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
     }
 
     return gtNewBlkOpNode(dst, gtNewIconNode(0), isVolatile, false);
+}
+
+GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle, bool isVolatile)
+{
+    return gtNewCpObjNode(dstAddr, srcAddr, classHandle, isVolatile);
+}
+
+GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)
+{
+    GenTree* dst;
+
+    if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
+    {
+        dst = new (this, GT_BLK)
+            GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue())));
+    }
+    else
+    {
+        dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
+    }
+
+    return gtNewBlkOpNode(dst, initValue, isVolatile, false);
+}
+
+GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
+{
+    GenTree* dst;
+
+    if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
+    {
+        dst = new (this, GT_BLK)
+            GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue())));
+    }
+    else
+    {
+        dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
+    }
+
+    GenTree* src;
+
+    if (srcAddr->OperIs(GT_ADDR))
+    {
+        src = srcAddr->AsUnOp()->GetOp(0);
+    }
+    else
+    {
+        src = gtNewOperNode(GT_IND, TYP_STRUCT, srcAddr);
+    }
+
+    return gtNewBlkOpNode(dst, src, isVolatile, true);
 }
