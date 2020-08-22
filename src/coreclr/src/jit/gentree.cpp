@@ -5981,35 +5981,6 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
 }
 
 //------------------------------------------------------------------------
-// gtNewStructVal: Return a node that represents a struct value
-//
-// Arguments:
-//    structHnd - The class for the struct
-//    addr      - The address of the struct
-//
-// Return Value:
-//    A block, object or local node that represents the struct value pointed to by 'addr'.
-
-GenTree* Compiler::gtNewStructVal(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)
-{
-    if (addr->gtOper == GT_ADDR)
-    {
-        GenTree* val = addr->gtGetOp1();
-        if (val->OperGet() == GT_LCL_VAR)
-        {
-            unsigned   lclNum = addr->gtGetOp1()->AsLclVarCommon()->GetLclNum();
-            LclVarDsc* varDsc = &(lvaTable[lclNum]);
-            if (varTypeIsStruct(varDsc->GetType()) && (varDsc->GetLayout()->GetClassHandle() == structHnd) &&
-                !lvaIsImplicitByRefLocal(lclNum))
-            {
-                return addr->gtGetOp1();
-            }
-        }
-    }
-    return gtNewObjNode(structHnd, addr);
-}
-
-//------------------------------------------------------------------------
 // gtNewBlockVal: Return a node that represents a possibly untyped block value
 //
 // Arguments:
@@ -6056,7 +6027,28 @@ GenTree* Compiler::gtNewBlockVal(GenTree* addr, unsigned size)
 
 GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE structHnd, bool isVolatile)
 {
-    GenTree* lhs = gtNewStructVal(structHnd, dstAddr);
+    GenTree* lhs = nullptr;
+
+    if (dstAddr->gtOper == GT_ADDR)
+    {
+        GenTree* val = dstAddr->gtGetOp1();
+        if (val->OperGet() == GT_LCL_VAR)
+        {
+            unsigned   lclNum = dstAddr->gtGetOp1()->AsLclVarCommon()->GetLclNum();
+            LclVarDsc* varDsc = &(lvaTable[lclNum]);
+            if (varTypeIsStruct(varDsc) && (varDsc->GetLayout()->GetClassHandle() == structHnd) &&
+                !lvaIsImplicitByRefLocal(lclNum))
+            {
+                lhs = dstAddr->gtGetOp1();
+            }
+        }
+    }
+
+    if (lhs == nullptr)
+    {
+        lhs = gtNewObjNode(structHnd, dstAddr);
+    }
+
     GenTree* src = nullptr;
 
     if (lhs->OperIs(GT_OBJ))
@@ -6073,7 +6065,6 @@ GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
         unsigned     size   = layout->GetSize();
         assert((layout->GetGCPtrCount() == 0) || (roundUp(size, REGSIZE_BYTES) == size));
 #endif
-        assert(lhsObj->GetType() == impNormStructType(lhsObj->GetLayout()->GetClassHandle()));
     }
 
     if (srcAddr->OperGet() == GT_ADDR)
