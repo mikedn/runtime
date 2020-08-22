@@ -5964,19 +5964,19 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
 
     GenTreeObj* objNode = new (this, GT_OBJ) GenTreeObj(nodeType, addr, typGetObjLayout(structHnd));
 
-    // An Obj is not a global reference, if it is known to be a local struct.
-    if ((addr->gtFlags & GTF_GLOB_REF) == 0)
+    GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();
+
+    if (lclNode != nullptr)
     {
-        GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();
-        if (lclNode != nullptr)
+        objNode->gtFlags |= GTF_IND_NONFAULTING;
+
+        // An Obj is not a global reference, if it is known to be a local struct.
+        if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
         {
-            objNode->gtFlags |= GTF_IND_NONFAULTING;
-            if (!lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
-            {
-                objNode->gtFlags &= ~GTF_GLOB_REF;
-            }
+            objNode->gtFlags &= ~GTF_GLOB_REF;
         }
     }
+
     return objNode;
 }
 
