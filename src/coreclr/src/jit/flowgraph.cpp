@@ -22059,6 +22059,11 @@ PhaseStatus Compiler::fgInline()
     }
 
 #ifdef DEBUG
+    if (verbose)
+    {
+        fgDispBasicBlocks(true);
+    }
+
     fgPrintInlinedMethods = JitConfig.JitPrintInlinedMethods().contains(info.compMethodName, info.compClassName,
                                                                         &info.compMethodInfo->args);
 #endif // DEBUG
@@ -22306,6 +22311,70 @@ GenTree* Compiler::inlGetStructAddress(GenTree* tree)
     }
 }
 
+GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, CORINFO_CLASS_HANDLE structHandle)
+{
+    if (dst->OperIs(GT_LCL_VAR))
+    {
+        LclVarDsc* lcl = lvaGetDesc(dst->AsLclVar());
+
+        if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
+            (lcl->GetLayout()->GetClassHandle() == structHandle))
+        {
+            dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
+            return dst;
+        }
+
+        return gtNewObjNode(structHandle, gtNewOperNode(GT_ADDR, TYP_I_IMPL, dst));
+    }
+
+    GenTree* dstAddr = inlGetStructAddress(dst);
+
+    if (dstAddr->OperIs(GT_ADDR))
+    {
+        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR))
+        {
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
+                (lcl->GetLayout()->GetClassHandle() == structHandle))
+            {
+                dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
+                return location;
+            }
+        }
+    }
+
+    GenTree* obj = gtNewObjNode(structHandle, dstAddr);
+    obj->gtFlags |= GTF_DONT_CSE;
+    return obj;
+}
+
+GenTree* Compiler::inlGetStructAsgSrc(GenTree* src, CORINFO_CLASS_HANDLE structHandle)
+{
+    if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsSimdOrHWintrinsic())
+    {
+        GenTree* srcAddr = inlGetStructAddress(src);
+
+        if (srcAddr->OperIs(GT_ADDR))
+        {
+            src = srcAddr->AsUnOp()->GetOp(0);
+        }
+        else
+        {
+            src = gtNewObjNode(structHandle, srcAddr);
+        }
+    }
+
+    // TODO-MIKE-CQ: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. And it
+    // probably blocks SIMD tree CSEing.
+    src->gtFlags |= GTF_DONT_CSE;
+
+    return src;
+}
+
 GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HANDLE structHandle)
 {
     assert(!src->OperIs(GT_RET_EXPR, GT_MKREFANY));
@@ -22353,21 +22422,7 @@ GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HAND
     {
         // Inlinee is not a call, so just create a copy block to the tmp.
 
-        GenTree* srcAddr = inlGetStructAddress(src);
-
-        if (srcAddr->OperIs(GT_ADDR))
-        {
-            src = srcAddr->AsUnOp()->GetOp(0);
-        }
-        else
-        {
-            src = gtNewObjNode(structHandle, srcAddr);
-        }
-
-        // TODO-MIKE-CQ: This should probably be removed, it's here only because
-        // a previous implementation (gtNewBlkOpNode) was setting it. And it
-        // probably blocks SIMD tree CSEing.
-        src->gtFlags |= GTF_DONT_CSE;
+        src = inlGetStructAsgSrc(src, structHandle);
 
         newAsg = gtNewAssignNode(dst, src);
         gtInitStructCopyAsg(newAsg->AsOp());
@@ -22399,53 +22454,14 @@ void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO
         src = inlAssignStructInlineeToTemp(src, structHandle);
     }
 
-    GenTree*     dstAddr = inlGetStructAddress(dst);
-    GenTree*     newDst  = nullptr;
-    ClassLayout* layout  = nullptr;
+    dst = inlGetStructAsgDst(dst, structHandle);
+    src = inlGetStructAsgSrc(src, structHandle);
 
-    if (dstAddr->OperIs(GT_ADDR))
-    {
-        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+    asg->SetOp(0, dst);
+    asg->SetOp(1, src);
+    asg->gtFlags = (GTF_ASG | src->gtFlags | dst->gtFlags) & GTF_ALL_EFFECT;
 
-        if (location->OperIs(GT_LCL_VAR))
-        {
-            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
-
-            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
-                (lcl->GetLayout()->GetClassHandle() == structHandle))
-            {
-                newDst = location;
-                layout = lcl->GetLayout();
-            }
-        }
-    }
-
-    if (newDst == nullptr)
-    {
-        newDst = gtNewObjNode(structHandle, dstAddr);
-        layout = newDst->AsObj()->GetLayout();
-    }
-
-    GenTree* srcAddr = inlGetStructAddress(src);
-    GenTree* newSrc  = nullptr;
-
-    if (srcAddr->OperIs(GT_ADDR))
-    {
-        newSrc = srcAddr->AsUnOp()->GetOp(0);
-    }
-    else
-    {
-        newSrc = gtNewObjNode(structHandle, srcAddr);
-    }
-
-    // TODO-MIKE-CQ: This should probably be removed, it's here only because
-    // a previous implementation (gtNewBlkOpNode) was setting it. And it
-    // probably blocks SIMD tree CSEing.
-    newSrc->gtFlags |= GTF_DONT_CSE;
-
-    GenTreeOp* newAsg = gtNewAssignNode(newDst, newSrc);
-    gtInitStructCopyAsg(newAsg);
-    asg->ReplaceWith(newAsg, this);
+    gtInitStructCopyAsg(asg);
 }
 
 #endif // FEATURE_MULTIREG_RET
