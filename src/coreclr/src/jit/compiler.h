@@ -5167,9 +5167,9 @@ private:
     void fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
 
 #if FEATURE_MULTIREG_RET
-    GenTree* fgGetStructAsStructPtr(GenTree* tree);
-    GenTree* fgAssignStructInlineeToVar(GenTree* child, CORINFO_CLASS_HANDLE retClsHnd);
-    void fgAttachStructInlineeToAsg(GenTree* tree, GenTree* child, CORINFO_CLASS_HANDLE retClsHnd);
+    GenTree* inlGetStructAddress(GenTree* tree);
+    GenTree* inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HANDLE structHandle);
+    void inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO_CLASS_HANDLE structHandle);
 #endif // FEATURE_MULTIREG_RET
 
     static fgWalkPreFn  fgUpdateInlineReturnExpressionPlaceHolder;
