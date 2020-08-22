@@ -6316,12 +6316,6 @@ void Compiler::gtInitStructAsg(GenTreeOp* asg, bool isVolatile)
         }
     }
 
-    // Propagate all effect flags from children
-    asg->gtFlags |= dst->gtFlags & GTF_ALL_EFFECT;
-    asg->gtFlags |= src->gtFlags & GTF_ALL_EFFECT;
-
-    asg->gtFlags |= (dst->gtFlags & GTF_EXCEPT) | (src->gtFlags & GTF_EXCEPT);
-
     if (isVolatile)
     {
         asg->gtFlags |= GTF_BLK_VOLATILE;
