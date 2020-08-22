@@ -2030,7 +2030,6 @@ protected:
 
 public:
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
-    GenTree* gtNewBlockVal(GenTree* addr, unsigned size);
 
     GenTree* gtNewCpObjNode(GenTree* dst, GenTree* src, CORINFO_CLASS_HANDLE structHnd, bool isVolatile);
 
@@ -3685,6 +3684,8 @@ private:
     bool impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array);
 
     CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
+
+    GenTree* impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle, bool isVolatile);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

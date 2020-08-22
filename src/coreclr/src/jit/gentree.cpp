@@ -5980,46 +5980,6 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
     return objNode;
 }
 
-//------------------------------------------------------------------------
-// gtNewBlockVal: Return a node that represents a possibly untyped block value
-//
-// Arguments:
-//    addr      - The address of the block
-//    size      - The size of the block
-//
-// Return Value:
-//    A block, object or local node that represents the block value pointed to by 'addr'.
-
-GenTree* Compiler::gtNewBlockVal(GenTree* addr, unsigned size)
-{
-    // By default we treat this as an opaque struct type with known size.
-    var_types type = TYP_STRUCT;
-
-    if (addr->OperIs(GT_ADDR))
-    {
-        GenTree* location = addr->AsUnOp()->GetOp(0);
-
-        if (location->OperIs(GT_LCL_VAR) && varTypeIsStruct(location->GetType()))
-        {
-            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
-
-            if (size == (varTypeIsStruct(lcl->GetType()) ? lcl->lvExactSize : varTypeSize(lcl->GetType())))
-            {
-                return location;
-            }
-        }
-
-#if FEATURE_SIMD
-        if (varTypeIsSIMD(location->GetType()) && (varTypeSize(location->GetType()) == size))
-        {
-            type = location->GetType();
-        }
-#endif
-    }
-
-    return new (this, GT_BLK) GenTreeBlk(GT_BLK, type, addr, typGetBlkLayout(size));
-}
-
 // Creates a new assignment node for a CpObj.
 // Parameters (exactly the same as MSIL CpObj):
 //

@@ -13959,11 +13959,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                size = info.compCompHnd->getClassSize(resolvedToken.hClass); // Size
-                op2  = gtNewIconNode(0);                                     // Value
-                op1  = impPopStack().val;                                    // Dest
-                op1  = gtNewBlockVal(op1, size);
-                op1  = gtNewBlkOpNode(op1, op2, (prefixFlags & PREFIX_VOLATILE) != 0, false);
+                op1 = impImportInitObj(impPopStack().val, resolvedToken.hClass, (prefixFlags & PREFIX_VOLATILE) != 0);
                 goto SPILL_APPEND;
 
             case CEE_INITBLK:
@@ -18460,4 +18456,42 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     }
 
     return false;
+}
+
+GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle, bool isVolatile)
+{
+    unsigned size = info.compCompHnd->getClassSize(classHandle);
+    GenTree* dst  = nullptr;
+
+    // By default we treat this as an opaque struct type with known size.
+    var_types type = TYP_STRUCT;
+
+    if (dstAddr->OperIs(GT_ADDR))
+    {
+        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR) && varTypeIsStruct(location->GetType()))
+        {
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (size == (varTypeIsStruct(lcl->GetType()) ? lcl->lvExactSize : varTypeSize(lcl->GetType())))
+            {
+                dst = location;
+            }
+        }
+
+#if FEATURE_SIMD
+        if (varTypeIsSIMD(location->GetType()) && (varTypeSize(location->GetType()) == size))
+        {
+            type = location->GetType();
+        }
+#endif
+    }
+
+    if (dst == nullptr)
+    {
+        dst = new (this, GT_BLK) GenTreeBlk(GT_BLK, type, dstAddr, typGetBlkLayout(size));
+    }
+
+    return gtNewBlkOpNode(dst, gtNewIconNode(0), isVolatile, false);
 }
