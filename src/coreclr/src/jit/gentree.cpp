@@ -6033,7 +6033,7 @@ GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructAsg(asg);
+    gtInitStructCopyAsg(asg);
     return asg;
 }
 
@@ -6251,12 +6251,12 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
 }
 
 //------------------------------------------------------------------------
-// gtInitStructAsg: Initializes a struct copy assignment.
+// gtInitStructCopyAsg: Initializes a struct copy assignment.
 //
 // Arguments:
 //    asg - an assignment node that is to be initialized.
 //
-void Compiler::gtInitStructAsg(GenTreeOp* asg)
+void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));
 

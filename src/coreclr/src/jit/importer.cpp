@@ -1419,7 +1419,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
     // return an assignment node, to be appended
     GenTreeOp* asgNode = gtNewAssignNode(dest, src);
-    gtInitStructAsg(asgNode);
+    gtInitStructCopyAsg(asgNode);
 
     // TODO-1stClassStructs: Clean up the settings of GTF_DONT_CSE on the lhs
     // of assignments.
@@ -18461,9 +18461,7 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
 
     GenTree* initValue = gtNewIconNode(0);
 
-    GenTreeOp* asg = gtNewAssignNode(dst, initValue);
-    gtInitStructAsg(asg);
-    return asg;
+    return gtNewAssignNode(dst, initValue);
 }
 
 GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle)
@@ -18511,7 +18509,7 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructAsg(asg);
+    gtInitStructCopyAsg(asg);
     return asg;
 }
 
@@ -18541,9 +18539,7 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
         initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
     }
 
-    GenTreeOp* asg = gtNewAssignNode(dst, initValue);
-    gtInitStructAsg(asg);
-    return asg;
+    return gtNewAssignNode(dst, initValue);
 }
 
 GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
@@ -18590,6 +18586,6 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructAsg(asg);
+    gtInitStructCopyAsg(asg);
     return asg;
 }

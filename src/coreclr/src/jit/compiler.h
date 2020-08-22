@@ -2024,7 +2024,7 @@ public:
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
 protected:
-    void gtInitStructAsg(GenTreeOp* asg);
+    void gtInitStructCopyAsg(GenTreeOp* asg);
 
 public:
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
