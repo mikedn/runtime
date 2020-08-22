@@ -6914,17 +6914,19 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_OBJ:
-                copy =
-                    new (this, GT_OBJ) GenTreeObj(tree->TypeGet(), tree->AsObj()->Addr(), tree->AsObj()->GetLayout());
+                copy = new (this, GT_OBJ) GenTreeObj(tree->AsObj());
+                break;
+
+            case GT_STORE_OBJ:
+                copy = new (this, GT_STORE_OBJ) GenTreeObj(tree->AsObj());
                 break;
 
             case GT_BLK:
-                copy = new (this, GT_BLK)
-                    GenTreeBlk(GT_BLK, tree->TypeGet(), tree->AsBlk()->Addr(), tree->AsBlk()->GetLayout());
+                copy = new (this, GT_BLK) GenTreeBlk(tree->AsBlk());
                 break;
 
-            case GT_DYN_BLK:
-                copy = new (this, GT_DYN_BLK) GenTreeDynBlk(tree->AsOp()->gtGetOp1(), tree->AsDynBlk()->gtDynamicSize);
+            case GT_STORE_BLK:
+                copy = new (this, GT_STORE_BLK) GenTreeBlk(tree->AsBlk());
                 break;
 
             case GT_BOX:
@@ -7180,11 +7182,17 @@ GenTree* Compiler::gtCloneExpr(
             copy->AsBoundsChk()->gtIndRngFailBB = tree->AsBoundsChk()->gtIndRngFailBB;
             break;
 
-        case GT_STORE_DYN_BLK:
         case GT_DYN_BLK:
-            copy = new (this, oper)
-                GenTreeDynBlk(gtCloneExpr(tree->AsDynBlk()->Addr(), addFlags, deepVarNum, deepVarVal),
-                              gtCloneExpr(tree->AsDynBlk()->gtDynamicSize, addFlags, deepVarNum, deepVarVal));
+        case GT_STORE_DYN_BLK:
+            copy = new (this, oper) GenTreeDynBlk(tree->AsDynBlk());
+
+            copy->AsDynBlk()->SetAddr(gtCloneExpr(copy->AsDynBlk()->GetAddr(), addFlags, deepVarNum, deepVarVal));
+            copy->AsDynBlk()->SetSize(gtCloneExpr(copy->AsDynBlk()->GetSize(), addFlags, deepVarNum, deepVarVal));
+
+            if (oper == GT_STORE_DYN_BLK)
+            {
+                copy->AsDynBlk()->SetValue(gtCloneExpr(copy->AsDynBlk()->GetValue(), addFlags, deepVarNum, deepVarVal));
+            }
             break;
 
         default:

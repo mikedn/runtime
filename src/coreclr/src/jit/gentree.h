@@ -2123,6 +2123,10 @@ public:
     inline void* operator new(size_t sz, class Compiler*, genTreeOps oper);
 
     inline GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false));
+
+    GenTree(GenTree* copyFrom) : GenTree(copyFrom->gtOper, copyFrom->gtType)
+    {
+    }
 };
 
 // Represents a GT_PHI node - a variable sized list of GT_PHI_ARG nodes.
@@ -2727,6 +2731,10 @@ protected:
         }
     }
 
+    GenTreeUnOp(GenTreeUnOp* copyFrom) : GenTree(copyFrom), gtOp1(copyFrom->gtOp1)
+    {
+    }
+
 public:
     GenTree* GetOp(unsigned index) const
     {
@@ -2789,6 +2797,10 @@ struct GenTreeOp : public GenTreeUnOp
     {
         // Unary operators with optional arguments:
         assert(oper == GT_NOP || oper == GT_RETURN || oper == GT_RETFILT || OperIsBlk(oper));
+    }
+
+    GenTreeOp(GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
+    {
     }
 
     GenTree* GetOp(unsigned index) const
@@ -6452,6 +6464,10 @@ struct GenTreeIndir : public GenTreeOp
     {
     }
 
+    GenTreeIndir(GenTreeIndir* copyFrom) : GenTreeOp(copyFrom)
+    {
+    }
+
     // True if this indirection is a volatile memory operation.
     bool IsVolatile() const
     {
@@ -6474,12 +6490,9 @@ protected:
 #endif
 };
 
-// gtBlk  -- 'block' (GT_BLK, GT_STORE_BLK).
-//
-// This is the base type for all of the nodes that represent block or struct
-// values.
-// Since it can be a store, it includes gtBlkOpKind to specify the type of
-// code generation that will be used for the block operation.
+// This is the base type for all of the nodes that represent block or struct values.
+// Since it can be a store, it includes gtBlkOpKind to specify the type of code
+// generation that will be used for the block operation.
 
 struct GenTreeBlk : public GenTreeIndir
 {
@@ -6560,6 +6573,16 @@ public:
         gtFlags |= (data->gtFlags & GTF_ALL_EFFECT);
     }
 
+    GenTreeBlk(GenTreeBlk* copyFrom)
+        : GenTreeIndir(copyFrom)
+        , m_layout(copyFrom->m_layout)
+        , gtBlkOpKind(copyFrom->gtBlkOpKind)
+#ifndef JIT32_GCENCODER
+        , gtBlkOpGcUnsafe(copyFrom->gtBlkOpGcUnsafe)
+#endif
+    {
+    }
+
 #if DEBUGGABLE_GENTREE
 protected:
     friend GenTree;
@@ -6569,32 +6592,32 @@ protected:
 #endif // DEBUGGABLE_GENTREE
 };
 
-// gtObj  -- 'object' (GT_OBJ).
-//
-// This node is used for block values that may have GC pointers.
-
 struct GenTreeObj : public GenTreeBlk
 {
-    void Init()
-    {
-        // By default, an OBJ is assumed to be a global reference, unless it is local.
-        GenTreeLclVarCommon* lcl = Addr()->IsLocalAddrExpr();
-        if ((lcl == nullptr) || ((lcl->gtFlags & GTF_GLOB_EFFECT) != 0))
-        {
-            gtFlags |= GTF_GLOB_REF;
-        }
-        noway_assert(GetLayout()->GetClassHandle() != NO_CLASS_HANDLE);
-    }
-
     GenTreeObj(var_types type, GenTree* addr, ClassLayout* layout) : GenTreeBlk(GT_OBJ, type, addr, layout)
     {
-        Init();
+        assert(!layout->IsBlockLayout());
+
+        // By default, indirs are assumed to access aliased memory.
+        gtFlags |= GTF_GLOB_REF;
     }
 
-    GenTreeObj(var_types type, GenTree* addr, GenTree* data, ClassLayout* layout)
-        : GenTreeBlk(GT_STORE_OBJ, type, addr, data, layout)
+    GenTreeObj(var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
+        : GenTreeBlk(GT_STORE_OBJ, type, addr, value, layout)
     {
-        Init();
+        assert(!layout->IsBlockLayout());
+
+        // By default, indirs are assumed to access aliased memory.
+        gtFlags |= GTF_GLOB_REF;
+    }
+
+    GenTreeObj(GenTreeObj* copyFrom) : GenTreeBlk(copyFrom)
+    {
+        // TODO-MIKE-Cleanup: Calling GenTreeBlk's constructor results in side effects
+        // being "inherited" from operands so to get an exact copy we need to manually
+        // copy the flags here. Should add a "copy constructor" to GenTreeBlk (and all
+        // other classes in the inheritance chain).
+        gtFlags = copyFrom->gtFlags;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -6604,28 +6627,39 @@ struct GenTreeObj : public GenTreeBlk
 #endif
 };
 
-// gtDynBlk  -- 'dynamic block' (GT_DYN_BLK).
-//
 // This node is used for block values that have a dynamic size.
 // Note that such a value can never have GC pointers.
 
 struct GenTreeDynBlk : public GenTreeBlk
 {
-public:
     GenTree* gtDynamicSize;
     bool     gtEvalSizeFirst;
 
-    GenTreeDynBlk(GenTree* addr, GenTree* dynamicSize)
-        : GenTreeBlk(GT_DYN_BLK, TYP_STRUCT, addr, nullptr), gtDynamicSize(dynamicSize), gtEvalSizeFirst(false)
+    GenTreeDynBlk(GenTree* addr, GenTree* size)
+        : GenTreeBlk(GT_DYN_BLK, TYP_STRUCT, addr, nullptr), gtDynamicSize(size), gtEvalSizeFirst(false)
     {
         // Conservatively the 'addr' could be null or point into the global heap.
         gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-        gtFlags |= (dynamicSize->gtFlags & GTF_ALL_EFFECT);
+        gtFlags |= (size->gtFlags & GTF_ALL_EFFECT);
+    }
+
+    GenTreeDynBlk(GenTreeDynBlk* copyFrom)
+        : GenTreeBlk(copyFrom), gtDynamicSize(copyFrom->gtDynamicSize), gtEvalSizeFirst(false)
+    {
+    }
+
+    GenTree* GetSize() const
+    {
+        return gtDynamicSize;
+    }
+
+    void SetSize(GenTree* size)
+    {
+        assert(varTypeIsIntegral(size->GetType()));
+        gtDynamicSize = size;
     }
 
 #if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
     GenTreeDynBlk() : GenTreeBlk()
     {
     }
