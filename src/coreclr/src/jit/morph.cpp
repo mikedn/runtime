@@ -16143,20 +16143,9 @@ void Compiler::fgRetypeImplicitByRefArgs()
     {
         LclVarDsc* varDsc = &lvaTable[lclNum];
 
-        if (lvaIsImplicitByRefLocal(lclNum))
+        if (varDsc->IsImplicitByRefParam())
         {
-            unsigned size;
-
-            if (varDsc->lvSize() > REGSIZE_BYTES)
-            {
-                size = varDsc->lvSize();
-            }
-            else
-            {
-                size = varDsc->GetLayout()->GetSize();
-            }
-
-            if (varDsc->lvPromoted)
+            if (varDsc->IsPromoted())
             {
                 // This implicit-by-ref was promoted; create a new temp to represent the
                 // promoted struct before rewriting this parameter as a pointer.
