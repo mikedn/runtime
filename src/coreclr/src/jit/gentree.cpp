@@ -5993,27 +5993,31 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
 GenTree* Compiler::gtNewBlockVal(GenTree* addr, unsigned size)
 {
     // By default we treat this as an opaque struct type with known size.
-    var_types blkType = TYP_STRUCT;
-    if (addr->gtOper == GT_ADDR)
+    var_types type = TYP_STRUCT;
+
+    if (addr->OperIs(GT_ADDR))
     {
-        GenTree* val = addr->gtGetOp1();
-#if FEATURE_SIMD
-        if (varTypeIsSIMD(val) && (genTypeSize(val) == size))
+        GenTree* location = addr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR) && varTypeIsStruct(location->GetType()))
         {
-            blkType = val->TypeGet();
-        }
-#endif // FEATURE_SIMD
-        if (varTypeIsStruct(val) && val->OperIs(GT_LCL_VAR))
-        {
-            LclVarDsc* varDsc  = lvaGetDesc(val->AsLclVarCommon());
-            unsigned   varSize = varTypeIsStruct(varDsc) ? varDsc->lvExactSize : genTypeSize(varDsc);
-            if (varSize == size)
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (size == (varTypeIsStruct(lcl->GetType()) ? lcl->lvExactSize : varTypeSize(lcl->GetType())))
             {
-                return val;
+                return location;
             }
         }
+
+#if FEATURE_SIMD
+        if (varTypeIsSIMD(location->GetType()) && (varTypeSize(location->GetType()) == size))
+        {
+            type = location->GetType();
+        }
+#endif
     }
-    return new (this, GT_BLK) GenTreeBlk(GT_BLK, blkType, addr, typGetBlkLayout(size));
+
+    return new (this, GT_BLK) GenTreeBlk(GT_BLK, type, addr, typGetBlkLayout(size));
 }
 
 // Creates a new assignment node for a CpObj.
