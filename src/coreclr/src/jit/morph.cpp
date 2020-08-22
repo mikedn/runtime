@@ -9375,14 +9375,14 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         requiresCopyBlock = true;
     }
 #if defined(TARGET_ARM)
-    else if (src->OperIsIndir() && ((src->gtFlags & GTF_IND_UNALIGNED) != 0))
+    else if (src->OperIsIndir() && src->AsIndir()->IsUnaligned())
     {
         JITDUMP(" src is unaligned");
         requiresCopyBlock = true;
     }
-    else if ((asg->gtFlags & GTF_BLK_UNALIGNED) != 0)
+    else if (dest->OperIsIndir() && dest->AsIndir()->IsUnaligned())
     {
-        JITDUMP(" asg is unaligned");
+        JITDUMP(" dest is unaligned");
         requiresCopyBlock = true;
     }
 #endif // TARGET_ARM

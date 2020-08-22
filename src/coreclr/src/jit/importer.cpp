@@ -14036,9 +14036,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 op1 = impAssignStructPtr(op1, op2, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
 
-                if (op1->OperIsBlkOp() && (prefixFlags & PREFIX_UNALIGNED))
+                if (op1->OperIsBlkOp() && ((prefixFlags & PREFIX_UNALIGNED) != 0) && op1->AsOp()->GetOp(0)->IsIndir())
                 {
-                    op1->gtFlags |= GTF_BLK_UNALIGNED;
+                    op1->AsOp()->GetOp(0)->AsIndir()->SetUnaligned();
                 }
                 goto SPILL_APPEND;
             }
@@ -18534,6 +18534,8 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
         dst->SetVolatile();
     }
 
+    // TODO-MIKE-Review: Currently INITBLK ignores the unaligned prefix.
+
     if (!initValue->IsIntegralConst(0))
     {
         initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
@@ -18562,6 +18564,8 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
     {
         dst->SetVolatile();
     }
+
+    // TODO-MIKE-Review: Currently CPBLK ignores the unaligned prefix.
 
     GenTree* src;
 

@@ -931,8 +931,6 @@ public:
                                                //               of the static field; in both of those cases, the constant
                                                //               is what gets flagged.
 
-#define GTF_BLK_UNALIGNED           GTF_IND_UNALIGNED // GT_ASG, GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_DYNBLK -- is an unaligned block operation
-
 #define GTF_OVERFLOW                0x10000000 // Supported for: GT_ADD, GT_SUB, GT_MUL and GT_CAST.
                                                // Requires an overflow check. Use gtOverflow(Ex)() to check this flag.
 
@@ -6482,6 +6480,11 @@ struct GenTreeIndir : public GenTreeOp
     bool IsUnaligned() const
     {
         return (gtFlags & GTF_IND_UNALIGNED) != 0;
+    }
+
+    void SetUnaligned()
+    {
+        gtFlags |= GTF_IND_UNALIGNED;
     }
 
 #if DEBUGGABLE_GENTREE
