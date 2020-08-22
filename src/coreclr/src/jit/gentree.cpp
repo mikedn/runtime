@@ -6027,41 +6027,41 @@ GenTree* Compiler::gtNewBlockVal(GenTree* addr, unsigned size)
 
 GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE structHnd, bool isVolatile)
 {
-    GenTree* lhs = nullptr;
+    GenTree* dst = nullptr;
 
-    if (dstAddr->gtOper == GT_ADDR)
+    if (dstAddr->OperIs(GT_ADDR))
     {
-        GenTree* val = dstAddr->gtGetOp1();
-        if (val->OperGet() == GT_LCL_VAR)
+        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR))
         {
-            unsigned   lclNum = dstAddr->gtGetOp1()->AsLclVarCommon()->GetLclNum();
-            LclVarDsc* varDsc = &(lvaTable[lclNum]);
-            if (varTypeIsStruct(varDsc) && (varDsc->GetLayout()->GetClassHandle() == structHnd) &&
-                !lvaIsImplicitByRefLocal(lclNum))
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (varTypeIsStruct(lcl->GetType()) && (lcl->GetLayout()->GetClassHandle() == structHnd) &&
+                !lcl->IsImplicitByRefParam())
             {
-                lhs = dstAddr->gtGetOp1();
+                dst = location;
             }
         }
     }
 
-    if (lhs == nullptr)
+    if (dst == nullptr)
     {
-        lhs = gtNewObjNode(structHnd, dstAddr);
+        dst = gtNewObjNode(structHnd, dstAddr);
     }
 
     GenTree* src = nullptr;
 
-    if (srcAddr->OperGet() == GT_ADDR)
+    if (srcAddr->OperIs(GT_ADDR))
     {
-        src = srcAddr->AsOp()->gtOp1;
+        src = srcAddr->AsUnOp()->GetOp(0);
     }
     else
     {
-        src = gtNewOperNode(GT_IND, lhs->TypeGet(), srcAddr);
+        src = gtNewOperNode(GT_IND, dst->GetType(), srcAddr);
     }
 
-    GenTree* result = gtNewBlkOpNode(lhs, src, isVolatile, true);
-    return result;
+    return gtNewBlkOpNode(dst, src, isVolatile, true);
 }
 
 //------------------------------------------------------------------------
