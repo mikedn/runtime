@@ -16160,10 +16160,13 @@ void Compiler::fgRetypeImplicitByRefArgs()
             {
                 // This implicit-by-ref was promoted; create a new temp to represent the
                 // promoted struct before rewriting this parameter as a pointer.
-                unsigned newLclNum = lvaGrabTemp(false DEBUGARG("Promoted implicit byref"));
+                unsigned newLclNum =
+                    lvaNewTemp(varDsc->GetImplicitByRefParamLayout(), false DEBUGARG("promoted implicit by-ref param"));
+
                 // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
                 varDsc = lvaGetDesc(lclNum);
                 lvaSetStruct(newLclNum, varDsc->GetLayout()->GetClassHandle(), true);
+
                 if (info.compIsVarArgs)
                 {
                     lvaSetStructUsedAsVarArg(newLclNum);
@@ -16221,7 +16224,7 @@ void Compiler::fgRetypeImplicitByRefArgs()
                     GenTree* lhs = gtNewLclvNode(newLclNum, varDsc->lvType);
                     // RHS is an indirection (using GT_OBJ) off the parameter.
                     GenTree* addr   = gtNewLclvNode(lclNum, TYP_BYREF);
-                    GenTree* rhs    = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, addr, typGetBlkLayout(size));
+                    GenTree* rhs    = gtNewObjNode(newVarDsc->GetType(), newVarDsc->GetLayout(), addr);
                     GenTree* assign = gtNewAssignNode(lhs, rhs);
                     fgNewStmtAtBeg(fgFirstBB, assign);
                 }

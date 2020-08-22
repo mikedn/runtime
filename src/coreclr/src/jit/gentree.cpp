@@ -5959,10 +5959,19 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 //
 GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)
 {
-    var_types nodeType = impNormStructType(structHnd);
-    assert(varTypeIsStruct(nodeType));
+    return gtNewObjNode(typGetObjLayout(structHnd), addr);
+}
 
-    GenTreeObj* objNode = new (this, GT_OBJ) GenTreeObj(nodeType, addr, typGetObjLayout(structHnd));
+GenTreeObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
+{
+    return gtNewObjNode(impNormStructType(layout->GetClassHandle()), layout, addr);
+}
+
+GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
+{
+    assert(varTypeIsStruct(type));
+
+    GenTreeObj* objNode = new (this, GT_OBJ) GenTreeObj(type, addr, layout);
 
     GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();
 

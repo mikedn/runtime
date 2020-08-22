@@ -2028,6 +2028,8 @@ protected:
 
 public:
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
+    GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
+    GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
 
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
