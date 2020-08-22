@@ -5980,63 +5980,6 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
     return objNode;
 }
 
-// Creates a new assignment node for a CpObj.
-// Parameters (exactly the same as MSIL CpObj):
-//
-//  dstAddr    - The target to copy the struct to
-//  srcAddr    - The source to copy the struct from
-//  structHnd  - A class token that represents the type of object being copied. May be null
-//               if FEATURE_SIMD is enabled and the source has a SIMD type.
-
-GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE structHnd)
-{
-    GenTree*     dst    = nullptr;
-    ClassLayout* layout = nullptr;
-
-    if (dstAddr->OperIs(GT_ADDR))
-    {
-        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
-
-        if (location->OperIs(GT_LCL_VAR))
-        {
-            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
-
-            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
-                (lcl->GetLayout()->GetClassHandle() == structHnd))
-            {
-                dst    = location;
-                layout = lcl->GetLayout();
-            }
-        }
-    }
-
-    if (dst == nullptr)
-    {
-        dst    = gtNewObjNode(structHnd, dstAddr);
-        layout = dst->AsObj()->GetLayout();
-    }
-
-    GenTree* src = nullptr;
-
-    if (srcAddr->OperIs(GT_ADDR))
-    {
-        src = srcAddr->AsUnOp()->GetOp(0);
-    }
-    else
-    {
-        src = gtNewObjNode(structHnd, srcAddr);
-    }
-
-    // TODO-MIKE-CQ: This should probably be removed, it's here only because
-    // a previous implementation (gtNewBlkOpNode) was setting it. And it
-    // probably blocks SIMD tree CSEing.
-    src->gtFlags |= GTF_DONT_CSE;
-
-    GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructCopyAsg(asg);
-    return asg;
-}
-
 //------------------------------------------------------------------------
 // FixupInitBlkValue: Fixup the init value for an initBlk operation
 //

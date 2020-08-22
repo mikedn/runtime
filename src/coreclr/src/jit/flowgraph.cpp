@@ -22399,10 +22399,53 @@ void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO
         src = inlAssignStructInlineeToTemp(src, structHandle);
     }
 
-    GenTree* dstAddr = inlGetStructAddress(dst);
-    GenTree* srcAddr = inlGetStructAddress(src);
+    GenTree*     dstAddr = inlGetStructAddress(dst);
+    GenTree*     newDst  = nullptr;
+    ClassLayout* layout  = nullptr;
 
-    asg->ReplaceWith(gtNewCpObjNode(dstAddr, srcAddr, structHandle), this);
+    if (dstAddr->OperIs(GT_ADDR))
+    {
+        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR))
+        {
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
+                (lcl->GetLayout()->GetClassHandle() == structHandle))
+            {
+                newDst = location;
+                layout = lcl->GetLayout();
+            }
+        }
+    }
+
+    if (newDst == nullptr)
+    {
+        newDst = gtNewObjNode(structHandle, dstAddr);
+        layout = newDst->AsObj()->GetLayout();
+    }
+
+    GenTree* srcAddr = inlGetStructAddress(src);
+    GenTree* newSrc  = nullptr;
+
+    if (srcAddr->OperIs(GT_ADDR))
+    {
+        newSrc = srcAddr->AsUnOp()->GetOp(0);
+    }
+    else
+    {
+        newSrc = gtNewObjNode(structHandle, srcAddr);
+    }
+
+    // TODO-MIKE-CQ: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. And it
+    // probably blocks SIMD tree CSEing.
+    newSrc->gtFlags |= GTF_DONT_CSE;
+
+    GenTreeOp* newAsg = gtNewAssignNode(newDst, newSrc);
+    gtInitStructCopyAsg(newAsg);
+    asg->ReplaceWith(newAsg, this);
 }
 
 #endif // FEATURE_MULTIREG_RET
