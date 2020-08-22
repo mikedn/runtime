@@ -6251,14 +6251,10 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
 }
 
 //------------------------------------------------------------------------
-// gtInitStructAsg: Initializes a struct assignment
+// gtInitStructAsg: Initializes a struct copy assignment.
 //
 // Arguments:
-//    result - an assignment node that is to be initialized.
-//
-// Notes:
-//    This procedure centralizes all the logic to both enforce proper structure and
-//    to properly construct any InitBlk/CpBlk node.
+//    asg - an assignment node that is to be initialized.
 //
 void Compiler::gtInitStructAsg(GenTreeOp* asg)
 {
@@ -6273,79 +6269,55 @@ void Compiler::gtInitStructAsg(GenTreeOp* asg)
         return;
     }
 
-    /* In the case of CpBlk, we want to avoid generating
-    * nodes where the source and destination are the same
-    * because of two reasons, first, is useless, second
-    * it introduces issues in liveness and also copying
-    * memory from an overlapping memory location is
-    * undefined both as per the ECMA standard and also
-    * the memcpy semantics specify that.
-    *
-    * NOTE: In this case we'll only detect the case for addr of a local
-    * and a local itself, any other complex expressions won't be
-    * caught.
-    *
-    * TODO-Cleanup: though having this logic is goodness (i.e. avoids self-assignment
-    * of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
-    * isn't handling self-assignment of struct variables correctly.  This issue may not
-    * surface if struct promotion is ON (which is the case on x86/arm).  But still the
-    * fundamental issue exists that needs to be addressed.
-    */
+    // In the case of a block copy, we want to avoid generating nodes where the source
+    // and destination are the same because of two reasons, first, is useless, second
+    // it introduces issues in liveness and also copying memory from an overlapping
+    // memory location is undefined both as per the ECMA standard and also the memcpy
+    // semantics specify that.
+    //
+    // NOTE: In this case we'll only detect the case for addr of a local and a local
+    // itself, any other complex expressions won't be caught.
+    //
+    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-assignment
+    // of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
+    // isn't handling self-assignment of struct variables correctly. This issue may not
+    // surface if struct promotion is ON (which is the case on x86/arm). But still the
+    // fundamental issue exists that needs to be addressed.
+
     if (asg->OperIsCopyBlkOp())
     {
-        GenTree* currSrc = src;
-        GenTree* currDst = dst;
-
-        if (currSrc->OperIsBlk() && (currSrc->AsBlk()->Addr()->OperGet() == GT_ADDR))
+        if (src->OperIsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_ADDR))
         {
-            currSrc = currSrc->AsBlk()->Addr()->gtGetOp1();
-        }
-        if (currDst->OperIsBlk() && (currDst->AsBlk()->Addr()->OperGet() == GT_ADDR))
-        {
-            currDst = currDst->AsBlk()->Addr()->gtGetOp1();
+            src = src->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
         }
 
-        if (currSrc->OperGet() == GT_LCL_VAR && currDst->OperGet() == GT_LCL_VAR &&
-            currSrc->AsLclVarCommon()->GetLclNum() == currDst->AsLclVarCommon()->GetLclNum())
+        if (dst->OperIsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_ADDR))
+        {
+            dst = dst->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
+        }
+
+        if (src->OperIs(GT_LCL_VAR) && dst->OperIs(GT_LCL_VAR) &&
+            (src->AsLclVar()->GetLclNum() == dst->AsLclVar()->GetLclNum()))
         {
             // Make this a NOP
             // TODO-Cleanup: probably doesn't matter, but could do this earlier and avoid creating a GT_ASG
             asg->gtBashToNOP();
             return;
         }
-    }
 
 #ifdef FEATURE_SIMD
-    if (asg->OperIsCopyBlkOp() && varTypeIsSIMD(src->GetType()))
-    {
         // If the source is a GT_SIMD node of SIMD type, then the dst lclvar struct
         // should be labeled as simd intrinsic related struct.
         // This is done so that the morpher can transform any field accesses into
         // intrinsics, thus avoiding conflicting access methods (fields vs. whole-register).
 
-        if (src->OperIsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_ADDR))
+        if (src->OperIsSimdOrHWintrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
+            varTypeIsSIMD(dst->GetType()))
         {
-            src = src->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
+            setLclRelatedToSIMDIntrinsic(dst);
         }
-
-#ifdef FEATURE_HW_INTRINSICS
-        if (src->OperIs(GT_SIMD, GT_HWINTRINSIC))
-#else
-        if (src->OperIs(GT_SIMD))
-#endif // FEATURE_HW_INTRINSICS
-        {
-            if (dst->OperIsBlk() && dst->AsIndir()->GetAddr()->OperIs(GT_ADDR))
-            {
-                dst = dst->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
-            }
-
-            if (dst->OperIsLocal() && varTypeIsStruct(dst->GetType()))
-            {
-                setLclRelatedToSIMDIntrinsic(dst);
-            }
-        }
-    }
 #endif // FEATURE_SIMD
+    }
 }
 
 //------------------------------------------------------------------------
