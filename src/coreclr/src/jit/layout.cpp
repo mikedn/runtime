@@ -385,6 +385,19 @@ void ClassLayout::InitializeGCPtrs(Compiler* compiler)
         assert((gcPtrCount == 0) || ((compiler->info.compCompHnd->getClassAttribs(m_classHandle) &
                                       (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) != 0));
 
+        // We assume that we cannot have a struct with GC pointers that is not a multiple
+        // of the register size.
+        // The EE currently does not allow this, but it could change.
+        // Let's assert it just to be safe.
+        // This doesn't work for heap classes because getHeapClassSize returns an incorrect
+        // class size, that doesn't include the padding required for alignment.
+
+        // TODO-MIKE-Cleanup: getHeapClassSize should be fixed instead, it's only used in
+        // ClassLayout::Create. Not only that omitting the padding in size is unexpected
+        // but it also serves no purpose - we only need the heap size for stack allocated
+        // objects and the JIT always allocates entire stack slots.
+        noway_assert(!m_isValueClass || (gcPtrCount == 0) || (roundUp(m_size, REGSIZE_BYTES) == m_size));
+
         // Since class size is unsigned there's no way we could have more than 2^30 slots
         // so it should be safe to fit this into a 30 bits bit field.
         assert(gcPtrCount < (1 << 30));
