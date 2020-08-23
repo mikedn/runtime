@@ -3188,10 +3188,13 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
             genConsumeRegs(data);
         }
 
+        var_types type = tree->GetType();
         regNumber dataReg;
-        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL))
+
+        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_HWINTRINSIC))
         {
-            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero());
+            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsHWIntrinsicZero());
+            assert(varTypeSize(type) <= REGSIZE_BYTES);
             dataReg = REG_ZR;
         }
         else // data is not contained, so evaluate it into a register
@@ -3200,8 +3203,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
             dataReg = data->GetRegNum();
         }
 
-        var_types   type = tree->TypeGet();
-        instruction ins  = ins_Store(type);
+        instruction ins = ins_Store(type);
 
         if (tree->IsVolatile())
         {

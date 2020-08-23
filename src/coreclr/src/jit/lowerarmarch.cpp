@@ -1223,10 +1223,10 @@ void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
 {
 #ifdef TARGET_ARM64
     GenTree* src = node->AsOp()->gtOp2;
-    // TODO-MIKE-CQ-ARM64: SIMD 0 is problematic to contain because for SIMD16 we need
+    // TODO-MIKE-CQ-ARM64: SIMD16 0 is problematic to contain because we need
     // stp xzr, xzr, [...] but emitInsLoadStoreOp does not support stp. Currently
     // STORE_BLK.struct<16> works better than STOREIND.simd16 because of this.
-    if (node->TypeIs(TYP_SIMD12))
+    if (node->TypeIs(TYP_SIMD8, TYP_SIMD12))
     {
         if (src->IsSIMDZero() || src->IsHWIntrinsicZero())
         {
