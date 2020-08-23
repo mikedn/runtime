@@ -1379,6 +1379,10 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                 }
             }
         }
+        else if (varTypeIsSIMD(asgType) && destNode->OperIs(GT_FIELD) && (destNode->GetType() == asgType))
+        {
+            dest = destNode;
+        }
     }
 
     if (dest == nullptr)
