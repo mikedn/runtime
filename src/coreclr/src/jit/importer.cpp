@@ -1353,6 +1353,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         // It should already have the appropriate type.
         assert(asgType == impNormStructType(structHnd));
     }
+
     if ((dest == nullptr) && (destAddr->OperGet() == GT_ADDR))
     {
         GenTree* destNode = destAddr->gtGetOp1();
@@ -1400,6 +1401,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     {
         dest->gtType = asgType;
     }
+
     if (dest->OperIs(GT_LCL_VAR) &&
         (src->IsMultiRegNode() ||
          (src->OperIs(GT_RET_EXPR) && src->AsRetExpr()->gtInlineCandidate->AsCall()->HasMultiRegRetVal())))
@@ -1415,18 +1417,9 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     }
 
     dest->gtFlags |= destFlags;
-    destFlags = dest->gtFlags;
 
-    // return an assignment node, to be appended
     GenTreeOp* asgNode = gtNewAssignNode(dest, src);
     gtInitStructCopyAsg(asgNode);
-
-    // TODO-1stClassStructs: Clean up the settings of GTF_DONT_CSE on the lhs
-    // of assignments.
-    if ((destFlags & GTF_DONT_CSE) == 0)
-    {
-        dest->gtFlags &= ~(GTF_DONT_CSE);
-    }
     return asgNode;
 }
 
