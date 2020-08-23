@@ -8081,21 +8081,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         {
             fgValueNumberIntrinsic(tree);
         }
-
-#ifdef FEATURE_SIMD
-        else if (tree->OperGet() == GT_SIMD)
-        {
-            fgValueNumberSimd(tree->AsSIMD());
-        }
-#endif // FEATURE_SIMD
-
-#ifdef FEATURE_HW_INTRINSICS
-        else if (tree->OperGet() == GT_HWINTRINSIC)
-        {
-            fgValueNumberHWIntrinsic(tree->AsHWIntrinsic());
-        }
-#endif // FEATURE_HW_INTRINSICS
-
         else // Look up the VNFunc for the node
         {
             VNFunc vnf = GetVNFuncForNode(tree);
@@ -8373,8 +8358,21 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 break;
             }
 
+#ifdef FEATURE_SIMD
+            case GT_SIMD:
+                fgValueNumberSimd(tree->AsSIMD());
+                break;
+#endif
+
+#ifdef FEATURE_HW_INTRINSICS
+            case GT_HWINTRINSIC:
+                fgValueNumberHWIntrinsic(tree->AsHWIntrinsic());
+                break;
+#endif
+
             default:
                 tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
+                break;
         }
     }
 #ifdef DEBUG
@@ -8452,6 +8450,16 @@ void Compiler::fgValueNumberIntrinsic(GenTree* tree)
 // Does value-numbering for a GT_SIMD node.
 void Compiler::fgValueNumberSimd(GenTreeSIMD* simdNode)
 {
+    if (simdNode->GetNumOps() > 2)
+    {
+        // We have a SIMD node with 3 or more args
+        // For now we will generate a unique value number for this case.
+
+        // Generate a unique VN
+        simdNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, simdNode->TypeGet()));
+        return;
+    }
+
     ValueNumPair excSetPair;
     ValueNumPair normalPair;
 
@@ -8460,15 +8468,6 @@ void Compiler::fgValueNumberSimd(GenTreeSIMD* simdNode)
     {
         excSetPair = ValueNumStore::VNPForEmptyExcSet();
         normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), GetVNFuncForNode(simdNode));
-    }
-    else if (simdNode->GetNumOps() > 2)
-    {
-        // We have a SIMD node with 3 or more args
-        // For now we will generate a unique value number for this case.
-
-        // Generate a unique VN
-        simdNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, simdNode->TypeGet()));
-        return;
     }
     else // SIMD unary or binary operator.
     {
@@ -8547,6 +8546,17 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
         fgMutateGcHeap(hwIntrinsicNode DEBUGARG("HWIntrinsic - MemoryStore"));
     }
 
+    if ((hwIntrinsicNode->GetNumOps() > 2) || (HWIntrinsicInfo::lookupNumArgs(hwIntrinsicNode->GetIntrinsic()) == -1))
+    {
+        // We have a HWINTRINSIC node with 3 or more args
+        // Or the numArgs was specified as -1 in the numArgs column in "hwinstrinsiclistxarch.h"
+        // For now we will generate a unique value number for this case.
+
+        // Generate unique VN
+        hwIntrinsicNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, hwIntrinsicNode->TypeGet()));
+        return;
+    }
+
     bool   encodeResultType = vnEncodesResultTypeForHWIntrinsic(hwIntrinsicNode->gtHWIntrinsicId);
     VNFunc func             = GetVNFuncForNode(hwIntrinsicNode);
 
@@ -8585,16 +8595,6 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
             normalPair = vnStore->VNPairForFunc(hwIntrinsicNode->GetType(), func);
             assert(vnStore->VNFuncArity(func) == 0);
         }
-    }
-    else if (hwIntrinsicNode->GetNumOps() > 2)
-    {
-        // We have a HWINTRINSIC node with 3 or more args
-        // Or the numArgs was specified as -1 in the numArgs column in "hwinstrinsiclistxarch.h"
-        // For now we will generate a unique value number for this case.
-
-        // Generate unique VN
-        hwIntrinsicNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, hwIntrinsicNode->TypeGet()));
-        return;
     }
     else // HWINTRINSIC unary or binary operator.
     {
