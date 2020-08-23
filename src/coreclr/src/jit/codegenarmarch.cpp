@@ -1560,6 +1560,14 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
 {
     assert(tree->OperIs(GT_LCL_FLD));
 
+#ifdef FEATURE_SIMD
+    if (tree->TypeIs(TYP_SIMD12))
+    {
+        genLoadLclTypeSIMD12(tree);
+        return;
+    }
+#endif
+
     var_types targetType = tree->TypeGet();
     regNumber targetReg  = tree->GetRegNum();
     emitter*  emit       = GetEmitter();

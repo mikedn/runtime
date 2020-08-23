@@ -3994,19 +3994,18 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
 {
     assert(tree->OperIs(GT_LCL_FLD));
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-
-    noway_assert(targetReg != REG_NA);
-
 #ifdef FEATURE_SIMD
-    // Loading of TYP_SIMD12 (i.e. Vector3) field
-    if (targetType == TYP_SIMD12)
+    if (tree->TypeIs(TYP_SIMD12))
     {
         genLoadLclTypeSIMD12(tree);
         return;
     }
 #endif
+
+    var_types targetType = tree->TypeGet();
+    regNumber targetReg  = tree->GetRegNum();
+
+    noway_assert(targetReg != REG_NA);
 
     noway_assert(targetType != TYP_STRUCT);
 
@@ -4042,13 +4041,12 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
     if (!isRegCandidate && !tree->IsMultiReg() && !(tree->gtFlags & GTF_SPILLED))
     {
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
-        // Loading of TYP_SIMD12 (i.e. Vector3) variable
-        if (tree->TypeGet() == TYP_SIMD12)
+        if (tree->TypeIs(TYP_SIMD12))
         {
             genLoadLclTypeSIMD12(tree);
             return;
         }
-#endif // defined(FEATURE_SIMD) && defined(TARGET_X86)
+#endif
 
         var_types type = varDsc->GetRegisterType(tree);
         GetEmitter()->emitIns_R_S(ins_Load(type, compiler->isSIMDTypeLocalAligned(tree->GetLclNum())),
@@ -4067,19 +4065,18 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
 {
     assert(tree->OperIs(GT_STORE_LCL_FLD));
 
-    var_types targetType = tree->TypeGet();
-    GenTree*  op1        = tree->gtGetOp1();
-
-    noway_assert(targetType != TYP_STRUCT);
-
 #ifdef FEATURE_SIMD
-    // storing of TYP_SIMD12 (i.e. Vector3) field
-    if (tree->TypeGet() == TYP_SIMD12)
+    if (tree->TypeIs(TYP_SIMD12))
     {
         genStoreLclTypeSIMD12(tree);
         return;
     }
-#endif // FEATURE_SIMD
+#endif
+
+    var_types targetType = tree->TypeGet();
+    GenTree*  op1        = tree->gtGetOp1();
+
+    noway_assert(targetType != TYP_STRUCT);
 
     assert(varTypeUsesFloatReg(targetType) == varTypeUsesFloatReg(op1));
     assert(genTypeSize(genActualType(targetType)) == genTypeSize(genActualType(op1->TypeGet())));
@@ -4318,13 +4315,12 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     assert(tree->OperIs(GT_IND));
 
 #ifdef FEATURE_SIMD
-    // Handling of Vector3 type values loaded through indirection.
-    if (tree->TypeGet() == TYP_SIMD12)
+    if (tree->TypeIs(TYP_SIMD12))
     {
         genLoadIndTypeSIMD12(tree);
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     var_types targetType = tree->TypeGet();
     emitter*  emit       = GetEmitter();
@@ -4356,13 +4352,12 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     assert(tree->OperIs(GT_STOREIND));
 
 #ifdef FEATURE_SIMD
-    // Storing Vector3 of size 12 bytes through indirection
-    if (tree->TypeGet() == TYP_SIMD12)
+    if (tree->TypeIs(TYP_SIMD12))
     {
         genStoreIndTypeSIMD12(tree);
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     GenTree*  data       = tree->Data();
     GenTree*  addr       = tree->Addr();

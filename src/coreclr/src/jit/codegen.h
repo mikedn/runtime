@@ -1023,10 +1023,10 @@ protected:
     // values through an indirection. Note that Vector3 locals allocated on stack would have
     // their size rounded to TARGET_POINTER_SIZE (which is 8 bytes on 64-bit targets) and hence
     // Vector3 locals could be treated as TYP_SIMD16 while reading/writing.
-    void genStoreIndTypeSIMD12(GenTree* treeNode);
-    void genLoadIndTypeSIMD12(GenTree* treeNode);
-    void genStoreLclTypeSIMD12(GenTree* treeNode);
-    void genLoadLclTypeSIMD12(GenTree* treeNode);
+    void genStoreIndTypeSIMD12(GenTreeStoreInd* store);
+    void genLoadIndTypeSIMD12(GenTreeIndir* load);
+    void genStoreLclTypeSIMD12(GenTreeLclVarCommon* store);
+    void genLoadLclTypeSIMD12(GenTreeLclVarCommon* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
 #endif // TARGET_X86

@@ -4596,44 +4596,20 @@ void CodeGen::genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two writes: 8 byte followed by 4-byte.
 //
-// Arguments:
-//    treeNode - tree node that is attempting to store indirect
-//
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genStoreIndTypeSIMD12(GenTree* treeNode)
+void CodeGen::genStoreIndTypeSIMD12(GenTreeStoreInd* store)
 {
-    assert(treeNode->OperGet() == GT_STOREIND);
+    GenTree* addr  = store->GetAddr();
+    GenTree* value = store->GetValue();
 
-    GenTree* addr = treeNode->AsOp()->gtOp1;
-    GenTree* data = treeNode->AsOp()->gtOp2;
+    regNumber addrReg  = genConsumeReg(addr);
+    regNumber valueReg = genConsumeReg(value);
+    regNumber tmpReg   = store->GetSingleTempReg();
 
-    // addr and data should not be contained.
-    assert(!data->isContained());
-    assert(!addr->isContained());
+    assert(tmpReg != addrReg);
 
-#ifdef DEBUG
-    // Should not require a write barrier
-    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.gcIsWriteBarrierCandidate(treeNode, data);
-    assert(writeBarrierForm == GCInfo::WBF_NoBarrier);
-#endif
-
-    genConsumeOperands(treeNode->AsOp());
-
-    // Need an addtional integer register to extract upper 4 bytes from data.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-    assert(tmpReg != addr->GetRegNum());
-
-    // 8-byte write
-    GetEmitter()->emitIns_R_R(INS_str, EA_8BYTE, data->GetRegNum(), addr->GetRegNum());
-
-    // Extract upper 4-bytes from data
-    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, data->GetRegNum(), 2);
-
-    // 4-byte write
-    GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, tmpReg, addr->GetRegNum(), 8);
+    GetEmitter()->emitIns_R_R(INS_str, EA_8BYTE, valueReg, addrReg);
+    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
+    GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, tmpReg, addrReg, 8);
 }
 
 //-----------------------------------------------------------------------------
@@ -4641,37 +4617,25 @@ void CodeGen::genStoreIndTypeSIMD12(GenTree* treeNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two loads: 8 byte followed by 4-byte.
 //
-// Arguments:
-//    treeNode - tree node of GT_IND
-//
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genLoadIndTypeSIMD12(GenTree* treeNode)
+void CodeGen::genLoadIndTypeSIMD12(GenTreeIndir* load)
 {
-    assert(treeNode->OperGet() == GT_IND);
+    assert(load->OperIs(GT_IND));
 
-    GenTree*  addr      = treeNode->AsOp()->gtOp1;
-    regNumber targetReg = treeNode->GetRegNum();
+    GenTree* addr = load->GetAddr();
 
     assert(!addr->isContained());
 
-    regNumber operandReg = genConsumeReg(addr);
+    regNumber addrReg = genConsumeReg(addr);
+    regNumber tmpReg  = load->GetSingleTempReg();
+    regNumber dstReg  = load->GetRegNum();
 
-    // Need an addtional int register to read upper 4 bytes, which is different from targetReg
-    regNumber tmpReg = treeNode->GetSingleTempReg();
+    assert(tmpReg != dstReg);
 
-    // 8-byte read
-    GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, targetReg, addr->GetRegNum());
+    GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, dstReg, addrReg);
+    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, addrReg, 8);
+    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, dstReg, tmpReg, 2);
 
-    // 4-byte read
-    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, addr->GetRegNum(), 8);
-
-    // Insert upper 4-bytes into data
-    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, targetReg, tmpReg, 2);
-
-    genProduceReg(treeNode);
+    genProduceReg(load);
 }
 
 //-----------------------------------------------------------------------------
@@ -4679,51 +4643,69 @@ void CodeGen::genLoadIndTypeSIMD12(GenTree* treeNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two stores: 8 byte followed by 4-byte.
 //
-// Arguments:
-//    treeNode - tree node that is attempting to store TYP_SIMD12 field
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genStoreLclTypeSIMD12(GenTree* treeNode)
+void CodeGen::genStoreLclTypeSIMD12(GenTreeLclVarCommon* store)
 {
-    assert((treeNode->OperGet() == GT_STORE_LCL_FLD) || (treeNode->OperGet() == GT_STORE_LCL_VAR));
+    assert(store->OperIs(GT_STORE_LCL_FLD, GT_STORE_LCL_VAR));
 
-    unsigned offs   = 0;
-    unsigned varNum = treeNode->AsLclVarCommon()->GetLclNum();
-    assert(varNum < compiler->lvaCount);
+    unsigned lclNum  = store->GetLclNum();
+    unsigned lclOffs = 0;
 
-    if (treeNode->OperGet() == GT_STORE_LCL_FLD)
+    if (store->OperIs(GT_STORE_LCL_FLD))
     {
-        offs = treeNode->AsLclFld()->GetLclOffs();
+        lclOffs = store->AsLclFld()->GetLclOffs();
     }
 
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
+    regNumber tmpReg = store->GetSingleTempReg();
+    GenTree*  value  = store->GetOp(0);
 
-    if (op1->isContained() && op1->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
+    if (value->isContained() && value->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
     {
-        assert(op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->IsSIMDZero());
+        assert(value->IsIntegralConst(0) || value->IsDblConPositiveZero() || value->IsSIMDZero());
 
-        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, REG_ZR, varNum, offs);
-        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, REG_ZR, varNum, offs + 8);
+        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, REG_ZR, lclNum, lclOffs);
+        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, REG_ZR, lclNum, lclOffs + 8);
 
         return;
     }
 
-    assert(!op1->isContained());
-    regNumber operandReg = genConsumeReg(op1);
+    regNumber valueReg = genConsumeReg(value);
 
-    // Need an addtional integer register to extract upper 4 bytes from data.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
+    GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, valueReg, lclNum, lclOffs);
+    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
+    GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, tmpReg, lclNum, lclOffs + 8);
+}
 
-    // store lower 8 bytes
-    GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, operandReg, varNum, offs);
+//-----------------------------------------------------------------------------
+// genLoadLclTypeSIMD12: load a TYP_SIMD12 (i.e. Vector3) type field.
+// Since Vector3 is not a hardware supported read size, it is performed
+// as two reads: 4 byte followed by 8 byte.
+//
+void CodeGen::genLoadLclTypeSIMD12(GenTreeLclVarCommon* load)
+{
+    assert(load->OperIs(GT_LCL_FLD, GT_LCL_VAR));
 
-    // Extract upper 4-bytes from data
-    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, operandReg, 2);
+    unsigned lclNum  = load->GetLclNum();
+    unsigned lclOffs = 0;
 
-    // 4-byte write
-    GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, tmpReg, varNum, offs + 8);
+    if (load->OperIs(GT_LCL_FLD))
+    {
+        lclOffs = load->AsLclFld()->GetLclOffs();
+    }
+
+    regNumber dstReg = load->GetRegNum();
+
+    // TODO-MIKE-Review: ARM64 uses 16 byte loads to load Vector3 locals while
+    // XARCH uses 12 byte loads. Could XARCH also use 16 byte loads? The problem
+    // with ARM64's approach is that the last vector element isn't zeroed. It's
+    // not even guaranteed that the load doesn't access another local.
+    //
+    // XARCH actually does this too but only when loading from a LCL_VAR and only
+    // on x64 (probably because on x86 attempting to load 16 byte may also result
+    // in the load accessing another local.
+
+    GetEmitter()->emitIns_R_S(INS_ldr, EA_16BYTE, dstReg, lclNum, lclOffs);
+
+    genProduceReg(load);
 }
 
 #endif // FEATURE_SIMD

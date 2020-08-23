@@ -2055,43 +2055,20 @@ void CodeGen::genSIMDIntrinsicShuffleSSE2(GenTreeSIMD* simdNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two writes: 8 byte followed by 4-byte.
 //
-// Arguments:
-//    treeNode - tree node that is attempting to store indirect
-//
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genStoreIndTypeSIMD12(GenTree* treeNode)
+void CodeGen::genStoreIndTypeSIMD12(GenTreeStoreInd* store)
 {
-    assert(treeNode->OperGet() == GT_STOREIND);
+    GenTree* addr  = store->GetAddr();
+    GenTree* value = store->GetValue();
 
-    GenTree* addr = treeNode->AsOp()->gtOp1;
-    GenTree* data = treeNode->AsOp()->gtOp2;
+    regNumber addrReg  = genConsumeReg(addr);
+    regNumber valueReg = genConsumeReg(value);
+    regNumber tmpReg   = store->GetSingleTempReg();
 
-    // addr and data should not be contained.
-    assert(!data->isContained());
-    assert(!addr->isContained());
+    assert(tmpReg != addrReg);
 
-#ifdef DEBUG
-    // Should not require a write barrier
-    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.gcIsWriteBarrierCandidate(treeNode, data);
-    assert(writeBarrierForm == GCInfo::WBF_NoBarrier);
-#endif
-
-    // Need an addtional Xmm register to extract upper 4 bytes from data.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    genConsumeOperands(treeNode->AsOp());
-
-    // 8-byte write
-    GetEmitter()->emitIns_AR_R(ins_Store(TYP_DOUBLE), EA_8BYTE, data->GetRegNum(), addr->GetRegNum(), 0);
-
-    // Extract upper 4-bytes from data
-    GetEmitter()->emitIns_R_R_I(INS_pshufd, emitActualTypeSize(TYP_SIMD16), tmpReg, data->GetRegNum(), 0x02);
-
-    // 4-byte write
-    GetEmitter()->emitIns_AR_R(ins_Store(TYP_FLOAT), EA_4BYTE, tmpReg, addr->GetRegNum(), 8);
+    GetEmitter()->emitIns_AR_R(INS_movsdsse2, EA_8BYTE, valueReg, addrReg, 0);
+    GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+    GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, addrReg, 8);
 }
 
 //-----------------------------------------------------------------------------
@@ -2099,36 +2076,25 @@ void CodeGen::genStoreIndTypeSIMD12(GenTree* treeNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two loads: 8 byte followed by 4-byte.
 //
-// Arguments:
-//    treeNode - tree node of GT_IND
-//
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genLoadIndTypeSIMD12(GenTree* treeNode)
+void CodeGen::genLoadIndTypeSIMD12(GenTreeIndir* load)
 {
-    assert(treeNode->OperGet() == GT_IND);
+    assert(load->OperIs(GT_IND));
 
-    regNumber targetReg = treeNode->GetRegNum();
-    GenTree*  op1       = treeNode->AsOp()->gtOp1;
-    assert(!op1->isContained());
-    regNumber operandReg = genConsumeReg(op1);
+    GenTree* addr = load->GetAddr();
 
-    // Need an addtional Xmm register to read upper 4 bytes, which is different from targetReg
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-    assert(tmpReg != targetReg);
+    assert(!addr->isContained());
 
-    // Load upper 4 bytes in tmpReg
-    GetEmitter()->emitIns_R_AR(ins_Load(TYP_FLOAT), EA_4BYTE, tmpReg, operandReg, 8);
+    regNumber addrReg = genConsumeReg(addr);
+    regNumber tmpReg  = load->GetSingleTempReg();
+    regNumber dstReg  = load->GetRegNum();
 
-    // Load lower 8 bytes in targetReg
-    GetEmitter()->emitIns_R_AR(ins_Load(TYP_DOUBLE), EA_8BYTE, targetReg, operandReg, 0);
+    assert(tmpReg != dstReg);
 
-    // combine upper 4 bytes and lower 8 bytes in targetReg
-    GetEmitter()->emitIns_R_R_I(INS_shufps, emitActualTypeSize(TYP_SIMD16), targetReg, tmpReg, (int8_t)SHUFFLE_YXYX);
+    GetEmitter()->emitIns_R_AR(INS_movss, EA_4BYTE, tmpReg, addrReg, 8);
+    GetEmitter()->emitIns_R_AR(INS_movsdsse2, EA_8BYTE, dstReg, addrReg, 0);
+    GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
 
-    genProduceReg(treeNode);
+    genProduceReg(load);
 }
 
 //-----------------------------------------------------------------------------
@@ -2136,53 +2102,52 @@ void CodeGen::genLoadIndTypeSIMD12(GenTree* treeNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two stores: 8 byte followed by 4-byte.
 //
-// Arguments:
-//    treeNode - tree node that is attempting to store TYP_SIMD12 field
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genStoreLclTypeSIMD12(GenTree* treeNode)
+void CodeGen::genStoreLclTypeSIMD12(GenTreeLclVarCommon* store)
 {
-    assert((treeNode->OperGet() == GT_STORE_LCL_FLD) || (treeNode->OperGet() == GT_STORE_LCL_VAR));
+    assert(store->OperIs(GT_STORE_LCL_FLD, GT_STORE_LCL_VAR));
 
-    unsigned offs   = 0;
-    unsigned varNum = treeNode->AsLclVarCommon()->GetLclNum();
-    assert(varNum < compiler->lvaCount);
+    unsigned lclNum  = store->GetLclNum();
+    unsigned lclOffs = 0;
 
-    if (treeNode->OperGet() == GT_STORE_LCL_FLD)
+    if (store->OperIs(GT_STORE_LCL_FLD))
     {
-        offs = treeNode->AsLclFld()->GetLclOffs();
+        lclOffs = store->AsLclFld()->GetLclOffs();
     }
 
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-    GenTree*  op1    = treeNode->AsOp()->gtOp1;
-    if (op1->isContained())
+    regNumber tmpReg = store->GetSingleTempReg();
+    GenTree*  value  = store->GetOp(0);
+
+    if (value->isContained())
     {
-        // This is only possible for a zero-init.
-        assert(op1->IsIntegralConst(0) || op1->IsSIMDZero());
-        genSIMDZero(TYP_SIMD16, op1->AsSIMD()->gtSIMDBaseType, tmpReg);
+        // TODO-MIKE-Cleanup: Fix this nonsense. Assert allows IntCon(0) but then the
+        // code unconditionally casts to a SIMD node. ContainCheckStoreLoc talks about
+        // being easier to zero from integer registers but in the end the codegen uses
+        // a temp XMM register. In fact ContainCheckStoreLoc is containing the SIMD
+        // Init node but does not contain its zero operand so we'll get a zero loaded
+        // in an integer register but then this code ignores it. What gives?!
+        //
+        // And it's all actually useless anyway, the chance to get a SIMDZero here is
+        // practically none. SIMDZero usually appears from new Vector3(0) but that one
+        // zeroes its own temp and then copies it to the destination, it doesn't zero
+        // out a LCL_FLD for example. Vector3.Zero might have produced a SIMDZero but
+        // now it produces HWINTRINSIC get_Zero which IsSIMDZero doesn't recognize.
+        //
+        // ARM64 codegen seems to be just as messed up.
 
-        // store lower 8 bytes
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_DOUBLE), EA_8BYTE, tmpReg, varNum, offs);
+        assert(value->IsIntegralConst(0) || value->IsSIMDZero());
 
-        // Store upper 4 bytes
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_FLOAT), EA_4BYTE, tmpReg, varNum, offs + 8);
+        genSIMDZero(TYP_SIMD16, value->AsSIMD()->gtSIMDBaseType, tmpReg);
+        GetEmitter()->emitIns_S_R(INS_movsdsse2, EA_8BYTE, tmpReg, lclNum, lclOffs);
+        GetEmitter()->emitIns_S_R(INS_movss, EA_4BYTE, tmpReg, lclNum, lclOffs + 8);
 
         return;
     }
 
-    assert(!op1->isContained());
-    regNumber operandReg = genConsumeReg(op1);
+    regNumber valueReg = genConsumeReg(value);
 
-    // store lower 8 bytes
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_DOUBLE), EA_8BYTE, operandReg, varNum, offs);
-
-    // Extract upper 4-bytes from operandReg
-    GetEmitter()->emitIns_R_R_I(INS_pshufd, emitActualTypeSize(TYP_SIMD16), tmpReg, operandReg, 0x02);
-
-    // Store upper 4 bytes
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_FLOAT), EA_4BYTE, tmpReg, varNum, offs + 8);
+    GetEmitter()->emitIns_S_R(INS_movsdsse2, EA_8BYTE, valueReg, lclNum, lclOffs);
+    GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+    GetEmitter()->emitIns_S_R(INS_movss, EA_4BYTE, tmpReg, lclNum, lclOffs + 8);
 }
 
 //-----------------------------------------------------------------------------
@@ -2190,40 +2155,28 @@ void CodeGen::genStoreLclTypeSIMD12(GenTree* treeNode)
 // Since Vector3 is not a hardware supported read size, it is performed
 // as two reads: 4 byte followed by 8 byte.
 //
-// Arguments:
-//    treeNode - tree node that is attempting to load TYP_SIMD12 field
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genLoadLclTypeSIMD12(GenTree* treeNode)
+void CodeGen::genLoadLclTypeSIMD12(GenTreeLclVarCommon* load)
 {
-    assert((treeNode->OperGet() == GT_LCL_FLD) || (treeNode->OperGet() == GT_LCL_VAR));
+    assert(load->OperIs(GT_LCL_FLD, GT_LCL_VAR));
 
-    regNumber targetReg = treeNode->GetRegNum();
-    unsigned  offs      = 0;
-    unsigned  varNum    = treeNode->AsLclVarCommon()->GetLclNum();
-    assert(varNum < compiler->lvaCount);
+    unsigned lclNum  = load->GetLclNum();
+    unsigned lclOffs = 0;
 
-    if (treeNode->OperGet() == GT_LCL_FLD)
+    if (load->OperIs(GT_LCL_FLD))
     {
-        offs = treeNode->AsLclFld()->GetLclOffs();
+        lclOffs = load->AsLclFld()->GetLclOffs();
     }
 
-    // Need an additional Xmm register that is different from targetReg to read upper 4 bytes.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-    assert(tmpReg != targetReg);
+    regNumber tmpReg = load->GetSingleTempReg();
+    regNumber dstReg = load->GetRegNum();
 
-    // Read upper 4 bytes to tmpReg
-    GetEmitter()->emitIns_R_S(ins_Move_Extend(TYP_FLOAT, false), EA_4BYTE, tmpReg, varNum, offs + 8);
+    assert(tmpReg != dstReg);
 
-    // Read lower 8 bytes to targetReg
-    GetEmitter()->emitIns_R_S(ins_Move_Extend(TYP_DOUBLE, false), EA_8BYTE, targetReg, varNum, offs);
+    GetEmitter()->emitIns_R_S(INS_movss, EA_4BYTE, tmpReg, lclNum, lclOffs + 8);
+    GetEmitter()->emitIns_R_S(INS_movsdsse2, EA_8BYTE, dstReg, lclNum, lclOffs);
+    GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
 
-    // combine upper 4 bytes and lower 8 bytes in targetReg
-    GetEmitter()->emitIns_R_R_I(INS_shufps, emitActualTypeSize(TYP_SIMD16), targetReg, tmpReg, (int8_t)SHUFFLE_YXYX);
-
-    genProduceReg(treeNode);
+    genProduceReg(load);
 }
 
 #ifdef TARGET_X86
@@ -2234,26 +2187,14 @@ void CodeGen::genLoadLclTypeSIMD12(GenTree* treeNode)
 // as two stores: 8 byte followed by 4-byte. The stack is assumed to have
 // already been adjusted.
 //
-// Arguments:
-//    operandReg - the xmm register containing the SIMD12 to store.
-//    tmpReg - an xmm register that can be used as a temporary for the operation.
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg)
+void CodeGen::genStoreSIMD12ToStack(regNumber valueReg, regNumber tmpReg)
 {
-    assert(genIsValidFloatReg(operandReg));
+    assert(genIsValidFloatReg(valueReg));
     assert(genIsValidFloatReg(tmpReg));
 
-    // 8-byte write
-    GetEmitter()->emitIns_AR_R(ins_Store(TYP_DOUBLE), EA_8BYTE, operandReg, REG_SPBASE, 0);
-
-    // Extract upper 4-bytes from data
-    GetEmitter()->emitIns_R_R_I(INS_pshufd, emitActualTypeSize(TYP_SIMD16), tmpReg, operandReg, 0x02);
-
-    // 4-byte write
-    GetEmitter()->emitIns_AR_R(ins_Store(TYP_FLOAT), EA_4BYTE, tmpReg, REG_SPBASE, 8);
+    GetEmitter()->emitIns_AR_R(INS_movsdsse2, EA_8BYTE, valueReg, REG_SPBASE, 0);
+    GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+    GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, REG_SPBASE, 8);
 }
 
 #endif // TARGET_X86
