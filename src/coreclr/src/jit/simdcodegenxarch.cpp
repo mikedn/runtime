@@ -2067,8 +2067,16 @@ void CodeGen::genStoreIndTypeSIMD12(GenTreeStoreInd* store)
     assert(tmpReg != addrReg);
 
     GetEmitter()->emitIns_AR_R(INS_movsdsse2, EA_8BYTE, valueReg, addrReg, 0);
-    GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
-    GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, addrReg, 8);
+
+    if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
+    {
+        GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, valueReg, addrReg, 8);
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+        GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, addrReg, 8);
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -2117,37 +2125,19 @@ void CodeGen::genStoreLclTypeSIMD12(GenTreeLclVarCommon* store)
     regNumber tmpReg = store->GetSingleTempReg();
     GenTree*  value  = store->GetOp(0);
 
-    if (value->isContained())
-    {
-        // TODO-MIKE-Cleanup: Fix this nonsense. Assert allows IntCon(0) but then the
-        // code unconditionally casts to a SIMD node. ContainCheckStoreLoc talks about
-        // being easier to zero from integer registers but in the end the codegen uses
-        // a temp XMM register. In fact ContainCheckStoreLoc is containing the SIMD
-        // Init node but does not contain its zero operand so we'll get a zero loaded
-        // in an integer register but then this code ignores it. What gives?!
-        //
-        // And it's all actually useless anyway, the chance to get a SIMDZero here is
-        // practically none. SIMDZero usually appears from new Vector3(0) but that one
-        // zeroes its own temp and then copies it to the destination, it doesn't zero
-        // out a LCL_FLD for example. Vector3.Zero might have produced a SIMDZero but
-        // now it produces HWINTRINSIC get_Zero which IsSIMDZero doesn't recognize.
-        //
-        // ARM64 codegen seems to be just as messed up.
-
-        assert(value->IsIntegralConst(0) || value->IsSIMDZero());
-
-        genSIMDZero(TYP_SIMD16, value->AsSIMD()->gtSIMDBaseType, tmpReg);
-        GetEmitter()->emitIns_S_R(INS_movsdsse2, EA_8BYTE, tmpReg, lclNum, lclOffs);
-        GetEmitter()->emitIns_S_R(INS_movss, EA_4BYTE, tmpReg, lclNum, lclOffs + 8);
-
-        return;
-    }
-
     regNumber valueReg = genConsumeReg(value);
 
     GetEmitter()->emitIns_S_R(INS_movsdsse2, EA_8BYTE, valueReg, lclNum, lclOffs);
-    GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
-    GetEmitter()->emitIns_S_R(INS_movss, EA_4BYTE, tmpReg, lclNum, lclOffs + 8);
+
+    if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
+    {
+        GetEmitter()->emitIns_S_R(INS_movss, EA_4BYTE, valueReg, lclNum, lclOffs + 8);
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+        GetEmitter()->emitIns_S_R(INS_movss, EA_4BYTE, tmpReg, lclNum, lclOffs + 8);
+    }
 }
 
 //-----------------------------------------------------------------------------

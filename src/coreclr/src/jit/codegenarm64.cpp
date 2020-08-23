@@ -1897,9 +1897,10 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
 
     regNumber dataReg;
 
-    if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
+    if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD, GT_HWINTRINSIC))
     {
-        assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero());
+        assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero() ||
+               data->IsHWIntrinsicZero());
         dataReg = REG_ZR;
     }
     else
@@ -1979,10 +1980,10 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
         genConsumeRegs(data);
 
         regNumber dataReg = REG_NA;
-        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
+        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD, GT_HWINTRINSIC))
         {
-            // This is only possible for a zero-init.
-            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero());
+            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero() ||
+                   data->IsHWIntrinsicZero());
             dataReg = REG_ZR;
         }
         else
@@ -4601,15 +4602,24 @@ void CodeGen::genStoreIndTypeSIMD12(GenTreeStoreInd* store)
     GenTree* addr  = store->GetAddr();
     GenTree* value = store->GetValue();
 
-    regNumber addrReg  = genConsumeReg(addr);
-    regNumber valueReg = genConsumeReg(value);
-    regNumber tmpReg   = store->GetSingleTempReg();
+    regNumber addrReg = genConsumeReg(addr);
 
-    assert(tmpReg != addrReg);
+    if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
+    {
+        GetEmitter()->emitIns_R_R(INS_str, EA_8BYTE, REG_ZR, addrReg);
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_ZR, addrReg, 8);
+    }
+    else
+    {
+        regNumber valueReg = genConsumeReg(value);
+        regNumber tmpReg   = store->GetSingleTempReg();
 
-    GetEmitter()->emitIns_R_R(INS_str, EA_8BYTE, valueReg, addrReg);
-    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
-    GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, tmpReg, addrReg, 8);
+        assert(tmpReg != addrReg);
+
+        GetEmitter()->emitIns_R_R(INS_str, EA_8BYTE, valueReg, addrReg);
+        GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, tmpReg, addrReg, 8);
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -4658,9 +4668,10 @@ void CodeGen::genStoreLclTypeSIMD12(GenTreeLclVarCommon* store)
     regNumber tmpReg = store->GetSingleTempReg();
     GenTree*  value  = store->GetOp(0);
 
-    if (value->isContained() && value->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
+    if (value->isContained())
     {
-        assert(value->IsIntegralConst(0) || value->IsDblConPositiveZero() || value->IsSIMDZero());
+        assert(value->IsIntegralConst(0) || value->IsDblConPositiveZero() || value->IsSIMDZero() ||
+               value->IsHWIntrinsicZero());
 
         GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, REG_ZR, lclNum, lclOffs);
         GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, REG_ZR, lclNum, lclOffs + 8);

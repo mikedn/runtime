@@ -17461,9 +17461,9 @@ bool GenTree::isContainableHWIntrinsic() const
 {
     assert(gtOper == GT_HWINTRINSIC);
 
-#ifdef TARGET_XARCH
     switch (AsHWIntrinsic()->gtHWIntrinsicId)
     {
+#ifdef TARGET_XARCH
         case NI_SSE_LoadAlignedVector128:
         case NI_SSE_LoadScalarVector128:
         case NI_SSE_LoadVector128:
@@ -17474,18 +17474,17 @@ bool GenTree::isContainableHWIntrinsic() const
         case NI_AVX_LoadVector256:
         case NI_AVX_ExtractVector128:
         case NI_AVX2_ExtractVector128:
-        {
+        case NI_Vector256_get_Zero:
+#endif
+#ifdef TARGET_ARM64
+        case NI_Vector64_get_Zero:
+#endif
+        case NI_Vector128_get_Zero:
             return true;
-        }
 
         default:
-        {
             return false;
-        }
     }
-#else
-    return false;
-#endif // TARGET_XARCH
 }
 
 bool GenTree::isRMWHWIntrinsic(Compiler* comp)

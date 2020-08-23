@@ -3992,22 +3992,12 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const
     const LclVarDsc* varDsc = comp->lvaGetDesc(storeLoc);
 
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(storeLoc))
+    if (varTypeIsSIMD(storeLoc->GetType()))
     {
-        assert(!op1->IsCnsIntOrI());
-        if (storeLoc->TypeIs(TYP_SIMD12) && op1->IsSIMDZero() && varDsc->lvDoNotEnregister)
-        {
-            // For a SIMD12 store we can zero from integer registers more easily.
-            MakeSrcContained(storeLoc, op1);
-            GenTree* constNode = op1->AsSIMD()->GetOp(0);
-            assert(constNode->OperIsConst());
-            constNode->ClearContained();
-            constNode->gtType = TYP_INT;
-            constNode->SetOper(GT_CNS_INT);
-        }
+        assert(!op1->IsIntCon());
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     // If the source is a containable immediate, make it contained, unless it is
     // an int-size or larger store of zero to memory, because we can generate smaller code
@@ -4943,41 +4933,24 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
 
     // TODO-XArch: Update this to be table driven, if possible.
 
-    NamedIntrinsic intrinsicId = node->AsHWIntrinsic()->gtHWIntrinsicId;
-
-    switch (intrinsicId)
+    switch (node->AsHWIntrinsic()->GetIntrinsic())
     {
         case NI_SSE_LoadAlignedVector128:
         case NI_SSE2_LoadAlignedVector128:
         case NI_AVX_LoadAlignedVector256:
-        {
             return supportsAlignedSIMDLoads;
-        }
 
         case NI_SSE_LoadScalarVector128:
         case NI_SSE2_LoadScalarVector128:
-        {
             return supportsSIMDScalarLoads;
-        }
 
         case NI_SSE_LoadVector128:
         case NI_SSE2_LoadVector128:
         case NI_AVX_LoadVector256:
-        {
             return supportsUnalignedSIMDLoads;
-        }
-
-        case NI_AVX_ExtractVector128:
-        case NI_AVX2_ExtractVector128:
-        {
-            return false;
-        }
 
         default:
-        {
-            assert(!node->isContainableHWIntrinsic());
             return false;
-        }
     }
 }
 

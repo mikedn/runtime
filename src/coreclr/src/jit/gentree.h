@@ -1668,6 +1668,7 @@ public:
 
     bool IsDblConPositiveZero() const;
     bool IsSIMDZero() const;
+    bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal);
     bool IsIntegralConstVector(ssize_t constVal);
 
@@ -7264,11 +7265,31 @@ inline bool GenTree::IsDblConPositiveZero() const
 inline bool GenTree::IsSIMDZero() const
 {
 #ifdef FEATURE_SIMD
-    return OperIs(GT_SIMD) && (AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInit) &&
-           (AsSIMD()->GetOp(0)->IsIntegralConst(0) || AsSIMD()->GetOp(0)->IsDblConPositiveZero());
-#else
-    return false;
+    if (OperIs(GT_SIMD))
+    {
+        return (AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInit) &&
+               (AsSIMD()->GetOp(0)->IsIntegralConst(0) || AsSIMD()->GetOp(0)->IsDblConPositiveZero());
+    }
 #endif
+    return false;
+}
+
+inline bool GenTree::IsHWIntrinsicZero() const
+{
+#ifdef FEATURE_HW_INTRINSICS
+    if (OperIs(GT_HWINTRINSIC))
+    {
+        NamedIntrinsic intrinsic = AsHWIntrinsic()->GetIntrinsic();
+        return (intrinsic == NI_Vector128_get_Zero)
+#if defined(TARGET_XARCH)
+               || (intrinsic == NI_Vector256_get_Zero)
+#elif defined(TARGET_ARM64)
+               || (intrinsic == NI_Vector64_get_Zero)
+#endif
+            ;
+    }
+#endif
+    return false;
 }
 
 //------------------------------------------------------------------------
