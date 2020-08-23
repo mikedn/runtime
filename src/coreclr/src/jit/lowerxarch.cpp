@@ -3648,24 +3648,23 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 //
 void Lowering::ContainCheckIndir(GenTreeIndir* node)
 {
-    GenTree* addr = node->Addr();
-
     // If this is the rhs of a block copy it will be handled when we handle the store.
     if (node->TypeGet() == TYP_STRUCT)
     {
         return;
     }
 
+    GenTree* addr = node->GetAddr();
+
 #ifdef FEATURE_SIMD
-    // If indirTree is of TYP_SIMD12, don't mark addr as contained
-    // so that it always get computed to a register.  This would
-    // mean codegen side logic doesn't need to handle all possible
-    // addr expressions that could be contained.
-    //
-    // TODO-XArch-CQ: handle other addr mode expressions that could be marked
-    // as contained.
-    if (node->TypeGet() == TYP_SIMD12)
+    if (node->TypeIs(TYP_SIMD12))
     {
+        if (addr->OperIs(GT_LEA) && (addr->AsAddrMode()->GetOffset() <= INT32_MAX - 8) &&
+            IsSafeToContainMem(node, addr))
+        {
+            addr->SetContained();
+        }
+
         return;
     }
 #endif // FEATURE_SIMD

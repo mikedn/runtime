@@ -388,6 +388,31 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
 }
 
+bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool ldp))
+{
+    assert(size < INT32_MAX);
+
+    // All integer load/store instructions on both ARM32 and ARM64 support
+    // offsets in range -255..255. Of course, this is a rather conservative
+    // check. For example, if the offset and size are a multiple of 8 we
+    // could allow a combined offset of up to 32760 on ARM64.
+    if ((offset < -255) || (offset > 255) || (offset + static_cast<int>(size) > 256))
+    {
+        return false;
+    }
+
+#ifdef TARGET_ARM64
+    // Except that LDP/STP are more restrictive, they do not have an unscaled
+    // offset form so the offset has to be a multiple of 8.
+    if (ldp && (offset % REGSIZE_BYTES != 0))
+    {
+        return false;
+    }
+#endif
+
+    return true;
+}
+
 //------------------------------------------------------------------------
 // ContainBlockStoreAddress: Attempt to contain an address used by an unrolled block store.
 //
@@ -400,7 +425,6 @@ void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* 
 {
     assert((store->OperIs(GT_STORE_BLK) && (store->AsBlk()->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll)) ||
            store->OperIsPutArgStkOrSplit());
-    assert(size < INT32_MAX);
 
     if (addr->OperIsLocalAddr())
     {
@@ -416,24 +440,10 @@ void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* 
     GenTreeIntCon* offsetNode = addr->AsOp()->gtGetOp2()->AsIntCon();
     ssize_t        offset     = offsetNode->IconValue();
 
-    // All integer load/store instructions on both ARM32 and ARM64 support
-    // offsets in range -255..255. Of course, this is a rather conservative
-    // check. For example, if the offset and size are a multiple of 8 we
-    // could allow a combined offset of up to 32760 on ARM64.
-    if ((offset < -255) || (offset > 255) || (offset + static_cast<int>(size) > 256))
+    if (!IsValidGenericLoadStoreOffset(offset, size ARM64_ARG(size >= 2 * REGSIZE_BYTES)))
     {
         return;
     }
-
-#ifdef TARGET_ARM64
-    // If we're going to use LDP/STP we need to ensure that the offset is
-    // a multiple of 8 since these instructions do not have an unscaled
-    // offset variant.
-    if ((size >= 2 * REGSIZE_BYTES) && (offset % REGSIZE_BYTES != 0))
-    {
-        return;
-    }
-#endif
 
     if (!IsSafeToContainMem(store, addr))
     {
@@ -1261,21 +1271,21 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
         return;
     }
 
+    GenTree* addr = indirNode->GetAddr();
+
 #ifdef FEATURE_SIMD
-    // If indirTree is of TYP_SIMD12, don't mark addr as contained
-    // so that it always get computed to a register.  This would
-    // mean codegen side logic doesn't need to handle all possible
-    // addr expressions that could be contained.
-    //
-    // TODO-ARM64-CQ: handle other addr mode expressions that could be marked
-    // as contained.
-    if (indirNode->TypeGet() == TYP_SIMD12)
+    if (indirNode->TypeIs(TYP_SIMD12))
     {
+        if (addr->OperIs(GT_LEA) && !addr->AsAddrMode()->HasIndex() &&
+            IsValidGenericLoadStoreOffset(addr->AsAddrMode()->GetOffset(), 8, false) &&
+            IsSafeToContainMem(indirNode, addr))
+        {
+            addr->SetContained();
+        }
+
         return;
     }
 #endif // FEATURE_SIMD
-
-    GenTree* addr = indirNode->Addr();
 
     if ((addr->OperGet() == GT_LEA) && IsSafeToContainMem(indirNode, addr))
     {

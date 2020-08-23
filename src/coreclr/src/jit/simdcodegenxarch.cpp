@@ -2057,25 +2057,53 @@ void CodeGen::genSIMDIntrinsicShuffleSSE2(GenTreeSIMD* simdNode)
 //
 void CodeGen::genStoreIndTypeSIMD12(GenTreeStoreInd* store)
 {
-    GenTree* addr  = store->GetAddr();
+    GenTree*  addr           = store->GetAddr();
+    regNumber addrBaseReg    = REG_NA;
+    regNumber addrIndexReg   = REG_NA;
+    unsigned  addrIndexScale = 1;
+    int       addrOffset     = 0;
+
+    if (addr->isUsedFromReg())
+    {
+        addrBaseReg = genConsumeReg(addr);
+    }
+    else
+    {
+        GenTreeAddrMode* addrMode = addr->AsAddrMode();
+
+        if (addrMode->HasBase())
+        {
+            addrBaseReg = genConsumeReg(addrMode->Base());
+        }
+
+        if (addrMode->HasIndex())
+        {
+            addrIndexReg   = genConsumeReg(addrMode->Index());
+            addrIndexScale = addrMode->GetScale();
+        }
+
+        addrOffset = addrMode->GetOffset();
+        assert(addrOffset <= INT32_MAX - 8);
+    }
+
     GenTree* value = store->GetValue();
 
-    regNumber addrReg  = genConsumeReg(addr);
     regNumber valueReg = genConsumeReg(value);
     regNumber tmpReg   = store->GetSingleTempReg();
 
-    assert(tmpReg != addrReg);
-
-    GetEmitter()->emitIns_AR_R(INS_movsdsse2, EA_8BYTE, valueReg, addrReg, 0);
+    GetEmitter()->emitIns_ARX_R(INS_movsdsse2, EA_8BYTE, valueReg, addrBaseReg, addrIndexReg, addrIndexScale,
+                                addrOffset);
 
     if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
     {
-        GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, valueReg, addrReg, 8);
+        GetEmitter()->emitIns_ARX_R(INS_movss, EA_4BYTE, valueReg, addrBaseReg, addrIndexReg, addrIndexScale,
+                                    addrOffset + 8);
     }
     else
     {
         GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
-        GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, addrReg, 8);
+        GetEmitter()->emitIns_ARX_R(INS_movss, EA_4BYTE, tmpReg, addrBaseReg, addrIndexReg, addrIndexScale,
+                                    addrOffset + 8);
     }
 }
 
@@ -2088,18 +2116,42 @@ void CodeGen::genLoadIndTypeSIMD12(GenTreeIndir* load)
 {
     assert(load->OperIs(GT_IND));
 
-    GenTree* addr = load->GetAddr();
+    GenTree*  addr           = load->GetAddr();
+    regNumber addrBaseReg    = REG_NA;
+    regNumber addrIndexReg   = REG_NA;
+    unsigned  addrIndexScale = 1;
+    int       addrOffset     = 0;
 
-    assert(!addr->isContained());
+    if (addr->isUsedFromReg())
+    {
+        addrBaseReg = genConsumeReg(addr);
+    }
+    else
+    {
+        GenTreeAddrMode* addrMode = addr->AsAddrMode();
 
-    regNumber addrReg = genConsumeReg(addr);
-    regNumber tmpReg  = load->GetSingleTempReg();
-    regNumber dstReg  = load->GetRegNum();
+        if (addrMode->HasBase())
+        {
+            addrBaseReg = genConsumeReg(addrMode->Base());
+        }
+
+        if (addrMode->HasIndex())
+        {
+            addrIndexReg   = genConsumeReg(addrMode->Index());
+            addrIndexScale = addrMode->GetScale();
+        }
+
+        addrOffset = addrMode->GetOffset();
+        assert(addrOffset <= INT32_MAX - 8);
+    }
+
+    regNumber tmpReg = load->GetSingleTempReg();
+    regNumber dstReg = load->GetRegNum();
 
     assert(tmpReg != dstReg);
 
-    GetEmitter()->emitIns_R_AR(INS_movss, EA_4BYTE, tmpReg, addrReg, 8);
-    GetEmitter()->emitIns_R_AR(INS_movsdsse2, EA_8BYTE, dstReg, addrReg, 0);
+    GetEmitter()->emitIns_R_ARX(INS_movsdsse2, EA_8BYTE, dstReg, addrBaseReg, addrIndexReg, addrIndexScale, addrOffset);
+    GetEmitter()->emitIns_R_ARX(INS_movss, EA_4BYTE, tmpReg, addrBaseReg, addrIndexReg, addrIndexScale, addrOffset + 8);
     GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
 
     genProduceReg(load);

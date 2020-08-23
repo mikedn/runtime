@@ -5803,6 +5803,11 @@ struct GenTreeAddrMode : public GenTreeOp
         return static_cast<int>(gtOffset);
     }
 
+    int GetOffset() const
+    {
+        return static_cast<int>(gtOffset);
+    }
+
     void SetOffset(int offset)
     {
         gtOffset = offset;
