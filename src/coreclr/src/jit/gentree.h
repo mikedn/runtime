@@ -2120,23 +2120,26 @@ private:
 public:
     bool Precedes(GenTree* other);
 
+    bool IsReuseRegValCandidate() const
+    {
+        return OperIsConst() || IsHWIntrinsicZero();
+    }
+
     bool IsReuseRegVal() const
     {
         // This can be extended to non-constant nodes, but not to local or indir nodes.
-        if (OperIsConst() && ((gtFlags & GTF_REUSE_REG_VAL) != 0))
-        {
-            return true;
-        }
-        return false;
+        return ((gtFlags & GTF_REUSE_REG_VAL) != 0) && IsReuseRegValCandidate();
     }
+
     void SetReuseRegVal()
     {
-        assert(OperIsConst());
+        assert(IsReuseRegValCandidate());
         gtFlags |= GTF_REUSE_REG_VAL;
     }
+
     void ResetReuseRegVal()
     {
-        assert(OperIsConst());
+        assert(IsReuseRegValCandidate());
         gtFlags &= ~GTF_REUSE_REG_VAL;
     }
 

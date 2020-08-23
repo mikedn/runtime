@@ -1432,7 +1432,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
     if (treeNode->IsReuseRegVal())
     {
         // For now, this is only used for constant nodes.
-        assert((treeNode->OperIsConst()));
+        assert(treeNode->OperIsConst() || treeNode->IsHWIntrinsicZero());
         JITDUMP("  TreeNode is marked ReuseReg\n");
         return;
     }

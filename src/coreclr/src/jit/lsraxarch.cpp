@@ -2670,7 +2670,12 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
     if (dstCount == 1)
     {
-        BuildDef(intrinsicTree, dstCandidates);
+        RefPosition* def = BuildDef(intrinsicTree, dstCandidates);
+
+        if (intrinsicTree->IsHWIntrinsicZero())
+        {
+            def->getInterval()->isConstant = true;
+        }
     }
     else
     {
