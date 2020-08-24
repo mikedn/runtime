@@ -1861,10 +1861,15 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             assert(op1->TypeGet() == TYP_BYREF);
             assert(genActualType(op2->TypeGet()) == genActualType(baseType));
 
-            // For integral base types of size less than TYP_INT, expand the initializer
-            // to fill size of TYP_INT bytes.
-            if (varTypeIsSmallInt(baseType))
+            if (op2->IsIntegralConst(0) || op2->IsDblConPositiveZero())
             {
+                simdTree = gtNewSimdAsHWIntrinsicNode(simdType, NI_Vector128_get_Zero, baseType, size);
+            }
+            else if (varTypeIsSmallInt(baseType))
+            {
+                // For integral base types of size less than TYP_INT, expand the initializer
+                // to fill size of TYP_INT bytes.
+
                 unsigned baseSize = genTypeSize(baseType);
                 int      multiplier;
                 if (baseSize == 1)
@@ -2329,7 +2334,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 GenTreeOp* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
 {
     assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
-    assert(src->OperIs(GT_SIMD, GT_IND));
+    assert(src->OperIs(GT_SIMD, GT_IND, GT_HWINTRINSIC));
     assert(varTypeIsSIMD(src->GetType()));
 
     // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
@@ -2343,7 +2348,7 @@ GenTreeOp* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     {
         dest = destAddr->AsUnOp()->GetOp(0);
 
-        if (src->OperIs(GT_SIMD))
+        if (src->OperIs(GT_SIMD, GT_HWINTRINSIC))
         {
             setLclRelatedToSIMDIntrinsic(dest->AsLclVar());
         }

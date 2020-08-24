@@ -9046,7 +9046,14 @@ GenTree* Compiler::fgMorphInitBlockConstant(GenTreeIntCon* initVal,
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(type))
     {
-        return gtNewSIMDNode(type, SIMDIntrinsicInit, initPatternType, genTypeSize(type), initVal);
+        if (initPattern == 0)
+        {
+            return gtNewSimdHWIntrinsicNode(type, NI_Vector128_get_Zero, initPatternType, genTypeSize(type));
+        }
+        else
+        {
+            return gtNewSIMDNode(type, SIMDIntrinsicInit, initPatternType, genTypeSize(type), initVal);
+        }
     }
 #endif
 

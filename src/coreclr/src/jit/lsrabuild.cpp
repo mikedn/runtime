@@ -3329,7 +3329,7 @@ int LinearScan::BuildStoreLoc(GenTreeLclVarCommon* storeLoc)
         {
             // This is the zero-init case, and we need a register to hold the zero.
             // (On Arm64 we can just store REG_ZR.)
-            assert(op1->IsSIMDZero());
+            assert(op1->IsSIMDZero() || op1->IsHWIntrinsicZero());
             singleUseRef = BuildUse(op1->AsSIMD()->GetOp(0));
             srcCount     = 1;
         }
