@@ -1885,19 +1885,16 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
     // We must have a stack store with GT_STORE_LCL_FLD
     noway_assert(targetReg == REG_NA);
 
-    unsigned varNum = tree->GetLclNum();
-    assert(varNum < compiler->lvaCount);
-    LclVarDsc* varDsc = &(compiler->lvaTable[varNum]);
+    unsigned   varNum = tree->GetLclNum();
+    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
 
     // Ensure that lclVar nodes are typed correctly.
     assert(!varDsc->lvNormalizeOnStore() || targetType == genActualType(varDsc->TypeGet()));
 
-    GenTree* data = tree->gtOp1;
-    genConsumeRegs(data);
-
+    GenTree*  data = tree->GetOp(0);
     regNumber dataReg;
 
-    if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD, GT_HWINTRINSIC))
+    if (data->isContained())
     {
         assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero() ||
                data->IsHWIntrinsicZero());
@@ -1905,9 +1902,7 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
     }
     else
     {
-        assert(!data->isContained());
-        dataReg = data->GetRegNum();
-        assert(dataReg != REG_NA);
+        dataReg = genConsumeReg(data);
     }
 
     if ((dataReg == REG_ZR) && (targetType == TYP_SIMD16))
@@ -1916,7 +1911,7 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
     }
     else
     {
-        assert((dataReg != REG_ZR) || (genTypeSize(targetType) <= REGSIZE_BYTES));
+        assert((dataReg != REG_ZR) || (varTypeSize(targetType) <= REGSIZE_BYTES));
         emit->emitIns_S_R(ins_Store(targetType), emitActualTypeSize(targetType), dataReg, varNum, offset);
     }
 
@@ -1977,10 +1972,9 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
         }
 #endif // FEATURE_SIMD
 
-        genConsumeRegs(data);
-
         regNumber dataReg = REG_NA;
-        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD, GT_HWINTRINSIC))
+
+        if (data->isContained())
         {
             assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero() ||
                    data->IsHWIntrinsicZero());
@@ -1988,9 +1982,7 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
         }
         else
         {
-            assert(!data->isContained());
-            dataReg = data->GetRegNum();
-            assert(dataReg != REG_NA);
+            dataReg = genConsumeReg(data);
         }
 
         if (targetReg == REG_NA) // store into stack based LclVar
