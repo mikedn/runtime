@@ -1140,39 +1140,28 @@ void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
     assert(varTypeIsSIMD(src));
     assert(src->isUsedFromReg());
 
-    // This is a case of operand is in a single reg and needs to be
-    // returned in multiple ABI return registers.
-    regNumber opReg = src->GetRegNum();
-    regNumber reg0  = retTypeDesc->GetABIReturnReg(0);
-    regNumber reg1  = retTypeDesc->GetABIReturnReg(1);
+    regNumber srcReg  = src->GetRegNum();
+    regNumber retReg0 = retTypeDesc->GetABIReturnReg(0);
+    regNumber retReg1 = retTypeDesc->GetABIReturnReg(1);
 
-    if (opReg != reg0 && opReg != reg1)
+    if (retReg0 != srcReg)
     {
-        // Operand reg is different from return regs.
-        // Copy opReg to reg0 and let it to be handled by one of the
-        // two cases below.
-        inst_RV_RV(ins_Copy(TYP_DOUBLE), reg0, opReg, TYP_DOUBLE);
-        opReg = reg0;
+        GetEmitter()->emitIns_R_R(INS_movaps, EA_16BYTE, retReg0, srcReg);
     }
 
-    if (opReg == reg0)
+    if (compiler->canUseVexEncoding())
     {
-        assert(opReg != reg1);
-
-        // reg0 - already has required 8-byte in bit position [63:0].
-        // reg1 = opReg.
-        // swap upper and lower 8-bytes of reg1 so that desired 8-byte is in bit position [63:0].
-        inst_RV_RV(ins_Copy(TYP_DOUBLE), reg1, opReg, TYP_DOUBLE);
+        GetEmitter()->emitIns_R_R_R(INS_unpckhpd, EA_16BYTE, retReg1, srcReg, srcReg);
     }
     else
     {
-        assert(opReg == reg1);
+        if (retReg1 != srcReg)
+        {
+            GetEmitter()->emitIns_R_R(INS_movaps, EA_16BYTE, retReg1, srcReg);
+        }
 
-        // reg0 = opReg.
-        // swap upper and lower 8-bytes of reg1 so that desired 8-byte is in bit position [63:0].
-        inst_RV_RV(ins_Copy(TYP_DOUBLE), reg0, opReg, TYP_DOUBLE);
+        GetEmitter()->emitIns_R_R(INS_unpckhpd, EA_16BYTE, retReg1, retReg1);
     }
-    inst_RV_RV_IV(INS_shufpd, EA_16BYTE, reg1, reg1, 0x01);
 }
 #endif // FEATURE_SIMD
 
@@ -1890,9 +1879,9 @@ void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
     // This is a case where the two 8-bytes that comprise the operand are in
     // two different xmm registers and need to be assembled into a single
     // xmm register.
-    regNumber targetReg = lclNode->GetRegNum();
-    regNumber reg0      = call->GetRegNumByIdx(0);
-    regNumber reg1      = call->GetRegNumByIdx(1);
+    regNumber dstReg  = lclNode->GetRegNum();
+    regNumber retReg0 = call->GetRegNumByIdx(0);
+    regNumber retReg1 = call->GetRegNumByIdx(1);
 
     if (op1->IsCopyOrReload())
     {
@@ -1901,47 +1890,35 @@ void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
         regNumber reloadReg = op1->AsCopyOrReload()->GetRegNumByIdx(0);
         if (reloadReg != REG_NA)
         {
-            reg0 = reloadReg;
+            retReg0 = reloadReg;
         }
 
         reloadReg = op1->AsCopyOrReload()->GetRegNumByIdx(1);
         if (reloadReg != REG_NA)
         {
-            reg1 = reloadReg;
+            retReg1 = reloadReg;
         }
     }
 
-    if (targetReg != reg0 && targetReg != reg1)
+    if (dstReg == retReg0)
     {
-        // targetReg = reg0;
-        // targetReg[127:64] = reg1[127:64]
-        inst_RV_RV(ins_Copy(TYP_DOUBLE), targetReg, reg0, TYP_DOUBLE);
-        inst_RV_RV_IV(INS_shufpd, EA_16BYTE, targetReg, reg1, 0x00);
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
     }
-    else if (targetReg == reg0)
+    else if (compiler->canUseVexEncoding())
     {
-        // (elided) targetReg = reg0
-        // targetReg[127:64] = reg1[127:64]
-        inst_RV_RV_IV(INS_shufpd, EA_16BYTE, targetReg, reg1, 0x00);
+        GetEmitter()->emitIns_R_R_R(INS_unpcklpd, EA_16BYTE, dstReg, retReg0, retReg1);
+    }
+    else if (dstReg == retReg1)
+    {
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
+        GetEmitter()->emitIns_R_R(INS_movsdsse2, EA_16BYTE, dstReg, retReg0);
     }
     else
     {
-        assert(targetReg == reg1);
-        // We need two shuffles to achieve this
-        // First:
-        // targetReg[63:0] = targetReg[63:0]
-        // targetReg[127:64] = reg0[63:0]
-        //
-        // Second:
-        // targetReg[63:0] = targetReg[127:64]
-        // targetReg[127:64] = targetReg[63:0]
-        //
-        // Essentially copy low 8-bytes from reg0 to high 8-bytes of targetReg
-        // and next swap low and high 8-bytes of targetReg to have them
-        // rearranged in the right order.
-        inst_RV_RV_IV(INS_shufpd, EA_16BYTE, targetReg, reg0, 0x00);
-        inst_RV_RV_IV(INS_shufpd, EA_16BYTE, targetReg, targetReg, 0x01);
+        GetEmitter()->emitIns_R_R(INS_movaps, EA_16BYTE, dstReg, retReg0);
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
     }
+
     genProduceReg(lclNode);
 #else  // !UNIX_AMD64_ABI
     assert(!"Multireg store to SIMD reg not supported on X64 Windows");
