@@ -2750,13 +2750,27 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
     assert(indirTree->TypeGet() != TYP_STRUCT);
 
 #ifdef FEATURE_SIMD
-    RefPosition* internalFloatDef = nullptr;
     if (indirTree->TypeIs(TYP_SIMD12))
     {
-        // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
-        // To assemble the vector properly we would need an additional
-        // XMM register.
-        internalFloatDef = buildInternalFloatRegisterDefForNode(indirTree);
+        if (indirTree->OperIs(GT_STOREIND))
+        {
+            GenTree* value = indirTree->AsStoreInd()->GetValue();
+
+            if (value->isContained())
+            {
+#ifdef TARGET_64BIT
+                buildInternalIntRegisterDefForNode(indirTree);
+#else
+                buildInternalFloatRegisterDefForNode(indirTree);
+#endif
+                int srcCount = BuildAddrUses(indirTree->GetAddr());
+                srcCount += value->OperIs(GT_IND) ? BuildAddrUses(value->AsIndir()->GetAddr()) : 0;
+                buildInternalRegisterUses();
+                return srcCount;
+            }
+        }
+
+        buildInternalFloatRegisterDefForNode(indirTree);
 
         // In case of GT_IND we need an internal register different from targetReg and
         // both of the registers are used at the same time.

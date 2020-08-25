@@ -1560,13 +1560,14 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
 {
     assert(tree->OperIs(GT_LCL_FLD));
 
-#ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
-    {
-        genLoadLclTypeSIMD12(tree);
-        return;
-    }
-#endif
+    // TODO-MIKE-Review: ARM64 uses 16 byte loads to load Vector3 locals while
+    // XARCH uses 12 byte loads. Could XARCH also use 16 byte loads? The problem
+    // with ARM64's approach is that the last vector element isn't zeroed. It's
+    // not even guaranteed that the load doesn't access another local.
+    //
+    // XARCH actually does this too but only when loading from a LCL_VAR and only
+    // on x64 (probably because on x86 attempting to load 16 byte may also result
+    // in the load accessing another local.
 
     var_types targetType = tree->TypeGet();
     regNumber targetReg  = tree->GetRegNum();
@@ -1688,13 +1689,12 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     assert(tree->OperIs(GT_IND));
 
 #ifdef FEATURE_SIMD
-    // Handling of Vector3 type values loaded through indirection.
-    if (tree->TypeGet() == TYP_SIMD12)
+    if (tree->TypeIs(TYP_SIMD12))
     {
-        genLoadIndTypeSIMD12(tree);
+        genLoadSIMD12(tree);
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     var_types   type      = tree->TypeGet();
     instruction ins       = ins_Load(type);

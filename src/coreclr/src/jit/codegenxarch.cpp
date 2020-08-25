@@ -3997,7 +3997,7 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
 #ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
-        genLoadLclTypeSIMD12(tree);
+        genLoadSIMD12(tree);
         return;
     }
 #endif
@@ -4043,7 +4043,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
         if (tree->TypeIs(TYP_SIMD12))
         {
-            genLoadLclTypeSIMD12(tree);
+            genLoadSIMD12(tree);
             return;
         }
 #endif
@@ -4068,7 +4068,7 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
 #ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
-        genStoreLclTypeSIMD12(tree);
+        genStoreSIMD12(tree, tree->GetOp(0));
         return;
     }
 #endif
@@ -4138,13 +4138,12 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
 #endif // !defined(TARGET_64BIT)
 
 #ifdef FEATURE_SIMD
-        // storing of TYP_SIMD12 (i.e. Vector3) field
         if (targetType == TYP_SIMD12)
         {
-            genStoreLclTypeSIMD12(lclNode);
+            genStoreSIMD12(lclNode, lclNode->GetOp(0));
             return;
         }
-#endif // FEATURE_SIMD
+#endif
 
         genConsumeRegs(op1);
 
@@ -4317,7 +4316,7 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
 #ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
-        genLoadIndTypeSIMD12(tree);
+        genLoadSIMD12(tree);
         return;
     }
 #endif
@@ -4354,7 +4353,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 #ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
-        genStoreIndTypeSIMD12(tree);
+        genStoreSIMD12(tree, tree->GetValue());
         return;
     }
 #endif
@@ -8711,6 +8710,70 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
     unreached();
+}
+
+CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
+    : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(0), m_lclNum(BAD_VAR_NUM)
+{
+    if (GenTreeIndir* indir = tree->IsIndir())
+    {
+        GenTree* addr = indir->GetAddr();
+
+        if (addr->isUsedFromReg())
+        {
+            m_base = codeGen->genConsumeReg(addr);
+        }
+        else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+        {
+            if (addrMode->GetBase() != nullptr)
+            {
+                m_base = codeGen->genConsumeReg(addrMode->GetBase());
+            }
+
+            if (addrMode->GetIndex() != nullptr)
+            {
+                m_index = codeGen->genConsumeReg(addrMode->GetIndex());
+                m_scale = static_cast<uint8_t>(addrMode->GetScale());
+            }
+
+            m_disp = addrMode->GetOffset();
+        }
+    }
+    else
+    {
+        m_lclNum = tree->AsLclVarCommon()->GetLclNum();
+
+        if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+        {
+            m_disp = tree->AsLclFld()->GetLclOffs();
+        }
+    }
+}
+
+void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const GenAddrMode& addrMode, unsigned offset)
+{
+    if (addrMode.IsLcl())
+    {
+        GetEmitter()->emitIns_R_S(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_ARX(ins, attr, reg, addrMode.Base(), addrMode.Index(), addrMode.Scale(),
+                                    addrMode.Disp(offset));
+    }
+}
+
+void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const GenAddrMode& addrMode, unsigned offset)
+{
+    if (addrMode.IsLcl())
+    {
+        GetEmitter()->emitIns_S_R(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+    }
+    else
+    {
+        GetEmitter()->emitIns_ARX_R(ins, attr, reg, addrMode.Base(), addrMode.Index(), addrMode.Scale(),
+                                    addrMode.Disp(offset));
+    }
 }
 
 #endif // TARGET_XARCH

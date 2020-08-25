@@ -1231,8 +1231,11 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 //
 void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
 {
+    ContainCheckIndir(node);
+
 #ifdef TARGET_ARM64
-    GenTree* src = node->AsOp()->gtOp2;
+    GenTree* src = node->GetValue();
+
     // TODO-MIKE-CQ-ARM64: SIMD16 0 is problematic to contain because we need
     // stp xzr, xzr, [...] but emitInsLoadStoreOp does not support stp. Currently
     // STORE_BLK.struct<16> works better than STOREIND.simd16 because of this.
@@ -1242,13 +1245,16 @@ void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
         {
             src->SetContained();
         }
+        else if (node->TypeIs(TYP_SIMD12))
+        {
+            ContainSIMD12MemToMemCopy(node, src);
+        }
     }
     else if (src->IsIntegralConst(0) || src->IsDblConPositiveZero())
     {
         src->SetContained();
     }
 #endif // TARGET_ARM64
-    ContainCheckIndir(node);
 }
 
 //------------------------------------------------------------------------
@@ -1402,7 +1408,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 // Arguments:
 //    node - pointer to the node
 //
-void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const
+void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
 {
     assert(storeLoc->OperIsLocalStore());
     GenTree* op1 = storeLoc->gtGetOp1();
@@ -1426,6 +1432,12 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const
     if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->IsSIMDZero() || op1->IsHWIntrinsicZero())
     {
         op1->SetContained();
+        return;
+    }
+
+    if (storeLoc->TypeIs(TYP_SIMD12) && IsContainableMemoryOp(storeLoc))
+    {
+        ContainSIMD12MemToMemCopy(storeLoc, op1);
         return;
     }
 #endif

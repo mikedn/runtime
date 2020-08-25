@@ -3717,16 +3717,27 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
 //
 void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
 {
+    ContainCheckIndir(node);
+
+    GenTree* src = node->GetValue();
+
+#ifdef FEATURE_SIMD
+    if (node->TypeIs(TYP_SIMD12))
+    {
+        ContainSIMD12MemToMemCopy(node, src);
+        return;
+    }
+#endif
+
     // If the source is a containable immediate, make it contained, unless it is
     // an int-size or larger store of zero to memory, because we can generate smaller code
     // by zeroing a register and then storing it.
-    GenTree* src = node->AsOp()->gtOp2;
+
     if (IsContainableImmed(node, src) &&
-        (!src->IsIntegralConst(0) || varTypeIsSmall(node) || node->gtGetOp1()->OperGet() == GT_CLS_VAR_ADDR))
+        (!src->IsIntegralConst(0) || varTypeIsSmall(node) || node->GetAddr()->OperIs(GT_CLS_VAR_ADDR)))
     {
         MakeSrcContained(node, src);
     }
-    ContainCheckIndir(node);
 }
 
 //------------------------------------------------------------------------
@@ -3970,7 +3981,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 // Arguments:
 //    node - pointer to the node
 //
-void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const
+void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
 {
     assert(storeLoc->OperIsLocalStore());
     GenTree* op1 = storeLoc->gtGetOp1();
@@ -3988,12 +3999,16 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const
         }
     }
 
-    const LclVarDsc* varDsc = comp->lvaGetDesc(storeLoc);
-
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(storeLoc->GetType()))
     {
         assert(!op1->IsIntCon());
+
+        if (storeLoc->TypeIs(TYP_SIMD12) && IsContainableMemoryOp(storeLoc))
+        {
+            ContainSIMD12MemToMemCopy(storeLoc, op1);
+        }
+
         return;
     }
 #endif
@@ -4001,7 +4016,7 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const
     // If the source is a containable immediate, make it contained, unless it is
     // an int-size or larger store of zero to memory, because we can generate smaller code
     // by zeroing a register and then storing it.
-    var_types type = varDsc->GetRegisterType(storeLoc);
+    var_types type = comp->lvaGetDesc(storeLoc)->GetRegisterType(storeLoc);
     if (IsContainableImmed(storeLoc, op1) && (!op1->IsIntegralConst(0) || varTypeIsSmall(type)))
     {
         MakeSrcContained(storeLoc, op1);

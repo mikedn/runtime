@@ -3367,7 +3367,7 @@ void Lowering::LowerStoreSingleRegCallStruct(GenTreeBlk* store)
 // Return Value:
 //    load of the spilled variable.
 //
-GenTreeLclVar* Lowering::SpillStructCallResult(GenTreeCall* call) const
+GenTreeLclVar* Lowering::SpillStructCallResult(GenTreeCall* call)
 {
     // TODO-1stClassStructs: we can support this in codegen for `GT_STORE_BLK` without new temps.
     const unsigned       spillNum = comp->lvaGrabTemp(true DEBUGARG("Return value temp for an odd struct return size"));
@@ -6633,3 +6633,30 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
     LowerStoreIndirCommon(blkNode);
     return true;
 }
+
+#ifdef FEATURE_SIMD
+bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
+{
+    assert(IsContainableMemoryOp(store));
+    assert(store->TypeIs(TYP_SIMD12));
+
+    if ((varTypeSize(value->GetType()) < 12) || !IsContainableMemoryOp(value) || !IsSafeToContainMem(store, value))
+    {
+        return false;
+    }
+
+    value->SetContained();
+
+    if (value->OperIs(GT_IND))
+    {
+        GenTree* addr = value->AsIndir()->GetAddr();
+
+        if (addr->isContained() && !IsSafeToContainMem(store, addr))
+        {
+            addr->ClearContained();
+        }
+    }
+
+    return true;
+}
+#endif

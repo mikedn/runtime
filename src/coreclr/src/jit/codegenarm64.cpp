@@ -1865,19 +1865,18 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 //
 void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
 {
+#ifdef FEATURE_SIMD
+    if (tree->TypeIs(TYP_SIMD12))
+    {
+        genStoreSIMD12(tree, tree->GetOp(0));
+        return;
+    }
+#endif
+
     var_types targetType = tree->TypeGet();
     regNumber targetReg  = tree->GetRegNum();
     emitter*  emit       = GetEmitter();
     noway_assert(targetType != TYP_STRUCT);
-
-#ifdef FEATURE_SIMD
-    // storing of TYP_SIMD12 (i.e. Vector3) field
-    if (tree->TypeGet() == TYP_SIMD12)
-    {
-        genStoreLclTypeSIMD12(tree);
-        return;
-    }
-#endif // FEATURE_SIMD
 
     // record the offset
     unsigned offset = tree->GetLclOffs();
@@ -1964,13 +1963,12 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
         var_types targetType = varDsc->GetRegisterType(lclNode);
 
 #ifdef FEATURE_SIMD
-        // storing of TYP_SIMD12 (i.e. Vector3) field
         if (targetType == TYP_SIMD12)
         {
-            genStoreLclTypeSIMD12(lclNode);
+            genStoreSIMD12(lclNode, lclNode->GetOp(0));
             return;
         }
-#endif // FEATURE_SIMD
+#endif
 
         regNumber dataReg = REG_NA;
 
@@ -3139,7 +3137,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 #ifdef FEATURE_SIMD
     if (tree->TypeIs(TYP_SIMD12))
     {
-        genStoreIndTypeSIMD12(tree);
+        genStoreSIMD12(tree, tree->GetValue());
         return;
     }
 #endif
@@ -4590,49 +4588,34 @@ void CodeGen::genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two writes: 8 byte followed by 4-byte.
 //
-void CodeGen::genStoreIndTypeSIMD12(GenTreeStoreInd* store)
+void CodeGen::genStoreSIMD12(GenTree* store, GenTree* value)
 {
-    GenTree*  addr        = store->GetAddr();
-    regNumber addrBaseReg = REG_NA;
-    ssize_t   addrOffset  = 0;
-
-    if (addr->isUsedFromReg())
-    {
-        addrBaseReg = genConsumeReg(addr);
-    }
-    else
-    {
-        GenTreeAddrMode* addrMode = addr->AsAddrMode();
-
-        if (addrMode->HasBase())
-        {
-            addrBaseReg = genConsumeReg(addrMode->Base());
-        }
-
-        assert(!addrMode->HasIndex());
-
-        addrOffset = addrMode->GetOffset();
-        assert(addrOffset < 256);
-    }
-
-    GenTree* value = store->GetValue();
+    GenAddrMode dst(store, this);
 
     if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
     {
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_8BYTE, REG_ZR, addrBaseReg, addrOffset);
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_ZR, addrBaseReg, addrOffset + 8);
+        inst_AM_R(INS_str, EA_8BYTE, REG_ZR, dst, 0);
+        inst_AM_R(INS_str, EA_4BYTE, REG_ZR, dst, 8);
+        return;
     }
-    else
+
+    regNumber tmpReg = store->GetSingleTempReg();
+
+    if (value->isContained())
     {
-        regNumber valueReg = genConsumeReg(value);
-        regNumber tmpReg   = store->GetSingleTempReg();
-
-        assert(tmpReg != addrBaseReg);
-
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_8BYTE, valueReg, addrBaseReg, addrOffset);
-        GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, tmpReg, addrBaseReg, addrOffset + 8);
+        GenAddrMode src(value, this);
+        inst_R_AM(INS_ldr, EA_8BYTE, tmpReg, src, 0);
+        inst_AM_R(INS_str, EA_8BYTE, tmpReg, dst, 0);
+        inst_R_AM(INS_ldr, EA_4BYTE, tmpReg, src, 8);
+        inst_AM_R(INS_str, EA_4BYTE, tmpReg, dst, 8);
+        return;
     }
+
+    regNumber valueReg = genConsumeReg(value);
+
+    inst_AM_R(INS_str, EA_8BYTE, valueReg, dst, 0);
+    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
+    inst_AM_R(INS_str, EA_8BYTE, tmpReg, dst, 8);
 }
 
 //-----------------------------------------------------------------------------
@@ -4640,112 +4623,18 @@ void CodeGen::genStoreIndTypeSIMD12(GenTreeStoreInd* store)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two loads: 8 byte followed by 4-byte.
 //
-void CodeGen::genLoadIndTypeSIMD12(GenTreeIndir* load)
+void CodeGen::genLoadSIMD12(GenTree* load)
 {
-    assert(load->OperIs(GT_IND));
-
-    GenTree*  addr        = load->GetAddr();
-    regNumber addrBaseReg = REG_NA;
-    ssize_t   addrOffset  = 0;
-
-    if (addr->isUsedFromReg())
-    {
-        addrBaseReg = genConsumeReg(addr);
-    }
-    else
-    {
-        GenTreeAddrMode* addrMode = addr->AsAddrMode();
-
-        if (addrMode->HasBase())
-        {
-            addrBaseReg = genConsumeReg(addrMode->Base());
-        }
-
-        assert(!addrMode->HasIndex());
-
-        addrOffset = addrMode->GetOffset();
-        assert(addrOffset <= INT32_MAX - 8);
-    }
+    GenAddrMode src(load, this);
 
     regNumber tmpReg = load->GetSingleTempReg();
     regNumber dstReg = load->GetRegNum();
 
     assert(tmpReg != dstReg);
 
-    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_8BYTE, dstReg, addrBaseReg, addrOffset);
-    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, addrBaseReg, addrOffset + 8);
+    inst_R_AM(INS_ldr, EA_8BYTE, dstReg, src, 0);
+    inst_R_AM(INS_ldr, EA_4BYTE, tmpReg, src, 8);
     GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, dstReg, tmpReg, 2);
-
-    genProduceReg(load);
-}
-
-//-----------------------------------------------------------------------------
-// genStoreLclTypeSIMD12: store a TYP_SIMD12 (i.e. Vector3) type field.
-// Since Vector3 is not a hardware supported write size, it is performed
-// as two stores: 8 byte followed by 4-byte.
-//
-void CodeGen::genStoreLclTypeSIMD12(GenTreeLclVarCommon* store)
-{
-    assert(store->OperIs(GT_STORE_LCL_FLD, GT_STORE_LCL_VAR));
-
-    unsigned lclNum  = store->GetLclNum();
-    unsigned lclOffs = 0;
-
-    if (store->OperIs(GT_STORE_LCL_FLD))
-    {
-        lclOffs = store->AsLclFld()->GetLclOffs();
-    }
-
-    regNumber tmpReg = store->GetSingleTempReg();
-    GenTree*  value  = store->GetOp(0);
-
-    if (value->isContained())
-    {
-        assert(value->IsIntegralConst(0) || value->IsDblConPositiveZero() || value->IsSIMDZero() ||
-               value->IsHWIntrinsicZero());
-
-        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, REG_ZR, lclNum, lclOffs);
-        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, REG_ZR, lclNum, lclOffs + 8);
-
-        return;
-    }
-
-    regNumber valueReg = genConsumeReg(value);
-
-    GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, valueReg, lclNum, lclOffs);
-    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
-    GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, tmpReg, lclNum, lclOffs + 8);
-}
-
-//-----------------------------------------------------------------------------
-// genLoadLclTypeSIMD12: load a TYP_SIMD12 (i.e. Vector3) type field.
-// Since Vector3 is not a hardware supported read size, it is performed
-// as two reads: 4 byte followed by 8 byte.
-//
-void CodeGen::genLoadLclTypeSIMD12(GenTreeLclVarCommon* load)
-{
-    assert(load->OperIs(GT_LCL_FLD, GT_LCL_VAR));
-
-    unsigned lclNum  = load->GetLclNum();
-    unsigned lclOffs = 0;
-
-    if (load->OperIs(GT_LCL_FLD))
-    {
-        lclOffs = load->AsLclFld()->GetLclOffs();
-    }
-
-    regNumber dstReg = load->GetRegNum();
-
-    // TODO-MIKE-Review: ARM64 uses 16 byte loads to load Vector3 locals while
-    // XARCH uses 12 byte loads. Could XARCH also use 16 byte loads? The problem
-    // with ARM64's approach is that the last vector element isn't zeroed. It's
-    // not even guaranteed that the load doesn't access another local.
-    //
-    // XARCH actually does this too but only when loading from a LCL_VAR and only
-    // on x64 (probably because on x86 attempting to load 16 byte may also result
-    // in the load accessing another local.
-
-    GetEmitter()->emitIns_R_S(INS_ldr, EA_16BYTE, dstReg, lclNum, lclOffs);
 
     genProduceReg(load);
 }
@@ -9798,6 +9687,67 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
     if (!instr->TypeIs(TYP_VOID))
     {
         genProduceReg(instr);
+    }
+}
+
+CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
+    : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(0), m_lclNum(BAD_VAR_NUM)
+{
+    if (GenTreeIndir* indir = tree->IsIndir())
+    {
+        GenTree* addr = indir->GetAddr();
+
+        if (addr->isUsedFromReg())
+        {
+            m_base = codeGen->genConsumeReg(addr);
+        }
+        else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+        {
+            if (addrMode->HasBase())
+            {
+                m_base = codeGen->genConsumeReg(addrMode->Base());
+            }
+
+            // ARM does have indexed address modes but this code is used currently
+            // only in cases where an immediate offset is also needed (e.g. SIMD12
+            // load/store) so we can't really have an index.
+            assert(!addrMode->HasIndex());
+
+            m_disp = addrMode->GetOffset();
+        }
+    }
+    else
+    {
+        m_lclNum = tree->AsLclVarCommon()->GetLclNum();
+
+        if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+        {
+            m_disp = tree->AsLclFld()->GetLclOffs();
+        }
+    }
+}
+
+void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const GenAddrMode& addrMode, unsigned offset)
+{
+    if (addrMode.IsLcl())
+    {
+        GetEmitter()->emitIns_R_S(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R_I(ins, attr, reg, addrMode.Base(), addrMode.Disp(offset));
+    }
+}
+
+void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const GenAddrMode& addrMode, unsigned offset)
+{
+    if (addrMode.IsLcl())
+    {
+        GetEmitter()->emitIns_S_R(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R_I(ins, attr, reg, addrMode.Base(), addrMode.Disp(offset));
     }
 }
 
