@@ -3648,24 +3648,23 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 //
 void Lowering::ContainCheckIndir(GenTreeIndir* node)
 {
-    GenTree* addr = node->Addr();
-
     // If this is the rhs of a block copy it will be handled when we handle the store.
     if (node->TypeGet() == TYP_STRUCT)
     {
         return;
     }
 
+    GenTree* addr = node->GetAddr();
+
 #ifdef FEATURE_SIMD
-    // If indirTree is of TYP_SIMD12, don't mark addr as contained
-    // so that it always get computed to a register.  This would
-    // mean codegen side logic doesn't need to handle all possible
-    // addr expressions that could be contained.
-    //
-    // TODO-XArch-CQ: handle other addr mode expressions that could be marked
-    // as contained.
-    if (node->TypeGet() == TYP_SIMD12)
+    if (node->TypeIs(TYP_SIMD12))
     {
+        if (addr->OperIs(GT_LEA) && (addr->AsAddrMode()->GetOffset() <= INT32_MAX - 8) &&
+            IsSafeToContainMem(node, addr))
+        {
+            addr->SetContained();
+        }
+
         return;
     }
 #endif // FEATURE_SIMD
@@ -3718,16 +3717,27 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
 //
 void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
 {
+    ContainCheckIndir(node);
+
+    GenTree* src = node->GetValue();
+
+#ifdef FEATURE_SIMD
+    if (node->TypeIs(TYP_SIMD12))
+    {
+        ContainSIMD12MemToMemCopy(node, src);
+        return;
+    }
+#endif
+
     // If the source is a containable immediate, make it contained, unless it is
     // an int-size or larger store of zero to memory, because we can generate smaller code
     // by zeroing a register and then storing it.
-    GenTree* src = node->AsOp()->gtOp2;
+
     if (IsContainableImmed(node, src) &&
-        (!src->IsIntegralConst(0) || varTypeIsSmall(node) || node->gtGetOp1()->OperGet() == GT_CLS_VAR_ADDR))
+        (!src->IsIntegralConst(0) || varTypeIsSmall(node) || node->GetAddr()->OperIs(GT_CLS_VAR_ADDR)))
     {
         MakeSrcContained(node, src);
     }
-    ContainCheckIndir(node);
 }
 
 //------------------------------------------------------------------------
@@ -3971,7 +3981,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 // Arguments:
 //    node - pointer to the node
 //
-void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const
+void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
 {
     assert(storeLoc->OperIsLocalStore());
     GenTree* op1 = storeLoc->gtGetOp1();
@@ -3989,30 +3999,24 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const
         }
     }
 
-    const LclVarDsc* varDsc = comp->lvaGetDesc(storeLoc);
-
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(storeLoc))
+    if (varTypeIsSIMD(storeLoc->GetType()))
     {
-        assert(!op1->IsCnsIntOrI());
-        if (storeLoc->TypeIs(TYP_SIMD12) && op1->IsSIMDZero() && varDsc->lvDoNotEnregister)
+        assert(!op1->IsIntCon());
+
+        if (storeLoc->TypeIs(TYP_SIMD12) && IsContainableMemoryOp(storeLoc))
         {
-            // For a SIMD12 store we can zero from integer registers more easily.
-            MakeSrcContained(storeLoc, op1);
-            GenTree* constNode = op1->AsSIMD()->GetOp(0);
-            assert(constNode->OperIsConst());
-            constNode->ClearContained();
-            constNode->gtType = TYP_INT;
-            constNode->SetOper(GT_CNS_INT);
+            ContainSIMD12MemToMemCopy(storeLoc, op1);
         }
+
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     // If the source is a containable immediate, make it contained, unless it is
     // an int-size or larger store of zero to memory, because we can generate smaller code
     // by zeroing a register and then storing it.
-    var_types type = varDsc->GetRegisterType(storeLoc);
+    var_types type = comp->lvaGetDesc(storeLoc)->GetRegisterType(storeLoc);
     if (IsContainableImmed(storeLoc, op1) && (!op1->IsIntegralConst(0) || varTypeIsSmall(type)))
     {
         MakeSrcContained(storeLoc, op1);
@@ -4943,41 +4947,24 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
 
     // TODO-XArch: Update this to be table driven, if possible.
 
-    NamedIntrinsic intrinsicId = node->AsHWIntrinsic()->gtHWIntrinsicId;
-
-    switch (intrinsicId)
+    switch (node->AsHWIntrinsic()->GetIntrinsic())
     {
         case NI_SSE_LoadAlignedVector128:
         case NI_SSE2_LoadAlignedVector128:
         case NI_AVX_LoadAlignedVector256:
-        {
             return supportsAlignedSIMDLoads;
-        }
 
         case NI_SSE_LoadScalarVector128:
         case NI_SSE2_LoadScalarVector128:
-        {
             return supportsSIMDScalarLoads;
-        }
 
         case NI_SSE_LoadVector128:
         case NI_SSE2_LoadVector128:
         case NI_AVX_LoadVector256:
-        {
             return supportsUnalignedSIMDLoads;
-        }
-
-        case NI_AVX_ExtractVector128:
-        case NI_AVX2_ExtractVector128:
-        {
-            return false;
-        }
 
         default:
-        {
-            assert(!node->isContainableHWIntrinsic());
             return false;
-        }
     }
 }
 

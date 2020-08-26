@@ -3278,6 +3278,16 @@ int LinearScan::BuildStoreLoc(GenTreeLclVarCommon* storeLoc)
         return BuildMultiRegStoreLoc(storeLoc->AsLclVar());
     }
 
+#ifdef FEATURE_SIMD
+    if (storeLoc->TypeIs(TYP_SIMD12) && op1->isContained() && op1->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR))
+    {
+        buildInternalIntRegisterDefForNode(storeLoc);
+        int srcCount = op1->OperIs(GT_IND) ? BuildIndirUses(op1->AsIndir()) : 0;
+        buildInternalRegisterUses();
+        return srcCount;
+    }
+#endif
+
 // First, define internal registers.
 #ifdef FEATURE_SIMD
     RefPosition* internalFloatDef = nullptr;
@@ -3329,7 +3339,7 @@ int LinearScan::BuildStoreLoc(GenTreeLclVarCommon* storeLoc)
         {
             // This is the zero-init case, and we need a register to hold the zero.
             // (On Arm64 we can just store REG_ZR.)
-            assert(op1->IsSIMDZero());
+            assert(op1->IsSIMDZero() || op1->IsHWIntrinsicZero());
             singleUseRef = BuildUse(op1->AsSIMD()->GetOp(0));
             srcCount     = 1;
         }

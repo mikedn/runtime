@@ -780,6 +780,8 @@ private:
 
 #endif // TARGET_ARM64
 
+INDEBUG(const char* GetHWIntrinsicIdName(NamedIntrinsic id);)
+
 #endif // FEATURE_HW_INTRINSICS
 
 #endif // _HW_INTRINSIC_H_

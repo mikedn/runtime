@@ -10177,11 +10177,11 @@ void Compiler::gtDispTree(GenTree*     tree,
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            printf(" %s %s %u", HWIntrinsicInfo::lookupName(tree->AsHWIntrinsic()->gtHWIntrinsicId),
-                   tree->AsHWIntrinsic()->gtSIMDBaseType == TYP_UNKNOWN
+            printf(" %s %s %u", GetHWIntrinsicIdName(tree->AsHWIntrinsic()->GetIntrinsic()),
+                   tree->AsHWIntrinsic()->GetSIMDBaseType() == TYP_UNKNOWN
                        ? ""
-                       : varTypeName(tree->AsHWIntrinsic()->gtSIMDBaseType),
-                   tree->AsHWIntrinsic()->gtSIMDSize);
+                       : varTypeName(tree->AsHWIntrinsic()->GetSIMDBaseType()),
+                   tree->AsHWIntrinsic()->GetSIMDSize());
 
             gtDispCommonEndLine(tree);
 
@@ -17461,9 +17461,9 @@ bool GenTree::isContainableHWIntrinsic() const
 {
     assert(gtOper == GT_HWINTRINSIC);
 
-#ifdef TARGET_XARCH
     switch (AsHWIntrinsic()->gtHWIntrinsicId)
     {
+#ifdef TARGET_XARCH
         case NI_SSE_LoadAlignedVector128:
         case NI_SSE_LoadScalarVector128:
         case NI_SSE_LoadVector128:
@@ -17474,18 +17474,17 @@ bool GenTree::isContainableHWIntrinsic() const
         case NI_AVX_LoadVector256:
         case NI_AVX_ExtractVector128:
         case NI_AVX2_ExtractVector128:
-        {
+        case NI_Vector256_get_Zero:
+#endif
+#ifdef TARGET_ARM64
+        case NI_Vector64_get_Zero:
+#endif
+        case NI_Vector128_get_Zero:
             return true;
-        }
 
         default:
-        {
             return false;
-        }
     }
-#else
-    return false;
-#endif // TARGET_XARCH
 }
 
 bool GenTree::isRMWHWIntrinsic(Compiler* comp)

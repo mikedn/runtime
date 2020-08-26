@@ -1065,4 +1065,21 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     return impSpecialIntrinsic(intrinsic, clsHnd, method, sig, baseType, retType, simdSize);
 }
 
+#ifdef DEBUG
+const char* GetHWIntrinsicIdName(NamedIntrinsic id)
+{
+    static const char* const names[] = {
+#if defined(TARGET_XARCH)
+#define HARDWARE_INTRINSIC(isa, name, ...) #isa "_" #name,
+#include "hwintrinsiclistxarch.h"
+#elif defined(TARGET_ARM64)
+#define HARDWARE_INTRINSIC(isa, name, ...) #isa "_" #name,
+#include "hwintrinsiclistarm64.h"
+#endif // !defined(TARGET_XARCH) && !defined(TARGET_ARM64)
+    };
+
+    return (id > NI_HW_INTRINSIC_START && id < NI_HW_INTRINSIC_END) ? names[id - NI_HW_INTRINSIC_START - 1] : "NI_???";
+}
+#endif
+
 #endif // FEATURE_HW_INTRINSICS

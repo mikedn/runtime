@@ -1018,15 +1018,8 @@ protected:
     void genSIMDIntrinsicWiden(GenTreeSIMD* simdNode);
     void genSIMDIntrinsic(GenTreeSIMD* simdNode);
 
-    // TYP_SIMD12 (i.e Vector3 of size 12 bytes) is not a hardware supported size and requires
-    // two reads/writes on 64-bit targets. These routines abstract reading/writing of Vector3
-    // values through an indirection. Note that Vector3 locals allocated on stack would have
-    // their size rounded to TARGET_POINTER_SIZE (which is 8 bytes on 64-bit targets) and hence
-    // Vector3 locals could be treated as TYP_SIMD16 while reading/writing.
-    void genStoreIndTypeSIMD12(GenTree* treeNode);
-    void genLoadIndTypeSIMD12(GenTree* treeNode);
-    void genStoreLclTypeSIMD12(GenTree* treeNode);
-    void genLoadLclTypeSIMD12(GenTree* treeNode);
+    void genStoreSIMD12(GenTree* store, GenTree* value);
+    void genLoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
 #endif // TARGET_X86
@@ -1448,6 +1441,59 @@ public:
     void inst_mov_RV_ST(regNumber reg, GenTree* tree);
 
     void inst_set_SV_var(GenTree* tree);
+
+    class GenAddrMode
+    {
+        regNumber m_base;
+        regNumber m_index;
+        unsigned  m_scale;
+        int       m_disp;
+        unsigned  m_lclNum;
+
+    public:
+        GenAddrMode(GenTree* tree, CodeGen* codeGen);
+
+        regNumber Base() const
+        {
+            return m_base;
+        }
+
+        regNumber Index() const
+        {
+            return m_index;
+        }
+
+        int Scale() const
+        {
+            return m_scale;
+        }
+
+        int Disp() const
+        {
+            return m_disp;
+        }
+
+        int Disp(unsigned offset) const
+        {
+            assert(offset <= INT32_MAX);
+            assert(m_disp <= INT32_MAX - static_cast<int>(offset));
+
+            return m_disp + offset;
+        }
+
+        bool IsLcl() const
+        {
+            return m_lclNum != BAD_VAR_NUM;
+        }
+
+        unsigned LclNum() const
+        {
+            return m_lclNum;
+        }
+    };
+
+    void inst_R_AM(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
+    void inst_AM_R(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
 
 #ifdef TARGET_ARM
     bool arm_Valid_Imm_For_Instr(instruction ins, target_ssize_t imm, insFlags flags);

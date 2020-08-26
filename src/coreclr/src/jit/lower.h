@@ -90,7 +90,7 @@ private:
     void ContainCheckStoreIndir(GenTreeIndir* indirNode);
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
-    void ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc) const;
+    void ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc);
     void ContainCheckCast(GenTreeCast* node);
     void ContainCheckCompare(GenTreeOp* node);
     void ContainCheckBinary(GenTreeOp* node);
@@ -101,6 +101,7 @@ private:
 #endif // TARGET_XARCH
 #ifdef FEATURE_SIMD
     void ContainCheckSIMD(GenTreeSIMD* simdNode);
+    bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
 #endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
     void ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr);
@@ -138,7 +139,7 @@ private:
     void LowerCallStruct(GenTreeCall* call);
     void LowerStoreSingleRegCallStruct(GenTreeBlk* store);
 #if !defined(WINDOWS_AMD64_ABI)
-    GenTreeLclVar* SpillStructCallResult(GenTreeCall* call) const;
+    GenTreeLclVar* SpillStructCallResult(GenTreeCall* call);
 #endif // WINDOWS_AMD64_ABI
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
     GenTree* LowerIndirectNonvirtCall(GenTreeCall* call);

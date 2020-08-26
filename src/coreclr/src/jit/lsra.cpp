@@ -2757,6 +2757,13 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
                 // equal.  So we compare the bits.
                 return (refPosition->treeNode->GetType() == otherTreeNode->GetType()) &&
                        (refPosition->treeNode->AsDblCon()->GetBits() == otherTreeNode->AsDblCon()->GetBits());
+
+#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
+            case GT_HWINTRINSIC:
+                // XARCH only for now, doesn't seem to be useful on ARM64 due to XZR.
+                return refPosition->treeNode->IsHWIntrinsicZero() && otherTreeNode->IsHWIntrinsicZero();
+#endif
+
             default:
                 break;
         }

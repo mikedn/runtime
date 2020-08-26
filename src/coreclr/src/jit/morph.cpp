@@ -8868,6 +8868,23 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
                 }
             }
 
+            if (initType == TYP_UNDEF)
+            {
+                // TODO-MIKE-Review: The backend was changed in master to no longer support zeroing SIMD
+                // typed locals by assigning a CNS_INT(0) so we have to change this to be a SIMD init.
+                // Still, zeroing a Vector2/3 in memory using GPRs produces smaller code so perhaps we
+                // need to do something else - if it's a LCL_FLD (or a LCL_VAR if the local is already
+                // DNER) we can change its type to TYP_STRUCT to get the normal block initialization.
+                // But then retyping can cause other issues (VN, CSE etc.) so perhaps we should actually
+                // convert it here to SIMD init and then deal with it in lowering/codegen.
+
+                if (!dest->OperIs(GT_BLK) && varTypeIsSIMD(dest->GetType()))
+                {
+                    initType     = dest->GetType();
+                    initBaseType = TYP_FLOAT;
+                }
+            }
+
             if (initType != TYP_UNDEF)
             {
                 destLclNode->SetType(initType);
@@ -9029,7 +9046,14 @@ GenTree* Compiler::fgMorphInitBlockConstant(GenTreeIntCon* initVal,
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(type))
     {
-        return gtNewSIMDNode(type, SIMDIntrinsicInit, initPatternType, genTypeSize(type), initVal);
+        if (initPattern == 0)
+        {
+            return gtNewSimdHWIntrinsicNode(type, NI_Vector128_get_Zero, initPatternType, genTypeSize(type));
+        }
+        else
+        {
+            return gtNewSIMDNode(type, SIMDIntrinsicInit, initPatternType, genTypeSize(type), initVal);
+        }
     }
 #endif
 

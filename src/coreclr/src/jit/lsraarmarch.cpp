@@ -102,14 +102,24 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
     }
 
 #ifdef FEATURE_SIMD
-    if (indirTree->TypeGet() == TYP_SIMD12)
+    if (indirTree->TypeIs(TYP_SIMD12))
     {
-        // If indirTree is of TYP_SIMD12, addr is not contained. See comment in LowerIndir().
-        assert(!addr->isContained());
-
         // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
         // To assemble the vector properly we would need an additional int register
         buildInternalIntRegisterDefForNode(indirTree);
+
+        if (indirTree->OperIs(GT_STOREIND))
+        {
+            GenTree* value = indirTree->AsStoreInd()->GetValue();
+
+            if (value->isContained())
+            {
+                int srcCount = BuildIndirUses(indirTree);
+                srcCount += value->OperIs(GT_IND) ? BuildIndirUses(value->AsIndir()) : 0;
+                buildInternalRegisterUses();
+                return srcCount;
+            }
+        }
     }
 #endif // FEATURE_SIMD
 

@@ -1865,19 +1865,18 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 //
 void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
 {
+#ifdef FEATURE_SIMD
+    if (tree->TypeIs(TYP_SIMD12))
+    {
+        genStoreSIMD12(tree, tree->GetOp(0));
+        return;
+    }
+#endif
+
     var_types targetType = tree->TypeGet();
     regNumber targetReg  = tree->GetRegNum();
     emitter*  emit       = GetEmitter();
     noway_assert(targetType != TYP_STRUCT);
-
-#ifdef FEATURE_SIMD
-    // storing of TYP_SIMD12 (i.e. Vector3) field
-    if (tree->TypeGet() == TYP_SIMD12)
-    {
-        genStoreLclTypeSIMD12(tree);
-        return;
-    }
-#endif // FEATURE_SIMD
 
     // record the offset
     unsigned offset = tree->GetLclOffs();
@@ -1885,28 +1884,24 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
     // We must have a stack store with GT_STORE_LCL_FLD
     noway_assert(targetReg == REG_NA);
 
-    unsigned varNum = tree->GetLclNum();
-    assert(varNum < compiler->lvaCount);
-    LclVarDsc* varDsc = &(compiler->lvaTable[varNum]);
+    unsigned   varNum = tree->GetLclNum();
+    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
 
     // Ensure that lclVar nodes are typed correctly.
     assert(!varDsc->lvNormalizeOnStore() || targetType == genActualType(varDsc->TypeGet()));
 
-    GenTree* data = tree->gtOp1;
-    genConsumeRegs(data);
-
+    GenTree*  data = tree->GetOp(0);
     regNumber dataReg;
 
-    if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
+    if (data->isContained())
     {
-        assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero());
+        assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero() ||
+               data->IsHWIntrinsicZero());
         dataReg = REG_ZR;
     }
     else
     {
-        assert(!data->isContained());
-        dataReg = data->GetRegNum();
-        assert(dataReg != REG_NA);
+        dataReg = genConsumeReg(data);
     }
 
     if ((dataReg == REG_ZR) && (targetType == TYP_SIMD16))
@@ -1915,7 +1910,7 @@ void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
     }
     else
     {
-        assert((dataReg != REG_ZR) || (genTypeSize(targetType) <= REGSIZE_BYTES));
+        assert((dataReg != REG_ZR) || (varTypeSize(targetType) <= REGSIZE_BYTES));
         emit->emitIns_S_R(ins_Store(targetType), emitActualTypeSize(targetType), dataReg, varNum, offset);
     }
 
@@ -1968,28 +1963,24 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
         var_types targetType = varDsc->GetRegisterType(lclNode);
 
 #ifdef FEATURE_SIMD
-        // storing of TYP_SIMD12 (i.e. Vector3) field
         if (targetType == TYP_SIMD12)
         {
-            genStoreLclTypeSIMD12(lclNode);
+            genStoreSIMD12(lclNode, lclNode->GetOp(0));
             return;
         }
-#endif // FEATURE_SIMD
-
-        genConsumeRegs(data);
+#endif
 
         regNumber dataReg = REG_NA;
-        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
+
+        if (data->isContained())
         {
-            // This is only possible for a zero-init.
-            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero());
+            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero() ||
+                   data->IsHWIntrinsicZero());
             dataReg = REG_ZR;
         }
         else
         {
-            assert(!data->isContained());
-            dataReg = data->GetRegNum();
-            assert(dataReg != REG_NA);
+            dataReg = genConsumeReg(data);
         }
 
         if (targetReg == REG_NA) // store into stack based LclVar
@@ -3144,13 +3135,12 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 {
 #ifdef FEATURE_SIMD
-    // Storing Vector3 of size 12 bytes through indirection
-    if (tree->TypeGet() == TYP_SIMD12)
+    if (tree->TypeIs(TYP_SIMD12))
     {
-        genStoreIndTypeSIMD12(tree);
+        genStoreSIMD12(tree, tree->GetValue());
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     GenTree* data = tree->Data();
     GenTree* addr = tree->Addr();
@@ -3187,10 +3177,13 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
             genConsumeRegs(data);
         }
 
+        var_types type = tree->GetType();
         regNumber dataReg;
-        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL))
+
+        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_HWINTRINSIC))
         {
-            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero());
+            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsHWIntrinsicZero());
+            assert(varTypeSize(type) <= REGSIZE_BYTES);
             dataReg = REG_ZR;
         }
         else // data is not contained, so evaluate it into a register
@@ -3199,8 +3192,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
             dataReg = data->GetRegNum();
         }
 
-        var_types   type = tree->TypeGet();
-        instruction ins  = ins_Store(type);
+        instruction ins = ins_Store(type);
 
         if (tree->IsVolatile())
         {
@@ -4596,44 +4588,34 @@ void CodeGen::genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two writes: 8 byte followed by 4-byte.
 //
-// Arguments:
-//    treeNode - tree node that is attempting to store indirect
-//
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genStoreIndTypeSIMD12(GenTree* treeNode)
+void CodeGen::genStoreSIMD12(GenTree* store, GenTree* value)
 {
-    assert(treeNode->OperGet() == GT_STOREIND);
+    GenAddrMode dst(store, this);
 
-    GenTree* addr = treeNode->AsOp()->gtOp1;
-    GenTree* data = treeNode->AsOp()->gtOp2;
+    if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
+    {
+        inst_AM_R(INS_str, EA_8BYTE, REG_ZR, dst, 0);
+        inst_AM_R(INS_str, EA_4BYTE, REG_ZR, dst, 8);
+        return;
+    }
 
-    // addr and data should not be contained.
-    assert(!data->isContained());
-    assert(!addr->isContained());
+    regNumber tmpReg = store->GetSingleTempReg();
 
-#ifdef DEBUG
-    // Should not require a write barrier
-    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.gcIsWriteBarrierCandidate(treeNode, data);
-    assert(writeBarrierForm == GCInfo::WBF_NoBarrier);
-#endif
+    if (value->isContained())
+    {
+        GenAddrMode src(value, this);
+        inst_R_AM(INS_ldr, EA_8BYTE, tmpReg, src, 0);
+        inst_AM_R(INS_str, EA_8BYTE, tmpReg, dst, 0);
+        inst_R_AM(INS_ldr, EA_4BYTE, tmpReg, src, 8);
+        inst_AM_R(INS_str, EA_4BYTE, tmpReg, dst, 8);
+        return;
+    }
 
-    genConsumeOperands(treeNode->AsOp());
+    regNumber valueReg = genConsumeReg(value);
 
-    // Need an addtional integer register to extract upper 4 bytes from data.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-    assert(tmpReg != addr->GetRegNum());
-
-    // 8-byte write
-    GetEmitter()->emitIns_R_R(INS_str, EA_8BYTE, data->GetRegNum(), addr->GetRegNum());
-
-    // Extract upper 4-bytes from data
-    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, data->GetRegNum(), 2);
-
-    // 4-byte write
-    GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, tmpReg, addr->GetRegNum(), 8);
+    inst_AM_R(INS_str, EA_8BYTE, valueReg, dst, 0);
+    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
+    inst_AM_R(INS_str, EA_8BYTE, tmpReg, dst, 8);
 }
 
 //-----------------------------------------------------------------------------
@@ -4641,89 +4623,20 @@ void CodeGen::genStoreIndTypeSIMD12(GenTree* treeNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two loads: 8 byte followed by 4-byte.
 //
-// Arguments:
-//    treeNode - tree node of GT_IND
-//
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genLoadIndTypeSIMD12(GenTree* treeNode)
+void CodeGen::genLoadSIMD12(GenTree* load)
 {
-    assert(treeNode->OperGet() == GT_IND);
+    GenAddrMode src(load, this);
 
-    GenTree*  addr      = treeNode->AsOp()->gtOp1;
-    regNumber targetReg = treeNode->GetRegNum();
+    regNumber tmpReg = load->GetSingleTempReg();
+    regNumber dstReg = load->GetRegNum();
 
-    assert(!addr->isContained());
+    assert(tmpReg != dstReg);
 
-    regNumber operandReg = genConsumeReg(addr);
+    inst_R_AM(INS_ldr, EA_8BYTE, dstReg, src, 0);
+    inst_R_AM(INS_ldr, EA_4BYTE, tmpReg, src, 8);
+    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, dstReg, tmpReg, 2);
 
-    // Need an addtional int register to read upper 4 bytes, which is different from targetReg
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    // 8-byte read
-    GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, targetReg, addr->GetRegNum());
-
-    // 4-byte read
-    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, addr->GetRegNum(), 8);
-
-    // Insert upper 4-bytes into data
-    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, targetReg, tmpReg, 2);
-
-    genProduceReg(treeNode);
-}
-
-//-----------------------------------------------------------------------------
-// genStoreLclTypeSIMD12: store a TYP_SIMD12 (i.e. Vector3) type field.
-// Since Vector3 is not a hardware supported write size, it is performed
-// as two stores: 8 byte followed by 4-byte.
-//
-// Arguments:
-//    treeNode - tree node that is attempting to store TYP_SIMD12 field
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genStoreLclTypeSIMD12(GenTree* treeNode)
-{
-    assert((treeNode->OperGet() == GT_STORE_LCL_FLD) || (treeNode->OperGet() == GT_STORE_LCL_VAR));
-
-    unsigned offs   = 0;
-    unsigned varNum = treeNode->AsLclVarCommon()->GetLclNum();
-    assert(varNum < compiler->lvaCount);
-
-    if (treeNode->OperGet() == GT_STORE_LCL_FLD)
-    {
-        offs = treeNode->AsLclFld()->GetLclOffs();
-    }
-
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-
-    if (op1->isContained() && op1->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_SIMD))
-    {
-        assert(op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->IsSIMDZero());
-
-        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, REG_ZR, varNum, offs);
-        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, REG_ZR, varNum, offs + 8);
-
-        return;
-    }
-
-    assert(!op1->isContained());
-    regNumber operandReg = genConsumeReg(op1);
-
-    // Need an addtional integer register to extract upper 4 bytes from data.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    // store lower 8 bytes
-    GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, operandReg, varNum, offs);
-
-    // Extract upper 4-bytes from data
-    GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, operandReg, 2);
-
-    // 4-byte write
-    GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, tmpReg, varNum, offs + 8);
+    genProduceReg(load);
 }
 
 #endif // FEATURE_SIMD
@@ -9774,6 +9687,67 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
     if (!instr->TypeIs(TYP_VOID))
     {
         genProduceReg(instr);
+    }
+}
+
+CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
+    : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(0), m_lclNum(BAD_VAR_NUM)
+{
+    if (GenTreeIndir* indir = tree->IsIndir())
+    {
+        GenTree* addr = indir->GetAddr();
+
+        if (addr->isUsedFromReg())
+        {
+            m_base = codeGen->genConsumeReg(addr);
+        }
+        else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+        {
+            if (addrMode->HasBase())
+            {
+                m_base = codeGen->genConsumeReg(addrMode->Base());
+            }
+
+            // ARM does have indexed address modes but this code is used currently
+            // only in cases where an immediate offset is also needed (e.g. SIMD12
+            // load/store) so we can't really have an index.
+            assert(!addrMode->HasIndex());
+
+            m_disp = addrMode->GetOffset();
+        }
+    }
+    else
+    {
+        m_lclNum = tree->AsLclVarCommon()->GetLclNum();
+
+        if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+        {
+            m_disp = tree->AsLclFld()->GetLclOffs();
+        }
+    }
+}
+
+void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const GenAddrMode& addrMode, unsigned offset)
+{
+    if (addrMode.IsLcl())
+    {
+        GetEmitter()->emitIns_R_S(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R_I(ins, attr, reg, addrMode.Base(), addrMode.Disp(offset));
+    }
+}
+
+void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const GenAddrMode& addrMode, unsigned offset)
+{
+    if (addrMode.IsLcl())
+    {
+        GetEmitter()->emitIns_S_R(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R_I(ins, attr, reg, addrMode.Base(), addrMode.Disp(offset));
     }
 }
 
