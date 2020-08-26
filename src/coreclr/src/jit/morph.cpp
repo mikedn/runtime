@@ -8938,6 +8938,23 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 
         noway_assert(commas.Top()->GetOp(1) == effectiveVal);
 
+        // TODO-MIKE-Review: Weird, effectiveVal could be a LCL_VAR node so we end up taking
+        // the address of a local without DNERing/address exposing it. Some code below tried
+        // to DNER the local but it was simply checking for ADDR(LCL_VAR) but that is burried
+        // under COMMAs.
+        //
+        // Not clear what should be done in this case, if DNERing the local is sufficient or
+        // it has to be address exposed as well. Various "is local address" utility functions
+        // don't seem to check for COMMA chains (e.g. IsLocalAddrExpr, DefinesLocalAddr) so
+        // it may be that this kind of local access may be missed by liveness, SSA etc.
+        //
+        // But then DNER/address exposed are bad because this sometimes happens with SIMD
+        // copies of locals...
+        //
+        // To make things worse, this transform can occur during CSE, after value numbering
+        // and nothing updates the value numbers of the COMMA chain, they'll still have the
+        // VN of the original effective value instead of its address.
+
         GenTree* effectiveValAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, effectiveVal);
         INDEBUG(effectiveValAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
         commas.Top()->SetOp(1, effectiveValAddr);
@@ -8972,26 +8989,26 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         }
         else
         {
-            tree = new (this, GT_BLK) GenTreeBlk(GT_BLK, structType, addr, typGetBlkLayout(genTypeSize(structType)));
+            // TODO-MIKE-Cleanup: BLK nodes should be avoided, especially SIMD typed ones.
+            // For SIMD types this should be either IND or OBJ with the correct struct
+            // layout, BLK with size only layout serves no purpose.
+
+            tree = new (this, GT_BLK) GenTreeBlk(GT_BLK, structType, addr, typGetBlkLayout(varTypeSize(structType)));
         }
 
         gtUpdateNodeSideEffects(tree);
         INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    }
-
-    if (!tree->OperIs(GT_OBJ, GT_BLK, GT_DYN_BLK))
-    {
         return tree;
     }
 
     if (tree->OperIs(GT_DYN_BLK))
     {
-        if (!tree->AsDynBlk()->gtDynamicSize->OperIs(GT_CNS_INT))
+        if (!tree->AsDynBlk()->GetSize()->IsIntCon())
         {
             return tree;
         }
 
-        unsigned size = static_cast<unsigned>(tree->AsDynBlk()->gtDynamicSize->AsIntCon()->IconValue());
+        unsigned size = static_cast<unsigned>(tree->AsDynBlk()->GetSize()->AsIntCon()->GetValue());
 
         // A GT_BLK with size of zero is not supported, so if we encounter
         // such a thing we just leave it as a GT_DYN_BLK
@@ -9006,16 +9023,19 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         tree->AsBlk()->SetLayout(typGetBlkLayout(size));
     }
 
-    addr = tree->AsBlk()->GetAddr();
-
-    if (!tree->TypeIs(TYP_STRUCT) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+    if (tree->OperIs(GT_OBJ, GT_BLK))
     {
-        GenTreeLclVarCommon* lclVarNode = addr->AsUnOp()->GetOp(0)->AsLclVar();
+        GenTree* addr = tree->AsBlk()->GetAddr();
 
-        if ((genTypeSize(tree->GetType()) != genTypeSize(lclVarNode->GetType())) ||
-            (!isDest && !varTypeIsStruct(lclVarNode->GetType())))
+        if (!tree->TypeIs(TYP_STRUCT) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            lvaSetVarDoNotEnregister(lclVarNode->GetLclNum() DEBUG_ARG(DNER_BlockOp));
+            GenTreeLclVar* lclNode = addr->AsUnOp()->GetOp(0)->AsLclVar();
+
+            if ((varTypeSize(tree->GetType()) != varTypeSize(lclNode->GetType())) ||
+                (!isDest && !varTypeIsStruct(lclNode->GetType())))
+            {
+                lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUG_ARG(DNER_BlockOp));
+            }
         }
     }
 
