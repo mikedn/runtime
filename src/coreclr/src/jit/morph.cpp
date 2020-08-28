@@ -8987,11 +8987,20 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
                 tree = gtNewObjNode(structHnd, addr);
             }
         }
+        else if (varTypeIsSIMD(structType))
+        {
+            tree = gtNewOperNode(GT_IND, structType, addr);
+        }
         else
         {
-            // TODO-MIKE-Cleanup: BLK nodes should be avoided, especially SIMD typed ones.
-            // For SIMD types this should be either IND or OBJ with the correct struct
-            // layout, BLK with size only layout serves no purpose.
+            // TODO-MIKE-Cleanup: Can this actually happen? The LHS of a copy block has struct type,
+            // otherwise it wouldn't be a copy block. So this can only happen if the RHS has primitive
+            // type. That's odd but it can happen, either due to struct promotion (which probably
+            // doesn't matter here as this code mostly deals with array element access) or perhaps
+            // some sort of reinterpretation.
+            // But ideally we'd transform the entire copy block to a primitive type assignment. Or if
+            // we have to keep the copy block then this should be IND.struct or take the struct handle
+            // from the LHS, if any.
 
             tree = new (this, GT_BLK) GenTreeBlk(GT_BLK, structType, addr, typGetBlkLayout(varTypeSize(structType)));
         }
@@ -9600,6 +9609,19 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             assert(src->IsCall() || varTypeIsSIMD(src->GetType()));
             assert(src->IsCall() || (src->GetType() == dest->GetType()));
+        }
+
+        if (varTypeIsSIMD(dest->GetType()) && varTypeIsSIMD(src->GetType()))
+        {
+            if (dest->OperIs(GT_BLK, GT_OBJ))
+            {
+                dest->ChangeOper(GT_IND);
+            }
+
+            if (src->OperIs(GT_BLK, GT_OBJ))
+            {
+                src->ChangeOper(GT_IND);
+            }
         }
 
         dest->gtFlags |= GTF_DONT_CSE;
