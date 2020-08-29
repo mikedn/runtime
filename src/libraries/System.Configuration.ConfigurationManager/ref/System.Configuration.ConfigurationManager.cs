@@ -267,7 +267,6 @@ namespace System.Configuration
     }
     public partial class ConfigurationErrorsException : System.Configuration.ConfigurationException
     {
-#pragma warning disable CS0618
         public ConfigurationErrorsException() { }
         protected ConfigurationErrorsException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public ConfigurationErrorsException(string message) { }
@@ -278,7 +277,6 @@ namespace System.Configuration
         public ConfigurationErrorsException(string message, string filename, int line) { }
         public ConfigurationErrorsException(string message, System.Xml.XmlNode node) { }
         public ConfigurationErrorsException(string message, System.Xml.XmlReader reader) { }
-#pragma warning restore CS0618
         public override string BareMessage { get { throw null; } }
         public System.Collections.ICollection Errors { get { throw null; } }
         public override string Filename { get { throw null; } }
@@ -609,6 +607,7 @@ namespace System.Configuration
         protected virtual string ValueAttributeName { get { throw null; } }
         public virtual object Create(object parent, object context, System.Xml.XmlNode section) { throw null; }
     }
+    [System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")]
     public sealed partial class DpapiProtectedConfigurationProvider : System.Configuration.ProtectedConfigurationProvider
     {
         public DpapiProtectedConfigurationProvider() { }

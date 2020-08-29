@@ -145,7 +145,8 @@ typedef enum {
 typedef enum {
 	EP_SESSION_TYPE_FILE,
 	EP_SESSION_TYPE_LISTENER,
-	EP_SESSION_TYPE_IPCSTREAM
+	EP_SESSION_TYPE_IPCSTREAM,
+	EP_SESSION_TYPE_SYNCHRONOUS
 } EventPipeSessionType ;
 
 typedef enum {
@@ -177,7 +178,25 @@ typedef void (*EventPipeCallback)(
 	uint64_t match_any_keywords,
 	uint64_t match_all_keywords,
 	EventFilterDescriptor *filter_data,
-	void *callback_context);
+	void *callback_data);
+
+typedef void (*EventPipeCallbackDataFree)(
+	EventPipeCallback callback,
+	void *callback_data);
+
+typedef void (*EventPipeSessionSynchronousCallback)(
+	EventPipeProvider *provider,
+	int32_t event_id,
+	int32_t event_version,
+	uint32_t metadata_blob_len,
+	const uint8_t *metadata_blob,
+	uint32_t event_data_len,
+	const uint8_t *event_data,
+	const uint8_t *activity_id,
+	const uint8_t *related_activity_id,
+	EventPipeThread *event_thread,
+	uint32_t stack_frames_len,
+	uintptr_t *stack_frames);
 
 /*
  * EventFilterDescriptor.

@@ -384,7 +384,7 @@ internal static partial class Interop
             // this code could be removed.
             //
             // It was verified as supporting case invariant match as of 10.12.1 (Sierra).
-            string matchName = s_idnMapping.GetAscii(hostName);
+            string matchName = string.IsNullOrEmpty(hostName) ? string.Empty : s_idnMapping.GetAscii(hostName);
 
             using (SafeCFDateHandle cfNotBefore = CoreFoundation.CFDateCreate(notBefore))
             using (SafeCreateHandle cfHostname = CoreFoundation.CFStringCreateWithCString(matchName))
@@ -399,7 +399,7 @@ internal static partial class Interop
                 case 1:
                     return true;
                 default:
-                    if (NetEventSource.IsEnabled)
+                    if (NetEventSource.Log.IsEnabled())
                         NetEventSource.Error(null, $"AppleCryptoNative_SslIsHostnameMatch returned '{result}' for '{hostName}'");
                     Debug.Fail($"AppleCryptoNative_SslIsHostnameMatch returned {result}");
                     throw new SslException();

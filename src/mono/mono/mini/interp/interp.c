@@ -63,6 +63,7 @@
 #include "interp.h"
 #include "interp-internals.h"
 #include "mintops.h"
+#include "interp-intrins.h"
 
 #include <mono/mini/mini.h>
 #include <mono/mini/mini-runtime.h>
@@ -326,6 +327,10 @@ debug_enter (InterpFrame *frame, int *tracing)
 int mono_interp_traceopt = 0;
 #define DEBUG_LEAVE()
 
+#endif
+
+#if defined(__GNUC__) && !defined(TARGET_WASM) && !COUNT_OPS && !DEBUG_INTERP && !ENABLE_CHECKED_BUILD && !PROFILE_INTERP
+#define USE_COMPUTED_GOTO 1
 #endif
 
 #if USE_COMPUTED_GOTO
@@ -1075,9 +1080,15 @@ interp_throw (ThreadContext *context, MonoException *ex, InterpFrame *frame, con
 	g_assert (context->has_resume_state);
 }
 
+// We conservatively pin exception object here to avoid tweaking the
+// numerous call sites of this macro, even though, in a few cases,
+// this is not needed.
 #define THROW_EX_GENERAL(exception,ex_ip, rethrow)		\
 	do {							\
-		interp_throw (context, (exception), (frame), (ex_ip), (rethrow)); \
+		MonoException *__ex = (exception);		\
+		MONO_HANDLE_ASSIGN_RAW (tmp_handle, (MonoObject*)__ex); \
+		interp_throw (context, __ex, (frame), (ex_ip), (rethrow)); \
+		MONO_HANDLE_ASSIGN_RAW (tmp_handle, (MonoObject*)NULL); \
 		goto resume;							  \
 	} while (0)
 
@@ -1141,12 +1152,12 @@ ves_array_calculate_index (MonoArray *ao, stackval *sp, gboolean safe)
 	guint32 pos = 0;
 	if (ao->bounds) {
 		for (gint32 i = 0; i < m_class_get_rank (ac); i++) {
-			guint32 idx = sp [i].data.i;
-			guint32 lower = ao->bounds [i].lower_bound;
+			gint32 idx = sp [i].data.i;
+			gint32 lower = ao->bounds [i].lower_bound;
 			guint32 len = ao->bounds [i].length;
-			if (safe && (idx < lower || (idx - lower) >= len))
+			if (safe && (idx < lower || (guint32)(idx - lower) >= len))
 				return -1;
-			pos = (pos * len) + idx - lower;
+			pos = (pos * len) + (guint32)(idx - lower);
 		}
 	} else {
 		pos = sp [0].data.i;
@@ -1908,12 +1919,10 @@ interp_runtime_invoke (MonoMethod *method, void *obj, void **params, MonoObject 
 	context->stack_pointer = (guchar*)sp;
 
 	if (context->has_resume_state) {
-		// This can happen on wasm !?
-		MonoException *thrown_exc = (MonoException*) mono_gchandle_get_target_internal (context->exc_gchandle);
-		if (exc)
-			*exc = (MonoObject*)thrown_exc;
-		else
-			mono_error_set_exception_instance (error, thrown_exc);
+		/*
+		 * This can happen on wasm where native frames cannot be skipped during EH.
+		 * EH processing will continue when control returns to the interpreter.
+		 */
 		return NULL;
 	}
 	return (MonoObject*)result.data.p;
@@ -2382,7 +2391,6 @@ init_jit_call_info (InterpMethod *rmethod, MonoError *error)
 static MONO_NEVER_INLINE void
 do_jit_call (stackval *sp, unsigned char *vt_sp, InterpFrame *frame, InterpMethod *rmethod, MonoError *error)
 {
-	MonoMethodSignature *sig;
 	guint8 res_buf [256];
 	MonoLMFExt ext;
 	JitCallInfo *cinfo;
@@ -2398,8 +2406,6 @@ do_jit_call (stackval *sp, unsigned char *vt_sp, InterpFrame *frame, InterpMetho
 		mono_error_assert_ok (error);
 	}
 	cinfo = (JitCallInfo*)rmethod->jit_call_info;
-
-	sig = cinfo->sig;
 
 	/*
 	 * Convert the arguments on the interpeter stack to the format expected by the gsharedvt_out wrapper.
@@ -2971,6 +2977,16 @@ interp_create_method_pointer (MonoMethod *method, gboolean compile, MonoError *e
 			imethod->jit_entry = addr;
 			return addr;
 		}
+
+#ifdef ENABLE_NETCORE
+		/*
+		 * The runtime expects a function pointer unique to method and
+		 * the native caller expects a function pointer with the
+		 * right signature, so fail right away.
+		 */
+		mono_error_set_platform_not_supported (error, "No native to managed transitions on this platform.");
+		return NULL;
+#endif
 	}
 #endif
 	return (gpointer)interp_no_native_to_managed;
@@ -3254,11 +3270,10 @@ mono_interp_box_nullable (InterpFrame* frame, const guint16* ip, stackval* sp, M
 }
 
 static int
-mono_interp_box_vt (InterpFrame* frame, const guint16* ip, stackval* sp)
+mono_interp_box_vt (InterpFrame* frame, const guint16* ip, stackval* sp, MonoObjectHandle tmp_handle)
 {
 	InterpMethod* const imethod = frame->imethod;
 
-	MonoObject* o; // See the comment about GC safety.
 	MonoVTable * const vtable = (MonoVTable*)imethod->data_items [ip [1]];
 	MonoClass* const c = vtable->klass;
 
@@ -3267,26 +3282,27 @@ mono_interp_box_vt (InterpFrame* frame, const guint16* ip, stackval* sp)
 	guint16 offset = ip [2];
 	guint16 pop_vt_sp = !ip [3];
 
-	OBJREF (o) = mono_gc_alloc_obj (vtable, m_class_get_instance_size (vtable->klass));
+	MonoObject* o = mono_gc_alloc_obj (vtable, m_class_get_instance_size (vtable->klass));
+	MONO_HANDLE_ASSIGN_RAW (tmp_handle, o);
 	mono_value_copy_internal (mono_object_get_data (o), sp [-1 - offset].data.p, c);
+	MONO_HANDLE_ASSIGN_RAW (tmp_handle, NULL);
 
-	sp [-1 - offset].data.p = o;
+	sp [-1 - offset].data.o = o;
 	return pop_vt_sp ? ALIGN_TO (size, MINT_VT_ALIGNMENT) : 0;
 }
 
 static void
-mono_interp_box (InterpFrame* frame, const guint16* ip, stackval* sp)
+mono_interp_box (InterpFrame* frame, const guint16* ip, stackval* sp, MonoObjectHandle tmp_handle)
 {
-	MonoObject *o; // See the comment about GC safety.
 	MonoVTable * const vtable = (MonoVTable*)frame->imethod->data_items [ip [1]];
-
-	OBJREF (o) = mono_gc_alloc_obj (vtable, m_class_get_instance_size (vtable->klass));
-
 	guint16 const offset = ip [2];
 
+	MonoObject *o = mono_gc_alloc_obj (vtable, m_class_get_instance_size (vtable->klass));
+	MONO_HANDLE_ASSIGN_RAW (tmp_handle, o);
 	stackval_to_data (m_class_get_byval_arg (vtable->klass), &sp [-1 - offset], mono_object_get_data (o), FALSE);
+	MONO_HANDLE_ASSIGN_RAW (tmp_handle, NULL);
 
-	sp [-1 - offset].data.p = o;
+	sp [-1 - offset].data.o = o;
 }
 
 static int
@@ -3342,6 +3358,9 @@ method_entry (ThreadContext *context, InterpFrame *frame,
 #if DEBUG_INTERP
 	debug_enter (frame, out_tracing);
 #endif
+#if PROFILE_INTERP
+	frame->imethod->calls++;
+#endif
 
 	*out_ex = NULL;
 	if (!G_UNLIKELY (frame->imethod->transformed)) {
@@ -3388,6 +3407,10 @@ method_entry (ThreadContext *context, InterpFrame *frame,
 	finally_ips = NULL; \
 	} while (0)
 
+#if PROFILE_INTERP
+static long total_executed_opcodes;
+#endif
+
 /*
  * If CLAUSE_ARGS is non-null, start executing from it.
  * The ERROR argument is used to avoid declaring an error object for every interp frame, its not used
@@ -3418,6 +3441,24 @@ interp_exec_method (InterpFrame *frame, ThreadContext *context, FrameClauseArgs 
 #include "mintops.def"
 	};
 #endif
+
+	HANDLE_FUNCTION_ENTER ();
+	/*
+	 * GC SAFETY:
+	 *
+	 *  The interpreter executes in gc unsafe (non-preempt) mode. On wasm, we cannot rely on
+	 * scanning the stack or any registers. In order to make the code GC safe, every objref
+	 * handled by the code needs to be kept alive and pinned in any of the following ways:
+	 * - the object needs to be stored on the interpreter stack. In order to make sure the
+	 * object actually gets stored on the interp stack and the store is not optimized out,
+	 * the store/variable should be volatile.
+	 * - if the execution of an opcode requires an object not coming from interp stack to be
+	 * kept alive, the tmp_handle below can be used. This handle will keep only one object
+	 * pinned by the GC. Ideally, once this object is no longer needed, the handle should be
+	 * cleared. If we will need to have more objects pinned simultaneously, additional handles
+	 * can be reserved here.
+	 */
+	MonoObjectHandle tmp_handle = MONO_HANDLE_NEW (MonoObject, NULL);
 
 	if (method_entry (context, frame,
 #if DEBUG_INTERP
@@ -3460,6 +3501,10 @@ main_loop:
 	 * but it may be useful for debug
 	 */
 	while (1) {
+#if PROFILE_INTERP
+		frame->imethod->opcounts++;
+		total_executed_opcodes++;
+#endif
 		MintOpcode opcode;
 #ifdef ENABLE_CHECKED_BUILD
 		guchar *vt_start = (guchar*)frame->stack + frame->imethod->total_locals_size;
@@ -3802,6 +3847,7 @@ main_loop:
 			frame->state.ip = ip + 6;
 			ves_pinvoke_method (csignature, (MonoFuncV)code, context, frame, &retval, save_last_error, cache, sp);
 
+			EXCEPTION_CHECKPOINT_GC_UNSAFE;
 			CHECK_RESUME_STATE (context);
 
 			if (csignature->ret->type != MONO_TYPE_VOID) {
@@ -4568,31 +4614,37 @@ call:
 			MINT_IN_BREAK;
 		}
 		MINT_IN_CASE(MINT_STIND_REF) 
+			NULL_CHECK (sp [-2].data.p);
 			++ip;
 			sp -= 2;
 			mono_gc_wbarrier_generic_store_internal (sp->data.p, sp [1].data.o);
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_STIND_I1)
+			NULL_CHECK (sp [-2].data.p);
 			++ip;
 			sp -= 2;
 			* (gint8 *) sp->data.p = (gint8)sp[1].data.i;
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_STIND_I2)
+			NULL_CHECK (sp [-2].data.p);
 			++ip;
 			sp -= 2;
 			* (gint16 *) sp->data.p = (gint16)sp[1].data.i;
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_STIND_I4)
+			NULL_CHECK (sp [-2].data.p);
 			++ip;
 			sp -= 2;
 			* (gint32 *) sp->data.p = sp[1].data.i;
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_STIND_I)
+			NULL_CHECK (sp [-2].data.p);
 			++ip;
 			sp -= 2;
 			* (mono_i *) sp->data.p = (mono_i)sp[1].data.p;
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_STIND_I8)
+			NULL_CHECK (sp [-2].data.p);
 			++ip;
 			sp -= 2;
 #ifdef NO_UNALIGNED_ACCESS
@@ -4603,11 +4655,13 @@ call:
 			* (gint64 *) sp->data.p = sp[1].data.l;
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_STIND_R4)
+			NULL_CHECK (sp [-2].data.p);
 			++ip;
 			sp -= 2;
 			* (float *) sp->data.p = sp[1].data.f_r4;
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_STIND_R8)
+			NULL_CHECK (sp [-2].data.p);
 			++ip;
 			sp -= 2;
 #ifdef NO_UNALIGNED_ACCESS
@@ -5094,7 +5148,6 @@ call:
 		MINT_IN_CASE(MINT_NEWOBJ_FAST) {
 			MonoVTable *vtable = (MonoVTable*) frame->imethod->data_items [ip [3]];
 			INIT_VTABLE (vtable);
-			MonoObject *o; // See the comment about GC safety.
 			guint16 param_count;
 			guint16 imethod_index = ip [1];
 
@@ -5108,7 +5161,7 @@ call:
 				memmove (sp + 2, sp, param_count * sizeof (stackval));
 			}
 
-			OBJREF (o) = mono_gc_alloc_obj (vtable, m_class_get_instance_size (vtable->klass));
+			MonoObject *o = mono_gc_alloc_obj (vtable, m_class_get_instance_size (vtable->klass));
 			if (G_UNLIKELY (!o)) {
 				mono_error_set_out_of_memory (error, "Could not allocate %i bytes", m_class_get_instance_size (vtable->klass));
 				THROW_EX (mono_error_convert_to_exception (error), ip);
@@ -5212,13 +5265,13 @@ call_newobj:
 				THROW_EX (exc, ip);
 			}
 			error_init_reuse (error);
-			MonoObject* o = NULL; // See the comment about GC safety.
-			OBJREF (o) = mono_object_new_checked (domain, newobj_class, error);
+			MonoObject* o = mono_object_new_checked (domain, newobj_class, error);
+			sp [0].data.o = o; // return value
+			sp [1].data.o = o; // first parameter
+
 			mono_error_cleanup (error); // FIXME: do not swallow the error
 			error_init_reuse (error);
 			EXCEPTION_CHECKPOINT;
-			sp [0].data.o = o; // return value
-			sp [1].data.o = o; // first parameter
 #ifndef DISABLE_REMOTING
 			if (mono_object_is_transparent_proxy (o)) {
 				MonoMethod *remoting_invoke_method = mono_marshal_get_remoting_invoke_with_check (cmethod->method, error);
@@ -5245,6 +5298,23 @@ call_newobj:
 			ip++;
 			MINT_IN_BREAK;
 		}
+		MINT_IN_CASE(MINT_INTRINS_SPAN_CTOR) {
+			gpointer ptr = sp [-2].data.p;
+			int len = sp [-1].data.i;
+			if (len < 0)
+				THROW_EX (mono_get_exception_argument_out_of_range ("length"), ip);
+			*(gpointer*)vt_sp = ptr;
+			*(gint32*)((gpointer*)vt_sp + 1) = len;
+			sp [-2].data.p = vt_sp;
+#if SIZEOF_VOID_P == 8
+			vt_sp += ALIGN_TO (12, MINT_VT_ALIGNMENT);
+#else
+			vt_sp += ALIGN_TO (8, MINT_VT_ALIGNMENT);
+#endif
+			sp--;
+			ip++;
+			MINT_IN_BREAK;
+		}
 		MINT_IN_CASE(MINT_INTRINS_BYREFERENCE_GET_VALUE) {
 			gpointer *byreference_this = (gpointer*)sp [-1].data.p;
 			sp [-1].data.p = *byreference_this;
@@ -5264,6 +5334,49 @@ call_newobj:
 			size_t size = sp [1].data.nati * sizeof (gpointer);
 			mono_gc_bzero_aligned (p, size);
 			++ip;
+			MINT_IN_BREAK;
+		}
+		MINT_IN_CASE(MINT_INTRINS_MARVIN_BLOCK) {
+			sp -= 2;
+			interp_intrins_marvin_block ((guint32*)sp [0].data.p, (guint32*)sp [1].data.p);
+			++ip;
+			MINT_IN_BREAK;
+		}
+		MINT_IN_CASE(MINT_INTRINS_ASCII_CHARS_TO_UPPERCASE) {
+			sp [-1].data.i = interp_intrins_ascii_chars_to_uppercase ((guint32)sp [-1].data.i);
+			++ip;
+			MINT_IN_BREAK;
+		}
+		MINT_IN_CASE(MINT_INTRINS_MEMORYMARSHAL_GETARRAYDATAREF) {
+			MonoObject* const o = sp [-1].data.o;
+			NULL_CHECK (o);
+			sp[-1].data.p = (guint8*)o + MONO_STRUCT_OFFSET (MonoArray, vector);
+			++ip;
+			MINT_IN_BREAK;
+		}
+		MINT_IN_CASE(MINT_INTRINS_ORDINAL_IGNORE_CASE_ASCII) {
+			sp--;
+			sp [-1].data.i = interp_intrins_ordinal_ignore_case_ascii ((guint32)sp [-1].data.i, (guint32)sp [0].data.i);
+			++ip;
+			MINT_IN_BREAK;
+		}
+		MINT_IN_CASE(MINT_INTRINS_64ORDINAL_IGNORE_CASE_ASCII) {
+			sp--;
+			sp [-1].data.i = interp_intrins_64ordinal_ignore_case_ascii ((guint64)sp [-1].data.l, (guint64)sp [0].data.l);
+			++ip;
+			MINT_IN_BREAK;
+		}
+		MINT_IN_CASE(MINT_INTRINS_U32_TO_DECSTR) {
+			MonoArray **cache_addr = (MonoArray**)frame->imethod->data_items [ip [1]];
+			MonoVTable *string_vtable = (MonoVTable*)frame->imethod->data_items [ip [2]];
+			sp [-1].data.o = (MonoObject*)interp_intrins_u32_to_decstr ((guint32)sp [-1].data.i, *cache_addr, string_vtable);
+			ip += 3;
+			MINT_IN_BREAK;
+		}
+		MINT_IN_CASE(MINT_INTRINS_WIDEN_ASCII_TO_UTF16) {
+			sp -= 2;
+			sp [-1].data.nati = interp_intrins_widen_ascii_to_utf16 ((guint8*)sp [-1].data.p, (mono_unichar2*)sp [0].data.p, sp [1].data.nati);
+			ip++;
 			MINT_IN_BREAK;
 		}
 		MINT_IN_CASE(MINT_INTRINS_UNSAFE_BYTE_OFFSET) {
@@ -5857,12 +5970,12 @@ call_newobj:
 			MINT_IN_BREAK;
 		}
 		MINT_IN_CASE(MINT_BOX) {
-			mono_interp_box (frame, ip, sp);
+			mono_interp_box (frame, ip, sp, tmp_handle);
 			ip += 3;
 			MINT_IN_BREAK;
 		}
 		MINT_IN_CASE(MINT_BOX_VT) {
-			vt_sp -= mono_interp_box_vt (frame, ip, sp);
+			vt_sp -= mono_interp_box_vt (frame, ip, sp, tmp_handle);
 			ip += 4;
 			MINT_IN_BREAK;
 		}
@@ -5989,12 +6102,12 @@ call_newobj:
 			g_assert (ao->bounds);
 			guint32 pos = 0;
 			for (int i = 0; i < rank; i++) {
-				guint32 idx = sp [i].data.i;
-				guint32 lower = ao->bounds [i].lower_bound;
+				gint32 idx = sp [i].data.i;
+				gint32 lower = ao->bounds [i].lower_bound;
 				guint32 len = ao->bounds [i].length;
-				if (idx < lower || (idx - lower) >= len)
+				if (idx < lower || (guint32)(idx - lower) >= len)
 					THROW_EX (mono_get_exception_index_out_of_range (), ip);
-				pos = (pos * len) + idx - lower;
+				pos = (pos * len) + (guint32)(idx - lower);
 			}
 
 			sp [-1].data.p = mono_array_addr_with_size_fast (ao, esize, pos);
@@ -7292,6 +7405,8 @@ exit_clause:
 		context->stack_pointer = (guchar*)frame->stack;
 
 	DEBUG_LEAVE ();
+
+	HANDLE_FUNCTION_RETURN ();
 }
 
 static void
@@ -7705,6 +7820,48 @@ interp_print_op_count (void)
 }
 #endif
 
+#if PROFILE_INTERP
+
+static InterpMethod **imethods;
+static int num_methods;
+const int opcount_threshold = 100000;
+
+static void
+interp_add_imethod (gpointer method)
+{
+	InterpMethod *imethod = (InterpMethod*) method;
+	if (imethod->opcounts > opcount_threshold)
+		imethods [num_methods++] = imethod;
+}
+
+static int
+imethod_opcount_comparer (gconstpointer m1, gconstpointer m2)
+{
+	return (*(InterpMethod**)m2)->opcounts - (*(InterpMethod**)m1)->opcounts;
+}
+
+static void
+interp_print_method_counts (void)
+{
+	MonoDomain *domain = mono_get_root_domain ();
+	MonoJitDomainInfo *info = domain_jit_info (domain);
+
+	mono_domain_jit_code_hash_lock (domain);
+	imethods = (InterpMethod**) malloc (info->interp_code_hash.num_entries * sizeof (InterpMethod*));
+	mono_internal_hash_table_apply (&info->interp_code_hash, interp_add_imethod);
+	mono_domain_jit_code_hash_unlock (domain);
+
+	qsort (imethods, num_methods, sizeof (InterpMethod*), imethod_opcount_comparer);
+
+	printf ("Total executed opcodes %ld\n", total_executed_opcodes);
+	long cumulative_executed_opcodes = 0;
+	for (int i = 0; i < num_methods; i++) {
+		cumulative_executed_opcodes += imethods [i]->opcounts;
+		printf ("%d%% Opcounts %ld, calls %ld, Method %s, imethod ptr %p\n", (int)(cumulative_executed_opcodes * 100 / total_executed_opcodes), imethods [i]->opcounts, imethods [i]->calls, mono_method_full_name (imethods [i]->method, TRUE), imethods [i]);
+	}
+}
+#endif
+
 static void
 interp_set_optimizations (guint32 opts)
 {
@@ -7732,6 +7889,9 @@ interp_cleanup (void)
 {
 #if COUNT_OPS
 	interp_print_op_count ();
+#endif
+#if PROFILE_INTERP
+	interp_print_method_counts ();
 #endif
 }
 

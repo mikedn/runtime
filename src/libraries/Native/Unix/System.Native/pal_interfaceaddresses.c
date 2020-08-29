@@ -235,6 +235,7 @@ int32_t SystemNative_GetNetworkInterfaces(int32_t * interfaceCount, NetworkInter
 
     if (getifaddrs(&head) == -1)
     {
+        assert(errno != 0);
         return -1;
     }
 
@@ -261,6 +262,7 @@ int32_t SystemNative_GetNetworkInterfaces(int32_t * interfaceCount, NetworkInter
     void * memoryBlock = calloc((size_t)count, sizeof(NetworkInterfaceInfo));
     if (memoryBlock == NULL)
     {
+        errno = ENOMEM;
         return -1;
     }
 
@@ -471,7 +473,8 @@ int32_t SystemNative_EnumerateGatewayAddressesForInterface(uint32_t interfaceInd
         }
 
         byteCount = tmpEstimatedSize;
-        buffer = realloc(buffer, byteCount);
+        free(buffer);
+        buffer = malloc(byteCount);
         if (buffer == NULL)
         {
             errno = ENOMEM;

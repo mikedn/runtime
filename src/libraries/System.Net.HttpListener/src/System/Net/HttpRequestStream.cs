@@ -15,11 +15,8 @@ namespace System.Net
 
         public override int Read(byte[] buffer, int offset, int size)
         {
-            if (NetEventSource.IsEnabled)
-            {
-                NetEventSource.Enter(this);
-                NetEventSource.Info(this, "buffer.Length:" + buffer?.Length + " size:" + size + " offset:" + offset);
-            }
+            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, "buffer.Length:" + buffer?.Length + " size:" + size + " offset:" + offset);
+
             if (buffer == null)
             {
                 throw new ArgumentNullException(nameof(buffer));
@@ -34,21 +31,16 @@ namespace System.Net
             }
             if (size == 0 || _closed)
             {
-                if (NetEventSource.IsEnabled)
-                    NetEventSource.Exit(this, "dataRead:0");
                 return 0;
             }
 
             return ReadCore(buffer, offset, size);
         }
 
-        public override IAsyncResult BeginRead(byte[] buffer, int offset, int size, AsyncCallback callback, object state)
+        public override IAsyncResult BeginRead(byte[] buffer, int offset, int size, AsyncCallback? callback, object? state)
         {
-            if (NetEventSource.IsEnabled)
-            {
-                NetEventSource.Enter(this);
-                NetEventSource.Info(this, "buffer.Length:" + buffer?.Length + " size:" + size + " offset:" + offset);
-            }
+            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, "buffer.Length:" + buffer?.Length + " size:" + size + " offset:" + offset);
+
             if (buffer == null)
             {
                 throw new ArgumentNullException(nameof(buffer));
@@ -62,7 +54,7 @@ namespace System.Net
                 throw new ArgumentOutOfRangeException(nameof(size));
             }
 
-            return BeginReadCore(buffer, offset, size, callback, state);
+            return BeginReadCore(buffer, offset, size, callback, state)!;
         }
 
         public override void Flush() { }
@@ -82,7 +74,7 @@ namespace System.Net
 
         public override void Write(byte[] buffer, int offset, int size) => throw new InvalidOperationException(SR.net_readonlystream);
 
-        public override IAsyncResult BeginWrite(byte[] buffer, int offset, int size, AsyncCallback callback, object state)
+        public override IAsyncResult BeginWrite(byte[] buffer, int offset, int size, AsyncCallback? callback, object? state)
         {
             throw new InvalidOperationException(SR.net_readonlystream);
         }
@@ -93,17 +85,10 @@ namespace System.Net
 
         protected override void Dispose(bool disposing)
         {
-            if (NetEventSource.IsEnabled)
-            {
-                NetEventSource.Enter(this);
-                NetEventSource.Info(this, "_closed:" + _closed);
-            }
+            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, "_closed:" + _closed);
 
             _closed = true;
             base.Dispose(disposing);
-
-            if (NetEventSource.IsEnabled)
-                NetEventSource.Exit(this);
         }
     }
 }

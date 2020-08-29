@@ -14,7 +14,7 @@ namespace System.Net.Quic.Implementations.Mock
     {
         private readonly bool _isClient;
         private bool _disposed;
-        private IPEndPoint? _remoteEndPoint;
+        private EndPoint? _remoteEndPoint;
         private IPEndPoint? _localEndPoint;
         private object _syncObject = new object();
         private Socket? _socket;
@@ -24,7 +24,7 @@ namespace System.Net.Quic.Implementations.Mock
         private long _nextOutboundUnidirectionalStream;
 
         // Constructor for outbound connections
-        internal MockConnection(IPEndPoint? remoteEndPoint, SslClientAuthenticationOptions? sslClientAuthenticationOptions, IPEndPoint? localEndPoint = null)
+        internal MockConnection(EndPoint? remoteEndPoint, SslClientAuthenticationOptions? sslClientAuthenticationOptions, IPEndPoint? localEndPoint = null)
         {
             _remoteEndPoint = remoteEndPoint;
             _localEndPoint = localEndPoint;
@@ -59,7 +59,7 @@ namespace System.Net.Quic.Implementations.Mock
 
         internal override IPEndPoint LocalEndPoint => new IPEndPoint(_localEndPoint!.Address, _localEndPoint.Port);
 
-        internal override IPEndPoint RemoteEndPoint => new IPEndPoint(_remoteEndPoint!.Address, _remoteEndPoint.Port);
+        internal override EndPoint RemoteEndPoint => _remoteEndPoint!;
 
         internal override SslApplicationProtocol NegotiatedApplicationProtocol => throw new NotImplementedException();
 
@@ -74,7 +74,7 @@ namespace System.Net.Quic.Implementations.Mock
             }
 
             Socket socket = new Socket(_remoteEndPoint!.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            await socket.ConnectAsync(_remoteEndPoint).ConfigureAwait(false);
+            await socket.ConnectAsync(_remoteEndPoint, cancellationToken).ConfigureAwait(false);
             socket.NoDelay = true;
 
             _localEndPoint = (IPEndPoint?)socket.LocalEndPoint;
@@ -93,7 +93,7 @@ namespace System.Net.Quic.Implementations.Mock
             int bytesRead = 0;
             do
             {
-                bytesRead += await socket.ReceiveAsync(buffer.AsMemory().Slice(bytesRead), SocketFlags.None).ConfigureAwait(false);
+                bytesRead += await socket.ReceiveAsync(buffer.AsMemory().Slice(bytesRead), SocketFlags.None, cancellationToken).ConfigureAwait(false);
             } while (bytesRead != buffer.Length);
 
             int peerListenPort = BinaryPrimitives.ReadInt32LittleEndian(buffer);
@@ -163,7 +163,7 @@ namespace System.Net.Quic.Implementations.Mock
             int bytesRead = 0;
             do
             {
-                bytesRead += await socket.ReceiveAsync(buffer.AsMemory().Slice(bytesRead), SocketFlags.None).ConfigureAwait(false);
+                bytesRead += await socket.ReceiveAsync(buffer.AsMemory().Slice(bytesRead), SocketFlags.None, cancellationToken).ConfigureAwait(false);
             } while (bytesRead != buffer.Length);
 
             long streamId = BinaryPrimitives.ReadInt64LittleEndian(buffer);

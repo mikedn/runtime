@@ -14,7 +14,7 @@ namespace System.Net.Http
         {
             public RawConnectionStream(HttpConnection connection) : base(connection)
             {
-                if (NetEventSource.IsEnabled) NetEventSource.Info(this);
+                if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this);
             }
 
             public sealed override bool CanRead => true;
@@ -33,7 +33,6 @@ namespace System.Net.Http
                 if (bytesRead == 0)
                 {
                     // We cannot reuse this connection, so close it.
-                    if (HttpTelemetry.IsEnabled) LogRequestStop();
                     _connection = null;
                     connection.Dispose();
                 }
@@ -81,7 +80,6 @@ namespace System.Net.Http
                     CancellationHelper.ThrowIfCancellationRequested(cancellationToken);
 
                     // We cannot reuse this connection, so close it.
-                    if (HttpTelemetry.IsEnabled) LogRequestStop();
                     _connection = null;
                     connection.Dispose();
                 }
@@ -143,7 +141,6 @@ namespace System.Net.Http
             private void Finish(HttpConnection connection)
             {
                 // We cannot reuse this connection, so close it.
-                if (HttpTelemetry.IsEnabled) LogRequestStop();
                 connection.Dispose();
                 _connection = null;
             }

@@ -564,14 +564,14 @@ void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFla
 // genSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
 //
 // Arguments:
-//     initReg          - register to use as a scratch register
-//     pInitRegModified - OUT parameter. *pInitRegModified is set to 'true' if and only if
-//                        this call sets 'initReg' to a non-zero value.
+//     initReg        - register to use as a scratch register
+//     pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
+//                      this call sets 'initReg' to a non-zero value.
 //
 // Return Value:
 //     None
 //
-void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegModified)
+void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
 {
     assert(compiler->compGeneratingProlog);
 
@@ -596,7 +596,7 @@ void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegModified)
         GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
     }
 
-    *pInitRegModified = true;
+    *pInitRegZeroed = false;
 }
 
 //---------------------------------------------------------------------
@@ -619,31 +619,31 @@ void CodeGen::genIntrinsic(GenTree* treeNode)
 
     // Right now only Abs/Ceiling/Floor/Round/Sqrt are treated as math intrinsics.
     //
-    switch (treeNode->AsIntrinsic()->gtIntrinsicId)
+    switch (treeNode->AsIntrinsic()->gtIntrinsicName)
     {
-        case CORINFO_INTRINSIC_Abs:
+        case NI_System_Math_Abs:
             genConsumeOperands(treeNode->AsOp());
             GetEmitter()->emitInsBinary(INS_ABS, emitActualTypeSize(treeNode), treeNode, srcNode);
             break;
 
 #ifdef TARGET_ARM64
-        case CORINFO_INTRINSIC_Ceiling:
+        case NI_System_Math_Ceiling:
             genConsumeOperands(treeNode->AsOp());
             GetEmitter()->emitInsBinary(INS_frintp, emitActualTypeSize(treeNode), treeNode, srcNode);
             break;
 
-        case CORINFO_INTRINSIC_Floor:
+        case NI_System_Math_Floor:
             genConsumeOperands(treeNode->AsOp());
             GetEmitter()->emitInsBinary(INS_frintm, emitActualTypeSize(treeNode), treeNode, srcNode);
             break;
 
-        case CORINFO_INTRINSIC_Round:
+        case NI_System_Math_Round:
             genConsumeOperands(treeNode->AsOp());
             GetEmitter()->emitInsBinary(INS_frintn, emitActualTypeSize(treeNode), treeNode, srcNode);
             break;
 #endif // TARGET_ARM64
 
-        case CORINFO_INTRINSIC_Sqrt:
+        case NI_System_Math_Sqrt:
             genConsumeOperands(treeNode->AsOp());
             GetEmitter()->emitInsBinary(INS_SQRT, emitActualTypeSize(treeNode), treeNode, srcNode);
             break;
@@ -1802,11 +1802,7 @@ void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
     {
         assert(dstAddr->OperIsLocalAddr());
         dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
-
-        if (dstAddr->OperIs(GT_LCL_FLD_ADDR))
-        {
-            dstOffset = dstAddr->AsLclFld()->GetLclOffs();
-        }
+        dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
     }
 
     regNumber srcReg;
@@ -1938,11 +1934,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
 
         assert(dstAddr->OperIsLocalAddr());
         dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
-
-        if (dstAddr->OperIs(GT_LCL_FLD_ADDR))
-        {
-            dstOffset = dstAddr->AsLclFld()->GetLclOffs();
-        }
+        dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
     }
 
     unsigned  srcLclNum      = BAD_VAR_NUM;
@@ -1955,11 +1947,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         srcLclNum = src->AsLclVarCommon()->GetLclNum();
-
-        if (src->OperIs(GT_LCL_FLD))
-        {
-            srcOffset = src->AsLclFld()->GetLclOffs();
-        }
+        srcOffset = src->AsLclVarCommon()->GetLclOffs();
     }
     else
     {
@@ -1979,11 +1967,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
         {
             assert(srcAddr->OperIsLocalAddr());
             srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
-
-            if (srcAddr->OperIs(GT_LCL_FLD_ADDR))
-            {
-                srcOffset = srcAddr->AsLclFld()->GetLclOffs();
-            }
+            srcOffset = srcAddr->AsLclVarCommon()->GetLclOffs();
         }
     }
 

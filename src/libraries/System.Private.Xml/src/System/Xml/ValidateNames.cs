@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System;
 using System.Xml.XPath;
 using System.Diagnostics;
@@ -48,11 +47,6 @@ namespace System.Xml
                 {
                     i++;
                 }
-#if XML10_FIFTH_EDITION
-                else if (xmlCharType.IsNCNameSurrogateChar(s, i)) {
-                    i += 2;
-                }
-#endif
                 else
                 {
                     break;
@@ -84,12 +78,6 @@ namespace System.Xml
                 {
                     i++;
                 }
-#if XML10_FIFTH_EDITION
-                else if (xmlCharType.IsNCNameSurrogateChar(s, i))
-                {
-                    i += 2;
-                }
-#endif
                 else
                 {
                     break;
@@ -128,12 +116,6 @@ namespace System.Xml
                 {
                     i++;
                 }
-#if XML10_FIFTH_EDITION
-                else if (xmlCharType.IsNCNameSurrogateChar(s, i))
-                {
-                    i += 2;
-                }
-#endif
                 else
                 {
                     return 0; // no valid StartNCName char
@@ -146,12 +128,6 @@ namespace System.Xml
                     {
                         i++;
                     }
-#if XML10_FIFTH_EDITION
-                    else if (xmlCharType.IsNCNameSurrogateChar(s, i))
-                    {
-                        i += 2;
-                    }
-#endif
                     else
                     {
                         break;
@@ -190,11 +166,6 @@ namespace System.Xml
                 {
                     i++;
                 }
-#if XML10_FIFTH_EDITION
-                else if (s_xmlCharType.IsNCNameSurrogateChar(s, i)) {
-                    i += 2;
-                }
-#endif
                 else
                 {
                     return 0; // no valid StartNCName char
@@ -207,11 +178,6 @@ namespace System.Xml
                     {
                         i++;
                     }
-#if XML10_FIFTH_EDITION
-                    else if (s_xmlCharType.IsNCNameSurrogateChar(s, i)) {
-                        i += 2;
-                    }
-#endif
                     else
                     {
                         break;

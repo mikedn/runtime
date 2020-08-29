@@ -33,7 +33,7 @@ test_create_delete_provider (void)
 	RESULT result = NULL;
 	uint32_t test_location = 0;
 
-	EventPipeProvider *test_provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	EventPipeProvider *test_provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	if (!test_provider) {
 		result = FAILED ("Failed to create provider %s, ep_create_provider returned NULL", TEST_PROVIDER_NAME);
 		ep_raise_error ();
@@ -59,7 +59,7 @@ test_stress_create_delete_provider (void)
 
 	for (uint32_t i = 0; i < 1000; ++i) {
 		char *provider_name = g_strdup_printf (TEST_PROVIDER_NAME "_%i", i);
-		test_providers [i] = ep_create_provider (provider_name, NULL, NULL);
+		test_providers [i] = ep_create_provider (provider_name, NULL, NULL, NULL);
 		g_free (provider_name);
 
 		if (!test_providers [i]) {
@@ -87,7 +87,7 @@ test_get_provider (void)
 	RESULT result = NULL;
 	uint32_t test_location = 0;
 
-	EventPipeProvider *test_provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	EventPipeProvider *test_provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	if (!test_provider) {
 		result = FAILED ("Failed to create provider %s, ep_create_provider returned NULL", TEST_PROVIDER_NAME);
 		ep_raise_error ();
@@ -128,7 +128,7 @@ test_create_same_provider_twice (void)
 	RESULT result = NULL;
 	uint32_t test_location = 0;
 
-	EventPipeProvider *test_provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	EventPipeProvider *test_provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	if (!test_provider) {
 		result = FAILED ("Failed to create provider %s, ep_create_provider returned NULL", TEST_PROVIDER_NAME);
 		ep_raise_error ();
@@ -144,7 +144,7 @@ test_create_same_provider_twice (void)
 
 	test_location = 2;
 
-	EventPipeProvider *test_provider2 = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	EventPipeProvider *test_provider2 = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	if (test_provider2) {
 		result = FAILED ("Creating an already existing provider %s, succeeded", TEST_PROVIDER_NAME);
 		ep_raise_error ();
@@ -191,7 +191,7 @@ test_enable_disable (void)
 		EP_SERIALIZATION_FORMAT_NETTRACE_V4,
 		false,
 		NULL,
-		false);
+		NULL);
 
 	if (!session_id) {
 		result = FAILED ("Failed to enable session");
@@ -313,7 +313,7 @@ test_enable_disable_default_provider_config (void)
 		EP_SERIALIZATION_FORMAT_NETTRACE_V4,
 		false,
 		NULL,
-		false);
+		NULL);
 
 	if (!session_id) {
 		result = FAILED ("Failed to enable session");
@@ -361,7 +361,7 @@ test_enable_disable_provider_config (void)
 		EP_SERIALIZATION_FORMAT_NETTRACE_V4,
 		false,
 		NULL,
-		false);
+		NULL);
 
 	if (!session_id) {
 		result = FAILED ("Failed to enable session");
@@ -441,7 +441,7 @@ test_enable_disable_provider_parse_default_config (void)
 		EP_SERIALIZATION_FORMAT_NETTRACE_V4,
 		false,
 		NULL,
-		false);
+		NULL);
 
 	if (!session_id) {
 		result = FAILED ("Failed to enable session");
@@ -512,7 +512,7 @@ test_create_delete_provider_with_callback (void)
 		EP_SERIALIZATION_FORMAT_NETTRACE_V4,
 		false,
 		NULL,
-		false);
+		NULL);
 
 	if (!session_id) {
 		result = FAILED ("Failed to enable session");
@@ -523,7 +523,7 @@ test_create_delete_provider_with_callback (void)
 
 	ep_start_streaming (session_id);
 
-	test_provider = ep_create_provider (TEST_PROVIDER_NAME, provider_callback, &provider_callback_data);
+	test_provider = ep_create_provider (TEST_PROVIDER_NAME, provider_callback, NULL, &provider_callback_data);
 	ep_raise_error_if_nok (test_provider != NULL);
 
 	test_location = 3;
@@ -556,7 +556,7 @@ test_build_event_metadata (void)
 	EventPipeEventInstance *ep_event_instance = NULL;
 	EventPipeEventMetadataEvent *metadata_event = NULL;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 1;
@@ -613,7 +613,7 @@ test_session_start_streaming (void)
 		EP_SERIALIZATION_FORMAT_NETTRACE_V4,
 		false,
 		NULL,
-		false);
+		NULL);
 
 	if (!session_id) {
 		result = FAILED ("Failed to enable session");
@@ -652,7 +652,7 @@ test_session_write_event (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;
@@ -662,7 +662,7 @@ test_session_write_event (void)
 
 	test_location = 3;
 
-	session_id = ep_enable (TEST_FILE, 1, current_provider_config, 1, EP_SESSION_TYPE_FILE, EP_SERIALIZATION_FORMAT_NETTRACE_V4,false, NULL, false);
+	session_id = ep_enable (TEST_FILE, 1, current_provider_config, 1, EP_SESSION_TYPE_FILE, EP_SERIALIZATION_FORMAT_NETTRACE_V4,false, NULL, NULL);
 	ep_raise_error_if_nok (session_id != 0);
 
 	test_location = 4;
@@ -671,7 +671,7 @@ test_session_write_event (void)
 
 	EventPipeEventPayload payload;;
 	ep_event_payload_init (&payload, NULL, 0);
-	write_result = ep_session_write_event_buffered ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
+	write_result = ep_session_write_event ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
 	ep_event_payload_fini (&payload);
 
 	ep_raise_error_if_nok (write_result == true);
@@ -705,7 +705,7 @@ test_session_write_event_seq_point (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;
@@ -715,7 +715,7 @@ test_session_write_event_seq_point (void)
 
 	test_location = 3;
 
-	session_id = ep_enable (TEST_FILE, 1, current_provider_config, 1, EP_SESSION_TYPE_FILE, EP_SERIALIZATION_FORMAT_NETTRACE_V4,false, NULL, false);
+	session_id = ep_enable (TEST_FILE, 1, current_provider_config, 1, EP_SESSION_TYPE_FILE, EP_SERIALIZATION_FORMAT_NETTRACE_V4,false, NULL, NULL);
 	ep_raise_error_if_nok (session_id != 0);
 
 	test_location = 4;
@@ -724,7 +724,7 @@ test_session_write_event_seq_point (void)
 
 	EventPipeEventPayload payload;;
 	ep_event_payload_init (&payload, NULL, 0);
-	write_result = ep_session_write_event_buffered ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
+	write_result = ep_session_write_event ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
 	ep_event_payload_fini (&payload);
 
 	ep_raise_error_if_nok (write_result == true);
@@ -762,7 +762,7 @@ test_session_write_wait_get_next_event (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;
@@ -772,7 +772,7 @@ test_session_write_wait_get_next_event (void)
 
 	test_location = 3;
 
-	session_id = ep_enable (TEST_FILE, 1, current_provider_config, 1, EP_SESSION_TYPE_FILE, EP_SERIALIZATION_FORMAT_NETTRACE_V4,false, NULL, false);
+	session_id = ep_enable (TEST_FILE, 1, current_provider_config, 1, EP_SESSION_TYPE_FILE, EP_SERIALIZATION_FORMAT_NETTRACE_V4,false, NULL, NULL);
 	ep_raise_error_if_nok (session_id != 0);
 
 	test_location = 4;
@@ -781,7 +781,7 @@ test_session_write_wait_get_next_event (void)
 
 	EventPipeEventPayload payload;;
 	ep_event_payload_init (&payload, NULL, 0);
-	write_result = ep_session_write_event_buffered ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
+	write_result = ep_session_write_event ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
 	ep_event_payload_fini (&payload);
 
 	ep_raise_error_if_nok (write_result == true);
@@ -827,7 +827,7 @@ test_session_write_get_next_event (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;
@@ -853,7 +853,7 @@ test_session_write_get_next_event (void)
 
 	EventPipeEventPayload payload;;
 	ep_event_payload_init (&payload, NULL, 0);
-	write_result = ep_session_write_event_buffered ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
+	write_result = ep_session_write_event ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
 	ep_event_payload_fini (&payload);
 
 	ep_raise_error_if_nok (write_result == true);
@@ -904,7 +904,7 @@ test_session_write_suspend_event (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;
@@ -923,16 +923,14 @@ test_session_write_suspend_event (void)
 
 	EventPipeEventPayload payload;;
 	ep_event_payload_init (&payload, NULL, 0);
-	write_result = ep_session_write_event_buffered ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
+	write_result = ep_session_write_event ((EventPipeSession *)session_id, ep_thread_get (), ep_event, &payload, NULL, NULL, NULL, NULL);
 	ep_event_payload_fini (&payload);
 
 	ep_raise_error_if_nok (write_result == true);
 
 	test_location = 5;
 
-	EP_LOCK_ENTER (section1)
-		ep_session_suspend_write_event ((EventPipeSession *)session_id);
-	EP_LOCK_EXIT (section1)
+	// ep_session_suspend_write_event_happens in disable session.
 
 ep_on_exit:
 	ep_disable (session_id);
@@ -966,7 +964,7 @@ test_write_event (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;
@@ -1017,7 +1015,7 @@ test_write_get_next_event (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;
@@ -1076,7 +1074,7 @@ test_write_wait_get_next_event (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;
@@ -1153,7 +1151,7 @@ test_write_event_perf (void)
 
 	test_location = 1;
 
-	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL);
+	provider = ep_create_provider (TEST_PROVIDER_NAME, NULL, NULL, NULL);
 	ep_raise_error_if_nok (provider != NULL);
 
 	test_location = 2;

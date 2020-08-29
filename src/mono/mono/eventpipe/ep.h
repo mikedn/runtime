@@ -182,7 +182,7 @@ ep_enable (
 	EventPipeSerializationFormat format,
 	bool rundown_requested,
 	IpcStream *stream,
-	bool enable_sample_profiler);
+	EventPipeSessionSynchronousCallback sync_callback);
 
 EventPipeSessionID
 ep_enable_2 (
@@ -193,13 +193,16 @@ ep_enable_2 (
 	EventPipeSerializationFormat format,
 	bool rundown_requested,
 	IpcStream *stream,
-	bool enable_sample_profiler);
+	EventPipeSessionSynchronousCallback sync_callback);
 
 void
 ep_disable (EventPipeSessionID id);
 
 EventPipeSession *
 ep_get_session (EventPipeSessionID session_id);
+
+bool
+ep_is_session_enabled (EventPipeSessionID session_id);
 
 void
 ep_start_streaming (EventPipeSessionID session_id);
@@ -211,6 +214,7 @@ EventPipeProvider *
 ep_create_provider (
 	const ep_char8_t *provider_name,
 	EventPipeCallback callback_func,
+	EventPipeCallbackDataFree callback_data_free_func,
 	void *callback_data);
 
 void
@@ -218,6 +222,11 @@ ep_delete_provider (EventPipeProvider *provider);
 
 EventPipeProvider *
 ep_get_provider (const ep_char8_t *provider_name);
+
+void
+ep_add_provider_to_session (
+	EventPipeSessionProvider *provider,
+	EventPipeSession *session);
 
 void
 ep_init (void);
@@ -273,6 +282,14 @@ static
 inline
 void
 ep_init (void)
+{
+	;
+}
+
+static
+inline
+void
+ep_finish_init (void)
 {
 	;
 }

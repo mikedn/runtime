@@ -514,6 +514,32 @@ PAL_Random(
 PALIMPORT
 BOOL
 PALAPI
+PAL_OpenProcessMemory(
+    IN DWORD processId,
+    OUT DWORD* pHandle
+);
+
+PALIMPORT
+VOID
+PALAPI
+PAL_CloseProcessMemory(
+    IN DWORD handle
+);
+
+PALIMPORT
+BOOL
+PALAPI
+PAL_ReadProcessMemory(
+    IN DWORD handle,
+    IN ULONG64 address,
+    IN LPVOID buffer,
+    IN SIZE_T size,
+    OUT SIZE_T* numberOfBytesRead
+);
+
+PALIMPORT
+BOOL
+PALAPI
 PAL_ProbeMemory(
     PVOID pBuffer,
     DWORD cbBuffer,
@@ -2346,6 +2372,8 @@ PALIMPORT BOOL PALAPI PAL_VirtualUnwindOutOfProc(CONTEXT *context, KNONVOLATILE_
 #if defined(__APPLE__) && defined(__i386__)
 #define PAL_CS_NATIVE_DATA_SIZE 76
 #elif defined(__APPLE__) && defined(__x86_64__)
+#define PAL_CS_NATIVE_DATA_SIZE 120
+#elif defined(__APPLE__) && defined(HOST_ARM64)
 #define PAL_CS_NATIVE_DATA_SIZE 120
 #elif defined(__FreeBSD__) && defined(HOST_X86)
 #define PAL_CS_NATIVE_DATA_SIZE 12

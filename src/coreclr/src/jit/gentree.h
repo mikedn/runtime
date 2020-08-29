@@ -657,6 +657,12 @@ public:
         assert(_gtRegNum == reg);
     }
 
+    void ClearRegNum()
+    {
+        _gtRegNum = REG_NA;
+        INDEBUG(gtRegTag = GT_REGTAG_NONE;)
+    }
+
     // Copy the _gtRegNum/gtRegTag fields
     void CopyReg(GenTree* from);
     bool gtHasReg() const;
@@ -945,6 +951,8 @@ public:
 
 #define GTF_OVERFLOW                0x10000000 // Supported for: GT_ADD, GT_SUB, GT_MUL and GT_CAST.
                                                // Requires an overflow check. Use gtOverflow(Ex)() to check this flag.
+
+#define GTF_DIV_BY_CNS_OPT          0x80000000 // GT_DIV -- Uses the division by constant optimization to compute this division
 
 #define GTF_ARR_BOUND_INBND         0x80000000 // GT_ARR_BOUNDS_CHECK -- have proved this check is always in-bounds
 
@@ -2878,6 +2886,19 @@ struct GenTreeOp : public GenTreeUnOp
         }
     }
 
+    // returns true if we will use the division by constant optimization for this node.
+    bool UsesDivideByConstOptimized(Compiler* comp);
+
+    // checks if we will use the division by constant optimization this node
+    // then sets the flag GTF_DIV_BY_CNS_OPT and GTF_DONT_CSE on the constant
+    void CheckDivideByConstOptimized(Compiler* comp);
+
+    // True if this node is marked as using the division by constant optimization
+    bool MarkedDivideByConstOptimized() const
+    {
+        return (gtFlags & GTF_DIV_BY_CNS_OPT) != 0;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeOp() : GenTreeUnOp(), gtOp2(nullptr)
     {
@@ -3238,6 +3259,8 @@ public:
         m_lclNum = lclNum;
         m_ssaNum = SsaConfig::RESERVED_SSA_NUM;
     }
+
+    uint16_t GetLclOffs() const;
 
     unsigned GetSsaNum() const
     {
@@ -4291,6 +4314,7 @@ struct GenTreeCall final : public GenTree
 #define GTF_CALL_M_ALLOC_SIDE_EFFECTS      0x00400000 // GT_CALL -- this is a call to an allocator with side effects
 #define GTF_CALL_M_SUPPRESS_GC_TRANSITION  0x00800000 // GT_CALL -- suppress the GC transition (i.e. during a pinvoke) but a separate GC safe point is required.
 #define GTF_CALL_M_EXP_RUNTIME_LOOKUP      0x01000000 // GT_CALL -- this call needs to be tranformed into CFG for the dynamic dictionary expansion feature.
+#define GTF_CALL_M_STRESS_TAILCALL         0x02000000 // GT_CALL -- the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
 
     // clang-format on
 
@@ -4403,6 +4427,13 @@ struct GenTreeCall final : public GenTree
     bool IsTailPrefixedCall() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+    }
+
+    // Returns true if this call didn't have an explicit tail. prefix in the IL
+    // but was marked as an explicit tail call because of tail call stress mode.
+    bool IsStressTailCall() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_STRESS_TAILCALL) != 0;
     }
 
     // This method returning "true" implies that tail call flowgraph morhphing has
@@ -4820,6 +4851,7 @@ struct GenTreeQmark : public GenTreeOp
 struct GenTreeIntrinsic : public GenTreeOp
 {
     CorInfoIntrinsics     gtIntrinsicId;
+    NamedIntrinsic        gtIntrinsicName;
     CORINFO_METHOD_HANDLE gtMethodHandle; // Method handle of the method which is treated as an intrinsic.
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -4827,15 +4859,31 @@ struct GenTreeIntrinsic : public GenTreeOp
     CORINFO_CONST_LOOKUP gtEntryPoint;
 #endif
 
-    GenTreeIntrinsic(var_types type, GenTree* op1, CorInfoIntrinsics intrinsicId, CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, nullptr), gtIntrinsicId(intrinsicId), gtMethodHandle(methodHandle)
+    GenTreeIntrinsic(var_types             type,
+                     GenTree*              op1,
+                     CorInfoIntrinsics     intrinsicId,
+                     NamedIntrinsic        intrinsicName,
+                     CORINFO_METHOD_HANDLE methodHandle)
+        : GenTreeOp(GT_INTRINSIC, type, op1, nullptr)
+        , gtIntrinsicId(intrinsicId)
+        , gtIntrinsicName(intrinsicName)
+        , gtMethodHandle(methodHandle)
     {
+        assert(intrinsicId != CORINFO_INTRINSIC_Illegal || intrinsicName != NI_Illegal);
     }
 
-    GenTreeIntrinsic(
-        var_types type, GenTree* op1, GenTree* op2, CorInfoIntrinsics intrinsicId, CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, op2), gtIntrinsicId(intrinsicId), gtMethodHandle(methodHandle)
+    GenTreeIntrinsic(var_types             type,
+                     GenTree*              op1,
+                     GenTree*              op2,
+                     CorInfoIntrinsics     intrinsicId,
+                     NamedIntrinsic        intrinsicName,
+                     CORINFO_METHOD_HANDLE methodHandle)
+        : GenTreeOp(GT_INTRINSIC, type, op1, op2)
+        , gtIntrinsicId(intrinsicId)
+        , gtIntrinsicName(intrinsicName)
+        , gtMethodHandle(methodHandle)
     {
+        assert(intrinsicId != CORINFO_INTRINSIC_Illegal || intrinsicName != NI_Illegal);
     }
 
 #if DEBUGGABLE_GENTREE
@@ -5330,11 +5378,11 @@ public:
         return true;
     }
 
-    bool OperIsMemoryLoad() const;  // Returns true for the HW Instrinsic instructions that have MemoryLoad semantics,
+    bool OperIsMemoryLoad() const;  // Returns true for the HW Intrinsic instructions that have MemoryLoad semantics,
                                     // false otherwise
-    bool OperIsMemoryStore() const; // Returns true for the HW Instrinsic instructions that have MemoryStore semantics,
+    bool OperIsMemoryStore() const; // Returns true for the HW Intrinsic instructions that have MemoryStore semantics,
                                     // false otherwise
-    bool OperIsMemoryLoadOrStore() const; // Returns true for the HW Instrinsic instructions that have MemoryLoad or
+    bool OperIsMemoryLoadOrStore() const; // Returns true for the HW Intrinsic instructions that have MemoryLoad or
                                           // MemoryStore semantics, false otherwise
 
     regNumber GetOtherReg() const
@@ -7923,7 +7971,7 @@ inline bool GenTree::HasLastUse()
 //
 inline void GenTree::SetLastUse(int regIndex)
 {
-    unsigned int bitToSet = gtFlags |= GetLastUseBit(regIndex);
+    gtFlags |= GetLastUseBit(regIndex);
 }
 
 //-----------------------------------------------------------------------------------

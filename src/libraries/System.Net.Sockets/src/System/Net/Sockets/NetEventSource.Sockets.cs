@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 
 namespace System.Net
 {
-    [EventSource(Name = "Microsoft-System-Net-Sockets", Guid = "e03c0352-f9c9-56ff-0ea7-b94ba8cabc6b", LocalizationResources = "FxResources.System.Net.Sockets.SR")]
+    [EventSource(Name = "Private.InternalDiagnostics.System.Net.Sockets", LocalizationResources = "FxResources.System.Net.Sockets.SR")]
     internal sealed partial class NetEventSource
     {
         private const int AcceptedId = NextAvailableEventId;
@@ -19,7 +19,7 @@ namespace System.Net
         [NonEvent]
         public static void Accepted(Socket socket, object? remoteEp, object? localEp)
         {
-            if (IsEnabled)
+            if (Log.IsEnabled())
             {
                 Log.Accepted(IdOf(remoteEp), IdOf(localEp), GetHashCode(socket));
             }
@@ -34,7 +34,7 @@ namespace System.Net
         [NonEvent]
         public static void Connected(Socket socket, object? localEp, object? remoteEp)
         {
-            if (IsEnabled)
+            if (Log.IsEnabled())
             {
                 Log.Connected(IdOf(localEp), IdOf(remoteEp), GetHashCode(socket));
             }
@@ -49,7 +49,7 @@ namespace System.Net
         [NonEvent]
         public static void ConnectedAsyncDns(Socket socket)
         {
-            if (IsEnabled)
+            if (Log.IsEnabled())
             {
                 Log.ConnectedAsyncDns(GetHashCode(socket));
             }
@@ -64,7 +64,7 @@ namespace System.Net
         [NonEvent]
         public static void NotLoggedFile(string filePath, Socket socket, SocketAsyncOperation completedOperation)
         {
-            if (IsEnabled)
+            if (Log.IsEnabled())
             {
                 Log.NotLoggedFile(filePath, GetHashCode(socket), completedOperation);
             }
@@ -95,7 +95,7 @@ namespace System.Net
         [NonEvent]
         public static void DumpBuffer(object thisOrContextObject, Memory<byte> buffer, int offset, int count, [CallerMemberName] string? memberName = null)
         {
-            if (IsEnabled)
+            if (Log.IsEnabled())
             {
                 if (offset < 0 || offset > buffer.Length - count)
                 {

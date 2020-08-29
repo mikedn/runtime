@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System;
 using System.IO;
 using System.Text;
@@ -2243,11 +2242,7 @@ namespace System.Xml
                         }
                         if (_chars[_curPos + 1] != 'C' || _chars[_curPos + 2] != 'L' ||
                              _chars[_curPos + 3] != 'U' || _chars[_curPos + 4] != 'D' ||
-                             _chars[_curPos + 5] != 'E' || _xmlCharType.IsNameSingleChar(_chars[_curPos + 6])
-#if XML10_FIFTH_EDITION
-                             || xmlCharType.IsNCNameHighSurrogateChar( chars[curPos+6] )
-#endif
-                            )
+                             _chars[_curPos + 5] != 'E' || _xmlCharType.IsNameSingleChar(_chars[_curPos + 6]))
                         {
                             goto default;
                         }
@@ -2258,11 +2253,7 @@ namespace System.Xml
                     case 'G':
                         if (_chars[_curPos + 1] != 'N' || _chars[_curPos + 2] != 'O' ||
                              _chars[_curPos + 3] != 'R' || _chars[_curPos + 4] != 'E' ||
-                             _xmlCharType.IsNameSingleChar(_chars[_curPos + 5])
-#if XML10_FIFTH_EDITION
-                            ||xmlCharType.IsNCNameHighSurrogateChar( chars[curPos+5] )
-#endif
-                            )
+                             _xmlCharType.IsNameSingleChar(_chars[_curPos + 5]))
                         {
                             goto default;
                         }
@@ -2420,11 +2411,6 @@ namespace System.Xml
                 {
                     _curPos++;
                 }
-#if XML10_FIFTH_EDITION
-                else if ( curPos + 1 < charsUsed && xmlCharType.IsNCNameSurrogateChar(chars[curPos+1], chars[curPos])) {
-                    curPos += 2;
-                }
-#endif
                 else
                 {
                     if (_curPos + 1 >= _charsUsed)
@@ -2448,11 +2434,6 @@ namespace System.Xml
                     {
                         _curPos++;
                     }
-#if XML10_FIFTH_EDITION
-                    else if ( curPos + 1 < charsUsed && xmlCharType.IsNameSurrogateChar(chars[curPos + 1], chars[curPos]) ) {
-                        curPos += 2;
-                    }
-#endif
                     else
                     {
                         break;
@@ -2478,11 +2459,7 @@ namespace System.Xml
                     }
                 }
                 // end of buffer
-                else if (_curPos == _charsUsed
-#if XML10_FIFTH_EDITION
-                    || ( curPos + 1 == charsUsed && xmlCharType.IsNCNameHighSurrogateChar( chars[curPos] ) )
-#endif
-                    )
+                else if (_curPos == _charsUsed)
                 {
                     if (await ReadDataInNameAsync().ConfigureAwait(false))
                     {
@@ -2521,22 +2498,13 @@ namespace System.Xml
                     {
                         _curPos++;
                     }
-#if XML10_FIFTH_EDITION
-                    else if (curPos + 1 < charsUsed && xmlCharType.IsNCNameSurrogateChar(chars[curPos + 1], chars[curPos])) {
-                        curPos += 2;
-                    }
-#endif
                     else
                     {
                         break;
                     }
                 }
 
-                if (_curPos < _charsUsed
-#if XML10_FIFTH_EDITION
-                    && ( !xmlCharType.IsNCNameHighSurrogateChar( chars[curPos] ) || curPos + 1 < charsUsed )
-#endif
-                    )
+                if (_curPos < _charsUsed)
                 {
                     if (_curPos - _tokenStartPos == 0)
                     {

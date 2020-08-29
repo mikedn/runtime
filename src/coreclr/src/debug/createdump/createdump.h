@@ -10,13 +10,11 @@
 #define _countof(x) (sizeof(x)/sizeof(x[0]))
 #endif
 
+extern void trace_printf(const char* format, ...);
 extern bool g_diagnostics;
 
 #ifdef HOST_UNIX
-#define TRACE(args...) \
-        if (g_diagnostics) { \
-            printf(args); \
-        }
+#define TRACE(args...) trace_printf(args)
 #define TRACE_VERBOSE(args...)
 #else
 #define TRACE(args, ...)
@@ -97,4 +95,6 @@ typedef int T_CONTEXT;
 #define MAX_LONGPATH   1024
 #endif
 
-bool CreateDump(const char* dumpPathTemplate, int pid, MINIDUMP_TYPE minidumpType);
+bool FormatDumpName(std::string& name, const char* pattern, const char* exename, int pid);
+bool CreateDump(const char* dumpPathTemplate, int pid, const char* dumpType, MINIDUMP_TYPE minidumpType);
+

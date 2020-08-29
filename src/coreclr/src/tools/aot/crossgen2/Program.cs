@@ -291,7 +291,36 @@ namespace ILCompiler
                     SharedGenericsMode genericsMode = SharedGenericsMode.CanonicalReferenceTypes;
 
                     var targetDetails = new TargetDetails(_targetArchitecture, _targetOS, TargetAbi.CoreRT, instructionSetSupport.GetVectorTSimdVector());
-                    _typeSystemContext = new ReadyToRunCompilerContext(targetDetails, genericsMode);
+
+                    bool versionBubbleIncludesCoreLib = false;
+                    if (_commandLineOptions.InputBubble)
+                    {
+                        versionBubbleIncludesCoreLib = true;
+                    }
+                    else
+                    {
+                        foreach (var inputFile in _inputFilePaths)
+                        {
+                            if (String.Compare(inputFile.Key, "System.Private.CoreLib", StringComparison.OrdinalIgnoreCase) == 0)
+                            {
+                                versionBubbleIncludesCoreLib = true;
+                                break;
+                            }
+                        }
+                        if (!versionBubbleIncludesCoreLib)
+                        {
+                            foreach (var inputFile in _unrootedInputFilePaths)
+                            {
+                                if (String.Compare(inputFile.Key, "System.Private.CoreLib", StringComparison.OrdinalIgnoreCase) == 0)
+                                {
+                                    versionBubbleIncludesCoreLib = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    _typeSystemContext = new ReadyToRunCompilerContext(targetDetails, genericsMode, versionBubbleIncludesCoreLib);
 
                     string compositeRootPath = _commandLineOptions.CompositeRootPath?.FullName;
 
@@ -382,7 +411,14 @@ namespace ILCompiler
                     _typeSystemContext.SetSystemModule((EcmaModule)_typeSystemContext.GetModuleForSimpleName(systemModuleName));
 
                     if (_typeSystemContext.InputFilePaths.Count == 0)
+                    {
+                        if (_commandLineOptions.InputFilePaths.Count() > 0)
+                        {
+                            Console.WriteLine(SR.InputWasNotLoadable);
+                            return 2;
+                        }
                         throw new CommandLineException(SR.NoInputFiles);
+                    }
 
                     //
                     // Initialize compilation group and compilation roots

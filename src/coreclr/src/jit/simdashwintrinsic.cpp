@@ -1036,26 +1036,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
     assert(op3 != nullptr);
 
 #if defined(TARGET_XARCH)
-    bool isVectorT256 = (simdSize == 32);
-
     // Vector<T> for the rel-ops covered here requires at least SSE2
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
 
     // Vector<T>, when 32-bytes, requires at least AVX2
-    assert(!isVectorT256 || compIsaSupportedDebugOnly(InstructionSet_AVX2));
-
-    if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
-    {
-        NamedIntrinsic hwIntrinsic = NI_SSE41_BlendVariable;
-
-        if (isVectorT256)
-        {
-            hwIntrinsic = varTypeIsIntegral(baseType) ? NI_AVX2_BlendVariable : NI_AVX_BlendVariable;
-        }
-
-        return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, op3, op2, op1);
-    }
-#endif // TARGET_XARCH
+    assert((simdSize != 32) || compIsaSupportedDebugOnly(InstructionSet_AVX2));
 
     NamedIntrinsic hwIntrinsic;
 
@@ -1080,6 +1065,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
     // result = op2 | op3
     hwIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(NI_VectorT128_op_BitwiseOr, baseType);
     return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, op2, op3);
+#elif defined(TARGET_ARM64)
+    return gtNewSimdAsHWIntrinsicNode(retType, NI_AdvSimd_BitwiseSelect, baseType, simdSize, op1, op2, op3);
+#else
+#error Unsupported platform
+#endif // !TARGET_XARCH && !TARGET_ARM64
 }
 
 #if defined(TARGET_XARCH)

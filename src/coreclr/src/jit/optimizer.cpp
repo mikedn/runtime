@@ -2317,8 +2317,8 @@ private:
         }
 
         // Make sure we don't leave around a goto-next unless it's marked KEEP_BBJ_ALWAYS.
-        assert((block->bbJumpKind != BBJ_COND) || (block->bbJumpKind != BBJ_ALWAYS) || (block->bbJumpDest != newNext) ||
-               ((block->bbFlags & BBF_KEEP_BBJ_ALWAYS) != 0));
+        assert(((block->bbJumpKind != BBJ_COND) && (block->bbJumpKind != BBJ_ALWAYS)) ||
+               (block->bbJumpDest != newNext) || ((block->bbFlags & BBF_KEEP_BBJ_ALWAYS) != 0));
         return newBlock;
     }
 
@@ -4264,6 +4264,11 @@ void Compiler::fgOptWhileLoop(BasicBlock* block)
     Statement* copyOfCondStmt = fgNewStmtAtEnd(block, condTree);
 
     copyOfCondStmt->SetCompilerAdded();
+
+    if (condTree->gtFlags & GTF_CALL)
+    {
+        block->bbFlags |= BBF_HAS_CALL; // Record that the block has a call
+    }
 
     if (opts.compDbgInfo)
     {
@@ -6211,6 +6216,10 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
     // Create a copy of the expression and mark it for CSE's.
     GenTree* hoistExpr = gtCloneExpr(origExpr, GTF_MAKE_CSE);
 
+    // The hoist Expr does not have to computed into a specific register,
+    // so clear the RegNum if it was set in the original expression
+    hoistExpr->ClearRegNum();
+
     // At this point we should have a cloned expression, marked with the GTF_MAKE_CSE flag
     assert(hoistExpr != origExpr);
     assert(hoistExpr->gtFlags & GTF_MAKE_CSE);
@@ -7924,10 +7933,11 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         }
                         break;
 
-                    case GT_LOCKADD: // Binop
-                    case GT_XADD:    // Binop
-                    case GT_XCHG:    // Binop
-                    case GT_CMPXCHG: // Specialop
+                    case GT_LOCKADD:
+                    case GT_XADD:
+                    case GT_XCHG:
+                    case GT_CMPXCHG:
+                    case GT_MEMORYBARRIER:
                     {
                         assert(!tree->OperIs(GT_LOCKADD) && "LOCKADD should not appear before lowering");
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
@@ -9261,7 +9271,7 @@ void Compiler::optRemoveRedundantZeroInits()
             Statement* next = stmt->GetNextStmt();
             for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
             {
-                if (((tree->gtFlags & GTF_CALL) != 0) && (!tree->IsCall() || !tree->AsCall()->IsSuppressGCTransition()))
+                if (((tree->gtFlags & GTF_CALL) != 0))
                 {
                     hasGCSafePoint = true;
                 }

@@ -33,7 +33,6 @@ namespace System.Net
 
         public void Start()
         {
-            if (NetEventSource.IsEnabled) NetEventSource.Enter(this);
             lock (_internalLock)
             {
                 try
@@ -49,12 +48,8 @@ namespace System.Net
                 catch (Exception exception)
                 {
                     _state = State.Closed;
-                    if (NetEventSource.IsEnabled) NetEventSource.Error(this, $"Start {exception}");
+                    if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, $"Start {exception}");
                     throw;
-                }
-                finally
-                {
-                    if (NetEventSource.IsEnabled) NetEventSource.Exit(this);
                 }
             }
         }
@@ -72,7 +67,6 @@ namespace System.Net
 
         public void Stop()
         {
-            if (NetEventSource.IsEnabled) NetEventSource.Enter(this);
 
             lock (_internalLock)
             {
@@ -88,20 +82,18 @@ namespace System.Net
                 }
                 catch (Exception exception)
                 {
-                    if (NetEventSource.IsEnabled) NetEventSource.Error(this, $"Stop {exception}");
+                    if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, $"Stop {exception}");
                     throw;
                 }
                 finally
                 {
                     _state = State.Stopped;
-                    if (NetEventSource.IsEnabled) NetEventSource.Exit(this);
                 }
             }
         }
 
         public void Abort()
         {
-            if (NetEventSource.IsEnabled) NetEventSource.Enter(this);
 
             lock (_internalLock)
             {
@@ -120,20 +112,18 @@ namespace System.Net
                 }
                 catch (Exception exception)
                 {
-                    if (NetEventSource.IsEnabled) NetEventSource.Error(this, $"Abort {exception}");
+                    if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, $"Abort {exception}");
                     throw;
                 }
                 finally
                 {
                     _state = State.Closed;
-                    if (NetEventSource.IsEnabled) NetEventSource.Exit(this);
                 }
             }
         }
 
         private void Dispose()
         {
-            if (NetEventSource.IsEnabled) NetEventSource.Enter(this);
 
             lock (_internalLock)
             {
@@ -148,13 +138,12 @@ namespace System.Net
                 }
                 catch (Exception exception)
                 {
-                    if (NetEventSource.IsEnabled) NetEventSource.Error(this, $"Dispose {exception}");
+                    if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, $"Dispose {exception}");
                     throw;
                 }
                 finally
                 {
                     _state = State.Closed;
-                    if (NetEventSource.IsEnabled) NetEventSource.Exit(this);
                 }
             }
         }
@@ -203,7 +192,7 @@ namespace System.Net
                 _listenerContexts[context] = context;
             }
 
-            ListenerAsyncResult ares = null;
+            ListenerAsyncResult? ares = null;
             lock ((_asyncWaitQueue as ICollection).SyncRoot)
             {
                 if (_asyncWaitQueue.Count == 0)
@@ -268,7 +257,7 @@ namespace System.Net
             }
         }
 
-        private HttpListenerContext GetContextFromQueue()
+        private HttpListenerContext? GetContextFromQueue()
         {
             lock ((_contextQueue as ICollection).SyncRoot)
             {
@@ -284,7 +273,7 @@ namespace System.Net
             }
         }
 
-        public IAsyncResult BeginGetContext(AsyncCallback callback, object state)
+        public IAsyncResult BeginGetContext(AsyncCallback? callback, object? state)
         {
             CheckDisposed();
             if (_state != State.Started)
@@ -299,7 +288,7 @@ namespace System.Net
             {
                 lock ((_contextQueue as ICollection).SyncRoot)
                 {
-                    HttpListenerContext ctx = GetContextFromQueue();
+                    HttpListenerContext? ctx = GetContextFromQueue();
                     if (ctx != null)
                     {
                         ares.Complete(ctx, true);
@@ -321,7 +310,7 @@ namespace System.Net
                 throw new ArgumentNullException(nameof(asyncResult));
             }
 
-            ListenerAsyncResult ares = asyncResult as ListenerAsyncResult;
+            ListenerAsyncResult? ares = asyncResult as ListenerAsyncResult;
             if (ares == null || !ReferenceEquals(this, ares._parent))
             {
                 throw new ArgumentException(SR.net_io_invalidasyncresult, nameof(asyncResult));
@@ -343,7 +332,7 @@ namespace System.Net
                     _asyncWaitQueue.RemoveAt(idx);
             }
 
-            HttpListenerContext context = ares.GetContext();
+            HttpListenerContext context = ares.GetContext()!;
             context.ParseAuthentication(context.AuthenticationSchemes);
             return context;
         }

@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Text;
 using System.Globalization;
 using System.Xml.Schema;
@@ -316,12 +315,7 @@ namespace System.Xml
         private static volatile Regex? s_decodeCharPattern;
         private static int FromHex(char digit)
         {
-            return (digit <= '9')
-            ? ((int)digit - (int)'0')
-            : (((digit <= 'F')
-                ? ((int)digit - (int)'A')
-                : ((int)digit - (int)'a'))
-               + 10);
+            return HexConverter.FromChar(digit);
         }
 
         internal static byte[] FromBinHexString(string s)
@@ -614,26 +608,12 @@ namespace System.Xml
             return s_xmlCharType.IsStartNCNameSingleChar(ch);
         }
 
-#if XML10_FIFTH_EDITION
-        public static bool IsStartNCNameSurrogatePair(char lowChar, char highChar)
-        {
-            return xmlCharType.IsNCNameSurrogateChar(lowChar, highChar);
-        }
-#endif
-
         // Name character types - as defined in Namespaces XML 1.0 spec (second edition) production [6] NCNameStartChar
         //                        combined with the production [4] NameChar of XML 1.0 spec
         public static bool IsNCNameChar(char ch)
         {
             return s_xmlCharType.IsNCNameSingleChar(ch);
         }
-
-#if XML10_FIFTH_EDITION
-        public static bool IsNCNameSurrogatePair(char lowChar, char highChar)
-        {
-            return xmlCharType.IsNCNameSurrogateChar(lowChar, highChar);
-        }
-#endif
 
         // Valid XML character - as defined in XML 1.0 spec (fifth edition) production [2] Char
         public static bool IsXmlChar(char ch)
@@ -1112,7 +1092,7 @@ namespace System.Xml
             return null;
         }
 
-        internal static double ToXPathDouble(object o)
+        internal static double ToXPathDouble(object? o)
         {
             if (o is string str)
             {
@@ -1493,12 +1473,12 @@ namespace System.Xml
             return *((long*)&value);
         }
 
-        internal static void VerifyCharData(string data, ExceptionType exceptionType)
+        internal static void VerifyCharData(string? data, ExceptionType exceptionType)
         {
             VerifyCharData(data, exceptionType, exceptionType);
         }
 
-        internal static void VerifyCharData(string data, ExceptionType invCharExceptionType, ExceptionType invSurrogateExceptionType)
+        internal static void VerifyCharData(string? data, ExceptionType invCharExceptionType, ExceptionType invSurrogateExceptionType)
         {
             if (data == null || data.Length == 0)
             {

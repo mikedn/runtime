@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System;
 using System.IO;
 using System.Text;
@@ -1343,7 +1342,7 @@ namespace System.Xml
             }
         }
 
-        public override string XmlLang
+        public override string? XmlLang
         {
             get
             {
@@ -2141,12 +2140,6 @@ namespace System.Xml
             {
                 i = 1;
             }
-#if XML10_FIFTH_EDITION
-            else if (_xmlCharType.IsNCNameSurrogateChar(ncname, 0))
-            { // surrogate ranges are same for NCName and StartNCName
-                i = 2;
-            }
-#endif
             else
             {
                 throw InvalidCharsException(ncname, 0);
@@ -2159,12 +2152,6 @@ namespace System.Xml
                 {
                     i++;
                 }
-#if XML10_FIFTH_EDITION
-                else if (xmlCharType.IsNCNameSurrogateChar(ncname, i))
-                {
-                    i += 2;
-                }
-#endif
                 else
                 {
                     throw InvalidCharsException(ncname, i);

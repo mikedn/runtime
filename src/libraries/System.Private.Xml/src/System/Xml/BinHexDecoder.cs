@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System;
 using System.Diagnostics;
 
@@ -199,17 +198,10 @@ namespace System.Xml
                 byte halfByte;
                 char ch = *pChar++;
 
-                if (ch >= 'a' && ch <= 'f')
+                int val = HexConverter.FromChar(ch);
+                if (val != 0xFF)
                 {
-                    halfByte = (byte)(ch - 'a' + 10);
-                }
-                else if (ch >= 'A' && ch <= 'F')
-                {
-                    halfByte = (byte)(ch - 'A' + 10);
-                }
-                else if (ch >= '0' && ch <= '9')
-                {
-                    halfByte = (byte)(ch - '0');
+                    halfByte = (byte)val;
                 }
                 else if (xmlCharType.IsWhiteSpace(ch))
                 {
