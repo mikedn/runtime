@@ -6612,7 +6612,7 @@ struct GenTreeObj : public GenTreeBlk
         assert(!layout->IsBlockLayout());
 
         // By default, indirs are assumed to access aliased memory.
-        gtFlags |= GTF_GLOB_REF;
+        gtFlags |= GTF_ASG | GTF_GLOB_REF;
     }
 
     GenTreeObj(GenTreeObj* copyFrom) : GenTreeBlk(copyFrom)

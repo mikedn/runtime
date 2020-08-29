@@ -1840,7 +1840,7 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
         // Create tmp and use it in place of callerArgDsc
         if (tmpLclNum == BAD_VAR_NUM)
         {
-            tmpLclNum = comp->lvaGrabTemp(true DEBUGARG("Fast tail call lowering is creating a new local variable"));
+            tmpLclNum = comp->lvaGrabTemp(true DEBUGARG("fast tail call arg temp"));
 
             LclVarDsc* callerArgDsc                     = comp->lvaGetDesc(lclNum);
             var_types  tmpTyp                           = genActualType(callerArgDsc->TypeGet());
@@ -1851,14 +1851,30 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
             // TODO-1stClassStructs: This can be simplified with 1st class structs work.
             if (tmpTyp == TYP_STRUCT)
             {
+                // TODO-MIKE-CQ: This code was previously using GT_STORE_BLK with a block layout.
+                //
+                // It's best to avoid using block layout when the struct layout is available (and
+                // BLK/STORE_BLK) but doing so has a somewhat unfortunate side-effect: this copy
+                // is done in a no-GC region but GT_STORE_OBJ doesn't know that and it will do
+                // it's normal GC copy thing. For unrolled copies it doesn't really matter, as
+                // the same code is being generated in both cases, the only difference is that
+                // for large copies we get "rep movsq" instead of a helper call.
+                //
+                // Perhaps there should be a way to tell GT_STORE_OBJ to ignore GC info in such
+                // cases. But then there's no real need to put this copy in the no-GC region so
+                // maybe it's best to leave GT_STORE_OBJ as is and insert the copy before the
+                // no-GC region.
+
+                // TODO-MIKE-Review: This code doesn't set GTF_VAR_DEF, probably the only
+                // reason why this doesn't cause problems is that this a struct and post
+                // lowering liveness is used by LSRA for reg candidates.
+
                 comp->lvaSetStruct(tmpLclNum, callerArgDsc->GetLayout()->GetClassHandle(), false);
-                GenTree* loc = new (comp, GT_LCL_VAR_ADDR) GenTreeLclVar(GT_LCL_VAR_ADDR, TYP_STRUCT, tmpLclNum);
-                loc->gtType  = TYP_BYREF;
-                GenTreeBlk* storeBlk = new (comp, GT_STORE_BLK)
-                    GenTreeBlk(GT_STORE_BLK, TYP_STRUCT, loc, value, comp->typGetBlkLayout(callerArgDsc->lvExactSize));
-                storeBlk->gtFlags |= GTF_ASG;
-                BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, storeBlk));
-                LowerNode(storeBlk);
+                GenTree*    addr = comp->gtNewLclVarAddrNode(tmpLclNum);
+                GenTreeObj* store =
+                    new (comp, GT_STORE_OBJ) GenTreeObj(TYP_STRUCT, addr, value, callerArgDsc->GetLayout());
+                BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, store));
+                LowerNode(store);
             }
             else
             {
