@@ -3623,19 +3623,6 @@ bool LinearScan::supportsSpecialPutArg()
 #endif
 }
 
-//------------------------------------------------------------------------
-// BuildPutArgReg: Set the NodeInfo for a PUTARG_REG.
-//
-// Arguments:
-//    node                - The PUTARG_REG node.
-//    argReg              - The register in which to pass the argument.
-//    info                - The info for the node's using call.
-//    isVarArgs           - True if the call uses a varargs calling convention.
-//    callHasFloatRegArgs - Set to true if this PUTARG_REG uses an FP register.
-//
-// Return Value:
-//    None.
-//
 int LinearScan::BuildPutArgReg(GenTreeUnOp* node)
 {
     assert(node != nullptr);
@@ -3645,32 +3632,6 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* node)
     bool     isSpecialPutArg = false;
     int      srcCount        = 1;
     GenTree* op1             = node->gtGetOp1();
-
-    // First, handle the GT_OBJ case, which loads into the arg register
-    // (so we don't set the use to prefer that register for the source address).
-    if (op1->OperIs(GT_OBJ))
-    {
-        GenTreeObj* obj  = op1->AsObj();
-        GenTree*    addr = obj->Addr();
-        unsigned    size = obj->GetLayout()->GetSize();
-        assert(size <= MAX_PASS_SINGLEREG_BYTES);
-        if (addr->OperIsLocalAddr())
-        {
-            // We don't need a source register.
-            assert(addr->isContained());
-            srcCount = 0;
-        }
-        else if (!isPow2(size))
-        {
-            // We'll need an internal register to do the odd-size load.
-            // This can only happen with integer registers.
-            assert(genIsValidIntReg(argReg));
-            buildInternalIntRegisterDefForNode(node);
-            BuildUse(addr);
-            buildInternalRegisterUses();
-        }
-        return srcCount;
-    }
 
     // To avoid redundant moves, have the argument operand computed in the
     // register in which the argument is passed to the call.
