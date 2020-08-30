@@ -165,8 +165,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
         }
     }
 
-    GenTree*  ctrlExpr           = call->gtControlExpr;
-    regMaskTP ctrlExprCandidates = RBM_NONE;
+    GenTree* ctrlExpr = call->gtControlExpr;
     if (call->gtCallType == CT_INDIRECT)
     {
         // either gtControlExpr != null or gtCallAddr != null.
@@ -179,6 +178,8 @@ int LinearScan::BuildCall(GenTreeCall* call)
     // set reg requirements on call target represented as control sequence.
     if (ctrlExpr != nullptr)
     {
+        regMaskTP ctrlExprCandidates = RBM_NONE;
+
         // we should never see a gtControlExpr whose type is void.
         assert(ctrlExpr->TypeGet() != TYP_VOID);
 
@@ -239,93 +240,84 @@ int LinearScan::BuildCall(GenTreeCall* call)
         dstCandidates = RBM_INTRET;
     }
 
-    // First, count reg args
-    // Each register argument corresponds to one source.
-    bool callHasFloatRegArgs = false;
+#if FEATURE_VARARG
+    bool varargsHasFloatRegArgs = false;
+#endif
 
     for (GenTreeCall::Use& arg : call->LateArgs())
     {
         GenTree* argNode = arg.GetNode();
 
-#ifdef DEBUG
-        // During Build, we only use the ArgTabEntry for validation,
-        // as getting it is rather expensive.
-        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode);
-        assert(curArgTabEntry != nullptr);
-#endif
+        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
 
-        if (argNode->gtOper == GT_PUTARG_STK)
+        if (argNode->OperIs(GT_PUTARG_STK))
         {
-            // late arg that is not passed in a register
-            assert(curArgTabEntry->GetRegCount() == 0);
-            // These should never be contained.
+            assert(argInfo->GetRegCount() == 0);
             assert(!argNode->isContained());
+
             continue;
         }
 
-        // A GT_FIELD_LIST has a TYP_VOID, but is used to represent a multireg struct
-        if (argNode->OperGet() == GT_FIELD_LIST)
+        if (argNode->OperIs(GT_FIELD_LIST))
         {
             assert(argNode->isContained());
 
-            INDEBUG(regNumber argReg = curArgTabEntry->GetRegNum(0);)
-
-            // There could be up to 2-4 PUTARG_REGs in the list (3 or 4 can only occur for HFAs)
+            unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
             {
-#ifdef DEBUG
-                assert(use.GetNode()->OperIs(GT_PUTARG_REG));
-                assert(use.GetNode()->GetRegNum() == argReg);
-                // Update argReg for the next putarg_reg (if any)
-                argReg = genRegArgNext(argReg);
+                assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
 
-#if defined(TARGET_ARM)
-                // A double register is modelled as an even-numbered single one
-                if (use.GetNode()->TypeGet() == TYP_DOUBLE)
-                {
-                    argReg = genRegArgNext(argReg);
-                }
-#endif // TARGET_ARM
-#endif
                 BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
                 srcCount++;
+                regIndex++;
             }
+
+            continue;
         }
+
 #if FEATURE_ARG_SPLIT
-        else if (argNode->OperGet() == GT_PUTARG_SPLIT)
+        if (argNode->OperIs(GT_PUTARG_SPLIT))
         {
             unsigned regCount = argNode->AsPutArgSplit()->GetRegCount();
-            assert(regCount == curArgTabEntry->numRegs);
+
+            assert(regCount == argInfo->GetRegCount());
+
             for (unsigned int i = 0; i < regCount; i++)
             {
+                assert(argNode->AsPutArgSplit()->GetRegNumByIdx(i) == argInfo->GetRegNum(i));
+
                 BuildUse(argNode, genRegMask(argNode->AsPutArgSplit()->GetRegNumByIdx(i)), i);
-            }
-            srcCount += regCount;
-        }
-#endif // FEATURE_ARG_SPLIT
-        else
-        {
-            assert(argNode->OperIs(GT_PUTARG_REG));
-            assert(argNode->GetRegNum() == curArgTabEntry->GetRegNum());
-            HandleFloatVarArgs(call, argNode, &callHasFloatRegArgs);
-#ifdef TARGET_ARM
-            // The `double` types have been transformed to `long` on armel,
-            // while the actual long types have been decomposed.
-            // On ARM we may have bitcasts from DOUBLE to LONG.
-            if (argNode->TypeGet() == TYP_LONG)
-            {
-                assert(argNode->IsMultiRegNode());
-                BuildUse(argNode, genRegMask(argNode->GetRegNum()), 0);
-                BuildUse(argNode, genRegMask(genRegArgNext(argNode->GetRegNum())), 1);
-                srcCount += 2;
-            }
-            else
-#endif // TARGET_ARM
-            {
-                BuildUse(argNode, genRegMask(argNode->GetRegNum()));
                 srcCount++;
             }
+
+            continue;
         }
+#endif
+
+        assert(argNode->OperIs(GT_PUTARG_REG));
+        assert(argNode->GetRegNum() == argInfo->GetRegNum());
+
+#if FEATURE_VARARG
+        if (call->IsVarargs())
+        {
+            varargsHasFloatRegArgs |= HandleFloatVarArgs(call, argNode);
+        }
+#endif
+
+#ifdef TARGET_ARM
+        if (argNode->TypeIs(TYP_LONG))
+        {
+            assert(argNode->IsMultiRegNode());
+
+            BuildUse(argNode, genRegMask(argNode->GetRegNum()), 0);
+            BuildUse(argNode, genRegMask(genRegArgNext(argNode->GetRegNum())), 1);
+            srcCount += 2;
+            continue;
+        }
+#endif
+
+        BuildUse(argNode, genRegMask(argNode->GetRegNum()));
+        srcCount++;
     }
 
 #ifdef DEBUG
@@ -362,20 +354,24 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
 #endif // DEBUG
 
-    // If it is a fast tail call, it is already preferenced to use IP0.
-    // Therefore, no need set src candidates on call tgt again.
-    if (call->IsVarargs() && callHasFloatRegArgs && !call->IsFastTailCall() && (ctrlExpr != nullptr))
-    {
-        NYI_ARM("float reg varargs");
-
-        // Don't assign the call target to any of the argument registers because
-        // we will use them to also pass floating point arguments as required
-        // by Arm64 ABI.
-        ctrlExprCandidates = allRegs(TYP_INT) & ~(RBM_ARG_REGS);
-    }
-
     if (ctrlExpr != nullptr)
     {
+        regMaskTP ctrlExprCandidates = RBM_NONE;
+
+#if FEATURE_VARARG
+        // If it is a fast tail call, it is already preferenced to use IP0.
+        // Therefore, no need set src candidates on call tgt again.
+        if (varargsHasFloatRegArgs && !call->IsFastTailCall())
+        {
+            NYI_ARM("float reg varargs");
+
+            // Don't assign the call target to any of the argument registers because
+            // we will use them to also pass floating point arguments as required
+            // by Arm64 ABI.
+            ctrlExprCandidates = allRegs(TYP_INT) & ~RBM_ARG_REGS;
+        }
+#endif
+
         BuildUse(ctrlExpr, ctrlExprCandidates);
         srcCount++;
     }

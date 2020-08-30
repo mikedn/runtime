@@ -1079,107 +1079,78 @@ int LinearScan::BuildCall(GenTreeCall* call)
         dstCandidates = RBM_INTRET;
     }
 
-    // number of args to a call =
-    // callRegArgs + (callargs - placeholders, setup, etc)
-    // there is an explicit thisPtr but it is redundant
+// number of args to a call =
+// callRegArgs + (callargs - placeholders, setup, etc)
+// there is an explicit thisPtr but it is redundant
 
-    bool callHasFloatRegArgs = false;
-    bool isVarArgs           = call->IsVarargs();
+#if FEATURE_VARARG
+    bool varargsHasFloatRegArgs = false;
 
-    // First, determine internal registers.
-    // We will need one for any float arguments to a varArgs call.
-    for (GenTreeCall::Use& use : call->LateArgs())
+    if (call->IsVarargs())
     {
-        GenTree* argNode = use.GetNode();
-        if (argNode->OperIsPutArgReg())
+        // We will need an internal int reg for any float arguments to a varArgs call.
+        for (GenTreeCall::Use& use : call->LateArgs())
         {
-            HandleFloatVarArgs(call, argNode, &callHasFloatRegArgs);
-        }
-        else if (argNode->OperGet() == GT_FIELD_LIST)
-        {
-            for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
+            GenTree* argNode = use.GetNode();
+
+            if (argNode->OperIs(GT_PUTARG_REG))
             {
-                assert(use.GetNode()->OperIsPutArgReg());
-                HandleFloatVarArgs(call, use.GetNode(), &callHasFloatRegArgs);
+                varargsHasFloatRegArgs |= HandleFloatVarArgs(call, argNode);
+
+                continue;
+            }
+
+            if (argNode->OperIs(GT_FIELD_LIST))
+            {
+                for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
+                {
+                    varargsHasFloatRegArgs |= HandleFloatVarArgs(call, use.GetNode());
+                }
+
+                continue;
             }
         }
     }
+#endif // FEATURE_VARARG
 
-    // Now, count reg args
-    for (GenTreeCall::Use& use : call->LateArgs())
+    for (GenTreeCall::Use& arg : call->LateArgs())
     {
-        // By this point, lowering has ensured that all call arguments are one of the following:
-        // - an arg setup store
-        // - an arg placeholder
-        // - a nop
-        // - a copy blk
-        // - a field list
-        // - a put arg
-        //
-        // Note that this property is statically checked by LinearScan::CheckBlock.
-        GenTree* argNode = use.GetNode();
+        GenTree* argNode = arg.GetNode();
 
-        // Each register argument corresponds to one source.
-        if (argNode->OperIsPutArgReg())
+        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
+
+        if (argNode->OperIs(GT_PUTARG_STK))
         {
-            srcCount++;
-            BuildUse(argNode, genRegMask(argNode->GetRegNum()));
-        }
-#ifdef UNIX_AMD64_ABI
-        else if (argNode->OperGet() == GT_FIELD_LIST)
-        {
-            for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
-            {
-                assert(use.GetNode()->OperIsPutArgReg());
-                srcCount++;
-                BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
-            }
-        }
-#endif // UNIX_AMD64_ABI
-
-#ifdef DEBUG
-        // In DEBUG only, check validity with respect to the arg table entry.
-
-        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode);
-        assert(curArgTabEntry);
-
-        if (curArgTabEntry->GetRegCount() == 0)
-        {
-            // late arg that is not passed in a register
-            assert(argNode->gtOper == GT_PUTARG_STK);
-
-            // If the node is TYP_STRUCT and it is put on stack with
-            // putarg_stk operation, we consume and produce no registers.
-            // In this case the embedded Obj node should not produce
-            // registers too since it is contained.
-            // Note that if it is a SIMD type the argument will be in a register.
-            if (argNode->TypeGet() == TYP_STRUCT)
-            {
-                assert(argNode->gtGetOp1() != nullptr && argNode->gtGetOp1()->OperGet() == GT_OBJ);
-                assert(argNode->gtGetOp1()->isContained());
-            }
+            assert(argInfo->GetRegCount() == 0);
+            assert(!argNode->isContained());
 
             continue;
         }
+
 #ifdef UNIX_AMD64_ABI
-        if (argNode->OperGet() == GT_FIELD_LIST)
+        if (argNode->OperIs(GT_FIELD_LIST))
         {
             assert(argNode->isContained());
 
             unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
             {
-                const regNumber argReg = curArgTabEntry->GetRegNum(regIndex);
-                assert(use.GetNode()->GetRegNum() == argReg);
+                assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
+
+                BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
+                srcCount++;
                 regIndex++;
             }
+
+            continue;
         }
-        else
-#endif // UNIX_AMD64_ABI
-        {
-            assert(argNode->GetRegNum() == curArgTabEntry->GetRegNum());
-        }
-#endif // DEBUG
+#endif
+
+        assert(argNode->OperIs(GT_PUTARG_REG));
+        assert(argNode->GetRegNum() == argInfo->GetRegNum());
+
+        BuildUse(argNode, genRegMask(argNode->GetRegNum()));
+        srcCount++;
     }
 
 #ifdef DEBUG
@@ -1235,14 +1206,15 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #if FEATURE_VARARG
         // If it is a fast tail call, it is already preferenced to use RAX.
         // Therefore, no need set src candidates on call tgt again.
-        if (call->IsVarargs() && callHasFloatRegArgs && !call->IsFastTailCall())
+        if (varargsHasFloatRegArgs && !call->IsFastTailCall())
         {
             // Don't assign the call target to any of the argument registers because
             // we will use them to also pass floating point arguments as required
             // by Amd64 ABI.
-            ctrlExprCandidates = allRegs(TYP_INT) & ~(RBM_ARG_REGS);
+            ctrlExprCandidates = allRegs(TYP_INT) & ~RBM_ARG_REGS;
         }
-#endif // !FEATURE_VARARG
+#endif
+
         srcCount += BuildOperandUses(ctrlExpr, ctrlExprCandidates);
     }
 

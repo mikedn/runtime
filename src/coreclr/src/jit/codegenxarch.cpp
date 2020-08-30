@@ -1673,7 +1673,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_PUTARG_REG:
-            genPutArgReg(treeNode->AsOp());
+            genPutArgReg(treeNode->AsUnOp());
             break;
 
         case GT_CALL:
@@ -4668,58 +4668,54 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode->gtSkipReloadOrCopy());
-        assert(curArgTabEntry);
-
-        if (curArgTabEntry->GetRegCount() == 0)
+        if (argNode->OperIs(GT_PUTARG_STK))
         {
             continue;
         }
 
+        CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode->gtSkipReloadOrCopy());
+
 #ifdef UNIX_AMD64_ABI
-        // Deal with multi register passed struct args.
-        if (argNode->OperGet() == GT_FIELD_LIST)
+        if (argNode->OperIs(GT_FIELD_LIST))
         {
             unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
             {
-                GenTree* putArgRegNode = use.GetNode();
-                assert(putArgRegNode->gtOper == GT_PUTARG_REG);
-                regNumber argReg = curArgTabEntry->GetRegNum(regIndex++);
+                GenTree* node = use.GetNode();
 
-                genConsumeReg(putArgRegNode);
+                regNumber argReg = argInfo->GetRegNum(regIndex++);
+                regNumber srcReg = genConsumeReg(node);
 
-                // Validate the putArgRegNode has the right type.
-                assert(varTypeUsesFloatReg(putArgRegNode->GetType()) == genIsValidFloatReg(argReg));
-                if (putArgRegNode->GetRegNum() != argReg)
+                if (srcReg != argReg)
                 {
-                    inst_RV_RV(ins_Move_Extend(putArgRegNode->TypeGet(), false), argReg, putArgRegNode->GetRegNum());
+                    // TODO-MIKE-Review: Huh, this was using inst_RV_RV with type = TYP_I_IMPL. Potential GC hole?
+                    GetEmitter()->emitIns_R_R(ins_Move_Extend(node->GetType(), false), EA_PTRSIZE, argReg, srcReg);
                 }
             }
+
+            continue;
         }
-        else
 #endif // UNIX_AMD64_ABI
+
+        regNumber argReg = argInfo->GetRegNum();
+        regNumber srcReg = genConsumeReg(argNode);
+
+        if (srcReg != argReg)
         {
-            regNumber argReg = curArgTabEntry->GetRegNum();
-            genConsumeReg(argNode);
-            if (argNode->GetRegNum() != argReg)
-            {
-                inst_RV_RV(ins_Move_Extend(argNode->TypeGet(), false), argReg, argNode->GetRegNum());
-            }
+            // TODO-MIKE-Review: Huh, this was using inst_RV_RV with type = TYP_I_IMPL. Potential GC hole?
+            GetEmitter()->emitIns_R_R(ins_Move_Extend(argNode->GetType(), false), EA_PTRSIZE, argReg, srcReg);
         }
 
 #if FEATURE_VARARG
-        // In the case of a varargs call,
-        // the ABI dictates that if we have floating point args,
-        // we must pass the enregistered arguments in both the
-        // integer and floating point registers so, let's do that.
-        if (call->IsVarargs() && varTypeIsFloating(argNode))
+        if (call->IsVarargs() && varTypeIsFloating(argNode->GetType()))
         {
-            regNumber   targetReg = compiler->getCallArgIntRegister(argNode->GetRegNum());
-            instruction ins       = ins_CopyFloatToInt(argNode->TypeGet(), TYP_LONG);
-            inst_RV_RV(ins, argNode->GetRegNum(), targetReg);
+            // For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
+            // the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
+            // to pass an integer argument at the same position.
+            regNumber intArgReg = compiler->getCallArgIntRegister(argNode->GetRegNum());
+            GetEmitter()->emitIns_R_R(INS_mov_xmm2i, emitTypeSize(argNode->GetType()), srcReg, intArgReg);
         }
-#endif // FEATURE_VARARG
+#endif
     }
 
 #if defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
@@ -7335,36 +7331,21 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
 }
 
-//---------------------------------------------------------------------
-// genPutArgReg - generate code for a GT_PUTARG_REG node
-//
-// Arguments
-//    tree - the GT_PUTARG_REG node
-//
-// Return value:
-//    None
-//
-void CodeGen::genPutArgReg(GenTreeOp* tree)
+void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
 {
-    assert(tree->OperIs(GT_PUTARG_REG));
+    assert(putArg->OperIs(GT_PUTARG_REG));
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
+    GenTree*  src    = putArg->GetOp(0);
+    regNumber srcReg = genConsumeReg(src);
+    var_types type   = putArg->GetType();
+    regNumber argReg = putArg->GetRegNum();
 
-#ifndef UNIX_AMD64_ABI
-    assert(targetType != TYP_STRUCT);
-#endif // !UNIX_AMD64_ABI
-
-    GenTree* op1 = tree->gtOp1;
-    genConsumeReg(op1);
-
-    // If child node is not already in the register we need, move it
-    if (targetReg != op1->GetRegNum())
+    if (argReg != srcReg)
     {
-        inst_RV_RV(ins_Copy(targetType), targetReg, op1->GetRegNum(), targetType);
+        GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, srcReg);
     }
 
-    genProduceReg(tree);
+    genProduceReg(putArg);
 }
 
 #ifdef TARGET_X86

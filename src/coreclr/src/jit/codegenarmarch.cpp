@@ -382,7 +382,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_PUTARG_REG:
-            genPutArgReg(treeNode->AsOp());
+            genPutArgReg(treeNode->AsUnOp());
             break;
 
 #if FEATURE_ARG_SPLIT
@@ -875,34 +875,21 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
     }
 }
 
-//---------------------------------------------------------------------
-// genPutArgReg - generate code for a GT_PUTARG_REG node
-//
-// Arguments
-//    tree - the GT_PUTARG_REG node
-//
-// Return value:
-//    None
-//
-void CodeGen::genPutArgReg(GenTreeOp* tree)
+void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
 {
-    assert(tree->OperIs(GT_PUTARG_REG));
+    assert(putArg->OperIs(GT_PUTARG_REG));
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
+    GenTree*  src    = putArg->GetOp(0);
+    regNumber srcReg = genConsumeReg(src);
+    var_types type   = putArg->GetType();
+    regNumber argReg = putArg->GetRegNum();
 
-    assert(targetType != TYP_STRUCT);
-
-    GenTree* op1 = tree->gtOp1;
-    genConsumeReg(op1);
-
-    // If child node is not already in the register we need, move it
-    if (targetReg != op1->GetRegNum())
+    if (argReg != srcReg)
     {
-        inst_RV_RV(ins_Copy(targetType), targetReg, op1->GetRegNum(), targetType);
+        GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, srcReg);
     }
 
-    genProduceReg(tree);
+    genProduceReg(putArg);
 }
 
 void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)
@@ -2118,68 +2105,66 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode);
-        assert(curArgTabEntry);
-
-        // GT_RELOAD/GT_COPY use the child node
-        argNode = argNode->gtSkipReloadOrCopy();
-
-        if (curArgTabEntry->GetRegCount() == 0)
+        if (argNode->OperIs(GT_PUTARG_STK))
         {
             continue;
         }
 
-        // Deal with multi register passed struct args.
-        if (argNode->OperGet() == GT_FIELD_LIST)
+        CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
+        argNode              = argNode->gtSkipReloadOrCopy();
+
+        if (argNode->OperIs(GT_FIELD_LIST))
         {
-            regNumber argReg = curArgTabEntry->GetRegNum();
+            unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
             {
-                GenTree* putArgRegNode = use.GetNode();
-                assert(putArgRegNode->gtOper == GT_PUTARG_REG);
+                GenTree* node = use.GetNode();
 
-                genConsumeReg(putArgRegNode);
+                regNumber argReg = argInfo->GetRegNum(regIndex);
+                regNumber srcReg = genConsumeReg(node);
 
-                if (putArgRegNode->GetRegNum() != argReg)
+                if (srcReg != argReg)
                 {
-                    inst_RV_RV(ins_Move_Extend(putArgRegNode->TypeGet(), true), argReg, putArgRegNode->GetRegNum());
+                    // TODO-MIKE-Review: Huh, this was using inst_RV_RV with type = TYP_I_IMPL. Potential GC hole?
+                    GetEmitter()->emitIns_R_R(ins_Move_Extend(node->GetType(), true), EA_PTRSIZE, argReg, srcReg);
                 }
 
-                argReg = genRegArgNext(argReg);
-
-#if defined(TARGET_ARM)
-                // A double register is modelled as an even-numbered single one
-                if (putArgRegNode->TypeGet() == TYP_DOUBLE)
-                {
-                    argReg = genRegArgNext(argReg);
-                }
-#endif // TARGET_ARM
+                regIndex++;
             }
+
+            continue;
         }
+
 #if FEATURE_ARG_SPLIT
-        else if (curArgTabEntry->IsSplit())
+        if (argNode->OperIs(GT_PUTARG_SPLIT))
         {
-            assert(curArgTabEntry->numRegs >= 1);
+            assert((argInfo->GetRegCount() >= 1) && (argInfo->GetSlotCount() >= 1));
+
             genConsumeArgSplitStruct(argNode->AsPutArgSplit());
-            for (unsigned idx = 0; idx < curArgTabEntry->numRegs; idx++)
+
+            for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
             {
-                regNumber argReg   = (regNumber)((unsigned)curArgTabEntry->GetRegNum() + idx);
-                regNumber allocReg = argNode->AsPutArgSplit()->GetRegNumByIdx(idx);
-                if (argReg != allocReg)
+                regNumber argReg = argInfo->GetRegNum(i);
+                regNumber srcReg = argNode->AsPutArgSplit()->GetRegNumByIdx(i);
+
+                if (srcReg != argReg)
                 {
-                    inst_RV_RV(ins_Move_Extend(argNode->TypeGet(), true), argReg, allocReg);
+                    // TODO-MIKE-Review: Huh, this was using inst_RV_RV type = TYP_I_IMPL. Potential GC hole?
+                    GetEmitter()->emitIns_R_R(ins_Move_Extend(argNode->GetType(), true), EA_PTRSIZE, argReg, srcReg);
                 }
             }
+
+            continue;
         }
-#endif // FEATURE_ARG_SPLIT
-        else
+#endif
+
+        regNumber argReg = argInfo->GetRegNum();
+        regNumber srcReg = genConsumeReg(argNode);
+
+        if (srcReg != argReg)
         {
-            regNumber argReg = curArgTabEntry->GetRegNum();
-            genConsumeReg(argNode);
-            if (argNode->GetRegNum() != argReg)
-            {
-                inst_RV_RV(ins_Move_Extend(argNode->TypeGet(), true), argReg, argNode->GetRegNum());
-            }
+            // TODO-MIKE-Review: Huh, this was using inst_RV_RV type = TYP_I_IMPL. Potential GC hole?
+            GetEmitter()->emitIns_R_R(ins_Move_Extend(argNode->GetType(), true), EA_PTRSIZE, argReg, srcReg);
         }
     }
 

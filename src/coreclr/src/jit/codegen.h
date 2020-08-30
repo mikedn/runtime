@@ -967,7 +967,7 @@ protected:
     void genCodeForCompare(GenTreeOp* tree);
     void genIntrinsic(GenTree* treeNode);
     void genPutArgStk(GenTreePutArgStk* treeNode);
-    void genPutArgReg(GenTreeOp* tree);
+    void genPutArgReg(GenTreeUnOp* putArg);
 #if FEATURE_ARG_SPLIT
     void genPutArgSplit(GenTreePutArgSplit* treeNode);
 #endif // FEATURE_ARG_SPLIT

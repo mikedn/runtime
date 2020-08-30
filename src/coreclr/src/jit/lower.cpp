@@ -1118,12 +1118,10 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
         for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
         {
             regNumber argReg = info->GetRegNum(regIndex);
-            GenTree*  curOp  = use.GetNode();
-            var_types curTyp = curOp->TypeGet();
-
-            GenTree* newOper = NewPutArgReg(curTyp, curOp, argReg);
-            use.SetNode(newOper);
-            BlockRange().InsertAfter(curOp, newOper);
+            GenTree*  node   = use.GetNode();
+            GenTree*  putArg = NewPutArgReg(node->GetType(), node, argReg);
+            use.SetNode(putArg);
+            BlockRange().InsertAfter(node, putArg);
             regIndex++;
         }
 
