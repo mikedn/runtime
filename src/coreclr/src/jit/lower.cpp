@@ -1121,7 +1121,7 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
             GenTree*  curOp  = use.GetNode();
             var_types curTyp = curOp->TypeGet();
 
-            GenTree* newOper = comp->gtNewPutArgReg(curTyp, curOp, argReg);
+            GenTree* newOper = NewPutArgReg(curTyp, curOp, argReg);
             use.SetNode(newOper);
             BlockRange().InsertAfter(curOp, newOper);
             regIndex++;
@@ -1135,11 +1135,31 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
 
     if (info->GetRegCount() != 0)
     {
-        return comp->gtNewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
+        return NewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
     }
 
     return new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg, info->GetSlotNum(),
                                                       info->GetSlotCount(), call->IsFastTailCall(), call);
+}
+
+GenTree* Lowering::NewPutArgReg(var_types type, GenTree* arg, regNumber argReg)
+{
+    assert(arg != nullptr);
+
+    GenTree* node = nullptr;
+#if defined(TARGET_ARM)
+    // A PUTARG_REG could be a MultiRegOp on arm since we could move a double register to two int registers.
+    node = new (comp, GT_PUTARG_REG) GenTreeMultiRegOp(GT_PUTARG_REG, type, arg, nullptr);
+    if (type == TYP_LONG)
+    {
+        node->AsMultiRegOp()->gtOtherReg = REG_NEXT(argReg);
+    }
+#else
+    node = comp->gtNewOperNode(GT_PUTARG_REG, type, arg);
+#endif
+    node->SetRegNum(argReg);
+
+    return node;
 }
 
 void Lowering::LowerCallArgs(GenTreeCall* call)

@@ -2396,8 +2396,6 @@ public:
 
     GenTree* gtNewBlkOpNode(GenTree* dst, GenTree* srcOrFillVal, bool isVolatile, bool isCopyBlock);
 
-    GenTree* gtNewPutArgReg(var_types type, GenTree* arg, regNumber argReg);
-
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
 protected:
