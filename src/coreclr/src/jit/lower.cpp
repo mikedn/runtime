@@ -1133,10 +1133,20 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
         }
 
         return arg;
-#else  //  !FEATURE_MULTIREG_ARGS
+#else
         unreached();
-#endif // !FEATURE_MULTIREG_ARGS
+#endif
     }
+
+#ifdef TARGET_ARMARCH
+    if (varTypeIsFloating(arg->GetType()) && genIsValidIntReg(info->GetRegNum()))
+    {
+        GenTree* bitcast = LowerFloatCallArgReg(arg, info->GetRegNum());
+        BlockRange().InsertAfter(arg, bitcast);
+        info->SetNode(bitcast);
+        arg = bitcast;
+    }
+#endif
 
 #ifdef TARGET_ARM
     assert(info->GetRegCount() == (arg->TypeIs(TYP_LONG) ? 2u : 1u));
@@ -1150,22 +1160,41 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
     return putArgReg;
 }
 
+#ifdef TARGET_ARMARCH
+
+GenTree* Lowering::LowerFloatCallArgReg(GenTree* arg, regNumber argReg)
+{
+    assert(varTypeIsFloating(arg->GetType()));
+
+    var_types intType = arg->TypeIs(TYP_DOUBLE) ? TYP_LONG : TYP_INT;
+    GenTree*  intArg  = comp->gtNewBitCastNode(intType, arg);
+    intArg->SetRegNum(argReg);
+#ifdef TARGET_ARM
+    if (arg->TypeIs(TYP_DOUBLE))
+    {
+        intArg->AsMultiRegOp()->gtOtherReg = REG_NEXT(argReg);
+    }
+#endif
+    return intArg;
+}
+
+#endif // TARGET_ARMARCH
+
 GenTree* Lowering::NewPutArgReg(var_types type, GenTree* arg, regNumber argReg)
 {
-    GenTree* node = nullptr;
-#if defined(TARGET_ARM)
-    // A PUTARG_REG could be a MultiRegOp on arm since we could move a double register to two int registers.
-    node = new (comp, GT_PUTARG_REG) GenTreeMultiRegOp(GT_PUTARG_REG, type, arg, nullptr);
+    assert(varTypeUsesFloatReg(type) == genIsValidFloatReg(argReg));
+
+#ifdef TARGET_ARM
+    GenTreeMultiRegOp* putArg = new (comp, GT_PUTARG_REG) GenTreeMultiRegOp(GT_PUTARG_REG, type, arg, nullptr);
     if (type == TYP_LONG)
     {
-        node->AsMultiRegOp()->gtOtherReg = REG_NEXT(argReg);
+        putArg->gtOtherReg = REG_NEXT(argReg);
     }
 #else
-    node = comp->gtNewOperNode(GT_PUTARG_REG, type, arg);
+    GenTree* putArg = comp->gtNewOperNode(GT_PUTARG_REG, type, arg);
 #endif
-    node->SetRegNum(argReg);
-
-    return node;
+    putArg->SetRegNum(argReg);
+    return putArg;
 }
 
 void Lowering::LowerCallArgs(GenTreeCall* call)
@@ -1229,19 +1258,6 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     }
 #endif // !defined(TARGET_64BIT)
 
-#if defined(TARGET_ARMARCH)
-    if (call->IsVarargs() || comp->opts.compUseSoftFP)
-    {
-        // For vararg call or on armel, reg args should be all integer.
-        // Insert copies as needed to move float value to integer register.
-        GenTree* newArg = LowerFloatCallArg(argInfo);
-        if (newArg != nullptr)
-        {
-            arg = newArg;
-        }
-    }
-#endif // TARGET_ARMARCH
-
     if (arg->OperIs(GT_OBJ))
     {
         assert(arg->TypeIs(TYP_STRUCT));
@@ -1287,85 +1303,6 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
 
     InsertPutArg(call, argInfo);
 }
-
-#ifdef TARGET_ARMARCH
-//------------------------------------------------------------------------
-// LowerFloatArg: Lower float call arguments on the arm platform.
-//
-// Arguments:
-//    argInfo - call argument info
-//
-// Return Value:
-//    If the argument is floating point then this returns a new BITCAST node
-//    that converts the argument to INT/LONG. Otherwise it returns nullptr.
-//
-// Notes:
-//    This must handle scalar float arguments as well as GT_FIELD_LISTs
-//    with floating point fields.
-//
-GenTree* Lowering::LowerFloatCallArg(CallArgInfo* argInfo)
-{
-    GenTree* arg = argInfo->GetNode();
-
-    if (argInfo->GetRegCount() == 0)
-    {
-        return nullptr;
-    }
-
-    if (arg->OperIs(GT_FIELD_LIST))
-    {
-        unsigned regIndex = 0;
-        for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
-        {
-            if (regIndex >= argInfo->GetRegCount())
-            {
-                break;
-            }
-
-            assert(!varTypeIsFloating(use.GetNode()->GetType()));
-            regIndex++;
-        }
-
-        return nullptr;
-    }
-
-    if (varTypeIsFloating(arg->GetType()))
-    {
-        GenTree* intNode = LowerFloatCallArgReg(arg, argInfo->GetRegNum());
-        argInfo->SetNode(intNode);
-        BlockRange().InsertAfter(arg, intNode);
-        return intNode;
-    }
-
-    return nullptr;
-}
-
-//------------------------------------------------------------------------
-// LowerFloatArgReg: Lower the float call argument node that is passed via register.
-//
-// Arguments:
-//    arg    - The arg node
-//    argReg - register number
-//
-// Return Value:
-//    Return new bitcast node, that moves float to int register.
-//
-GenTree* Lowering::LowerFloatCallArgReg(GenTree* arg, regNumber argReg)
-{
-    assert(varTypeIsFloating(arg->GetType()));
-
-    var_types intType = arg->TypeIs(TYP_DOUBLE) ? TYP_LONG : TYP_INT;
-    GenTree*  intArg  = comp->gtNewBitCastNode(intType, arg);
-    intArg->SetRegNum(argReg);
-#ifdef TARGET_ARM
-    if (arg->TypeIs(TYP_DOUBLE))
-    {
-        intArg->AsMultiRegOp()->gtOtherReg = REG_NEXT(argReg);
-    }
-#endif
-    return intArg;
-}
-#endif // TARGET_ARMARCH
 
 // helper that create a node representing a relocatable physical address computation
 GenTree* Lowering::AddrGen(ssize_t addr)

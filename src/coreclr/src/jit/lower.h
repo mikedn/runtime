@@ -160,7 +160,6 @@ private:
     GenTree* NewPutArgReg(var_types type, GenTree* arg, regNumber argReg);
     void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);
 #ifdef TARGET_ARMARCH
-    GenTree* LowerFloatCallArg(CallArgInfo* argInfo);
     GenTree* LowerFloatCallArgReg(GenTree* arg, regNumber argReg);
 #endif
 
