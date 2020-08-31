@@ -1226,6 +1226,29 @@ int LinearScan::BuildCall(GenTreeCall* call)
     return srcCount;
 }
 
+#if FEATURE_VARARG
+bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
+{
+    assert(call->IsVarargs());
+
+    if (varTypeIsFloating(argNode->GetType()))
+    {
+        // For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
+        // the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
+        // to pass an integer argument at the same position.
+
+        regNumber argReg    = argNode->GetRegNum();
+        regNumber argIntReg = compiler->getCallArgIntRegister(argReg);
+
+        buildInternalIntRegisterDefForNode(call, genRegMask(argIntReg));
+
+        return true;
+    }
+
+    return false;
+}
+#endif
+
 //------------------------------------------------------------------------
 // BuildBlockStore: Build the RefPositions for a block store node.
 //

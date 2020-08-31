@@ -1552,7 +1552,9 @@ private:
     int BuildDelayFreeUses(GenTree* node, regMaskTP candidates = RBM_NONE);
     int BuildIndirUses(GenTreeIndir* indirTree, regMaskTP candidates = RBM_NONE);
     int BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
+#if defined(TARGET_XARCH) && FEATURE_VARARG
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
+#endif
     RefPosition* BuildDef(GenTree* tree, regMaskTP dstCandidates = RBM_NONE, int multiRegIdx = 0);
     void BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates = RBM_NONE);
     void BuildDefsWithKills(GenTree* tree, int dstCount, regMaskTP dstCandidates, regMaskTP killMask);

@@ -240,10 +240,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
         dstCandidates = RBM_INTRET;
     }
 
-#if FEATURE_VARARG
-    bool varargsHasFloatRegArgs = false;
-#endif
-
     for (GenTreeCall::Use& arg : call->LateArgs())
     {
         GenTree* argNode = arg.GetNode();
@@ -297,13 +293,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
         assert(argNode->OperIs(GT_PUTARG_REG));
         assert(argNode->GetRegNum() == argInfo->GetRegNum());
 
-#if FEATURE_VARARG
-        if (call->IsVarargs())
-        {
-            varargsHasFloatRegArgs |= HandleFloatVarArgs(call, argNode);
-        }
-#endif
-
 #ifdef TARGET_ARM
         if (argNode->TypeIs(TYP_LONG))
         {
@@ -356,23 +345,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
 
     if (ctrlExpr != nullptr)
     {
-        regMaskTP ctrlExprCandidates = RBM_NONE;
-
-#if FEATURE_VARARG
-        // If it is a fast tail call, it is already preferenced to use IP0.
-        // Therefore, no need set src candidates on call tgt again.
-        if (varargsHasFloatRegArgs && !call->IsFastTailCall())
-        {
-            NYI_ARM("float reg varargs");
-
-            // Don't assign the call target to any of the argument registers because
-            // we will use them to also pass floating point arguments as required
-            // by Arm64 ABI.
-            ctrlExprCandidates = allRegs(TYP_INT) & ~RBM_ARG_REGS;
-        }
-#endif
-
-        BuildUse(ctrlExpr, ctrlExprCandidates);
+        BuildUse(ctrlExpr);
         srcCount++;
     }
 

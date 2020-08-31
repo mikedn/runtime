@@ -3679,29 +3679,6 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
     return srcCount;
 }
 
-bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
-{
-    assert(call->IsVarargs());
-
-#if FEATURE_VARARG
-    if (varTypeIsFloating(argNode->GetType()))
-    {
-        // For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
-        // the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
-        // to pass an integer argument at the same position.
-
-        regNumber argReg    = argNode->GetRegNum();
-        regNumber argIntReg = compiler->getCallArgIntRegister(argReg);
-
-        buildInternalIntRegisterDefForNode(call, genRegMask(argIntReg));
-
-        return true;
-    }
-#endif
-
-    return false;
-}
-
 //------------------------------------------------------------------------
 // BuildGCWriteBarrier: Handle additional register requirements for a GC write barrier
 //
