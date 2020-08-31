@@ -966,12 +966,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 }
 
 #if FEATURE_ARG_SPLIT
-//---------------------------------------------------------------------
-// genPutArgSplit - generate code for a GT_PUTARG_SPLIT node
-//
-// Arguments
-//    putArg - the GT_PUTARG_SPLIT node
-//
+
 void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 {
     const unsigned outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
@@ -980,194 +975,174 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
     GenTree* src = putArg->GetOp(0);
 
+    assert(src->TypeIs(TYP_STRUCT));
+    assert(src->isContained());
+
     if (src->OperIs(GT_FIELD_LIST))
     {
-        // Evaluate each of the GT_FIELD_LIST items into their register
-        // and store their register into the outgoing argument area
-        unsigned regIndex  = 0;
         unsigned dstOffset = outArgLclOffs;
+        unsigned regIndex  = 0;
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
-            GenTree*  nextArgNode = use.GetNode();
-            regNumber fieldReg    = nextArgNode->GetRegNum();
-            genConsumeReg(nextArgNode);
+            GenTree*  fieldNode = use.GetNode();
+            regNumber fieldReg  = genConsumeReg(fieldNode);
 
             if (regIndex >= putArg->GetRegCount())
             {
-                var_types type = nextArgNode->TypeGet();
+                var_types type = fieldNode->GetType();
                 emitAttr  attr = emitTypeSize(type);
 
                 GetEmitter()->emitIns_S_R(ins_Store(type), attr, fieldReg, outArgLclNum, dstOffset);
                 dstOffset += EA_SIZE_IN_BYTES(attr);
-                assert(dstOffset <= outArgLclSize); // We can't write beyound the outgoing area area
-            }
-            else
-            {
-                var_types type   = putArg->GetRegType(regIndex);
-                regNumber argReg = putArg->GetRegNumByIdx(regIndex);
-#ifdef TARGET_ARM
-                if (type == TYP_LONG)
-                {
-                    // We should only see long fields for DOUBLEs passed in 2 integer registers, via bitcast.
-                    // All other LONGs should have been decomposed.
-                    // Handle the first INT, and then handle the 2nd below.
-                    assert(nextArgNode->OperIs(GT_BITCAST));
-                    type = TYP_INT;
-                    if (argReg != fieldReg)
-                    {
-                        inst_RV_RV(ins_Copy(type), argReg, fieldReg, type);
-                    }
-                    // Now set up the next register for the 2nd INT
-                    argReg = REG_NEXT(argReg);
-                    regIndex++;
-                    assert(argReg == putArg->GetRegNumByIdx(regIndex));
-                    fieldReg = nextArgNode->AsMultiRegOp()->GetRegNumByIdx(1);
-                }
-#endif // TARGET_ARM
+                assert(dstOffset <= outArgLclSize); // We can't write beyond the outgoing area area
 
-                // If child node is not already in the register we need, move it
-                if (argReg != fieldReg)
-                {
-                    inst_RV_RV(ins_Copy(type), argReg, fieldReg, type);
-                }
-                regIndex++;
+                continue;
             }
+
+            var_types type   = putArg->GetRegType(regIndex);
+            regNumber argReg = putArg->GetRegNumByIdx(regIndex);
+
+            if (argReg != fieldReg)
+            {
+                GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, fieldReg);
+            }
+
+            regIndex++;
         }
+
+        genProduceReg(putArg);
+        return;
+    }
+
+    ClassLayout* srcLayout;
+    unsigned     srcLclNum      = BAD_VAR_NUM;
+    regNumber    srcAddrBaseReg = REG_NA;
+    int          srcOffset      = 0;
+
+    if (src->OperIs(GT_LCL_VAR))
+    {
+        srcLclNum = src->AsLclVar()->GetLclNum();
+        srcLayout = compiler->lvaGetDesc(srcLclNum)->GetLayout();
+    }
+    else if (src->OperIs(GT_LCL_FLD))
+    {
+        srcLclNum = src->AsLclFld()->GetLclNum();
+        srcOffset = src->AsLclFld()->GetLclOffs();
+        srcLayout = src->AsLclFld()->GetLayout(compiler);
     }
     else
     {
-        assert(src->TypeIs(TYP_STRUCT));
+        GenTree* srcAddr = src->AsObj()->GetAddr();
 
-        ClassLayout* srcLayout;
-        unsigned     srcLclNum      = BAD_VAR_NUM;
-        regNumber    srcAddrBaseReg = REG_NA;
-        int          srcOffset      = 0;
-
-        if (src->OperIs(GT_LCL_VAR))
+        if (!srcAddr->isContained())
         {
-            srcLclNum = src->AsLclVar()->GetLclNum();
-            srcLayout = compiler->lvaGetDesc(srcLclNum)->GetLayout();
-        }
-        else if (src->OperIs(GT_LCL_FLD))
-        {
-            srcLclNum = src->AsLclFld()->GetLclNum();
-            srcOffset = src->AsLclFld()->GetLclOffs();
-            srcLayout = src->AsLclFld()->GetLayout(compiler);
+            srcAddrBaseReg = genConsumeReg(srcAddr);
         }
         else
         {
-            GenTree* srcAddr = src->AsObj()->GetAddr();
-
-            if (!srcAddr->isContained())
-            {
-                srcAddrBaseReg = genConsumeReg(srcAddr);
-            }
-            else
-            {
-                srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
-                assert(!srcAddr->AsAddrMode()->HasIndex());
-                srcOffset = srcAddr->AsAddrMode()->Offset();
-            }
-
-            srcLayout = src->AsObj()->GetLayout();
+            srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
+            assert(!srcAddr->AsAddrMode()->HasIndex());
+            srcOffset = srcAddr->AsAddrMode()->Offset();
         }
 
-        unsigned offset    = 0;
-        unsigned dstOffset = outArgLclOffs;
-        unsigned size      = srcLayout->GetSize();
+        srcLayout = src->AsObj()->GetLayout();
+    }
+
+    unsigned offset    = 0;
+    unsigned dstOffset = outArgLclOffs;
+    unsigned size      = srcLayout->GetSize();
+
+    if (srcLclNum != BAD_VAR_NUM)
+    {
+        size = roundUp(size, REGSIZE_BYTES);
+    }
+
+    // Skip the part that will be loaded in registers.
+    offset += putArg->GetRegCount() * REGSIZE_BYTES;
+    size -= putArg->GetRegCount() * REGSIZE_BYTES;
+
+    regNumber tempReg = putArg->ExtractTempReg();
+    assert(tempReg != srcAddrBaseReg);
+
+    for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize, dstOffset += regSize)
+    {
+        while (regSize > size)
+        {
+            regSize /= 2;
+        }
+
+        instruction loadIns;
+        instruction storeIns;
+        emitAttr    attr;
+
+        switch (regSize)
+        {
+            case 1:
+                loadIns  = INS_ldrb;
+                storeIns = INS_strb;
+                attr     = EA_4BYTE;
+                break;
+            case 2:
+                loadIns  = INS_ldrh;
+                storeIns = INS_strh;
+                attr     = EA_4BYTE;
+                break;
+#ifdef TARGET_ARM64
+            case 4:
+                loadIns  = INS_ldr;
+                storeIns = INS_str;
+                attr     = EA_4BYTE;
+                break;
+#endif // TARGET_ARM64
+            default:
+                assert(regSize == REGSIZE_BYTES);
+                loadIns  = INS_ldr;
+                storeIns = INS_str;
+                attr     = emitTypeSize(srcLayout->GetGCPtrType(offset / REGSIZE_BYTES));
+        }
 
         if (srcLclNum != BAD_VAR_NUM)
         {
-            size = roundUp(size, REGSIZE_BYTES);
+            GetEmitter()->emitIns_R_S(loadIns, attr, tempReg, srcLclNum, srcOffset + offset);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
         }
 
-        // Skip the part that will be loaded in registers.
-        offset += putArg->GetRegCount() * REGSIZE_BYTES;
-        size -= putArg->GetRegCount() * REGSIZE_BYTES;
+        // We can't write beyound the outgoing area area
+        assert(dstOffset + regSize <= outArgLclSize);
 
-        regNumber tempReg = putArg->ExtractTempReg();
-        assert(tempReg != srcAddrBaseReg);
+        GetEmitter()->emitIns_S_R(storeIns, attr, tempReg, outArgLclNum, dstOffset);
+    }
 
-        for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize, dstOffset += regSize)
+    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
+    {
+        unsigned  offset   = srcOffset + i * REGSIZE_BYTES;
+        regNumber dstReg   = putArg->GetRegNumByIdx(i);
+        emitAttr  slotAttr = emitTypeSize(putArg->GetRegType(i));
+
+        if (srcLclNum != BAD_VAR_NUM)
         {
-            while (regSize > size)
-            {
-                regSize /= 2;
-            }
-
-            instruction loadIns;
-            instruction storeIns;
-            emitAttr    attr;
-
-            switch (regSize)
-            {
-                case 1:
-                    loadIns  = INS_ldrb;
-                    storeIns = INS_strb;
-                    attr     = EA_4BYTE;
-                    break;
-                case 2:
-                    loadIns  = INS_ldrh;
-                    storeIns = INS_strh;
-                    attr     = EA_4BYTE;
-                    break;
-#ifdef TARGET_ARM64
-                case 4:
-                    loadIns  = INS_ldr;
-                    storeIns = INS_str;
-                    attr     = EA_4BYTE;
-                    break;
-#endif // TARGET_ARM64
-                default:
-                    assert(regSize == REGSIZE_BYTES);
-                    loadIns  = INS_ldr;
-                    storeIns = INS_str;
-                    attr     = emitTypeSize(srcLayout->GetGCPtrType(offset / REGSIZE_BYTES));
-            }
-
-            if (srcLclNum != BAD_VAR_NUM)
-            {
-                GetEmitter()->emitIns_R_S(loadIns, attr, tempReg, srcLclNum, srcOffset + offset);
-            }
-            else
-            {
-                GetEmitter()->emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
-            }
-
-            // We can't write beyound the outgoing area area
-            assert(dstOffset + regSize <= outArgLclSize);
-
-            GetEmitter()->emitIns_S_R(storeIns, attr, tempReg, outArgLclNum, dstOffset);
+            GetEmitter()->emitIns_R_S(INS_ldr, slotAttr, dstReg, srcLclNum, offset);
         }
-
-        for (unsigned i = 0; i < putArg->GetRegCount(); i++)
+        else
         {
-            unsigned  offset   = srcOffset + i * REGSIZE_BYTES;
-            regNumber dstReg   = putArg->GetRegNumByIdx(i);
-            emitAttr  slotAttr = emitTypeSize(putArg->GetRegType(i));
+            // If the source address register is the same as one of the destination registers then
+            // copy the address to the temp register (which is always allocated and different from
+            // all destination registers) and continue using the temp register as source address.
 
-            if (srcLclNum != BAD_VAR_NUM)
+            if ((dstReg == srcAddrBaseReg) && (i != putArg->GetRegCount() - 1))
             {
-                GetEmitter()->emitIns_R_S(INS_ldr, slotAttr, dstReg, srcLclNum, offset);
+                assert(dstReg != tempReg);
+
+                emitAttr srcAddrAttr =
+                    src->OperIs(GT_OBJ) ? emitTypeSize(src->AsObj()->GetAddr()->GetType()) : EA_PTRSIZE;
+                GetEmitter()->emitIns_R_R(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg);
+                srcAddrBaseReg = tempReg;
             }
-            else
-            {
-                // If the source address register is the same as one of the destination registers then
-                // copy the address to the temp register (which is always allocated and different from
-                // all destination registers) and continue using the temp register as source address.
 
-                if ((dstReg == srcAddrBaseReg) && (i != putArg->GetRegCount() - 1))
-                {
-                    assert(dstReg != tempReg);
-
-                    emitAttr srcAddrAttr =
-                        src->OperIs(GT_OBJ) ? emitTypeSize(src->AsObj()->GetAddr()->GetType()) : EA_PTRSIZE;
-                    GetEmitter()->emitIns_R_R(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg);
-                    srcAddrBaseReg = tempReg;
-                }
-
-                GetEmitter()->emitIns_R_R_I(INS_ldr, slotAttr, dstReg, srcAddrBaseReg, offset);
-            }
+            GetEmitter()->emitIns_R_R_I(INS_ldr, slotAttr, dstReg, srcAddrBaseReg, offset);
         }
     }
 

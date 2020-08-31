@@ -276,8 +276,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
         {
             unsigned regCount = argNode->AsPutArgSplit()->GetRegCount();
 
-            assert(regCount == argInfo->GetRegCount());
-
             for (unsigned int i = 0; i < regCount; i++)
             {
                 assert(argNode->AsPutArgSplit()->GetRegNumByIdx(i) == argInfo->GetRegNum(i));
@@ -421,65 +419,49 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 //
 int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
-    GenTree* src = putArg->GetOp(0);
-    assert(src->isContained());
+    CallArgInfo* argInfo    = putArg->GetArgInfo();
+    regMaskTP    argRegMask = RBM_NONE;
 
-    regMaskTP argRegMask = RBM_NONE;
-
-    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
+    for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
     {
-        regNumber argRegNum = (regNumber)((unsigned)putArg->GetRegNum() + i);
-        argRegMask |= genRegMask(argRegNum);
-        putArg->SetRegNumByIdx(argRegNum, i);
+        argRegMask |= genRegMask(argInfo->GetRegNum(i));
     }
+
+    GenTree* src      = putArg->GetOp(0);
+    unsigned srcCount = 0;
+
+    assert(src->TypeIs(TYP_STRUCT));
+    assert(src->isContained());
 
     if (src->OperIs(GT_FIELD_LIST))
     {
-        assert(src->isContained());
-
-        unsigned sourceRegCount = 0;
-
+        unsigned regIndex = 0;
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
-            GenTree* node = use.GetNode();
-            assert(!node->isContained());
-            // The only multi-reg nodes we should see are OperIsMultiRegOp()
-            unsigned currentRegCount;
-#ifdef TARGET_ARM
-            if (node->OperIsMultiRegOp())
+            regMaskTP regMask = RBM_NONE;
+            if (regIndex < argInfo->GetRegCount())
             {
-                currentRegCount = node->AsMultiRegOp()->GetRegCount();
+                regMask = genRegMask(argInfo->GetRegNum(regIndex));
             }
-            else
-#endif // TARGET_ARM
-            {
-                assert(!node->IsMultiRegNode());
-                currentRegCount = 1;
-            }
-            // Consume all the registers, setting the appropriate register mask for the ones that
-            // go into registers.
-            for (unsigned regIndex = 0; regIndex < currentRegCount; regIndex++)
-            {
-                regMaskTP sourceMask = RBM_NONE;
-                if (sourceRegCount < putArg->GetRegCount())
-                {
-                    sourceMask = genRegMask((regNumber)((unsigned)putArg->GetRegNum() + sourceRegCount));
-                }
-                sourceRegCount++;
-                BuildUse(node, sourceMask, regIndex);
-            }
+
+            BuildUse(use.GetNode(), regMask);
+            srcCount++;
+            regIndex++;
+        }
+    }
+    else
+    {
+        buildInternalIntRegisterDefForNode(putArg, allRegs(TYP_INT) & ~argRegMask);
+
+        if (src->OperIs(GT_OBJ))
+        {
+            srcCount += BuildAddrUses(src->AsObj()->GetAddr());
         }
 
-        BuildDefs(putArg, putArg->GetRegCount(), argRegMask);
-        return sourceRegCount;
+        buildInternalRegisterUses();
     }
 
-    assert(src->TypeIs(TYP_STRUCT));
-
-    buildInternalIntRegisterDefForNode(putArg, allRegs(TYP_INT) & ~argRegMask);
-    int srcCount = src->OperIs(GT_OBJ) ? BuildAddrUses(src->AsObj()->GetAddr()) : 0;
-    buildInternalRegisterUses();
-    BuildDefs(putArg, putArg->GetRegCount(), argRegMask);
+    BuildDefs(putArg, argInfo->GetRegCount(), argRegMask);
     return srcCount;
 }
 #endif // FEATURE_ARG_SPLIT

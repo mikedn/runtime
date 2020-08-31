@@ -1064,6 +1064,19 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
         for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
         {
             putArgSplit->SetRegNumByIdx(info->GetRegNum(regIndex), regIndex);
+
+            // We don't have GC info in CallArgInfo on ARMARCH (the only user of split args)
+            // and only integer registers are used. We'll just set everyting to TYP_I_IMPL
+            // here and then update with correct GC types takend from layout or field list.
+            //
+            // TODO-MIKE-Cleanup: Might be better to just put the correct GC types in
+            // CallArgInfo to simplify this and be consistent with UNIX_AMD64_ABI.
+            // fgInitArgInfo would only need to take the GC info from the struct layout,
+            // it doesn't need to deal with FIELD_LIST.
+
+            assert(info->GetRegType(regIndex) == TYP_I_IMPL);
+
+            putArgSplit->SetRegType(regIndex, TYP_I_IMPL);
         }
 
         if (arg->OperIs(GT_FIELD_LIST))
@@ -1071,22 +1084,20 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
             unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
             {
+                var_types regType = use.GetNode()->GetType();
+
+                if (varTypeIsGC(regType))
+                {
+                    putArgSplit->SetRegType(regIndex, regType);
+                }
+
+                regIndex++;
+
                 if (regIndex >= info->GetRegCount())
                 {
                     break;
                 }
-                var_types regType = use.GetNode()->TypeGet();
-                // Account for the possibility that float fields may be passed in integer registers.
-                if (varTypeIsFloating(regType) && !genIsValidFloatReg(putArgSplit->GetRegNumByIdx(regIndex)))
-                {
-                    regType = (regType == TYP_FLOAT) ? TYP_INT : TYP_LONG;
-                }
-                putArgSplit->SetRegType(regIndex, regType);
-                regIndex++;
             }
-
-            // Clear the register assignment on the fieldList node, as these are contained.
-            arg->SetRegNum(REG_NA);
         }
         else
         {
@@ -1105,9 +1116,15 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
                 layout = arg->AsObj()->GetLayout();
             }
 
-            for (unsigned index = 0; index < info->GetRegCount(); index++)
+            if (layout->HasGCPtr())
             {
-                putArgSplit->SetRegType(index, layout->GetGCPtrType(index));
+                for (unsigned index = 0; index < info->GetRegCount(); index++)
+                {
+                    if (layout->IsGCPtr(index))
+                    {
+                        putArgSplit->SetRegType(index, layout->GetGCPtrType(index));
+                    }
+                }
             }
         }
 
