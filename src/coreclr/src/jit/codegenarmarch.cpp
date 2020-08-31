@@ -667,10 +667,10 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
     unsigned outArgLclNum;
     unsigned outArgLclSize;
 
-    if (putArg->putInIncomingArgArea())
+    if (putArg->PutInIncomingArgArea())
     {
 #if FEATURE_FASTTAILCALL
-        assert(putArg->gtCall->IsFastTailCall());
+        assert(putArg->GetCall()->IsFastTailCall());
 #endif
         // Fast tail calls implemented as epilog+jmp - stack arg is setup in incoming arg area.
         outArgLclNum  = getFirstArgWithStackSlot();
@@ -683,8 +683,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
         outArgLclSize = compiler->lvaOutgoingArgSpaceSize;
     }
 
-    unsigned outArgLclOffs = putArg->getArgOffset();
-    assert(outArgLclOffs == (putArg->gtCall->GetArgInfoByArgNode(putArg)->GetSlotNum() * TARGET_POINTER_SIZE));
+    unsigned outArgLclOffs = putArg->GetSlotOffset();
 
     GenTree*  src     = putArg->GetOp(0);
     var_types srcType = varActualType(src->GetType());
@@ -977,7 +976,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 {
     const unsigned outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
     const unsigned outArgLclSize = compiler->lvaOutgoingArgSpaceSize;
-    const unsigned outArgLclOffs = putArg->getArgOffset();
+    const unsigned outArgLclOffs = putArg->GetSlotOffset();
 
     GenTree* src = putArg->GetOp(0);
 

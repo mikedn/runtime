@@ -1479,7 +1479,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         RefPosition* simdTemp = nullptr;
         RefPosition* intTemp  = nullptr;
 #ifdef TARGET_X86
-        unsigned prevOffset = putArgStk->getArgSize();
+        unsigned prevOffset = putArgStk->GetArgSize();
 #endif
 
         // We need to iterate over the fields twice; once to determine the need for internal temps,
@@ -1545,7 +1545,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
-    if (putArgStk->isSIMD12())
+    if (putArgStk->IsSIMD12())
     {
         buildInternalFloatRegisterDefForNode(putArgStk, internalFloatRegCandidates());
         BuildUse(src);

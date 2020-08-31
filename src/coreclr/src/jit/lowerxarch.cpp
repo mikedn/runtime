@@ -431,7 +431,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
         // Now that the fields have been sorted, the kind of code we will generate.
         bool     allFieldsAreSlots = true;
-        unsigned prevOffset        = putArgStk->getArgSize();
+        unsigned prevOffset        = putArgStk->GetArgSize();
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* const  fieldNode   = use.GetNode();

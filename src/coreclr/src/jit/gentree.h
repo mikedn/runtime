@@ -6920,18 +6920,21 @@ struct GenTreePhiArg : public GenTreeLclVarCommon
 #endif
 };
 
-/* gtPutArgStk -- Argument passed on stack (GT_PUTARG_STK) */
+// Argument passed on stack (GT_PUTARG_STK)
 
 struct GenTreePutArgStk : public GenTreeUnOp
 {
-#if defined(DEBUG) || defined(UNIX_X86_ABI)
-    GenTreeCall* gtCall; // the call node to which this argument belongs
-#endif
-
 private:
-    unsigned m_slotNum; // Slot number of the argument to be passed on stack
-#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
-    unsigned m_slotCount; // Number of slots for the argument to be passed on stack
+    CallArgInfo* m_argInfo;
+#if defined(DEBUG) || defined(UNIX_X86_ABI)
+    GenTreeCall* m_call; // the call node to which this argument belongs
+#endif
+#if FEATURE_FASTTAILCALL
+private:
+    bool m_putInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
+                                 // By default this is false and will be placed in out-going arg area.
+                                 // Fast tail calls set this to true.
+                                 // In future if we need to add more such bool fields consider bit fields.
 #endif
 
 public:
@@ -6958,28 +6961,19 @@ public:
 
     Kind gtPutArgStkKind;
 #endif // TARGET_XARCH
-#if FEATURE_FASTTAILCALL
-    bool gtPutInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
-                                 // By default this is false and will be placed in out-going arg area.
-                                 // Fast tail calls set this to true.
-                                 // In future if we need to add more such bool fields consider bit fields.
-#endif
 
     // clang-format off
     GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call, genTreeOps oper = GT_PUTARG_STK)
         : GenTreeUnOp(oper, TYP_VOID, arg)
+        , m_argInfo(argInfo)
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
-        , gtCall(call)
+        , m_call(call)
 #endif
-        , m_slotNum(argInfo->GetSlotNum())
-#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
-        , m_slotCount(argInfo->GetSlotCount())
+#if FEATURE_FASTTAILCALL
+        , m_putInIncomingArgArea(call->IsFastTailCall())
 #endif
 #ifdef TARGET_XARCH
         , gtPutArgStkKind(Kind::Invalid)
-#endif
-#if FEATURE_FASTTAILCALL
-        , gtPutInIncomingArgArea(call->IsFastTailCall())
 #endif
     {
 #if defined(TARGET_AMD64) && defined(TARGET_WINDOWS)
@@ -6988,10 +6982,22 @@ public:
     }
     // clang-format on
 
-    bool putInIncomingArgArea() const
+    CallArgInfo* GetArgInfo() const
+    {
+        return m_argInfo;
+    }
+
+#if defined(DEBUG) || defined(UNIX_X86_ABI)
+    GenTreeCall* GetCall() const
+    {
+        return m_call;
+    }
+#endif
+
+    bool PutInIncomingArgArea() const
     {
 #if FEATURE_FASTTAILCALL
-        return gtPutInIncomingArgArea;
+        return m_putInIncomingArgArea;
 #else
         return false;
 #endif
@@ -6999,34 +7005,34 @@ public:
 
     unsigned GetSlotNum() const
     {
-        return m_slotNum;
+        return m_argInfo->GetSlotCount();
+    }
+
+    unsigned GetSlotOffset() const
+    {
+        return m_argInfo->GetSlotNum() * REGSIZE_BYTES;
     }
 
     unsigned GetSlotCount() const
     {
 #if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
-        return m_slotCount;
+        return m_argInfo->GetSlotCount();
 #else
         return 1;
 #endif
     }
 
-    unsigned getArgOffset() const
+    unsigned GetArgSize() const
     {
-        return m_slotNum * TARGET_POINTER_SIZE;
-    }
-
-    unsigned getArgSize() const
-    {
-        return GetSlotCount() * TARGET_POINTER_SIZE;
+        return GetSlotCount() * REGSIZE_BYTES;
     }
 
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
     // Return true if this is a PutArgStk of a SIMD12 struct.
     // This is needed because such values are re-typed to SIMD16, and the type of PutArgStk is VOID.
-    unsigned isSIMD12() const
+    unsigned IsSIMD12() const
     {
-        return (varTypeIsSIMD(gtOp1) && (m_slotCount == 3));
+        return varTypeIsSIMD(gtOp1->GetType()) && (m_argInfo->GetSlotCount() == 3);
     }
 #endif
 
@@ -7051,7 +7057,6 @@ private:
 #endif
 
 #ifdef TARGET_ARM
-    unsigned gtNumRegs;
     // First reg of struct is always given by GetRegNum().
     // gtOtherRegs holds the other reg numbers of struct.
     regNumberSmall gtOtherRegs[MAX_SPLIT_ARG_REGS - 1];
@@ -7065,9 +7070,6 @@ private:
 public:
     GenTreePutArgSplit(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
         : GenTreePutArgStk(arg, argInfo, call, GT_PUTARG_SPLIT)
-#ifdef TARGET_ARM
-        , gtNumRegs(argInfo->GetRegCount())
-#endif
     {
         assert((0 < argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_SPLIT_ARG_REGS));
 #ifdef TARGET_ARM64
@@ -7082,7 +7084,7 @@ public:
     unsigned GetRegCount() const
     {
 #ifdef TARGET_ARM
-        return gtNumRegs;
+        return GetArgInfo()->GetRegCount();
 #else
         return 1;
 #endif
@@ -7177,10 +7179,10 @@ public:
 #endif
     }
 
-    unsigned getArgSize() const
+    unsigned GetArgSize() const
     {
 #ifdef TARGET_ARM
-        return (GetSlotCount() + gtNumRegs) * REGSIZE_BYTES;
+        return (GetSlotCount() + GetRegCount()) * REGSIZE_BYTES;
 #else
         return 2 * REGSIZE_BYTES;
 #endif

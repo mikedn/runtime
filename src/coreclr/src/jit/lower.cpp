@@ -1740,8 +1740,8 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         {
             GenTreePutArgStk* put = putargs.Bottom(i)->AsPutArgStk();
 
-            unsigned int overwrittenStart = put->getArgOffset();
-            unsigned int overwrittenEnd   = overwrittenStart + put->getArgSize();
+            unsigned int overwrittenStart = put->GetSlotOffset();
+            unsigned int overwrittenEnd   = overwrittenStart + put->GetArgSize();
 #if !(defined(TARGET_WINDOWS) && defined(TARGET_AMD64))
             int baseOff = -1; // Stack offset of first arg on stack
 #endif

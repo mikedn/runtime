@@ -4727,7 +4727,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         GenTree* arg = use.GetNode();
         if (arg->OperIs(GT_PUTARG_STK) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
         {
-            stackArgBytes += arg->AsPutArgStk()->getArgSize();
+            stackArgBytes += arg->AsPutArgStk()->GetArgSize();
         }
     }
 #endif // defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
@@ -6820,7 +6820,7 @@ unsigned CodeGen::getBaseVarForPutArgStk(GenTree* treeNode)
     // Whether to setup stk arg in incoming or out-going arg area?
     // Fast tail calls implemented as epilog+jmp = stk arg is setup in incoming arg area.
     // All other calls - stk arg is setup in out-going arg area.
-    if (treeNode->AsPutArgStk()->putInIncomingArgArea())
+    if (treeNode->AsPutArgStk()->PutInIncomingArgArea())
     {
         // See the note in the function header re: finding the first stack passed argument.
         baseVarNum = getFirstArgWithStackSlot();
@@ -6828,7 +6828,7 @@ unsigned CodeGen::getBaseVarForPutArgStk(GenTree* treeNode)
 
 #ifdef DEBUG
         // This must be a fast tail call.
-        assert(treeNode->AsPutArgStk()->gtCall->AsCall()->IsFastTailCall());
+        assert(treeNode->AsPutArgStk()->GetCall()->IsFastTailCall());
 
         // Since it is a fast tail call, the existence of first incoming arg is guaranteed
         // because fast tail call requires that in-coming arg area of caller is >= out-going
@@ -6867,7 +6867,7 @@ void CodeGen::genAlignStackBeforeCall(GenTreePutArgStk* putArgStk)
 {
 #if defined(UNIX_X86_ABI)
 
-    genAlignStackBeforeCall(putArgStk->gtCall);
+    genAlignStackBeforeCall(putArgStk->GetCall());
 
 #endif // UNIX_X86_ABI
 }
@@ -7000,7 +7000,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
     // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
     // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
     // a multiple of the target pointer size).
-    unsigned  currentOffset   = putArgStk->getArgSize();
+    unsigned  currentOffset   = putArgStk->GetArgSize();
     unsigned  prevFieldOffset = currentOffset;
     regNumber intTmpReg       = REG_NA;
     regNumber simdTmpReg      = REG_NA;
@@ -7211,8 +7211,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
 #if defined(TARGET_AMD64)
     unsigned outArgLclNum  = getBaseVarForPutArgStk(putArgStk);
-    unsigned outArgLclOffs = putArgStk->getArgOffset();
-    assert(outArgLclOffs == putArgStk->gtCall->GetArgInfoByArgNode(putArgStk)->GetSlotNum() * REGSIZE_BYTES);
+    unsigned outArgLclOffs = putArgStk->GetSlotOffset();
 #else
     // On a 32-bit target, all of the long arguments are handled with FIELD_LISTs of TYP_INT.
     assert(srcType != TYP_LONG);
@@ -7225,7 +7224,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #if defined(TARGET_AMD64)
 #if FEATURE_FASTTAILCALL
         // TODO-MIKE-Cleanup: This seems to be sligtly different from ARMARCH's outArgLclSize.
-        INDEBUG(unsigned outArgLclSize = putArgStk->putInIncomingArgArea()
+        INDEBUG(unsigned outArgLclSize = putArgStk->PutInIncomingArgArea()
                                              ? compiler->info.compArgStackSize + INIT_ARG_STACK_SLOT * REGSIZE_BYTES
                                              : compiler->lvaLclSize(outArgLclNum);)
 #else
@@ -7251,8 +7250,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #if defined(TARGET_AMD64) || !defined(FEATURE_SIMD)
     assert(roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES);
 #else
-    assert((roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES) ||
-           putArgStk->isSIMD12());
+    assert((roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetArgSize()) || putArgStk->IsSIMD12());
 #endif
 
     if (!src->isUsedFromReg())
@@ -7310,10 +7308,10 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
     {
         assert(genIsValidFloatReg(srcReg));
 
-        inst_RV_IV(INS_sub, REG_SPBASE, putArgStk->getArgSize(), EA_4BYTE);
-        AddStackLevel(putArgStk->getArgSize());
+        inst_RV_IV(INS_sub, REG_SPBASE, putArgStk->GetArgSize(), EA_4BYTE);
+        AddStackLevel(putArgStk->GetArgSize());
 
-        if (putArgStk->isSIMD12())
+        if (putArgStk->IsSIMD12())
         {
             regNumber tmpReg = putArgStk->GetSingleTempReg();
             genStoreSIMD12ToStack(srcReg, tmpReg);
@@ -7519,7 +7517,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
             return;
         }
 
-        genPreAdjustStackForPutArgStk(putArgStk->getArgSize());
+        genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
 
 #else  // !TARGET_X86
         // On x64 we use an XMM register only for 16-byte chunks.
@@ -7613,7 +7611,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigne
     assert(putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::RepInstr);
     assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
 
-    genPreAdjustStackForPutArgStk(putArgStk->getArgSize());
+    genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
     GetEmitter()->emitIns_R_R(INS_mov, EA_PTRSIZE, REG_RDI, REG_SPBASE);
 
     if (srcLclNum != BAD_VAR_NUM)

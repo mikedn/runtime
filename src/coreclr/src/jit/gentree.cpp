@@ -8599,7 +8599,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
     }
     else if (tree->gtOper == GT_PUTARG_STK)
     {
-        sprintf_s(bufp, sizeof(buf), " %s [+0x%02x]%c", name, tree->AsPutArgStk()->getArgOffset(), 0);
+        sprintf_s(bufp, sizeof(buf), " %s [+0x%02x]%c", name, tree->AsPutArgStk()->GetSlotOffset(), 0);
     }
     else if (tree->gtOper == GT_CALL)
     {
