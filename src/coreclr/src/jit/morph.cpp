@@ -700,10 +700,14 @@ void fgArgTabEntry::Dump() const
 
     if (m_regCount != 0)
     {
+#ifdef UNIX_AMD64_ABI
         printf(", %u reg%s (", m_regCount, m_regCount == 1 ? "" : "s");
+#else
+        printf(", %u %s reg%s (", m_regCount, varTypeName(GetRegType()), m_regCount == 1 ? "" : "s");
+#endif
         for (unsigned i = 0; i < m_regCount; i++)
         {
-#if defined(FEATURE_HFA) || defined(UNIX_AMD64_ABI)
+#if defined(UNIX_AMD64_ABI)
             printf("%s%s %s", i == 0 ? "" : ", ", getRegName(GetRegNum(i)), varTypeName(GetRegType(i)));
 #else
             printf("%s%s", i == 0 ? "" : ", ", getRegName(GetRegNum(i)));
@@ -2448,36 +2452,32 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
 
-#ifdef FEATURE_HFA
+#if defined(TARGET_ARM) && defined(FEATURE_HFA)
+            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
+            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
+            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
+            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
+            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
+
             if (isHfaArg)
             {
                 regCount = hfaSlots;
-#ifdef TARGET_ARM
                 if (hfaType == TYP_DOUBLE)
                 {
                     // Must be an even number of registers.
                     assert((regCount & 1) == 0);
                     regCount = hfaSlots / 2;
                 }
-#endif
+            }
+            else if (argx->TypeIs(TYP_DOUBLE))
+            {
+                regCount = 1;
             }
 #endif
 
             newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, regCount);
             newArgEntry->SetRegNum(0, nextRegNum);
             newArgEntry->SetNonStandard(isNonStandard);
-#ifdef FEATURE_HFA
-            if (isHfaArg)
-            {
-                newArgEntry->SetRegType(hfaType);
-            }
-#endif
-#if FEATURE_ARG_SPLIT
-            if (slotCount != 0)
-            {
-                newArgEntry->SetSlots(firstSlot, slotCount);
-            }
-#endif
 #ifdef UNIX_AMD64_ABI
             assert(regCount <= 2);
 
@@ -2497,6 +2497,21 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             else
             {
                 newArgEntry->SetRegType(0, argx->GetType());
+            }
+#elif defined(FEATURE_HFA)
+            if (isHfaArg)
+            {
+                newArgEntry->SetRegType(hfaType);
+            }
+            else if (varTypeIsFloating(argx->GetType()))
+            {
+                newArgEntry->SetRegType(argx->GetType());
+            }
+#endif
+#if FEATURE_ARG_SPLIT
+            if (slotCount != 0)
+            {
+                newArgEntry->SetSlots(firstSlot, slotCount);
             }
 #endif
         }

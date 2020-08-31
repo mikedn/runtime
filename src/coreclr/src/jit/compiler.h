@@ -1677,7 +1677,7 @@ public:
         m_regType = type;
     }
 #else
-    var_types GetRegType(unsigned i) const
+    var_types GetRegType(unsigned i = 0) const
     {
         assert(i < m_regCount);
         return TYP_I_IMPL;
