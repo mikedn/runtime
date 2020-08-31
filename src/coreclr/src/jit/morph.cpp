@@ -704,9 +704,9 @@ void fgArgTabEntry::Dump() const
         for (unsigned i = 0; i < m_regCount; i++)
         {
 #if defined(FEATURE_HFA) || defined(UNIX_AMD64_ABI)
-            printf("%s%s %s", i == 0 ? "" : ", ", getRegName(m_regNums[i]), varTypeName(GetRegType(i)));
+            printf("%s%s %s", i == 0 ? "" : ", ", getRegName(GetRegNum(i)), varTypeName(GetRegType(i)));
 #else
-            printf("%s%s", i == 0 ? "" : ", ", getRegName(m_regNums[i]));
+            printf("%s%s", i == 0 ? "" : ", ", getRegName(GetRegNum(i)));
 #endif
         }
         printf(")");
@@ -2498,8 +2498,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 newArgEntry->SetRegType(0, argx->GetType());
             }
-#elif defined(FEATURE_MULTIREG_ARGS)
-            newArgEntry->SetMultiRegNums();
 #endif
         }
         else // We have an argument that is not passed in a register

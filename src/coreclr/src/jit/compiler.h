@@ -1520,16 +1520,22 @@ private:
     bool m_isImplicitByRef : 1;
 #endif
 
-    uint8_t m_regCount; // Count of registers that this argument uses.
-                        // Note that on ARM, if we have a double hfa, this reflects the number
-                        // of DOUBLE registers.
+    // Count of registers used by this argument.
+    // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
+    uint8_t m_regCount;
 
+#ifdef UNIX_AMD64_ABI
+    // On unix-x64 arg registers may have different types so we need to store all of them.
+    var_types      m_regTypes[MAX_ARG_REG_COUNT];
+    regNumberSmall m_regNums[MAX_ARG_REG_COUNT];
+#else
 #ifdef FEATURE_HFA
-    var_types m_regType;
-#elif defined(UNIX_AMD64_ABI)
-    var_types     m_regTypes[MAX_ARG_REG_COUNT];
+    var_types     m_regType;
 #endif
-    regNumberSmall m_regNums[MAX_ARG_REG_COUNT]; // The registers to use when passing this argument
+    // Other multireg targets (ARM, ARM64) always use the same register type so it's enough
+    // to store only the first register in arg info, the rest can be computed on the fly.
+    regNumberSmall m_regNum;
+#endif
 
 public:
     fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, unsigned regCount)
@@ -1646,45 +1652,62 @@ public:
         m_isNonStandard = isNonStandard;
     }
 
-    void SetRegNum(unsigned int i, regNumber regNum)
+#ifdef UNIX_AMD64_ABI
+    var_types GetRegType(unsigned i) const
     {
         assert(i < m_regCount);
-        m_regNums[i] = (regNumberSmall)regNum;
+        return m_regTypes[i];
     }
 
-    regNumber GetRegNum(unsigned i = 0)
-    {
-        assert(i < m_regCount);
-        return static_cast<regNumber>(m_regNums[i]);
-    }
-
-#ifdef FEATURE_HFA
-    void SetRegType(var_types type)
-    {
-        assert(m_regCount > 0);
-        m_regType = type;
-    }
-#elif defined(UNIX_AMD64_ABI)
     void SetRegType(unsigned i, var_types type)
     {
         assert(i < m_regCount);
         m_regTypes[i] = type;
     }
-#endif
-
-#if defined(UNIX_AMD64_ABI)
-    var_types GetRegType(unsigned i) const
-#else
+#elif defined(FEATURE_HFA)
     var_types GetRegType(unsigned i = 0) const
-#endif
     {
         assert(i < m_regCount);
-#if defined(UNIX_AMD64_ABI)
-        return m_regTypes[i];
-#elif defined(FEATURE_HFA)
         return m_regType;
+    }
+
+    void SetRegType(var_types type)
+    {
+        assert(m_regCount > 0);
+        m_regType = type;
+    }
 #else
+    var_types GetRegType(unsigned i) const
+    {
+        assert(i < m_regCount);
         return TYP_I_IMPL;
+    }
+#endif
+
+    regNumber GetRegNum(unsigned i = 0)
+    {
+        assert(i < m_regCount);
+#if defined(FEATURE_HFA) && defined(TARGET_ARM)
+        if (m_regType == TYP_DOUBLE)
+        {
+            return static_cast<regNumber>(m_regNum + i * 2);
+        }
+#endif
+#ifdef UNIX_AMD64_ABI
+        return static_cast<regNumber>(m_regNums[i]);
+#else
+        return static_cast<regNumber>(m_regNum + i);
+#endif
+    }
+
+    void SetRegNum(unsigned i, regNumber regNum)
+    {
+#ifdef UNIX_AMD64_ABI
+        assert(i < m_regCount);
+        m_regNums[i] = static_cast<regNumberSmall>(regNum);
+#else
+        assert(i == 0);
+        m_regNum = static_cast<regNumberSmall>(regNum);
 #endif
     }
 
@@ -1750,37 +1773,6 @@ public:
 #else
         assert(!isImplicitByRef);
 #endif
-    }
-
-    // Set the register numbers for a multireg argument.
-    // There's nothing to do on x64/Ux because the structDesc has already been used to set the
-    // register numbers.
-    void SetMultiRegNums()
-    {
-#if FEATURE_MULTIREG_ARGS && !defined(UNIX_AMD64_ABI)
-        if (m_regCount == 1)
-        {
-            return;
-        }
-
-        regNumber argReg = GetRegNum(0);
-#if defined(TARGET_ARM) && defined(FEATURE_HFA)
-        unsigned int regSize = (m_regType == TYP_DOUBLE) ? 2 : 1;
-#else
-        unsigned int regSize = 1;
-#endif
-
-        if (m_regCount > MAX_ARG_REG_COUNT)
-        {
-            NO_WAY("Multireg argument exceeds the maximum length");
-        }
-
-        for (unsigned int regIndex = 1; regIndex < m_regCount; regIndex++)
-        {
-            argReg = (regNumber)(argReg + regSize);
-            SetRegNum(regIndex, argReg);
-        }
-#endif // FEATURE_MULTIREG_ARGS && !defined(UNIX_AMD64_ABI)
     }
 
     INDEBUG(void Dump() const;)
