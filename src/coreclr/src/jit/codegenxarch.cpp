@@ -7212,7 +7212,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #if defined(TARGET_AMD64)
     unsigned outArgLclNum  = getBaseVarForPutArgStk(putArgStk);
     unsigned outArgLclOffs = putArgStk->getArgOffset();
-    assert(outArgLclOffs == putArgStk->gtCall->GetArgInfoByArgNode(putArgStk)->slotNum * TARGET_POINTER_SIZE);
+    assert(outArgLclOffs == putArgStk->gtCall->GetArgInfoByArgNode(putArgStk)->GetSlotNum() * REGSIZE_BYTES);
 #else
     // On a 32-bit target, all of the long arguments are handled with FIELD_LISTs of TYP_INT.
     assert(srcType != TYP_LONG);

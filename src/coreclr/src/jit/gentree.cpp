@@ -5870,7 +5870,7 @@ CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
 
     assert(argNum < fgArgInfo->ArgCount());
 
-    if (fgArgInfo->ArgTable()[argNum]->argNum == argNum)
+    if (fgArgInfo->ArgTable()[argNum]->GetArgNum() == argNum)
     {
         return fgArgInfo->ArgTable()[argNum];
     }
@@ -5878,7 +5878,7 @@ CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
     // The arg table was sorted and the arg changed its position, do a linear search to find it.
     for (unsigned i = 0; i < fgArgInfo->ArgCount(); i++)
     {
-        if (fgArgInfo->ArgTable()[i]->argNum == argNum)
+        if (fgArgInfo->ArgTable()[i]->GetArgNum() == argNum)
         {
             return fgArgInfo->ArgTable()[i];
         }
@@ -10823,28 +10823,29 @@ void Compiler::gtGetArgMsg(
                 regNumber firstReg = curArgTabEntry->GetRegNum();
                 if (listCount == -1)
                 {
-                    if (curArgTabEntry->numRegs == 1)
+                    if (curArgTabEntry->GetRegCount() == 1)
                     {
                         sprintf_s(bufp, bufLength, "arg%d %s out+%02x%c", argNum, compRegVarName(firstReg),
-                                  (curArgTabEntry->slotNum) * TARGET_POINTER_SIZE, 0);
+                                  curArgTabEntry->GetSlotNum() * REGSIZE_BYTES, 0);
                     }
                     else
                     {
                         regNumber lastReg   = REG_STK;
-                        char      separator = (curArgTabEntry->numRegs == 2) ? ',' : '-';
+                        char      separator = (curArgTabEntry->GetRegCount() == 2) ? ',' : '-';
                         if (genIsValidFloatReg(firstReg))
                         {
-                            unsigned lastRegNum = genMapFloatRegNumToRegArgNum(firstReg) + curArgTabEntry->numRegs - 1;
-                            lastReg             = genMapFloatRegArgNumToRegNum(lastRegNum);
+                            unsigned lastRegNum =
+                                genMapFloatRegNumToRegArgNum(firstReg) + curArgTabEntry->GetRegCount() - 1;
+                            lastReg = genMapFloatRegArgNumToRegNum(lastRegNum);
                         }
                         else
                         {
-                            unsigned lastRegNum = genMapIntRegNumToRegArgNum(firstReg) + curArgTabEntry->numRegs - 1;
-                            lastReg             = genMapIntRegArgNumToRegNum(lastRegNum);
+                            unsigned lastRegNum =
+                                genMapIntRegNumToRegArgNum(firstReg) + curArgTabEntry->GetRegCount() - 1;
+                            lastReg = genMapIntRegArgNumToRegNum(lastRegNum);
                         }
                         sprintf_s(bufp, bufLength, "arg%d %s%c%s out+%02x%c", argNum, compRegVarName(firstReg),
-                                  separator, compRegVarName(lastReg), (curArgTabEntry->slotNum) * TARGET_POINTER_SIZE,
-                                  0);
+                                  separator, compRegVarName(lastReg), curArgTabEntry->GetSlotNum() * REGSIZE_BYTES, 0);
                     }
                 }
                 else
@@ -10872,9 +10873,9 @@ void Compiler::gtGetArgMsg(
                     }
                     else
                     {
-                        unsigned stackSlot = listCount - curArgTabEntry->numRegs;
-                        sprintf_s(bufp, bufLength, "arg%d m%d out+%02x%c", argNum, listCount,
-                                  stackSlot * TARGET_POINTER_SIZE, 0);
+                        unsigned stackSlot = listCount - curArgTabEntry->GetRegCount();
+                        sprintf_s(bufp, bufLength, "arg%d m%d out+%02x%c", argNum, listCount, stackSlot * REGSIZE_BYTES,
+                                  0);
                     }
                 }
                 return;
@@ -10883,14 +10884,13 @@ void Compiler::gtGetArgMsg(
 #if FEATURE_FIXED_OUT_ARGS
             if (listCount == -1)
             {
-                sprintf_s(bufp, bufLength, "arg%d out+%02x%c", argNum, curArgTabEntry->slotNum * TARGET_POINTER_SIZE,
-                          0);
+                sprintf_s(bufp, bufLength, "arg%d out+%02x%c", argNum, curArgTabEntry->GetSlotNum() * REGSIZE_BYTES, 0);
             }
             else // listCount is 0,1,2 or 3
             {
                 assert(listCount <= MAX_ARG_REG_COUNT);
                 sprintf_s(bufp, bufLength, "arg%d out+%02x%c", argNum,
-                          (curArgTabEntry->slotNum + listCount) * TARGET_POINTER_SIZE, 0);
+                          (curArgTabEntry->GetSlotNum() + listCount) * REGSIZE_BYTES, 0);
             }
 #else
             sprintf_s(bufp, bufLength, "arg%d on STK%c", argNum, 0);
@@ -10933,8 +10933,8 @@ void Compiler::gtGetLateArgMsg(
 #if FEATURE_FIXED_OUT_ARGS
     if (argInfo->GetRegCount() == 0)
     {
-        sprintf_s(bufp, bufLength, "arg%d in out+%02x%c", curArgTabEntry->argNum,
-                  curArgTabEntry->slotNum * TARGET_POINTER_SIZE, 0);
+        sprintf_s(bufp, bufLength, "arg%d in out+%02x%c", curArgTabEntry->GetArgNum(),
+                  curArgTabEntry->GetSlotNum() * REGSIZE_BYTES, 0);
     }
     else
 #endif
@@ -10947,30 +10947,31 @@ void Compiler::gtGetLateArgMsg(
         else if (curArgTabEntry->IsSplit())
         {
             regNumber firstReg = curArgTabEntry->GetRegNum();
-            unsigned  argNum   = curArgTabEntry->argNum;
+            unsigned  argNum   = curArgTabEntry->GetArgNum();
             if (listCount == -1)
             {
-                if (curArgTabEntry->numRegs == 1)
+                if (curArgTabEntry->GetRegCount() == 1)
                 {
                     sprintf_s(bufp, bufLength, "arg%d %s out+%02x%c", argNum, compRegVarName(firstReg),
-                              (curArgTabEntry->slotNum) * TARGET_POINTER_SIZE, 0);
+                              curArgTabEntry->GetSlotNum() * REGSIZE_BYTES, 0);
                 }
                 else
                 {
                     regNumber lastReg   = REG_STK;
-                    char      separator = (curArgTabEntry->numRegs == 2) ? ',' : '-';
+                    char      separator = (curArgTabEntry->GetRegCount() == 2) ? ',' : '-';
                     if (genIsValidFloatReg(firstReg))
                     {
-                        unsigned lastRegNum = genMapFloatRegNumToRegArgNum(firstReg) + curArgTabEntry->numRegs - 1;
-                        lastReg             = genMapFloatRegArgNumToRegNum(lastRegNum);
+                        unsigned lastRegNum =
+                            genMapFloatRegNumToRegArgNum(firstReg) + curArgTabEntry->GetRegCount() - 1;
+                        lastReg = genMapFloatRegArgNumToRegNum(lastRegNum);
                     }
                     else
                     {
-                        unsigned lastRegNum = genMapIntRegNumToRegArgNum(firstReg) + curArgTabEntry->numRegs - 1;
+                        unsigned lastRegNum = genMapIntRegNumToRegArgNum(firstReg) + curArgTabEntry->GetRegCount() - 1;
                         lastReg             = genMapIntRegArgNumToRegNum(lastRegNum);
                     }
                     sprintf_s(bufp, bufLength, "arg%d %s%c%s out+%02x%c", argNum, compRegVarName(firstReg), separator,
-                              compRegVarName(lastReg), (curArgTabEntry->slotNum) * TARGET_POINTER_SIZE, 0);
+                              compRegVarName(lastReg), curArgTabEntry->GetSlotNum() * REGSIZE_BYTES, 0);
                 }
             }
             else
@@ -10998,7 +10999,7 @@ void Compiler::gtGetLateArgMsg(
                 }
                 else
                 {
-                    unsigned stackSlot = listCount - curArgTabEntry->numRegs;
+                    unsigned stackSlot = listCount - curArgTabEntry->GetRegCount();
                     sprintf_s(bufp, bufLength, "arg%d m%d out+%02x%c", argNum, listCount,
                               stackSlot * TARGET_POINTER_SIZE, 0);
                 }
@@ -11009,19 +11010,19 @@ void Compiler::gtGetLateArgMsg(
         else
         {
 #if FEATURE_MULTIREG_ARGS
-            if (curArgTabEntry->numRegs >= 2)
+            if (curArgTabEntry->GetRegCount() >= 2)
             {
                 // listCount could be -1 but it is signed, so this comparison is OK.
                 assert(listCount <= MAX_ARG_REG_COUNT);
-                char separator = (curArgTabEntry->numRegs == 2) ? ',' : '-';
-                sprintf_s(bufp, bufLength, "arg%d %s%c%s%c", curArgTabEntry->argNum,
+                char separator = (curArgTabEntry->GetRegCount() == 2) ? ',' : '-';
+                sprintf_s(bufp, bufLength, "arg%d %s%c%s%c", curArgTabEntry->GetArgNum(),
                           compRegVarName(argInfo->GetRegNum(0)), separator,
                           compRegVarName(argInfo->GetRegNum(argInfo->GetRegCount() - 1)), 0);
             }
             else
 #endif
             {
-                sprintf_s(bufp, bufLength, "arg%d in %s%c", curArgTabEntry->argNum,
+                sprintf_s(bufp, bufLength, "arg%d in %s%c", curArgTabEntry->GetArgNum(),
                           compRegVarName(argInfo->GetRegNum()), 0);
             }
         }
@@ -11274,7 +11275,7 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
 
                 if (!curArgTabEntry->HasLateUse())
                 {
-                    gtGetArgMsg(call, operand, curArgTabEntry->argNum, -1, buf, sizeof(buf));
+                    gtGetArgMsg(call, operand, curArgTabEntry->GetArgNum(), -1, buf, sizeof(buf));
                 }
                 else
                 {

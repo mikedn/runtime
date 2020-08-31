@@ -690,40 +690,40 @@ REMOVE_CAST:
 #ifdef DEBUG
 void fgArgTabEntry::Dump() const
 {
-    printf("arg %u:", argNum);
-    printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(argType));
+    printf("arg %u:", m_argNum);
+    printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
 
     if (IsImplicitByRef())
     {
         printf(", implicit by-ref");
     }
 
-    if (numRegs != 0)
+    if (m_regCount != 0)
     {
-        printf(", %u reg%s (", numRegs, numRegs == 1 ? "" : "s");
-        for (unsigned i = 0; i < numRegs; i++)
+        printf(", %u reg%s (", m_regCount, m_regCount == 1 ? "" : "s");
+        for (unsigned i = 0; i < m_regCount; i++)
         {
 #if defined(FEATURE_HFA) || defined(UNIX_AMD64_ABI)
-            printf("%s%s %s", i == 0 ? "" : ", ", getRegName(regNums[i]), varTypeName(GetRegType(i)));
+            printf("%s%s %s", i == 0 ? "" : ", ", getRegName(m_regNums[i]), varTypeName(GetRegType(i)));
 #else
-            printf("%s%s", i == 0 ? "" : ", ", getRegName(regNums[i]));
+            printf("%s%s", i == 0 ? "" : ", ", getRegName(m_regNums[i]));
 #endif
         }
         printf(")");
     }
 
-    if (numSlots == 1)
+    if (m_slotCount == 1)
     {
-        printf(", 1 slot (%u)", slotNum);
+        printf(", 1 slot (%u)", m_slotNum);
     }
-    else if (numSlots > 1)
+    else if (m_slotCount > 1)
     {
-        printf(", %u slots (%u..%u)", numSlots, slotNum, slotNum + numSlots - 1);
+        printf(", %u slots (%u..%u)", m_slotCount, m_slotNum, m_slotNum + m_slotCount - 1);
     }
 
     if (HasTemp())
     {
-        printf(", temp V%02u", tempLclNum);
+        printf(", temp V%02u", m_tempLclNum);
     }
 
 #if FEATURE_FIXED_OUT_ARGS
@@ -733,7 +733,7 @@ void fgArgTabEntry::Dump() const
     }
 #endif
 
-    if (isNonStandard)
+    if (m_isNonStandard)
     {
         printf(", isNonStandard");
     }
@@ -957,7 +957,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             {
                 CallArgInfo* prevArgInfo = argTable[prevArgIndex];
 
-                assert(prevArgInfo->argNum < argInfo->argNum);
+                assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
 
                 if (!prevArgInfo->GetNode()->OperIs(GT_CNS_INT))
                 {
@@ -1017,7 +1017,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             {
                 CallArgInfo* prevArgInfo = argTable[prevArgIndex];
 
-                assert(prevArgInfo->argNum < argInfo->argNum);
+                assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
 
                 // For all previous arguments, if they have any GTF_ALL_EFFECT
                 //  we require that they be evaluated into a temp
@@ -1775,7 +1775,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         CallArgInfo* argInfo = new (this, CMK_fgArgInfo) CallArgInfo(0, call->gtCallThisArg, 1);
         argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
-        argInfo->argType = argx->GetType();
+        argInfo->SetArgType(argx->GetType());
         call->fgArgInfo->AddArg(argInfo);
         intArgRegNum++;
 #ifdef WINDOWS_AMD64_ABI
@@ -2390,6 +2390,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             unsigned regCount = size;
 #if FEATURE_ARG_SPLIT
+            unsigned firstSlot = 0;
             unsigned slotCount = 0;
 #endif
 
@@ -2416,10 +2417,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                             assert((isStructArg) || argx->OperIs(GT_FIELD_LIST) || argx->OperIsCopyBlkOp() ||
                                    (argx->gtOper == GT_COMMA && (argx->gtFlags & GTF_ASG)));
 
-                            regCount           = MAX_REG_ARG - intArgRegNum;
-                            slotCount          = size - regCount;
-                            unsigned firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
-                            assert(firstSlot == INIT_ARG_STACK_SLOT);
+                            regCount  = MAX_REG_ARG - intArgRegNum;
+                            slotCount = size - regCount;
+                            firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
                         }
 #endif // FEATURE_ARG_SPLIT
 
@@ -2465,7 +2465,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, regCount);
             newArgEntry->SetRegNum(0, nextRegNum);
-            newArgEntry->isNonStandard = isNonStandard;
+            newArgEntry->SetNonStandard(isNonStandard);
 #ifdef FEATURE_HFA
             if (isHfaArg)
             {
@@ -2473,7 +2473,10 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
 #endif
 #if FEATURE_ARG_SPLIT
-            newArgEntry->numSlots = slotCount;
+            if (slotCount != 0)
+            {
+                newArgEntry->SetSlots(firstSlot, slotCount);
+            }
 #endif
 #ifdef UNIX_AMD64_ABI
             assert(regCount <= 2);
@@ -2502,17 +2505,17 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         else // We have an argument that is not passed in a register
         {
             newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, 0);
-            newArgEntry->SetStackSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
+            newArgEntry->SetSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
         }
 
         if (isStructArg)
         {
             newArgEntry->SetIsImplicitByRef(passStructByRef);
-            newArgEntry->argType = (structBaseType == TYP_UNKNOWN) ? argx->TypeGet() : structBaseType;
+            newArgEntry->SetArgType((structBaseType == TYP_UNKNOWN) ? argx->GetType() : structBaseType);
         }
         else
         {
-            newArgEntry->argType = argx->TypeGet();
+            newArgEntry->SetArgType(argx->GetType());
         }
 
         call->fgArgInfo->AddArg(newArgEntry);
@@ -2614,7 +2617,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         }
 
         // Non-standard args are expected to have primitive type.
-        assert(!argInfo->isNonStandard);
+        assert(!argInfo->IsNonStandard());
 
         // TODO-MIKE-Review: Can we get COMMAs here other than those generated for
         // temp arg copies? The struct arg morph code below doesn't handle that.
@@ -2829,12 +2832,12 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         arg->SetType(fieldType);
         arg->gtFlags = 0;
 
-        argInfo->argType = fieldType;
+        argInfo->SetArgType(fieldType);
 
         return false;
     }
 
-    if (arg->TypeIs(TYP_STRUCT) && (argInfo->argType != TYP_STRUCT))
+    if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
     {
         // While not required for corectness, we can change the type of a struct arg to
         // be a primitive type of suitable size (e.g. a 2 byte struct can be treated as
@@ -2845,9 +2848,9 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         // VN be able to convert from a "zero map" to any primitive type in order to
         // const propagate default struct initialization?
 
-        assert(argInfo->GetSlotCount() * REGSIZE_BYTES == roundUp(varTypeSize(argInfo->argType), REGSIZE_BYTES));
+        assert(argInfo->GetSlotCount() * REGSIZE_BYTES == roundUp(varTypeSize(argInfo->GetArgType()), REGSIZE_BYTES));
 
-        var_types argType   = argInfo->argType;
+        var_types argType   = argInfo->GetArgType();
         bool      canRetype = false;
 
         if (arg->OperIs(GT_OBJ))
@@ -2989,7 +2992,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
     assert((argInfo->GetRegCount() == 1) && (argInfo->GetSlotCount() == 0));
 
-    var_types argRegType = argInfo->argType;
+    var_types argRegType = argInfo->GetArgType();
     unsigned  argSize    = 0;
 
     if (varTypeIsSmall(argRegType))
@@ -6405,7 +6408,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
                 continue;
             }
 
-            if ((argInfo2->argType != TYP_BYREF) && (argInfo2->argType != TYP_I_IMPL))
+            if ((argInfo2->GetArgType() != TYP_BYREF) && (argInfo2->GetArgType() != TYP_I_IMPL))
             {
                 // TODO-MIKE-Review: Similar to the above comment. We could have a struct parameter that
                 // contains the address of any param.
@@ -8023,7 +8026,7 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
     // some argument trees may reference parameters directly.
 
     GenTree* argInTemp             = nullptr;
-    unsigned originalArgNum        = argTabEntry->argNum;
+    unsigned originalArgNum        = argTabEntry->GetArgNum();
     bool     needToAssignParameter = true;
 
     // TODO-CQ: enable calls with struct arguments passed in registers.

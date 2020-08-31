@@ -1497,63 +1497,60 @@ struct fgArgTabEntry
 {
     GenTreeCall::Use* use;     // Points to the argument's GenTreeCall::Use in gtCallArgs or gtCallThisArg.
     GenTreeCall::Use* lateUse; // Points to the argument's GenTreeCall::Use in gtCallLateArgs, if any.
-    unsigned argNum; // The original argument number, also specifies the required argument evaluation order from the IL
-
-    // A slot is a pointer sized region in the OutArg area.
-    unsigned slotNum;  // When an argument is passed in the OutArg area this is the slot number in the OutArg area
-    unsigned numSlots; // Count of number of slots that this argument uses
 
 private:
-    unsigned tempLclNum; // the LclVar number if we had to force evaluation of this arg
+    unsigned m_argNum; // The original argument number, also specifies the IL argument evaluation order
 
-public:
-    var_types argType; // The type used to pass this argument. This is generally the original argument type, but when a
-                       // struct is passed as a scalar type, this is that type.
-                       // Note that if a struct is passed by reference, this will still be the struct type.
+    unsigned m_slotNum;   // When an argument is passed in the OutArg area this is the slot number in the OutArg area
+    unsigned m_slotCount; // Count of number of slots that this argument uses
+
+    unsigned m_tempLclNum; // the LclVar number if we had to force evaluation of this arg
+
+    var_types m_argType; // The type used to pass this argument. This is generally the original argument type, but when
+                         // a struct is passed as a scalar type, this is that type.
+                         // Note that if a struct is passed by reference, this will still be the struct type.
 
     bool m_tempNeeded : 1; // True when we force this argument's evaluation into a temp LclVar
 #if FEATURE_FIXED_OUT_ARGS
     bool m_placeholderNeeded : 1; // True when we must replace this argument with a placeholder node
 #endif
-    bool isNonStandard : 1; // True if it is an arg that is passed in a reg other than a standard arg reg, or is forced
-                            // to be on the stack despite its arg list position.
+    bool m_isNonStandard : 1; // True if it is an arg that is passed in a reg other than a standard arg reg, or is
+                              // forced to be on the stack despite its arg list position.
 #ifdef TARGET_64BIT
     bool m_isImplicitByRef : 1;
 #endif
 
-    uint8_t numRegs; // Count of number of registers that this argument uses.
-                     // Note that on ARM, if we have a double hfa, this reflects the number
-                     // of DOUBLE registers.
+    uint8_t m_regCount; // Count of registers that this argument uses.
+                        // Note that on ARM, if we have a double hfa, this reflects the number
+                        // of DOUBLE registers.
 
 #ifdef FEATURE_HFA
-    var_types regType;
+    var_types m_regType;
 #elif defined(UNIX_AMD64_ABI)
-    var_types     regTypes[MAX_ARG_REG_COUNT];
+    var_types     m_regTypes[MAX_ARG_REG_COUNT];
 #endif
-private:
-    regNumberSmall regNums[MAX_ARG_REG_COUNT]; // The registers to use when passing this argument, set to REG_STK for
-                                               // arguments passed on the stack
+    regNumberSmall m_regNums[MAX_ARG_REG_COUNT]; // The registers to use when passing this argument
 
 public:
     fgArgTabEntry(unsigned argNum, GenTreeCall::Use* use, unsigned regCount)
         : use(use)
         , lateUse(nullptr)
-        , argNum(argNum)
-        , slotNum(0)
-        , numSlots(0)
-        , tempLclNum(BAD_VAR_NUM)
-        , argType(TYP_UNDEF)
+        , m_argNum(argNum)
+        , m_slotNum(0)
+        , m_slotCount(0)
+        , m_tempLclNum(BAD_VAR_NUM)
+        , m_argType(TYP_UNDEF)
         , m_tempNeeded(false)
 #if FEATURE_FIXED_OUT_ARGS
         , m_placeholderNeeded(false)
 #endif
-        , isNonStandard(false)
+        , m_isNonStandard(false)
 #ifdef TARGET_64BIT
         , m_isImplicitByRef(false)
 #endif
-        , numRegs(static_cast<uint8_t>(regCount))
+        , m_regCount(static_cast<uint8_t>(regCount))
 #ifdef FEATURE_HFA
-        , regType(TYP_I_IMPL)
+        , m_regType(TYP_I_IMPL)
 #endif
     {
         assert(regCount <= MAX_ARG_REG_COUNT);
@@ -1581,20 +1578,35 @@ public:
         return lateUse != nullptr;
     }
 
+    unsigned GetArgNum() const
+    {
+        return m_argNum;
+    }
+
+    var_types GetArgType() const
+    {
+        return m_argType;
+    }
+
+    void SetArgType(var_types argType)
+    {
+        m_argType = argType;
+    }
+
     bool HasTemp() const
     {
-        return tempLclNum != BAD_VAR_NUM;
+        return m_tempLclNum != BAD_VAR_NUM;
     }
 
     unsigned GetTempLclNum() const
     {
-        return tempLclNum;
+        return m_tempLclNum;
     }
 
     void SetTempLclNum(unsigned lclNum)
     {
-        assert(tempLclNum == BAD_VAR_NUM);
-        tempLclNum = lclNum;
+        assert(m_tempLclNum == BAD_VAR_NUM);
+        m_tempLclNum = lclNum;
     }
 
     bool IsTempNeeded() const
@@ -1619,34 +1631,44 @@ public:
 #if FEATURE_FIXED_OUT_ARGS
     void SetPlaceholderNeeded()
     {
-        assert(numSlots != 0);
+        assert(m_slotCount != 0);
         m_placeholderNeeded = true;
     }
 #endif
 
+    bool IsNonStandard() const
+    {
+        return m_isNonStandard;
+    }
+
+    void SetNonStandard(bool isNonStandard)
+    {
+        m_isNonStandard = isNonStandard;
+    }
+
     void SetRegNum(unsigned int i, regNumber regNum)
     {
-        assert(i < numRegs);
-        regNums[i] = (regNumberSmall)regNum;
+        assert(i < m_regCount);
+        m_regNums[i] = (regNumberSmall)regNum;
     }
 
     regNumber GetRegNum(unsigned i = 0)
     {
-        assert(i < numRegs);
-        return static_cast<regNumber>(regNums[i]);
+        assert(i < m_regCount);
+        return static_cast<regNumber>(m_regNums[i]);
     }
 
 #ifdef FEATURE_HFA
     void SetRegType(var_types type)
     {
-        assert(numRegs > 0);
-        regType = type;
+        assert(m_regCount > 0);
+        m_regType = type;
     }
 #elif defined(UNIX_AMD64_ABI)
     void SetRegType(unsigned i, var_types type)
     {
-        assert(i < numRegs);
-        regTypes[i] = type;
+        assert(i < m_regCount);
+        m_regTypes[i] = type;
     }
 #endif
 
@@ -1656,11 +1678,11 @@ public:
     var_types GetRegType(unsigned i = 0) const
 #endif
     {
-        assert(i < numRegs);
+        assert(i < m_regCount);
 #if defined(UNIX_AMD64_ABI)
-        return regTypes[i];
+        return m_regTypes[i];
 #elif defined(FEATURE_HFA)
-        return regType;
+        return m_regType;
 #else
         return TYP_I_IMPL;
 #endif
@@ -1668,19 +1690,19 @@ public:
 
     unsigned GetSlotNum() const
     {
-        return slotNum;
+        return m_slotNum;
     }
 
-    void SetStackSlots(unsigned firstSlot, unsigned slotCount)
+    void SetSlots(unsigned firstSlot, unsigned slotCount)
     {
-        slotNum  = firstSlot;
-        numSlots = slotCount;
+        m_slotNum   = firstSlot;
+        m_slotCount = slotCount;
     }
 
     bool IsHfaArg()
     {
 #ifdef FEATURE_HFA
-        return regType != TYP_I_IMPL;
+        return m_regType != TYP_I_IMPL;
 #else
         return false;
 #endif
@@ -1689,7 +1711,7 @@ public:
     bool IsSplit() const
     {
 #ifdef FEATURE_ARG_SPLIT
-        return (numRegs != 0) && (numSlots != 0);
+        return (m_regCount != 0) && (m_slotCount != 0);
 #else
         return false;
 #endif
@@ -1697,17 +1719,17 @@ public:
 
     bool IsSingleRegOrSlot()
     {
-        return numRegs + numSlots == 1;
+        return m_regCount + m_slotCount == 1;
     }
 
     unsigned GetRegCount()
     {
-        return numRegs;
+        return m_regCount;
     }
 
     unsigned GetSlotCount()
     {
-        return numSlots;
+        return m_slotCount;
     }
 
     bool IsImplicitByRef() const
@@ -1736,22 +1758,24 @@ public:
     void SetMultiRegNums()
     {
 #if FEATURE_MULTIREG_ARGS && !defined(UNIX_AMD64_ABI)
-        if (numRegs == 1)
+        if (m_regCount == 1)
         {
             return;
         }
 
         regNumber argReg = GetRegNum(0);
 #if defined(TARGET_ARM) && defined(FEATURE_HFA)
-        unsigned int regSize = (regType == TYP_DOUBLE) ? 2 : 1;
+        unsigned int regSize = (m_regType == TYP_DOUBLE) ? 2 : 1;
 #else
         unsigned int regSize = 1;
 #endif
 
-        if (numRegs > MAX_ARG_REG_COUNT)
+        if (m_regCount > MAX_ARG_REG_COUNT)
+        {
             NO_WAY("Multireg argument exceeds the maximum length");
+        }
 
-        for (unsigned int regIndex = 1; regIndex < numRegs; regIndex++)
+        for (unsigned int regIndex = 1; regIndex < m_regCount; regIndex++)
         {
             argReg = (regNumber)(argReg + regSize);
             SetRegNum(regIndex, argReg);

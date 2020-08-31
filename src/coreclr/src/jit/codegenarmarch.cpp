@@ -684,7 +684,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
     }
 
     unsigned outArgLclOffs = putArg->getArgOffset();
-    assert(outArgLclOffs == (putArg->gtCall->GetArgInfoByArgNode(putArg)->slotNum * TARGET_POINTER_SIZE));
+    assert(outArgLclOffs == (putArg->gtCall->GetArgInfoByArgNode(putArg)->GetSlotNum() * TARGET_POINTER_SIZE));
 
     GenTree*  src     = putArg->GetOp(0);
     var_types srcType = varActualType(src->GetType());
