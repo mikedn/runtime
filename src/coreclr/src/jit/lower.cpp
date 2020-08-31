@@ -1028,21 +1028,29 @@ bool Lowering::TryLowerSwitchToBitTest(
 }
 
 //------------------------------------------------------------------------
-// NewPutArg: rewrites the tree to put an arg in a register or on the stack.
-//
-// Arguments:
-//    call - the call whose arg is being rewritten.
-//    info - the fgArgTabEntry information for the argument.
+// InsertPutArg: rewrites the tree to put an arg in a register or on the stack.
 //
 // Return Value:
 //    The new tree that was created to put the arg in the right place
 //    or the incoming arg if the arg tree was not rewritten.
 //
-GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
+GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 {
     GenTree* arg = info->GetNode();
 
-    if (info->IsSplit())
+    if (info->GetRegCount() == 0)
+    {
+        GenTreePutArgStk* putArgStk =
+            new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg, info->GetSlotNum(),
+                                                       info->GetSlotCount(), call->IsFastTailCall(), call);
+        BlockRange().InsertAfter(arg, putArgStk);
+        info->SetNode(putArgStk);
+        LowerPutArgStk(putArgStk);
+
+        return putArgStk;
+    }
+
+    if (info->GetSlotCount() != 0)
     {
 #if FEATURE_ARG_SPLIT
         // TODO: Need to check correctness for FastTailCall
@@ -1051,13 +1059,13 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
             NYI_ARM("lower: struct argument by fast tail call");
         }
 
-        GenTreePutArgSplit* argSplit =
+        GenTreePutArgSplit* putArgSplit =
             new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info->GetSlotNum(), info->GetSlotCount(),
                                                            info->GetRegCount(), call->IsFastTailCall(), call);
 
         for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
         {
-            argSplit->SetRegNumByIdx(info->GetRegNum(regIndex), regIndex);
+            putArgSplit->SetRegNumByIdx(info->GetRegNum(regIndex), regIndex);
         }
 
         if (arg->OperIs(GT_FIELD_LIST))
@@ -1071,11 +1079,11 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
                 }
                 var_types regType = use.GetNode()->TypeGet();
                 // Account for the possibility that float fields may be passed in integer registers.
-                if (varTypeIsFloating(regType) && !genIsValidFloatReg(argSplit->GetRegNumByIdx(regIndex)))
+                if (varTypeIsFloating(regType) && !genIsValidFloatReg(putArgSplit->GetRegNumByIdx(regIndex)))
                 {
                     regType = (regType == TYP_FLOAT) ? TYP_INT : TYP_LONG;
                 }
-                argSplit->SetRegType(regIndex, regType);
+                putArgSplit->SetRegType(regIndex, regType);
                 regIndex++;
             }
 
@@ -1101,17 +1109,20 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
 
             for (unsigned index = 0; index < info->GetRegCount(); index++)
             {
-                argSplit->SetRegType(index, layout->GetGCPtrType(index));
+                putArgSplit->SetRegType(index, layout->GetGCPtrType(index));
             }
         }
 
-        return argSplit;
+        BlockRange().InsertAfter(arg, putArgSplit);
+        info->SetNode(putArgSplit);
+        LowerPutArgStk(putArgSplit);
+        return putArgSplit;
 #else  // !FEATURE_ARG_SPLIT
         unreached();
 #endif // !FEATURE_ARG_SPLIT
     }
 
-    if ((info->GetRegCount() > 1) && arg->OperIs(GT_FIELD_LIST))
+    if (arg->OperIs(GT_FIELD_LIST))
     {
 #if FEATURE_MULTIREG_ARGS
         unsigned int regIndex = 0;
@@ -1131,19 +1142,20 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, CallArgInfo* info)
 #endif // !FEATURE_MULTIREG_ARGS
     }
 
-    if (info->GetRegCount() != 0)
-    {
-        return NewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
-    }
+#ifdef TARGET_ARM
+    assert(info->GetRegCount() == (arg->TypeIs(TYP_LONG) ? 2u : 1u));
+#else
+    assert(info->GetRegCount() == 1);
+#endif
 
-    return new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg, info->GetSlotNum(),
-                                                      info->GetSlotCount(), call->IsFastTailCall(), call);
+    GenTree* putArgReg = NewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
+    BlockRange().InsertAfter(arg, putArgReg);
+    info->SetNode(putArgReg);
+    return putArgReg;
 }
 
 GenTree* Lowering::NewPutArgReg(var_types type, GenTree* arg, regNumber argReg)
 {
-    assert(arg != nullptr);
-
     GenTree* node = nullptr;
 #if defined(TARGET_ARM)
     // A PUTARG_REG could be a MultiRegOp on arm since we could move a double register to two int registers.
@@ -1201,31 +1213,22 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(0), 0, TYP_INT);
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(1), 4, TYP_INT);
         argInfo->SetNode(fieldList);
+        BlockRange().InsertAfter(arg, fieldList);
+        BlockRange().Remove(arg);
 
-        GenTree* newArg = NewPutArg(call, argInfo);
+        GenTree* newArg = InsertPutArg(call, argInfo);
 
         if (argInfo->GetRegCount() != 0)
         {
             assert(argInfo->GetRegCount() == 2);
-            // In the register argument case, NewPutArg replaces the original field list args with new
-            // GT_PUTARG_REG nodes, inserts them in linear order and returns the field list. So the
-            // only thing left to do is to insert the field list itself in linear order.
             assert(newArg == fieldList);
-            BlockRange().InsertBefore(arg, newArg);
         }
         else
         {
-            // For longs, we will replace the GT_LONG with a GT_FIELD_LIST, and put that under a PUTARG_STK.
-            // Although the hi argument needs to be pushed first, that will be handled by the general case,
-            // in which the fields will be reversed.
             assert(argInfo->GetSlotCount() == 2);
-            newArg->SetRegNum(REG_STK);
-            BlockRange().InsertBefore(arg, fieldList, newArg);
-            argInfo->SetNode(newArg);
-            LowerPutArgStk(newArg->AsPutArgStk());
+            assert(newArg->OperIs(GT_PUTARG_STK));
         }
 
-        BlockRange().Remove(arg);
         return;
     }
 #endif // !defined(TARGET_64BIT)
@@ -1286,18 +1289,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         arg->SetContained();
     }
 
-    GenTree* putArg = NewPutArg(call, argInfo);
-
-    if (arg != putArg)
-    {
-        argInfo->SetNode(putArg);
-        BlockRange().InsertAfter(arg, putArg);
-
-        if (putArg->IsPutArgStk())
-        {
-            LowerPutArgStk(putArg->AsPutArgStk());
-        }
-    }
+    InsertPutArg(call, argInfo);
 }
 
 #ifdef TARGET_ARMARCH
@@ -5765,23 +5757,23 @@ void Lowering::CheckCallArg(GenTree* arg)
         return;
     }
 
-    switch (arg->OperGet())
+    if (arg->OperIs(GT_FIELD_LIST))
     {
-        case GT_FIELD_LIST:
+        GenTreeFieldList* list = arg->AsFieldList();
+        assert(list->isContained());
+
+        for (GenTreeFieldList::Use& use : list->Uses())
         {
-            GenTreeFieldList* list = arg->AsFieldList();
-            assert(list->isContained());
-
-            for (GenTreeFieldList::Use& use : list->Uses())
-            {
-                assert(use.GetNode()->OperIsPutArg());
-            }
+            assert(use.GetNode()->OperIs(GT_PUTARG_REG));
         }
-        break;
-
-        default:
-            assert(arg->OperIsPutArg());
-            break;
+    }
+    else
+    {
+#if FEATURE_ARG_SPLIT
+        assert(arg->OperIs(GT_PUTARG_REG, GT_PUTARG_STK, GT_PUTARG_SPLIT));
+#else
+        assert(arg->OperIs(GT_PUTARG_REG, GT_PUTARG_STK));
+#endif
     }
 }
 
