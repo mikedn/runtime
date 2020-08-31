@@ -266,6 +266,15 @@ int LinearScan::BuildCall(GenTreeCall* call)
                 BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
                 srcCount++;
                 regIndex++;
+
+#ifdef TARGET_ARM
+                if (use.GetNode()->TypeIs(TYP_LONG))
+                {
+                    BuildUse(use.GetNode(), genRegMask(genRegArgNext(use.GetNode()->GetRegNum())), 1);
+                    srcCount++;
+                    regIndex++;
+                }
+#endif
             }
 
             continue;
@@ -438,15 +447,30 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         unsigned regIndex = 0;
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
+            GenTree*  node    = use.GetNode();
             regMaskTP regMask = RBM_NONE;
+
             if (regIndex < argInfo->GetRegCount())
             {
                 regMask = genRegMask(argInfo->GetRegNum(regIndex));
             }
 
-            BuildUse(use.GetNode(), regMask);
+            BuildUse(node, regMask);
             srcCount++;
             regIndex++;
+
+#ifdef TARGET_ARM
+            if (node->TypeIs(TYP_LONG))
+            {
+                assert(node->OperIs(GT_BITCAST));
+
+                regMask = genRegMask(argInfo->GetRegNum(regIndex));
+
+                BuildUse(node, regMask, 1);
+                srcCount++;
+                regIndex++;
+            }
+#endif
         }
     }
     else

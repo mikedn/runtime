@@ -1008,6 +1008,25 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             }
 
             regIndex++;
+
+#ifdef TARGET_ARM
+            if (fieldNode->TypeIs(TYP_LONG))
+            {
+                assert(fieldNode->OperIs(GT_BITCAST));
+
+                fieldReg = fieldNode->AsMultiRegOp()->GetRegByIndex(1);
+
+                var_types type   = putArg->GetRegType(regIndex);
+                regNumber argReg = putArg->GetRegNumByIdx(regIndex);
+
+                if (argReg != fieldReg)
+                {
+                    GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, fieldReg);
+                }
+
+                regIndex++;
+            }
+#endif
         }
 
         genProduceReg(putArg);

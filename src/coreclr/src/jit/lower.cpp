@@ -1084,13 +1084,24 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
             unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
             {
-                var_types regType = use.GetNode()->GetType();
+                GenTree*  node    = use.GetNode();
+                var_types regType = node->GetType();
 
                 if (varTypeIsGC(regType))
                 {
                     putArgSplit->SetRegType(regIndex, regType);
                 }
-
+#ifdef TARGET_ARM
+                else if (regType == TYP_DOUBLE)
+                {
+                    GenTree* bitcast = comp->gtNewBitCastNode(TYP_LONG, node);
+                    bitcast->SetRegNum(info->GetRegNum(regIndex));
+                    regIndex++;
+                    bitcast->AsMultiRegOp()->gtOtherReg = info->GetRegNum(regIndex);
+                    BlockRange().InsertAfter(node, bitcast);
+                    use.SetNode(bitcast);
+                }
+#endif
                 regIndex++;
 
                 if (regIndex >= info->GetRegCount())
@@ -1141,12 +1152,15 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
         unsigned int regIndex = 0;
         for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
         {
-            regNumber argReg = info->GetRegNum(regIndex);
-            GenTree*  node   = use.GetNode();
-            GenTree*  putArg = NewPutArgReg(node->GetType(), node, argReg);
-            use.SetNode(putArg);
-            BlockRange().InsertAfter(node, putArg);
+            GenTree* node      = use.GetNode();
+            GenTree* putArgReg = InsertPutArgReg(node->GetType(), node, info, regIndex);
+            use.SetNode(putArgReg);
+
+#ifdef TARGET_ARM
+            regIndex += putArgReg->TypeIs(TYP_LONG) ? 2 : 1;
+#else
             regIndex++;
+#endif
         }
 
         return arg;
@@ -1155,62 +1169,53 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 #endif
     }
 
-#ifdef TARGET_ARMARCH
-    if (varTypeIsFloating(arg->GetType()) && genIsValidIntReg(info->GetRegNum()))
-    {
-        GenTree* bitcast = LowerFloatCallArgReg(arg, info->GetRegNum());
-        BlockRange().InsertAfter(arg, bitcast);
-        info->SetNode(bitcast);
-        arg = bitcast;
-    }
-#endif
+    GenTree* putArgReg = InsertPutArgReg(varActualType(arg->GetType()), arg, info, 0);
+    info->SetNode(putArgReg);
 
 #ifdef TARGET_ARM
-    assert(info->GetRegCount() == (arg->TypeIs(TYP_LONG) ? 2u : 1u));
+    assert(info->GetRegCount() == (putArgReg->TypeIs(TYP_LONG) ? 2u : 1u));
 #else
     assert(info->GetRegCount() == 1);
 #endif
 
-    GenTree* putArgReg = NewPutArgReg(varActualType(arg->GetType()), arg, info->GetRegNum());
-    BlockRange().InsertAfter(arg, putArgReg);
-    info->SetNode(putArgReg);
     return putArgReg;
 }
 
-#ifdef TARGET_ARMARCH
-
-GenTree* Lowering::LowerFloatCallArgReg(GenTree* arg, regNumber argReg)
+GenTree* Lowering::InsertPutArgReg(var_types type, GenTree* arg, CallArgInfo* argInfo, unsigned regIndex)
 {
-    assert(varTypeIsFloating(arg->GetType()));
+    regNumber argReg = argInfo->GetRegNum(regIndex);
 
-    var_types intType = arg->TypeIs(TYP_DOUBLE) ? TYP_LONG : TYP_INT;
-    GenTree*  intArg  = comp->gtNewBitCastNode(intType, arg);
-    intArg->SetRegNum(argReg);
-#ifdef TARGET_ARM
-    if (arg->TypeIs(TYP_DOUBLE))
+    if (varTypeIsFloating(type) && genIsValidIntReg(argReg))
     {
-        intArg->AsMultiRegOp()->gtOtherReg = REG_NEXT(argReg);
-    }
+#ifndef TARGET_ARMARCH
+        unreached();
+#else
+        type = (type == TYP_DOUBLE) ? TYP_LONG : TYP_INT;
+
+        GenTree* intArg = comp->gtNewBitCastNode(type, arg);
+        intArg->SetRegNum(argReg);
+#ifdef TARGET_ARM
+        if (type == TYP_LONG)
+        {
+            intArg->AsMultiRegOp()->gtOtherReg = argInfo->GetRegNum(regIndex + 1);
+        }
 #endif
-    return intArg;
-}
-
-#endif // TARGET_ARMARCH
-
-GenTree* Lowering::NewPutArgReg(var_types type, GenTree* arg, regNumber argReg)
-{
-    assert(varTypeUsesFloatReg(type) == genIsValidFloatReg(argReg));
+        BlockRange().InsertAfter(arg, intArg);
+        arg         = intArg;
+#endif
+    }
 
 #ifdef TARGET_ARM
     GenTreeMultiRegOp* putArg = new (comp, GT_PUTARG_REG) GenTreeMultiRegOp(GT_PUTARG_REG, type, arg, nullptr);
     if (type == TYP_LONG)
     {
-        putArg->gtOtherReg = REG_NEXT(argReg);
+        putArg->gtOtherReg = argInfo->GetRegNum(regIndex + 1);
     }
 #else
     GenTree* putArg = comp->gtNewOperNode(GT_PUTARG_REG, type, arg);
 #endif
     putArg->SetRegNum(argReg);
+    BlockRange().InsertAfter(arg, putArg);
     return putArg;
 }
 

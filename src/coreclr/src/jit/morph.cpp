@@ -3525,12 +3525,6 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
 #ifdef TARGET_64BIT
             reg++;
 #else
-            if (reg < argInfo->GetRegCount())
-            {
-                // We don't have decomposition support for LONG BITCAST so we cannot pass it in registers.
-                return false;
-            }
-
             if (reg == regAndSlotCount - 1)
             {
                 // We need to have at least 2 slots left to load a DOUBLE field.
@@ -3709,10 +3703,11 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
             reg++;
 #else
-            // We don't have decomposition support for LONG BITCAST so we cannot pass it in registers.
-            assert(reg >= argInfo->GetRegCount());
             // We need to have at least 2 slots left to load a DOUBLE field.
             assert(reg != regAndSlotCount - 1);
+
+            // Ideally we'd bitcast the DOUBLE to LONG but decomposition doesn't currently support
+            // LONG BITCAST nodes so we'll leave it as is and defer it to lowering.
 
             reg += 2;
 #endif
