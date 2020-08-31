@@ -6966,30 +6966,24 @@ public:
 #endif
 
     // clang-format off
-    GenTreePutArgStk(genTreeOps   oper,
-                     var_types    type,
-                     GenTree*     op1,
-                     unsigned     slotNum,
-                     unsigned     slotCount,
-                     bool         putInIncomingArgArea = false,
-                     GenTreeCall* callNode = nullptr)
-        : GenTreeUnOp(oper, type, op1)
+    GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call, genTreeOps oper = GT_PUTARG_STK)
+        : GenTreeUnOp(oper, TYP_VOID, arg)
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
-        , gtCall(callNode)
+        , gtCall(call)
 #endif
-        , m_slotNum(slotNum)
+        , m_slotNum(argInfo->GetSlotNum())
 #if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
-        , m_slotCount(slotCount)
+        , m_slotCount(argInfo->GetSlotCount())
 #endif
 #ifdef TARGET_XARCH
         , gtPutArgStkKind(Kind::Invalid)
 #endif
 #if FEATURE_FASTTAILCALL
-        , gtPutInIncomingArgArea(putInIncomingArgArea)
+        , gtPutInIncomingArgArea(call->IsFastTailCall())
 #endif
     {
 #if defined(TARGET_AMD64) && defined(TARGET_WINDOWS)
-        assert(slotCount == 1);
+        assert(argInfo->GetSlotCount() == 1);
 #endif
     }
     // clang-format on
@@ -7069,22 +7063,18 @@ private:
 #endif
 
 public:
-    GenTreePutArgSplit(GenTree*     op1,
-                       unsigned     slotNum,
-                       unsigned     numSlots,
-                       unsigned     numRegs,
-                       bool         putIncomingArgArea = false,
-                       GenTreeCall* callNode           = nullptr)
-        : GenTreePutArgStk(GT_PUTARG_SPLIT, TYP_STRUCT, op1, slotNum, numSlots, putIncomingArgArea, callNode)
+    GenTreePutArgSplit(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
+        : GenTreePutArgStk(arg, argInfo, call, GT_PUTARG_SPLIT)
 #ifdef TARGET_ARM
-        , gtNumRegs(numRegs)
+        , gtNumRegs(argInfo->GetRegCount())
 #endif
     {
-        assert((0 < numRegs) && (numRegs <= MAX_SPLIT_ARG_REGS));
+        assert((0 < argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_SPLIT_ARG_REGS));
 #ifdef TARGET_ARM64
-        assert(numSlots == 1);
+        assert(argInfo->GetSlotCount() == 1);
 #endif
 
+        SetType(TYP_STRUCT);
         ClearOtherRegs();
         ClearOtherRegFlags();
     }

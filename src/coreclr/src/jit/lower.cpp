@@ -1040,9 +1040,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 
     if (info->GetRegCount() == 0)
     {
-        GenTreePutArgStk* putArgStk =
-            new (comp, GT_PUTARG_STK) GenTreePutArgStk(GT_PUTARG_STK, TYP_VOID, arg, info->GetSlotNum(),
-                                                       info->GetSlotCount(), call->IsFastTailCall(), call);
+        GenTreePutArgStk* putArgStk = new (comp, GT_PUTARG_STK) GenTreePutArgStk(arg, info, call);
         BlockRange().InsertAfter(arg, putArgStk);
         info->SetNode(putArgStk);
         LowerPutArgStk(putArgStk);
@@ -1059,9 +1057,9 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
             NYI_ARM("lower: struct argument by fast tail call");
         }
 
-        GenTreePutArgSplit* putArgSplit =
-            new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info->GetSlotNum(), info->GetSlotCount(),
-                                                           info->GetRegCount(), call->IsFastTailCall(), call);
+        GenTreePutArgSplit* putArgSplit = new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info, call);
+        BlockRange().InsertAfter(arg, putArgSplit);
+        info->SetNode(putArgSplit);
 
         for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
         {
@@ -1113,8 +1111,6 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
             }
         }
 
-        BlockRange().InsertAfter(arg, putArgSplit);
-        info->SetNode(putArgSplit);
         LowerPutArgStk(putArgSplit);
         return putArgSplit;
 #else  // !FEATURE_ARG_SPLIT
