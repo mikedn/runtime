@@ -1326,10 +1326,7 @@ GenTree* Lowering::LowerFloatCallArg(CallArgInfo* argInfo)
 
     if (arg->OperIs(GT_FIELD_LIST))
     {
-        // Transform fields that are passed as registers in place.
-        regNumber currRegNumber = argInfo->GetRegNum();
-        unsigned  regIndex      = 0;
-
+        unsigned regIndex = 0;
         for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
         {
             if (regIndex >= argInfo->GetRegCount())
@@ -1337,30 +1334,10 @@ GenTree* Lowering::LowerFloatCallArg(CallArgInfo* argInfo)
                 break;
             }
 
-            GenTree* node = use.GetNode();
-            if (varTypeIsFloating(node->GetType()))
-            {
-                GenTree* intNode = LowerFloatCallArgReg(node, currRegNumber);
-                use.SetNode(intNode);
-                BlockRange().InsertAfter(node, intNode);
-            }
-
-            currRegNumber = REG_NEXT(currRegNumber);
-            regIndex += 1;
-
-            if (node->TypeIs(TYP_DOUBLE))
-            {
-                currRegNumber = REG_NEXT(currRegNumber);
-                // TODO-MIKE-Review: This is likely wrong, CallArgInfo's register count
-                // includes only one register for a double arg. But it seems that there's
-                // no way to reach here with a double field so this doesn't matter now.
-                // In fact, it's not clear how we can reach this witha FIELD_LIST.
-                // We'd need a HFA but then this is called only for varargs and soft-fp
-                // and there shouldn't be any HFAs in this case.
-                regIndex += 1;
-            }
+            assert(!varTypeIsFloating(use.GetNode()->GetType()));
+            regIndex++;
         }
-        // List fields were replaced in place.
+
         return nullptr;
     }
 
