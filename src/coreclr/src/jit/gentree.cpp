@@ -5868,19 +5868,21 @@ CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
 {
     noway_assert(fgArgInfo != nullptr);
 
-    assert(argNum < fgArgInfo->ArgCount());
+    assert(argNum < fgArgInfo->GetArgCount());
 
-    if (fgArgInfo->ArgTable()[argNum]->GetArgNum() == argNum)
+    if (fgArgInfo->GetArgInfo(argNum)->GetArgNum() == argNum)
     {
-        return fgArgInfo->ArgTable()[argNum];
+        return fgArgInfo->GetArgInfo(argNum);
     }
 
     // The arg table was sorted and the arg changed its position, do a linear search to find it.
-    for (unsigned i = 0; i < fgArgInfo->ArgCount(); i++)
+    for (unsigned i = 0; i < fgArgInfo->GetArgCount(); i++)
     {
-        if (fgArgInfo->ArgTable()[i]->GetArgNum() == argNum)
+        CallArgInfo* argInfo = fgArgInfo->GetArgInfo(i);
+
+        if (argInfo->GetArgNum() == argNum)
         {
-            return fgArgInfo->ArgTable()[i];
+            return argInfo;
         }
     }
 
@@ -5896,25 +5898,22 @@ CallArgInfo* GenTreeCall::GetArgInfoByArgNode(GenTree* node) const
 {
     noway_assert(fgArgInfo != nullptr);
 
-    unsigned        argCount       = fgArgInfo->ArgCount();
-    fgArgTabEntry** argTable       = fgArgInfo->ArgTable();
-    fgArgTabEntry*  curArgTabEntry = nullptr;
-
-    for (unsigned i = 0; i < argCount; i++)
+    for (unsigned i = 0; i < fgArgInfo->GetArgCount(); i++)
     {
-        curArgTabEntry = argTable[i];
+        CallArgInfo* argInfo = fgArgInfo->GetArgInfo(i);
 
-        if (curArgTabEntry->GetNode() == node)
+        if (argInfo->GetNode() == node)
         {
-            return curArgTabEntry;
+            return argInfo;
         }
-        else if (curArgTabEntry->use->GetNode() == node)
+
+        if (argInfo->use->GetNode() == node)
         {
-            return curArgTabEntry;
+            return argInfo;
         }
     }
-    noway_assert(!"gtArgEntryByNode: node not found");
-    return nullptr;
+
+    unreached();
 }
 
 CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
@@ -5922,20 +5921,17 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     noway_assert(fgArgInfo != nullptr);
     assert(use != nullptr);
 
-    unsigned        argCount       = fgArgInfo->ArgCount();
-    fgArgTabEntry** argTable       = fgArgInfo->ArgTable();
-    fgArgTabEntry*  curArgTabEntry = nullptr;
-
-    for (unsigned i = 0; i < argCount; i++)
+    for (unsigned i = 0; i < fgArgInfo->GetArgCount(); i++)
     {
-        curArgTabEntry = argTable[i];
-        if (curArgTabEntry->HasLateUse() && (curArgTabEntry->lateUse == use))
+        CallArgInfo* argInfo = fgArgInfo->GetArgInfo(i);
+
+        if (argInfo->HasLateUse() && (argInfo->lateUse == use))
         {
-            return curArgTabEntry;
+            return argInfo;
         }
     }
-    noway_assert(!"gtArgEntryByNode: node not found");
-    return nullptr;
+
+    unreached();
 }
 
 /*****************************************************************************

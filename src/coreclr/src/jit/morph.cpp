@@ -688,7 +688,7 @@ REMOVE_CAST:
 }
 
 #ifdef DEBUG
-void fgArgTabEntry::Dump() const
+void CallArgInfo::Dump() const
 {
     printf("arg %u:", m_argNum);
     printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
@@ -745,7 +745,7 @@ void fgArgTabEntry::Dump() const
     printf("\n");
 }
 
-void fgArgInfo::Dump() const
+void CallInfo::Dump() const
 {
     for (unsigned i = 0; i < argCount; i++)
     {
@@ -754,7 +754,7 @@ void fgArgInfo::Dump() const
 }
 #endif
 
-fgArgInfo::fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
+CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
 {
     argCount    = 0; // filled in arg count, starts at zero
     nextSlotNum = INIT_ARG_STACK_SLOT;
@@ -775,24 +775,24 @@ fgArgInfo::fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
     }
     else
     {
-        argTable = new (comp, CMK_fgArgInfoPtrArr) fgArgTabEntry*[numArgs];
+        argTable = new (comp, CMK_CallInfo) CallArgInfo*[numArgs];
     }
 }
 
-/*****************************************************************************
- *
- *  fgArgInfo Copy Constructor
- *
- *  This method needs to act like a copy constructor for fgArgInfo.
- *  The newCall needs to have its fgArgInfo initialized such that
- *  we have newCall that is an exact copy of the oldCall.
- *  We have to take care since the argument information
- *  in the argTable contains pointers that must point to the
- *  new arguments and not the old arguments.
- */
-fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCall)
+//------------------------------------------------------------------------------
+//
+//  CallInfo "copy constructor"
+//
+//  This method needs to act like a copy constructor for CallInfo.
+//  The newCall needs to have its CallInfo initialized such that
+//  we have newCall that is an exact copy of the oldCall.
+//  We have to take care since the argument information
+//  in the argTable contains pointers that must point to the
+//  new arguments and not the old arguments.
+//
+CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCall)
 {
-    fgArgInfo* oldArgInfo = oldCall->AsCall()->fgArgInfo;
+    CallInfo* oldArgInfo = oldCall->AsCall()->GetInfo();
 
     argCount    = oldArgInfo->argCount;
     nextSlotNum = INIT_ARG_STACK_SLOT;
@@ -810,12 +810,12 @@ fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldC
 
     if (argCount > 0)
     {
-        argTable = new (compiler, CMK_fgArgInfoPtrArr) fgArgTabEntry*[argCount];
+        argTable = new (compiler, CMK_CallInfo) fgArgTabEntry*[argCount];
 
         // Copy the old arg entries
         for (unsigned i = 0; i < argCount; i++)
         {
-            argTable[i] = new (compiler, CMK_fgArgInfo) fgArgTabEntry(*oldArgInfo->argTable[i]);
+            argTable[i] = new (compiler, CMK_CallInfo) fgArgTabEntry(*oldArgInfo->argTable[i]);
         }
 
         // The copied arg entries contain pointers to old uses, they need
@@ -872,7 +872,7 @@ fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldC
     argsComplete = true;
 }
 
-void fgArgInfo::AddArg(CallArgInfo* argInfo)
+void CallInfo::AddArg(CallArgInfo* argInfo)
 {
     assert(argCount < argTableSize);
     argTable[argCount] = argInfo;
@@ -880,7 +880,7 @@ void fgArgInfo::AddArg(CallArgInfo* argInfo)
     hasRegArgs |= argInfo->GetRegCount() != 0;
 }
 
-unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
+unsigned CallInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
 {
     assert(!argsComplete);
 
@@ -889,7 +889,7 @@ unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
     return firstSlot;
 }
 
-void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
+void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 {
     assert(!argsComplete);
 
@@ -1121,7 +1121,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     argsComplete = true;
 }
 
-void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
+void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 {
     // Shuffle the arguments around before we build the gtCallLateArgs list.
     // The idea is to move all "simple" arguments like constants and local vars
@@ -1264,7 +1264,7 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 #endif
 }
 
-void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
+void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 {
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
@@ -1765,9 +1765,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
 #endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
 
-    // Allocate the fgArgInfo for the call node;
-    //
-    call->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(this, call, numArgs);
+    call->SetInfo(new (this, CMK_CallInfo) CallInfo(this, call, numArgs));
 
     // Add the 'this' argument value, if present.
     if (call->gtCallThisArg != nullptr)
@@ -1777,7 +1775,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(call->gtCallType == CT_USER_FUNC || call->gtCallType == CT_INDIRECT);
         assert(varTypeIsGC(argx) || (argx->gtType == TYP_I_IMPL));
 
-        CallArgInfo* argInfo = new (this, CMK_fgArgInfo) CallArgInfo(0, call->gtCallThisArg, 1);
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, call->gtCallThisArg, 1);
         argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
         argInfo->SetArgType(argx->GetType());
         call->fgArgInfo->AddArg(argInfo);
@@ -2475,7 +2473,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
 #endif
 
-            newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, regCount);
+            newArgEntry = new (this, CMK_CallInfo) CallArgInfo(argIndex, args, regCount);
             newArgEntry->SetRegNum(0, nextRegNum);
             newArgEntry->SetNonStandard(isNonStandard);
 #ifdef UNIX_AMD64_ABI
@@ -2517,7 +2515,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         else // We have an argument that is not passed in a register
         {
-            newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, 0);
+            newArgEntry = new (this, CMK_CallInfo) CallArgInfo(argIndex, args, 0);
             newArgEntry->SetSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
         }
 

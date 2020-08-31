@@ -2024,9 +2024,9 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
         (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFCLASS)) ||
         (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ISINSTANCEOFANY)))
     {
-        fgArgInfo* const argInfo         = call->fgArgInfo;
-        GenTree*         objectNode      = call->GetArgNodeByArgNum(1);
-        GenTree*         methodTableNode = call->GetArgNodeByArgNum(0);
+        CallInfo* argInfo         = call->GetInfo();
+        GenTree*  objectNode      = call->GetArgNodeByArgNum(1);
+        GenTree*  methodTableNode = call->GetArgNodeByArgNum(0);
 
         assert(objectNode->TypeGet() == TYP_REF);
         assert(methodTableNode->TypeGet() == TYP_I_IMPL);
