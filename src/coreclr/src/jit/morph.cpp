@@ -6470,7 +6470,11 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
                                     if (arg2Node->OperIs(GT_LCL_VAR))
                                     {
                                         GenTreeLclVarCommon* arg2LclNode = arg2Node->AsLclVarCommon();
-                                        assert(arg2LclNode->GetLclNum() != lclNum);
+                                        if (arg2LclNode->GetLclNum() == lclNum)
+                                        {
+                                            interferingArg = arg2LclNode;
+                                            break;
+                                        }
                                         LclVarDsc* arg2Dsc = lvaGetDesc(arg2LclNode);
 
                                         // Other params can't alias implicit byref params
