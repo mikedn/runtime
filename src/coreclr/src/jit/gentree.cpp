@@ -15740,27 +15740,9 @@ GenTreeLclVar* GenTree::IsImplicitByrefParameterValue(Compiler* compiler)
 
     GenTreeLclVar* lcl = nullptr;
 
-    if (OperIs(GT_LCL_VAR))
+    if (OperIs(GT_OBJ) && AsObj()->GetAddr()->OperIs(GT_LCL_VAR))
     {
-        lcl = AsLclVar();
-    }
-    else if (OperIs(GT_OBJ))
-    {
-        GenTree* addr = AsIndir()->Addr();
-
-        if (addr->OperIs(GT_LCL_VAR))
-        {
-            lcl = addr->AsLclVar();
-        }
-        else if (addr->OperIs(GT_ADDR))
-        {
-            GenTree* base = addr->AsOp()->gtOp1;
-
-            if (base->OperIs(GT_LCL_VAR))
-            {
-                lcl = base->AsLclVar();
-            }
-        }
+        lcl = AsObj()->GetAddr()->AsLclVar();
     }
 
     if ((lcl != nullptr) && compiler->lvaIsImplicitByRefLocal(lcl->GetLclNum()))
