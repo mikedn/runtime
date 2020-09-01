@@ -6476,7 +6476,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
                                             lclNum);
                                     // arg2 might alias arg, see if we've exposed
                                     // arg somewhere in the method.
-                                    if (varDsc->lvHasLdAddrOp || varDsc->lvAddrExposed)
+                                    if (varDsc->lvHasLdAddrOp)
                                     {
                                         // Struct as a whole is exposed, can't optimize
                                         JITDUMP("... V%02u is exposed\n", lclNum);
