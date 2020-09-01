@@ -6343,187 +6343,132 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 //
 bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 {
-    bool hasMustCopyByrefParameter = false;
-
     for (unsigned index = 0; index < callInfo->GetArgCount(); ++index)
     {
         CallArgInfo* argInfo = callInfo->GetArgInfo(index);
 
-        if (argInfo->IsImplicitByRef())
+        if (!argInfo->IsImplicitByRef())
         {
-            // Generally a byref arg will block tail calling, as we have to
-            // make a local copy of the struct for the callee.
-            hasMustCopyByrefParameter = true;
+            continue;
+        }
 
-            // If we're optimizing, we may be able to pass our caller's byref to our callee,
-            // and so still be able to avoid a struct copy.
-            if (opts.OptimizationEnabled())
+        if (!opts.OptimizationEnabled())
+        {
+            return true;
+        }
+
+        GenTreeLclVar* lclNode = argInfo->GetNode()->IsImplicitByrefParameterValue(this);
+
+        if (lclNode == nullptr)
+        {
+            // If the implicit by-ref arg isn't itself an implicit by-ref parameter then
+            // we need to make a local copy and thus can't fast tail call. N.B. that it
+            // may be possible to avoid copying a local variable (e.g. if the arg is its
+            // last use) but then we'd be passing the address of that local so we still
+            // can't fast tail call.
+
+            return true;
+        }
+
+        LclVarDsc* lcl = lvaGetDesc(lclNode);
+
+        JITDUMP("Arg [%06u] is implicit byref V%02u, checking if it's aliased\n", argInfo->GetNode()->gtTreeID,
+                lclNode->GetLclNum());
+
+        if (lcl->lvRefCnt(RCS_EARLY) == 1)
+        {
+            JITDUMP("Arg is the only use of V%02u\n", lclNode->GetLclNum());
+
+            continue;
+        }
+
+        // If the param has multiple uses then some of them may appear in other args of this call,
+        // either because the param (or a portion of it) is passed in multiple args or because its
+        // address is somehow passed in an arg. We need to scan the arg list to find such uses so
+        // this has quadratic complexity.
+
+        if (callInfo->GetArgCount() > 6)
+        {
+            JITDUMP("Arg alias analysis too costly, call has %u args\n", callInfo->GetArgCount());
+
+            return true;
+        }
+
+        for (unsigned index2 = 0; index2 < callInfo->GetArgCount(); ++index2)
+        {
+            if (index2 == index)
             {
-                // First, see if this arg is an implicit byref param.
-                GenTreeLclVar* const lcl = argInfo->GetNode()->IsImplicitByrefParameterValue(this);
-
-                if (lcl != nullptr)
-                {
-                    // Yes, the arg is an implicit byref param.
-                    const unsigned   lclNum = lcl->GetLclNum();
-                    LclVarDsc* const varDsc = lvaGetDesc(lcl);
-
-                    JITDUMP("Arg [%06u] is implicit byref V%02u, seeing if we can still tail call\n",
-                            dspTreeID(argInfo->GetNode()), lclNum);
-
-                    // We have to worry about introducing aliases if we bypass copying
-                    // the struct at the call. We'll do some limited analysis to see if we
-                    // can rule this out.
-                    const unsigned argLimit = 6;
-
-                    // If this is the only appearance of the byref in the method, then
-                    // aliasing is not possible.
-                    //
-                    // If no other call arg refers to this byref, and no other arg is
-                    // a pointer which could refer to this byref, we can optimize.
-                    //
-                    // We only check this for calls with small numbers of arguments,
-                    // as the analysis cost will be quadratic.
-                    //
-                    if (varDsc->lvRefCnt(RCS_EARLY) == 1)
-                    {
-                        JITDUMP("... yes, arg is the only appearance of V%02u\n", lclNum);
-                        hasMustCopyByrefParameter = false;
-                    }
-                    else if (callInfo->GetArgCount() <= argLimit)
-                    {
-                        GenTree* interferingArg = nullptr;
-                        for (unsigned index2 = 0; index2 < callInfo->GetArgCount(); ++index2)
-                        {
-                            if (index2 == index)
-                            {
-                                continue;
-                            }
-
-                            CallArgInfo* const argInfo2 = callInfo->GetArgInfo(index2);
-                            JITDUMP("... checking other arg [%06u]...\n", dspTreeID(argInfo2->GetNode()));
-                            DISPTREE(argInfo2->GetNode());
-
-                            // Do we pass 'lcl' more than once to the callee?
-                            if (argInfo2->IsImplicitByRef())
-                            {
-                                GenTreeLclVarCommon* const lcl2 =
-                                    argInfo2->GetNode()->IsImplicitByrefParameterValue(this);
-
-                                if ((lcl2 != nullptr) && (lclNum == lcl2->GetLclNum()))
-                                {
-                                    // not copying would introduce aliased implicit byref structs
-                                    // in the callee ... we can't optimize.
-                                    interferingArg = argInfo2->GetNode();
-                                    break;
-                                }
-                                else
-                                {
-                                    JITDUMP("... arg refers to different implicit byref V%02u\n", lcl2->GetLclNum());
-                                    continue;
-                                }
-                            }
-
-                            // Do we pass a byref pointer which might point within 'lcl'?
-                            //
-                            // We can assume the 'lcl' is unaliased on entry to the
-                            // method, so the only way we can have an aliasing byref pointer at
-                            // the call is if 'lcl' is address taken/exposed in the method.
-                            //
-                            // When looking for aliases from other args, we check for both TYP_BYREF
-                            // and TYP_I_IMPL typed args here. Conceptually anything that points into
-                            // an implicit byref parameter should be TYP_BYREF, as these parameters could
-                            // refer to boxed heap locations (say if the method is invoked by reflection)
-                            // but there are some stack only structs (like typed references) where
-                            // the importer/runtime code uses TYP_I_IMPL, and fgInitArgInfo will
-                            // transiently retype all simple address-of implicit parameter args as
-                            // TYP_I_IMPL.
-                            //
-                            if ((argInfo2->argType == TYP_BYREF) || (argInfo2->argType == TYP_I_IMPL))
-                            {
-                                JITDUMP("...arg is a byref, must run an alias check\n");
-                                bool checkExposure = true;
-                                bool hasExposure   = false;
-
-                                // See if there is any way arg could refer to a parameter struct.
-                                GenTree* arg2Node = argInfo2->GetNode();
-                                if (arg2Node->OperIs(GT_LCL_VAR))
-                                {
-                                    GenTreeLclVarCommon* arg2LclNode = arg2Node->AsLclVarCommon();
-                                    if (arg2LclNode->GetLclNum() == lclNum)
-                                    {
-                                        interferingArg = arg2LclNode;
-                                        break;
-                                    }
-                                    LclVarDsc* arg2Dsc = lvaGetDesc(arg2LclNode);
-
-                                    // Other params can't alias implicit byref params
-                                    if (arg2Dsc->lvIsParam)
-                                    {
-                                        checkExposure = false;
-                                    }
-                                }
-                                // Because we're checking TYP_I_IMPL above, at least
-                                // screen out obvious things that can't cause aliases.
-                                else if (arg2Node->IsIntegralConst())
-                                {
-                                    checkExposure = false;
-                                }
-
-                                if (checkExposure)
-                                {
-                                    JITDUMP("... not sure where byref arg points, checking if V%02u is exposed\n",
-                                            lclNum);
-                                    // arg2 might alias arg, see if we've exposed
-                                    // arg somewhere in the method.
-                                    if (varDsc->lvHasLdAddrOp)
-                                    {
-                                        // Struct as a whole is exposed, can't optimize
-                                        JITDUMP("... V%02u is exposed\n", lclNum);
-                                        hasExposure = true;
-                                    }
-                                }
-
-                                if (hasExposure)
-                                {
-                                    interferingArg = argInfo2->GetNode();
-                                    break;
-                                }
-                            }
-                            else
-                            {
-                                JITDUMP("...arg is not a byref or implicit byref (%s)\n",
-                                        varTypeName(argInfo2->GetNode()->GetType()));
-                            }
-                        }
-
-                        if (interferingArg != nullptr)
-                        {
-                            JITDUMP("... no, arg [%06u] may alias with V%02u\n", dspTreeID(interferingArg), lclNum);
-                        }
-                        else
-                        {
-                            JITDUMP("... yes, no other arg in call can alias V%02u\n", lclNum);
-                            hasMustCopyByrefParameter = false;
-                        }
-                    }
-                    else
-                    {
-                        JITDUMP(" ... no, call has %u > %u args, alias analysis deemed too costly\n",
-                                callInfo->GetArgCount(), argLimit);
-                    }
-                }
+                continue;
             }
 
-            if (hasMustCopyByrefParameter)
+            CallArgInfo* argInfo2 = callInfo->GetArgInfo(index2);
+            GenTree*     argNode2 = argInfo2->GetNode();
+
+            JITDUMPTREE(argNode2, "Checking other arg:\n");
+
+            if (argNode2->OperIsConst())
             {
-                // This arg requires a struct copy. No reason to keep scanning the remaining args.
-                break;
+                // A const arg can't alias a parameter.
+                continue;
+            }
+
+            if (argInfo2->IsImplicitByRef())
+            {
+                GenTreeLclVar* const lclNode2 = argNode2->IsImplicitByrefParameterValue(this);
+
+                if ((lclNode2 != nullptr) && (lclNode->GetLclNum() == lclNode2->GetLclNum()))
+                {
+                    JITDUMP("Implicit byref param V%02u value is passed in multiple args\n");
+                    return true;
+                }
+
+                // TODO-MIKE-Review: Old code had a dump message saying "that the arg refers to different
+                // implicit byref local". This seems bogus - there's nothing stopping one from storing
+                // the address of any param into whatever struct gets passed here.
+                continue;
+            }
+
+            if ((argInfo2->argType != TYP_BYREF) && (argInfo2->argType != TYP_I_IMPL))
+            {
+                // TODO-MIKE-Review: Similar to the above comment. We could have a struct parameter that
+                // contains the address of any param.
+                continue;
+            }
+
+            if (argNode2->OperIs(GT_LCL_VAR) && (argNode2->AsLclVar()->GetLclNum() == lclNode->GetLclNum()))
+            {
+                JITDUMP("Implicit byref param V%02u address is also passed in an arg\n");
+                return true;
+            }
+
+            if (argNode2->OperIs(GT_LCL_VAR) && lvaGetDesc(argNode2->AsLclVar())->lvIsParam)
+            {
+                // Other params can't alias implicit byref params.
+
+                // TODO-MIKE-Review: Here we go again - the initial param value cannot indeed alias an
+                // implicit by-ref param but one could assign the address of one param to another param.
+                continue;
+            }
+
+            if (lcl->lvHasLdAddrOp)
+            {
+                // We have no idea what address this argument contains. If the parameter is address
+                // exposed then it could contain its address.
+
+                // TODO-MIKE-CQ: lvHasLdAddrOp is likely overly conservative. lvAddrExposed should be
+                // used instead but that one gets reset in fgRetypeImplicitByRefArgs.
+                // Maybe fgRetypeImplicitByRefArgs could copy lvAddrExposed somewhere so we can use it
+                // here, though care needs to be taken because nothing will ever update it.
+
+                JITDUMP("V%02u is address exposed\n", lclNode->GetLclNum());
+                return true;
             }
         }
+
+        JITDUMP("No other arg can alias V%02u\n", lclNode->GetLclNum());
     }
 
-    return hasMustCopyByrefParameter;
+    return false;
 }
 #endif
 
