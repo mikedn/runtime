@@ -6639,19 +6639,23 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
         blkNode->gtFlags |= GTF_IND_TGTANYWHERE;
     }
 
+    if (src->OperIsInitVal())
+    {
+        GenTreeUnOp* initVal = src->AsUnOp();
+        src                  = src->gtGetOp1();
+        assert(src->IsCnsIntOrI());
+        blkNode->SetData(src);
+        BlockRange().Remove(initVal);
+    }
+
     if (varTypeIsStruct(src))
     {
         src->ChangeType(regType);
         LowerNode(blkNode->Data());
     }
-    else if (src->OperIsInitVal())
+    else if (GenTreeIntCon* intCon = src->IsIntCon())
     {
-        GenTreeUnOp* initVal = src->AsUnOp();
-        src                  = src->gtGetOp1();
-        assert(src->IsCnsIntOrI());
-        src->AsIntCon()->FixupInitBlkValue(regType);
-        blkNode->SetData(src);
-        BlockRange().Remove(initVal);
+        intCon->FixupInitBlkValue(regType);
     }
     else
     {
