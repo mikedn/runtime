@@ -6314,7 +6314,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     // For Windows some struct parameters are copied on the local frame
     // and then passed by reference. We cannot fast tail call in these situation
     // as we need to keep our frame around.
-    if (fgCallHasMustCopyByrefParameter(callee))
+    if (fgCallHasMustCopyByrefParameter(callee->GetInfo()))
     {
         reportFastTailCallDecision("Callee has a byref parameter");
         return false;
@@ -6329,29 +6329,27 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 #endif
 }
 
+#if FEATURE_FASTTAILCALL
 //------------------------------------------------------------------------
 // fgCallHasMustCopyByrefParameter: Check to see if this call has a byref parameter that
 //                                  requires a struct copy in the caller.
 //
 // Arguments:
-//    callee - The callee to check
+//    callInfo - Call node info
 //
 // Return Value:
 //    Returns true or false based on whether this call has a byref parameter that
 //    requires a struct copy in the caller.
-
-#if FEATURE_FASTTAILCALL
-bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
+//
+bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 {
-    fgArgInfo* argInfo = callee->fgArgInfo;
-
     bool hasMustCopyByrefParameter = false;
 
-    for (unsigned index = 0; index < argInfo->ArgCount(); ++index)
+    for (unsigned index = 0; index < callInfo->GetArgCount(); ++index)
     {
-        fgArgTabEntry* arg = callee->GetArgInfoByArgNum(index);
+        CallArgInfo* argInfo = callInfo->GetArgInfo(index);
 
-        if (arg->IsImplicitByRef())
+        if (argInfo->IsImplicitByRef())
         {
             // Generally a byref arg will block tail calling, as we have to
             // make a local copy of the struct for the callee.
@@ -6362,7 +6360,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
             if (opts.OptimizationEnabled())
             {
                 // First, see if this arg is an implicit byref param.
-                GenTreeLclVar* const lcl = arg->GetNode()->IsImplicitByrefParameterValue(this);
+                GenTreeLclVar* const lcl = argInfo->GetNode()->IsImplicitByrefParameterValue(this);
 
                 if (lcl != nullptr)
                 {
@@ -6375,12 +6373,12 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
                     if (varDsc->lvPromoted)
                     {
                         JITDUMP("Arg [%06u] is promoted implicit byref V%02u, so no tail call\n",
-                                dspTreeID(arg->GetNode()), lclNum);
+                                dspTreeID(argInfo->GetNode()), lclNum);
                     }
                     else
                     {
                         JITDUMP("Arg [%06u] is unpromoted implicit byref V%02u, seeing if we can still tail call\n",
-                                dspTreeID(arg->GetNode()), lclNum);
+                                dspTreeID(argInfo->GetNode()), lclNum);
 
                         // We have to worry about introducing aliases if we bypass copying
                         // the struct at the call. We'll do some limited analysis to see if we
@@ -6401,31 +6399,31 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
                             JITDUMP("... yes, arg is the only appearance of V%02u\n", lclNum);
                             hasMustCopyByrefParameter = false;
                         }
-                        else if (argInfo->ArgCount() <= argLimit)
+                        else if (callInfo->GetArgCount() <= argLimit)
                         {
                             GenTree* interferingArg = nullptr;
-                            for (unsigned index2 = 0; index2 < argInfo->ArgCount(); ++index2)
+                            for (unsigned index2 = 0; index2 < callInfo->GetArgCount(); ++index2)
                             {
                                 if (index2 == index)
                                 {
                                     continue;
                                 }
 
-                                fgArgTabEntry* const arg2 = callee->GetArgInfoByArgNum(index2);
-                                JITDUMP("... checking other arg [%06u]...\n", dspTreeID(arg2->GetNode()));
-                                DISPTREE(arg2->GetNode());
+                                CallArgInfo* const argInfo2 = callInfo->GetArgInfo(index2);
+                                JITDUMP("... checking other arg [%06u]...\n", dspTreeID(argInfo2->GetNode()));
+                                DISPTREE(argInfo2->GetNode());
 
                                 // Do we pass 'lcl' more than once to the callee?
-                                if (arg2->IsImplicitByRef())
+                                if (argInfo2->IsImplicitByRef())
                                 {
                                     GenTreeLclVarCommon* const lcl2 =
-                                        arg2->GetNode()->IsImplicitByrefParameterValue(this);
+                                        argInfo2->GetNode()->IsImplicitByrefParameterValue(this);
 
                                     if ((lcl2 != nullptr) && (lclNum == lcl2->GetLclNum()))
                                     {
                                         // not copying would introduce aliased implicit byref structs
                                         // in the callee ... we can't optimize.
-                                        interferingArg = arg2->GetNode();
+                                        interferingArg = argInfo2->GetNode();
                                         break;
                                     }
                                     else
@@ -6459,14 +6457,14 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
                                 // transiently retype all simple address-of implicit parameter args as
                                 // TYP_I_IMPL.
                                 //
-                                if ((arg2->argType == TYP_BYREF) || (arg2->argType == TYP_I_IMPL))
+                                if ((argInfo2->argType == TYP_BYREF) || (argInfo2->argType == TYP_I_IMPL))
                                 {
                                     JITDUMP("...arg is a byref, must run an alias check\n");
                                     bool checkExposure = true;
                                     bool hasExposure   = false;
 
                                     // See if there is any way arg could refer to a parameter struct.
-                                    GenTree* arg2Node = arg2->GetNode();
+                                    GenTree* arg2Node = argInfo2->GetNode();
                                     if (arg2Node->OperIs(GT_LCL_VAR))
                                     {
                                         GenTreeLclVarCommon* arg2LclNode = arg2Node->AsLclVarCommon();
@@ -6534,14 +6532,14 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
 
                                     if (hasExposure)
                                     {
-                                        interferingArg = arg2->GetNode();
+                                        interferingArg = argInfo2->GetNode();
                                         break;
                                     }
                                 }
                                 else
                                 {
                                     JITDUMP("...arg is not a byref or implicit byref (%s)\n",
-                                            varTypeName(arg2->GetNode()->TypeGet()));
+                                            varTypeName(argInfo2->GetNode()->GetType()));
                                 }
                             }
 
@@ -6558,7 +6556,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(GenTreeCall* callee)
                         else
                         {
                             JITDUMP(" ... no, call has %u > %u args, alias analysis deemed too costly\n",
-                                    argInfo->ArgCount(), argLimit);
+                                    callInfo->GetArgCount(), argLimit);
                         }
                     }
                 }
