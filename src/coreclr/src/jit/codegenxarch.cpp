@@ -7182,8 +7182,9 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #if defined(TARGET_AMD64)
 #if FEATURE_FASTTAILCALL
         // TODO-MIKE-Cleanup: This seems to be sligtly different from ARMARCH's outArgLclSize.
-        INDEBUG(unsigned outArgLclSize = putArgStk->putInIncomingArgArea() ? compiler->info.compArgStackSize
-                                                                           : compiler->lvaLclSize(outArgLclNum);)
+        INDEBUG(unsigned outArgLclSize = putArgStk->putInIncomingArgArea()
+                                             ? compiler->info.compArgStackSize + INIT_ARG_STACK_SLOT * REGSIZE_BYTES
+                                             : compiler->lvaLclSize(outArgLclNum);)
 #else
         INDEBUG(unsigned outArgLclSize = compiler->lvaLclSize(outArgLclNum);)
 #endif
