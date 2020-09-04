@@ -9479,10 +9479,9 @@ public:
     // dynamic state info needed for verification
     EntryState verCurrentState;
 
-    void verInitBBEntryState(BasicBlock* block, EntryState* currentState);
-
-    void verInitCurrentState();
-    void verResetCurrentState(BasicBlock* block, EntryState* currentState);
+    void impInitCurrentState();
+    void impInitBBEntryState(BasicBlock* block, EntryState* currentState);
+    void impResetCurrentState(BasicBlock* block, EntryState* currentState);
 
     typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd,
                              bool bashStructToRef = false); // converts from jit type representation to typeInfo

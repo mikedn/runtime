@@ -15559,8 +15559,7 @@ void Compiler::impImportBlock(BasicBlock* block)
     impCurOpcOffs = block->bbCodeOffs;
 #endif
 
-    /* Set the current stack state to the merged result */
-    verResetCurrentState(block, &verCurrentState);
+    impResetCurrentState(block, &verCurrentState);
 
     /* Now walk the code and import the IL into GenTrees */
 
@@ -15931,7 +15930,7 @@ void Compiler::impImportBlockPending(BasicBlock* block)
     if ((block->bbEntryState == nullptr) && ((block->bbFlags & BBF_IMPORTED) == 0) &&
         (impGetPendingBlockMember(block) == 0))
     {
-        verInitBBEntryState(block, &verCurrentState);
+        impInitBBEntryState(block, &verCurrentState);
         assert(block->bbStkDepth == 0);
         block->bbStkDepth = static_cast<unsigned short>(verCurrentState.esStackDepth);
         assert(addToPending);
@@ -16213,7 +16212,7 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
         m_pComp->impReimportMarkBlock(blk);
 
         // Set the current stack state to that of the blk->bbEntryState
-        m_pComp->verResetCurrentState(blk, &m_pComp->verCurrentState);
+        m_pComp->impResetCurrentState(blk, &m_pComp->verCurrentState);
         m_pComp->impImportBlockPending(blk);
     }
     else if ((blk != m_pComp->compCurBB) && ((blk->bbFlags & BBF_IMPORTED) != 0))
@@ -16301,9 +16300,18 @@ void Compiler::impReimportSpillClique(BasicBlock* block)
     impWalkSpillCliqueFromPred(block, &callback);
 }
 
+void Compiler::impInitCurrentState()
+{
+    verCurrentState.esStackDepth = 0;
+    assert(verCurrentState.esStack != nullptr);
+
+    // copy current state to entry state of first BB
+    impInitBBEntryState(fgFirstBB, &verCurrentState);
+}
+
 // Set the pre-state of "block" (which should not have a pre-state allocated) to
 // a copy of "srcState", cloning tree pointers as required.
-void Compiler::verInitBBEntryState(BasicBlock* block, EntryState* srcState)
+void Compiler::impInitBBEntryState(BasicBlock* block, EntryState* srcState)
 {
     if (srcState->esStackDepth == 0)
     {
@@ -16329,10 +16337,8 @@ void Compiler::verInitBBEntryState(BasicBlock* block, EntryState* srcState)
     }
 }
 
-/*
- * Resets the current state to the state at the start of the basic block
- */
-void Compiler::verResetCurrentState(BasicBlock* block, EntryState* destState)
+// Resets the current state to the state at the start of the basic block
+void Compiler::impResetCurrentState(BasicBlock* block, EntryState* destState)
 {
     if (block->bbEntryState == nullptr)
     {
@@ -16366,15 +16372,6 @@ StackEntry* BasicBlock::bbStackOnEntry()
 {
     assert(bbEntryState);
     return bbEntryState->esStack;
-}
-
-void Compiler::verInitCurrentState()
-{
-    verCurrentState.esStackDepth = 0;
-    assert(verCurrentState.esStack != nullptr);
-
-    // copy current state to entry state of first BB
-    verInitBBEntryState(fgFirstBB, &verCurrentState);
 }
 
 Compiler* Compiler::impInlineRoot()
@@ -16460,7 +16457,7 @@ void Compiler::impImport()
     }
 
     // initialize the entry state at start of method
-    verInitCurrentState();
+    impInitCurrentState();
 
     // Initialize stuff related to figuring "spill cliques" (see spec comment for impGetSpillTmpBase).
     if (this == inlineRoot) // These are only used on the root of the inlining tree.
