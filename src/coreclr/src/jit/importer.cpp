@@ -67,7 +67,7 @@ void Compiler::impPushOnStack(GenTree* tree, typeInfo ti)
 
 inline void Compiler::impPushNullObjRefOnStack()
 {
-    impPushOnStack(gtNewIconNode(0, TYP_REF), typeInfo(TI_NULL));
+    impPushOnStack(gtNewIconNode(0, TYP_REF), typeInfo());
 }
 
 // helper function that will tell us if the IL instruction at the addr passed
@@ -5263,7 +5263,7 @@ int Compiler::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const B
                             result             = gtNewOperNode(GT_COMMA, TYP_INT, nullcheck, result);
                         }
 
-                        impPushOnStack(result, typeInfo(TI_INT));
+                        impPushOnStack(result, typeInfo());
                         return 0;
                     }
                 }
@@ -5302,7 +5302,7 @@ int Compiler::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const B
                                         impPopStack();
 
                                         impPushOnStack(gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0),
-                                                       typeInfo(TI_INT));
+                                                       typeInfo());
 
                                         // Skip the next isinst instruction
                                         return 1 + sizeof(mdToken);
@@ -10278,29 +10278,25 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto PUSH_I4CON;
             PUSH_I4CON:
                 JITDUMP(" %d", cval.intVal);
-                impPushOnStack(gtNewIconNode(cval.intVal), typeInfo(TI_INT));
+                impPushOnStack(gtNewIconNode(cval.intVal), typeInfo());
                 break;
 
             case CEE_LDC_I8:
                 cval.lngVal = getI8LittleEndian(codeAddr);
                 JITDUMP(" 0x%016llx", cval.lngVal);
-                impPushOnStack(gtNewLconNode(cval.lngVal), typeInfo(TI_LONG));
+                impPushOnStack(gtNewLconNode(cval.lngVal), typeInfo());
                 break;
 
             case CEE_LDC_R8:
                 cval.dblVal = getR8LittleEndian(codeAddr);
                 JITDUMP(" %#.17g", cval.dblVal);
-                impPushOnStack(gtNewDconNode(cval.dblVal), typeInfo(TI_DOUBLE));
+                impPushOnStack(gtNewDconNode(cval.dblVal), typeInfo());
                 break;
 
             case CEE_LDC_R4:
                 cval.dblVal = getR4LittleEndian(codeAddr);
                 JITDUMP(" %#.17g", cval.dblVal);
-                {
-                    GenTree* cnsOp = gtNewDconNode(cval.dblVal);
-                    cnsOp->gtType  = TYP_FLOAT;
-                    impPushOnStack(cnsOp, typeInfo(TI_DOUBLE));
-                }
+                impPushOnStack(gtNewDconNode(cval.dblVal, TYP_FLOAT), typeInfo());
                 break;
 
             case CEE_LDSTR:
@@ -10583,7 +10579,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDLOCA:
                 lclNum = getU2LittleEndian(codeAddr);
                 goto LDLOCA;
-
             case CEE_LDLOCA_S:
                 lclNum = getU1LittleEndian(codeAddr);
             LDLOCA:
@@ -10594,13 +10589,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // Get the local type
                     lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclTypeInfo;
 
-                    /* Have we allocated a temp for this local? */
-
+                    // Have we allocated a temp for this local?
                     lclNum = impInlineFetchLocal(lclNum DEBUGARG("Inline ldloca(s) first use temp"));
 
                     op1 = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
-
-                    goto _PUSH_ADRVAR;
+                    goto PUSH_ADRVAR;
                 }
 
                 lclNum += numArgs;
@@ -10610,7 +10603,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDARGA:
                 lclNum = getU2LittleEndian(codeAddr);
                 goto LDARGA;
-
             case CEE_LDARGA_S:
                 lclNum = getU1LittleEndian(codeAddr);
             LDARGA:
@@ -10632,9 +10624,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         return;
                     }
 
-                    assert(op1->gtOper == GT_LCL_VAR);
-
-                    goto _PUSH_ADRVAR;
+                    goto PUSH_ADRVAR;
                 }
 
                 lclNum = compMapILargNum(lclNum); // account for possible hidden param
@@ -10645,25 +10635,37 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     lclNum = lvaArg0Var;
                 }
 
-                goto ADRVAR;
-
             ADRVAR:
-
                 op1 = gtNewLclvNode(lclNum, lvaGetActualType(lclNum) DEBUGARG(opcodeOffs + sz + 1));
 
-            _PUSH_ADRVAR:
+            PUSH_ADRVAR:
                 assert(op1->gtOper == GT_LCL_VAR);
 
-                /* Note that this is supposed to create the transient type "*"
-                   which may be used as a TYP_I_IMPL. However we catch places
-                   where it is used as a TYP_I_IMPL and change the node if needed.
-                   Thus we are pessimistic and may report byrefs in the GC info
-                   where it was not absolutely needed, but it is safer this way.
-                 */
+                // Note that this is supposed to create the transient type "*"
+                // which may be used as a TYP_I_IMPL. However we catch places
+                // where it is used as a TYP_I_IMPL and change the node if needed.
+                // Thus we are pessimistic and may report byrefs in the GC info
+                // where it was not absolutely needed, but it is safer this way.
                 op1 = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
 
                 // &aliasedVar doesnt need GTF_GLOB_REF, though alisasedVar does
                 assert((op1->gtFlags & GTF_GLOB_REF) == 0);
+
+                // TODO-MIKE-Cleanup: This is weird, lvVerTypeInfo is pushed on the stack for what really
+                // is the address of the local. Only when verification was enabled the pushed typeInfo
+                // was transformed into a byref.
+                //
+                // In general we do not need typeInfo for non-struct values but LDFLD import code depends
+                // on this because of the "normed type" mess. LDFLD accepts pretty all sorts of types as
+                // source - REF, I_IMPL, STRUCT - and the generated IR is different for STRUCT because in
+                // that case we really need the address of the struct value.
+                // But with the "normed type" thing we can end up with INT/LONG instead of STRUCT on the
+                // stack and then the LDFLD import code can no longer figure out if it needs the address.
+                // So it checks if lvVerTypeInfo contains a handle, set by lvaInitVarDsc and others.
+                //
+                // In addition to this being confusing, it also seems to be a small CQ issue because some
+                // other importer code sees that handle, thinks that the value is a struct and spills the
+                // stack even if there's no need for that.
 
                 impPushOnStack(op1, lvaTable[lclNum].lvVerTypeInfo);
                 break;
