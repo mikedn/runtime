@@ -2158,7 +2158,7 @@ protected:
     bool* m_pAddress;
 };
 
-bool Compiler::impSpillStackEntry(unsigned level,
+void Compiler::impSpillStackEntry(unsigned level,
                                   unsigned tnum
 #ifdef DEBUG
                                   ,
@@ -2175,12 +2175,7 @@ bool Compiler::impSpillStackEntry(unsigned level,
 
     GenTree* tree = verCurrentState.esStack[level].val;
 
-    /* Allocate a temp if we haven't been asked to use a particular one */
-
-    if (tnum != BAD_VAR_NUM && (tnum >= lvaCount))
-    {
-        return false;
-    }
+    // Allocate a temp if we haven't been asked to use a particular one
 
     bool isNewTemp = false;
 
@@ -2188,6 +2183,10 @@ bool Compiler::impSpillStackEntry(unsigned level,
     {
         tnum      = lvaGrabTemp(true DEBUGARG(reason));
         isNewTemp = true;
+    }
+    else
+    {
+        noway_assert(tnum < lvaCount);
     }
 
     /* Assign the spilled entry to the temp */
@@ -2217,8 +2216,6 @@ bool Compiler::impSpillStackEntry(unsigned level,
     var_types type                     = genActualType(lvaTable[tnum].TypeGet());
     GenTree*  temp                     = gtNewLclvNode(tnum, type);
     verCurrentState.esStack[level].val = temp;
-
-    return true;
 }
 
 /*****************************************************************************
@@ -15623,8 +15620,6 @@ void Compiler::impImportBlock(BasicBlock* block)
         return;
     }
 
-    bool markImport;
-
     assert(block);
 
     /* Make the block globaly available */
@@ -15689,10 +15684,6 @@ void Compiler::impImportBlock(BasicBlock* block)
     }
 
     assert(!compDonotInline());
-
-    markImport = false;
-
-SPILLSTACK:
 
     unsigned    baseTmp             = NO_BASE_TMP; // input temps assigned to successor blocks
     bool        reimportSpillClique = false;
@@ -15812,6 +15803,8 @@ SPILLSTACK:
         /* Spill all stack entries into temps */
         unsigned level, tempNum;
 
+        bool markImport = false;
+
         JITDUMP("\nSpilling stack entries into temps\n");
         for (level = 0, tempNum = baseTmp; level < verCurrentState.esStackDepth; level++, tempNum++)
         {
@@ -15925,25 +15918,7 @@ SPILLSTACK:
                 }
             }
 
-            /* Spill the stack entry, and replace with the temp */
-
-            if (!impSpillStackEntry(level, tempNum
-#ifdef DEBUG
-                                    ,
-                                    true, "Spill Stack Entry"
-#endif
-                                    ))
-            {
-                if (markImport)
-                {
-                    BADCODE("bad stack state");
-                }
-
-                // Oops. Something went wrong when spilling. Bad code.
-                verHandleVerificationFailure(block DEBUGARG(true));
-
-                goto SPILLSTACK;
-            }
+            impSpillStackEntry(level, tempNum DEBUGARG(true) DEBUGARG("Spill Stack Entry"));
         }
 
         /* Put back the 'jtrue'/'switch' if we removed it earlier */

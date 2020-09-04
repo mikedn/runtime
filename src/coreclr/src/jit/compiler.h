@@ -3891,7 +3891,7 @@ private:
 
     bool impCanReimport;
 
-    bool impSpillStackEntry(unsigned level,
+    void impSpillStackEntry(unsigned level,
                             unsigned varNum
 #ifdef DEBUG
                             ,
