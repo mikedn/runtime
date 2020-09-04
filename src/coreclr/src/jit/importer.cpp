@@ -13937,8 +13937,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             GenTree* boxPayloadOffset  = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
                             GenTree* boxPayloadAddress = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
                             impPushOnStack(boxPayloadAddress, typeInfo());
-                            oper = GT_OBJ;
-                            goto OBJ;
+                            goto LDOBJ;
                         }
                         else
                         {
@@ -14068,8 +14067,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         // Normal unbox helper returns a TYP_BYREF.
                         impPushOnStack(op1, typeInfo());
-                        oper = GT_OBJ;
-                        goto OBJ;
+                        goto LDOBJ;
                     }
 
                     assert(helper == CORINFO_HELP_UNBOX_NULLABLE && "Make sure the helper is nullable!");
@@ -14099,11 +14097,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         impPushOnStack(op1, typeInfo());
 
                         // Load the struct.
-                        oper = GT_OBJ;
-
-                        assert(op1->gtType == TYP_BYREF);
-
-                        goto OBJ;
+                        goto LDOBJ;
                     }
                     else
 
@@ -14440,42 +14434,40 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDOBJ:
-            {
-                oper = GT_OBJ;
-
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-            OBJ:
+            LDOBJ:
                 if (!eeIsValueClass(resolvedToken.hClass))
                 {
                     lclTyp = TYP_REF;
                     goto LDIND;
                 }
 
-                CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
-                if (impIsPrimitive(jitTyp))
                 {
-                    lclTyp = JITtype2varType(jitTyp);
-                    goto LDIND;
+                    CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
+                    if (impIsPrimitive(jitTyp))
+                    {
+                        lclTyp = JITtype2varType(jitTyp);
+                        goto LDIND;
+                    }
                 }
 
                 op1 = impPopStack().val;
 
-                assertImp(op1->TypeGet() == TYP_BYREF || op1->TypeGet() == TYP_I_IMPL);
+                assertImp(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
                 op1 = gtNewObjNode(resolvedToken.hClass, op1);
                 op1->gtFlags |= GTF_EXCEPT;
 
-                if (prefixFlags & PREFIX_UNALIGNED)
+                if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
                 impPushOnStack(op1, verMakeTypeInfo(resolvedToken.hClass));
                 break;
-            }
 
             case CEE_LDLEN:
                 op1 = impPopStack().val;
