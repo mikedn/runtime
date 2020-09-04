@@ -4821,20 +4821,6 @@ void Compiler::verConvertBBToThrowVerificationException(BasicBlock* block DEBUGA
     info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_BAD_INLINEE);
 }
 
-/*****************************************************************************
- *
- */
-void Compiler::verHandleVerificationFailure(BasicBlock* block DEBUGARG(bool logMsg))
-{
-    verResetCurrentState(block, &verCurrentState);
-    verConvertBBToThrowVerificationException(block DEBUGARG(logMsg));
-
-#ifdef DEBUG
-    impNoteLastILoffs(); // Remember at which BC offset the tree was finished
-#endif                   // DEBUG
-}
-
-/******************************************************************************/
 typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
 {
     assert(ciType < CORINFO_TYPE_COUNT);
