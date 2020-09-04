@@ -15482,11 +15482,6 @@ void Compiler::impReimportMarkSuccessors(BasicBlock* block)
 
 LONG FilterVerificationExceptions(PEXCEPTION_POINTERS pExceptionPointers, LPVOID lpvParam)
 {
-    if (pExceptionPointers->ExceptionRecord->ExceptionCode == SEH_VERIFICATION_EXCEPTION)
-    {
-        return EXCEPTION_EXECUTE_HANDLER;
-    }
-
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -15647,64 +15642,46 @@ void Compiler::impImportBlock(BasicBlock* block)
 
     /* Now walk the code and import the IL into GenTrees */
 
-    struct FilterVerificationExceptionsParam
+    /* @VERIFICATION : For now, the only state propagation from try
+        to it's handler is "thisInit" state (stack is empty at start of try).
+        In general, for state that we track in verification, we need to
+        model the possibility that an exception might happen at any IL
+        instruction, so we really need to merge all states that obtain
+        between IL instructions in a try block into the start states of
+        all handlers.
+
+        However we do not allow the 'this' pointer to be uninitialized when
+        entering most kinds try regions (only try/fault are allowed to have
+        an uninitialized this pointer on entry to the try)
+
+        Fortunately, the stack is thrown away when an exception
+        leads to a handler, so we don't have to worry about that.
+        We DO, however, have to worry about the "thisInit" state.
+        But only for the try/fault case.
+
+        The only allowed transition is from TIS_Uninit to TIS_Init.
+
+        So for a try/fault region for the fault handler block
+        we will merge the start state of the try begin
+        and the post-state of each block that is part of this try region
+    */
+
+    // merge the start state of the try begin
+    //
+    if (block->bbFlags & BBF_TRY_BEG)
     {
-        Compiler*   pThis;
-        BasicBlock* block;
-    };
-    FilterVerificationExceptionsParam param;
-
-    param.pThis = this;
-    param.block = block;
-
-    PAL_TRY(FilterVerificationExceptionsParam*, pParam, &param)
-    {
-        /* @VERIFICATION : For now, the only state propagation from try
-           to it's handler is "thisInit" state (stack is empty at start of try).
-           In general, for state that we track in verification, we need to
-           model the possibility that an exception might happen at any IL
-           instruction, so we really need to merge all states that obtain
-           between IL instructions in a try block into the start states of
-           all handlers.
-
-           However we do not allow the 'this' pointer to be uninitialized when
-           entering most kinds try regions (only try/fault are allowed to have
-           an uninitialized this pointer on entry to the try)
-
-           Fortunately, the stack is thrown away when an exception
-           leads to a handler, so we don't have to worry about that.
-           We DO, however, have to worry about the "thisInit" state.
-           But only for the try/fault case.
-
-           The only allowed transition is from TIS_Uninit to TIS_Init.
-
-           So for a try/fault region for the fault handler block
-           we will merge the start state of the try begin
-           and the post-state of each block that is part of this try region
-        */
-
-        // merge the start state of the try begin
-        //
-        if (pParam->block->bbFlags & BBF_TRY_BEG)
-        {
-            pParam->pThis->impVerifyEHBlock(pParam->block, true);
-        }
-
-        pParam->pThis->impImportBlockCode(pParam->block);
-
-        // As discussed above:
-        // merge the post-state of each block that is part of this try region
-        //
-        if (pParam->block->hasTryIndex())
-        {
-            pParam->pThis->impVerifyEHBlock(pParam->block, false);
-        }
+        impVerifyEHBlock(block, true);
     }
-    PAL_EXCEPT_FILTER(FilterVerificationExceptions)
+
+    impImportBlockCode(block);
+
+    // As discussed above:
+    // merge the post-state of each block that is part of this try region
+    //
+    if (block->hasTryIndex())
     {
-        verHandleVerificationFailure(block DEBUGARG(false));
+        impVerifyEHBlock(block, false);
     }
-    PAL_ENDTRY
 
     if (compDonotInline())
     {
