@@ -16010,7 +16010,6 @@ void Compiler::impImportBlockPending(BasicBlock* block)
 
     dsc->pdBB                 = block;
     dsc->pdSavedStack.ssDepth = verCurrentState.esStackDepth;
-    dsc->pdThisPtrInit        = verCurrentState.thisInitialized;
 
     // Save the stack trees for later
 
@@ -16075,13 +16074,11 @@ void Compiler::impReimportBlockPending(BasicBlock* block)
 
     if (block->bbEntryState)
     {
-        dsc->pdThisPtrInit        = block->bbEntryState->thisInitialized;
         dsc->pdSavedStack.ssDepth = block->bbEntryState->esStackDepth;
         dsc->pdSavedStack.ssTrees = block->bbEntryState->esStack;
     }
     else
     {
-        dsc->pdThisPtrInit        = TIS_Bottom;
         dsc->pdSavedStack.ssDepth = 0;
         dsc->pdSavedStack.ssTrees = nullptr;
     }
@@ -16234,8 +16231,6 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
 
         // Set the current stack state to that of the blk->bbEntryState
         m_pComp->verResetCurrentState(blk, &m_pComp->verCurrentState);
-        assert(m_pComp->verCurrentState.thisInitialized == blk->bbThisOnEntry());
-
         m_pComp->impImportBlockPending(blk);
     }
     else if ((blk != m_pComp->compCurBB) && ((blk->bbFlags & BBF_IMPORTED) != 0))
@@ -16327,7 +16322,7 @@ void Compiler::impReimportSpillClique(BasicBlock* block)
 // a copy of "srcState", cloning tree pointers as required.
 void Compiler::verInitBBEntryState(BasicBlock* block, EntryState* srcState)
 {
-    if (srcState->esStackDepth == 0 && srcState->thisInitialized == TIS_Bottom)
+    if (srcState->esStackDepth == 0)
     {
         block->bbEntryState = nullptr;
         return;
@@ -16335,8 +16330,7 @@ void Compiler::verInitBBEntryState(BasicBlock* block, EntryState* srcState)
 
     block->bbEntryState = getAllocator(CMK_Unknown).allocate<EntryState>(1);
 
-    block->bbEntryState->esStackDepth    = srcState->esStackDepth;
-    block->bbEntryState->thisInitialized = TIS_Bottom;
+    block->bbEntryState->esStackDepth = srcState->esStackDepth;
 
     if (srcState->esStackDepth > 0)
     {
@@ -16357,11 +16351,9 @@ void Compiler::verInitBBEntryState(BasicBlock* block, EntryState* srcState)
  */
 void Compiler::verResetCurrentState(BasicBlock* block, EntryState* destState)
 {
-
     if (block->bbEntryState == nullptr)
     {
-        destState->esStackDepth    = 0;
-        destState->thisInitialized = TIS_Bottom;
+        destState->esStackDepth = 0;
         return;
     }
 
@@ -16373,15 +16365,6 @@ void Compiler::verResetCurrentState(BasicBlock* block, EntryState* destState)
 
         memcpy(destState->esStack, block->bbStackOnEntry(), stackSize);
     }
-
-    destState->thisInitialized = block->bbThisOnEntry();
-
-    return;
-}
-
-ThisInitState BasicBlock::bbThisOnEntry()
-{
-    return bbEntryState ? bbEntryState->thisInitialized : TIS_Bottom;
 }
 
 unsigned BasicBlock::bbStackDepthOnEntry()
@@ -16404,7 +16387,6 @@ StackEntry* BasicBlock::bbStackOnEntry()
 
 void Compiler::verInitCurrentState()
 {
-    verCurrentState.thisInitialized = TIS_Bottom;
     verCurrentState.esStackDepth    = 0;
     assert(verCurrentState.esStack != nullptr);
 
@@ -16570,9 +16552,8 @@ void Compiler::impImport()
 
         /* Restore the stack state */
 
-        verCurrentState.thisInitialized = dsc->pdThisPtrInit;
-        verCurrentState.esStackDepth    = dsc->pdSavedStack.ssDepth;
-        if (verCurrentState.esStackDepth)
+        verCurrentState.esStackDepth = dsc->pdSavedStack.ssDepth;
+        if (verCurrentState.esStackDepth != 0)
         {
             impRestoreStackState(&dsc->pdSavedStack);
         }

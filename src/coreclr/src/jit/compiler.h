@@ -3866,7 +3866,6 @@ private:
         PendingDsc*   pdNext;
         BasicBlock*   pdBB;
         SavedStack    pdSavedStack;
-        ThisInitState pdThisPtrInit;
     };
 
     PendingDsc* impPendingList; // list of BBs currently waiting to be imported.
