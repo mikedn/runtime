@@ -19,15 +19,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "corexcep.h"
 
-#define Verify(cond, msg)                                                                                              \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (!(cond))                                                                                                   \
-        {                                                                                                              \
-            verRaiseVerifyExceptionIfNeeded(INDEBUG(msg) DEBUGARG(__FILE__) DEBUGARG(__LINE__));                       \
-        }                                                                                                              \
-    } while (0)
-
 #define VerifyOrReturnSpeculative(cond, msg, speculative)                                                              \
     do                                                                                                                 \
     {                                                                                                                  \
@@ -7913,13 +7904,7 @@ DONE:
         // Stack empty check for implicit tail calls.
         if (canTailCall && isImplicitTailCall && (verCurrentState.esStackDepth != 0))
         {
-#ifdef TARGET_AMD64
-            // JIT64 Compatibility:  Opportunistic tail call stack mismatch throws a VerificationException
-            // in JIT64, not an InvalidProgramException.
-            Verify(false, "Stack should be empty after tailcall");
-#else  // TARGET_64BIT
             BADCODE("Stack should be empty after tailcall");
-#endif //! TARGET_64BIT
         }
 
         // assert(compCurBB is not a catch, finally or filter block);
@@ -10769,7 +10754,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 lclNum = getU1LittleEndian(codeAddr);
             LDARGA:
                 JITDUMP(" %u", lclNum);
-                Verify(lclNum < info.compILargsCount, "bad arg num");
+                if (lclNum >= info.compILargsCount)
+                {
+                    BADCODE("bad arg num");
+                }
 
                 if (compIsForInlining())
                 {
@@ -12400,7 +12388,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_UNALIGNED:
-
                 assert(sz == 1);
                 val = getU1LittleEndian(codeAddr);
                 ++codeAddr;
@@ -12410,9 +12397,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     BADCODE("Alignment unaligned. must be 1, 2, or 4");
                 }
 
-                Verify(!(prefixFlags & PREFIX_UNALIGNED), "Multiple unaligned. prefixes");
-                prefixFlags |= PREFIX_UNALIGNED;
+                if ((prefixFlags & PREFIX_UNALIGNED) != 0)
+                {
+                    BADCODE("Multiple unaligned. prefixes");
+                }
 
+                prefixFlags |= PREFIX_UNALIGNED;
                 impValidateMemoryAccessOpcode(codeAddr, codeEndp, false);
 
             PREFIX:
@@ -12422,8 +12412,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto DECODE_OPCODE;
 
             case CEE_VOLATILE:
+                if ((prefixFlags & PREFIX_VOLATILE) != 0)
+                {
+                    BADCODE("Multiple volatile. prefixes");
+                }
 
-                Verify(!(prefixFlags & PREFIX_VOLATILE), "Multiple volatile. prefixes");
                 prefixFlags |= PREFIX_VOLATILE;
 
                 impValidateMemoryAccessOpcode(codeAddr, codeEndp, true);
@@ -12547,13 +12540,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             }
 
             case CEE_CONSTRAINED:
-
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &constrainedResolvedToken, CORINFO_TOKENKIND_Constrained);
                 codeAddr += sizeof(unsigned); // prefix instructions must increment codeAddr manually
                 JITDUMP(" (%08X) ", constrainedResolvedToken.token);
 
-                Verify(!(prefixFlags & PREFIX_CONSTRAINED), "Multiple constrained. prefixes");
+                if ((prefixFlags & PREFIX_CONSTRAINED) != 0)
+                {
+                    BADCODE("Multiple constrained. prefixes");
+                }
+
                 prefixFlags |= PREFIX_CONSTRAINED;
 
                 {
@@ -12569,7 +12565,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_READONLY:
                 JITDUMP(" readonly.");
 
-                Verify(!(prefixFlags & PREFIX_READONLY), "Multiple readonly. prefixes");
+                if ((prefixFlags & PREFIX_READONLY) != 0)
+                {
+                    BADCODE("Multiple readonly. prefixes");
+                }
+
                 prefixFlags |= PREFIX_READONLY;
 
                 {
@@ -12586,7 +12586,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_TAILCALL:
                 JITDUMP(" tail.");
 
-                Verify(!(prefixFlags & PREFIX_TAILCALL_EXPLICIT), "Multiple tailcall. prefixes");
+                if ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0)
+                {
+                    BADCODE("Multiple tailcall. prefixes");
+                }
+
                 prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
 
                 {
@@ -14820,7 +14824,10 @@ void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& tiR
 // It will be mapped to the correct lvaTable index
 void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
 {
-    Verify(ilArgNum < info.compILargsCount, "bad arg num");
+    if (ilArgNum >= info.compILargsCount)
+    {
+        BADCODE("bad arg num");
+    }
 
     if (compIsForInlining())
     {
