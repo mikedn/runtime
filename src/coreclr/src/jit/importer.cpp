@@ -9888,10 +9888,7 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
  */
 void Compiler::impImportBlockCode(BasicBlock* block)
 {
-#define _impResolveToken(kind) impResolveToken(codeAddr, &resolvedToken, kind)
-
 #ifdef DEBUG
-
     if (verbose)
     {
         printf("\nImporting " FMT_BB " (PC=%03u) of '%s'", block->bbNum, block->bbCodeOffs, info.compFullName);
@@ -10791,7 +10788,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     BADCODE("Stack must be empty after CEE_JMPs");
                 }
 
-                _impResolveToken(CORINFO_TOKENKIND_Method);
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
 
                 JITDUMP(" %08X", resolvedToken.token);
 
@@ -10823,11 +10820,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_LDELEMA:
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Class);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
-
                 ldelemClsHnd = resolvedToken.hClass;
 
                 // If it's a value class array we just do a simple address-of
@@ -10873,11 +10867,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             // ldelem for reference and value types
             case CEE_LDELEM:
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Class);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
-
                 ldelemClsHnd = resolvedToken.hClass;
 
                 // If it's a reference type or generic variable type
@@ -11020,13 +11011,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             // stelem for reference and value types
             case CEE_STELEM:
-
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Class);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
-
                 stelemClsHnd = resolvedToken.hClass;
 
                 // If it's a reference type just behave as though it's a stelem.ref instruction
@@ -12299,8 +12286,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             {
                 // Need to do a lookup here so that we perform an access check
                 // and do a NOWAY if protections are violated
-                _impResolveToken(CORINFO_TOKENKIND_Method);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef*/,
@@ -12335,10 +12321,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_LDVIRTFTN:
             {
-                /* Get the method token */
-
-                _impResolveToken(CORINFO_TOKENKIND_Method);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef */,
@@ -12486,7 +12469,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 /* NEWOBJ does not respond to CONSTRAINED */
                 prefixFlags &= ~PREFIX_CONSTRAINED;
 
-                _impResolveToken(CORINFO_TOKENKIND_NewObj);
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_NewObj);
 
                 eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef*/,
                               combine(CORINFO_CALLINFO_SECURITYCHECKS, CORINFO_CALLINFO_ALLOWINSTPARAM), &callInfo);
@@ -12709,7 +12692,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // many other places.  We unfortunately embed that knowledge here.
                 if (opcode != CEE_CALLI)
                 {
-                    _impResolveToken(CORINFO_TOKENKIND_Method);
+                    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
 
                     eeGetCallInfo(&resolvedToken,
                                   (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
@@ -12882,15 +12865,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDFLDA:
             case CEE_LDSFLDA:
             {
-
                 BOOL isLoadAddress = (opcode == CEE_LDFLDA || opcode == CEE_LDSFLDA);
                 BOOL isLoadStatic  = (opcode == CEE_LDSFLD || opcode == CEE_LDSFLDA);
 
-                /* Get the CP_Fieldref index */
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Field);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 int aflags = isLoadAddress ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
@@ -13224,17 +13203,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_STFLD:
             case CEE_STSFLD:
             {
-
                 BOOL isStoreStatic = (opcode == CEE_STSFLD);
 
                 CORINFO_CLASS_HANDLE fieldClsHnd; // class of the field (if it's a ref type)
 
-                /* Get the CP_Fieldref index */
-
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Field);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 int       aflags = CORINFO_ACCESS_SET;
@@ -13544,11 +13518,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_NEWARR:
             {
-
-                /* Get the class type index operand */
-
-                _impResolveToken(CORINFO_TOKENKIND_Newarr);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Newarr);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (!opts.IsReadyToRun())
@@ -13748,11 +13718,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_ISINST:
             {
-                /* Get the type token */
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Casting);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (!opts.IsReadyToRun())
@@ -13822,16 +13789,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             }
 
             case CEE_REFANYVAL:
-
-                // get the class handle and make a ICON node out of it
-
-                _impResolveToken(CORINFO_TOKENKIND_Class);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 op2 = impTokenToHandle(&resolvedToken);
                 if (op2 == nullptr)
-                { // compDonotInline()
+                {
                     return;
                 }
 
@@ -13905,11 +13868,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_LDTOKEN:
             {
-                /* Get the Class index */
                 assertImp(sz == sizeof(unsigned));
                 lastLoadToken = codeAddr;
-                _impResolveToken(CORINFO_TOKENKIND_Ldtoken);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Ldtoken);
                 tokenType = info.compCompHnd->getTokenTypeAsHandle(&resolvedToken);
 
                 op1 = impTokenToHandle(&resolvedToken, nullptr, TRUE);
@@ -13953,11 +13914,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_UNBOX:
             case CEE_UNBOX_ANY:
             {
-                /* Get the Class index */
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Class);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 BOOL runtimeLookup;
@@ -14220,11 +14178,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_BOX:
             {
-                /* Get the Class index */
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Box);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Box);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 accessAllowedResult =
@@ -14260,20 +14215,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_SIZEOF:
                 assertImp(sz == sizeof(unsigned));
-                _impResolveToken(CORINFO_TOKENKIND_Class);
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
+
                 op1 = gtNewIconNode(info.compCompHnd->getClassSize(resolvedToken.hClass));
                 impPushOnStack(op1, tiRetVal);
                 break;
 
             case CEE_CASTCLASS:
-
-                /* Get the Class index */
-
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Casting);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (!opts.IsReadyToRun())
@@ -14383,7 +14334,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_INITOBJ:
                 assertImp(sz == sizeof(unsigned));
-                _impResolveToken(CORINFO_TOKENKIND_Class);
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 size = info.compCompHnd->getClassSize(resolvedToken.hClass); // Size
@@ -14441,7 +14392,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_CPOBJ:
                 assertImp(sz == sizeof(unsigned));
-                _impResolveToken(CORINFO_TOKENKIND_Class);
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (!eeIsValueClass(resolvedToken.hClass))
@@ -14469,9 +14420,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_STOBJ:
             {
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Class);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (eeIsValueClass(resolvedToken.hClass))
@@ -14521,14 +14470,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 oper = GT_MKREFANY;
                 assertImp(sz == sizeof(unsigned));
-
-                _impResolveToken(CORINFO_TOKENKIND_Class);
-
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 op2 = impTokenToHandle(&resolvedToken, nullptr, TRUE);
                 if (op2 == nullptr)
-                { // compDonotInline()
+                {
                     return;
                 }
 
@@ -14551,8 +14498,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDOBJ:
             {
                 oper = GT_OBJ;
+
                 assertImp(sz == sizeof(unsigned));
-                _impResolveToken(CORINFO_TOKENKIND_Class);
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
             OBJ:
@@ -14655,9 +14603,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
         prefixFlags = 0;
     }
-
-    return;
-#undef _impResolveToken
 }
 #ifdef _PREFAST_
 #pragma warning(pop)
