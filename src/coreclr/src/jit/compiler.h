@@ -8411,7 +8411,6 @@ public:
     bool compLocallocOptimized;    // Does the method have an optimized localloc
     bool compQmarkUsed;            // Does the method use GT_QMARK/GT_COLON
     bool compQmarkRationalized;    // Is it allowed to use a GT_QMARK/GT_COLON node.
-    bool compUnsafeCastUsed;       // Does the method use LDIND/STIND to cast between scalar/refernce types
     bool compHasBackwardJump;      // Does the method (or some inlinee) have a lexically backwards jump?
     bool compSwitchedToOptimized;  // Codegen initially was Tier0 but jit switched to FullOpts
     bool compSwitchedToMinOpts;    // Codegen initially was Tier1/FullOpts but jit switched to MinOpts

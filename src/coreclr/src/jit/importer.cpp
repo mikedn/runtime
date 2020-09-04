@@ -12240,9 +12240,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 lclTyp = TYP_DOUBLE;
                 goto STIND;
             STIND:
-                compUnsafeCastUsed = true; // Have to go conservative
-
-            STIND_POST_VERIFY:
                 op2 = impPopStack().val; // value to store
                 op1 = impPopStack().val; // address to store to
 
@@ -12366,9 +12363,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 lclTyp = TYP_USHORT;
                 goto LDIND;
             LDIND:
-                compUnsafeCastUsed = true; // Have to go conservative
-
-            LDIND_POST_VERIFY:
                 op1 = impPopStack().val; // address to load from
                 impBashVarAddrsToI(op1);
 
@@ -14590,7 +14584,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     impPushOnStack(op1, typeInfo());
                     opcode = CEE_STIND_REF;
                     lclTyp = TYP_REF;
-                    goto STIND_POST_VERIFY;
+                    goto STIND;
                 }
 
                 op2 = impPopStack().val; // Src
@@ -14615,19 +14609,17 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     lclTyp = TYP_REF;
                 }
 
-                compUnsafeCastUsed = true;
-
                 if (lclTyp == TYP_REF)
                 {
                     opcode = CEE_STIND_REF;
-                    goto STIND_POST_VERIFY;
+                    goto STIND;
                 }
 
                 CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
                 if (impIsPrimitive(jitTyp))
                 {
                     lclTyp = JITtype2varType(jitTyp);
-                    goto STIND_POST_VERIFY;
+                    goto STIND;
                 }
 
                 op2 = impPopStack().val; // Value
@@ -14686,15 +14678,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             {
                 oper = GT_OBJ;
                 assertImp(sz == sizeof(unsigned));
-
                 _impResolveToken(CORINFO_TOKENKIND_Class);
-
                 JITDUMP(" %08X", resolvedToken.token);
 
             OBJ:
                 tiRetVal = verMakeTypeInfo(resolvedToken.hClass);
-
-                compUnsafeCastUsed = true;
 
                 if (eeIsValueClass(resolvedToken.hClass))
                 {
@@ -14704,7 +14692,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     lclTyp = TYP_REF;
                     opcode = CEE_LDIND_REF;
-                    goto LDIND_POST_VERIFY;
+                    goto LDIND;
                 }
 
                 op1 = impPopStack().val;
