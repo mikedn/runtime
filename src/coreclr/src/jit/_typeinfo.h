@@ -418,31 +418,6 @@ public:
         return li.m_cls == ti.m_cls;
     }
 
-#ifdef DEBUG
-    // On 64-bit systems, nodes whose "proper" type is "native int" get labeled TYP_LONG.
-    // In the verification type system, we always transform "native int" to "TI_LONG" with the
-    // native int flag set.
-    // Ideally, we would keep track of which nodes labeled "TYP_LONG" are really "native int", but
-    // attempts to do that have proved too difficult.  So in situations where we try to compare the
-    // verification type system and the node type system, we use this method, which allows the specific
-    // mismatch where "verTi" is TI_LONG with the native int flag and "nodeTi" is TI_LONG without the
-    // native int flag set.
-    static bool AreEquivalentModuloNativeInt(const typeInfo& verTi, const typeInfo& nodeTi)
-    {
-        if (AreEquivalent(verTi, nodeTi))
-        {
-            return true;
-        }
-#ifdef TARGET_64BIT
-        return (nodeTi.IsType(TI_I_IMPL) && tiCompatibleWith(nullptr, verTi, typeInfo::nativeInt(), true)) ||
-               (verTi.IsType(TI_I_IMPL) && tiCompatibleWith(nullptr, typeInfo::nativeInt(), nodeTi, true));
-#else  // TARGET_64BIT
-        return false;
-#endif // !TARGET_64BIT
-    }
-#endif // DEBUG
-
-    static BOOL tiMergeToCommonParent(COMP_HANDLE CompHnd, typeInfo* pDest, const typeInfo* pSrc, bool* changed);
     static BOOL tiCompatibleWith(COMP_HANDLE     CompHnd,
                                  const typeInfo& child,
                                  const typeInfo& parent,

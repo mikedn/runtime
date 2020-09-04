@@ -9447,11 +9447,6 @@ public:
     BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent, bool normalisedForStack) const;
 #endif
 
-    // Merges pDest and pSrc. Returns FALSE if merge is undefined.
-    // *pDest is modified to represent the merged type.  Sets "*changed" to true
-    // if this changes "*pDest".
-    BOOL tiMergeToCommonParent(typeInfo* pDest, const typeInfo* pSrc, bool* changed) const;
-
 #ifdef DEBUG
     // <BUGNUM> VSW 471305
     // IJW allows assigning REF to BYREF. The following allows us to temporarily
