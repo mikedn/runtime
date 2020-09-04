@@ -48,11 +48,6 @@ BOOL Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent, b
     return compatible;
 }
 
-BOOL Compiler::tiMergeCompatibleWith(const typeInfo& child, const typeInfo& parent, bool normalisedForStack) const
-{
-    return typeInfo::tiMergeCompatibleWith(info.compCompHnd, child, parent, normalisedForStack);
-}
-
 BOOL Compiler::tiMergeToCommonParent(typeInfo* pDest, const typeInfo* pSrc, bool* changed) const
 {
 #ifdef DEBUG
@@ -232,19 +227,6 @@ BOOL typeInfo::tiCompatibleWith(COMP_HANDLE     CompHnd,
     }
 #endif // TARGET_64BIT
     return FALSE;
-}
-
-BOOL typeInfo::tiMergeCompatibleWith(COMP_HANDLE     CompHnd,
-                                     const typeInfo& child,
-                                     const typeInfo& parent,
-                                     bool            normalisedForStack)
-{
-    if (!child.IsPermanentHomeByRef() && parent.IsPermanentHomeByRef())
-    {
-        return FALSE;
-    }
-
-    return typeInfo::tiCompatibleWith(CompHnd, child, parent, normalisedForStack);
 }
 
 /*****************************************************************************

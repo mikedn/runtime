@@ -5101,7 +5101,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 {
     // Optionally enable adjustment during stress.
-    if (!tiVerificationNeeded && compStressCompile(STRESS_GENERIC_VARN, 15))
+    if (compStressCompile(STRESS_GENERIC_VARN, 15))
     {
         lvaTable[info.compThisArg].lvHasILStoreOp = true;
     }

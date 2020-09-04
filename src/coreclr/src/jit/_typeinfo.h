@@ -449,11 +449,6 @@ public:
                                  const typeInfo& parent,
                                  bool            normalisedForStack);
 
-    static BOOL tiMergeCompatibleWith(COMP_HANDLE     CompHnd,
-                                      const typeInfo& child,
-                                      const typeInfo& parent,
-                                      bool            normalisedForStack);
-
     /////////////////////////////////////////////////////////////////////////
     // Operations
     /////////////////////////////////////////////////////////////////////////
@@ -485,16 +480,6 @@ public:
     {
         assert(IsByRef());
         m_flags |= TI_FLAG_BYREF_READONLY;
-    }
-
-    // Set that this item is uninitialized.
-    void SetUninitialisedObjRef()
-    {
-        assert((IsObjRef() && IsThisPtr()));
-        // For now, this is used only  to track uninit this ptrs in ctors
-
-        m_flags |= TI_FLAG_UNINIT_OBJREF;
-        assert(m_bits.uninitobj);
     }
 
     // Set that this item is initialised.
