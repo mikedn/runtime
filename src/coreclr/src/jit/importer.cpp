@@ -4906,6 +4906,8 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd, bool bashStructT
     }
 }
 
+#ifdef DEBUG
+
 typeInfo Compiler::verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args)
 {
     CORINFO_CLASS_HANDLE classHandle;
@@ -5116,6 +5118,7 @@ bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
 
     return true; // Yes, tailcall is legal
 }
+#endif // DEBUG
 
 GenTree* Compiler::impImportLdvirtftn(GenTree*                thisPtr,
                                       CORINFO_RESOLVED_TOKEN* pResolvedToken,
@@ -12766,6 +12769,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
+#ifdef DEBUG
                     if (compTailCallStress())
                     {
                         // Have we created a new BB after the "call" instruction in fgMakeBasicBlocks()?
@@ -12818,6 +12822,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             }
                         }
                     }
+#endif // DEBUG
                 }
 
                 // This is split up to avoid goto flow warnings.

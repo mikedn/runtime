@@ -18,6 +18,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "_typeinfo.h"
 
+#ifdef DEBUG
+
 BOOL Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent, bool normalisedForStack) const
 {
 #ifdef DEBUG
@@ -364,7 +366,6 @@ FAIL:
     return FALSE;
 }
 
-#ifdef DEBUG
 #if VERBOSE_VERIFY
 // Utility method to have a detailed dump of a TypeInfo object
 void typeInfo::Dump() const

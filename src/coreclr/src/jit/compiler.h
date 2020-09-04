@@ -9442,9 +9442,11 @@ public:
     */
 
 public:
+#ifdef DEBUG
     // Returns TRUE if child is equal to or a subtype of parent.
     // normalisedForStack indicates that both types are normalised for the stack
     BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent, bool normalisedForStack) const;
+#endif
 
     // Merges pDest and pSrc. Returns FALSE if merge is undefined.
     // *pDest is modified to represent the merged type.  Sets "*changed" to true
@@ -9488,6 +9490,7 @@ public:
     typeInfo verMakeTypeInfo(CorInfoType          ciType,
                              CORINFO_CLASS_HANDLE clsHnd); // converts from jit type representation to typeInfo
 
+#ifdef DEBUG
     typeInfo verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args);
     BOOL verIsByRefLike(const typeInfo& ti);
 
@@ -9496,7 +9499,6 @@ public:
                                     CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained." call
                                                                                       // on a type parameter?
                                     );
-#ifdef DEBUG
 
     // One line log function. Default level is 0. Increasing it gives you
     // more log information

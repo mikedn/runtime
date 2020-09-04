@@ -383,7 +383,6 @@ public:
 #if VERBOSE_VERIFY
     void Dump() const;
 #endif // VERBOSE_VERIFY
-#endif // DEBUG
 
 public:
     // Note that we specifically ignore the permanent byref here. The rationale is that
@@ -448,6 +447,7 @@ public:
                                  const typeInfo& child,
                                  const typeInfo& parent,
                                  bool            normalisedForStack);
+#endif // DEBUG
 
     /////////////////////////////////////////////////////////////////////////
     // Operations
