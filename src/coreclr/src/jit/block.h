@@ -390,7 +390,6 @@ struct BasicBlock : private LIR::Range
 #define BBF_DONT_REMOVE         0x00000010 // BB should not be removed during flow graph optimizations
 #define BBF_IMPORTED            0x00000020 // BB byte-code has been imported
 #define BBF_INTERNAL            0x00000040 // BB has been added by the compiler
-#define BBF_FAILED_VERIFICATION 0x00000080 // BB has verification exception
 
 #define BBF_TRY_BEG             0x00000100 // BB starts a 'try' block
 #define BBF_FUNCLET_BEG         0x00000200 // BB is the beginning of a funclet

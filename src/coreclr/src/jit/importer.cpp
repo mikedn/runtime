@@ -4774,53 +4774,6 @@ GenTree* Compiler::impArrayAccessIntrinsic(
  *   "call unauthorized by host" exception.
  */
 
-void Compiler::verConvertBBToThrowVerificationException(BasicBlock* block DEBUGARG(bool logMsg))
-{
-    block->bbJumpKind = BBJ_THROW;
-    block->bbFlags |= BBF_FAILED_VERIFICATION;
-
-    impCurStmtOffsSet(block->bbCodeOffs);
-
-#ifdef DEBUG
-    // we need this since BeginTreeList asserts otherwise
-    impStmtList = impLastStmt = nullptr;
-    block->bbFlags &= ~BBF_IMPORTED;
-
-    if (logMsg)
-    {
-        JITLOG((LL_ERROR, "Verification failure: while compiling %s near IL offset %x..%xh \n", info.compFullName,
-                block->bbCodeOffs, block->bbCodeOffsEnd));
-        if (verbose)
-        {
-            printf("\n\nVerification failure: %s near IL %xh \n", info.compFullName, block->bbCodeOffs);
-        }
-    }
-
-    if (JitConfig.DebugBreakOnVerificationFailure())
-    {
-        DebugBreak();
-    }
-#endif
-
-    impBeginTreeList();
-
-    // if the stack is non-empty evaluate all the side-effects
-    if (verCurrentState.esStackDepth > 0)
-    {
-        impEvalSideEffects();
-    }
-    assert(verCurrentState.esStackDepth == 0);
-
-    GenTree* op1 =
-        gtNewHelperCallNode(CORINFO_HELP_VERIFICATION, TYP_VOID, gtNewCallArgs(gtNewIconNode(block->bbCodeOffs)));
-    // verCurrentState.esStackDepth = 0;
-    impAppendTree(op1, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
-
-    // The inliner is not able to handle methods that require throw block, so
-    // make sure this methods never gets inlined.
-    info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_BAD_INLINEE);
-}
-
 typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
 {
     assert(ciType < CORINFO_TYPE_COUNT);
@@ -15987,7 +15940,7 @@ void Compiler::impImportBlockPending(BasicBlock* block)
     // Initialize bbEntryState just the first time we try to add this block to the pending list
     // Just because bbEntryState is NULL, doesn't mean the pre-state wasn't previously set
     // We use NULL to indicate the 'common' state to avoid memory allocation
-    if ((block->bbEntryState == nullptr) && ((block->bbFlags & (BBF_IMPORTED | BBF_FAILED_VERIFICATION)) == 0) &&
+    if ((block->bbEntryState == nullptr) && ((block->bbFlags & BBF_IMPORTED) == 0) &&
         (impGetPendingBlockMember(block) == 0))
     {
         verInitBBEntryState(block, &verCurrentState);
@@ -16260,9 +16213,7 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
         // If we haven't imported this block and we're not going to (because it isn't on
         // the pending list) then just ignore it for now.
 
-        // This block has either never been imported (EntryState == NULL) or it failed
-        // verification. Neither state requires us to force it to be imported now.
-        assert((blk->bbEntryState == nullptr) || (blk->bbFlags & BBF_FAILED_VERIFICATION));
+        assert(blk->bbEntryState == nullptr);
         return;
     }
 
@@ -16378,8 +16329,6 @@ void Compiler::verInitBBEntryState(BasicBlock* block, EntryState* srcState)
     }
 
     block->bbEntryState = getAllocator(CMK_Unknown).allocate<EntryState>(1);
-
-    // block->bbEntryState.esRefcount = 1;
 
     block->bbEntryState->esStackDepth    = srcState->esStackDepth;
     block->bbEntryState->thisInitialized = TIS_Bottom;
@@ -16628,25 +16577,15 @@ void Compiler::impImport()
         dsc->pdNext    = impPendingFree;
         impPendingFree = dsc;
 
-        /* Now import the block */
+        impImportBlock(dsc->pdBB);
 
-        if (dsc->pdBB->bbFlags & BBF_FAILED_VERIFICATION)
+        if (compDonotInline())
         {
-            verConvertBBToThrowVerificationException(dsc->pdBB DEBUGARG(true));
-            impEndTreeList(dsc->pdBB);
+            return;
         }
-        else
+        if (compIsForImportOnly())
         {
-            impImportBlock(dsc->pdBB);
-
-            if (compDonotInline())
-            {
-                return;
-            }
-            if (compIsForImportOnly())
-            {
-                return;
-            }
+            return;
         }
     }
 

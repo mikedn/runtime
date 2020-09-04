@@ -9483,7 +9483,6 @@ public:
     void verInitCurrentState();
     void verResetCurrentState(BasicBlock* block, EntryState* currentState);
 
-    void verConvertBBToThrowVerificationException(BasicBlock* block DEBUGARG(bool logMsg));
     typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd,
                              bool bashStructToRef = false); // converts from jit type representation to typeInfo
     typeInfo verMakeTypeInfo(CorInfoType          ciType,
