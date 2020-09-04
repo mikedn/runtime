@@ -5549,10 +5549,8 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         op1 = gtNewHelperCallNode(boxHelper, TYP_REF, args);
     }
 
-    /* Push the result back on the stack, */
-    /* even if clsHnd is a value class we want the TI_REF */
-    typeInfo tiRetVal = typeInfo(TI_REF, info.compCompHnd->getTypeForBox(pResolvedToken->hClass));
-    impPushOnStack(op1, tiRetVal);
+    // Push the result back on the stack, even if clsHnd is a value class we want the TI_REF
+    impPushOnStack(op1, typeInfo(TI_REF, info.compCompHnd->getTypeForBox(pResolvedToken->hClass)));
 }
 
 //------------------------------------------------------------------------
@@ -9951,8 +9949,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
     int  prefixFlags = 0;
     bool explicitTailCall, constraintCall, readonlyCall;
 
-    typeInfo tiRetVal;
-
     unsigned numArgs = info.compArgsCount;
 
     /* Now process all the opcodes in the block */
@@ -9979,8 +9975,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
         CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
         CORINFO_CALL_INFO      callInfo;
         CORINFO_FIELD_INFO     fieldInfo;
-
-        tiRetVal = typeInfo(); // Default type info
 
         //---------------------------------------------------------------------
 
@@ -10321,7 +10315,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 val = getU4LittleEndian(codeAddr);
                 JITDUMP(" %08X", val);
-                impPushOnStack(gtNewSconNode(val, info.compScopeHnd), tiRetVal);
+                impPushOnStack(gtNewSconNode(val, info.compScopeHnd), typeInfo());
                 break;
 
             case CEE_LDARG:
@@ -10452,13 +10446,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
             _PopValue:
-                /* Pop the value being assigned */
-
+                // Pop the value being assigned
                 {
                     StackEntry se = impPopStack();
                     clsHnd        = se.seTypeInfo.GetClassHandle();
                     op1           = se.val;
-                    tiRetVal      = se.seTypeInfo;
                 }
 
 #ifdef FEATURE_SIMD
@@ -10673,8 +10665,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // &aliasedVar doesnt need GTF_GLOB_REF, though alisasedVar does
                 assert((op1->gtFlags & GTF_GLOB_REF) == 0);
 
-                tiRetVal = lvaTable[lclNum].lvVerTypeInfo;
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, lvaTable[lclNum].lvVerTypeInfo);
                 break;
 
             case CEE_ARGLIST:
@@ -10692,7 +10683,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 lclNum = lvaVarargsHandleArg;
                 op1    = gtNewLclvNode(lclNum, TYP_I_IMPL DEBUGARG(opcodeOffs + sz + 1));
                 op1    = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_ENDFINALLY:
@@ -10850,7 +10841,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // Otherwise we need the full helper function with run-time type check
                 op1 = impTokenToHandle(&resolvedToken);
                 if (op1 == nullptr)
-                { // compDonotInline()
+                {
                     return;
                 }
 
@@ -10861,10 +10852,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1                    = gtNewHelperCallNode(CORINFO_HELP_LDELEMA_REF, TYP_BYREF, args);
                 }
 
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
-            // ldelem for reference and value types
             case CEE_LDELEM:
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
@@ -10873,17 +10863,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 // If it's a reference type or generic variable type
                 // then just generate code as though it's a ldelem.ref instruction
-                if (!eeIsValueClass(ldelemClsHnd))
+                if (!eeIsValueClass(resolvedToken.hClass))
                 {
                     lclTyp = TYP_REF;
                     opcode = CEE_LDELEM_REF;
                 }
                 else
                 {
-                    CorInfoType jitTyp = info.compCompHnd->asCorInfoType(ldelemClsHnd);
-                    lclTyp             = JITtype2varType(jitTyp);
-                    tiRetVal           = verMakeTypeInfo(ldelemClsHnd); // precise type always needed for struct
-                    tiRetVal.NormaliseForStack();
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 }
                 goto ARR_LD;
 
@@ -10896,13 +10883,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDELEM_I:
                 lclTyp = TYP_I_IMPL;
                 goto ARR_LD;
-
-            // Should be UINT, but since no platform widens 4->8 bytes it doesn't matter
-            // and treating it as TYP_INT avoids other asserts.
             case CEE_LDELEM_U4:
                 lclTyp = TYP_INT;
                 goto ARR_LD;
-
             case CEE_LDELEM_I4:
                 lclTyp = TYP_INT;
                 goto ARR_LD;
@@ -10923,12 +10906,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto ARR_LD;
             case CEE_LDELEM_U2:
                 lclTyp = TYP_USHORT;
-                goto ARR_LD;
-
             ARR_LD:
-                /* Pull the index value and array address */
-                op2 = impPopStack().val;
-                op1 = impPopStack().val;
+                op2 = impPopStack().val; // Index
+                op1 = impPopStack().val; // Array reference
                 assertImp(op1->gtType == TYP_REF);
 
                 /* Check for null pointer - in the inliner case we simply abort */
@@ -11000,13 +10980,19 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                if (ldstruct)
                 {
-                    // Create an OBJ for the result
-                    op1 = gtNewObjNode(ldelemClsHnd, op1);
-                    op1->gtFlags |= GTF_EXCEPT;
+                    typeInfo tiRetVal;
+
+                    if (ldstruct)
+                    {
+                        // Create an OBJ for the result
+                        op1 = gtNewObjNode(ldelemClsHnd, op1);
+                        op1->gtFlags |= GTF_EXCEPT;
+                        tiRetVal = verMakeTypeInfo(ldelemClsHnd);
+                    }
+
+                    impPushOnStack(op1, tiRetVal);
                 }
-                impPushOnStack(op1, tiRetVal);
                 break;
 
             // stelem for reference and value types
@@ -11142,14 +11128,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_ADD:
                 oper = GT_ADD;
                 goto MATH_OP2;
-
             case CEE_ADD_OVF:
                 uns = false;
                 goto ADD_OVF;
             case CEE_ADD_OVF_UN:
                 uns = true;
-                goto ADD_OVF;
-
             ADD_OVF:
                 ovfl     = true;
                 callNode = false;
@@ -11159,14 +11142,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_SUB:
                 oper = GT_SUB;
                 goto MATH_OP2;
-
             case CEE_SUB_OVF:
                 uns = false;
                 goto SUB_OVF;
             case CEE_SUB_OVF_UN:
                 uns = true;
-                goto SUB_OVF;
-
             SUB_OVF:
                 ovfl     = true;
                 callNode = false;
@@ -11176,14 +11156,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_MUL:
                 oper = GT_MUL;
                 goto MATH_MAYBE_CALL_NO_OVF;
-
             case CEE_MUL_OVF:
                 uns = false;
                 goto MUL_OVF;
             case CEE_MUL_OVF_UN:
                 uns = true;
-                goto MUL_OVF;
-
             MUL_OVF:
                 ovfl = true;
                 oper = GT_MUL;
@@ -11194,19 +11171,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_DIV:
                 oper = GT_DIV;
                 goto MATH_MAYBE_CALL_NO_OVF;
-
             case CEE_DIV_UN:
                 oper = GT_UDIV;
                 goto MATH_MAYBE_CALL_NO_OVF;
-
             case CEE_REM:
                 oper = GT_MOD;
                 goto MATH_MAYBE_CALL_NO_OVF;
-
             case CEE_REM_UN:
                 oper = GT_UMOD;
-                goto MATH_MAYBE_CALL_NO_OVF;
-
             MATH_MAYBE_CALL_NO_OVF:
                 ovfl = false;
             MATH_MAYBE_CALL_OVF:
@@ -11227,10 +11199,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto MATH_OP2;
             case CEE_XOR:
                 oper = GT_XOR;
-                goto MATH_OP2;
-
             MATH_OP2: // For default values of 'ovfl' and 'callNode'
-
                 ovfl     = false;
                 callNode = false;
 
@@ -11263,7 +11232,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
 
                     {
-                        impPushOnStack(op1, tiRetVal);
+                        impPushOnStack(op1, typeInfo());
                         break;
                     }
                 }
@@ -11330,36 +11299,31 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_SHL:
                 oper = GT_LSH;
                 goto CEE_SH_OP2;
-
             case CEE_SHR:
                 oper = GT_RSH;
                 goto CEE_SH_OP2;
             case CEE_SHR_UN:
                 oper = GT_RSZ;
-                goto CEE_SH_OP2;
-
             CEE_SH_OP2:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val; // operand to be shifted
                 impBashVarAddrsToI(op1, op2);
-
                 type = genActualType(op1->TypeGet());
                 op1  = gtNewOperNode(oper, type, op1, op2);
-
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_NOT:
                 op1 = impPopStack().val;
                 impBashVarAddrsToI(op1, nullptr);
                 type = genActualType(op1->TypeGet());
-                impPushOnStack(gtNewOperNode(GT_NOT, type, op1), tiRetVal);
+                impPushOnStack(gtNewOperNode(GT_NOT, type, op1), typeInfo());
                 break;
 
             case CEE_CKFINITE:
@@ -11367,12 +11331,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 type = op1->TypeGet();
                 op1  = gtNewOperNode(GT_CKFINITE, type, op1);
                 op1->gtFlags |= GTF_EXCEPT;
-
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_LEAVE:
-
                 val     = getI4LittleEndian(codeAddr); // jump distance
                 jmpAddr = (IL_OFFSET)((codeAddr - info.compCode + sizeof(__int32)) + val);
                 goto LEAVE;
@@ -11382,7 +11344,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 jmpAddr = (IL_OFFSET)((codeAddr - info.compCode + sizeof(__int8)) + val);
 
             LEAVE:
-
                 if (compIsForInlining())
                 {
                     compInlineResult->NoteFatal(InlineObservation::CALLEE_HAS_LEAVE);
@@ -11398,7 +11359,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assert(jmpAddr == block->bbJumpDest->bbCodeOffs);
                 impImportLeave(block);
                 impNoteBranchOffs();
-
                 break;
 
             case CEE_BR:
@@ -11535,8 +11495,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_CLT:
                 oper = GT_LT;
                 uns  = false;
-                goto CMP_2_OPs;
-
             CMP_2_OPs:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
@@ -11569,7 +11527,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // Fold result, if possible.
                 op1 = gtFoldExpr(op1);
 
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_BEQ_S:
@@ -11902,7 +11860,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         {
                             /* Toss the cast, it's a waste of time */
 
-                            impPushOnStack(op1, tiRetVal);
+                            impPushOnStack(op1, typeInfo());
                             break;
                         }
                         else if (ival == mask)
@@ -11938,13 +11896,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_NEG:
                 op1 = impPopStack().val;
                 impBashVarAddrsToI(op1, nullptr);
-                impPushOnStack(gtNewOperNode(GT_NEG, genActualType(op1->gtType), op1), tiRetVal);
+                impPushOnStack(gtNewOperNode(GT_NEG, genActualType(op1->gtType), op1), typeInfo());
                 break;
 
             case CEE_POP:
@@ -12032,13 +11990,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // twice.
                 StackEntry se   = impPopStack();
                 GenTree*   tree = se.val;
-                tiRetVal        = se.seTypeInfo;
                 op1             = tree;
 
                 if (!opts.compDbgCode && !op1->IsIntegralConst(0) && !op1->IsDblConPositiveZero() && !op1->IsLocal())
                 {
                     const unsigned tmpNum = lvaGrabTemp(true DEBUGARG("dup spill"));
-                    impAssignTempGen(tmpNum, op1, tiRetVal.GetClassHandle(), (unsigned)CHECK_SPILL_ALL);
+                    impAssignTempGen(tmpNum, op1, se.seTypeInfo.GetClassHandle(), (unsigned)CHECK_SPILL_ALL);
                     var_types type = genActualType(lvaTable[tmpNum].TypeGet());
                     op1            = gtNewLclvNode(tmpNum, type);
 
@@ -12048,16 +12005,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         assert(lvaTable[tmpNum].lvSingleDef == 0);
                         lvaTable[tmpNum].lvSingleDef = 1;
                         JITDUMP("Marked V%02u as a single def local\n", tmpNum);
-                        lvaSetClass(tmpNum, tree, tiRetVal.GetClassHandle());
+                        lvaSetClass(tmpNum, tree, se.seTypeInfo.GetClassHandle());
                     }
                 }
 
-                op1 = impCloneExpr(op1, &op2, tiRetVal.GetClassHandle(), (unsigned)CHECK_SPILL_ALL,
+                op1 = impCloneExpr(op1, &op2, se.seTypeInfo.GetClassHandle(), (unsigned)CHECK_SPILL_ALL,
                                    nullptr DEBUGARG("DUP instruction"));
 
                 assert(!(op1->gtFlags & GTF_GLOB_EFFECT) && !(op2->gtFlags & GTF_GLOB_EFFECT));
-                impPushOnStack(op1, tiRetVal);
-                impPushOnStack(op2, tiRetVal);
+                impPushOnStack(op1, se.seTypeInfo);
+                impPushOnStack(op2, se.seTypeInfo);
             }
             break;
 
@@ -12241,8 +12198,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
-                impPushOnStack(op1, tiRetVal);
-
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_UNALIGNED:
@@ -12941,7 +12897,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                tiRetVal = verMakeTypeInfo(ciType, clsHnd);
+                typeInfo tiRetVal = verMakeTypeInfo(ciType, clsHnd);
                 if (isLoadAddress)
                 {
                     tiRetVal.MakeByRef();
@@ -13531,8 +13487,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                tiRetVal = verMakeTypeInfo(resolvedToken.hClass);
-
                 accessAllowedResult =
                     info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
                 impHandleAccessAllowed(accessAllowedResult, &calloutHelper);
@@ -13602,9 +13556,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 block->bbFlags |= BBF_HAS_NEWARRAY;
                 optMethodFlags |= OMF_HAS_NEWARRAY;
 
-                /* Push the result of the call on the stack */
-
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, verMakeTypeInfo(resolvedToken.hClass));
 
                 callTyp = TYP_REF;
             }
@@ -13713,7 +13665,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_ISINST:
@@ -13726,7 +13678,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     op2 = impTokenToHandle(&resolvedToken, nullptr, FALSE);
                     if (op2 == nullptr)
-                    { // compDonotInline()
+                    {
                         return;
                     }
                 }
@@ -13741,50 +13693,48 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (optTree != nullptr)
                 {
-                    impPushOnStack(optTree, tiRetVal);
+                    impPushOnStack(optTree, typeInfo());
+                    break;
                 }
-                else
-                {
 
 #ifdef FEATURE_READYTORUN_COMPILER
-                    if (opts.IsReadyToRun())
-                    {
-                        GenTreeCall* opLookup =
-                            impReadyToRunHelperToTree(&resolvedToken, CORINFO_HELP_READYTORUN_ISINSTANCEOF, TYP_REF,
-                                                      gtNewCallArgs(op1));
-                        usingReadyToRunHelper = (opLookup != nullptr);
-                        op1                   = (usingReadyToRunHelper ? opLookup : op1);
-
-                        if (!usingReadyToRunHelper)
-                        {
-                            // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
-                            // and the isinstanceof_any call with a single call to a dynamic R2R cell that will:
-                            //      1) Load the context
-                            //      2) Perform the generic dictionary lookup and caching, and generate the appropriate
-                            //      stub
-                            //      3) Perform the 'is instance' check on the input object
-                            // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
-
-                            op2 = impTokenToHandle(&resolvedToken, nullptr, FALSE);
-                            if (op2 == nullptr)
-                            { // compDonotInline()
-                                return;
-                            }
-                        }
-                    }
+                if (opts.IsReadyToRun())
+                {
+                    GenTreeCall* opLookup =
+                        impReadyToRunHelperToTree(&resolvedToken, CORINFO_HELP_READYTORUN_ISINSTANCEOF, TYP_REF,
+                                                  gtNewCallArgs(op1));
+                    usingReadyToRunHelper = (opLookup != nullptr);
+                    op1                   = (usingReadyToRunHelper ? opLookup : op1);
 
                     if (!usingReadyToRunHelper)
-#endif
                     {
-                        op1 = impCastClassOrIsInstToTree(op1, op2, &resolvedToken, false);
-                    }
-                    if (compDonotInline())
-                    {
-                        return;
-                    }
+                        // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
+                        // and the isinstanceof_any call with a single call to a dynamic R2R cell that will:
+                        //      1) Load the context
+                        //      2) Perform the generic dictionary lookup and caching, and generate the appropriate
+                        //      stub
+                        //      3) Perform the 'is instance' check on the input object
+                        // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
-                    impPushOnStack(op1, tiRetVal);
+                        op2 = impTokenToHandle(&resolvedToken, nullptr, FALSE);
+                        if (op2 == nullptr)
+                        {
+                            return;
+                        }
+                    }
                 }
+
+                if (!usingReadyToRunHelper)
+#endif
+                {
+                    op1 = impCastClassOrIsInstToTree(op1, op2, &resolvedToken, false);
+                }
+                if (compDonotInline())
+                {
+                    return;
+                }
+
+                impPushOnStack(op1, typeInfo());
                 break;
             }
 
@@ -13805,7 +13755,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // Call helper GETREFANY(classHandle, op1);
                 op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, gtNewCallArgs(op2, op1));
 
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_REFANYTYPE:
@@ -13860,10 +13810,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #endif
                     }
 
-                    tiRetVal = typeInfo(TI_STRUCT, classHandle);
+                    impPushOnStack(op1, typeInfo(TI_STRUCT, classHandle));
                 }
-
-                impPushOnStack(op1, tiRetVal);
                 break;
 
             case CEE_LDTOKEN:
@@ -13906,8 +13854,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->AsCall()->gtRetClsHnd = tokenType;
                 }
 
-                tiRetVal = verMakeTypeInfo(tokenType);
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, verMakeTypeInfo(tokenType));
             }
             break;
 
@@ -13939,10 +13886,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
                 // Pop the object and create the unbox helper call
-                // You might think that for UNBOX_ANY we need to push a different
-                // (non-byref) type, but here we're making the tiRetVal that is used
-                // for the intermediate pointer which we then transfer onto the OBJ
-                // instruction.  OBJ then creates the appropriate tiRetVal.
 
                 op1 = impPopStack().val;
                 assertImp(op1->gtType == TYP_REF);
@@ -13985,7 +13928,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                     gtNewOperNode(GT_ADD, TYP_BYREF, cloneOperand, boxPayloadOffset);
                                 GenTree* nullcheck = gtNewNullCheck(op1, block);
                                 GenTree* result    = gtNewOperNode(GT_COMMA, TYP_BYREF, nullcheck, boxPayloadAddress);
-                                impPushOnStack(result, tiRetVal);
+                                impPushOnStack(result, typeInfo());
                                 break;
                             }
 
@@ -13993,7 +13936,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             assert(opcode == CEE_UNBOX_ANY);
                             GenTree* boxPayloadOffset  = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
                             GenTree* boxPayloadAddress = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
-                            impPushOnStack(boxPayloadAddress, tiRetVal);
+                            impPushOnStack(boxPayloadAddress, typeInfo());
                             oper = GT_OBJ;
                             goto OBJ;
                         }
@@ -14092,6 +14035,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                   |---------------------------------------------------------------------
                 */
 
+                typeInfo tiRetVal;
+
                 if (opcode == CEE_UNBOX)
                 {
                     if (helper == CORINFO_HELP_UNBOX_NULLABLE)
@@ -14122,7 +14067,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (helper == CORINFO_HELP_UNBOX)
                     {
                         // Normal unbox helper returns a TYP_BYREF.
-                        impPushOnStack(op1, tiRetVal);
+                        impPushOnStack(op1, typeInfo());
                         oper = GT_OBJ;
                         goto OBJ;
                     }
@@ -14151,7 +14096,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         // In this case the return value of the unbox helper is TYP_BYREF.
                         // Make sure the right type is placed on the operand type stack.
-                        impPushOnStack(op1, tiRetVal);
+                        impPushOnStack(op1, typeInfo());
 
                         // Load the struct.
                         oper = GT_OBJ;
@@ -14192,7 +14137,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 if (!eeIsValueClass(resolvedToken.hClass))
                 {
                     JITDUMP("\n Importing BOX(refClass) as NOP\n");
-                    verCurrentState.esStack[verCurrentState.esStackDepth - 1].seTypeInfo = tiRetVal;
+                    verCurrentState.esStack[verCurrentState.esStackDepth - 1].seTypeInfo = typeInfo();
                     break;
                 }
 
@@ -14219,7 +14164,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
 
                 op1 = gtNewIconNode(info.compCompHnd->getClassSize(resolvedToken.hClass));
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_CASTCLASS:
@@ -14252,7 +14197,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (optTree != nullptr)
                 {
-                    impPushOnStack(optTree, tiRetVal);
+                    impPushOnStack(optTree, typeInfo());
                 }
                 else
                 {
@@ -14278,7 +14223,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                             op2 = impTokenToHandle(&resolvedToken, nullptr, FALSE);
                             if (op2 == nullptr)
-                            { // compDonotInline()
+                            {
                                 return;
                             }
                         }
@@ -14294,8 +14239,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         return;
                     }
 
-                    /* Push the result back on the stack */
-                    impPushOnStack(op1, tiRetVal);
+                    impPushOnStack(op1, typeInfo());
                 }
             }
             break;
@@ -14504,16 +14448,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
 
             OBJ:
-                tiRetVal = verMakeTypeInfo(resolvedToken.hClass);
-
-                if (eeIsValueClass(resolvedToken.hClass))
-                {
-                    lclTyp = TYP_STRUCT;
-                }
-                else
+                if (!eeIsValueClass(resolvedToken.hClass))
                 {
                     lclTyp = TYP_REF;
-                    opcode = CEE_LDIND_REF;
+                    goto LDIND;
+                }
+
+                CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
+                if (impIsPrimitive(jitTyp))
+                {
+                    lclTyp = JITtype2varType(jitTyp);
                     goto LDIND;
                 }
 
@@ -14521,21 +14465,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assertImp(op1->TypeGet() == TYP_BYREF || op1->TypeGet() == TYP_I_IMPL);
 
-                CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
-                if (impIsPrimitive(jitTyp))
-                {
-                    op1 = gtNewOperNode(GT_IND, JITtype2varType(jitTyp), op1);
-
-                    // Could point anywhere, example a boxed class static int
-                    op1->gtFlags |= GTF_IND_TGTANYWHERE | GTF_GLOB_REF;
-                    assertImp(varTypeIsArithmetic(op1->gtType));
-                }
-                else
-                {
-                    // OBJ returns a struct
-                    // and an inline argument which is the class token of the loaded obj
-                    op1 = gtNewObjNode(resolvedToken.hClass, op1);
-                }
+                op1 = gtNewObjNode(resolvedToken.hClass, op1);
                 op1->gtFlags |= GTF_EXCEPT;
 
                 if (prefixFlags & PREFIX_UNALIGNED)
@@ -14543,7 +14473,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, verMakeTypeInfo(resolvedToken.hClass));
                 break;
             }
 
@@ -14564,8 +14494,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewIndir(TYP_INT, op1);
                 }
 
-                /* Push the result back on the stack */
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_BREAK:
@@ -14609,15 +14538,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #endif
 
 // Push a local/argument treeon the operand stack
-void Compiler::impPushVar(GenTree* op, typeInfo tiRetVal)
+void Compiler::impPushVar(GenTree* op, typeInfo type)
 {
-    tiRetVal.NormaliseForStack();
-    impPushOnStack(op, tiRetVal);
+    type.NormaliseForStack();
+    impPushOnStack(op, type);
 }
 
 // Load a local/argument on the operand stack
 // lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
-void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& tiRetVal)
+void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& type)
 {
     var_types lclTyp;
 
@@ -14630,7 +14559,7 @@ void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& tiR
         lclTyp = lvaGetActualType(lclNum);
     }
 
-    impPushVar(gtNewLclvNode(lclNum, lclTyp DEBUGARG(offset)), tiRetVal);
+    impPushVar(gtNewLclvNode(lclNum, lclTyp DEBUGARG(offset)), type);
 }
 
 // Load an argument on the operand stack
@@ -14690,7 +14619,7 @@ void Compiler::impLoadLoc(unsigned ilLclNum, IL_OFFSET offset)
         // Get the local type
         var_types lclTyp = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclTypeInfo;
 
-        typeInfo tiRetVal = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclVerTypeInfo;
+        typeInfo type = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclVerTypeInfo;
 
         /* Have we allocated a temp for this local? */
 
@@ -14701,7 +14630,7 @@ void Compiler::impLoadLoc(unsigned ilLclNum, IL_OFFSET offset)
         assert(!lvaTable[lclNum].lvNormalizeOnLoad());
         lclTyp = genActualType(lclTyp);
 
-        impPushVar(gtNewLclvNode(lclNum, lclTyp), tiRetVal);
+        impPushVar(gtNewLclvNode(lclNum, lclTyp), type);
     }
     else
     {
