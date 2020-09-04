@@ -3863,9 +3863,9 @@ private:
 
     struct PendingDsc
     {
-        PendingDsc*   pdNext;
-        BasicBlock*   pdBB;
-        SavedStack    pdSavedStack;
+        PendingDsc* pdNext;
+        BasicBlock* pdBB;
+        SavedStack  pdSavedStack;
     };
 
     PendingDsc* impPendingList; // list of BBs currently waiting to be imported.

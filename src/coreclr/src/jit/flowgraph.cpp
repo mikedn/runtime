@@ -6451,18 +6451,13 @@ void Compiler::fgFindBasicBlocks()
 
 #endif // !FEATURE_EH_FUNCLETS
 
-#ifndef DEBUG
-    if (tiVerificationNeeded)
-#endif
-    {
-        // always run these checks for a debug build
-        verCheckNestingLevel(initRoot);
-    }
+    // always run these checks for a debug build
+    INDEBUG(verCheckNestingLevel(initRoot);)
 
 #ifndef DEBUG
     // fgNormalizeEH assumes that this test has been passed.  And Ssa assumes that fgNormalizeEHTable
     // has been run.  So do this unless we're in minOpts mode (and always in debug).
-    if (tiVerificationNeeded || !opts.MinOpts())
+    if (!opts.MinOpts())
 #endif
     {
         fgCheckBasicBlockControlFlow();

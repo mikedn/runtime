@@ -126,8 +126,8 @@ struct StackEntry
 
 struct EntryState
 {
-    unsigned      esStackDepth;    // size of esStack
-    StackEntry*   esStack;         // ptr to  stack
+    unsigned    esStackDepth; // size of esStack
+    StackEntry* esStack;      // ptr to  stack
 };
 
 // Enumeration of the kinds of memory whose state changes the compiler tracks
@@ -996,7 +996,7 @@ struct BasicBlock : private LIR::Range
     unsigned bbID;
 #endif // DEBUG
 
-    unsigned      bbStackDepthOnEntry();
+    unsigned bbStackDepthOnEntry();
     void bbSetStack(void* stackBuffer);
     StackEntry* bbStackOnEntry();
     void        bbSetRunRarely();

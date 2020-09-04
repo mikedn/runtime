@@ -5417,9 +5417,7 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
 
 #endif // DEBUG
 
-    // Set this before the first 'BADCODE'
-    // Skip verification where possible
-    //.tiVerificationNeeded = !compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
+    // Verification isn't supported
     assert(compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
 
     /* Setup an error trap */

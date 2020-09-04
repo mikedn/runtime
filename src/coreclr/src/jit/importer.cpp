@@ -147,19 +147,6 @@ StackEntry Compiler::impPopStack()
         BADCODE("stack underflow");
     }
 
-#ifdef DEBUG
-#if VERBOSE_VERIFY
-    if (VERBOSE && tiVerificationNeeded)
-    {
-        JITDUMP("\n");
-        printf(TI_DUMP_PADDING);
-        printf("About to pop from the stack: ");
-        const typeInfo& ti = verCurrentState.esStack[verCurrentState.esStackDepth - 1].seTypeInfo;
-        ti.Dump();
-    }
-#endif // VERBOSE_VERIFY
-#endif // DEBUG
-
     return verCurrentState.esStack[--verCurrentState.esStackDepth];
 }
 
@@ -7723,9 +7710,6 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             {
                 if (newobjThis->gtOper == GT_COMMA)
                 {
-                    // In coreclr the callout can be inserted even if verification is disabled
-                    // so we cannot rely on tiVerificationNeeded alone
-
                     // We must have inserted the callout. Get the real newobj.
                     newobjThis = newobjThis->AsOp()->gtOp2;
                 }
@@ -12992,7 +12976,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // SkipVerification.
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                // tiVerificationNeeded is false.
                 // Raise InvalidProgramException if static load accesses non-static field
                 if (isLoadStatic && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0))
                 {
@@ -16387,7 +16370,7 @@ StackEntry* BasicBlock::bbStackOnEntry()
 
 void Compiler::verInitCurrentState()
 {
-    verCurrentState.esStackDepth    = 0;
+    verCurrentState.esStackDepth = 0;
     assert(verCurrentState.esStack != nullptr);
 
     // copy current state to entry state of first BB
