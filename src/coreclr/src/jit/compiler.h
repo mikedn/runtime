@@ -9497,8 +9497,6 @@ public:
     typeInfo verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args);
     BOOL verIsByRefLike(const typeInfo& ti);
 
-    void DECLSPEC_NORETURN verRaiseVerifyException(INDEBUG(const char* reason) DEBUGARG(const char* file)
-                                                       DEBUGARG(unsigned line));
     bool verCheckTailCallConstraint(OPCODE                  opcode,
                                     CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                     CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained." call

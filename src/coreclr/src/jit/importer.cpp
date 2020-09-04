@@ -70,27 +70,6 @@ inline void Compiler::impPushNullObjRefOnStack()
     impPushOnStack(gtNewIconNode(0, TYP_REF), typeInfo(TI_NULL));
 }
 
-// This method gets called when we run into unverifiable code
-// (and we are verifying the method)
-
-inline void DECLSPEC_NORETURN Compiler::verRaiseVerifyException(INDEBUG(const char* msg) DEBUGARG(const char* file)
-                                                                    DEBUGARG(unsigned line))
-{
-    JITLOG((LL_ERROR, "Verification failure:  %s:%d : %s, while compiling %s opcode %s, IL offset %x\n", file, line,
-            msg, info.compFullName, impCurOpcName, impCurOpcOffs));
-
-#ifdef DEBUG
-    //    BreakIfDebuggerPresent();
-    if (getBreakOnBadCode())
-    {
-        assert(!"Typechecking error");
-    }
-#endif
-
-    RaiseException(SEH_VERIFICATION_EXCEPTION, EXCEPTION_NONCONTINUABLE, 0, nullptr);
-    UNREACHABLE();
-}
-
 // helper function that will tell us if the IL instruction at the addr passed
 // by param consumes an address at the top of the stack. We use it to save
 // us lvAddrTaken
@@ -10853,8 +10832,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op1 = gtNewOperNode(GT_RETFILT, op1->TypeGet(), op1);
                 if (verCurrentState.esStackDepth != 0)
                 {
-                    verRaiseVerifyException(INDEBUG("stack must be 1 on end of filter") DEBUGARG(__FILE__)
-                                                DEBUGARG(__LINE__));
+                    BADCODE("stack must be 1 on end of filter");
                 }
                 goto APPEND;
 
