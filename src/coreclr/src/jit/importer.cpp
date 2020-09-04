@@ -19,28 +19,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "corexcep.h"
 
-#define VerifyOrReturnSpeculative(cond, msg, speculative)                                                              \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (speculative)                                                                                               \
-        {                                                                                                              \
-            if (!(cond))                                                                                               \
-            {                                                                                                          \
-                return false;                                                                                          \
-            }                                                                                                          \
-        }                                                                                                              \
-        else                                                                                                           \
-        {                                                                                                              \
-            if (!(cond))                                                                                               \
-            {                                                                                                          \
-                verRaiseVerifyExceptionIfNeeded(INDEBUG(msg) DEBUGARG(__FILE__) DEBUGARG(__LINE__));                   \
-                return false;                                                                                          \
-            }                                                                                                          \
-        }                                                                                                              \
-    } while (0)
-
-/*****************************************************************************/
-
 void Compiler::impInit()
 {
     impStmtList = impLastStmt = nullptr;
@@ -94,33 +72,6 @@ inline void Compiler::impPushNullObjRefOnStack()
 
 // This method gets called when we run into unverifiable code
 // (and we are verifying the method)
-
-inline void Compiler::verRaiseVerifyExceptionIfNeeded(INDEBUG(const char* msg) DEBUGARG(const char* file)
-                                                          DEBUGARG(unsigned line))
-{
-#ifdef DEBUG
-    const char* tail = strrchr(file, '\\');
-    if (tail)
-    {
-        file = tail + 1;
-    }
-
-    if (JitConfig.JitBreakOnUnsafeCode())
-    {
-        assert(!"Unsafe code detected");
-    }
-#endif
-
-    JITLOG((LL_INFO10000, "Detected unsafe code: %s:%d : %s, while compiling %s opcode %s, IL offset %x\n", file, line,
-            msg, info.compFullName, impCurOpcName, impCurOpcOffs));
-
-    if (compIsForImportOnly())
-    {
-        JITLOG((LL_ERROR, "Verification failure:  %s:%d : %s, while compiling %s opcode %s, IL offset %x\n", file, line,
-                msg, info.compFullName, impCurOpcName, impCurOpcOffs));
-        verRaiseVerifyException(INDEBUG(msg) DEBUGARG(file) DEBUGARG(line));
-    }
-}
 
 inline void DECLSPEC_NORETURN Compiler::verRaiseVerifyException(INDEBUG(const char* msg) DEBUGARG(const char* file)
                                                                     DEBUGARG(unsigned line))
@@ -5079,14 +5030,11 @@ BOOL Compiler::verIsByRefLike(const typeInfo& ti)
  *  Check if a TailCall is legal.
  */
 
-bool Compiler::verCheckTailCallConstraint(
-    OPCODE                  opcode,
-    CORINFO_RESOLVED_TOKEN* pResolvedToken,
-    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken, // Is this a "constrained." call on a type parameter?
-    bool                    speculative                // If true, won't throw if verificatoin fails. Instead it will
-                                                       // return false to the caller.
-                                                       // If false, it will throw.
-    )
+bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
+                                          CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                          CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained."
+                                                                                            // call on a type parameter?
+                                          )
 {
     DWORD            mflags;
     CORINFO_SIG_INFO sig;
@@ -5149,14 +5097,20 @@ bool Compiler::verCheckTailCallConstraint(
     {
         typeInfo tiDeclared = verParseArgSigToTypeInfo(&sig, args).NormaliseForStack();
 
-        // check that the argument is not a byref for tailcalls
-        VerifyOrReturnSpeculative(!verIsByRefLike(tiDeclared), "tailcall on byrefs", speculative);
+        if (verIsByRefLike(tiDeclared))
+        {
+            return false;
+        }
 
         // For unsafe code, we might have parameters containing pointer to the stack location.
         // Disallow the tailcall for this kind.
         CORINFO_CLASS_HANDLE classHandle;
         CorInfoType          ciType = strip(info.compCompHnd->getArgType(&sig, args, &classHandle));
-        VerifyOrReturnSpeculative(ciType != CORINFO_TYPE_PTR, "tailcall on CORINFO_TYPE_PTR", speculative);
+
+        if (ciType == CORINFO_TYPE_PTR)
+        {
+            return false;
+        }
 
         args = info.compCompHnd->getArgNext(args);
     }
@@ -5180,7 +5134,11 @@ bool Compiler::verCheckTailCallConstraint(
             {
                 tiThis.MakeByRef();
             }
-            VerifyOrReturnSpeculative(!verIsByRefLike(tiThis), "byref in tailcall", speculative);
+
+            if (verIsByRefLike(tiThis))
+            {
+                return false;
+            }
         }
         else
         {
@@ -5191,13 +5149,19 @@ bool Compiler::verCheckTailCallConstraint(
                 tiDeclaredThis.MakeByRef();
             }
 
-            VerifyOrReturnSpeculative(!verIsByRefLike(tiDeclaredThis), "byref in tailcall", speculative);
+            if (verIsByRefLike(tiDeclaredThis))
+            {
+                return false;
+            }
         }
     }
 
     // Tail calls on constrained calls should be illegal too:
     // when instantiated at a value type, a constrained call may pass the address of a stack allocated value
-    VerifyOrReturnSpeculative(!pConstrainedResolvedToken, "byref in constrained tailcall", speculative);
+    if (pConstrainedResolvedToken)
+    {
+        return false;
+    }
 
     // Get the exact view of the signature for an array method
     if (sig.retType != CORINFO_TYPE_VOID)
@@ -5216,18 +5180,24 @@ bool Compiler::verCheckTailCallConstraint(
     // void return type gets morphed into the error type, so we have to treat them specially here
     if (sig.retType == CORINFO_TYPE_VOID)
     {
-        VerifyOrReturnSpeculative(info.compMethodInfo->args.retType == CORINFO_TYPE_VOID, "tailcall return mismatch",
-                                  speculative);
+        if (info.compMethodInfo->args.retType != CORINFO_TYPE_VOID)
+        {
+            return false;
+        }
     }
     else
     {
-        VerifyOrReturnSpeculative(tiCompatibleWith(NormaliseForStack(tiCalleeRetType),
-                                                   NormaliseForStack(tiCallerRetType), true),
-                                  "tailcall return mismatch", speculative);
+        if (!tiCompatibleWith(NormaliseForStack(tiCalleeRetType), NormaliseForStack(tiCallerRetType), true))
+        {
+            return false;
+        }
     }
 
     // for tailcall, stack must be empty
-    VerifyOrReturnSpeculative(verCurrentState.esStackDepth == popCount, "stack non-empty on tailcall", speculative);
+    if (verCurrentState.esStackDepth != popCount)
+    {
+        return false;
+    }
 
     return true; // Yes, tailcall is legal
 }
@@ -12900,11 +12870,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         if (newBBcreatedForTailcallStress && !hasTailPrefix)
                         {
                             // Do a more detailed evaluation of legality
-                            const bool returnFalseIfInvalid = true;
                             const bool passedConstraintCheck =
                                 verCheckTailCallConstraint(opcode, &resolvedToken,
-                                                           constraintCall ? &constrainedResolvedToken : nullptr,
-                                                           returnFalseIfInvalid);
+                                                           constraintCall ? &constrainedResolvedToken : nullptr);
 
                             if (passedConstraintCheck)
                             {

@@ -9499,15 +9499,10 @@ public:
 
     void DECLSPEC_NORETURN verRaiseVerifyException(INDEBUG(const char* reason) DEBUGARG(const char* file)
                                                        DEBUGARG(unsigned line));
-    void verRaiseVerifyExceptionIfNeeded(INDEBUG(const char* reason) DEBUGARG(const char* file)
-                                             DEBUGARG(unsigned line));
     bool verCheckTailCallConstraint(OPCODE                  opcode,
                                     CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken, // Is this a "constrained." call
-                                                                                       // on a type parameter?
-                                    bool speculative // If true, won't throw if verificatoin fails. Instead it will
-                                                     // return false to the caller.
-                                                     // If false, it will throw.
+                                    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained." call
+                                                                                      // on a type parameter?
                                     );
 #ifdef DEBUG
 
