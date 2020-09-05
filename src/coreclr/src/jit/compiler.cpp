@@ -1887,10 +1887,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     optMethodFlags       = 0;
     optNoReturnCallCount = 0;
 
-#ifdef DEBUG
-    m_nodeTestData      = nullptr;
-    m_loopHoistCSEClass = FIRST_LOOP_HOIST_CSE_CLASS;
-#endif
     m_switchDescMap      = nullptr;
     m_blockToEHPreds     = nullptr;
     m_fieldSeqStore      = nullptr;
@@ -6989,81 +6985,6 @@ void Compiler::GetStructTypeOffset(CORINFO_CLASS_HANDLE typeHnd,
 }
 
 #endif // defined(UNIX_AMD64_ABI)
-
-/*****************************************************************************/
-/*****************************************************************************/
-
-#ifdef DEBUG
-Compiler::NodeToIntMap* Compiler::FindReachableNodesInNodeTestData()
-{
-    NodeToIntMap* reachable = new (getAllocatorDebugOnly()) NodeToIntMap(getAllocatorDebugOnly());
-
-    if (m_nodeTestData == nullptr)
-    {
-        return reachable;
-    }
-
-    // Otherwise, iterate.
-
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
-    {
-        for (Statement* stmt = block->FirstNonPhiDef(); stmt != nullptr; stmt = stmt->GetNextStmt())
-        {
-            for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
-            {
-                TestLabelAndNum tlAndN;
-
-                // For call nodes, translate late args to what they stand for.
-                if (tree->OperGet() == GT_CALL)
-                {
-                    GenTreeCall* call = tree->AsCall();
-                    unsigned     i    = 0;
-                    for (GenTreeCall::Use& use : call->Args())
-                    {
-                        if ((use.GetNode()->gtFlags & GTF_LATE_ARG) != 0)
-                        {
-                            // Find the corresponding late arg.
-                            GenTree* lateArg = call->GetArgNodeByArgNum(i);
-                            if (GetNodeTestData()->Lookup(lateArg, &tlAndN))
-                            {
-                                reachable->Set(lateArg, 0);
-                            }
-                        }
-                        i++;
-                    }
-                }
-
-                if (GetNodeTestData()->Lookup(tree, &tlAndN))
-                {
-                    reachable->Set(tree, 0);
-                }
-            }
-        }
-    }
-    return reachable;
-}
-
-void Compiler::TransferTestDataToNode(GenTree* from, GenTree* to)
-{
-    TestLabelAndNum tlAndN;
-    // We can't currently associate multiple annotations with a single node.
-    // If we need to, we can fix this...
-
-    // If the table is null, don't create it just to do the lookup, which would fail...
-    if (m_nodeTestData != nullptr && GetNodeTestData()->Lookup(from, &tlAndN))
-    {
-        assert(!GetNodeTestData()->Lookup(to, &tlAndN));
-        // We can't currently associate multiple annotations with a single node.
-        // If we need to, we can fix this...
-        TestLabelAndNum tlAndNTo;
-        assert(!GetNodeTestData()->Lookup(to, &tlAndNTo));
-
-        GetNodeTestData()->Remove(from);
-        GetNodeTestData()->Set(to, tlAndN);
-    }
-}
-
-#endif // DEBUG
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

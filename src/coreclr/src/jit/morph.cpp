@@ -14597,10 +14597,6 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
     {
         /* Ensure that we have morphed this node */
         assert((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) && "ERROR: Did not morph this node!");
-
-#ifdef DEBUG
-        TransferTestDataToNode(oldTree, tree);
-#endif
     }
     else
     {

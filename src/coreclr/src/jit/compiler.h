@@ -1883,37 +1883,6 @@ public:
 
 typedef fgArgInfo CallInfo;
 
-#ifdef DEBUG
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-// We have the ability to mark source expressions with "Test Labels."
-// These drive assertions within the JIT, or internal JIT testing.  For example, we could label expressions
-// that should be CSE defs, and other expressions that should uses of those defs, with a shared label.
-
-enum TestLabel // This must be kept identical to System.Runtime.CompilerServices.JitTestLabel.TestLabel.
-{
-    TL_SsaName,
-    TL_VN,        // Defines a "VN equivalence class".  (For full VN, including exceptions thrown).
-    TL_VNNorm,    // Like above, but uses the non-exceptional value of the expression.
-    TL_CSE_Def,   //  This must be identified in the JIT as a CSE def
-    TL_CSE_Use,   //  This must be identified in the JIT as a CSE use
-    TL_LoopHoist, // Expression must (or must not) be hoisted out of the loop.
-};
-
-struct TestLabelAndNum
-{
-    TestLabel m_tl;
-    ssize_t   m_num;
-
-    TestLabelAndNum() : m_tl(TestLabel(0)), m_num(0)
-    {
-    }
-};
-
-typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, TestLabelAndNum> NodeToTestDataMap;
-
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-#endif // DEBUG
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -3561,10 +3530,6 @@ protected:
     GenTree* impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HANDLE retClsHnd);
 
     GenTree* impFixupStructReturnType(GenTree* op, CORINFO_CLASS_HANDLE retClsHnd);
-
-#ifdef DEBUG
-    var_types impImportJitTestLabelMark(int numArgs);
-#endif // DEBUG
 
     GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
@@ -9642,41 +9607,6 @@ public:
                                   const char** methodName,
                                   unsigned*    methodHash);
 #endif // !FEATURE_TRACELOGGING
-
-#ifdef DEBUG
-private:
-    NodeToTestDataMap* m_nodeTestData;
-
-    static const unsigned FIRST_LOOP_HOIST_CSE_CLASS = 1000;
-    unsigned              m_loopHoistCSEClass; // LoopHoist test annotations turn into CSE requirements; we
-                                               // label them with CSE Class #'s starting at FIRST_LOOP_HOIST_CSE_CLASS.
-                                               // Current kept in this.
-public:
-    NodeToTestDataMap* GetNodeTestData()
-    {
-        Compiler* compRoot = impInlineRoot();
-        if (compRoot->m_nodeTestData == nullptr)
-        {
-            compRoot->m_nodeTestData = new (getAllocatorDebugOnly()) NodeToTestDataMap(getAllocatorDebugOnly());
-        }
-        return compRoot->m_nodeTestData;
-    }
-
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, int> NodeToIntMap;
-
-    // Returns the set (i.e., the domain of the result map) of nodes that are keys in m_nodeTestData, and
-    // currently occur in the AST graph.
-    NodeToIntMap* FindReachableNodesInNodeTestData();
-
-    // Node "from" is being eliminated, and being replaced by node "to".  If "from" had any associated
-    // test data, associate that data with "to".
-    void TransferTestDataToNode(GenTree* from, GenTree* to);
-
-    // These are the methods that test that the various conditions implied by the
-    // test attributes are satisfied.
-    void JitTestCheckSSA(); // SSA builder tests.
-    void JitTestCheckVN();  // Value numbering tests.
-#endif                      // DEBUG
 
     // The "FieldSeqStore", for canonicalizing field sequences.  See the definition of FieldSeqStore for
     // operations.

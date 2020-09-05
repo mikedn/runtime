@@ -5914,10 +5914,6 @@ void Compiler::fgValueNumber()
         }
     }
 
-#ifdef DEBUG
-    JitTestCheckVN();
-#endif // DEBUG
-
     fgVNPassesCompleted++;
 }
 
@@ -9969,124 +9965,6 @@ void Compiler::fgValueNumberAddExceptionSet(GenTree* tree)
 }
 
 #ifdef DEBUG
-// This method asserts that SSA name constraints specified are satisfied.
-// Until we figure out otherwise, all VN's are assumed to be liberal.
-// TODO-Cleanup: new JitTestLabels for lib vs cons vs both VN classes?
-void Compiler::JitTestCheckVN()
-{
-    typedef JitHashTable<ssize_t, JitSmallPrimitiveKeyFuncs<ssize_t>, ValueNum>  LabelToVNMap;
-    typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ssize_t> VNToLabelMap;
-
-    // If we have no test data, early out.
-    if (m_nodeTestData == nullptr)
-    {
-        return;
-    }
-
-    NodeToTestDataMap* testData = GetNodeTestData();
-
-    // First we have to know which nodes in the tree are reachable.
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, int> NodeToIntMap;
-    NodeToIntMap* reachable = FindReachableNodesInNodeTestData();
-
-    LabelToVNMap* labelToVN = new (getAllocatorDebugOnly()) LabelToVNMap(getAllocatorDebugOnly());
-    VNToLabelMap* vnToLabel = new (getAllocatorDebugOnly()) VNToLabelMap(getAllocatorDebugOnly());
-
-    if (verbose)
-    {
-        printf("\nJit Testing: Value numbering.\n");
-    }
-    for (NodeToTestDataMap::KeyIterator ki = testData->Begin(); !ki.Equal(testData->End()); ++ki)
-    {
-        TestLabelAndNum tlAndN;
-        GenTree*        node   = ki.Get();
-        ValueNum        nodeVN = node->GetVN(VNK_Liberal);
-
-        bool b = testData->Lookup(node, &tlAndN);
-        assert(b);
-        if (tlAndN.m_tl == TL_VN || tlAndN.m_tl == TL_VNNorm)
-        {
-            int dummy;
-            if (!reachable->Lookup(node, &dummy))
-            {
-                printf("Node ");
-                Compiler::printTreeID(node);
-                printf(" had a test constraint declared, but has become unreachable at the time the constraint is "
-                       "tested.\n"
-                       "(This is probably as a result of some optimization -- \n"
-                       "you may need to modify the test case to defeat this opt.)\n");
-                assert(false);
-            }
-
-            if (verbose)
-            {
-                printf("  Node ");
-                Compiler::printTreeID(node);
-                printf(" -- VN class %d.\n", tlAndN.m_num);
-            }
-
-            if (tlAndN.m_tl == TL_VNNorm)
-            {
-                nodeVN = vnStore->VNNormalValue(nodeVN);
-            }
-
-            ValueNum vn;
-            if (labelToVN->Lookup(tlAndN.m_num, &vn))
-            {
-                if (verbose)
-                {
-                    printf("      Already in hash tables.\n");
-                }
-                // The mapping(s) must be one-to-one: if the label has a mapping, then the ssaNm must, as well.
-                ssize_t num2;
-                bool    found = vnToLabel->Lookup(vn, &num2);
-                assert(found);
-                // And the mappings must be the same.
-                if (tlAndN.m_num != num2)
-                {
-                    printf("Node: ");
-                    Compiler::printTreeID(node);
-                    printf(", with value number " FMT_VN ", was declared in VN class %d,\n", nodeVN, tlAndN.m_num);
-                    printf("but this value number " FMT_VN
-                           " has already been associated with a different SSA name class: %d.\n",
-                           vn, num2);
-                    assert(false);
-                }
-                // And the current node must be of the specified SSA family.
-                if (nodeVN != vn)
-                {
-                    printf("Node: ");
-                    Compiler::printTreeID(node);
-                    printf(", " FMT_VN " was declared in SSA name class %d,\n", nodeVN, tlAndN.m_num);
-                    printf("but that name class was previously bound to a different value number: " FMT_VN ".\n", vn);
-                    assert(false);
-                }
-            }
-            else
-            {
-                ssize_t num;
-                // The mapping(s) must be one-to-one: if the label has no mapping, then the ssaNm may not, either.
-                if (vnToLabel->Lookup(nodeVN, &num))
-                {
-                    printf("Node: ");
-                    Compiler::printTreeID(node);
-                    printf(", " FMT_VN " was declared in value number class %d,\n", nodeVN, tlAndN.m_num);
-                    printf(
-                        "but this value number has already been associated with a different value number class: %d.\n",
-                        num);
-                    assert(false);
-                }
-                // Add to both mappings.
-                labelToVN->Set(tlAndN.m_num, nodeVN);
-                vnToLabel->Set(nodeVN, tlAndN.m_num);
-                if (verbose)
-                {
-                    printf("      added to hash tables.\n");
-                }
-            }
-        }
-    }
-}
 
 void Compiler::vnpPrint(ValueNumPair vnp, unsigned level)
 {

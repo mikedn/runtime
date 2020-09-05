@@ -6282,54 +6282,6 @@ void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
         fgSetStmtSeq(hoistStmt);
     }
 
-#ifdef DEBUG
-    if (m_nodeTestData != nullptr)
-    {
-
-        // What is the depth of the loop "lnum"?
-        ssize_t  depth    = 0;
-        unsigned lnumIter = lnum;
-        while (optLoopTable[lnumIter].lpParent != BasicBlock::NOT_IN_LOOP)
-        {
-            depth++;
-            lnumIter = optLoopTable[lnumIter].lpParent;
-        }
-
-        NodeToTestDataMap* testData = GetNodeTestData();
-
-        TestLabelAndNum tlAndN;
-        if (testData->Lookup(origExpr, &tlAndN) && tlAndN.m_tl == TL_LoopHoist)
-        {
-            if (tlAndN.m_num == -1)
-            {
-                printf("Node ");
-                printTreeID(origExpr);
-                printf(" was declared 'do not hoist', but is being hoisted.\n");
-                assert(false);
-            }
-            else if (tlAndN.m_num != depth)
-            {
-                printf("Node ");
-                printTreeID(origExpr);
-                printf(" was declared as hoistable from loop at nesting depth %d; actually hoisted from loop at depth "
-                       "%d.\n",
-                       tlAndN.m_num, depth);
-                assert(false);
-            }
-            else
-            {
-                // We've correctly hoisted this, so remove the annotation.  Later, we'll check for any remaining "must
-                // hoist" annotations.
-                testData->Remove(origExpr);
-                // Now we insert an annotation to make sure that "hoistExpr" is actually CSE'd.
-                tlAndN.m_tl  = TL_CSE_Def;
-                tlAndN.m_num = m_loopHoistCSEClass++;
-                testData->Set(hoistExpr, tlAndN);
-            }
-        }
-    }
-#endif
-
 #if LOOP_HOIST_STATS
     if (!m_curLoopHasHoistedExpression)
     {
@@ -6422,36 +6374,6 @@ void Compiler::optHoistLoopCode()
         fgDebugCheckBBlist();
     }
 #endif
-
-#ifdef DEBUG
-    // Test Data stuff..
-    // If we have no test data, early out.
-    if (m_nodeTestData == nullptr)
-    {
-        return;
-    }
-    NodeToTestDataMap* testData = GetNodeTestData();
-    for (NodeToTestDataMap::KeyIterator ki = testData->Begin(); !ki.Equal(testData->End()); ++ki)
-    {
-        TestLabelAndNum tlAndN;
-        GenTree*        node = ki.Get();
-        bool            b    = testData->Lookup(node, &tlAndN);
-        assert(b);
-        if (tlAndN.m_tl != TL_LoopHoist)
-        {
-            continue;
-        }
-        // Otherwise, it is a loop hoist annotation.
-        assert(tlAndN.m_num < 100); // >= 100 indicates nested static field address, should already have been moved.
-        if (tlAndN.m_num >= 0)
-        {
-            printf("Node ");
-            printTreeID(node);
-            printf(" was declared 'must hoist', but has not been hoisted.\n");
-            assert(false);
-        }
-    }
-#endif // DEBUG
 }
 
 void Compiler::optHoistLoopNest(unsigned lnum, LoopHoistContext* hoistCtxt)

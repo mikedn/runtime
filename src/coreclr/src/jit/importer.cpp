@@ -6895,22 +6895,6 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 
         clsFlags = callInfo->classFlags;
 
-#ifdef DEBUG
-        // If this is a call to JitTestLabel.Mark, do "early inlining", and record the test attribute.
-
-        // This recognition should really be done by knowing the methHnd of the relevant Mark method(s).
-        // These should be in corelib.h, and available through a JIT/EE interface call.
-        const char* modName;
-        const char* className;
-        const char* methodName;
-        if ((className = eeGetClassName(clsHnd)) != nullptr &&
-            strcmp(className, "System.Runtime.CompilerServices.JitTestLabel") == 0 &&
-            (methodName = eeGetMethodName(methHnd, &modName)) != nullptr && strcmp(methodName, "Mark") == 0)
-        {
-            return impImportJitTestLabelMark(sig->numArgs);
-        }
-#endif // DEBUG
-
         // <NICE> Factor this into getCallInfo </NICE>
         bool isSpecialIntrinsic = false;
         if ((mflags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0)
@@ -8103,64 +8087,6 @@ bool Compiler::impMethodInfo_hasRetBuffArg(CORINFO_METHOD_INFO* methInfo)
 
     return false;
 }
-
-#ifdef DEBUG
-//
-var_types Compiler::impImportJitTestLabelMark(int numArgs)
-{
-    TestLabelAndNum tlAndN;
-    if (numArgs == 2)
-    {
-        tlAndN.m_num  = 0;
-        StackEntry se = impPopStack();
-        assert(se.seTypeInfo.GetType() == TI_INT);
-        GenTree* val = se.val;
-        assert(val->IsCnsIntOrI());
-        tlAndN.m_tl = (TestLabel)val->AsIntConCommon()->IconValue();
-    }
-    else if (numArgs == 3)
-    {
-        StackEntry se = impPopStack();
-        assert(se.seTypeInfo.GetType() == TI_INT);
-        GenTree* val = se.val;
-        assert(val->IsCnsIntOrI());
-        tlAndN.m_num = val->AsIntConCommon()->IconValue();
-        se           = impPopStack();
-        assert(se.seTypeInfo.GetType() == TI_INT);
-        val = se.val;
-        assert(val->IsCnsIntOrI());
-        tlAndN.m_tl = (TestLabel)val->AsIntConCommon()->IconValue();
-    }
-    else
-    {
-        assert(false);
-    }
-
-    StackEntry expSe = impPopStack();
-    GenTree*   node  = expSe.val;
-
-    // There are a small number of special cases, where we actually put the annotation on a subnode.
-    if (tlAndN.m_tl == TL_LoopHoist && tlAndN.m_num >= 100)
-    {
-        // A loop hoist annotation with value >= 100 means that the expression should be a static field access,
-        // a GT_IND of a static field address, which should be the sum of a (hoistable) helper call and possibly some
-        // offset within the the static field block whose address is returned by the helper call.
-        // The annotation is saying that this address calculation, but not the entire access, should be hoisted.
-        GenTree* helperCall = nullptr;
-        assert(node->OperGet() == GT_IND);
-        tlAndN.m_num -= 100;
-        GetNodeTestData()->Set(node->AsOp()->gtOp1, tlAndN);
-        GetNodeTestData()->Remove(node);
-    }
-    else
-    {
-        GetNodeTestData()->Set(node, tlAndN);
-    }
-
-    impPushOnStack(node, expSe.seTypeInfo);
-    return node->TypeGet();
-}
-#endif // DEBUG
 
 //-----------------------------------------------------------------------------------
 //  impFixupCallStructReturn: For a call node that returns a struct type either
