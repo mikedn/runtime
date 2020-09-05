@@ -16185,13 +16185,13 @@ void Compiler::impInitBBEntryState(BasicBlock* block, EntryState* srcState)
         return;
     }
 
-    block->bbEntryState = getAllocator(CMK_Unknown).allocate<EntryState>(1);
+    block->bbEntryState = getAllocator(CMK_ImpStack).allocate<EntryState>(1);
 
     block->bbEntryState->esStackDepth = srcState->esStackDepth;
 
     if (srcState->esStackDepth > 0)
     {
-        block->bbSetStack(new (this, CMK_Unknown) StackEntry[srcState->esStackDepth]);
+        block->bbSetStack(new (this, CMK_ImpStack) StackEntry[srcState->esStackDepth]);
         unsigned stackSize = srcState->esStackDepth * sizeof(StackEntry);
 
         memcpy(block->bbEntryState->esStack, srcState->esStack, stackSize);
