@@ -200,18 +200,18 @@ static bool impValidSpilledStackEntry(GenTree* tree)
  *  have to all be cloneable/spilled values.
  */
 
-void Compiler::impSaveStackState(SavedStack* savePtr, bool copy)
+void Compiler::impSaveStackState(EntryState* savePtr, bool copy)
 {
-    savePtr->ssDepth = verCurrentState.esStackDepth;
+    savePtr->esStackDepth = verCurrentState.esStackDepth;
 
     if (verCurrentState.esStackDepth)
     {
-        savePtr->ssTrees = new (this, CMK_ImpStack) StackEntry[verCurrentState.esStackDepth];
-        size_t saveSize  = verCurrentState.esStackDepth * sizeof(*savePtr->ssTrees);
+        savePtr->esStack = new (this, CMK_ImpStack) StackEntry[verCurrentState.esStackDepth];
+        size_t saveSize  = verCurrentState.esStackDepth * sizeof(*savePtr->esStack);
 
         if (copy)
         {
-            StackEntry* table = savePtr->ssTrees;
+            StackEntry* table = savePtr->esStack;
 
             /* Make a fresh copy of all the stack entries */
 
@@ -240,18 +240,18 @@ void Compiler::impSaveStackState(SavedStack* savePtr, bool copy)
         }
         else
         {
-            memcpy(savePtr->ssTrees, verCurrentState.esStack, saveSize);
+            memcpy(savePtr->esStack, verCurrentState.esStack, saveSize);
         }
     }
 }
 
-void Compiler::impRestoreStackState(SavedStack* savePtr)
+void Compiler::impRestoreStackState(EntryState* savePtr)
 {
-    verCurrentState.esStackDepth = savePtr->ssDepth;
+    verCurrentState.esStackDepth = savePtr->esStackDepth;
 
     if (verCurrentState.esStackDepth)
     {
-        memcpy(verCurrentState.esStack, savePtr->ssTrees,
+        memcpy(verCurrentState.esStack, savePtr->esStack,
                verCurrentState.esStackDepth * sizeof(*verCurrentState.esStack));
     }
 }
@@ -15297,7 +15297,7 @@ void Compiler::impVerifyEHBlock(BasicBlock* block, bool isTryStart)
 
     // Save the stack contents, we'll need to restore it later
     //
-    SavedStack blockState;
+    EntryState blockState;
     impSaveStackState(&blockState, false);
 
     while (HBtab != nullptr)
@@ -15856,8 +15856,8 @@ void Compiler::impImportBlockPending(BasicBlock* block)
         dsc = new (this, CMK_Unknown) PendingDsc;
     }
 
-    dsc->pdBB                 = block;
-    dsc->pdSavedStack.ssDepth = verCurrentState.esStackDepth;
+    dsc->pdBB                      = block;
+    dsc->pdSavedStack.esStackDepth = verCurrentState.esStackDepth;
 
     // Save the stack trees for later
 
@@ -15922,13 +15922,13 @@ void Compiler::impReimportBlockPending(BasicBlock* block)
 
     if (block->bbEntryState)
     {
-        dsc->pdSavedStack.ssDepth = block->bbEntryState->esStackDepth;
-        dsc->pdSavedStack.ssTrees = block->bbEntryState->esStack;
+        dsc->pdSavedStack.esStackDepth = block->bbEntryState->esStackDepth;
+        dsc->pdSavedStack.esStack      = block->bbEntryState->esStack;
     }
     else
     {
-        dsc->pdSavedStack.ssDepth = 0;
-        dsc->pdSavedStack.ssTrees = nullptr;
+        dsc->pdSavedStack.esStackDepth = 0;
+        dsc->pdSavedStack.esStack      = nullptr;
     }
 
     // Add the entry to the pending list
@@ -16398,7 +16398,7 @@ void Compiler::impImport()
 
         /* Restore the stack state */
 
-        verCurrentState.esStackDepth = dsc->pdSavedStack.ssDepth;
+        verCurrentState.esStackDepth = dsc->pdSavedStack.esStackDepth;
         if (verCurrentState.esStackDepth != 0)
         {
             impRestoreStackState(&dsc->pdSavedStack);

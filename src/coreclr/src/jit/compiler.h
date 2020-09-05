@@ -3513,12 +3513,6 @@ protected:
 
 #define SMALL_STACK_SIZE 16 // number of elements in impSmallStack
 
-    struct SavedStack // used to save/restore stack contents.
-    {
-        unsigned    ssDepth; // number of values on stack
-        StackEntry* ssTrees; // saved tree values
-    };
-
     bool impIsPrimitive(CorInfoType type);
     bool impILConsumesAddr(const BYTE* codeAddr);
 
@@ -3530,8 +3524,8 @@ protected:
     StackEntry& impStackTop(unsigned n = 0);
     unsigned impStackHeight();
 
-    void impSaveStackState(SavedStack* savePtr, bool copy);
-    void impRestoreStackState(SavedStack* savePtr);
+    void impSaveStackState(EntryState* savePtr, bool copy);
+    void impRestoreStackState(EntryState* savePtr);
 
     GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
 
@@ -3865,7 +3859,7 @@ private:
     {
         PendingDsc* pdNext;
         BasicBlock* pdBB;
-        SavedStack  pdSavedStack;
+        EntryState  pdSavedStack;
     };
 
     PendingDsc* impPendingList; // list of BBs currently waiting to be imported.
