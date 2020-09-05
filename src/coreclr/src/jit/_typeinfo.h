@@ -304,8 +304,9 @@ public:
         m_token = token;
     }
 
-#ifdef DEBUG
     static bool AreEquivalent(const typeInfo& li, const typeInfo& ti);
+
+#ifdef DEBUG
     static BOOL tiCompatibleWith(COMP_HANDLE     CompHnd,
                                  const typeInfo& child,
                                  const typeInfo& parent,

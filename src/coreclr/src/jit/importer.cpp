@@ -4893,8 +4893,6 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd, bool bashStructT
     }
 }
 
-#ifdef DEBUG
-
 typeInfo Compiler::verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args)
 {
     CORINFO_CLASS_HANDLE classHandle;
@@ -4915,6 +4913,8 @@ typeInfo Compiler::verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_L
 
     return verMakeTypeInfo(ciType, classHandle);
 }
+
+#ifdef DEBUG
 
 BOOL Compiler::verIsByRefLike(const typeInfo& ti)
 {

@@ -41,13 +41,6 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
     TI_REF,    // CORINFO_TYPE_VAR             = 0x16,
 };
 
-#ifdef DEBUG
-
-BOOL Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent, bool normalisedForStack) const
-{
-    return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent, normalisedForStack);
-}
-
 // Note that we specifically ignore the permanent byref here. The rationale is that
 // the type system doesn't know about this (it's jit only), ie, signatures don't specify if
 // a byref is safe, so they are fully equivalent for the jit, except for the RET instruction,
@@ -79,6 +72,13 @@ bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
     }
     assert(li.m_cls != NO_CLASS_HANDLE && ti.m_cls != NO_CLASS_HANDLE);
     return li.m_cls == ti.m_cls;
+}
+
+#ifdef DEBUG
+
+BOOL Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent, bool normalisedForStack) const
+{
+    return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent, normalisedForStack);
 }
 
 static BOOL tiCompatibleWithByRef(COMP_HANDLE CompHnd, const typeInfo& child, const typeInfo& parent)
