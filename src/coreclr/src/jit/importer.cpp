@@ -17447,7 +17447,7 @@ unsigned Compiler::impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reas
             lvaSetClass(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandleForObjRef());
         }
 
-        if (inlineeLocal.lclVerTypeInfo.IsStruct())
+        if (inlineeLocal.lclVerTypeInfo.IsType(TI_STRUCT))
         {
             if (varTypeIsStruct(lclTyp))
             {
@@ -17654,7 +17654,7 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
                 lvaTable[tmpNum].lvHasLdAddrOp = 1;
             }
 
-            if (lclInfo.lclVerTypeInfo.IsStruct())
+            if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
             {
                 if (varTypeIsStruct(lclTyp))
                 {

@@ -155,22 +155,6 @@ inline ti_types JITtype2tiType(CorInfoType type)
 
 #define TI_FLAG_THIS_PTR 0x00001000
 
-// This item is a byref to something which has a permanent home
-// (e.g. a static field, or instance field of an object in GC heap, as
-// opposed to the stack or a local variable).  TI_FLAG_BYREF must also be
-// set. This information is useful for tail calls and return byrefs.
-//
-// Instructions that generate a permanent home byref:
-//
-//  ldelema
-//  ldflda of a ref object or another permanent home byref
-//  array element address Get() helper
-//  call or calli to a method that returns a byref and is verifiable or SkipVerify
-//  dup
-//  unbox
-
-#define TI_FLAG_BYREF_PERMANENT_HOME 0x00002000
-
 // This is for use when verifying generic code.
 // This indicates that the type handle is really an unboxed
 // generic type variable (e.g. the result of loading an argument
@@ -189,7 +173,7 @@ inline ti_types JITtype2tiType(CorInfoType type)
 #define TI_FLAG_FIELD_SHIFT TI_FLAG_LOCAL_VAR_SHIFT
 #define TI_FLAG_FIELD_MASK TI_FLAG_LOCAL_VAR_MASK
 
-#define TI_ALL_BYREF_FLAGS (TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_BYREF_PERMANENT_HOME)
+#define TI_ALL_BYREF_FLAGS (TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY)
 
 /*****************************************************************************
  * A typeInfo can be one of several types:
@@ -398,16 +382,6 @@ public:
         return m_cls;
     }
 
-    CORINFO_METHOD_HANDLE GetMethod() const
-    {
-        assert(GetType() == TI_METHOD);
-        if (IsToken())
-        {
-            return m_token->hMethod;
-        }
-        return m_method;
-    }
-
     CORINFO_RESOLVED_TOKEN* GetToken() const
     {
         assert(IsToken());
@@ -434,14 +408,8 @@ public:
     BOOL IsType(ti_types type) const
     {
         assert(type != TI_ERROR);
-        return (m_flags & (TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_BYREF_PERMANENT_HOME |
-                           TI_FLAG_GENERIC_TYPE_VAR)) == DWORD(type);
-    }
-
-    // Returns whether this is an objref
-    BOOL IsObjRef() const
-    {
-        return IsType(TI_REF) || IsType(TI_NULL);
+        return (m_flags & (TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_GENERIC_TYPE_VAR)) ==
+               DWORD(type);
     }
 
     // Returns whether this is a by-ref
@@ -466,21 +434,10 @@ public:
         return IsByRef() && (m_flags & TI_FLAG_BYREF_READONLY);
     }
 
-    // Returns whether this is a method desc
-    BOOL IsMethod() const
-    {
-        return GetType() == TI_METHOD;
-    }
-
-    BOOL IsStruct() const
-    {
-        return IsType(TI_STRUCT);
-    }
-
     // A byref value class is NOT a value class
     BOOL IsValueClass() const
     {
-        return (IsStruct() || IsPrimitiveType());
+        return IsType(TI_STRUCT) || IsPrimitiveType();
     }
 
     // Does not return true for primitives. Will return true for value types that behave
@@ -525,7 +482,7 @@ public:
 
     BOOL IsToken() const
     {
-        return IsMethod() && ((m_flags & TI_FLAG_TOKEN) != 0);
+        return (GetType() == TI_METHOD) && ((m_flags & TI_FLAG_TOKEN) != 0);
     }
 
 private:

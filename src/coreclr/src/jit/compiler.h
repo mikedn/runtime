@@ -7918,7 +7918,7 @@ private:
 
     bool isSIMDClass(typeInfo* pTypeInfo)
     {
-        return pTypeInfo->IsStruct() && isSIMDClass(pTypeInfo->GetClassHandleForValueClass());
+        return pTypeInfo->IsType(TI_STRUCT) && isSIMDClass(pTypeInfo->GetClassHandleForValueClass());
     }
 
     bool isHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
@@ -7937,7 +7937,7 @@ private:
     bool isHWSIMDClass(typeInfo* pTypeInfo)
     {
 #ifdef FEATURE_HW_INTRINSICS
-        return pTypeInfo->IsStruct() && isHWSIMDClass(pTypeInfo->GetClassHandleForValueClass());
+        return pTypeInfo->IsType(TI_STRUCT) && isHWSIMDClass(pTypeInfo->GetClassHandleForValueClass());
 #else
         return false;
 #endif
