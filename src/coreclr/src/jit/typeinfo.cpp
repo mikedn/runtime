@@ -8,11 +8,77 @@
 
 #include "_typeinfo.h"
 
+const ti_types g_jit_types_map[] = {
+#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) verType,
+#include "typelist.h"
+#undef DEF_TP
+};
+
+const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
+    // see the definition of enum CorInfoType in file inc/corinfo.h
+    TI_ERROR,  // CORINFO_TYPE_UNDEF           = 0x0,
+    TI_ERROR,  // CORINFO_TYPE_VOID            = 0x1,
+    TI_BYTE,   // CORINFO_TYPE_BOOL            = 0x2,
+    TI_SHORT,  // CORINFO_TYPE_CHAR            = 0x3,
+    TI_BYTE,   // CORINFO_TYPE_BYTE            = 0x4,
+    TI_BYTE,   // CORINFO_TYPE_UBYTE           = 0x5,
+    TI_SHORT,  // CORINFO_TYPE_SHORT           = 0x6,
+    TI_SHORT,  // CORINFO_TYPE_USHORT          = 0x7,
+    TI_INT,    // CORINFO_TYPE_INT             = 0x8,
+    TI_INT,    // CORINFO_TYPE_UINT            = 0x9,
+    TI_LONG,   // CORINFO_TYPE_LONG            = 0xa,
+    TI_LONG,   // CORINFO_TYPE_ULONG           = 0xb,
+    TI_I_IMPL, // CORINFO_TYPE_NATIVEINT       = 0xc,
+    TI_I_IMPL, // CORINFO_TYPE_NATIVEUINT      = 0xd,
+    TI_FLOAT,  // CORINFO_TYPE_FLOAT           = 0xe,
+    TI_DOUBLE, // CORINFO_TYPE_DOUBLE          = 0xf,
+    TI_REF,    // CORINFO_TYPE_STRING          = 0x10,
+    TI_ERROR,  // CORINFO_TYPE_PTR             = 0x11,
+    TI_ERROR,  // CORINFO_TYPE_BYREF           = 0x12,
+    TI_STRUCT, // CORINFO_TYPE_VALUECLASS      = 0x13,
+    TI_REF,    // CORINFO_TYPE_CLASS           = 0x14,
+    TI_STRUCT, // CORINFO_TYPE_REFANY          = 0x15,
+    TI_REF,    // CORINFO_TYPE_VAR             = 0x16,
+};
+
 #ifdef DEBUG
 
 BOOL Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent, bool normalisedForStack) const
 {
     return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent, normalisedForStack);
+}
+
+// Note that we specifically ignore the permanent byref here. The rationale is that
+// the type system doesn't know about this (it's jit only), ie, signatures don't specify if
+// a byref is safe, so they are fully equivalent for the jit, except for the RET instruction,
+// instructions that load safe byrefs and the stack merging logic, which need to know about
+// the bit
+bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
+{
+    DWORD allFlags =
+        TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_GENERIC_TYPE_VAR | TI_FLAG_UNINIT_OBJREF;
+#ifdef TARGET_64BIT
+    allFlags |= TI_FLAG_NATIVE_INT;
+#endif // TARGET_64BIT
+
+    if ((li.m_flags & allFlags) != (ti.m_flags & allFlags))
+    {
+        return false;
+    }
+
+    unsigned type = li.m_flags & TI_FLAG_DATA_MASK;
+    // TI_ERROR looks like it needs more than enum.  This optimises the success case a bit
+    assert(TI_ERROR < TI_ONLY_ENUM);
+    if (type > TI_ONLY_ENUM)
+    {
+        return true;
+    }
+    if (type == TI_ERROR)
+    {
+        return false; // TI_ERROR != TI_ERROR
+    }
+    assert(li.m_cls != NO_CLASS_HANDLE && ti.m_cls != NO_CLASS_HANDLE);
+    return li.m_cls == ti.m_cls;
 }
 
 static BOOL tiCompatibleWithByRef(COMP_HANDLE CompHnd, const typeInfo& child, const typeInfo& parent)
