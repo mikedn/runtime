@@ -732,14 +732,11 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
     while (count--)
     {
         StackEntry se   = impPopStack();
-        typeInfo   ti   = se.seTypeInfo;
         GenTree*   temp = se.val;
 
-        if (varTypeIsStruct(temp))
+        if (varTypeIsStruct(temp->GetType()))
         {
-            // Morph trees that aren't already OBJs or MKREFANY to be OBJs
-            assert(ti.IsType(TI_STRUCT));
-            structType = ti.GetClassHandleForValueClass();
+            structType = se.seTypeInfo.GetClassHandleForValueClass();
 
             bool forceNormalization = false;
             if (varTypeIsSIMD(temp))
@@ -5023,41 +5020,33 @@ bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
     popCount += sig.numArgs;
 
     // check for 'this' which is on non-static methods, not called via NEWOBJ
-    if (!(mflags & CORINFO_FLG_STATIC))
+    if ((mflags & CORINFO_FLG_STATIC) == 0)
     {
-        // Always update the popCount.
-        // This is crucial for the stack calculation to be correct.
-        typeInfo tiThis = impStackTop(popCount).seTypeInfo;
-        popCount++;
+        typeInfo tiThis;
 
         if (opcode == CEE_CALLI)
         {
             // For CALLI, we don't know the methodClassHnd. Therefore, let's check the "this" object
             // on the stack.
-            if (tiThis.IsValueClass())
-            {
-                tiThis.MakeByRef();
-            }
-
-            if (verIsByRefLike(tiThis))
-            {
-                return false;
-            }
+            tiThis = impStackTop(popCount).seTypeInfo;
         }
         else
         {
             // Check type compatibility of the this argument
-            typeInfo tiDeclaredThis = verMakeTypeInfo(methodClassHnd);
-            if (tiDeclaredThis.IsValueClass())
-            {
-                tiDeclaredThis.MakeByRef();
-            }
-
-            if (verIsByRefLike(tiDeclaredThis))
-            {
-                return false;
-            }
+            tiThis = verMakeTypeInfo(methodClassHnd);
         }
+
+        if (tiThis.IsValueClass())
+        {
+            tiThis.MakeByRef();
+        }
+
+        if (verIsByRefLike(tiThis))
+        {
+            return false;
+        }
+
+        popCount++;
     }
 
     // Tail calls on constrained calls should be illegal too:
