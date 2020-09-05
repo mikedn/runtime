@@ -4040,7 +4040,6 @@ private:
 
     void FreeBlockListNode(BlockListNode* node);
 
-    bool impIsValueType(typeInfo* pTypeInfo);
     var_types mangleVarArgsType(var_types type);
 
 #if FEATURE_VARARG

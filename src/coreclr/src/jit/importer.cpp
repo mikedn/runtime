@@ -12949,7 +12949,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         // If the object is a struct, what we really want is
                         // for the field to operate on the address of the struct.
-                        if (!varTypeGCtype(obj->TypeGet()) && impIsValueType(tiObj))
+                        if (!varTypeGCtype(obj->TypeGet()) && (tiObj != nullptr) && tiObj->IsValueClassWithClsHnd())
                         {
                             assert(opcode == CEE_LDFLD && objType != nullptr);
 
@@ -13443,11 +13443,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                    ldloc, ldloca, ..., stfld, stloc).  We will be conservative and
                    spill all value class references from the stack. */
 
-                if (obj && ((obj->gtType == TYP_BYREF) || (obj->gtType == TYP_I_IMPL)))
+                if ((obj != nullptr) && obj->TypeIs(TYP_BYREF, TYP_I_IMPL))
                 {
-                    assert(tiObj);
-
-                    if (impIsValueType(tiObj))
+                    if (tiObj->IsValueClassWithClsHnd())
                     {
                         impSpillEvalStack();
                     }
@@ -16437,21 +16435,6 @@ void Compiler::impImport()
         block->bbFlags &= ~BBF_VISITED;
     }
 #endif
-}
-
-// Checks if a typeinfo (usually stored in the type stack) is a struct.
-// The invariant here is that if it's not a ref or a method and has a class handle
-// it's a valuetype
-bool Compiler::impIsValueType(typeInfo* pTypeInfo)
-{
-    if (pTypeInfo && pTypeInfo->IsValueClassWithClsHnd())
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
 }
 
 /*****************************************************************************

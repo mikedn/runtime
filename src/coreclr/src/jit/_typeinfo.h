@@ -1,31 +1,27 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          _typeInfo                                         XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 /*****************************************************************************
  This header file is named _typeInfo.h to be distinguished from typeinfo.h
  in the NT SDK
 ******************************************************************************/
 
-/*****************************************************************************/
 #ifndef _TYPEINFO_H_
 #define _TYPEINFO_H_
-/*****************************************************************************/
 
 enum ti_types
 {
-#define DEF_TI(ti, nm) ti,
-#include "titypes.h"
-#undef DEF_TI
+    TI_ERROR,
+    TI_REF,
+    TI_STRUCT,
+    TI_METHOD,
+    TI_BYTE,
+    TI_SHORT,
+    TI_INT,
+    TI_LONG,
+    TI_FLOAT,
+    TI_DOUBLE,
+    TI_NULL,
     TI_ONLY_ENUM = TI_METHOD, // Enum values with greater value are completely described by the enumeration.
 };
 
@@ -34,24 +30,6 @@ enum ti_types
 #else
 #define TI_I_IMPL TI_INT
 #endif
-
-#ifdef DEBUG
-#if VERBOSE_VERIFY
-#define TI_DUMP_PADDING "                                          "
-#ifdef _MSC_VER
-namespace
-{
-#endif // _MSC_VER
-const char* g_ti_type_names_map[] = {
-#define DEF_TI(ti, nm) nm,
-#include "titypes.h"
-#undef DEF_TI
-};
-#ifdef _MSC_VER
-}
-#endif // _MSC_VER
-#endif // VERBOSE_VERIFY
-#endif // DEBUG
 
 #ifdef _MSC_VER
 namespace
@@ -65,15 +43,6 @@ const ti_types g_jit_types_map[] = {
 #ifdef _MSC_VER
 }
 #endif // _MSC_VER
-
-#ifdef DEBUG
-#if VERBOSE_VERIFY
-inline const char* tiType2Str(ti_types type)
-{
-    return g_ti_type_names_map[type];
-}
-#endif // VERBOSE_VERIFY
-#endif // DEBUG
 
 // typeInfo does not care about distinction between signed/unsigned
 // This routine converts all unsigned types to signed ones
@@ -281,8 +250,6 @@ inline ti_types JITtype2tiType(CorInfoType type)
 
 class typeInfo
 {
-
-private:
     union {
         struct
         {
@@ -374,17 +341,12 @@ public:
         assert(token != nullptr);
         assert(token->hMethod != nullptr);
         assert(!isInvalidHandle(token->hMethod));
-        m_flags = TI_METHOD;
-        SetIsToken();
+        m_flags = TI_METHOD | TI_FLAG_TOKEN;
+        assert(m_bits.token);
         m_token = token;
     }
 
 #ifdef DEBUG
-#if VERBOSE_VERIFY
-    void Dump() const;
-#endif // VERBOSE_VERIFY
-
-public:
     // Note that we specifically ignore the permanent byref here. The rationale is that
     // the type system doesn't know about this (it's jit only), ie, signatures don't specify if
     // a byref is safe, so they are fully equivalent for the jit, except for the RET instruction,
@@ -404,8 +366,8 @@ public:
         }
 
         unsigned type = li.m_flags & TI_FLAG_DATA_MASK;
-        assert(TI_ERROR <
-               TI_ONLY_ENUM); // TI_ERROR looks like it needs more than enum.  This optimises the success case a bit
+        // TI_ERROR looks like it needs more than enum.  This optimises the success case a bit
+        assert(TI_ERROR < TI_ONLY_ENUM);
         if (type > TI_ONLY_ENUM)
         {
             return true;
@@ -428,12 +390,6 @@ public:
     // Operations
     /////////////////////////////////////////////////////////////////////////
 
-    void SetIsToken()
-    {
-        m_flags |= TI_FLAG_TOKEN;
-        assert(m_bits.token);
-    }
-
     void SetIsThisPtr()
     {
         m_flags |= TI_FLAG_THIS_PTR;
@@ -445,25 +401,10 @@ public:
         m_flags &= ~(TI_FLAG_THIS_PTR);
     }
 
-    void SetIsPermanentHomeByRef()
-    {
-        assert(IsByRef());
-        m_flags |= TI_FLAG_BYREF_PERMANENT_HOME;
-    }
-
     void SetIsReadonlyByRef()
     {
         assert(IsByRef());
         m_flags |= TI_FLAG_BYREF_READONLY;
-    }
-
-    // Set that this item is initialised.
-    void SetInitialisedObjRef()
-    {
-        assert((IsObjRef() && IsThisPtr()));
-        // For now, this is used only  to track uninit this ptrs in ctors
-
-        m_flags &= ~TI_FLAG_UNINIT_OBJREF;
     }
 
     typeInfo& DereferenceByRef()
@@ -598,11 +539,6 @@ public:
         return IsByRef() && (m_flags & TI_FLAG_BYREF_READONLY);
     }
 
-    BOOL IsPermanentHomeByRef() const
-    {
-        return IsByRef() && (m_flags & TI_FLAG_BYREF_PERMANENT_HOME);
-    }
-
     // Returns whether this is a method desc
     BOOL IsMethod() const
     {
@@ -624,59 +560,9 @@ public:
     // as primitives
     BOOL IsValueClassWithClsHnd() const
     {
-        if ((GetType() == TI_STRUCT) ||
-            (m_cls && GetType() != TI_REF && GetType() != TI_METHOD &&
-             GetType() != TI_ERROR)) // necessary because if byref bit is set, we return TI_ERROR)
-        {
-            return TRUE;
-        }
-        else
-        {
-            return FALSE;
-        }
-    }
-
-    // Returns whether this is an integer or real number
-    // NOTE: Use NormaliseToPrimitiveType() if you think you may have a
-    // System.Int32 etc., because those types are not considered number
-    // types by this function.
-    BOOL IsNumberType() const
-    {
-        ti_types Type = GetType();
-
-        // I1, I2, Boolean, character etc. cannot exist plainly -
-        // everything is at least an I4
-
-        return (Type == TI_INT || Type == TI_LONG || Type == TI_DOUBLE);
-    }
-
-    // Returns whether this is an integer
-    // NOTE: Use NormaliseToPrimitiveType() if you think you may have a
-    // System.Int32 etc., because those types are not considered number
-    // types by this function.
-    BOOL IsIntegerType() const
-    {
-        ti_types Type = GetType();
-
-        // I1, I2, Boolean, character etc. cannot exist plainly -
-        // everything is at least an I4
-
-        return (Type == TI_INT || Type == TI_LONG);
-    }
-
-    // Returns true whether this is an integer or a native int.
-    BOOL IsIntOrNativeIntType() const
-    {
-#ifdef TARGET_64BIT
-        return (GetType() == TI_INT) || AreEquivalent(*this, nativeInt());
-#else
-        return IsType(TI_INT);
-#endif
-    }
-
-    BOOL IsNativeIntType() const
-    {
-        return AreEquivalent(*this, nativeInt());
+        return (GetType() == TI_STRUCT) ||
+               ((m_cls != NO_CLASS_HANDLE) && GetType() != TI_REF && GetType() != TI_METHOD &&
+                GetType() != TI_ERROR); // necessary because if byref bit is set, we return TI_ERROR)
     }
 
     // Returns whether this is a primitive type (not a byref, objref,
@@ -744,6 +630,5 @@ inline typeInfo DereferenceByRef(const typeInfo& ti)
 {
     return typeInfo(ti).DereferenceByRef();
 }
-/*****************************************************************************/
+
 #endif // _TYPEINFO_H_
-/*****************************************************************************/

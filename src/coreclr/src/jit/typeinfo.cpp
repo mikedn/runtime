@@ -1,16 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          typeInfo                                         XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #ifdef _MSC_VER
 #pragma hdrstop
@@ -167,22 +157,4 @@ BOOL typeInfo::tiCompatibleWith(COMP_HANDLE     CompHnd,
     return FALSE;
 }
 
-#if VERBOSE_VERIFY
-// Utility method to have a detailed dump of a TypeInfo object
-void typeInfo::Dump() const
-{
-    char flagsStr[8];
-
-    flagsStr[0] = ((m_flags & TI_FLAG_UNINIT_OBJREF) != 0) ? 'U' : '-';
-    flagsStr[1] = ((m_flags & TI_FLAG_BYREF) != 0) ? 'B' : '-';
-    flagsStr[2] = ((m_flags & TI_FLAG_BYREF_READONLY) != 0) ? 'R' : '-';
-    flagsStr[3] = ((m_flags & TI_FLAG_NATIVE_INT) != 0) ? 'N' : '-';
-    flagsStr[4] = ((m_flags & TI_FLAG_THIS_PTR) != 0) ? 'T' : '-';
-    flagsStr[5] = ((m_flags & TI_FLAG_BYREF_PERMANENT_HOME) != 0) ? 'P' : '-';
-    flagsStr[6] = ((m_flags & TI_FLAG_GENERIC_TYPE_VAR) != 0) ? 'G' : '-';
-    flagsStr[7] = '\0';
-
-    printf("[%s(%X) {%s}]", tiType2Str(m_bits.type), m_cls, flagsStr);
-}
-#endif // VERBOSE_VERIFY
 #endif // DEBUG
