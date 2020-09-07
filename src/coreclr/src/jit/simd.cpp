@@ -1108,6 +1108,8 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* in
 
 GenTree* Compiler::impSIMDPopStack(var_types type, bool expectAddr, CORINFO_CLASS_HANDLE structHandle)
 {
+    assert(varTypeIsSIMD(type));
+
     StackEntry se   = impPopStack();
     typeInfo   ti   = se.seTypeInfo;
     GenTree*   tree = se.val;
@@ -1377,22 +1379,19 @@ SIMDIntrinsicID Compiler::impSIMDRelOp(SIMDIntrinsicID      relOpIntrinsicId,
 //
 GenTree* Compiler::getOp1ForConstructor(OPCODE opcode, GenTree* newobjThis, CORINFO_CLASS_HANDLE clsHnd)
 {
-    GenTree* op1;
     if (opcode == CEE_NEWOBJ)
     {
-        op1 = newobjThis;
-        assert(newobjThis->gtOper == GT_ADDR && newobjThis->AsOp()->gtOp1->gtOper == GT_LCL_VAR);
+        assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
 
         // push newobj result on type stack
-        unsigned tmp = op1->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-        impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), verMakeTypeInfo(clsHnd).NormaliseForStack());
+        unsigned tmpLclNum = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        impPushOnStack(gtNewLclvNode(tmpLclNum, lvaGetRealType(tmpLclNum)),
+                       verMakeTypeInfo(clsHnd).NormaliseForStack());
+
+        return newobjThis;
     }
-    else
-    {
-        op1 = impSIMDPopStack(TYP_BYREF);
-    }
-    assert(op1->TypeGet() == TYP_BYREF);
-    return op1;
+
+    return impPopStackCoerceArg(TYP_BYREF);
 }
 
 //-------------------------------------------------------------------
@@ -1849,7 +1848,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             // SIMDIntrinsicInit:
             //    op2 - the initializer value
             //    op1 - byref of vector
-            op2 = impSIMDPopStack(baseType);
+            op2 = impPopStackCoerceArg(varActualType(baseType));
             op1 = getOp1ForConstructor(opcode, newobjThis, clsHnd);
 
             assert(op1->TypeGet() == TYP_BYREF);
@@ -1935,7 +1934,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             bool areArgsContiguous = true;
             for (unsigned i = 0; i < initCount; i++)
             {
-                args[initCount - 1 - i] = impSIMDPopStack(baseType);
+                args[initCount - 1 - i] = impPopStackCoerceArg(baseType);
 
                 if (areArgsContiguous && (i > 0))
                 {
@@ -1997,7 +1996,8 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             // top of the stack.  Otherwise, it is null.
             if (argCount == 3)
             {
-                op3 = impSIMDPopStack(TYP_INT);
+                op3 = impPopStackCoerceArg(TYP_INT);
+
                 if (op3->IsIntegralConst(0))
                 {
                     op3 = nullptr;
@@ -2011,9 +2011,9 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 op3 = nullptr;
             }
 
+            op2 = impPopStackCoerceArg(TYP_REF);
+
             // Clone the array for use in the bounds check.
-            op2 = impSIMDPopStack(TYP_REF);
-            assert(op2->TypeGet() == TYP_REF);
             GenTree* arrayRefForArgChk = op2;
             GenTree* argRngChk         = nullptr;
             if ((arrayRefForArgChk->gtFlags & GTF_SIDE_EFFECT) != 0)
@@ -2141,11 +2141,11 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             GenTree* op4 = nullptr;
             if (argCount == 4)
             {
-                op4 = impSIMDPopStack(TYP_FLOAT);
-                assert(op4->TypeGet() == TYP_FLOAT);
+                op4 = impPopStackCoerceArg(TYP_FLOAT);
             }
-            op3 = impSIMDPopStack(TYP_FLOAT);
-            assert(op3->TypeGet() == TYP_FLOAT);
+
+            op3 = impPopStackCoerceArg(TYP_FLOAT);
+
             // The input vector will either be TYP_SIMD8 or TYP_SIMD12.
             var_types smallSIMDType = TYP_SIMD8;
             if ((op4 == nullptr) && (simdType == TYP_SIMD16))
@@ -2208,7 +2208,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
         {
             // op1 is a SIMD variable that is "this" arg
             // op2 is an index of TYP_INT
-            op2              = impSIMDPopStack(TYP_INT);
+            op2              = impPopStackCoerceArg(TYP_INT);
             op1              = impSIMDPopStack(simdType, instMethod);
             int vectorLength = getSIMDVectorLength(size, baseType);
             if (!op2->IsCnsIntOrI() || op2->AsIntCon()->gtIconVal >= vectorLength || op2->AsIntCon()->gtIconVal < 0)
@@ -2285,8 +2285,8 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
         case SIMDIntrinsicWiden:
         {
-            GenTree* dstAddrHi = impSIMDPopStack(TYP_BYREF);
-            GenTree* dstAddrLo = impSIMDPopStack(TYP_BYREF);
+            GenTree* dstAddrHi = impPopStackCoerceArg(TYP_BYREF);
+            GenTree* dstAddrLo = impPopStackCoerceArg(TYP_BYREF);
             op1                = impSIMDPopStack(simdType);
             // op1 must have a valid class handle; the following method will assert it.
             CORINFO_CLASS_HANDLE op1Handle = gtGetStructHandle(op1);

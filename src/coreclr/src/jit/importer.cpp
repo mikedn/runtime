@@ -150,6 +150,52 @@ StackEntry Compiler::impPopStack()
     return verCurrentState.esStack[--verCurrentState.esStackDepth];
 }
 
+GenTree* Compiler::impPopStackCoerceArg(var_types signatureType)
+{
+    // Not currently supported for structs (it would need to check the struct handle).
+    assert(!varTypeIsStruct(signatureType));
+    // Not currently supported for small int (it's not clear if truncation has to be done or not).
+    assert(!varTypeIsSmall(signatureType));
+
+    // TODO-MIKE-Cleanup: impPopCallArgs has some similar logic...
+
+    if (verCurrentState.esStackDepth == 0)
+    {
+        BADCODE("stack underflow");
+    }
+
+    GenTree* tree = verCurrentState.esStack[--verCurrentState.esStackDepth].val;
+
+    var_types stackType = varActualType(tree->GetType());
+
+    if (signatureType != stackType)
+    {
+        if ((varTypeIsFloating(signatureType) && varTypeIsFloating(stackType))
+#ifdef TARGET_64BIT
+            // TODO-MIKE-Review: This should only be done when the stack type is 'native int'
+            // but we don't track this exact type so we have to do it whenever the stack type
+            // is LONG, which is a relaxation of the ECMA III.1.6 Implicit argument coercion.
+            || ((signatureType == TYP_INT) && (stackType == TYP_LONG))
+#endif
+                )
+        {
+            tree = gtNewCastNode(signatureType, tree, false, signatureType);
+        }
+        else if ((signatureType == TYP_BYREF) && (stackType == TYP_I_IMPL))
+        {
+            // TODO-MIKE-Review: ECMA III.1.6 "Implicit argument coercion" states that in this
+            // case GC tracking should start. This could probably be achieved by inserting a
+            // BITCAST to TYP_BYREF but it's not clear if this is really needed.
+        }
+        else
+        {
+            BADCODE("incompatible stack type");
+        }
+    }
+
+    return tree;
+}
+
 /*****************************************************************************
  *
  *  Peep at n'th (0-based) tree on the top of the stack.
