@@ -1118,7 +1118,7 @@ GenTree* Compiler::impSIMDPopStack(var_types type, bool expectAddr, CORINFO_CLAS
     // SIMD type struct that it points to.
     if (expectAddr)
     {
-        assert(tree->TypeIs(TYP_BYREF));
+        assert(tree->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
         if (tree->OperIs(GT_ADDR))
         {
