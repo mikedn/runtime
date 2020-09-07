@@ -13722,40 +13722,54 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             }
 
             case CEE_REFANYVAL:
+                if (impStackTop().seTypeInfo.GetClassHandleForValueClass() != impGetRefAnyClass())
+                {
+                    BADCODE("typedref expected");
+                }
+
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 op2 = impTokenToHandle(&resolvedToken);
                 if (op2 == nullptr)
                 {
+                    assert(compIsForInlining() && compDonotInline());
                     return;
                 }
 
                 op1 = impPopStack().val;
-                // make certain it is normalized;
-                op1 = impNormStructVal(op1, impGetRefAnyClass(), (unsigned)CHECK_SPILL_ALL);
 
-                // Call helper GETREFANY(classHandle, op1);
+                if (op1->OperIs(GT_CALL, GT_RET_EXPR))
+                {
+                    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanyval temp"));
+                    impAssignTempGen(tmpNum, op1, impGetRefAnyClass(), (unsigned)CHECK_SPILL_ALL);
+                    op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
+                }
+
                 op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, gtNewCallArgs(op2, op1));
-
                 impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_REFANYTYPE:
+                if (impStackTop().seTypeInfo.GetClassHandleForValueClass() != impGetRefAnyClass())
+                {
+                    BADCODE("typedref expected");
+                }
+
                 op1 = impPopStack().val;
 
-                // make certain it is normalized;
-                op1 = impNormStructVal(op1, impGetRefAnyClass(), (unsigned)CHECK_SPILL_ALL);
-
-                if (op1->gtOper == GT_OBJ)
+                if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
                 {
-                    // Get the address of the refany
-                    op1 = op1->AsOp()->gtOp1;
+                    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanytype temp"));
+                    impAssignTempGen(tmpNum, op1, impGetRefAnyClass(), (unsigned)CHECK_SPILL_ALL);
+                    op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
+                }
 
-                    // Fetch the type from the correct slot
-                    op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
-                                        gtNewIconNode(OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL));
-                    op1 = gtNewOperNode(GT_IND, TYP_BYREF, op1);
+                if (op1->OperIs(GT_LCL_VAR))
+                {
+                    op1 = gtNewLclFldNode(op1->AsLclVar()->GetLclNum(), TYP_BYREF,
+                                          OFFSETOF__CORINFO_TypedReference__type);
+                    op1->AsLclFld()->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
                 }
                 else
                 {
