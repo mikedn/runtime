@@ -1236,9 +1236,10 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     else if (src->OperIsBlk())
     {
         asgType = impNormStructType(structHnd);
-        if (src->gtOper == GT_OBJ)
+        if (src->OperIs(GT_OBJ))
         {
-            assert(src->AsObj()->GetLayout()->GetClassHandle() == structHnd);
+            assert((src->AsObj()->GetLayout()->GetClassHandle() == structHnd) ||
+                   (varTypeIsSIMD(asgType) && (src->GetType() == asgType)));
         }
     }
     else if (src->gtOper == GT_INDEX)
