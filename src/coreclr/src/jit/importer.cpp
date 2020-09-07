@@ -1563,9 +1563,7 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
     genTreeOps oper = structVal->OperGet();
     switch (oper)
     {
-        // GT_RETURN and GT_MKREFANY don't capture the handle.
-        case GT_RETURN:
-            break;
+        // GT_MKREFANY does not capture the handle.
         case GT_MKREFANY:
             alreadyNormalized = true;
             break;
@@ -1605,8 +1603,6 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
 
         case GT_OBJ:
         case GT_BLK:
-        case GT_DYN_BLK:
-        case GT_ASG:
             // These should already have the appropriate type.
             assert(structVal->gtType == structType);
             alreadyNormalized = true;
