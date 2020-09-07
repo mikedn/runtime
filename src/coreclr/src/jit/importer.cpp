@@ -222,7 +222,6 @@ GenTree* Compiler::impSIMDPopStackAddr(var_types type)
 }
 #endif
 
-
 /*****************************************************************************
  *
  *  Peep at n'th (0-based) tree on the top of the stack.
