@@ -1092,72 +1092,31 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* in
     return false;
 }
 
-// Pops and returns GenTree node from importer's type stack.
-// Normalizes TYP_STRUCT value in case of GT_CALL, GT_RET_EXPR and arg nodes.
+// impSIMDPopStack: Pops and returns GenTree node from importer's type stack.
 //
 // Arguments:
-//    type         -  the type of value that the caller expects to be popped off the stack.
-//    structHandle -  the class handle to use when normalizing if it is not the same as the stack entry class handle;
-//                    this can happen for certain scenarios, such as folding away a static cast, where we want the
-//                    value popped to have the type that would have been returned.
+//    type -  the type of value that the caller expects to be popped off the stack.
 //
 // Notes:
 //    If the popped value is a struct, and the expected type is a simd type, it will be set
 //    to that type, otherwise it will assert if the type being popped is not the expected type.
-
-GenTree* Compiler::impSIMDPopStack(var_types type, CORINFO_CLASS_HANDLE structHandle)
+//
+GenTree* Compiler::impSIMDPopStack(var_types type)
 {
     assert(varTypeIsSIMD(type));
 
     GenTree* tree = impPopStack().val;
 
-    if (structHandle == NO_CLASS_HANDLE)
+    if (tree->OperIs(GT_RET_EXPR, GT_CALL))
     {
-        if (tree->OperIs(GT_RET_EXPR, GT_CALL))
-        {
-            // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
+        // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
 
-            structHandle = tree->OperIs(GT_RET_EXPR) ? tree->AsRetExpr()->gtRetClsHnd : tree->AsCall()->gtRetClsHnd;
+        CORINFO_CLASS_HANDLE structHandle =
+            tree->OperIs(GT_RET_EXPR) ? tree->AsRetExpr()->gtRetClsHnd : tree->AsCall()->gtRetClsHnd;
 
-            unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
-            impAssignTempGen(tmpNum, tree, structHandle, (unsigned)CHECK_SPILL_ALL);
-            tree = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
-        }
-    }
-    else
-    {
-        // If we are popping a struct type it must have a matching handle if one is specified.
-        // - If we have an existing 'OBJ' and 'structHandle' is specified, we will change its
-        //   handle if it doesn't match.
-        //   This can happen when we have a retyping of a vector that doesn't translate to any
-        //   actual IR.
-        // - (If it's not an OBJ and it's used in a parameter context where it is required,
-        //   impNormStructVal will add one).
-        //
-        if (tree->OperIs(GT_OBJ))
-        {
-            if ((structHandle != NO_CLASS_HANDLE) && (tree->AsObj()->GetLayout()->GetClassHandle() != structHandle))
-            {
-                // In this case we need to retain the GT_OBJ to retype the value.
-                tree->AsObj()->SetLayout(typGetObjLayout(structHandle));
-            }
-            else
-            {
-                GenTree* addr = tree->AsObj()->GetAddr();
-                if (addr->OperIs(GT_ADDR) && isSIMDTypeLocal(addr->AsUnOp()->GetOp(0)))
-                {
-                    tree = addr->AsUnOp()->GetOp(0);
-                }
-            }
-        }
-
-        bool isParam = tree->OperIs(GT_LCL_VAR) && lvaGetDesc(tree->AsLclVar())->lvIsParam;
-
-        // normalize TYP_STRUCT value
-        if (varTypeIsStruct(tree->GetType()) && (tree->OperIs(GT_RET_EXPR, GT_CALL) || isParam))
-        {
-            tree = impNormStructVal(tree, structHandle, (unsigned)CHECK_SPILL_ALL);
-        }
+        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
+        impAssignTempGen(tmpNum, tree, structHandle, (unsigned)CHECK_SPILL_ALL);
+        tree = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
     }
 
     // Now set the type of the tree to the specialized SIMD struct type, if applicable.

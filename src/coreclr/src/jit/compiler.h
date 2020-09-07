@@ -7932,9 +7932,7 @@ private:
                                                   var_types*            baseType,
                                                   unsigned*             sizeBytes);
 
-    // Pops and returns GenTree node from importers type stack.
-    // Normalizes TYP_STRUCT value in case of GT_CALL, GT_RET_EXPR and arg nodes.
-    GenTree* impSIMDPopStack(var_types type, CORINFO_CLASS_HANDLE structType = nullptr);
+    GenTree* impSIMDPopStack(var_types type);
     GenTree* impSIMDPopStackAddr(var_types type);
 
     // Transforms operands and returns the SIMD intrinsic to be applied on

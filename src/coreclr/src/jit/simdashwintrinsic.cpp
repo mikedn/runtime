@@ -571,7 +571,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                 // type system. It is safe to do this here since the op1 type
                 // and the signature return type are both the same TYP_SIMD.
 
-                op1 = impSIMDPopStack(retType, sig->retTypeClass);
+                op1 = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(op1);
                 assert(op1->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
 
