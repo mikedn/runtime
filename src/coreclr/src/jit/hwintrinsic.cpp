@@ -424,7 +424,7 @@ GenTree* Compiler::getArgForHWIntrinsic(var_types            argType,
 
         if (newobjThis == nullptr)
         {
-            arg = impSIMDPopStack(argType, expectAddr);
+            arg = expectAddr ? impSIMDPopStackAddr(argType) : impSIMDPopStack(argType);
             assert(varTypeIsSIMD(arg->TypeGet()));
         }
         else
