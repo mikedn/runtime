@@ -1116,18 +1116,17 @@ GenTree* Compiler::impSIMDPopStack(var_types type, bool expectAddr, CORINFO_CLAS
     // SIMD type struct that it points to.
     if (expectAddr)
     {
-        assert(tree->TypeGet() == TYP_BYREF);
-        if (tree->OperGet() == GT_ADDR)
+        assert(tree->TypeIs(TYP_BYREF));
+
+        if (tree->OperIs(GT_ADDR))
         {
-            tree = tree->gtGetOp1();
+            tree = tree->AsUnOp()->GetOp(0);
         }
         else
         {
             tree = gtNewOperNode(GT_IND, type, tree);
         }
     }
-
-    bool isParam = false;
 
     // If we are popping a struct type it must have a matching handle if one is specified.
     // - If we have an existing 'OBJ' and 'structHandle' is specified, we will change its
@@ -1137,7 +1136,7 @@ GenTree* Compiler::impSIMDPopStack(var_types type, bool expectAddr, CORINFO_CLAS
     // - (If it's not an OBJ and it's used in a parameter context where it is required,
     //   impNormStructVal will add one).
     //
-    if (tree->OperGet() == GT_OBJ)
+    if (tree->OperIs(GT_OBJ))
     {
         if ((structHandle != NO_CLASS_HANDLE) && (tree->AsObj()->GetLayout()->GetClassHandle() != structHandle))
         {
@@ -1146,23 +1145,18 @@ GenTree* Compiler::impSIMDPopStack(var_types type, bool expectAddr, CORINFO_CLAS
         }
         else
         {
-            GenTree* addr = tree->AsOp()->gtOp1;
-            if ((addr->OperGet() == GT_ADDR) && isSIMDTypeLocal(addr->AsOp()->gtOp1))
+            GenTree* addr = tree->AsObj()->GetAddr();
+            if (addr->OperIs(GT_ADDR) && isSIMDTypeLocal(addr->AsUnOp()->GetOp(0)))
             {
-                tree = addr->AsOp()->gtOp1;
+                tree = addr->AsUnOp()->GetOp(0);
             }
         }
     }
 
-    if (tree->OperGet() == GT_LCL_VAR)
-    {
-        unsigned   lclNum    = tree->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* lclVarDsc = &lvaTable[lclNum];
-        isParam              = lclVarDsc->lvIsParam;
-    }
+    bool isParam = tree->OperIs(GT_LCL_VAR) && lvaGetDesc(tree->AsLclVar())->lvIsParam;
 
     // normalize TYP_STRUCT value
-    if (varTypeIsStruct(tree) && ((tree->OperGet() == GT_RET_EXPR) || (tree->OperGet() == GT_CALL) || isParam))
+    if (varTypeIsStruct(tree->GetType()) && (tree->OperIs(GT_RET_EXPR, GT_CALL) || isParam))
     {
         assert(ti.IsType(TI_STRUCT));
 
@@ -1175,15 +1169,15 @@ GenTree* Compiler::impSIMDPopStack(var_types type, bool expectAddr, CORINFO_CLAS
     }
 
     // Now set the type of the tree to the specialized SIMD struct type, if applicable.
-    if (genActualType(tree->gtType) != genActualType(type))
+    if (varActualType(tree->GetType()) != varActualType(type))
     {
-        assert(tree->gtType == TYP_STRUCT);
-        tree->gtType = type;
+        assert(tree->TypeIs(TYP_STRUCT));
+        tree->SetType(type);
     }
-    else if (tree->gtType == TYP_BYREF)
+    else if (tree->TypeIs(TYP_BYREF))
     {
-        assert(tree->IsLocal() || (tree->OperGet() == GT_RET_EXPR) || (tree->OperGet() == GT_CALL) ||
-               ((tree->gtOper == GT_ADDR) && varTypeIsSIMD(tree->gtGetOp1())));
+        assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_RET_EXPR, GT_CALL) ||
+               (tree->OperIs(GT_ADDR) && varTypeIsSIMD(tree->AsUnOp()->GetOp(0))));
     }
 
     return tree;
