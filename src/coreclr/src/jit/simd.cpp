@@ -2118,8 +2118,9 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             else
             {
                 assert((simdIntrinsicID == SIMDIntrinsicCopyToArray) || (simdIntrinsicID == SIMDIntrinsicCopyToArrayX));
+                assert(instMethod);
 
-                op1 = impSIMDPopStack(simdType, instMethod);
+                op1 = impSIMDPopStack(simdType, true);
                 assert(op1->TypeGet() == simdType);
                 retVal = gtNewOperNode(GT_IND, simdType, op2);
                 retVal->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
@@ -2181,8 +2182,9 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
         case SIMDIntrinsicEqual:
         {
+            assert(instMethod);
             op2 = impSIMDPopStack(simdType);
-            op1 = impSIMDPopStack(simdType, instMethod);
+            op1 = impSIMDPopStack(simdType, true);
 
             SIMDIntrinsicID intrinsicID = impSIMDRelOp(simdIntrinsicID, clsHnd, size, &baseType, &op1, &op2);
             simdTree                    = gtNewSIMDNode(genActualType(callType), intrinsicID, baseType, size, op1, op2);
@@ -2194,10 +2196,11 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
         case SIMDIntrinsicBitwiseAnd:
         case SIMDIntrinsicBitwiseOr:
         {
+            assert(!instMethod);
             // op1 is the first operand; if instance method, op1 is "this" arg
             // op2 is the second operand
             op2 = impSIMDPopStack(simdType);
-            op1 = impSIMDPopStack(simdType, instMethod);
+            op1 = impSIMDPopStack(simdType);
 
             simdTree = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, op1, op2);
             retVal   = simdTree;
@@ -2206,10 +2209,11 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
         case SIMDIntrinsicGetItem:
         {
+            assert(instMethod);
             // op1 is a SIMD variable that is "this" arg
             // op2 is an index of TYP_INT
             op2              = impPopStackCoerceArg(TYP_INT);
-            op1              = impSIMDPopStack(simdType, instMethod);
+            op1              = impSIMDPopStack(simdType, true);
             int vectorLength = getSIMDVectorLength(size, baseType);
             if (!op2->IsCnsIntOrI() || op2->AsIntCon()->gtIconVal >= vectorLength || op2->AsIntCon()->gtIconVal < 0)
             {
@@ -2251,7 +2255,8 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
         case SIMDIntrinsicConvertToDouble:
         case SIMDIntrinsicConvertToInt32:
         {
-            op1 = impSIMDPopStack(simdType, instMethod);
+            assert(!instMethod);
+            op1 = impSIMDPopStack(simdType);
 
             simdTree = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, op1);
             retVal   = simdTree;
@@ -2260,8 +2265,9 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
         case SIMDIntrinsicConvertToInt64:
         {
+            assert(!instMethod);
 #ifdef TARGET_64BIT
-            op1 = impSIMDPopStack(simdType, instMethod);
+            op1 = impSIMDPopStack(simdType);
 
             simdTree = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, op1);
             retVal   = simdTree;
