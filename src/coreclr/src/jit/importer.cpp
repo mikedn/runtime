@@ -15180,22 +15180,7 @@ void Compiler::impReimportMarkSuccessors(BasicBlock* block)
 
 void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
 {
-    assert(block->hasTryIndex());
     assert(!compIsForInlining());
-
-    // Save the stack contents, impPushCatchArgOnStack pushes the arg on the current
-    // stack which may happen to be non-empty due to impImportBlock calling this at
-    // the wrong time.
-
-    EntryState oldCurrentState;
-    oldCurrentState.esStackDepth = verCurrentState.esStackDepth;
-    oldCurrentState.esStack      = verCurrentState.esStack;
-    unsigned oldMaxStack         = info.compMaxStack;
-
-    StackEntry stackEntry;
-    verCurrentState.esStackDepth = 0;
-    verCurrentState.esStack      = &stackEntry;
-    info.compMaxStack            = min(1, info.compMaxStack);
 
     unsigned  tryIndex = block->getTryIndex();
     EHblkDsc* ehDesc   = ehGetDsc(tryIndex);
@@ -15268,10 +15253,6 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
             ehDesc = ehGetDsc(tryIndex);
         }
     }
-
-    verCurrentState.esStackDepth = oldCurrentState.esStackDepth;
-    verCurrentState.esStack      = oldCurrentState.esStack;
-    info.compMaxStack            = oldMaxStack;
 }
 
 //***************************************************************
@@ -15310,22 +15291,12 @@ void Compiler::impImportBlock(BasicBlock* block)
 
     impSetCurrentState(block);
 
-    if ((block->bbFlags & BBF_TRY_BEG) != 0)
+    if (((block->bbFlags & BBF_TRY_BEG) != 0) && (verCurrentState.esStackDepth != 0))
     {
-        if (verCurrentState.esStackDepth != 0)
-        {
-            BADCODE("Evaluation stack must be empty on entry into a try block");
-        }
-
-        impAddPendingEHSuccessors(block);
+        BADCODE("Evaluation stack must be empty on entry into a try block");
     }
 
     impImportBlockCode(block);
-
-    if (block->hasTryIndex())
-    {
-        impAddPendingEHSuccessors(block);
-    }
 
     if (compDonotInline())
     {
@@ -15350,7 +15321,12 @@ void Compiler::impImportBlock(BasicBlock* block)
     // We do *NOT* want to set it later than this because
     // impReimportSpillClique might clear it if this block is both a
     // predecessor and successor in the current spill clique
-    assert(block->bbFlags & BBF_IMPORTED);
+    assert((block->bbFlags & BBF_IMPORTED) != 0);
+
+    if (block->hasTryIndex())
+    {
+        impAddPendingEHSuccessors(block);
+    }
 
     // If we had a int/native int, or float/double collision, we need to re-import
     if (reimportSpillClique)
