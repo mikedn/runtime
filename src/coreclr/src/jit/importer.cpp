@@ -15192,7 +15192,7 @@ void Compiler::impVerifyEHBlock(BasicBlock* block, bool isTryStart)
 
         // The Stack must be empty
         //
-        if (block->bbStkDepth != 0)
+        if (block->bbStackDepthOnEntry() != 0)
         {
             BADCODE("Evaluation stack must be empty on entry into a try block");
         }
@@ -15696,20 +15696,18 @@ void Compiler::impImportBlockPending(BasicBlock* block)
     if ((block->bbEntryState == nullptr) && addToPending && (impGetPendingBlockMember(block) == 0))
     {
         impInitBBEntryState(block);
-        assert(block->bbStkDepth == 0);
-        block->bbStkDepth = static_cast<unsigned short>(verCurrentState.esStackDepth);
     }
     else
     {
         // The stack should have the same height on entry to the block from all its predecessors.
-        if (block->bbStkDepth != verCurrentState.esStackDepth)
+        if (block->bbStackDepthOnEntry() != verCurrentState.esStackDepth)
         {
 #ifdef DEBUG
             char buffer[400];
             sprintf_s(buffer, sizeof(buffer),
                       "Block at offset %4.4x to %4.4x in %0.200s entered with different stack depths.\n"
                       "Previous depth was %d, current depth is %d",
-                      block->bbCodeOffs, block->bbCodeOffsEnd, info.compFullName, block->bbStkDepth,
+                      block->bbCodeOffs, block->bbCodeOffsEnd, info.compFullName, block->bbStackDepthOnEntry(),
                       verCurrentState.esStackDepth);
             buffer[400 - 1] = 0;
             NO_WAY(buffer);
@@ -15723,12 +15721,9 @@ void Compiler::impImportBlockPending(BasicBlock* block)
             return;
         }
 
-        if (block->bbStkDepth > 0)
-        {
-            // We need to fix the types of any spill temps that might have changed:
-            //   int->native int, float->double, int->byref, etc.
-            impRetypeEntryStateTemps(block);
-        }
+        // We need to fix the types of any spill temps that might have changed:
+        //   int->native int, float->double, int->byref, etc.
+        impRetypeEntryStateTemps(block);
 
         // OK, we must add to the pending list, if it's not already in it.
         if (impGetPendingBlockMember(block) != 0)
@@ -16103,7 +16098,7 @@ void Compiler::impSetCurrentState(BasicBlock* block)
 
 unsigned BasicBlock::bbStackDepthOnEntry()
 {
-    return (bbEntryState ? bbEntryState->esStackDepth : 0);
+    return (bbEntryState != nullptr) ? bbEntryState->esStackDepth : 0;
 }
 
 Compiler* Compiler::impInlineRoot()

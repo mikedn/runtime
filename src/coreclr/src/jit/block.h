@@ -842,12 +842,6 @@ struct BasicBlock : private LIR::Range
 #define MAX_LOOP_NUM 16       // we're using a 'short' for the mask
 #define LOOP_MASK_TP unsigned // must be big enough for a mask
 
-    // TODO-Cleanup: Get rid of bbStkDepth and use bbStackDepthOnEntry() instead
-    union {
-        unsigned short bbStkDepth; // stack depth on entry
-        unsigned short bbFPinVars; // number of inner enregistered FP vars
-    };
-
     // Basic block predecessor lists. Early in compilation, some phases might need to compute "cheap" predecessor
     // lists. These are stored in bbCheapPreds, computed by fgComputeCheapPreds(). If bbCheapPreds is valid,
     // 'fgCheapPredsValid' will be 'true'. Later, the "full" predecessor lists are created by fgComputePreds(), stored
