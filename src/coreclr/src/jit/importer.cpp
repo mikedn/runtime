@@ -15296,8 +15296,6 @@ void Compiler::impImportBlock(BasicBlock* block)
         return;
     }
 
-    assert(block);
-
     /* Make the block globaly available */
 
     compCurBB = block;
@@ -15326,8 +15324,6 @@ void Compiler::impImportBlock(BasicBlock* block)
     {
         return;
     }
-
-    assert(!compDonotInline());
 
     unsigned    baseTmp             = NO_BASE_TMP; // input temps assigned to successor blocks
     bool        reimportSpillClique = false;
