@@ -16040,16 +16040,13 @@ void Compiler::impInitBBEntryState(BasicBlock* block)
 // Set the current state to the state at the start of the basic block
 void Compiler::impSetCurrentState(BasicBlock* block)
 {
-    if ((block->bbEntryState == nullptr) || (block->bbEntryState->esStackDepth == 0))
+    if (block->bbEntryState == nullptr)
     {
         verCurrentState.esStackDepth = 0;
         return;
     }
 
-    verCurrentState.esStackDepth = block->bbEntryState->esStackDepth;
-
-    unsigned stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
-    memcpy(verCurrentState.esStack, block->bbEntryState->esStack, stackSize);
+    impRestoreStackState(block->bbEntryState);
 }
 
 unsigned BasicBlock::bbStackDepthOnEntry()
