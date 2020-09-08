@@ -997,9 +997,7 @@ struct BasicBlock : private LIR::Range
 #endif // DEBUG
 
     unsigned bbStackDepthOnEntry();
-    void bbSetStack(void* stackBuffer);
-    StackEntry* bbStackOnEntry();
-    void        bbSetRunRarely();
+    void     bbSetRunRarely();
 
     // "bbNum" is one-based (for unknown reasons); it is sometimes useful to have the corresponding
     // zero-based number for use as an array index.

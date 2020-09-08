@@ -3494,7 +3494,7 @@ protected:
     StackEntry& impStackTop(unsigned n = 0);
     unsigned impStackHeight();
 
-    void impSaveStackState(EntryState* savePtr, bool copy);
+    void impSaveStackState(EntryState* savePtr);
     void impRestoreStackState(EntryState* savePtr);
 
     GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
@@ -9432,9 +9432,8 @@ public:
     // dynamic state info needed for verification
     EntryState verCurrentState;
 
-    void impInitCurrentState();
-    void impInitBBEntryState(BasicBlock* block, EntryState* currentState);
-    void impResetCurrentState(BasicBlock* block, EntryState* currentState);
+    void impInitBBEntryState(BasicBlock* block);
+    void impSetCurrentState(BasicBlock* block);
 
     typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd,
                              bool bashStructToRef = false); // converts from jit type representation to typeInfo

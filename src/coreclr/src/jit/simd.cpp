@@ -1120,15 +1120,20 @@ GenTree* Compiler::impSIMDPopStack(var_types type)
     }
 
     // Now set the type of the tree to the specialized SIMD struct type, if applicable.
-    if (varActualType(tree->GetType()) != varActualType(type))
+    if (tree->GetType() != type)
     {
+        // TODO-MIKE-Cleanup: This is nonsense. If we get here it likely means that the IL is invalid.
+        // SIMD intrinsics are calls as far as IL is concerned and it is not valid to pass a struct
+        // argument to a call that has a different struct type than what's specified in the call
+        // signature. Allowing this and retyping the tree has dubious consequences, such as indirs that
+        // read garbage from memory and mistyped LCL_VAR nodes (having SIMD type when the local itself
+        // has STRUCT type).
+        //
+        // Even the assert is nonsense, this should really use BADCODE. Otherwise in release builds
+        // invalid IL will simply result in bad code being silently generated.
+
         assert(tree->TypeIs(TYP_STRUCT));
         tree->SetType(type);
-    }
-    else if (tree->TypeIs(TYP_BYREF))
-    {
-        assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_RET_EXPR, GT_CALL) ||
-               (tree->OperIs(GT_ADDR) && varTypeIsSIMD(tree->AsUnOp()->GetOp(0))));
     }
 
     return tree;

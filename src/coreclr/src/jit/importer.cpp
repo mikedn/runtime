@@ -17,8 +17,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-#include "corexcep.h"
-
 void Compiler::impInit()
 {
     impStmtList = impLastStmt = nullptr;
@@ -243,77 +241,22 @@ unsigned Compiler::impStackHeight()
 }
 
 /*****************************************************************************
- *  Some of the trees are spilled specially. While unspilling them, or
- *  making a copy, these need to be handled specially. The function
- *  enumerates the operators possible after spilling.
- */
-
-#ifdef DEBUG // only used in asserts
-static bool impValidSpilledStackEntry(GenTree* tree)
-{
-    if (tree->gtOper == GT_LCL_VAR)
-    {
-        return true;
-    }
-
-    if (tree->OperIsConst())
-    {
-        return true;
-    }
-
-    return false;
-}
-#endif
-
-/*****************************************************************************
  *
  *  The following logic is used to save/restore stack contents.
  *  If 'copy' is true, then we make a copy of the trees on the stack. These
  *  have to all be cloneable/spilled values.
  */
 
-void Compiler::impSaveStackState(EntryState* savePtr, bool copy)
+void Compiler::impSaveStackState(EntryState* savePtr)
 {
     savePtr->esStackDepth = verCurrentState.esStackDepth;
 
-    if (verCurrentState.esStackDepth)
+    if (verCurrentState.esStackDepth != 0)
     {
         savePtr->esStack = new (this, CMK_ImpStack) StackEntry[verCurrentState.esStackDepth];
-        size_t saveSize  = verCurrentState.esStackDepth * sizeof(*savePtr->esStack);
 
-        if (copy)
-        {
-            StackEntry* table = savePtr->esStack;
-
-            /* Make a fresh copy of all the stack entries */
-
-            for (unsigned level = 0; level < verCurrentState.esStackDepth; level++, table++)
-            {
-                table->seTypeInfo = verCurrentState.esStack[level].seTypeInfo;
-                GenTree* tree     = verCurrentState.esStack[level].val;
-
-                assert(impValidSpilledStackEntry(tree));
-
-                switch (tree->gtOper)
-                {
-                    case GT_CNS_INT:
-                    case GT_CNS_LNG:
-                    case GT_CNS_DBL:
-                    case GT_CNS_STR:
-                    case GT_LCL_VAR:
-                        table->val = gtCloneExpr(tree);
-                        break;
-
-                    default:
-                        assert(!"Bad oper - Not covered by impValidSpilledStackEntry()");
-                        break;
-                }
-            }
-        }
-        else
-        {
-            memcpy(savePtr->esStack, verCurrentState.esStack, saveSize);
-        }
+        size_t stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
+        memcpy(savePtr->esStack, verCurrentState.esStack, stackSize);
     }
 }
 
@@ -321,10 +264,10 @@ void Compiler::impRestoreStackState(EntryState* savePtr)
 {
     verCurrentState.esStackDepth = savePtr->esStackDepth;
 
-    if (verCurrentState.esStackDepth)
+    if (verCurrentState.esStackDepth != 0)
     {
-        memcpy(verCurrentState.esStack, savePtr->esStack,
-               verCurrentState.esStackDepth * sizeof(*verCurrentState.esStack));
+        size_t stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
+        memcpy(verCurrentState.esStack, savePtr->esStack, stackSize);
     }
 }
 
@@ -9381,33 +9324,6 @@ static void impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* code
     }
 }
 
-/*****************************************************************************/
-
-#ifdef DEBUG
-
-#undef RETURN // undef contracts RETURN macro
-
-enum controlFlow_t
-{
-    NEXT,
-    CALL,
-    RETURN,
-    THROW,
-    BRANCH,
-    COND_BRANCH,
-    BREAK,
-    PHI,
-    META,
-};
-
-const static controlFlow_t controlFlow[] = {
-#define OPDEF(c, s, pop, push, args, type, l, s1, s2, flow) flow,
-#include "opcode.def"
-#undef OPDEF
-};
-
-#endif // DEBUG
-
 /*****************************************************************************
  *  Determine the result type of an arithemetic operation
  *  On 64-bit inserts upcasts when native int is mixed with int32
@@ -15262,17 +15178,6 @@ void Compiler::impReimportMarkSuccessors(BasicBlock* block)
     }
 }
 
-/*****************************************************************************
- *
- *  Filter wrapper to handle only passed in exception code
- *  from it).
- */
-
-LONG FilterVerificationExceptions(PEXCEPTION_POINTERS pExceptionPointers, LPVOID lpvParam)
-{
-    return EXCEPTION_CONTINUE_SEARCH;
-}
-
 void Compiler::impVerifyEHBlock(BasicBlock* block, bool isTryStart)
 {
     assert(block->hasTryIndex());
@@ -15296,7 +15201,7 @@ void Compiler::impVerifyEHBlock(BasicBlock* block, bool isTryStart)
     // Save the stack contents, we'll need to restore it later
     //
     EntryState blockState;
-    impSaveStackState(&blockState, false);
+    impSaveStackState(&blockState);
 
     while (HBtab != nullptr)
     {
@@ -15423,7 +15328,7 @@ void Compiler::impImportBlock(BasicBlock* block)
     impCurOpcOffs = block->bbCodeOffs;
 #endif
 
-    impResetCurrentState(block, &verCurrentState);
+    impSetCurrentState(block);
 
     /* Now walk the code and import the IL into GenTrees */
 
@@ -15593,8 +15498,6 @@ void Compiler::impImportBlock(BasicBlock* block)
         /* Spill all stack entries into temps */
         unsigned level, tempNum;
 
-        bool markImport = false;
-
         JITDUMP("\nSpilling stack entries into temps\n");
         for (level = 0, tempNum = baseTmp; level < verCurrentState.esStackDepth; level++, tempNum++)
         {
@@ -15612,7 +15515,6 @@ void Compiler::impImportBlock(BasicBlock* block)
             {
                 lvaTable[tempNum].lvType = TYP_BYREF;
                 impReimportMarkSuccessors(block);
-                markImport = true;
             }
 
 #ifdef TARGET_64BIT
@@ -15791,14 +15693,11 @@ void Compiler::impImportBlockPending(BasicBlock* block)
     // Initialize bbEntryState just the first time we try to add this block to the pending list
     // Just because bbEntryState is NULL, doesn't mean the pre-state wasn't previously set
     // We use NULL to indicate the 'common' state to avoid memory allocation
-    if ((block->bbEntryState == nullptr) && ((block->bbFlags & BBF_IMPORTED) == 0) &&
-        (impGetPendingBlockMember(block) == 0))
+    if ((block->bbEntryState == nullptr) && addToPending && (impGetPendingBlockMember(block) == 0))
     {
-        impInitBBEntryState(block, &verCurrentState);
+        impInitBBEntryState(block);
         assert(block->bbStkDepth == 0);
         block->bbStkDepth = static_cast<unsigned short>(verCurrentState.esStackDepth);
-        assert(addToPending);
-        assert(impGetPendingBlockMember(block) == 0);
     }
     else
     {
@@ -15861,7 +15760,7 @@ void Compiler::impImportBlockPending(BasicBlock* block)
 
     if (verCurrentState.esStackDepth)
     {
-        impSaveStackState(&dsc->pdSavedStack, false);
+        impSaveStackState(&dsc->pdSavedStack);
     }
 
     // Add the entry to the pending list
@@ -16076,7 +15975,7 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
         m_pComp->impReimportMarkBlock(blk);
 
         // Set the current stack state to that of the blk->bbEntryState
-        m_pComp->impResetCurrentState(blk, &m_pComp->verCurrentState);
+        m_pComp->impSetCurrentState(blk);
         m_pComp->impImportBlockPending(blk);
     }
     else if ((blk != m_pComp->compCurBB) && ((blk->bbFlags & BBF_IMPORTED) != 0))
@@ -16164,78 +16063,47 @@ void Compiler::impReimportSpillClique(BasicBlock* block)
     impWalkSpillCliqueFromPred(block, &callback);
 }
 
-void Compiler::impInitCurrentState()
-{
-    verCurrentState.esStackDepth = 0;
-    assert(verCurrentState.esStack != nullptr);
-
-    // copy current state to entry state of first BB
-    impInitBBEntryState(fgFirstBB, &verCurrentState);
-}
-
 // Set the pre-state of "block" (which should not have a pre-state allocated) to
 // a copy of "srcState", cloning tree pointers as required.
-void Compiler::impInitBBEntryState(BasicBlock* block, EntryState* srcState)
+void Compiler::impInitBBEntryState(BasicBlock* block)
 {
-    if (srcState->esStackDepth == 0)
+    if (verCurrentState.esStackDepth == 0)
     {
         block->bbEntryState = nullptr;
         return;
     }
 
-    block->bbEntryState = getAllocator(CMK_ImpStack).allocate<EntryState>(1);
+    block->bbEntryState               = new (this, CMK_ImpStack) EntryState;
+    block->bbEntryState->esStackDepth = verCurrentState.esStackDepth;
+    block->bbEntryState->esStack      = new (this, CMK_ImpStack) StackEntry[verCurrentState.esStackDepth];
 
-    block->bbEntryState->esStackDepth = srcState->esStackDepth;
+    unsigned stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
+    memcpy(block->bbEntryState->esStack, verCurrentState.esStack, stackSize);
 
-    if (srcState->esStackDepth > 0)
+    for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
-        block->bbSetStack(new (this, CMK_ImpStack) StackEntry[srcState->esStackDepth]);
-        unsigned stackSize = srcState->esStackDepth * sizeof(StackEntry);
-
-        memcpy(block->bbEntryState->esStack, srcState->esStack, stackSize);
-        for (unsigned level = 0; level < srcState->esStackDepth; level++)
-        {
-            GenTree* tree                           = srcState->esStack[level].val;
-            block->bbEntryState->esStack[level].val = gtCloneExpr(tree);
-        }
+        block->bbEntryState->esStack[level].val = gtCloneExpr(verCurrentState.esStack[level].val);
     }
 }
 
-// Resets the current state to the state at the start of the basic block
-void Compiler::impResetCurrentState(BasicBlock* block, EntryState* destState)
+// Set the current state to the state at the start of the basic block
+void Compiler::impSetCurrentState(BasicBlock* block)
 {
-    if (block->bbEntryState == nullptr)
+    if ((block->bbEntryState == nullptr) || (block->bbEntryState->esStackDepth == 0))
     {
-        destState->esStackDepth = 0;
+        verCurrentState.esStackDepth = 0;
         return;
     }
 
-    destState->esStackDepth = block->bbEntryState->esStackDepth;
+    verCurrentState.esStackDepth = block->bbEntryState->esStackDepth;
 
-    if (destState->esStackDepth > 0)
-    {
-        unsigned stackSize = destState->esStackDepth * sizeof(StackEntry);
-
-        memcpy(destState->esStack, block->bbStackOnEntry(), stackSize);
-    }
+    unsigned stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
+    memcpy(verCurrentState.esStack, block->bbEntryState->esStack, stackSize);
 }
 
 unsigned BasicBlock::bbStackDepthOnEntry()
 {
     return (bbEntryState ? bbEntryState->esStackDepth : 0);
-}
-
-void BasicBlock::bbSetStack(void* stackBuffer)
-{
-    assert(bbEntryState);
-    assert(stackBuffer);
-    bbEntryState->esStack = (StackEntry*)stackBuffer;
-}
-
-StackEntry* BasicBlock::bbStackOnEntry()
-{
-    assert(bbEntryState);
-    return bbEntryState->esStack;
 }
 
 Compiler* Compiler::impInlineRoot()
@@ -16302,6 +16170,8 @@ void Compiler::impImport()
         impStkSize = info.compMaxStack;
     }
 
+    verCurrentState.esStackDepth = 0;
+
     if (this == inlineRoot)
     {
         // Allocate the stack contents
@@ -16320,8 +16190,7 @@ void Compiler::impImport()
         verCurrentState.esStack = inlineRoot->verCurrentState.esStack;
     }
 
-    // initialize the entry state at start of method
-    impInitCurrentState();
+    impInitBBEntryState(fgFirstBB);
 
     // Initialize stuff related to figuring "spill cliques" (see spec comment for impGetSpillTmpBase).
     if (this == inlineRoot) // These are only used on the root of the inlining tree.
