@@ -15188,9 +15188,19 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
         BADCODE("Evaluation stack must be empty on entry into a try block");
     }
 
-    // Save the stack contents, we'll need to restore it later
-    EntryState blockState;
-    impSaveStackState(&blockState);
+    // Save the stack contents, impPushCatchArgOnStack pushes the arg on the current
+    // stack which may happen to be non-empty due to impImportBlock calling this at
+    // the wrong time.
+
+    EntryState oldCurrentState;
+    oldCurrentState.esStackDepth = verCurrentState.esStackDepth;
+    oldCurrentState.esStack      = verCurrentState.esStack;
+    unsigned oldMaxStack         = info.compMaxStack;
+
+    StackEntry stackEntry;
+    verCurrentState.esStackDepth = 0;
+    verCurrentState.esStack      = &stackEntry;
+    info.compMaxStack            = min(1, info.compMaxStack);
 
     unsigned  tryIndex = block->getTryIndex();
     EHblkDsc* ehDesc   = ehGetDsc(tryIndex);
@@ -15264,8 +15274,9 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
         }
     }
 
-    // Restore the stack contents
-    impRestoreStackState(&blockState);
+    verCurrentState.esStackDepth = oldCurrentState.esStackDepth;
+    verCurrentState.esStack      = oldCurrentState.esStack;
+    info.compMaxStack            = oldMaxStack;
 }
 
 //***************************************************************
