@@ -15284,10 +15284,6 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
 // verification, throwing an exception on failure.  Push any successor blocks that are enabled for the first
 // time, or whose verification pre-state is changed.
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 void Compiler::impImportBlock(BasicBlock* block)
 {
     // BBF_INTERNAL blocks only exist during importation due to EH canonicalization. We need to
@@ -15336,245 +15332,11 @@ void Compiler::impImportBlock(BasicBlock* block)
         return;
     }
 
-    unsigned    baseTmp             = NO_BASE_TMP; // input temps assigned to successor blocks
-    bool        reimportSpillClique = false;
-    BasicBlock* tgtBlock            = nullptr;
-
-    /* If the stack is non-empty, we might have to spill its contents */
+    bool reimportSpillClique = false;
 
     if (verCurrentState.esStackDepth != 0)
     {
-        impBoxTemp = BAD_VAR_NUM; // if a box temp is used in a block that leaves something
-                                  // on the stack, its lifetime is hard to determine, simply
-                                  // don't reuse such temps.
-
-        Statement* addStmt = nullptr;
-
-        /* Do the successors of 'block' have any other predecessors ?
-           We do not want to do some of the optimizations related to multiRef
-           if we can reimport blocks */
-
-        unsigned multRef = impCanReimport ? unsigned(~0) : 0;
-
-        switch (block->bbJumpKind)
-        {
-            case BBJ_COND:
-
-                addStmt = impExtractLastStmt();
-
-                assert(addStmt->GetRootNode()->gtOper == GT_JTRUE);
-
-                /* Note if the next block has more than one ancestor */
-
-                multRef |= block->bbNext->bbRefs;
-
-                /* Does the next block have temps assigned? */
-
-                baseTmp  = block->bbNext->bbStkTempsIn;
-                tgtBlock = block->bbNext;
-
-                if (baseTmp != NO_BASE_TMP)
-                {
-                    break;
-                }
-
-                /* Try the target of the jump then */
-
-                multRef |= block->bbJumpDest->bbRefs;
-                baseTmp  = block->bbJumpDest->bbStkTempsIn;
-                tgtBlock = block->bbJumpDest;
-                break;
-
-            case BBJ_ALWAYS:
-                multRef |= block->bbJumpDest->bbRefs;
-                baseTmp  = block->bbJumpDest->bbStkTempsIn;
-                tgtBlock = block->bbJumpDest;
-                break;
-
-            case BBJ_NONE:
-                multRef |= block->bbNext->bbRefs;
-                baseTmp  = block->bbNext->bbStkTempsIn;
-                tgtBlock = block->bbNext;
-                break;
-
-            case BBJ_SWITCH:
-
-                BasicBlock** jmpTab;
-                unsigned     jmpCnt;
-
-                addStmt = impExtractLastStmt();
-                assert(addStmt->GetRootNode()->gtOper == GT_SWITCH);
-
-                jmpCnt = block->bbJumpSwt->bbsCount;
-                jmpTab = block->bbJumpSwt->bbsDstTab;
-
-                do
-                {
-                    tgtBlock = (*jmpTab);
-
-                    multRef |= tgtBlock->bbRefs;
-
-                    // Thanks to spill cliques, we should have assigned all or none
-                    assert((baseTmp == NO_BASE_TMP) || (baseTmp == tgtBlock->bbStkTempsIn));
-                    baseTmp = tgtBlock->bbStkTempsIn;
-                    if (multRef > 1)
-                    {
-                        break;
-                    }
-                } while (++jmpTab, --jmpCnt);
-
-                break;
-
-            case BBJ_CALLFINALLY:
-            case BBJ_EHCATCHRET:
-            case BBJ_RETURN:
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHFILTERRET:
-            case BBJ_THROW:
-                NO_WAY("can't have 'unreached' end of BB with non-empty stack");
-                break;
-
-            default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
-        }
-
-        assert(multRef >= 1);
-
-        /* Do we have a base temp number? */
-
-        bool newTemps = (baseTmp == NO_BASE_TMP);
-
-        if (newTemps)
-        {
-            /* Grab enough temps for the whole stack */
-            baseTmp = impGetSpillTmpBase(block);
-        }
-
-        /* Spill all stack entries into temps */
-        unsigned level, tempNum;
-
-        JITDUMP("\nSpilling stack entries into temps\n");
-        for (level = 0, tempNum = baseTmp; level < verCurrentState.esStackDepth; level++, tempNum++)
-        {
-            GenTree* tree = verCurrentState.esStack[level].val;
-
-            /* VC generates code where it pushes a byref from one branch, and an int (ldc.i4 0) from
-               the other. This should merge to a byref in unverifiable code.
-               However, if the branch which leaves the TYP_I_IMPL on the stack is imported first, the
-               successor would be imported assuming there was a TYP_I_IMPL on
-               the stack. Thus the value would not get GC-tracked. Hence,
-               change the temp to TYP_BYREF and reimport the successors.
-               Note: We should only allow this in unverifiable code.
-            */
-            if (tree->gtType == TYP_BYREF && lvaTable[tempNum].lvType == TYP_I_IMPL)
-            {
-                lvaTable[tempNum].lvType = TYP_BYREF;
-                impReimportMarkSuccessors(block);
-            }
-
-#ifdef TARGET_64BIT
-            if (genActualType(tree->gtType) == TYP_I_IMPL && lvaTable[tempNum].lvType == TYP_INT)
-            {
-                // Some other block in the spill clique set this to "int", but now we have "native int".
-                // Change the type and go back to re-import any blocks that used the wrong type.
-                lvaTable[tempNum].lvType = TYP_I_IMPL;
-                reimportSpillClique      = true;
-            }
-            else if (genActualType(tree->gtType) == TYP_INT && lvaTable[tempNum].lvType == TYP_I_IMPL)
-            {
-                // Spill clique has decided this should be "native int", but this block only pushes an "int".
-                // Insert a sign-extension to "native int" so we match the clique.
-                verCurrentState.esStack[level].val = gtNewCastNode(TYP_I_IMPL, tree, false, TYP_I_IMPL);
-            }
-
-            // Consider the case where one branch left a 'byref' on the stack and the other leaves
-            // an 'int'. On 32-bit, this is allowed (in non-verifiable code) since they are the same
-            // size. JIT64 managed to make this work on 64-bit. For compatibility, we support JIT64
-            // behavior instead of asserting and then generating bad code (where we save/restore the
-            // low 32 bits of a byref pointer to an 'int' sized local). If the 'int' side has been
-            // imported already, we need to change the type of the local and reimport the spill clique.
-            // If the 'byref' side has imported, we insert a cast from int to 'native int' to match
-            // the 'byref' size.
-            if (genActualType(tree->gtType) == TYP_BYREF && lvaTable[tempNum].lvType == TYP_INT)
-            {
-                // Some other block in the spill clique set this to "int", but now we have "byref".
-                // Change the type and go back to re-import any blocks that used the wrong type.
-                lvaTable[tempNum].lvType = TYP_BYREF;
-                reimportSpillClique      = true;
-            }
-            else if (genActualType(tree->gtType) == TYP_INT && lvaTable[tempNum].lvType == TYP_BYREF)
-            {
-                // Spill clique has decided this should be "byref", but this block only pushes an "int".
-                // Insert a sign-extension to "native int" so we match the clique size.
-                verCurrentState.esStack[level].val = gtNewCastNode(TYP_I_IMPL, tree, false, TYP_I_IMPL);
-            }
-#endif // TARGET_64BIT
-
-            if (tree->gtType == TYP_DOUBLE && lvaTable[tempNum].lvType == TYP_FLOAT)
-            {
-                // Some other block in the spill clique set this to "float", but now we have "double".
-                // Change the type and go back to re-import any blocks that used the wrong type.
-                lvaTable[tempNum].lvType = TYP_DOUBLE;
-                reimportSpillClique      = true;
-            }
-            else if (tree->gtType == TYP_FLOAT && lvaTable[tempNum].lvType == TYP_DOUBLE)
-            {
-                // Spill clique has decided this should be "double", but this block only pushes a "float".
-                // Insert a cast to "double" so we match the clique.
-                verCurrentState.esStack[level].val = gtNewCastNode(TYP_DOUBLE, tree, false, TYP_DOUBLE);
-            }
-
-            /* If addStmt has a reference to tempNum (can only happen if we
-               are spilling to the temps already used by a previous block),
-               we need to spill addStmt */
-
-            if (addStmt != nullptr && !newTemps && gtHasRef(addStmt->GetRootNode(), tempNum, false))
-            {
-                GenTree* addTree = addStmt->GetRootNode();
-
-                if (addTree->gtOper == GT_JTRUE)
-                {
-                    GenTree* relOp = addTree->AsOp()->gtOp1;
-                    assert(relOp->OperIsCompare());
-
-                    var_types type = genActualType(relOp->AsOp()->gtOp1->TypeGet());
-
-                    if (gtHasRef(relOp->AsOp()->gtOp1, tempNum, false))
-                    {
-                        unsigned temp = lvaGrabTemp(true DEBUGARG("spill addStmt JTRUE ref Op1"));
-                        impAssignTempGen(temp, relOp->AsOp()->gtOp1, level);
-                        type                 = genActualType(lvaTable[temp].TypeGet());
-                        relOp->AsOp()->gtOp1 = gtNewLclvNode(temp, type);
-                    }
-
-                    if (gtHasRef(relOp->AsOp()->gtOp2, tempNum, false))
-                    {
-                        unsigned temp = lvaGrabTemp(true DEBUGARG("spill addStmt JTRUE ref Op2"));
-                        impAssignTempGen(temp, relOp->AsOp()->gtOp2, level);
-                        type                 = genActualType(lvaTable[temp].TypeGet());
-                        relOp->AsOp()->gtOp2 = gtNewLclvNode(temp, type);
-                    }
-                }
-                else
-                {
-                    assert(addTree->gtOper == GT_SWITCH && genActualTypeIsIntOrI(addTree->AsOp()->gtOp1->TypeGet()));
-
-                    unsigned temp = lvaGrabTemp(true DEBUGARG("spill addStmt SWITCH"));
-                    impAssignTempGen(temp, addTree->AsOp()->gtOp1, level);
-                    addTree->AsOp()->gtOp1 = gtNewLclvNode(temp, genActualType(addTree->AsOp()->gtOp1->TypeGet()));
-                }
-            }
-
-            impSpillStackEntry(level, tempNum DEBUGARG(true) DEBUGARG("Spill Stack Entry"));
-        }
-
-        /* Put back the 'jtrue'/'switch' if we removed it earlier */
-
-        if (addStmt != nullptr)
-        {
-            impAppendStmt(addStmt, (unsigned)CHECK_SPILL_NONE);
-        }
+        reimportSpillClique = impSpillStackAtBlockEnd(block);
     }
 
     // Some of the append/spill logic works on compCurBB
@@ -15619,9 +15381,247 @@ void Compiler::impImportBlock(BasicBlock* block)
         }
     }
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
+
+bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
+{
+    impBoxTemp = BAD_VAR_NUM; // if a box temp is used in a block that leaves something
+                              // on the stack, its lifetime is hard to determine, simply
+                              // don't reuse such temps.
+
+    Statement* addStmt = nullptr;
+
+    /* Do the successors of 'block' have any other predecessors ?
+       We do not want to do some of the optimizations related to multiRef
+       if we can reimport blocks */
+
+    unsigned multRef = impCanReimport ? unsigned(~0) : 0;
+
+    unsigned    baseTmp             = NO_BASE_TMP; // input temps assigned to successor blocks
+    bool        reimportSpillClique = false;
+    BasicBlock* tgtBlock            = nullptr;
+
+    switch (block->bbJumpKind)
+    {
+        case BBJ_COND:
+
+            addStmt = impExtractLastStmt();
+
+            assert(addStmt->GetRootNode()->gtOper == GT_JTRUE);
+
+            /* Note if the next block has more than one ancestor */
+
+            multRef |= block->bbNext->bbRefs;
+
+            /* Does the next block have temps assigned? */
+
+            baseTmp  = block->bbNext->bbStkTempsIn;
+            tgtBlock = block->bbNext;
+
+            if (baseTmp != NO_BASE_TMP)
+            {
+                break;
+            }
+
+            /* Try the target of the jump then */
+
+            multRef |= block->bbJumpDest->bbRefs;
+            baseTmp  = block->bbJumpDest->bbStkTempsIn;
+            tgtBlock = block->bbJumpDest;
+            break;
+
+        case BBJ_ALWAYS:
+            multRef |= block->bbJumpDest->bbRefs;
+            baseTmp  = block->bbJumpDest->bbStkTempsIn;
+            tgtBlock = block->bbJumpDest;
+            break;
+
+        case BBJ_NONE:
+            multRef |= block->bbNext->bbRefs;
+            baseTmp  = block->bbNext->bbStkTempsIn;
+            tgtBlock = block->bbNext;
+            break;
+
+        case BBJ_SWITCH:
+
+            BasicBlock** jmpTab;
+            unsigned     jmpCnt;
+
+            addStmt = impExtractLastStmt();
+            assert(addStmt->GetRootNode()->gtOper == GT_SWITCH);
+
+            jmpCnt = block->bbJumpSwt->bbsCount;
+            jmpTab = block->bbJumpSwt->bbsDstTab;
+
+            do
+            {
+                tgtBlock = (*jmpTab);
+
+                multRef |= tgtBlock->bbRefs;
+
+                // Thanks to spill cliques, we should have assigned all or none
+                assert((baseTmp == NO_BASE_TMP) || (baseTmp == tgtBlock->bbStkTempsIn));
+                baseTmp = tgtBlock->bbStkTempsIn;
+                if (multRef > 1)
+                {
+                    break;
+                }
+            } while (++jmpTab, --jmpCnt);
+
+            break;
+
+        case BBJ_CALLFINALLY:
+        case BBJ_EHCATCHRET:
+        case BBJ_RETURN:
+        case BBJ_EHFINALLYRET:
+        case BBJ_EHFILTERRET:
+        case BBJ_THROW:
+            NO_WAY("can't have 'unreached' end of BB with non-empty stack");
+            break;
+
+        default:
+            noway_assert(!"Unexpected bbJumpKind");
+            break;
+    }
+
+    assert(multRef >= 1);
+
+    /* Do we have a base temp number? */
+
+    bool newTemps = (baseTmp == NO_BASE_TMP);
+
+    if (newTemps)
+    {
+        /* Grab enough temps for the whole stack */
+        baseTmp = impGetSpillTmpBase(block);
+    }
+
+    /* Spill all stack entries into temps */
+    unsigned level, tempNum;
+
+    JITDUMP("\nSpilling stack entries into temps\n");
+    for (level = 0, tempNum = baseTmp; level < verCurrentState.esStackDepth; level++, tempNum++)
+    {
+        GenTree* tree = verCurrentState.esStack[level].val;
+
+        /* VC generates code where it pushes a byref from one branch, and an int (ldc.i4 0) from
+           the other. This should merge to a byref in unverifiable code.
+           However, if the branch which leaves the TYP_I_IMPL on the stack is imported first, the
+           successor would be imported assuming there was a TYP_I_IMPL on
+           the stack. Thus the value would not get GC-tracked. Hence,
+           change the temp to TYP_BYREF and reimport the successors.
+           Note: We should only allow this in unverifiable code.
+        */
+        if (tree->gtType == TYP_BYREF && lvaTable[tempNum].lvType == TYP_I_IMPL)
+        {
+            lvaTable[tempNum].lvType = TYP_BYREF;
+            impReimportMarkSuccessors(block);
+        }
+
+#ifdef TARGET_64BIT
+        if (genActualType(tree->gtType) == TYP_I_IMPL && lvaTable[tempNum].lvType == TYP_INT)
+        {
+            // Some other block in the spill clique set this to "int", but now we have "native int".
+            // Change the type and go back to re-import any blocks that used the wrong type.
+            lvaTable[tempNum].lvType = TYP_I_IMPL;
+            reimportSpillClique      = true;
+        }
+        else if (genActualType(tree->gtType) == TYP_INT && lvaTable[tempNum].lvType == TYP_I_IMPL)
+        {
+            // Spill clique has decided this should be "native int", but this block only pushes an "int".
+            // Insert a sign-extension to "native int" so we match the clique.
+            verCurrentState.esStack[level].val = gtNewCastNode(TYP_I_IMPL, tree, false, TYP_I_IMPL);
+        }
+
+        // Consider the case where one branch left a 'byref' on the stack and the other leaves
+        // an 'int'. On 32-bit, this is allowed (in non-verifiable code) since they are the same
+        // size. JIT64 managed to make this work on 64-bit. For compatibility, we support JIT64
+        // behavior instead of asserting and then generating bad code (where we save/restore the
+        // low 32 bits of a byref pointer to an 'int' sized local). If the 'int' side has been
+        // imported already, we need to change the type of the local and reimport the spill clique.
+        // If the 'byref' side has imported, we insert a cast from int to 'native int' to match
+        // the 'byref' size.
+        if (genActualType(tree->gtType) == TYP_BYREF && lvaTable[tempNum].lvType == TYP_INT)
+        {
+            // Some other block in the spill clique set this to "int", but now we have "byref".
+            // Change the type and go back to re-import any blocks that used the wrong type.
+            lvaTable[tempNum].lvType = TYP_BYREF;
+            reimportSpillClique      = true;
+        }
+        else if (genActualType(tree->gtType) == TYP_INT && lvaTable[tempNum].lvType == TYP_BYREF)
+        {
+            // Spill clique has decided this should be "byref", but this block only pushes an "int".
+            // Insert a sign-extension to "native int" so we match the clique size.
+            verCurrentState.esStack[level].val = gtNewCastNode(TYP_I_IMPL, tree, false, TYP_I_IMPL);
+        }
+#endif // TARGET_64BIT
+
+        if (tree->gtType == TYP_DOUBLE && lvaTable[tempNum].lvType == TYP_FLOAT)
+        {
+            // Some other block in the spill clique set this to "float", but now we have "double".
+            // Change the type and go back to re-import any blocks that used the wrong type.
+            lvaTable[tempNum].lvType = TYP_DOUBLE;
+            reimportSpillClique      = true;
+        }
+        else if (tree->gtType == TYP_FLOAT && lvaTable[tempNum].lvType == TYP_DOUBLE)
+        {
+            // Spill clique has decided this should be "double", but this block only pushes a "float".
+            // Insert a cast to "double" so we match the clique.
+            verCurrentState.esStack[level].val = gtNewCastNode(TYP_DOUBLE, tree, false, TYP_DOUBLE);
+        }
+
+        /* If addStmt has a reference to tempNum (can only happen if we
+           are spilling to the temps already used by a previous block),
+           we need to spill addStmt */
+
+        if (addStmt != nullptr && !newTemps && gtHasRef(addStmt->GetRootNode(), tempNum, false))
+        {
+            GenTree* addTree = addStmt->GetRootNode();
+
+            if (addTree->gtOper == GT_JTRUE)
+            {
+                GenTree* relOp = addTree->AsOp()->gtOp1;
+                assert(relOp->OperIsCompare());
+
+                var_types type = genActualType(relOp->AsOp()->gtOp1->TypeGet());
+
+                if (gtHasRef(relOp->AsOp()->gtOp1, tempNum, false))
+                {
+                    unsigned temp = lvaGrabTemp(true DEBUGARG("spill addStmt JTRUE ref Op1"));
+                    impAssignTempGen(temp, relOp->AsOp()->gtOp1, level);
+                    type                 = genActualType(lvaTable[temp].TypeGet());
+                    relOp->AsOp()->gtOp1 = gtNewLclvNode(temp, type);
+                }
+
+                if (gtHasRef(relOp->AsOp()->gtOp2, tempNum, false))
+                {
+                    unsigned temp = lvaGrabTemp(true DEBUGARG("spill addStmt JTRUE ref Op2"));
+                    impAssignTempGen(temp, relOp->AsOp()->gtOp2, level);
+                    type                 = genActualType(lvaTable[temp].TypeGet());
+                    relOp->AsOp()->gtOp2 = gtNewLclvNode(temp, type);
+                }
+            }
+            else
+            {
+                assert(addTree->gtOper == GT_SWITCH && genActualTypeIsIntOrI(addTree->AsOp()->gtOp1->TypeGet()));
+
+                unsigned temp = lvaGrabTemp(true DEBUGARG("spill addStmt SWITCH"));
+                impAssignTempGen(temp, addTree->AsOp()->gtOp1, level);
+                addTree->AsOp()->gtOp1 = gtNewLclvNode(temp, genActualType(addTree->AsOp()->gtOp1->TypeGet()));
+            }
+        }
+
+        impSpillStackEntry(level, tempNum DEBUGARG(true) DEBUGARG("Spill Stack Entry"));
+    }
+
+    /* Put back the 'jtrue'/'switch' if we removed it earlier */
+
+    if (addStmt != nullptr)
+    {
+        impAppendStmt(addStmt, (unsigned)CHECK_SPILL_NONE);
+    }
+
+    return reimportSpillClique;
+}
 
 /*****************************************************************************/
 //

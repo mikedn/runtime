@@ -3887,6 +3887,7 @@ private:
     var_types impGetByRefResultType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
 
     void impImportBlock(BasicBlock* block);
+    bool impSpillStackAtBlockEnd(BasicBlock* block);
 
     // Assumes that "block" is a basic block that completes with a non-empty stack. We will assign the values
     // on the stack to local variables (the "spill temp" variables). The successor blocks will assume that
