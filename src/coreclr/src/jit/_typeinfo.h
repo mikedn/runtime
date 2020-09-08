@@ -181,7 +181,7 @@ inline ti_types JITtype2tiType(CorInfoType type)
  * - A type (ref, array, value type) (m_cls describes the type)
  * - An array (m_cls describes the array type)
  * - A byref (byref flag set, otherwise the same as the above),
- * - A Function Pointer (m_method)
+ * - A Function Pointer (m_token)
  * - A byref local variable (byref and byref local flags set), can be
  *   uninitialized
  *
@@ -192,28 +192,10 @@ inline ti_types JITtype2tiType(CorInfoType type)
 
 class typeInfo
 {
-    union {
-        struct
-        {
-            ti_types type : TI_FLAG_DATA_BITS;
-            unsigned uninitobj : 1;        // used
-            unsigned byref : 1;            // used
-            unsigned byref_readonly : 1;   // used
-            unsigned nativeInt : 1;        // used
-            unsigned token : 1;            // used
-            unsigned : 1;                  // unused
-            unsigned thisPtr : 1;          // used
-            unsigned thisPermHome : 1;     // used
-            unsigned generic_type_var : 1; // used
-        } m_bits;
-
-        DWORD m_flags;
-    };
+    unsigned m_flags;
 
     union {
         CORINFO_CLASS_HANDLE m_cls;
-        // Valid only for type TI_METHOD without IsToken
-        CORINFO_METHOD_HANDLE m_method;
         // Valid only for TI_TOKEN with IsToken
         CORINFO_RESOLVED_TOKEN* m_token;
     };
@@ -231,23 +213,17 @@ class typeInfo
     }
 
 public:
-    typeInfo() : m_flags(TI_ERROR)
+    typeInfo() : m_flags(TI_ERROR), m_cls(NO_CLASS_HANDLE)
     {
-        m_cls = NO_CLASS_HANDLE;
     }
 
-    typeInfo(ti_types tiType)
+    typeInfo(ti_types tiType) : m_flags(static_cast<unsigned>(tiType)), m_cls(NO_CLASS_HANDLE)
     {
         assert((tiType >= TI_BYTE) && (tiType <= TI_NULL));
-
-        m_flags = (DWORD)tiType;
-        m_cls   = NO_CLASS_HANDLE;
     }
 
-    typeInfo(var_types varType)
+    typeInfo(var_types varType) : m_flags(static_cast<unsigned>(varType2tiType(varType))), m_cls(NO_CLASS_HANDLE)
     {
-        m_flags = (DWORD)varType2tiType(varType);
-        m_cls   = NO_CLASS_HANDLE;
     }
 
     static typeInfo nativeInt()
@@ -260,32 +236,17 @@ public:
     }
 
     typeInfo(ti_types tiType, CORINFO_CLASS_HANDLE cls, bool typeVar = false)
+        : m_flags(typeVar ? tiType | TI_FLAG_GENERIC_TYPE_VAR : tiType), m_cls(cls)
     {
-        assert(tiType == TI_STRUCT || tiType == TI_REF);
-        assert(cls != nullptr && !isInvalidHandle(cls));
-        m_flags = tiType;
-        if (typeVar)
-        {
-            m_flags |= TI_FLAG_GENERIC_TYPE_VAR;
-        }
-        m_cls = cls;
+        assert((tiType == TI_STRUCT) || (tiType == TI_REF));
+        assert((cls != nullptr) && !isInvalidHandle(cls));
     }
 
-    typeInfo(CORINFO_METHOD_HANDLE method)
-    {
-        assert(method != nullptr && !isInvalidHandle(method));
-        m_flags  = TI_METHOD;
-        m_method = method;
-    }
-
-    typeInfo(CORINFO_RESOLVED_TOKEN* token)
+    typeInfo(CORINFO_RESOLVED_TOKEN* token) : m_flags(TI_METHOD | TI_FLAG_TOKEN), m_token(token)
     {
         assert(token != nullptr);
         assert(token->hMethod != nullptr);
         assert(!isInvalidHandle(token->hMethod));
-        m_flags = TI_METHOD | TI_FLAG_TOKEN;
-        assert(m_bits.token);
-        m_token = token;
     }
 
     static bool AreEquivalent(const typeInfo& li, const typeInfo& ti);
@@ -304,12 +265,11 @@ public:
     void SetIsThisPtr()
     {
         m_flags |= TI_FLAG_THIS_PTR;
-        assert(m_bits.thisPtr);
     }
 
     void ClearThisPtr()
     {
-        m_flags &= ~(TI_FLAG_THIS_PTR);
+        m_flags &= ~TI_FLAG_THIS_PTR;
     }
 
     void SetIsReadonlyByRef()
@@ -396,42 +356,42 @@ public:
     //  - TI_STRUCT if a value class
     ti_types GetType() const
     {
-        if (m_flags & TI_FLAG_BYREF)
+        if ((m_flags & TI_FLAG_BYREF) != 0)
         {
             return TI_ERROR;
         }
 
         // objref/array/null (objref), value class, ptr, primitive
-        return (ti_types)(m_flags & TI_FLAG_DATA_MASK);
+        return static_cast<ti_types>(m_flags & TI_FLAG_DATA_MASK);
     }
 
     BOOL IsType(ti_types type) const
     {
         assert(type != TI_ERROR);
         return (m_flags & (TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_GENERIC_TYPE_VAR)) ==
-               DWORD(type);
+               static_cast<unsigned>(type);
     }
 
     // Returns whether this is a by-ref
     BOOL IsByRef() const
     {
-        return (m_flags & TI_FLAG_BYREF);
+        return (m_flags & TI_FLAG_BYREF) != 0;
     }
 
     // Returns whether this is the this pointer
     BOOL IsThisPtr() const
     {
-        return (m_flags & TI_FLAG_THIS_PTR);
+        return (m_flags & TI_FLAG_THIS_PTR) != 0;
     }
 
     BOOL IsUnboxedGenericTypeVar() const
     {
-        return !IsByRef() && (m_flags & TI_FLAG_GENERIC_TYPE_VAR);
+        return !IsByRef() && ((m_flags & TI_FLAG_GENERIC_TYPE_VAR) != 0);
     }
 
     BOOL IsReadonlyByRef() const
     {
-        return IsByRef() && (m_flags & TI_FLAG_BYREF_READONLY);
+        return IsByRef() && ((m_flags & TI_FLAG_BYREF_READONLY) != 0);
     }
 
     // A byref value class is NOT a value class
@@ -445,8 +405,8 @@ public:
     BOOL IsValueClassWithClsHnd() const
     {
         return (GetType() == TI_STRUCT) ||
-               ((m_cls != NO_CLASS_HANDLE) && GetType() != TI_REF && GetType() != TI_METHOD &&
-                GetType() != TI_ERROR); // necessary because if byref bit is set, we return TI_ERROR)
+               ((m_cls != NO_CLASS_HANDLE) && (GetType() != TI_REF) && (GetType() != TI_METHOD) &&
+                (GetType() != TI_ERROR)); // necessary because if byref bit is set, we return TI_ERROR)
     }
 
     // Returns whether this is a primitive type (not a byref, objref,
@@ -454,17 +414,17 @@ public:
     // May Need to normalise first (m/r/I4 --> I4)
     BOOL IsPrimitiveType() const
     {
-        DWORD Type = GetType();
+        unsigned type = GetType();
 
         // boolean, char, u1,u2 never appear on the operand stack
-        return (Type == TI_BYTE || Type == TI_SHORT || Type == TI_INT || Type == TI_LONG || Type == TI_FLOAT ||
-                Type == TI_DOUBLE);
+        return ((type == TI_BYTE) || (type == TI_SHORT) || (type == TI_INT) || (type == TI_LONG) ||
+                (type == TI_FLOAT) || (type == TI_DOUBLE));
     }
 
     // Returns whether this is the null objref
     BOOL IsNullObjRef() const
     {
-        return (IsType(TI_NULL));
+        return IsType(TI_NULL);
     }
 
     // must be for a local which is an object type (i.e. has a slot >= 0)
@@ -472,30 +432,18 @@ public:
     // Note that this works if the error is 'Byref'
     BOOL IsDead() const
     {
-        return (m_flags & (TI_FLAG_DATA_MASK)) == TI_ERROR;
+        return (m_flags & TI_FLAG_DATA_MASK) == TI_ERROR;
     }
 
     BOOL IsUninitialisedObjRef() const
     {
-        return (m_flags & TI_FLAG_UNINIT_OBJREF);
+        return (m_flags & TI_FLAG_UNINIT_OBJREF) != 0;
     }
 
     BOOL IsToken() const
     {
         return (GetType() == TI_METHOD) && ((m_flags & TI_FLAG_TOKEN) != 0);
     }
-
-private:
-    // used to make functions that return typeinfo efficient.
-    typeInfo(DWORD flags, CORINFO_CLASS_HANDLE cls)
-    {
-        m_cls   = cls;
-        m_flags = flags;
-    }
-
-    friend typeInfo ByRef(const typeInfo& ti);
-    friend typeInfo DereferenceByRef(const typeInfo& ti);
-    friend typeInfo NormaliseForStack(const typeInfo& ti);
 };
 
 inline typeInfo NormaliseForStack(const typeInfo& ti)

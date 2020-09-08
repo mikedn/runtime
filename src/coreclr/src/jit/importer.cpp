@@ -15641,7 +15641,6 @@ void Compiler::impImportBlockPending(BasicBlock* block)
                       "Previous depth was %d, current depth is %d",
                       block->bbCodeOffs, block->bbCodeOffsEnd, info.compFullName, block->bbStackDepthOnEntry(),
                       verCurrentState.esStackDepth);
-            buffer[400 - 1] = 0;
             NO_WAY(buffer);
 #else
             NO_WAY("Block entered with different stack depths");

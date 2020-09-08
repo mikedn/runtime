@@ -48,7 +48,7 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
 // the bit
 bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
 {
-    DWORD allFlags =
+    unsigned allFlags =
         TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_GENERIC_TYPE_VAR | TI_FLAG_UNINIT_OBJREF;
 #ifdef TARGET_64BIT
     allFlags |= TI_FLAG_NATIVE_INT;
@@ -162,7 +162,7 @@ BOOL typeInfo::tiCompatibleWith(COMP_HANDLE     CompHnd,
 
     if (parent.IsUnboxedGenericTypeVar() || child.IsUnboxedGenericTypeVar())
     {
-        return (FALSE); // need to have had child == parent
+        return FALSE; // need to have had child == parent
     }
     else if (parent.IsType(TI_REF))
     {
