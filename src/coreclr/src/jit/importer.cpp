@@ -15178,59 +15178,48 @@ void Compiler::impReimportMarkSuccessors(BasicBlock* block)
     }
 }
 
-void Compiler::impVerifyEHBlock(BasicBlock* block, bool isTryStart)
+void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
 {
     assert(block->hasTryIndex());
     assert(!compIsForInlining());
 
-    unsigned  tryIndex = block->getTryIndex();
-    EHblkDsc* HBtab    = ehGetDsc(tryIndex);
-
-    if (isTryStart)
+    if (((block->bbFlags & BBF_TRY_BEG) != 0) && (block->bbStackDepthOnEntry() != 0))
     {
-        assert(block->bbFlags & BBF_TRY_BEG);
-
-        // The Stack must be empty
-        //
-        if (block->bbStackDepthOnEntry() != 0)
-        {
-            BADCODE("Evaluation stack must be empty on entry into a try block");
-        }
+        BADCODE("Evaluation stack must be empty on entry into a try block");
     }
 
     // Save the stack contents, we'll need to restore it later
-    //
     EntryState blockState;
     impSaveStackState(&blockState);
 
-    while (HBtab != nullptr)
+    unsigned  tryIndex = block->getTryIndex();
+    EHblkDsc* ehDesc   = ehGetDsc(tryIndex);
+
+    while (ehDesc != nullptr)
     {
         // Recursively process the handler block, if we haven't already done so.
-        BasicBlock* hndBegBB = HBtab->ebdHndBeg;
+        BasicBlock* hndBegBB = ehDesc->ebdHndBeg;
 
         if (((hndBegBB->bbFlags & BBF_IMPORTED) == 0) && (impGetPendingBlockMember(hndBegBB) == 0))
         {
-            //  Construct the proper verification stack state
-            //   either empty or one that contains just
-            //   the Exception Object that we are dealing with
-            //
+            // Construct the proper verification stack state either empty or one
+            // that contains just the Exception object that we are dealing with.
             verCurrentState.esStackDepth = 0;
 
             if (handlerGetsXcptnObj(hndBegBB->bbCatchTyp))
             {
                 CORINFO_CLASS_HANDLE clsHnd;
 
-                if (HBtab->HasFilter())
+                if (ehDesc->HasFilter())
                 {
                     clsHnd = impGetObjectClass();
                 }
                 else
                 {
                     CORINFO_RESOLVED_TOKEN resolvedToken;
-
                     resolvedToken.tokenContext = impTokenLookupContextHandle;
                     resolvedToken.tokenScope   = info.compScopeHnd;
-                    resolvedToken.token        = HBtab->ebdTyp;
+                    resolvedToken.token        = ehDesc->ebdTyp;
                     resolvedToken.tokenType    = CORINFO_TOKENKIND_Class;
                     info.compCompHnd->resolveToken(&resolvedToken);
 
@@ -15242,21 +15231,13 @@ void Compiler::impVerifyEHBlock(BasicBlock* block, bool isTryStart)
                 hndBegBB = impPushCatchArgOnStack(hndBegBB, clsHnd, false);
             }
 
-            // Queue up the handler for importing
-            //
             impImportBlockPending(hndBegBB);
         }
 
         // Process the filter block, if we haven't already done so.
-        if (HBtab->HasFilter())
+        if (ehDesc->HasFilter())
         {
-            /* @VERIFICATION : Ideally the end of filter state should get
-               propagated to the catch handler, this is an incompleteness,
-               but is not a security/compliance issue, since the only
-               interesting state is the 'thisInit' state.
-            */
-
-            BasicBlock* filterBB = HBtab->ebdFilter;
+            BasicBlock* filterBB = ehDesc->ebdFilter;
 
             if (((filterBB->bbFlags & BBF_IMPORTED) == 0) && (impGetPendingBlockMember(filterBB) == 0))
             {
@@ -15272,15 +15253,14 @@ void Compiler::impVerifyEHBlock(BasicBlock* block, bool isTryStart)
         }
 
         // Now process our enclosing try index (if any)
-        //
-        tryIndex = HBtab->ebdEnclosingTryIndex;
+        tryIndex = ehDesc->ebdEnclosingTryIndex;
         if (tryIndex == EHblkDsc::NO_ENCLOSING_INDEX)
         {
-            HBtab = nullptr;
+            ehDesc = nullptr;
         }
         else
         {
-            HBtab = ehGetDsc(tryIndex);
+            ehDesc = ehGetDsc(tryIndex);
         }
     }
 
@@ -15330,47 +15310,16 @@ void Compiler::impImportBlock(BasicBlock* block)
 
     impSetCurrentState(block);
 
-    /* Now walk the code and import the IL into GenTrees */
-
-    /* @VERIFICATION : For now, the only state propagation from try
-        to it's handler is "thisInit" state (stack is empty at start of try).
-        In general, for state that we track in verification, we need to
-        model the possibility that an exception might happen at any IL
-        instruction, so we really need to merge all states that obtain
-        between IL instructions in a try block into the start states of
-        all handlers.
-
-        However we do not allow the 'this' pointer to be uninitialized when
-        entering most kinds try regions (only try/fault are allowed to have
-        an uninitialized this pointer on entry to the try)
-
-        Fortunately, the stack is thrown away when an exception
-        leads to a handler, so we don't have to worry about that.
-        We DO, however, have to worry about the "thisInit" state.
-        But only for the try/fault case.
-
-        The only allowed transition is from TIS_Uninit to TIS_Init.
-
-        So for a try/fault region for the fault handler block
-        we will merge the start state of the try begin
-        and the post-state of each block that is part of this try region
-    */
-
-    // merge the start state of the try begin
-    //
-    if (block->bbFlags & BBF_TRY_BEG)
+    if ((block->bbFlags & BBF_TRY_BEG) != 0)
     {
-        impVerifyEHBlock(block, true);
+        impAddPendingEHSuccessors(block);
     }
 
     impImportBlockCode(block);
 
-    // As discussed above:
-    // merge the post-state of each block that is part of this try region
-    //
     if (block->hasTryIndex())
     {
-        impVerifyEHBlock(block, false);
+        impAddPendingEHSuccessors(block);
     }
 
     if (compDonotInline())

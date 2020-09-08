@@ -3875,7 +3875,7 @@ private:
     void impReimportMarkBlock(BasicBlock* block);
     void impReimportMarkSuccessors(BasicBlock* block);
 
-    void impVerifyEHBlock(BasicBlock* block, bool isTryStart);
+    void impAddPendingEHSuccessors(BasicBlock* block);
 
     void impImportBlockPending(BasicBlock* block);
 
