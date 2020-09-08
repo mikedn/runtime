@@ -15183,11 +15183,6 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
     assert(block->hasTryIndex());
     assert(!compIsForInlining());
 
-    if (((block->bbFlags & BBF_TRY_BEG) != 0) && (block->bbStackDepthOnEntry() != 0))
-    {
-        BADCODE("Evaluation stack must be empty on entry into a try block");
-    }
-
     // Save the stack contents, impPushCatchArgOnStack pushes the arg on the current
     // stack which may happen to be non-empty due to impImportBlock calling this at
     // the wrong time.
@@ -15317,6 +15312,11 @@ void Compiler::impImportBlock(BasicBlock* block)
 
     if ((block->bbFlags & BBF_TRY_BEG) != 0)
     {
+        if (verCurrentState.esStackDepth != 0)
+        {
+            BADCODE("Evaluation stack must be empty on entry into a try block");
+        }
+
         impAddPendingEHSuccessors(block);
     }
 
