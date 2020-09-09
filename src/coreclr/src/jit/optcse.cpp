@@ -794,9 +794,9 @@ unsigned Compiler::optValnumCSE_Locate()
 
         compCurBB = block;
 
-        /* Ensure that the BBF_VISITED and BBF_MARKED flag are clear */
-        /* Everyone who uses these flags are required to clear afterwards */
-        noway_assert((block->bbFlags & (BBF_VISITED | BBF_MARKED)) == 0);
+        /* Ensure that the BBF_MARKED flag is clear */
+        /* Everyone who uses this flag are required to clear afterwards */
+        noway_assert((block->bbFlags & BBF_MARKED) == 0);
 
         /* Walk the statement trees in this basic block */
         for (Statement* stmt : StatementList(block->FirstNonPhiDef()))
@@ -3855,16 +3855,12 @@ void Compiler::optOptimizeCSEs()
 
 void Compiler::optCleanupCSEs()
 {
-    // We must clear the BBF_VISITED and BBF_MARKED flags.
     for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
-        // And clear all the "visited" bits on the block.
-        block->bbFlags &= ~(BBF_VISITED | BBF_MARKED);
+        block->bbFlags &= ~BBF_MARKED;
 
-        // Walk the statement trees in this basic block.
         for (Statement* stmt : StatementList(block->FirstNonPhiDef()))
         {
-            // We must clear the gtCSEnum field.
             for (GenTree* tree = stmt->GetRootNode(); tree; tree = tree->gtPrev)
             {
                 tree->gtCSEnum = NO_CSE;
@@ -3885,7 +3881,7 @@ void Compiler::optEnsureClearCSEInfo()
 {
     for (BasicBlock* block = fgFirstBB; block; block = block->bbNext)
     {
-        assert((block->bbFlags & (BBF_VISITED | BBF_MARKED)) == 0);
+        assert((block->bbFlags & BBF_MARKED) == 0);
 
         // Initialize 'stmt' to the first non-Phi statement
         // Walk the statement trees in this basic block

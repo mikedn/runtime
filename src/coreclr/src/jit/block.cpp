@@ -241,10 +241,6 @@ void BasicBlock::dspBlockILRange() const
 //
 void BasicBlock::dspFlags()
 {
-    if (bbFlags & BBF_VISITED)
-    {
-        printf("v ");
-    }
     if (bbFlags & BBF_MARKED)
     {
         printf("m ");

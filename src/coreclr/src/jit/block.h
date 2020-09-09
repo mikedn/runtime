@@ -370,7 +370,6 @@ struct BasicBlock : private LIR::Range
 
 // clang-format off
 
-#define BBF_VISITED             0x00000001 // BB visited during optimizations
 #define BBF_MARKED              0x00000002 // BB marked  during optimizations
 #define BBF_CHANGED             0x00000004 // input/output of this block has changed
 #define BBF_REMOVED             0x00000008 // BB has been removed from bb-list

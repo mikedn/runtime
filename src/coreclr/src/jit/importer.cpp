@@ -16218,12 +16218,6 @@ void Compiler::impImport()
         fgDispBasicBlocks();
         printf("\n");
     }
-
-    // Used in impImportBlockPending() for STRESS_CHK_REIMPORT
-    for (BasicBlock* block = fgFirstBB; block; block = block->bbNext)
-    {
-        block->bbFlags &= ~BBF_VISITED;
-    }
 #endif
 }
 
