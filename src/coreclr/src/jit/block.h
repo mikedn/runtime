@@ -715,9 +715,8 @@ struct BasicBlock : private LIR::Range
         flowList*   bbLastPred;   // last pred list entry
     };
 
-#define NO_BASE_TMP UINT_MAX // base# to use when we have none
-    unsigned bbStkTempsIn;   // base# for input stack temps
-    unsigned bbStkTempsOut;  // base# for output stack temps
+    unsigned bbStkTempsIn;  // base# for input stack temps
+    unsigned bbStkTempsOut; // base# for output stack temps
 
 #define MAX_XCPTN_INDEX (USHRT_MAX - 1)
 

@@ -15372,7 +15372,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
     unsigned multRef = impCanReimport ? unsigned(~0) : 0;
 
-    unsigned baseTmp             = NO_BASE_TMP; // input temps assigned to successor blocks
+    unsigned baseTmp             = BAD_VAR_NUM; // input temps assigned to successor blocks
     bool     reimportSpillClique = false;
 
     switch (block->bbJumpKind)
@@ -15385,7 +15385,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             multRef |= block->bbNext->bbRefs;
             baseTmp = block->bbNext->bbStkTempsIn;
 
-            if (baseTmp == NO_BASE_TMP)
+            if (baseTmp == BAD_VAR_NUM)
             {
                 // Try the target of the jump then
                 multRef |= block->bbJumpDest->bbRefs;
@@ -15414,7 +15414,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 multRef |= tgtBlock->bbRefs;
 
                 // Thanks to spill cliques, we should have assigned all or none
-                assert((baseTmp == NO_BASE_TMP) || (baseTmp == tgtBlock->bbStkTempsIn));
+                assert((baseTmp == BAD_VAR_NUM) || (baseTmp == tgtBlock->bbStkTempsIn));
 
                 baseTmp = tgtBlock->bbStkTempsIn;
                 if (multRef > 1)
@@ -15442,7 +15442,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
     /* Do we have a base temp number? */
 
-    bool newTemps = (baseTmp == NO_BASE_TMP);
+    bool newTemps = (baseTmp == BAD_VAR_NUM);
 
     if (newTemps)
     {
@@ -15843,13 +15843,13 @@ void Compiler::SetSpillTempsBase::Visit(SpillCliqueDir predOrSucc, BasicBlock* b
 {
     if (predOrSucc == SpillCliqueSucc)
     {
-        assert(blk->bbStkTempsIn == NO_BASE_TMP); // Should not already be a member of a clique as a successor.
+        assert(blk->bbStkTempsIn == BAD_VAR_NUM); // Should not already be a member of a clique as a successor.
         blk->bbStkTempsIn = m_baseTmp;
     }
     else
     {
         assert(predOrSucc == SpillCliquePred);
-        assert(blk->bbStkTempsOut == NO_BASE_TMP); // Should not already be a member of a clique as a predecessor.
+        assert(blk->bbStkTempsOut == BAD_VAR_NUM); // Should not already be a member of a clique as a predecessor.
         blk->bbStkTempsOut = m_baseTmp;
     }
 }
@@ -15922,7 +15922,7 @@ void Compiler::impRetypeEntryStateTemps(BasicBlock* blk)
 
 unsigned Compiler::impGetSpillTmpBase(BasicBlock* block)
 {
-    if (block->bbStkTempsOut != NO_BASE_TMP)
+    if (block->bbStkTempsOut != BAD_VAR_NUM)
     {
         return block->bbStkTempsOut;
     }

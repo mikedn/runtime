@@ -1311,8 +1311,8 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
     block->bbRefs   = 1;
     block->bbWeight = BB_UNITY_WEIGHT;
 
-    block->bbStkTempsIn  = NO_BASE_TMP;
-    block->bbStkTempsOut = NO_BASE_TMP;
+    block->bbStkTempsIn  = BAD_VAR_NUM;
+    block->bbStkTempsOut = BAD_VAR_NUM;
 
     block->bbEntryState = nullptr;
 
