@@ -15372,77 +15372,56 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
     unsigned multRef = impCanReimport ? unsigned(~0) : 0;
 
-    unsigned    baseTmp             = NO_BASE_TMP; // input temps assigned to successor blocks
-    bool        reimportSpillClique = false;
-    BasicBlock* tgtBlock            = nullptr;
+    unsigned baseTmp             = NO_BASE_TMP; // input temps assigned to successor blocks
+    bool     reimportSpillClique = false;
 
     switch (block->bbJumpKind)
     {
         case BBJ_COND:
-
             addStmt = impExtractLastStmt();
 
             assert(addStmt->GetRootNode()->gtOper == GT_JTRUE);
 
-            /* Note if the next block has more than one ancestor */
-
             multRef |= block->bbNext->bbRefs;
+            baseTmp = block->bbNext->bbStkTempsIn;
 
-            /* Does the next block have temps assigned? */
-
-            baseTmp  = block->bbNext->bbStkTempsIn;
-            tgtBlock = block->bbNext;
-
-            if (baseTmp != NO_BASE_TMP)
+            if (baseTmp == NO_BASE_TMP)
             {
-                break;
+                // Try the target of the jump then
+                multRef |= block->bbJumpDest->bbRefs;
+                baseTmp = block->bbJumpDest->bbStkTempsIn;
             }
-
-            /* Try the target of the jump then */
-
-            multRef |= block->bbJumpDest->bbRefs;
-            baseTmp  = block->bbJumpDest->bbStkTempsIn;
-            tgtBlock = block->bbJumpDest;
             break;
 
         case BBJ_ALWAYS:
             multRef |= block->bbJumpDest->bbRefs;
-            baseTmp  = block->bbJumpDest->bbStkTempsIn;
-            tgtBlock = block->bbJumpDest;
+            baseTmp = block->bbJumpDest->bbStkTempsIn;
             break;
 
         case BBJ_NONE:
             multRef |= block->bbNext->bbRefs;
-            baseTmp  = block->bbNext->bbStkTempsIn;
-            tgtBlock = block->bbNext;
+            baseTmp = block->bbNext->bbStkTempsIn;
             break;
 
         case BBJ_SWITCH:
-
-            BasicBlock** jmpTab;
-            unsigned     jmpCnt;
-
             addStmt = impExtractLastStmt();
             assert(addStmt->GetRootNode()->gtOper == GT_SWITCH);
 
-            jmpCnt = block->bbJumpSwt->bbsCount;
-            jmpTab = block->bbJumpSwt->bbsDstTab;
-
-            do
+            for (unsigned i = 0; i < block->bbJumpSwt->bbsCount; i++)
             {
-                tgtBlock = (*jmpTab);
+                BasicBlock* tgtBlock = block->bbJumpSwt->bbsDstTab[i];
 
                 multRef |= tgtBlock->bbRefs;
 
                 // Thanks to spill cliques, we should have assigned all or none
                 assert((baseTmp == NO_BASE_TMP) || (baseTmp == tgtBlock->bbStkTempsIn));
+
                 baseTmp = tgtBlock->bbStkTempsIn;
                 if (multRef > 1)
                 {
                     break;
                 }
-            } while (++jmpTab, --jmpCnt);
-
+            }
             break;
 
         case BBJ_CALLFINALLY:
