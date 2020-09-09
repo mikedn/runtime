@@ -619,8 +619,6 @@ bool BasicBlock::CloneBlockState(
     to->copyEHRegion(from);
     to->bbCatchTyp    = from->bbCatchTyp;
     to->bbRefs        = from->bbRefs;
-    to->bbStkTempsIn  = from->bbStkTempsIn;
-    to->bbStkTempsOut = from->bbStkTempsOut;
     to->bbCodeOffs    = from->bbCodeOffs;
     to->bbCodeOffsEnd = from->bbCodeOffsEnd;
     VarSetOps::AssignAllowUninitRhs(compiler, to->bbScope, from->bbScope);
