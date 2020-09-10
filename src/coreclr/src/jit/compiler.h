@@ -3494,9 +3494,6 @@ protected:
     StackEntry& impStackTop(unsigned n = 0);
     unsigned impStackHeight();
 
-    void impSaveStackState(EntryState* savePtr);
-    void impRestoreStackState(EntryState* savePtr);
-
     GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
 
     int impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const BYTE* codeAddr, const BYTE* codeEndp);
@@ -3825,7 +3822,6 @@ private:
     {
         PendingDsc* pdNext;
         BasicBlock* pdBB;
-        EntryState  pdSavedStack;
     };
 
     PendingDsc* impPendingList; // list of BBs currently waiting to be imported.

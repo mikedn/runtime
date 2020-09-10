@@ -240,37 +240,6 @@ unsigned Compiler::impStackHeight()
     return verCurrentState.esStackDepth;
 }
 
-/*****************************************************************************
- *
- *  The following logic is used to save/restore stack contents.
- *  If 'copy' is true, then we make a copy of the trees on the stack. These
- *  have to all be cloneable/spilled values.
- */
-
-void Compiler::impSaveStackState(EntryState* savePtr)
-{
-    savePtr->esStackDepth = verCurrentState.esStackDepth;
-
-    if (verCurrentState.esStackDepth != 0)
-    {
-        savePtr->esStack = new (this, CMK_ImpStack) StackEntry[verCurrentState.esStackDepth];
-
-        size_t stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
-        memcpy(savePtr->esStack, verCurrentState.esStack, stackSize);
-    }
-}
-
-void Compiler::impRestoreStackState(EntryState* savePtr)
-{
-    verCurrentState.esStackDepth = savePtr->esStackDepth;
-
-    if (verCurrentState.esStackDepth != 0)
-    {
-        size_t stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
-        memcpy(verCurrentState.esStack, savePtr->esStack, stackSize);
-    }
-}
-
 //------------------------------------------------------------------------
 // impBeginTreeList: Get the tree list started for a new basic block.
 //
@@ -15262,10 +15231,12 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
 
 void Compiler::impImportBlock(BasicBlock* block)
 {
+    impSetCurrentState(block);
+
     // BBF_INTERNAL blocks only exist during importation due to EH canonicalization. We need to
     // handle them specially. In particular, there is no IL to import for them, but we do need
     // to mark them as imported and put their successors on the pending import list.
-    if (block->bbFlags & BBF_INTERNAL)
+    if ((block->bbFlags & BBF_INTERNAL) != 0)
     {
         JITDUMP("Marking BBF_INTERNAL block " FMT_BB " as BBF_IMPORTED\n", block->bbNum);
         block->bbFlags |= BBF_IMPORTED;
@@ -15288,8 +15259,6 @@ void Compiler::impImportBlock(BasicBlock* block)
     impCurOpcName = "unknown";
     impCurOpcOffs = block->bbCodeOffs;
 #endif
-
-    impSetCurrentState(block);
 
     if (((block->bbFlags & BBF_TRY_BEG) != 0) && (verCurrentState.esStackDepth != 0))
     {
@@ -15621,16 +15590,7 @@ void Compiler::impImportBlockPending(BasicBlock* block)
         impRetypeEntryStateTemps(block);
     }
 
-    PendingDsc* dsc = impPushPendingBlock(block);
-
-    dsc->pdSavedStack.esStackDepth = verCurrentState.esStackDepth;
-
-    // Save the stack trees for later
-
-    if (verCurrentState.esStackDepth != 0)
-    {
-        impSaveStackState(&dsc->pdSavedStack);
-    }
+    impPushPendingBlock(block);
 }
 
 // Ensures that "block" is a member of the list of BBs waiting to be imported, pushing it on the list if
@@ -15650,18 +15610,7 @@ void Compiler::impReimportBlockPending(BasicBlock* block)
 
     block->bbFlags &= ~BBF_IMPORTED;
 
-    PendingDsc* dsc = impPushPendingBlock(block);
-
-    if (block->bbEntryState != nullptr)
-    {
-        dsc->pdSavedStack.esStackDepth = block->bbEntryState->esStackDepth;
-        dsc->pdSavedStack.esStack      = block->bbEntryState->esStack;
-    }
-    else
-    {
-        dsc->pdSavedStack.esStackDepth = 0;
-        dsc->pdSavedStack.esStack      = nullptr;
-    }
+    impPushPendingBlock(block);
 }
 
 Compiler::PendingDsc* Compiler::impPushPendingBlock(BasicBlock* block)
@@ -15701,12 +15650,6 @@ Compiler::PendingDsc* Compiler::impPopPendingBlock()
         impPendingFree = dsc;
 
         impSetPendingBlockMember(dsc->pdBB, false);
-
-        verCurrentState.esStackDepth = dsc->pdSavedStack.esStackDepth;
-        if (verCurrentState.esStackDepth != 0)
-        {
-            impRestoreStackState(&dsc->pdSavedStack);
-        }
     }
 
     return dsc;
@@ -15958,7 +15901,13 @@ void Compiler::impSetCurrentState(BasicBlock* block)
         return;
     }
 
-    impRestoreStackState(block->bbEntryState);
+    verCurrentState.esStackDepth = block->bbEntryState->esStackDepth;
+
+    if (verCurrentState.esStackDepth != 0)
+    {
+        size_t stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
+        memcpy(verCurrentState.esStack, block->bbEntryState->esStack, stackSize);
+    }
 }
 
 unsigned BasicBlock::bbStackDepthOnEntry()
