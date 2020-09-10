@@ -2084,81 +2084,16 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     return gtNewLclvNode(tmp, TYP_I_IMPL);
 }
 
-/******************************************************************************
- *  Spills the stack at verCurrentState.esStack[level] and replaces it with a temp.
- *  If tnum!=BAD_VAR_NUM, the temp var used to replace the tree is tnum,
- *     else, grab a new temp.
- *  For structs (which can be pushed on the stack using obj, etc),
- *  special handling is needed
- */
-
-struct RecursiveGuard
+// Spills the stack at verCurrentState.esStack[level] and replaces it with a temp.
+void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
 {
-public:
-    RecursiveGuard()
-    {
-        m_pAddress = nullptr;
-    }
-
-    ~RecursiveGuard()
-    {
-        if (m_pAddress)
-        {
-            *m_pAddress = false;
-        }
-    }
-
-    void Init(bool* pAddress, bool bInitialize)
-    {
-        assert(pAddress && *pAddress == false && "Recursive guard violation");
-        m_pAddress = pAddress;
-
-        if (bInitialize)
-        {
-            *m_pAddress = true;
-        }
-    }
-
-protected:
-    bool* m_pAddress;
-};
-
-void Compiler::impSpillStackEntry(unsigned level,
-                                  unsigned tnum
-#ifdef DEBUG
-                                  ,
-                                  bool        bAssertOnRecursion,
-                                  const char* reason
-#endif
-                                  )
-{
-
-#ifdef DEBUG
-    RecursiveGuard guard;
-    guard.Init(&impNestedStackSpill, bAssertOnRecursion);
-#endif
-
     GenTree* tree = verCurrentState.esStack[level].val;
+    unsigned tnum = lvaGrabTemp(true DEBUGARG(reason));
 
-    // Allocate a temp if we haven't been asked to use a particular one
-
-    bool isNewTemp = false;
-
-    if (tnum == BAD_VAR_NUM)
-    {
-        tnum      = lvaGrabTemp(true DEBUGARG(reason));
-        isNewTemp = true;
-    }
-    else
-    {
-        noway_assert(tnum < lvaCount);
-    }
-
-    /* Assign the spilled entry to the temp */
     impAssignTempGen(tnum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(), level);
 
     // If temp is newly introduced and a ref type, grab what type info we can.
-    if (isNewTemp && (lvaTable[tnum].lvType == TYP_REF))
+    if (lvaTable[tnum].lvType == TYP_REF)
     {
         assert(lvaTable[tnum].lvSingleDef == 0);
         lvaTable[tnum].lvSingleDef = 1;
@@ -2211,7 +2146,7 @@ void Compiler::impSpillStackEnsure(bool spillLeaves)
             continue;
         }
 
-        impSpillStackEntry(level, BAD_VAR_NUM DEBUGARG(false) DEBUGARG("impSpillStackEnsure"));
+        impSpillStackEntry(level DEBUGARG("impSpillStackEnsure"));
     }
 }
 
@@ -2219,7 +2154,7 @@ void Compiler::impSpillEvalStack()
 {
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
-        impSpillStackEntry(level, BAD_VAR_NUM DEBUGARG(false) DEBUGARG("impSpillEvalStack"));
+        impSpillStackEntry(level DEBUGARG("impSpillEvalStack"));
     }
 }
 
@@ -2271,7 +2206,7 @@ inline void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLev
              gtHasLocalsWithAddrOp(tree))) // Spill if we still see GT_LCL_VAR that contains lvHasLdAddrOp or
                                            // lvAddrTaken flag.
         {
-            impSpillStackEntry(i, BAD_VAR_NUM DEBUGARG(false) DEBUGARG(reason));
+            impSpillStackEntry(i DEBUGARG(reason));
         }
     }
 }
@@ -2297,7 +2232,7 @@ inline void Compiler::impSpillSpecialSideEff()
         // Make sure if we have an exception object in the sub tree we spill ourselves.
         if (gtHasCatchArg(tree))
         {
-            impSpillStackEntry(level, BAD_VAR_NUM DEBUGARG(false) DEBUGARG("impSpillSpecialSideEff"));
+            impSpillStackEntry(level DEBUGARG("impSpillSpecialSideEff"));
         }
     }
 }
@@ -2319,7 +2254,7 @@ void Compiler::impSpillValueClasses()
             // value class on the stack.  Need to spill that
             // stack entry.
 
-            impSpillStackEntry(level, BAD_VAR_NUM DEBUGARG(false) DEBUGARG("impSpillValueClasses"));
+            impSpillStackEntry(level DEBUGARG("impSpillValueClasses"));
         }
     }
 }
@@ -2373,7 +2308,7 @@ void Compiler::impSpillLclRefs(ssize_t lclNum)
 
         if (xcptnCaught || gtHasRef(tree, lclNum, false))
         {
-            impSpillStackEntry(level, BAD_VAR_NUM DEBUGARG(false) DEBUGARG("impSpillLclRefs"));
+            impSpillStackEntry(level DEBUGARG("impSpillLclRefs"));
         }
     }
 }
@@ -5982,8 +5917,7 @@ GenTreeCall* Compiler::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX i
     // Ignore this trivial case.
     if (impStackTop().val->gtOper != GT_LCL_VAR)
     {
-        impSpillStackEntry(verCurrentState.esStackDepth - 1,
-                           BAD_VAR_NUM DEBUGARG(false) DEBUGARG("impImportIndirectCall"));
+        impSpillStackEntry(verCurrentState.esStackDepth - 1 DEBUGARG("impImportIndirectCall"));
     }
 
     /* Get the function pointer */
@@ -6052,16 +5986,14 @@ void Compiler::impPopArgsForUnmanagedCall(GenTree* call, CORINFO_SIG_INFO* sig)
         {
             assert(lastLevelWithSideEffects == UINT_MAX);
 
-            impSpillStackEntry(level,
-                               BAD_VAR_NUM DEBUGARG(false) DEBUGARG("impPopArgsForUnmanagedCall - other side effect"));
+            impSpillStackEntry(level DEBUGARG("impPopArgsForUnmanagedCall - other side effect"));
         }
         else if (verCurrentState.esStack[level].val->gtFlags & GTF_SIDE_EFFECT)
         {
             if (lastLevelWithSideEffects != UINT_MAX)
             {
                 /* We had a previous side effect - must spill it */
-                impSpillStackEntry(lastLevelWithSideEffects,
-                                   BAD_VAR_NUM DEBUGARG(false) DEBUGARG("impPopArgsForUnmanagedCall - side effect"));
+                impSpillStackEntry(lastLevelWithSideEffects DEBUGARG("impPopArgsForUnmanagedCall - side effect"));
 
                 /* Record the level for the current side effect in case we will spill it */
                 lastLevelWithSideEffects = level;
@@ -15535,7 +15467,9 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             }
         }
 
-        impSpillStackEntry(level, tempNum DEBUGARG(true) DEBUGARG("Spill Stack Entry"));
+        tree = verCurrentState.esStack[level].val;
+        impAssignTempGen(tempNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(), level);
+        verCurrentState.esStack[level].val = gtNewLclvNode(tempNum, varActualType(lvaTable[tempNum].GetType()));
     }
 
     /* Put back the 'jtrue'/'switch' if we removed it earlier */
@@ -16019,13 +15953,8 @@ void Compiler::impImport()
     inlineRoot->impSpillCliquePredMembers.Reset(fgBBNumMax * 2);
     inlineRoot->impSpillCliqueSuccMembers.Reset(fgBBNumMax * 2);
     impBlockListNodeFreeList = nullptr;
-
-#ifdef DEBUG
-    impLastILoffsStmt   = nullptr;
-    impNestedStackSpill = false;
-#endif
-    impBoxTemp = BAD_VAR_NUM;
-
+    INDEBUG(impLastILoffsStmt = nullptr;)
+    impBoxTemp     = BAD_VAR_NUM;
     impPendingList = impPendingFree = nullptr;
 
     // Skip leading internal blocks.

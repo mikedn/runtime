@@ -3771,7 +3771,6 @@ private:
 #ifdef DEBUG
     unsigned    impCurOpcOffs;
     const char* impCurOpcName;
-    bool        impNestedStackSpill;
 
     // For displaying instrs with generated native code (-n:B)
     Statement* impLastILoffsStmt; // oldest stmt added for which we did not call SetLastILOffset().
@@ -3846,14 +3845,7 @@ private:
 
     bool impCanReimport;
 
-    void impSpillStackEntry(unsigned level,
-                            unsigned varNum
-#ifdef DEBUG
-                            ,
-                            bool        bAssertOnRecursion,
-                            const char* reason
-#endif
-                            );
+    void impSpillStackEntry(unsigned level DEBUGARG(const char* reason));
 
     void impSpillStackEnsure(bool spillLeaves = false);
     void impEvalSideEffects();
