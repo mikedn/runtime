@@ -15839,9 +15839,6 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
     if (predOrSucc == SpillCliqueSucc)
     {
         m_pComp->impReimportMarkBlock(blk);
-
-        // Set the current stack state to that of the blk->bbEntryState
-        m_pComp->impSetCurrentState(blk);
         m_pComp->impImportBlockPending(blk);
     }
     else if ((blk != m_pComp->compCurBB) && ((blk->bbFlags & BBF_IMPORTED) != 0))
