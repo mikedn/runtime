@@ -15190,7 +15190,7 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
         // Recursively process the handler block, if we haven't already done so.
         BasicBlock* hndBegBB = ehDesc->ebdHndBeg;
 
-        if (((hndBegBB->bbFlags & BBF_IMPORTED) == 0) && (impGetPendingBlockMember(hndBegBB) == 0))
+        if (((hndBegBB->bbFlags & BBF_IMPORTED) == 0) && !impIsPendingBlockMember(hndBegBB))
         {
             // Construct the proper verification stack state either empty or one
             // that contains just the Exception object that we are dealing with.
@@ -15229,7 +15229,7 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
         {
             BasicBlock* filterBB = ehDesc->ebdFilter;
 
-            if (((filterBB->bbFlags & BBF_IMPORTED) == 0) && (impGetPendingBlockMember(filterBB) == 0))
+            if (((filterBB->bbFlags & BBF_IMPORTED) == 0) && !impIsPendingBlockMember(filterBB))
             {
                 verCurrentState.esStackDepth = 0;
 
@@ -15587,28 +15587,9 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
 void Compiler::impImportBlockPending(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nimpImportBlockPending for " FMT_BB "\n", block->bbNum);
-    }
-#endif
+    JITDUMP("\nimpImportBlockPending for " FMT_BB "\n", block->bbNum);
 
-    // We will add a block to the pending set if it has not already been imported (or needs to be re-imported),
-    // or if it has, but merging in a predecessor's post-state changes the block's pre-state.
-    // (When we're doing verification, we always attempt the merge to detect verification errors.)
-
-    // If the block has not been imported, add to pending set.
-    bool addToPending = ((block->bbFlags & BBF_IMPORTED) == 0);
-
-    // Initialize bbEntryState just the first time we try to add this block to the pending list
-    // Just because bbEntryState is NULL, doesn't mean the pre-state wasn't previously set
-    // We use NULL to indicate the 'common' state to avoid memory allocation
-    if ((block->bbEntryState == nullptr) && addToPending && (impGetPendingBlockMember(block) == 0))
-    {
-        impInitBBEntryState(block);
-    }
-    else
+    if (((block->bbFlags & BBF_IMPORTED) != 0) || impIsPendingBlockMember(block))
     {
         // The stack should have the same height on entry to the block from all its predecessors.
         if (block->bbStackDepthOnEntry() != verCurrentState.esStackDepth)
@@ -15626,68 +15607,32 @@ void Compiler::impImportBlockPending(BasicBlock* block)
 #endif
         }
 
-        if (!addToPending)
-        {
-            return;
-        }
-
-        // We need to fix the types of any spill temps that might have changed:
-        //   int->native int, float->double, int->byref, etc.
-        impRetypeEntryStateTemps(block);
-
-        // OK, we must add to the pending list, if it's not already in it.
-        if (impGetPendingBlockMember(block) != 0)
-        {
-            return;
-        }
+        return;
     }
 
-    // Get an entry to add to the pending list
-
-    PendingDsc* dsc;
-
-    if (impPendingFree)
+    if (block->bbEntryState == nullptr)
     {
-        // We can reuse one of the freed up dscs.
-        dsc            = impPendingFree;
-        impPendingFree = dsc->pdNext;
+        impInitBBEntryState(block);
     }
     else
     {
-        // We have to create a new dsc
-        dsc = new (this, CMK_Unknown) PendingDsc;
+        // We need to fix the types of any spill temps that might have changed:
+        //   int->native int, float->double, int->byref, etc.
+        impRetypeEntryStateTemps(block);
     }
 
-    dsc->pdBB                      = block;
+    PendingDsc* dsc = impPushPendingBlock(block);
+
     dsc->pdSavedStack.esStackDepth = verCurrentState.esStackDepth;
 
     // Save the stack trees for later
 
-    if (verCurrentState.esStackDepth)
+    if (verCurrentState.esStackDepth != 0)
     {
         impSaveStackState(&dsc->pdSavedStack);
     }
-
-    // Add the entry to the pending list
-
-    dsc->pdNext    = impPendingList;
-    impPendingList = dsc;
-    impSetPendingBlockMember(block, 1); // And indicate that it's now a member of the set.
-
-    // Various assertions require us to now to consider the block as not imported (at least for
-    // the final time...)
-    block->bbFlags &= ~BBF_IMPORTED;
-
-#ifdef DEBUG
-    if (verbose && 0)
-    {
-        printf("Added PendingDsc - %08p for " FMT_BB "\n", dspPtr(dsc), block->bbNum);
-    }
-#endif
 }
 
-/*****************************************************************************/
-//
 // Ensures that "block" is a member of the list of BBs waiting to be imported, pushing it on the list if
 // necessary (and ensures that it is a member of the set of BB's on the list, by setting its byte in
 // impPendingBlockMembers).  Does *NOT* change the existing "pre-state" of the block.
@@ -15696,33 +15641,18 @@ void Compiler::impReimportBlockPending(BasicBlock* block)
 {
     JITDUMP("\nimpReimportBlockPending for " FMT_BB, block->bbNum);
 
-    assert(block->bbFlags & BBF_IMPORTED);
+    assert((block->bbFlags & BBF_IMPORTED) != 0);
 
-    // OK, we must add to the pending list, if it's not already in it.
-    if (impGetPendingBlockMember(block) != 0)
+    if (impIsPendingBlockMember(block))
     {
         return;
     }
 
-    // Get an entry to add to the pending list
+    block->bbFlags &= ~BBF_IMPORTED;
 
-    PendingDsc* dsc;
+    PendingDsc* dsc = impPushPendingBlock(block);
 
-    if (impPendingFree)
-    {
-        // We can reuse one of the freed up dscs.
-        dsc            = impPendingFree;
-        impPendingFree = dsc->pdNext;
-    }
-    else
-    {
-        // We have to create a new dsc
-        dsc = new (this, CMK_ImpStack) PendingDsc;
-    }
-
-    dsc->pdBB = block;
-
-    if (block->bbEntryState)
+    if (block->bbEntryState != nullptr)
     {
         dsc->pdSavedStack.esStackDepth = block->bbEntryState->esStackDepth;
         dsc->pdSavedStack.esStack      = block->bbEntryState->esStack;
@@ -15732,23 +15662,54 @@ void Compiler::impReimportBlockPending(BasicBlock* block)
         dsc->pdSavedStack.esStackDepth = 0;
         dsc->pdSavedStack.esStack      = nullptr;
     }
+}
 
-    // Add the entry to the pending list
+Compiler::PendingDsc* Compiler::impPushPendingBlock(BasicBlock* block)
+{
+    assert((block->bbFlags & BBF_IMPORTED) == 0);
+    assert(!impIsPendingBlockMember(block));
 
+    PendingDsc* dsc = impPendingFree;
+
+    if (dsc != nullptr)
+    {
+        impPendingFree = dsc->pdNext;
+    }
+    else
+    {
+        dsc = new (this, CMK_ImpStack) PendingDsc;
+    }
+
+    dsc->pdBB      = block;
     dsc->pdNext    = impPendingList;
     impPendingList = dsc;
-    impSetPendingBlockMember(block, 1); // And indicate that it's now a member of the set.
 
-    // Various assertions require us to now to consider the block as not imported (at least for
-    // the final time...)
-    block->bbFlags &= ~BBF_IMPORTED;
+    impSetPendingBlockMember(block, true);
 
-#ifdef DEBUG
-    if (verbose && 0)
+    return dsc;
+}
+
+Compiler::PendingDsc* Compiler::impPopPendingBlock()
+{
+    PendingDsc* dsc = impPendingList;
+
+    if (dsc != nullptr)
     {
-        printf("Added PendingDsc - %08p for " FMT_BB "\n", dspPtr(dsc), block->bbNum);
+        impPendingList = dsc->pdNext;
+
+        dsc->pdNext    = impPendingFree;
+        impPendingFree = dsc;
+
+        impSetPendingBlockMember(dsc->pdBB, false);
+
+        verCurrentState.esStackDepth = dsc->pdSavedStack.esStackDepth;
+        if (verCurrentState.esStackDepth != 0)
+        {
+            impRestoreStackState(&dsc->pdSavedStack);
+        }
     }
-#endif
+
+    return dsc;
 }
 
 void* Compiler::BlockListNode::operator new(size_t sz, Compiler* comp)
@@ -15860,7 +15821,7 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
     // and re-type it/add a cast, but that is complicated and hopefully very rare, so
     // just re-import the whole block (just like we do for successors)
 
-    if (((blk->bbFlags & BBF_IMPORTED) == 0) && (m_pComp->impGetPendingBlockMember(blk) == 0))
+    if (((blk->bbFlags & BBF_IMPORTED) == 0) && !m_pComp->impIsPendingBlockMember(blk))
     {
         // If we haven't imported this block and we're not going to (because it isn't on
         // the pending list) then just ignore it for now.
@@ -16157,34 +16118,11 @@ void Compiler::impImport()
 
     /* Import blocks in the worker-list until there are no more */
 
-    while (impPendingList)
+    while (PendingDsc* dsc = impPopPendingBlock())
     {
-        /* Remove the entry at the front of the list */
-
-        PendingDsc* dsc = impPendingList;
-        impPendingList  = impPendingList->pdNext;
-        impSetPendingBlockMember(dsc->pdBB, 0);
-
-        /* Restore the stack state */
-
-        verCurrentState.esStackDepth = dsc->pdSavedStack.esStackDepth;
-        if (verCurrentState.esStackDepth != 0)
-        {
-            impRestoreStackState(&dsc->pdSavedStack);
-        }
-
-        /* Add the entry to the free list for reuse */
-
-        dsc->pdNext    = impPendingFree;
-        impPendingFree = dsc;
-
         impImportBlock(dsc->pdBB);
 
-        if (compDonotInline())
-        {
-            return;
-        }
-        if (compIsForImportOnly())
+        if (compDonotInline() || compIsForImportOnly())
         {
             return;
         }

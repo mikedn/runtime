@@ -1826,7 +1826,7 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
 
         // If this method were a real constructor for Compiler, these would
         // become method initializations.
-        impPendingBlockMembers    = JitExpandArray<BYTE>(getAllocator());
+        impPendingBlockMembers    = JitExpandArray<bool>(getAllocator());
         impSpillCliquePredMembers = JitExpandArray<BYTE>(getAllocator());
         impSpillCliqueSuccMembers = JitExpandArray<BYTE>(getAllocator());
 

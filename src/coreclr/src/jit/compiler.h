@@ -3832,18 +3832,18 @@ private:
     PendingDsc* impPendingFree; // Freed up dscs that can be reused
 
     // We keep a byte-per-block map (dynamically extended) in the top-level Compiler object of a compilation.
-    JitExpandArray<BYTE> impPendingBlockMembers;
+    JitExpandArray<bool> impPendingBlockMembers;
 
     // Return the byte for "b" (allocating/extending impPendingBlockMembers if necessary.)
     // Operates on the map in the top-level ancestor.
-    BYTE impGetPendingBlockMember(BasicBlock* blk)
+    bool impIsPendingBlockMember(BasicBlock* blk)
     {
         return impInlineRoot()->impPendingBlockMembers.Get(blk->bbInd());
     }
 
     // Set the byte for "b" to "val" (allocating/extending impPendingBlockMembers if necessary.)
     // Operates on the map in the top-level ancestor.
-    void impSetPendingBlockMember(BasicBlock* blk, BYTE val)
+    void impSetPendingBlockMember(BasicBlock* blk, bool val)
     {
         impInlineRoot()->impPendingBlockMembers.Set(blk->bbInd(), val);
     }
@@ -3878,6 +3878,8 @@ private:
     void impAddPendingEHSuccessors(BasicBlock* block);
 
     void impImportBlockPending(BasicBlock* block);
+    PendingDsc* impPushPendingBlock(BasicBlock* block);
+    PendingDsc* impPopPendingBlock();
 
     // Similar to impImportBlockPending, but assumes that block has already been imported once and is being
     // reimported for some reason.  It specifically does *not* look at verCurrentState to set the EntryState
