@@ -15265,7 +15265,7 @@ void Compiler::impImportBlock(BasicBlock* block)
         BADCODE("Evaluation stack must be empty on entry into a try block");
     }
 
-    impRetypeEntryStateTemps(block);
+    impCloneEntryState();
     impImportBlockCode(block);
 
     if (compDonotInline())
@@ -15796,26 +15796,6 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
     }
 }
 
-// Re-type the incoming lclVar nodes to match the varDsc.
-void Compiler::impRetypeEntryStateTemps(BasicBlock* blk)
-{
-    if (blk->bbEntryState != nullptr)
-    {
-        EntryState* es = blk->bbEntryState;
-        for (unsigned level = 0; level < es->esStackDepth; level++)
-        {
-            GenTree* tree = es->esStack[level].val;
-            if ((tree->gtOper == GT_LCL_VAR) || (tree->gtOper == GT_LCL_FLD))
-            {
-                unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
-                noway_assert(lclNum < lvaCount);
-                LclVarDsc* varDsc              = lvaTable + lclNum;
-                es->esStack[level].val->gtType = varDsc->TypeGet();
-            }
-        }
-    }
-}
-
 unsigned Compiler::impGetSpillTmpBase(BasicBlock* block)
 {
     if (block->bbStkTempsOut != BAD_VAR_NUM)
@@ -15880,11 +15860,6 @@ void Compiler::impInitBBEntryState(BasicBlock* block)
 
     unsigned stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
     memcpy(block->bbEntryState->esStack, verCurrentState.esStack, stackSize);
-
-    for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
-    {
-        block->bbEntryState->esStack[level].val = gtCloneExpr(verCurrentState.esStack[level].val);
-    }
 }
 
 // Set the current state to the state at the start of the basic block
@@ -15902,6 +15877,42 @@ void Compiler::impSetCurrentState(BasicBlock* block)
     {
         size_t stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
         memcpy(verCurrentState.esStack, block->bbEntryState->esStack, stackSize);
+    }
+}
+
+void Compiler::impCloneEntryState()
+{
+    // Clone all the trees in the current state.
+    // Since a block may have multiple successors the trees in the state created by the block
+    // have to be cloned before importing a successor block. This also ensures that the LCL_VAR
+    // nodes have the correct type, in case there were mismatches in the spill clique.
+
+    // TODO-MIKE-Perf: This creates redundant clones. The state trees are created when spilling
+    // the stack at the end of the block and not used anywhere else. So we don't really need to
+    // clone anything for the first successor.
+    // Moreover, if it weren't for the GT_CATCH_ARG case that abuses the entry state mechanism,
+    // the entry state would contain only LCL_VARs with the lclNum starting at bbStkTempsIn.
+    // So we probably don't really need to store any trees in the block entry state.
+
+    for (unsigned i = 0; i < verCurrentState.esStackDepth; i++)
+    {
+        GenTree* tree = verCurrentState.esStack[i].val;
+
+        if (tree->OperIs(GT_LCL_VAR))
+        {
+            unsigned   lclNum = tree->AsLclVar()->GetLclNum();
+            LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+            tree = gtNewLclvNode(lclNum, lcl->GetType());
+        }
+        else
+        {
+            assert(tree->OperIs(GT_CATCH_ARG));
+
+            tree = gtCloneExpr(tree);
+        }
+
+        verCurrentState.esStack[i].val = tree;
     }
 }
 

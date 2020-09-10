@@ -3963,11 +3963,6 @@ private:
     // predecessor or successor within the spill clique
     void impWalkSpillCliqueFromPred(BasicBlock* pred, SpillCliqueWalker* callback);
 
-    // For a BasicBlock that has already been imported, the EntryState has an array of GenTrees for the
-    // incoming locals. This walks that list an resets the types of the GenTrees to match the types of
-    // the VarDscs. They get out of sync when we have int/native int issues (see impReimportSpillClique).
-    void impRetypeEntryStateTemps(BasicBlock* blk);
-
     BYTE impSpillCliqueGetMember(SpillCliqueDir predOrSucc, BasicBlock* blk);
     void impSpillCliqueSetMember(SpillCliqueDir predOrSucc, BasicBlock* blk, BYTE val);
 
@@ -9433,6 +9428,7 @@ public:
 
     void impInitBBEntryState(BasicBlock* block);
     void impSetCurrentState(BasicBlock* block);
+    void impCloneEntryState();
 
     typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd,
                              bool bashStructToRef = false); // converts from jit type representation to typeInfo
