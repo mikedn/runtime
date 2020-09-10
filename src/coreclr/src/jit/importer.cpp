@@ -15265,6 +15265,7 @@ void Compiler::impImportBlock(BasicBlock* block)
         BADCODE("Evaluation stack must be empty on entry into a try block");
     }
 
+    impRetypeEntryStateTemps(block);
     impImportBlockCode(block);
 
     if (compDonotInline())
@@ -15582,12 +15583,6 @@ void Compiler::impImportBlockPending(BasicBlock* block)
     if (block->bbEntryState == nullptr)
     {
         impInitBBEntryState(block);
-    }
-    else
-    {
-        // We need to fix the types of any spill temps that might have changed:
-        //   int->native int, float->double, int->byref, etc.
-        impRetypeEntryStateTemps(block);
     }
 
     impPushPendingBlock(block);
