@@ -2389,7 +2389,12 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         GenTree* argAsg          = gtNewTempAssign(tempNum, arg);
         arg                      = gtNewLclvNode(tempNum, TYP_REF);
 
-        hndBlk->bbStkTempsIn = tempNum;
+        if (fgCheapPredsValid)
+        {
+            fgAddCheapPred(hndBlk, newBlk);
+        }
+
+        impSetSpillCliqueTempBase(newBlk, tempNum);
 
         Statement* argStmt;
 
@@ -15633,10 +15638,9 @@ void Compiler::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
                 BasicBlock* succ = blk->GetSucc(succNum);
                 // If it's not already in the clique, add it, and also add it
                 // as a member of the successor "toDo" set.
-                if (impSpillCliqueGetMember(SpillCliqueSucc, succ) == 0)
+                if (impAddSpillCliqueMember(SpillCliqueSucc, succ))
                 {
                     callback->Visit(SpillCliqueSucc, succ);
-                    impSpillCliqueSetMember(SpillCliqueSucc, succ, 1);
                     succCliqueToDo = new (this) BlockListNode(succ, succCliqueToDo);
                     toDo           = true;
                 }
@@ -15655,10 +15659,9 @@ void Compiler::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
                 BasicBlock* predBlock = pred->block;
                 // If it's not already in the clique, add it, and also add it
                 // as a member of the predecessor "toDo" set.
-                if (impSpillCliqueGetMember(SpillCliquePred, predBlock) == 0)
+                if (impAddSpillCliqueMember(SpillCliquePred, predBlock))
                 {
                     callback->Visit(SpillCliquePred, predBlock);
-                    impSpillCliqueSetMember(SpillCliquePred, predBlock, 1);
                     predCliqueToDo = new (this) BlockListNode(predBlock, predCliqueToDo);
                     toDo           = true;
                 }
@@ -15669,22 +15672,7 @@ void Compiler::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
     // If this fails, it means we didn't walk the spill clique properly and somehow managed
     // miss walking back to include the predecessor we started from.
     // This most likely cause: missing or out of date bbPreds
-    assert(impSpillCliqueGetMember(SpillCliquePred, block) != 0);
-}
-
-void Compiler::SetSpillTempsBase::Visit(SpillCliqueDir predOrSucc, BasicBlock* blk)
-{
-    if (predOrSucc == SpillCliqueSucc)
-    {
-        assert(blk->bbStkTempsIn == BAD_VAR_NUM); // Should not already be a member of a clique as a successor.
-        blk->bbStkTempsIn = m_baseTmp;
-    }
-    else
-    {
-        assert(predOrSucc == SpillCliquePred);
-        assert(blk->bbStkTempsOut == BAD_VAR_NUM); // Should not already be a member of a clique as a predecessor.
-        blk->bbStkTempsOut = m_baseTmp;
-    }
+    assert(impIsSpillCliqueMember(SpillCliquePred, block));
 }
 
 void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock* blk)
@@ -15747,13 +15735,42 @@ unsigned Compiler::impGetSpillTmpBase(BasicBlock* block)
     // Otherwise, choose one, and propagate to all members of the spill clique.
     // Grab enough temps for the whole stack.
     unsigned baseTmp = lvaGrabTemps(verCurrentState.esStackDepth DEBUGARG("IL Stack Entries"));
-    SetSpillTempsBase callback(baseTmp);
+    impSetSpillCliqueTempBase(block, baseTmp);
+    return baseTmp;
+}
+
+void Compiler::impSetSpillCliqueTempBase(BasicBlock* block, unsigned tempBaseLclNum)
+{
+    class SetSpillTempsBase : public SpillCliqueWalker
+    {
+        const unsigned m_tempBaseLclNum;
+
+    public:
+        SetSpillTempsBase(unsigned tempBaseLclNum) : m_tempBaseLclNum(tempBaseLclNum)
+        {
+        }
+
+        void Visit(SpillCliqueDir dir, BasicBlock* block) override
+        {
+            if (dir == SpillCliqueSucc)
+            {
+                assert(block->bbStkTempsIn == BAD_VAR_NUM);
+
+                block->bbStkTempsIn = m_tempBaseLclNum;
+            }
+            else
+            {
+                assert(dir == SpillCliquePred);
+                assert(block->bbStkTempsOut == BAD_VAR_NUM);
+
+                block->bbStkTempsOut = m_tempBaseLclNum;
+            }
+        }
+    } callback(tempBaseLclNum);
 
     // We do *NOT* need to reset the SpillClique*Members because a block can only be the predecessor
     // to one spill clique, and similarly can only be the sucessor to one spill clique
     impWalkSpillCliqueFromPred(block, &callback);
-
-    return baseTmp;
 }
 
 void Compiler::impReimportSpillClique(BasicBlock* block)
@@ -15770,8 +15787,7 @@ void Compiler::impReimportSpillClique(BasicBlock* block)
     // block has an outgoing live stack slot of type native int.
     // We need to reset these before traversal because they have already been set
     // by the previous walk to determine all the members of the spill clique.
-    impInlineRoot()->impSpillCliquePredMembers.Reset();
-    impInlineRoot()->impSpillCliqueSuccMembers.Reset();
+    impInlineRoot()->impSpillCliqueMembers.Reset();
 
     ReimportSpillClique callback(this);
 
@@ -15867,30 +15883,26 @@ Compiler* Compiler::impInlineRoot()
     }
 }
 
-BYTE Compiler::impSpillCliqueGetMember(SpillCliqueDir predOrSucc, BasicBlock* blk)
+bool Compiler::impIsSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
 {
-    if (predOrSucc == SpillCliquePred)
-    {
-        return impInlineRoot()->impSpillCliquePredMembers.Get(blk->bbInd());
-    }
-    else
-    {
-        assert(predOrSucc == SpillCliqueSucc);
-        return impInlineRoot()->impSpillCliqueSuccMembers.Get(blk->bbInd());
-    }
+    uint8_t state = impInlineRoot()->impSpillCliqueMembers.Get(block->bbInd());
+    uint8_t bit   = 1 << dir;
+
+    return (state & bit) != 0;
 }
 
-void Compiler::impSpillCliqueSetMember(SpillCliqueDir predOrSucc, BasicBlock* blk, BYTE val)
+bool Compiler::impAddSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
 {
-    if (predOrSucc == SpillCliquePred)
+    uint8_t& state = impInlineRoot()->impSpillCliqueMembers.GetRef(block->bbInd());
+    uint8_t  bit   = 1 << dir;
+
+    if ((state & bit) != 0)
     {
-        impInlineRoot()->impSpillCliquePredMembers.Set(blk->bbInd(), val);
+        return false;
     }
-    else
-    {
-        assert(predOrSucc == SpillCliqueSucc);
-        impInlineRoot()->impSpillCliqueSuccMembers.Set(blk->bbInd(), val);
-    }
+
+    state |= bit;
+    return true;
 }
 
 /*****************************************************************************
@@ -15946,12 +15958,10 @@ void Compiler::impImport()
     {
         // We have initialized these previously, but to size 0.  Make them larger.
         impPendingBlockMembers.Init(getAllocator(), fgBBNumMax * 2);
-        impSpillCliquePredMembers.Init(getAllocator(), fgBBNumMax * 2);
-        impSpillCliqueSuccMembers.Init(getAllocator(), fgBBNumMax * 2);
+        impSpillCliqueMembers.Init(getAllocator(), fgBBNumMax * 2);
     }
     inlineRoot->impPendingBlockMembers.Reset(fgBBNumMax * 2);
-    inlineRoot->impSpillCliquePredMembers.Reset(fgBBNumMax * 2);
-    inlineRoot->impSpillCliqueSuccMembers.Reset(fgBBNumMax * 2);
+    inlineRoot->impSpillCliqueMembers.Reset(fgBBNumMax * 2);
     impBlockListNodeFreeList = nullptr;
     INDEBUG(impLastILoffsStmt = nullptr;)
     impBoxTemp     = BAD_VAR_NUM;

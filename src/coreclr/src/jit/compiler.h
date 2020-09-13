@@ -3894,6 +3894,8 @@ private:
     // on which kind of member of the clique the block is).
     unsigned impGetSpillTmpBase(BasicBlock* block);
 
+    void impSetSpillCliqueTempBase(BasicBlock* block, unsigned tempBaseLclNum);
+
     // Assumes that "block" is a basic block that completes with a non-empty stack. We have previously
     // assigned the values on the stack to local variables (the "spill temp" variables). The successor blocks
     // will assume that its incoming stack contents are in those locals. This requires "block" and its
@@ -3911,8 +3913,7 @@ private:
     // When we compute a "spill clique" (see above) these byte-maps are allocated to have a byte per basic
     // block, and represent the predecessor and successor members of the clique currently being computed.
     // *** Access to these will need to be locked in a parallel compiler.
-    JitExpandArray<BYTE> impSpillCliquePredMembers;
-    JitExpandArray<BYTE> impSpillCliqueSuccMembers;
+    JitExpandArray<uint8_t> impSpillCliqueMembers;
 
     enum SpillCliqueDir
     {
@@ -3925,18 +3926,6 @@ private:
     {
     public:
         virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk) = 0;
-    };
-
-    // This class is used for setting the bbStkTempsIn and bbStkTempsOut on the blocks within a spill clique
-    class SetSpillTempsBase : public SpillCliqueWalker
-    {
-        unsigned m_baseTmp;
-
-    public:
-        SetSpillTempsBase(unsigned baseTmp) : m_baseTmp(baseTmp)
-        {
-        }
-        virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk);
     };
 
     // This class is used for implementing impReimportSpillClique part on each block within the spill clique
@@ -3955,8 +3944,8 @@ private:
     // predecessor or successor within the spill clique
     void impWalkSpillCliqueFromPred(BasicBlock* pred, SpillCliqueWalker* callback);
 
-    BYTE impSpillCliqueGetMember(SpillCliqueDir predOrSucc, BasicBlock* blk);
-    void impSpillCliqueSetMember(SpillCliqueDir predOrSucc, BasicBlock* blk, BYTE val);
+    bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
+    bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
 
     void impPushVar(GenTree* op, typeInfo tiRetVal);
     void impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& tiRetVal);
