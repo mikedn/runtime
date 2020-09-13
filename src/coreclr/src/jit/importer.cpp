@@ -11787,7 +11787,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     goto SPILL_APPEND;
                 }
 
-                /* No side effects - just throw the <BEEP> thing away */
+                // No side effects - just remove the entire tree
             }
             break;
 
