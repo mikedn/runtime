@@ -9409,7 +9409,6 @@ public:
 
     void impInitBBEntryState(BasicBlock* block);
     void impSetCurrentState(BasicBlock* block);
-    void impCloneEntryState();
 
     typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd,
                              bool bashStructToRef = false); // converts from jit type representation to typeInfo

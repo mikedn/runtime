@@ -10306,6 +10306,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // Is there just one place this local is defined?
                     const bool isSingleDefLocal = lvaTable[lclNum].lvSingleDef;
 
+                    // TODO-MIKE-Cleanup: This check is probably no longer needed. It used to be the case
+                    // that ref class handles were propagated from predecessors without merging, resulting
+                    // in incorrect devirtualization.
+
                     // Conservative check that there is just one
                     // definition that reaches this store.
                     const bool hasSingleReachingDef = (block->bbStackDepthOnEntry() == 0);
@@ -15198,7 +15202,6 @@ void Compiler::impImportBlock(BasicBlock* block)
         BADCODE("Evaluation stack must be empty on entry into a try block");
     }
 
-    impCloneEntryState();
     impImportBlockCode(block);
 
     if (compDonotInline())
@@ -15819,46 +15822,57 @@ void Compiler::impSetCurrentState(BasicBlock* block)
 
     verCurrentState.esStackDepth = block->bbEntryState->esStackDepth;
 
-    if (verCurrentState.esStackDepth != 0)
-    {
-        size_t stackSize = verCurrentState.esStackDepth * sizeof(verCurrentState.esStack[0]);
-        memcpy(verCurrentState.esStack, block->bbEntryState->esStack, stackSize);
-    }
-}
-
-void Compiler::impCloneEntryState()
-{
-    // Clone all the trees in the current state.
-    // Since a block may have multiple successors the trees in the state created by the block
-    // have to be cloned before importing a successor block. This also ensures that the LCL_VAR
-    // nodes have the correct type, in case there were mismatches in the spill clique.
-
-    // TODO-MIKE-Perf: This creates redundant clones. The state trees are created when spilling
-    // the stack at the end of the block and not used anywhere else. So we don't really need to
-    // clone anything for the first successor.
-    // Moreover, if it weren't for the GT_CATCH_ARG case that abuses the entry state mechanism,
-    // the entry state would contain only LCL_VARs with the lclNum starting at bbStkTempsIn.
-    // So we probably don't really need to store any trees in the block entry state.
-
     for (unsigned i = 0; i < verCurrentState.esStackDepth; i++)
     {
-        GenTree* tree = verCurrentState.esStack[i].val;
+        GenTree* tree = block->bbEntryState->esStack[i].val;
 
         if (tree->OperIs(GT_LCL_VAR))
         {
             unsigned   lclNum = tree->AsLclVar()->GetLclNum();
             LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-            tree = gtNewLclvNode(lclNum, lcl->GetType());
+            // TODO-MIKE-Perf: This creates redundant LCL_VARs, they're created when spilling the stack
+            // at the end of the block and not used anywhere else. So we don't really need to create new
+            // LCL_VARs for the first successor.
+            //
+            // Moreover, if it weren't for the GT_CATCH_ARG case that abuses the entry state mechanism,
+            // the entry state would contain only LCL_VARs with the lclNum starting at bbStkTempsIn.
+            // So we probably don't really need to store any trees in the block entry state.
+
+            verCurrentState.esStack[i].val = gtNewLclvNode(lclNum, lcl->GetType());
+
+            // Propagate type info only for structs. Type info may also contain ref class handles or
+            // resolved method tokens (from ldftn/ldvirtftn) but these cannot be propagated correctly
+            // without additional work (e.g. merging type info from all predecessors to get a common
+            // ref base class handle or comparing method tokens to ensure that they represent the same
+            // method or at least methods that are compatible with respect to delegate creation).
+            //
+            // In theory we have a similar problem with structs - each predecessor should produce the
+            // same struct type. But if it doesn't then that's really invalid IL so the result can be
+            // undefined behavior.
+
+            if (varTypeIsStruct(lcl->GetType()))
+            {
+                verCurrentState.esStack[i].seTypeInfo = typeInfo(TI_STRUCT, lcl->GetLayout()->GetClassHandle());
+            }
+            else
+            {
+                verCurrentState.esStack[i].seTypeInfo = typeInfo();
+            }
         }
         else
         {
             assert(tree->OperIs(GT_CATCH_ARG));
 
-            tree = gtCloneExpr(tree);
-        }
+            // CATCH_ARG is a special case - it doesn't need to be cloned because it's only used within
+            // the block that we're going to import next. Or it may be unused, left on the stack for a
+            // subsequent block to use, but then it will get a spill temp like anything else left on
+            // the stack at the end of a block. Ideally it should not even be part of the block's entry
+            // state and instead be automatically pushed on the stack at the start of impImportBlockCode.
 
-        verCurrentState.esStack[i].val = tree;
+            verCurrentState.esStack[i].val        = tree;
+            verCurrentState.esStack[i].seTypeInfo = typeInfo(TYP_REF);
+        }
     }
 }
 
