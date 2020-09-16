@@ -3892,9 +3892,7 @@ private:
     // which "block" is a member (asserting, in debug mode, that no block in this clique had its spill temps
     // chosen already. More precisely, that the incoming or outgoing spill temps are not chosen, depending
     // on which kind of member of the clique the block is).
-    unsigned impGetSpillTmpBase(BasicBlock* block);
-
-    void impSetSpillCliqueTempBase(BasicBlock* block, unsigned tempBaseLclNum);
+    void impSetSpillCliqueState(BasicBlock* block, EntryState* state);
 
     // Assumes that "block" is a basic block that completes with a non-empty stack. We have previously
     // assigned the values on the stack to local variables (the "spill temp" variables). The successor blocks
@@ -9407,7 +9405,6 @@ public:
     // dynamic state info needed for verification
     EntryState verCurrentState;
 
-    void impInitBBEntryState(BasicBlock* block);
     void impSetCurrentState(BasicBlock* block);
 
     typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd,

@@ -711,12 +711,11 @@ struct BasicBlock : private LIR::Range
     }
 
     union {
-        EntryState* bbEntryState; // verifier tracked state of all entries in stack.
+        EntryState* bbEntryState; // import state at the start of the block
         flowList*   bbLastPred;   // last pred list entry
     };
 
-    unsigned bbStkTempsIn;  // base# for input stack temps
-    unsigned bbStkTempsOut; // base# for output stack temps
+    EntryState* bbExitState;
 
 #define MAX_XCPTN_INDEX (USHRT_MAX - 1)
 
