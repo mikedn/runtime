@@ -15172,8 +15172,6 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
 
 void Compiler::impImportBlock(BasicBlock* block)
 {
-    impSetCurrentState(block);
-
     // BBF_INTERNAL blocks only exist during importation due to EH canonicalization. We need to
     // handle them specially. In particular, there is no IL to import for them, but we do need
     // to mark them as imported and put their successors on the pending import list.
@@ -15181,6 +15179,9 @@ void Compiler::impImportBlock(BasicBlock* block)
     {
         JITDUMP("Marking BBF_INTERNAL block " FMT_BB " as BBF_IMPORTED\n", block->bbNum);
         block->bbFlags |= BBF_IMPORTED;
+
+        // Since there's no IL to import the exit state is the same as the entry state.
+        impSetSpillCliqueState(block, block->bbEntryState);
 
         const unsigned numSuccs = block->NumSucc();
         for (unsigned i = 0; i < numSuccs; i++)
@@ -15191,15 +15192,12 @@ void Compiler::impImportBlock(BasicBlock* block)
         return;
     }
 
-    /* Make the block globaly available */
+    impSetCurrentState(block);
 
     compCurBB = block;
 
-#ifdef DEBUG
-    /* Initialize the debug variables */
-    impCurOpcName = "unknown";
-    impCurOpcOffs = block->bbCodeOffs;
-#endif
+    INDEBUG(impCurOpcName = "unknown";)
+    INDEBUG(impCurOpcOffs = block->bbCodeOffs;)
 
     if (((block->bbFlags & BBF_TRY_BEG) != 0) && (verCurrentState.esStackDepth != 0))
     {
@@ -15633,7 +15631,6 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
         // If we haven't imported this block and we're not going to (because it isn't on
         // the pending list) then just ignore it for now.
 
-        assert(blk->bbEntryState == nullptr);
         return;
     }
 
