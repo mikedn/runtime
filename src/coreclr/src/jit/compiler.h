@@ -3817,15 +3817,6 @@ private:
     static const unsigned MAX_TREE_SIZE = 200;
     bool impCanSpillNow(OPCODE prevOpcode);
 
-    struct PendingDsc
-    {
-        PendingDsc* pdNext;
-        BasicBlock* pdBB;
-    };
-
-    PendingDsc* impPendingList; // list of BBs currently waiting to be imported.
-    PendingDsc* impPendingFree; // Freed up dscs that can be reused
-
     // We keep a byte-per-block map (dynamically extended) in the top-level Compiler object of a compilation.
     JitExpandArray<bool> impPendingBlockMembers;
 
@@ -3866,8 +3857,8 @@ private:
     void impAddPendingEHSuccessors(BasicBlock* block);
 
     void impImportBlockPending(BasicBlock* block);
-    PendingDsc* impPushPendingBlock(BasicBlock* block);
-    PendingDsc* impPopPendingBlock();
+    void impPushPendingBlock(BasicBlock* block);
+    BasicBlock* impPopPendingBlock();
 
     // Similar to impImportBlockPending, but assumes that block has already been imported once and is being
     // reimported for some reason.  It specifically does *not* look at verCurrentState to set the EntryState
@@ -3970,6 +3961,7 @@ private:
         void* operator new(size_t sz, Compiler* comp);
     };
     BlockListNode* impBlockListNodeFreeList;
+    BlockListNode* impPendingBlockStack;
 
     void FreeBlockListNode(BlockListNode* node);
 

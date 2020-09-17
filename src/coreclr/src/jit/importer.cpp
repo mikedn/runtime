@@ -15510,46 +15510,30 @@ void Compiler::impReimportBlockPending(BasicBlock* block)
     impPushPendingBlock(block);
 }
 
-Compiler::PendingDsc* Compiler::impPushPendingBlock(BasicBlock* block)
+void Compiler::impPushPendingBlock(BasicBlock* block)
 {
     assert((block->bbFlags & BBF_IMPORTED) == 0);
     assert(!impIsPendingBlockMember(block));
 
-    PendingDsc* dsc = impPendingFree;
-
-    if (dsc != nullptr)
-    {
-        impPendingFree = dsc->pdNext;
-    }
-    else
-    {
-        dsc = new (this, CMK_ImpStack) PendingDsc;
-    }
-
-    dsc->pdBB      = block;
-    dsc->pdNext    = impPendingList;
-    impPendingList = dsc;
-
+    BlockListNode* dsc   = new (this) BlockListNode(block, impPendingBlockStack);
+    impPendingBlockStack = dsc;
     impSetPendingBlockMember(block, true);
-
-    return dsc;
 }
 
-Compiler::PendingDsc* Compiler::impPopPendingBlock()
+BasicBlock* Compiler::impPopPendingBlock()
 {
-    PendingDsc* dsc = impPendingList;
+    BlockListNode* node = impPendingBlockStack;
 
-    if (dsc != nullptr)
+    if (node == nullptr)
     {
-        impPendingList = dsc->pdNext;
-
-        dsc->pdNext    = impPendingFree;
-        impPendingFree = dsc;
-
-        impSetPendingBlockMember(dsc->pdBB, false);
+        return nullptr;
     }
 
-    return dsc;
+    BasicBlock* block = node->m_blk;
+    impSetPendingBlockMember(block, false);
+    impPendingBlockStack = node->m_next;
+    FreeBlockListNode(node);
+    return block;
 }
 
 void* Compiler::BlockListNode::operator new(size_t sz, Compiler* comp)
@@ -15899,8 +15883,8 @@ void Compiler::impImport()
     inlineRoot->impSpillCliqueMembers.Reset(fgBBNumMax * 2);
     impBlockListNodeFreeList = nullptr;
     INDEBUG(impLastILoffsStmt = nullptr;)
-    impBoxTemp     = BAD_VAR_NUM;
-    impPendingList = impPendingFree = nullptr;
+    impBoxTemp           = BAD_VAR_NUM;
+    impPendingBlockStack = nullptr;
 
     // Skip leading internal blocks.
     // These can arise from needing a leading scratch BB, from EH normalization, and from OSR entry redirects.
@@ -15942,11 +15926,9 @@ void Compiler::impImport()
     // which we should verify over when we find jump targets.
     impImportBlockPending(entryBlock);
 
-    /* Import blocks in the worker-list until there are no more */
-
-    while (PendingDsc* dsc = impPopPendingBlock())
+    while (BasicBlock* block = impPopPendingBlock())
     {
-        impImportBlock(dsc->pdBB);
+        impImportBlock(block);
 
         if (compDonotInline() || compIsForImportOnly())
         {
