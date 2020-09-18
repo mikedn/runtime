@@ -2343,8 +2343,7 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             {
                 tree = gtNewLclvNode(tree->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum(), TYP_REF);
 
-                assert(hndBlk->bbEntryState->esStackDepth == 1);
-                assert(hndBlk->bbEntryState->esStack[0].val->OperIs(GT_CATCH_ARG));
+                assert(hndBlk->bbEntryState->HasCatchArg());
 
                 return hndBlk->bbNext;
             }
@@ -2354,25 +2353,13 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         // someone prepended something to our injected block, but that's unlikely.
     }
 
-    /* Push the exception address value on the stack */
-    GenTree* arg = new (this, GT_CATCH_ARG) GenTree(GT_CATCH_ARG, TYP_REF);
-
-    /* Mark the node as having a side-effect - i.e. cannot be
-     * moved around since it is tied to a fixed location (EAX) */
-    arg->gtFlags |= GTF_ORDER_SIDEEFF;
-
 #if defined(JIT32_GCENCODER)
     const bool forceInsertNewBlock = isSingleBlockFilter || compStressCompile(STRESS_CATCH_ARG, 5);
 #else
     const bool forceInsertNewBlock      = compStressCompile(STRESS_CATCH_ARG, 5);
 #endif // defined(JIT32_GCENCODER)
 
-    EntryState* state            = new (this, CMK_ImpStack) EntryState;
-    state->esStackDepth          = 1;
-    state->esStack               = new (this, CMK_ImpStack) StackEntry[1];
-    state->esStack[0].val        = arg;
-    state->esStack[0].seTypeInfo = typeInfo(TI_REF, clsHnd);
-    hndBlk->bbEntryState         = state;
+    hndBlk->bbEntryState = new (this, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
 
     /* Spill GT_CATCH_ARG to a temp if there are jumps to the beginning of the handler */
     if (hndBlk->bbRefs > 1 || forceInsertNewBlock)
@@ -2392,22 +2379,9 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         hndBlk->bbRefs++;
 
         // Spill into a temp.
-        unsigned tempNum         = lvaGrabTemp(false DEBUGARG("SpillCatchArg"));
+        unsigned tempNum         = lvaGrabTemp(false DEBUGARG("CATCH_ARG spill temp"));
         lvaTable[tempNum].lvType = TYP_REF;
-        GenTree* argAsg          = gtNewTempAssign(tempNum, arg);
-
-        if (fgCheapPredsValid)
-        {
-            fgAddCheapPred(hndBlk, newBlk);
-        }
-
-        state                        = new (this, CMK_ImpStack) EntryState;
-        state->esStackDepth          = 1;
-        state->esStack               = new (this, CMK_ImpStack) StackEntry[1];
-        state->esStack[0].val        = gtNewLclvNode(tempNum, TYP_REF);
-        state->esStack[0].seTypeInfo = typeInfo(TI_REF, clsHnd);
-        impSetSpillCliqueState(newBlk, state);
-
+        GenTree*   argAsg        = gtNewTempAssign(tempNum, impNewCatchArg());
         Statement* argStmt;
 
         if (info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
@@ -2423,9 +2397,24 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         }
 
         fgInsertStmtAtEnd(newBlk, argStmt);
+
+        if (fgCheapPredsValid)
+        {
+            fgAddCheapPred(hndBlk, newBlk);
+        }
+
+        impSetSpillCliqueState(newBlk, new (this, CMK_ImpStack) ImportSpillCliqueState(tempNum, 1));
     }
 
     return hndBlk;
+}
+
+GenTree* Compiler::impNewCatchArg()
+{
+    GenTree* arg = new (this, GT_CATCH_ARG) GenTree(GT_CATCH_ARG, TYP_REF);
+    // GT_CATCH_ARG cannot be moved around since it uses a fixed register on x86 (EAX).
+    arg->gtFlags |= GTF_ORDER_SIDEEFF;
+    return arg;
 }
 
 /*****************************************************************************
@@ -15268,7 +15257,12 @@ void Compiler::impImportBlock(BasicBlock* block)
 
 bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 {
-    JITDUMP("\nSpilling the stack at the end of " FMT_BB "\n", block->bbNum);
+    JITDUMP("\nSpilling %u stack entries at the end of " FMT_BB "\n", verCurrentState.esStackDepth, block->bbNum);
+
+    for (unsigned i = 0; i < verCurrentState.esStackDepth; i++)
+    {
+        JITDUMPTREE(verCurrentState.esStack[i].val, "Stack entry %u:\n", i);
+    }
 
     switch (block->bbJumpKind)
     {
@@ -15303,41 +15297,36 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
         assert(branchStmt->GetRootNode()->OperIs(GT_SWITCH));
     }
 
-    EntryState* state               = block->bbExitState;
-    bool        reimportSpillClique = false;
+    ImportSpillCliqueState* state               = block->bbExitState;
+    bool                    reimportSpillClique = false;
 
     if (state == nullptr)
     {
-        state               = new (this, CMK_ImpStack) EntryState;
-        state->esStackDepth = verCurrentState.esStackDepth;
-        state->esStack      = new (this, CMK_ImpStack) StackEntry[verCurrentState.esStackDepth];
+        unsigned spillTempBaseLclNum = lvaGrabTemps(verCurrentState.esStackDepth DEBUGARG("spill clique temp"));
+
+        state = new (this, CMK_ImpStack) ImportSpillCliqueState(spillTempBaseLclNum, verCurrentState.esStackDepth);
 
         impSetSpillCliqueState(block, state);
 
-        unsigned spillTempBaseLclNum = lvaGrabTemps(verCurrentState.esStackDepth DEBUGARG("spill clique temp"));
-
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
-            unsigned   spillTempLclNum = spillTempBaseLclNum + level;
-            LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
-            GenTree*   tree            = verCurrentState.esStack[level].val;
+            unsigned spillTempLclNum = spillTempBaseLclNum + level;
+            GenTree* tree            = verCurrentState.esStack[level].val;
 
             impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
-                             (unsigned)CHECK_SPILL_NONE);
-
-            state->esStack[level].val        = gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType());
-            state->esStack[level].seTypeInfo = verCurrentState.esStack[level].seTypeInfo;
+                             CHECK_SPILL_NONE);
         }
     }
     else
     {
-        assert(state->esStackDepth == verCurrentState.esStackDepth);
-
-        unsigned spillTempBaseLclNum = state->esStack[0].val->AsLclVar()->GetLclNum();
+        if (state->GetSpillTempCount() != verCurrentState.esStackDepth)
+        {
+            BADCODE("Same spill clique blocks have different stack depths at end.");
+        }
 
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
-            unsigned   spillTempLclNum = spillTempBaseLclNum + level;
+            unsigned   spillTempLclNum = state->GetSpillTempBaseLclNum() + level;
             LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
             GenTree*   tree            = verCurrentState.esStack[level].val;
 
@@ -15441,56 +15430,27 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             }
 
             impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
-                             (unsigned)CHECK_SPILL_NONE);
+                             CHECK_SPILL_NONE);
         }
     }
 
     if (branchStmt != nullptr)
     {
-        impAppendStmt(branchStmt, (unsigned)CHECK_SPILL_NONE);
+        impAppendStmt(branchStmt, CHECK_SPILL_NONE);
     }
 
     return reimportSpillClique;
 }
 
-/*****************************************************************************/
-//
-// Ensures that "block" is a member of the list of BBs waiting to be imported, pushing it on the list if
-// necessary (and ensures that it is a member of the set of BB's on the list, by setting its byte in
-// impPendingBlockMembers).  Merges the current verification state into the verification state of "block"
-// (its "pre-state").
-
 void Compiler::impImportBlockPending(BasicBlock* block)
 {
     JITDUMP("\nimpImportBlockPending for " FMT_BB "\n", block->bbNum);
 
-    if (((block->bbFlags & BBF_IMPORTED) != 0) || impIsPendingBlockMember(block))
+    if (((block->bbFlags & BBF_IMPORTED) == 0) && !impIsPendingBlockMember(block))
     {
-        // The stack should have the same height on entry to the block from all its predecessors.
-        if (block->bbStackDepthOnEntry() != verCurrentState.esStackDepth)
-        {
-#ifdef DEBUG
-            char buffer[400];
-            sprintf_s(buffer, sizeof(buffer),
-                      "Block at offset %4.4x to %4.4x in %0.200s entered with different stack depths.\n"
-                      "Previous depth was %d, current depth is %d",
-                      block->bbCodeOffs, block->bbCodeOffsEnd, info.compFullName, block->bbStackDepthOnEntry(),
-                      verCurrentState.esStackDepth);
-            NO_WAY(buffer);
-#else
-            NO_WAY("Block entered with different stack depths");
-#endif
-        }
-
-        return;
+        impPushPendingBlock(block);
     }
-
-    impPushPendingBlock(block);
 }
-
-// Ensures that "block" is a member of the list of BBs waiting to be imported, pushing it on the list if
-// necessary (and ensures that it is a member of the set of BB's on the list, by setting its byte in
-// impPendingBlockMembers).  Does *NOT* change the existing "pre-state" of the block.
 
 void Compiler::impReimportBlockPending(BasicBlock* block)
 {
@@ -15498,14 +15458,11 @@ void Compiler::impReimportBlockPending(BasicBlock* block)
 
     assert((block->bbFlags & BBF_IMPORTED) != 0);
 
-    if (impIsPendingBlockMember(block))
+    if (!impIsPendingBlockMember(block))
     {
-        return;
+        block->bbFlags &= ~BBF_IMPORTED;
+        impPushPendingBlock(block);
     }
-
-    block->bbFlags &= ~BBF_IMPORTED;
-
-    impPushPendingBlock(block);
 }
 
 void Compiler::impPushPendingBlock(BasicBlock* block)
@@ -15662,14 +15619,14 @@ void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock*
     }
 }
 
-void Compiler::impSetSpillCliqueState(BasicBlock* block, EntryState* state)
+void Compiler::impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState* state)
 {
     class SetSpillCliqueState : public SpillCliqueWalker
     {
-        EntryState* const m_state;
+        ImportSpillCliqueState* const m_state;
 
     public:
-        SetSpillCliqueState(EntryState* state) : m_state(state)
+        SetSpillCliqueState(ImportSpillCliqueState* state) : m_state(state)
         {
         }
 
@@ -15726,65 +15683,37 @@ void Compiler::impSetCurrentState(BasicBlock* block)
         return;
     }
 
-    verCurrentState.esStackDepth = block->bbEntryState->esStackDepth;
+    if (block->bbEntryState->HasCatchArg())
+    {
+        verCurrentState.esStackDepth          = 1;
+        verCurrentState.esStack[0].val        = impNewCatchArg();
+        verCurrentState.esStack[0].seTypeInfo = typeInfo(TI_REF, block->bbEntryState->GetCatchArgType());
+        return;
+    }
+
+    verCurrentState.esStackDepth = block->bbEntryState->GetSpillTempCount();
 
     for (unsigned i = 0; i < verCurrentState.esStackDepth; i++)
     {
-        GenTree* tree = block->bbEntryState->esStack[i].val;
+        unsigned   lclNum = block->bbEntryState->GetSpillTempBaseLclNum() + i;
+        LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-        if (tree->OperIs(GT_LCL_VAR))
+        verCurrentState.esStack[i].val = gtNewLclvNode(lclNum, lcl->GetType());
+
+        if (varTypeIsStruct(lcl->GetType()))
         {
-            unsigned   lclNum = tree->AsLclVar()->GetLclNum();
-            LclVarDsc* lcl    = lvaGetDesc(lclNum);
-
-            // TODO-MIKE-Perf: This creates redundant LCL_VARs, they're created when spilling the stack
-            // at the end of the block and not used anywhere else. So we don't really need to create new
-            // LCL_VARs for the first successor.
-            //
-            // Moreover, if it weren't for the GT_CATCH_ARG case that abuses the entry state mechanism,
-            // the entry state would contain only LCL_VARs with the lclNum starting at bbStkTempsIn.
-            // So we probably don't really need to store any trees in the block entry state.
-
-            verCurrentState.esStack[i].val = gtNewLclvNode(lclNum, lcl->GetType());
-
-            // Propagate type info only for structs. Type info may also contain ref class handles or
-            // resolved method tokens (from ldftn/ldvirtftn) but these cannot be propagated correctly
-            // without additional work (e.g. merging type info from all predecessors to get a common
-            // ref base class handle or comparing method tokens to ensure that they represent the same
-            // method or at least methods that are compatible with respect to delegate creation).
-            //
-            // In theory we have a similar problem with structs - each predecessor should produce the
-            // same struct type. But if it doesn't then that's really invalid IL so the result can be
-            // undefined behavior.
-
-            if (varTypeIsStruct(lcl->GetType()))
-            {
-                verCurrentState.esStack[i].seTypeInfo = typeInfo(TI_STRUCT, lcl->GetLayout()->GetClassHandle());
-            }
-            else
-            {
-                verCurrentState.esStack[i].seTypeInfo = typeInfo();
-            }
+            verCurrentState.esStack[i].seTypeInfo = typeInfo(TI_STRUCT, lcl->GetLayout()->GetClassHandle());
         }
         else
         {
-            assert(tree->OperIs(GT_CATCH_ARG));
-
-            // CATCH_ARG is a special case - it doesn't need to be cloned because it's only used within
-            // the block that we're going to import next. Or it may be unused, left on the stack for a
-            // subsequent block to use, but then it will get a spill temp like anything else left on
-            // the stack at the end of a block. Ideally it should not even be part of the block's entry
-            // state and instead be automatically pushed on the stack at the start of impImportBlockCode.
-
-            verCurrentState.esStack[i].val        = tree;
-            verCurrentState.esStack[i].seTypeInfo = typeInfo(TYP_REF);
+            verCurrentState.esStack[i].seTypeInfo = typeInfo();
         }
     }
 }
 
 unsigned BasicBlock::bbStackDepthOnEntry()
 {
-    return (bbEntryState != nullptr) ? bbEntryState->esStackDepth : 0;
+    return (bbEntryState == nullptr) ? 0 : bbEntryState->GetStackDepth();
 }
 
 Compiler* Compiler::impInlineRoot()

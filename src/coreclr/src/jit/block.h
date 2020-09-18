@@ -130,6 +130,54 @@ struct EntryState
     StackEntry* esStack;      // ptr to  stack
 };
 
+class ImportSpillCliqueState
+{
+    unsigned const hasCatchArg : 1;
+    unsigned const spillTempCount : 31;
+    union {
+        CORINFO_CLASS_HANDLE const catchArgType;
+        unsigned const             spillTempBaseLclNum;
+    };
+
+public:
+    ImportSpillCliqueState(CORINFO_CLASS_HANDLE catchArgType)
+        : hasCatchArg(1), spillTempCount(0), catchArgType(catchArgType)
+    {
+    }
+
+    ImportSpillCliqueState(unsigned spillTempBaseLclNum, unsigned spillTempCount)
+        : hasCatchArg(0), spillTempCount(spillTempCount), spillTempBaseLclNum(spillTempBaseLclNum)
+    {
+    }
+
+    bool HasCatchArg() const
+    {
+        return hasCatchArg;
+    }
+
+    CORINFO_CLASS_HANDLE GetCatchArgType() const
+    {
+        assert(hasCatchArg);
+        return catchArgType;
+    }
+
+    unsigned GetSpillTempCount() const
+    {
+        return spillTempCount;
+    }
+
+    unsigned GetSpillTempBaseLclNum() const
+    {
+        assert(!hasCatchArg);
+        return spillTempBaseLclNum;
+    }
+
+    unsigned GetStackDepth() const
+    {
+        return hasCatchArg ? 1 : spillTempCount;
+    }
+};
+
 // Enumeration of the kinds of memory whose state changes the compiler tracks
 enum MemoryKind
 {
@@ -711,11 +759,11 @@ struct BasicBlock : private LIR::Range
     }
 
     union {
-        EntryState* bbEntryState; // import state at the start of the block
-        flowList*   bbLastPred;   // last pred list entry
+        ImportSpillCliqueState* bbEntryState; // import state at the start of the block
+        flowList*               bbLastPred;   // last pred list entry
     };
 
-    EntryState* bbExitState;
+    ImportSpillCliqueState* bbExitState;
 
 #define MAX_XCPTN_INDEX (USHRT_MAX - 1)
 
