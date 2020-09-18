@@ -5122,11 +5122,10 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
         lvaTable[lvaArg0Var].lvLiveAcrossUCall  = lvaTable[info.compThisArg].lvLiveAcrossUCall;
 #endif
         lvaTable[lvaArg0Var].lvHasILStoreOp = lvaTable[info.compThisArg].lvHasILStoreOp;
-        lvaTable[lvaArg0Var].lvVerTypeInfo  = lvaTable[info.compThisArg].lvVerTypeInfo;
+        lvaTable[lvaArg0Var].lvIsThisPtr    = lvaTable[info.compThisArg].lvIsThisPtr;
 
-        // Clear the TI_FLAG_THIS_PTR in the original 'this' pointer.
-        noway_assert(lvaTable[lvaArg0Var].lvVerTypeInfo.IsThisPtr());
-        lvaTable[info.compThisArg].lvVerTypeInfo.ClearThisPtr();
+        noway_assert(lvaTable[lvaArg0Var].lvIsThisPtr);
+        lvaTable[info.compThisArg].lvIsThisPtr    = false;
         lvaTable[info.compThisArg].lvAddrExposed  = false;
         lvaTable[info.compThisArg].lvHasILStoreOp = false;
     }

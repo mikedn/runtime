@@ -126,10 +126,6 @@ inline ti_types JITtype2tiType(CorInfoType type)
 // This item contains resolved token. It is used for ctor delegate optimization.
 #define TI_FLAG_TOKEN 0x00000400
 
-// This item contains the 'this' pointer (used for tracking)
-
-#define TI_FLAG_THIS_PTR 0x00001000
-
 // This is for use when verifying generic code.
 // This indicates that the type handle is really an unboxed
 // generic type variable (e.g. the result of loading an argument
@@ -257,16 +253,6 @@ public:
     // Operations
     /////////////////////////////////////////////////////////////////////////
 
-    void SetIsThisPtr()
-    {
-        m_flags |= TI_FLAG_THIS_PTR;
-    }
-
-    void ClearThisPtr()
-    {
-        m_flags &= ~TI_FLAG_THIS_PTR;
-    }
-
     void SetIsReadonlyByRef()
     {
         assert(IsByRef());
@@ -280,14 +266,13 @@ public:
             m_flags = TI_ERROR;
             INDEBUG(m_cls = NO_CLASS_HANDLE);
         }
-        m_flags &= ~(TI_FLAG_THIS_PTR | TI_ALL_BYREF_FLAGS);
+        m_flags &= ~TI_ALL_BYREF_FLAGS;
         return *this;
     }
 
     typeInfo& MakeByRef()
     {
         assert(!IsByRef());
-        m_flags &= ~(TI_FLAG_THIS_PTR);
         m_flags |= TI_FLAG_BYREF;
         return *this;
     }
@@ -332,12 +317,6 @@ public:
     BOOL IsByRef() const
     {
         return (m_flags & TI_FLAG_BYREF) != 0;
-    }
-
-    // Returns whether this is the this pointer
-    BOOL IsThisPtr() const
-    {
-        return (m_flags & TI_FLAG_THIS_PTR) != 0;
     }
 
 #ifdef DEBUG

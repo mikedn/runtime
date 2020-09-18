@@ -240,7 +240,7 @@ void Compiler::optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, Lc
         // node x2 = phi(x0, x1) which can then be used to substitute 'c' with. But because of pruning
         // there would be no such phi node. To solve this we'll check if 'x' is live, before replacing
         // 'c' with 'x.'
-        if (!lvaTable[newLclNum].lvVerTypeInfo.IsThisPtr())
+        if (!lvaTable[newLclNum].lvIsThisPtr)
         {
             if (lvaTable[newLclNum].lvAddrExposed)
             {
@@ -418,7 +418,7 @@ void Compiler::optBlockCopyProp(BasicBlock* block, LclNumToGenTreePtrStack* curS
             // If we encounter first use of a param or this pointer add it as a live definition.
             // Since they are always live, do it only once.
             else if ((tree->gtOper == GT_LCL_VAR) && !(tree->gtFlags & GTF_VAR_USEASG) &&
-                     (lvaTable[lclNum].lvIsParam || lvaTable[lclNum].lvVerTypeInfo.IsThisPtr()))
+                     (lvaTable[lclNum].lvIsParam || lvaTable[lclNum].lvIsThisPtr))
             {
                 GenTreePtrStack* stack;
                 if (!curSsaName->Lookup(lclNum, &stack))
