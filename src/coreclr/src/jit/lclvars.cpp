@@ -1259,7 +1259,7 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
 #endif
     if ((varTypeIsStruct(type)))
     {
-        lvaSetStruct(varNum, typeHnd, typeHnd != nullptr, true);
+        lvaSetStruct(varNum, typeHnd, typeHnd != nullptr);
         if (info.compIsVarArgs)
         {
             lvaSetStructUsedAsVarArg(varNum);
@@ -2188,7 +2188,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         {
             // Set size to zero so that lvaSetStruct will appropriately set the SIMD-relevant fields.
             fieldVarDsc->lvExactSize = 0;
-            compiler->lvaSetStruct(varNum, pFieldInfo->fldTypeHnd, false, true);
+            compiler->lvaSetStruct(varNum, pFieldInfo->fldTypeHnd, false);
             // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
             // be promoting this if we didn't think it could be enregistered.
             fieldVarDsc->lvRegStruct = true;
@@ -2507,15 +2507,12 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
 /*****************************************************************************
  * Set the lvClass for a local variable of a struct type */
 
-void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck, bool setTypeInfo)
+void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck)
 {
     noway_assert(varNum < lvaCount);
 
-    LclVarDsc* varDsc = &lvaTable[varNum];
-    if (setTypeInfo)
-    {
-        varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
-    }
+    LclVarDsc* varDsc     = &lvaTable[varNum];
+    varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
 
     // Set the type and associated info if we haven't already set it.
     if (varDsc->lvType == TYP_UNDEF)
