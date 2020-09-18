@@ -15,11 +15,8 @@ enum ti_types
     TI_REF,
     TI_STRUCT,
     TI_METHOD,
-    TI_BYTE,
-    TI_SHORT,
     TI_INT,
     TI_LONG,
-    TI_FLOAT,
     TI_DOUBLE,
     TI_NULL,
     TI_ONLY_ENUM = TI_METHOD, // Enum values with greater value are completely described by the enumeration.
@@ -30,22 +27,6 @@ enum ti_types
 #else
 #define TI_I_IMPL TI_INT
 #endif
-
-extern const ti_types g_jit_types_map[];
-
-// typeInfo does not care about distinction between signed/unsigned
-// This routine converts all unsigned types to signed ones
-inline ti_types varType2tiType(var_types type)
-{
-    assert(g_jit_types_map[TYP_BYTE] == TI_BYTE);
-    assert(g_jit_types_map[TYP_INT] == TI_INT);
-    assert(g_jit_types_map[TYP_UINT] == TI_INT);
-    assert(g_jit_types_map[TYP_FLOAT] == TI_FLOAT);
-    assert(g_jit_types_map[TYP_BYREF] == TI_ERROR);
-    assert(g_jit_types_map[type] != TI_ERROR);
-
-    return g_jit_types_map[type];
-}
 
 extern const ti_types g_ti_types_map[CORINFO_TYPE_COUNT];
 
@@ -117,12 +98,6 @@ inline ti_types JITtype2tiType(CorInfoType type)
 
 #define TI_FLAG_DATA_BITS 6
 #define TI_FLAG_DATA_MASK ((1 << TI_FLAG_DATA_BITS) - 1)
-
-// Flag indicating this item is uninitialized
-// Note that if UNINIT and BYREF are both set,
-// it means byref (uninit x) - i.e. we are pointing to an uninit <something>
-
-#define TI_FLAG_UNINIT_OBJREF 0x00000040
 
 // Flag indicating this item is a byref <something>
 
@@ -212,6 +187,33 @@ class typeInfo
 #endif
     }
 
+    // Get this item's type
+    // If primitive, returns the primitive type (TI_*)
+    // If not primitive, returns:
+    //  - TI_ERROR if a byref anything
+    //  - TI_REF if a class or array or null or a generic type variable
+    //  - TI_STRUCT if a value class
+    ti_types GetType() const
+    {
+        if ((m_flags & TI_FLAG_BYREF) != 0)
+        {
+            return TI_ERROR;
+        }
+
+        // objref/array/null (objref), value class, ptr, primitive
+        return static_cast<ti_types>(m_flags & TI_FLAG_DATA_MASK);
+    }
+
+    // Returns whether this is a primitive type (not a byref, objref,
+    // array, null, value class, invalid value)
+    BOOL IsPrimitiveType() const
+    {
+        unsigned type = GetType();
+
+        // boolean, char, u1,u2 never appear on the operand stack
+        return (type == TI_INT) || (type == TI_LONG) || (type == TI_DOUBLE);
+    }
+
 public:
     typeInfo() : m_flags(TI_ERROR), m_cls(NO_CLASS_HANDLE)
     {
@@ -219,20 +221,7 @@ public:
 
     typeInfo(ti_types tiType) : m_flags(static_cast<unsigned>(tiType)), m_cls(NO_CLASS_HANDLE)
     {
-        assert((tiType >= TI_BYTE) && (tiType <= TI_NULL));
-    }
-
-    typeInfo(var_types varType) : m_flags(static_cast<unsigned>(varType2tiType(varType))), m_cls(NO_CLASS_HANDLE)
-    {
-    }
-
-    static typeInfo nativeInt()
-    {
-        typeInfo result = typeInfo(TI_I_IMPL);
-#ifdef TARGET_64BIT
-        result.m_flags |= TI_FLAG_NATIVE_INT;
-#endif
-        return result;
+        assert((tiType >= TI_INT) && (tiType <= TI_NULL));
     }
 
     typeInfo(ti_types tiType, CORINFO_CLASS_HANDLE cls, bool typeVar = false)
@@ -249,13 +238,19 @@ public:
         assert(!isInvalidHandle(token->hMethod));
     }
 
+    static typeInfo nativeInt()
+    {
+        typeInfo result = typeInfo(TI_I_IMPL);
+#ifdef TARGET_64BIT
+        result.m_flags |= TI_FLAG_NATIVE_INT;
+#endif
+        return result;
+    }
+
     static bool AreEquivalent(const typeInfo& li, const typeInfo& ti);
 
 #ifdef DEBUG
-    static BOOL tiCompatibleWith(COMP_HANDLE     CompHnd,
-                                 const typeInfo& child,
-                                 const typeInfo& parent,
-                                 bool            normalisedForStack);
+    static BOOL tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent);
 #endif // DEBUG
 
     /////////////////////////////////////////////////////////////////////////
@@ -297,28 +292,6 @@ public:
         return *this;
     }
 
-    // I1,I2 --> I4
-    // FLOAT --> DOUBLE
-    // objref, arrays, byrefs, value classes are unchanged
-    //
-    typeInfo& NormaliseForStack()
-    {
-        switch (GetType())
-        {
-            case TI_BYTE:
-            case TI_SHORT:
-                m_flags = TI_INT;
-                break;
-
-            case TI_FLOAT:
-                m_flags = TI_DOUBLE;
-                break;
-            default:
-                break;
-        }
-        return (*this);
-    }
-
     /////////////////////////////////////////////////////////////////////////
     // Getters
     /////////////////////////////////////////////////////////////////////////
@@ -348,23 +321,6 @@ public:
         return m_token;
     }
 
-    // Get this item's type
-    // If primitive, returns the primitive type (TI_*)
-    // If not primitive, returns:
-    //  - TI_ERROR if a byref anything
-    //  - TI_REF if a class or array or null or a generic type variable
-    //  - TI_STRUCT if a value class
-    ti_types GetType() const
-    {
-        if ((m_flags & TI_FLAG_BYREF) != 0)
-        {
-            return TI_ERROR;
-        }
-
-        // objref/array/null (objref), value class, ptr, primitive
-        return static_cast<ti_types>(m_flags & TI_FLAG_DATA_MASK);
-    }
-
     BOOL IsType(ti_types type) const
     {
         assert(type != TI_ERROR);
@@ -384,6 +340,7 @@ public:
         return (m_flags & TI_FLAG_THIS_PTR) != 0;
     }
 
+#ifdef DEBUG
     BOOL IsUnboxedGenericTypeVar() const
     {
         return !IsByRef() && ((m_flags & TI_FLAG_GENERIC_TYPE_VAR) != 0);
@@ -393,6 +350,7 @@ public:
     {
         return IsByRef() && ((m_flags & TI_FLAG_BYREF_READONLY) != 0);
     }
+#endif
 
     // A byref value class is NOT a value class
     BOOL IsValueClass() const
@@ -404,40 +362,11 @@ public:
     // as primitives
     BOOL IsValueClassWithClsHnd() const
     {
-        return (GetType() == TI_STRUCT) ||
-               ((m_cls != NO_CLASS_HANDLE) && (GetType() != TI_REF) && (GetType() != TI_METHOD) &&
-                (GetType() != TI_ERROR)); // necessary because if byref bit is set, we return TI_ERROR)
-    }
-
-    // Returns whether this is a primitive type (not a byref, objref,
-    // array, null, value class, invalid value)
-    // May Need to normalise first (m/r/I4 --> I4)
-    BOOL IsPrimitiveType() const
-    {
         unsigned type = GetType();
 
-        // boolean, char, u1,u2 never appear on the operand stack
-        return ((type == TI_BYTE) || (type == TI_SHORT) || (type == TI_INT) || (type == TI_LONG) ||
-                (type == TI_FLOAT) || (type == TI_DOUBLE));
-    }
-
-    // Returns whether this is the null objref
-    BOOL IsNullObjRef() const
-    {
-        return IsType(TI_NULL);
-    }
-
-    // must be for a local which is an object type (i.e. has a slot >= 0)
-    // for primitive locals, use the liveness bitmap instead
-    // Note that this works if the error is 'Byref'
-    BOOL IsDead() const
-    {
-        return (m_flags & TI_FLAG_DATA_MASK) == TI_ERROR;
-    }
-
-    BOOL IsUninitialisedObjRef() const
-    {
-        return (m_flags & TI_FLAG_UNINIT_OBJREF) != 0;
+        return (type == TI_STRUCT) ||
+               ((m_cls != NO_CLASS_HANDLE) && (type != TI_REF) && (type != TI_METHOD) &&
+                (type != TI_ERROR)); // necessary because if byref bit is set, we return TI_ERROR)
     }
 
     BOOL IsToken() const
@@ -445,22 +374,5 @@ public:
         return (GetType() == TI_METHOD) && ((m_flags & TI_FLAG_TOKEN) != 0);
     }
 };
-
-inline typeInfo NormaliseForStack(const typeInfo& ti)
-{
-    return typeInfo(ti).NormaliseForStack();
-}
-
-// given ti make a byref to that type.
-inline typeInfo ByRef(const typeInfo& ti)
-{
-    return typeInfo(ti).MakeByRef();
-}
-
-// given ti which is a byref, return the type it points at
-inline typeInfo DereferenceByRef(const typeInfo& ti)
-{
-    return typeInfo(ti).DereferenceByRef();
-}
 
 #endif // _TYPEINFO_H_

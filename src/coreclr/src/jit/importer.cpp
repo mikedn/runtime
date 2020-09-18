@@ -40,15 +40,11 @@ void Compiler::impPushOnStack(GenTree* tree, typeInfo ti)
         BADCODE("stack overflow");
     }
 
-#ifdef DEBUG
     // If we are pushing a struct, make certain we know the precise type!
-    if (tree->TypeGet() == TYP_STRUCT)
+    if (tree->TypeIs(TYP_STRUCT))
     {
-        assert(ti.IsType(TI_STRUCT));
-        CORINFO_CLASS_HANDLE clsHnd = ti.GetClassHandle();
-        assert(clsHnd != NO_CLASS_HANDLE);
+        assert(ti.GetClassHandleForValueClass() != NO_CLASS_HANDLE);
     }
-#endif // DEBUG
 
     verCurrentState.esStack[verCurrentState.esStackDepth].seTypeInfo = ti;
     verCurrentState.esStack[verCurrentState.esStackDepth++].val      = tree;
@@ -4733,7 +4729,7 @@ typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsH
         {
             CORINFO_CLASS_HANDLE childClassHandle;
             CorInfoType          childType = info.compCompHnd->getChildType(clsHnd, &childClassHandle);
-            return ByRef(verMakeTypeInfo(childType, childClassHandle));
+            return verMakeTypeInfo(childType, childClassHandle).MakeByRef();
         }
         break;
 
@@ -4771,19 +4767,19 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd, bool bashStructT
 
     unsigned attribs = info.compCompHnd->getClassAttribs(clsHnd);
 
-    if (attribs & CORINFO_FLG_VALUECLASS)
+    if ((attribs & CORINFO_FLG_VALUECLASS) != 0)
     {
         CorInfoType t = info.compCompHnd->getTypeForPrimitiveValueClass(clsHnd);
 
         // Meta-data validation should ensure that CORINF_TYPE_BYREF should
         // not occur here, so we may want to change this to an assert instead.
-        if (t == CORINFO_TYPE_VOID || t == CORINFO_TYPE_BYREF || t == CORINFO_TYPE_PTR)
+        if ((t == CORINFO_TYPE_VOID) || (t == CORINFO_TYPE_BYREF) || (t == CORINFO_TYPE_PTR))
         {
             return typeInfo();
         }
 
 #ifdef TARGET_64BIT
-        if (t == CORINFO_TYPE_NATIVEINT || t == CORINFO_TYPE_NATIVEUINT)
+        if ((t == CORINFO_TYPE_NATIVEINT) || (t == CORINFO_TYPE_NATIVEUINT))
         {
             return typeInfo::nativeInt();
         }
@@ -4791,26 +4787,24 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd, bool bashStructT
 
         if (t != CORINFO_TYPE_UNDEF)
         {
-            return (typeInfo(JITtype2tiType(t)));
+            return typeInfo(JITtype2tiType(t));
         }
-        else if (bashStructToRef)
+
+        if (bashStructToRef)
         {
-            return (typeInfo(TI_REF, clsHnd));
+            return typeInfo(TI_REF, clsHnd);
         }
-        else
-        {
-            return (typeInfo(TI_STRUCT, clsHnd));
-        }
+
+        return typeInfo(TI_STRUCT, clsHnd);
     }
-    else if (attribs & CORINFO_FLG_GENERIC_TYPE_VARIABLE)
+
+    if ((attribs & CORINFO_FLG_GENERIC_TYPE_VARIABLE) != 0)
     {
         // See comment in _typeInfo.h for why we do it this way.
-        return (typeInfo(TI_REF, clsHnd, true));
+        return typeInfo(TI_REF, clsHnd, true);
     }
-    else
-    {
-        return (typeInfo(TI_REF, clsHnd));
-    }
+
+    return typeInfo(TI_REF, clsHnd);
 }
 
 typeInfo Compiler::verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args)
@@ -4919,7 +4913,7 @@ bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
     args = sig.args;
     while (argCount--)
     {
-        typeInfo tiDeclared = verParseArgSigToTypeInfo(&sig, args).NormaliseForStack();
+        typeInfo tiDeclared = verParseArgSigToTypeInfo(&sig, args);
 
         if (verIsByRefLike(tiDeclared))
         {
@@ -5003,7 +4997,7 @@ bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
     }
     else
     {
-        if (!tiCompatibleWith(NormaliseForStack(tiCalleeRetType), NormaliseForStack(tiCallerRetType), true))
+        if (!tiCompatibleWith(tiCalleeRetType, tiCallerRetType))
         {
             return false;
         }
@@ -5659,7 +5653,7 @@ GenTree* Compiler::impTransformThis(GenTree*                thisPtr,
 
             // This pushes on the dereferenced byref
             // This is then used immediately to box.
-            impPushOnStack(indir, verMakeTypeInfo(pConstrainedResolvedToken->hClass).NormaliseForStack());
+            impPushOnStack(indir, verMakeTypeInfo(pConstrainedResolvedToken->hClass));
 
             // This pops off the byref-to-a-value-type remaining on the stack and
             // replaces it with a boxed object.
@@ -7595,7 +7589,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                 assert(newobjThis->gtOper == GT_ADDR && newobjThis->AsOp()->gtOp1->gtOper == GT_LCL_VAR);
 
                 unsigned tmp = newobjThis->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-                impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), verMakeTypeInfo(clsHnd).NormaliseForStack());
+                impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), verMakeTypeInfo(clsHnd));
             }
             else
             {
@@ -7848,7 +7842,6 @@ DONE_CALL:
         }
 
         typeInfo tiRetVal = verMakeTypeInfo(sig->retType, sig->retTypeClass);
-        tiRetVal.NormaliseForStack();
 
         // The CEE_READONLY prefix modifies the verification semantics of an Address
         // operation on an array type.
@@ -12712,10 +12705,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     tiRetVal.MakeByRef();
                 }
-                else
-                {
-                    tiRetVal.NormaliseForStack();
-                }
 
                 // Perform this check always to ensure that we get field access exceptions even with
                 // SkipVerification.
@@ -14351,16 +14340,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #pragma warning(pop)
 #endif
 
-// Push a local/argument treeon the operand stack
-void Compiler::impPushVar(GenTree* op, typeInfo type)
-{
-    type.NormaliseForStack();
-    impPushOnStack(op, type);
-}
-
 // Load a local/argument on the operand stack
 // lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
-void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& type)
+void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset)
 {
     var_types lclTyp;
 
@@ -14373,7 +14355,7 @@ void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& typ
         lclTyp = lvaGetActualType(lclNum);
     }
 
-    impPushVar(gtNewLclvNode(lclNum, lclTyp DEBUGARG(offset)), type);
+    impPushOnStack(gtNewLclvNode(lclNum, lclTyp DEBUGARG(offset)), lvaTable[lclNum].lvVerTypeInfo);
 }
 
 // Load an argument on the operand stack
@@ -14395,8 +14377,8 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
             return;
         }
 
-        impPushVar(impInlineFetchArg(ilArgNum, impInlineInfo->inlArgInfo, impInlineInfo->lclVarInfo),
-                   impInlineInfo->lclVarInfo[ilArgNum].lclVerTypeInfo);
+        impPushOnStack(impInlineFetchArg(ilArgNum, impInlineInfo->inlArgInfo, impInlineInfo->lclVarInfo),
+                       impInlineInfo->lclVarInfo[ilArgNum].lclVerTypeInfo);
     }
     else
     {
@@ -14444,7 +14426,7 @@ void Compiler::impLoadLoc(unsigned ilLclNum, IL_OFFSET offset)
         assert(!lvaTable[lclNum].lvNormalizeOnLoad());
         lclTyp = genActualType(lclTyp);
 
-        impPushVar(gtNewLclvNode(lclNum, lclTyp), type);
+        impPushOnStack(gtNewLclvNode(lclNum, lclTyp), type);
     }
     else
     {
@@ -16531,7 +16513,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
             assert(sigType == TYP_BYREF);
             assert((genActualType(thisArgNode->TypeGet()) == TYP_I_IMPL) || (thisArgNode->TypeGet() == TYP_BYREF));
 
-            lclVarInfo[0].lclVerTypeInfo = typeInfo(varType2tiType(TYP_I_IMPL));
+            lclVarInfo[0].lclVerTypeInfo = typeInfo(TI_I_IMPL);
         }
     }
 
@@ -16595,7 +16577,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
             {
                 if (sigType == TYP_BYREF)
                 {
-                    lclVarInfo[i].lclVerTypeInfo = typeInfo(varType2tiType(TYP_I_IMPL));
+                    lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
                 }
                 else if (inlArgNode->gtType == TYP_BYREF)
                 {
@@ -16605,7 +16587,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
                     if (inlArgNode->IsLocalAddrExpr() != nullptr)
                     {
                         inlArgNode->gtType           = TYP_I_IMPL;
-                        lclVarInfo[i].lclVerTypeInfo = typeInfo(varType2tiType(TYP_I_IMPL));
+                        lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
                     }
                     else
                     {

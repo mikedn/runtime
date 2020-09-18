@@ -3917,12 +3917,7 @@ private:
     bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
     bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
 
-    void impPushVar(GenTree* op, typeInfo tiRetVal);
-    void impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& tiRetVal);
-    void impLoadVar(unsigned lclNum, IL_OFFSET offset)
-    {
-        impLoadVar(lclNum, offset, lvaTable[lclNum].lvVerTypeInfo);
-    }
+    void impLoadVar(unsigned lclNum, IL_OFFSET offset);
     void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
     void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
     bool impReturnInstruction(int prefixFlags, OPCODE& opcode);
@@ -9348,7 +9343,7 @@ public:
 #ifdef DEBUG
     // Returns TRUE if child is equal to or a subtype of parent.
     // normalisedForStack indicates that both types are normalised for the stack
-    BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent, bool normalisedForStack) const;
+    BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent) const;
 #endif
 
 #ifdef DEBUG

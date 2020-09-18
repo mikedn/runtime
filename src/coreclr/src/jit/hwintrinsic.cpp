@@ -434,7 +434,7 @@ GenTree* Compiler::getArgForHWIntrinsic(var_types            argType,
 
             // push newobj result on type stack
             unsigned tmp = arg->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-            impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), verMakeTypeInfo(argClass).NormaliseForStack());
+            impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), verMakeTypeInfo(argClass));
         }
     }
     else

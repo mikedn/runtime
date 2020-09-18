@@ -8,29 +8,23 @@
 
 #include "_typeinfo.h"
 
-const ti_types g_jit_types_map[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) verType,
-#include "typelist.h"
-#undef DEF_TP
-};
-
 const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
     // see the definition of enum CorInfoType in file inc/corinfo.h
     TI_ERROR,  // CORINFO_TYPE_UNDEF           = 0x0,
     TI_ERROR,  // CORINFO_TYPE_VOID            = 0x1,
-    TI_BYTE,   // CORINFO_TYPE_BOOL            = 0x2,
-    TI_SHORT,  // CORINFO_TYPE_CHAR            = 0x3,
-    TI_BYTE,   // CORINFO_TYPE_BYTE            = 0x4,
-    TI_BYTE,   // CORINFO_TYPE_UBYTE           = 0x5,
-    TI_SHORT,  // CORINFO_TYPE_SHORT           = 0x6,
-    TI_SHORT,  // CORINFO_TYPE_USHORT          = 0x7,
+    TI_INT,    // CORINFO_TYPE_BOOL            = 0x2,
+    TI_INT,    // CORINFO_TYPE_CHAR            = 0x3,
+    TI_INT,    // CORINFO_TYPE_BYTE            = 0x4,
+    TI_INT,    // CORINFO_TYPE_UBYTE           = 0x5,
+    TI_INT,    // CORINFO_TYPE_SHORT           = 0x6,
+    TI_INT,    // CORINFO_TYPE_USHORT          = 0x7,
     TI_INT,    // CORINFO_TYPE_INT             = 0x8,
     TI_INT,    // CORINFO_TYPE_UINT            = 0x9,
     TI_LONG,   // CORINFO_TYPE_LONG            = 0xa,
     TI_LONG,   // CORINFO_TYPE_ULONG           = 0xb,
     TI_I_IMPL, // CORINFO_TYPE_NATIVEINT       = 0xc,
     TI_I_IMPL, // CORINFO_TYPE_NATIVEUINT      = 0xd,
-    TI_FLOAT,  // CORINFO_TYPE_FLOAT           = 0xe,
+    TI_DOUBLE, // CORINFO_TYPE_FLOAT           = 0xe,
     TI_DOUBLE, // CORINFO_TYPE_DOUBLE          = 0xf,
     TI_REF,    // CORINFO_TYPE_STRING          = 0x10,
     TI_ERROR,  // CORINFO_TYPE_PTR             = 0x11,
@@ -41,6 +35,8 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
     TI_REF,    // CORINFO_TYPE_VAR             = 0x16,
 };
 
+#ifdef DEBUG
+
 // Note that we specifically ignore the permanent byref here. The rationale is that
 // the type system doesn't know about this (it's jit only), ie, signatures don't specify if
 // a byref is safe, so they are fully equivalent for the jit, except for the RET instruction,
@@ -48,8 +44,7 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
 // the bit
 bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
 {
-    unsigned allFlags =
-        TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_GENERIC_TYPE_VAR | TI_FLAG_UNINIT_OBJREF;
+    unsigned allFlags = TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_GENERIC_TYPE_VAR;
 #ifdef TARGET_64BIT
     allFlags |= TI_FLAG_NATIVE_INT;
 #endif // TARGET_64BIT
@@ -74,14 +69,17 @@ bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
     return li.m_cls == ti.m_cls;
 }
 
-#ifdef DEBUG
-
-BOOL Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent, bool normalisedForStack) const
+BOOL Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const
 {
-    return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent, normalisedForStack);
+    return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent);
 }
 
-static BOOL tiCompatibleWithByRef(COMP_HANDLE CompHnd, const typeInfo& child, const typeInfo& parent)
+typeInfo DereferenceByRef(const typeInfo& ti)
+{
+    return typeInfo(ti).DereferenceByRef();
+}
+
+static BOOL tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
 {
     assert(parent.IsByRef());
 
@@ -108,7 +106,7 @@ static BOOL tiCompatibleWithByRef(COMP_HANDLE CompHnd, const typeInfo& child, co
     if ((childTarget.IsType(TI_REF) || childTarget.IsType(TI_STRUCT)) &&
         (parentTarget.IsType(TI_REF) || parentTarget.IsType(TI_STRUCT)))
     {
-        return CompHnd->areTypesEquivalent(childTarget.GetClassHandle(), parentTarget.GetClassHandle());
+        return vm->areTypesEquivalent(childTarget.GetClassHandle(), parentTarget.GetClassHandle());
     }
 
     return FALSE;
@@ -147,14 +145,8 @@ static BOOL tiCompatibleWithByRef(COMP_HANDLE CompHnd, const typeInfo& child, co
  *
  */
 
-BOOL typeInfo::tiCompatibleWith(COMP_HANDLE     CompHnd,
-                                const typeInfo& child,
-                                const typeInfo& parent,
-                                bool            normalisedForStack)
+BOOL typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
 {
-    assert(child.IsDead() || !normalisedForStack || typeInfo::AreEquivalent(::NormaliseForStack(child), child));
-    assert(parent.IsDead() || !normalisedForStack || typeInfo::AreEquivalent(::NormaliseForStack(parent), parent));
-
     if (typeInfo::AreEquivalent(child, parent))
     {
         return TRUE;
@@ -164,62 +156,43 @@ BOOL typeInfo::tiCompatibleWith(COMP_HANDLE     CompHnd,
     {
         return FALSE; // need to have had child == parent
     }
-    else if (parent.IsType(TI_REF))
+
+    if (parent.IsType(TI_REF))
     {
-        // An uninitialized objRef is not compatible to initialized.
-        if (child.IsUninitialisedObjRef() && !parent.IsUninitialisedObjRef())
-        {
-            return FALSE;
-        }
-
-        if (child.IsNullObjRef())
-        { // NULL can be any reference type
-            return TRUE;
-        }
-        if (!child.IsType(TI_REF))
-        {
-            return FALSE;
-        }
-
-        return CompHnd->canCast(child.m_cls, parent.m_cls);
+        return child.IsType(TI_NULL) || (child.IsType(TI_REF) && vm->canCast(child.m_cls, parent.m_cls));
     }
-    else if (parent.IsType(TI_METHOD))
-    {
-        if (!child.IsType(TI_METHOD))
-        {
-            return FALSE;
-        }
 
+    if (parent.IsType(TI_METHOD))
+    {
         // Right now we don't bother merging method handles
-        return FALSE;
+        return child.IsType(TI_METHOD);
     }
-    else if (parent.IsType(TI_STRUCT))
-    {
-        if (!child.IsType(TI_STRUCT))
-        {
-            return FALSE;
-        }
 
-        // Structures are compatible if they are equivalent
-        return CompHnd->areTypesEquivalent(child.m_cls, parent.m_cls);
-    }
-    else if (parent.IsByRef())
+    if (parent.IsType(TI_STRUCT))
     {
-        return tiCompatibleWithByRef(CompHnd, child, parent);
+        return child.IsType(TI_STRUCT) && vm->areTypesEquivalent(child.m_cls, parent.m_cls);
     }
+
+    if (parent.IsByRef())
+    {
+        return tiCompatibleWithByRef(vm, child, parent);
+    }
+
 #ifdef TARGET_64BIT
     // On 64-bit targets we have precise representation for native int, so these rules
     // represent the fact that the ECMA spec permits the implicit conversion
     // between an int32 and a native int.
-    else if (parent.IsType(TI_INT) && typeInfo::AreEquivalent(nativeInt(), child))
+    if (parent.IsType(TI_INT) && typeInfo::AreEquivalent(nativeInt(), child))
     {
         return TRUE;
     }
-    else if (typeInfo::AreEquivalent(nativeInt(), parent) && child.IsType(TI_INT))
+
+    if (typeInfo::AreEquivalent(nativeInt(), parent) && child.IsType(TI_INT))
     {
         return TRUE;
     }
 #endif // TARGET_64BIT
+
     return FALSE;
 }
 

@@ -4390,8 +4390,7 @@ unsigned Compiler::abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass)
             indexType lclNum;
             FOREACH_HBV_BIT_SET(lclNum, m_abiStructArgTemps)
             {
-                if (typeInfo::AreEquivalent(lvaGetDesc(static_cast<unsigned>(lclNum))->lvVerTypeInfo,
-                                            typeInfo(TI_STRUCT, argClass)) &&
+                if ((lvaGetDesc(static_cast<unsigned>(lclNum))->GetLayout()->GetClassHandle() == argClass) &&
                     !m_abiStructArgTempsInUse->testBit(lclNum))
                 {
                     tempLclNum = static_cast<unsigned>(lclNum);

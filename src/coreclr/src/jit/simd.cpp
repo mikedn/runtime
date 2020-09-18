@@ -1339,8 +1339,7 @@ GenTree* Compiler::getOp1ForConstructor(OPCODE opcode, GenTree* newobjThis, CORI
 
         // push newobj result on type stack
         unsigned tmpLclNum = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
-        impPushOnStack(gtNewLclvNode(tmpLclNum, lvaGetRealType(tmpLclNum)),
-                       verMakeTypeInfo(clsHnd).NormaliseForStack());
+        impPushOnStack(gtNewLclvNode(tmpLclNum, lvaGetRealType(tmpLclNum)), verMakeTypeInfo(clsHnd));
 
         return newobjThis;
     }
