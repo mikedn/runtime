@@ -15053,39 +15053,6 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
     return true;
 }
 
-/*****************************************************************************
- *  Mark the block as unimported.
- *  Note that the caller is responsible for calling impImportBlockPending(),
- *  with the appropriate stack-state
- */
-
-inline void Compiler::impReimportMarkBlock(BasicBlock* block)
-{
-#ifdef DEBUG
-    if (verbose && (block->bbFlags & BBF_IMPORTED))
-    {
-        printf("\n" FMT_BB " will be reimported\n", block->bbNum);
-    }
-#endif
-
-    block->bbFlags &= ~BBF_IMPORTED;
-}
-
-/*****************************************************************************
- *  Mark the successors of the given block as unimported.
- *  Note that the caller is responsible for calling impImportBlockPending()
- *  for all the successors, with the appropriate stack-state.
- */
-
-void Compiler::impReimportMarkSuccessors(BasicBlock* block)
-{
-    const unsigned numSuccs = block->NumSucc();
-    for (unsigned i = 0; i < numSuccs; i++)
-    {
-        impReimportMarkBlock(block->GetSucc(i));
-    }
-}
-
 void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
 {
     assert(!compIsForInlining());
@@ -15231,41 +15198,19 @@ void Compiler::impImportBlock(BasicBlock* block)
     // If we had a int/native int, or float/double collision, we need to re-import
     if (reimportSpillClique)
     {
-        // This will re-import all the successors of block (as well as each of their predecessors)
         impReimportSpillClique(block);
-
-        // For blocks that haven't been imported yet, we still need to mark them as pending import.
-        const unsigned numSuccs = block->NumSucc();
-        for (unsigned i = 0; i < numSuccs; i++)
-        {
-            BasicBlock* succ = block->GetSucc(i);
-            if ((succ->bbFlags & BBF_IMPORTED) == 0)
-            {
-                impImportBlockPending(succ);
-            }
-        }
     }
-    else // the normal case
-    {
-        // otherwise just import the successors of block
 
-        /* Does this block jump to any other blocks? */
-        const unsigned numSuccs = block->NumSucc();
-        for (unsigned i = 0; i < numSuccs; i++)
-        {
-            impImportBlockPending(block->GetSucc(i));
-        }
+    const unsigned numSuccs = block->NumSucc();
+    for (unsigned i = 0; i < numSuccs; i++)
+    {
+        impImportBlockPending(block->GetSucc(i));
     }
 }
 
 bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 {
     JITDUMP("\nSpilling %u stack entries at the end of " FMT_BB "\n", verCurrentState.esStackDepth, block->bbNum);
-
-    for (unsigned i = 0; i < verCurrentState.esStackDepth; i++)
-    {
-        JITDUMPTREE(verCurrentState.esStack[i].val, "Stack entry %u:\n", i);
-    }
 
     switch (block->bbJumpKind)
     {
@@ -15316,6 +15261,8 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             unsigned spillTempLclNum = spillTempBaseLclNum + level;
             GenTree* tree            = verCurrentState.esStack[level].val;
 
+            JITDUMPTREE(tree, "Stack entry %u:\n", level);
+
             impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
                              CHECK_SPILL_NONE);
         }
@@ -15333,6 +15280,8 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
             GenTree*   tree            = verCurrentState.esStack[level].val;
 
+            JITDUMPTREE(tree, "Stack entry %u:\n", level);
+
             if (tree->TypeIs(TYP_BYREF) && (spillTempLcl->GetType() == TYP_I_IMPL))
             {
                 // VC generates code where it pushes a byref from one branch, and an int (ldc.i4 0) from
@@ -15342,7 +15291,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 // would not get GC-tracked. Hence, change the temp to TYP_BYREF and reimport the successors.
 
                 spillTempLcl->SetType(TYP_BYREF);
-                impReimportMarkSuccessors(block);
+                reimportSpillClique = true;
             }
 #ifdef TARGET_64BIT
             else if (tree->TypeIs(TYP_LONG) && (spillTempLcl->GetType() == TYP_INT))
@@ -15447,23 +15396,10 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
 void Compiler::impImportBlockPending(BasicBlock* block)
 {
-    JITDUMP("\nimpImportBlockPending for " FMT_BB "\n", block->bbNum);
-
     if (((block->bbFlags & BBF_IMPORTED) == 0) && !impIsPendingBlockMember(block))
     {
-        impPushPendingBlock(block);
-    }
-}
+        JITDUMP(FMT_BB " pending import\n", block->bbNum);
 
-void Compiler::impReimportBlockPending(BasicBlock* block)
-{
-    JITDUMP("\nimpReimportBlockPending for " FMT_BB, block->bbNum);
-
-    assert((block->bbFlags & BBF_IMPORTED) != 0);
-
-    if (!impIsPendingBlockMember(block))
-    {
-        block->bbFlags &= ~BBF_IMPORTED;
         impPushPendingBlock(block);
     }
 }
@@ -15580,48 +15516,6 @@ void Compiler::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
     assert(impIsSpillCliqueMember(SpillCliquePred, block));
 }
 
-void Compiler::ReimportSpillClique::Visit(SpillCliqueDir predOrSucc, BasicBlock* blk)
-{
-    // For Preds we could be a little smarter and just find the existing store
-    // and re-type it/add a cast, but that is complicated and hopefully very rare, so
-    // just re-import the whole block (just like we do for successors)
-
-    if (((blk->bbFlags & BBF_IMPORTED) == 0) && !m_pComp->impIsPendingBlockMember(blk))
-    {
-        // If we haven't imported this block and we're not going to (because it isn't on
-        // the pending list) then just ignore it for now.
-
-        return;
-    }
-
-    // For successors we have a valid verCurrentState, so just mark them for reimport
-    // the 'normal' way
-    // Unlike predecessors, we *DO* need to reimport the current block because the
-    // initial import had the wrong entry state types.
-    // Similarly, blocks that are currently on the pending list, still need to call
-    // impImportBlockPending to fixup their entry state.
-    if (predOrSucc == SpillCliqueSucc)
-    {
-        m_pComp->impReimportMarkBlock(blk);
-        m_pComp->impImportBlockPending(blk);
-    }
-    else if ((blk != m_pComp->compCurBB) && ((blk->bbFlags & BBF_IMPORTED) != 0))
-    {
-        // As described above, we are only visiting predecessors so they can
-        // add the appropriate casts, since we have already done that for the current
-        // block, it does not need to be reimported.
-        // Nor do we need to reimport blocks that are still pending, but not yet
-        // imported.
-        //
-        // For predecessors, we have no state to seed the EntryState, so we just have
-        // to assume the existing one is correct.
-        // If the block is also a successor, it will get the EntryState properly
-        // updated when it is visited as a successor in the above "if" block.
-        assert(predOrSucc == SpillCliquePred);
-        m_pComp->impReimportBlockPending(blk);
-    }
-}
-
 void Compiler::impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState* state)
 {
     class SetSpillCliqueState : public SpillCliqueWalker
@@ -15651,19 +15545,50 @@ void Compiler::impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState*
         }
     } callback(state);
 
-    // We do *NOT* need to reset the SpillClique*Members because a block can only be the predecessor
-    // to one spill clique, and similarly can only be the sucessor to one spill clique
+    // We do *NOT* need to reset impSpillCliqueMembers because a block can only be the predecessor
+    // to one spill clique, and similarly can only be the sucessor to one spill clique.
     impWalkSpillCliqueFromPred(block, &callback);
 }
 
 void Compiler::impReimportSpillClique(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
+    class ReimportSpillClique : public SpillCliqueWalker
     {
-        printf("\n*************** In impReimportSpillClique(" FMT_BB ")\n", block->bbNum);
-    }
-#endif // DEBUG
+        Compiler*   m_compiler;
+        BasicBlock* m_currentBlock;
+
+    public:
+        ReimportSpillClique(Compiler* compiler, BasicBlock* currentBlock)
+            : m_compiler(compiler), m_currentBlock(currentBlock)
+        {
+        }
+
+        void Visit(SpillCliqueDir dir, BasicBlock* block) override
+        {
+            if ((block->bbFlags & BBF_IMPORTED) == 0)
+            {
+                // The block isn't yet imported so there's no need to re-import.
+                return;
+            }
+
+            // If it's already imported it cannot be pending.
+            assert(!m_compiler->impIsPendingBlockMember(block));
+
+            if ((block == m_currentBlock) && (dir == SpillCliquePred))
+            {
+                // The current block, which triggered re-importing, does not need
+                // to be re-imported unless it is a successor (e.g. current block
+                // is reached with a FLOAT on the stack but then it pushes DOUBLE
+                // and loops back to itself).
+                return;
+            }
+
+            JITDUMP(FMT_BB " will be reimported\n", block->bbNum);
+
+            block->bbFlags &= ~BBF_IMPORTED;
+            m_compiler->impPushPendingBlock(block);
+        }
+    } callback(this, block);
 
     // If we get here, it is because this block is already part of a spill clique
     // and one predecessor had an outgoing live stack slot of type int, and this
@@ -15671,8 +15596,6 @@ void Compiler::impReimportSpillClique(BasicBlock* block)
     // We need to reset these before traversal because they have already been set
     // by the previous walk to determine all the members of the spill clique.
     impInlineRoot()->impSpillCliqueMembers.Reset();
-
-    ReimportSpillClique callback(this);
 
     impWalkSpillCliqueFromPred(block, &callback);
 }

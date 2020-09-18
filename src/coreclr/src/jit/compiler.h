@@ -3852,19 +3852,11 @@ private:
 
     void impImportBlockCode(BasicBlock* block);
 
-    void impReimportMarkBlock(BasicBlock* block);
-    void impReimportMarkSuccessors(BasicBlock* block);
-
     void impAddPendingEHSuccessors(BasicBlock* block);
 
     void impImportBlockPending(BasicBlock* block);
     void impPushPendingBlock(BasicBlock* block);
     BasicBlock* impPopPendingBlock();
-
-    // Similar to impImportBlockPending, but assumes that block has already been imported once and is being
-    // reimported for some reason.  It specifically does *not* look at verCurrentState to set the EntryState
-    // for the block, but instead, just re-uses the block's existing EntryState.
-    void impReimportBlockPending(BasicBlock* block);
 
     var_types impGetByRefResultType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
 
@@ -3916,18 +3908,6 @@ private:
     {
     public:
         virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk) = 0;
-    };
-
-    // This class is used for implementing impReimportSpillClique part on each block within the spill clique
-    class ReimportSpillClique : public SpillCliqueWalker
-    {
-        Compiler* m_pComp;
-
-    public:
-        ReimportSpillClique(Compiler* pComp) : m_pComp(pComp)
-        {
-        }
-        virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk);
     };
 
     // This is the heart of the algorithm for walking spill cliques. It invokes callback->Visit for each
