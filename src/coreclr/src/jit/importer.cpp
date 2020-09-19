@@ -2359,10 +2359,12 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
     const bool forceInsertNewBlock      = compStressCompile(STRESS_CATCH_ARG, 5);
 #endif // defined(JIT32_GCENCODER)
 
-    hndBlk->bbEntryState = new (this, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
-
-    /* Spill GT_CATCH_ARG to a temp if there are jumps to the beginning of the handler */
-    if (hndBlk->bbRefs > 1 || forceInsertNewBlock)
+    // Spill GT_CATCH_ARG to a temp if there are jumps to the beginning of the handler
+    if ((hndBlk->bbRefs <= 1) && !forceInsertNewBlock)
+    {
+        hndBlk->bbEntryState = new (this, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
+    }
+    else
     {
         if (hndBlk->bbRefs == 1)
         {
@@ -2373,7 +2375,8 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         BasicBlock* newBlk = fgNewBBbefore(BBJ_NONE, hndBlk, /* extendRegion */ true);
         newBlk->bbFlags |= BBF_IMPORTED | BBF_DONT_REMOVE | BBF_HAS_LABEL | BBF_JMP_TARGET;
         newBlk->setBBWeight(hndBlk->bbWeight);
-        newBlk->bbCodeOffs = hndBlk->bbCodeOffs;
+        newBlk->bbCodeOffs   = hndBlk->bbCodeOffs;
+        newBlk->bbEntryState = new (this, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
 
         /* Account for the new link we are about to create */
         hndBlk->bbRefs++;
