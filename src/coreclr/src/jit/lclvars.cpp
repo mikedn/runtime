@@ -252,7 +252,7 @@ void Compiler::lvaInitTypeRef()
             info.compCompHnd->getArgType(&info.compMethodInfo->locals, localsSig, &typeHnd);
         CorInfoType corInfoType = strip(corInfoTypeWithMod);
 
-        lvaInitVarDsc(varDsc, varNum, corInfoType, typeHnd, localsSig, &info.compMethodInfo->locals);
+        lvaInitVarDsc(varDsc, varNum, corInfoType, typeHnd);
 
         if ((corInfoTypeWithMod & CORINFO_TYPE_MOD_PINNED) != 0)
         {
@@ -568,7 +568,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo)
         CorInfoTypeWithMod corInfoType = info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd);
         varDsc->lvIsParam              = 1;
 
-        lvaInitVarDsc(varDsc, varDscInfo->varNum, strip(corInfoType), typeHnd, argLst, &info.compMethodInfo->args);
+        lvaInitVarDsc(varDsc, varDscInfo->varNum, strip(corInfoType), typeHnd);
 
         if (strip(corInfoType) == CORINFO_TYPE_CLASS)
         {
@@ -1193,12 +1193,7 @@ void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)
 }
 
 /*****************************************************************************/
-void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
-                             unsigned                varNum,
-                             CorInfoType             corInfoType,
-                             CORINFO_CLASS_HANDLE    typeHnd,
-                             CORINFO_ARG_LIST_HANDLE varList,
-                             CORINFO_SIG_INFO*       varSig)
+void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd)
 {
     noway_assert(varDsc == &lvaTable[varNum]);
 
@@ -1225,26 +1220,11 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
     }
 
     var_types type = JITtype2varType(corInfoType);
-    if (varTypeIsFloating(type))
-    {
-        compFloatingPointUsed = true;
-    }
-
-    if (typeHnd != NO_CLASS_HANDLE)
-    {
-        unsigned attribs = info.compCompHnd->getClassAttribs(typeHnd);
-
-        // We can get typeHnds for primitive types, these are value types which only contain
-        // a primitive. We will need the typeHnd to distinguish them, so we store it here.
-        if (((attribs & CORINFO_FLG_VALUECLASS) != 0) && !varTypeIsStruct(type))
-        {
-            varDsc->lvVerTypeInfo = verMakeTypeInfo(typeHnd);
-        }
-    }
 
     if (varTypeIsStruct(type))
     {
-        lvaSetStruct(varNum, typeHnd, typeHnd != nullptr);
+        lvaSetStruct(varNum, typeHnd, true);
+
         if (info.compIsVarArgs)
         {
             lvaSetStructUsedAsVarArg(varNum);
@@ -1252,23 +1232,43 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
     }
     else
     {
-        varDsc->lvType = type;
-    }
+        varDsc->SetType(type);
 
+        if (varTypeIsFloating(type))
+        {
+            compFloatingPointUsed = true;
+        }
 #if OPT_BOOL_OPS
-    if (type == TYP_BOOL)
-    {
-        varDsc->lvIsBoolean = true;
-    }
+        else if (type == TYP_BOOL)
+        {
+            varDsc->lvIsBoolean = true;
+        }
 #endif
 
-#ifdef DEBUG
-    varDsc->lvStkOffs = BAD_STK_OFFS;
-#endif
+        if ((typeHnd != NO_CLASS_HANDLE) &&
+            ((info.compCompHnd->getClassAttribs(typeHnd) & CORINFO_FLG_VALUECLASS) != 0))
+        {
+            // This is a "normed type" - a struct that contains a single primitive type field.
+            // In general this is just a primtive type as far as the JIT is concerned but there
+            // are 2 exceptions:
+            //   - ldfld import code needs to know that the value on the stack is really a
+            //     struct object, otherwise it could think it's the address of the object.
+            //   - The inliner state machine assigns special weights to LDLOCA/LDARGA used
+            //     with normed type locals.
+            //
+            // TODO-MIKE-Cleanup: Maybe lvVerTypeInfo can be replaced with CORINFO_CLASS_HANDLE
+            // since the rest of the bits in typeInfo aren't useful.
+            // Note: impInlineFetchArg and impInlineFetchLocal have similar code.
+
+            varDsc->lvVerTypeInfo = verMakeTypeInfo(typeHnd);
+        }
+    }
+
+    INDEBUG(varDsc->lvStkOffs = BAD_STK_OFFS;)
 
 #if FEATURE_MULTIREG_ARGS
     varDsc->SetOtherArgReg(REG_NA);
-#endif // FEATURE_MULTIREG_ARGS
+#endif
 }
 
 /*****************************************************************************

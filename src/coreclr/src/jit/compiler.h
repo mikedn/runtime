@@ -3153,12 +3153,7 @@ public:
     void lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo);
     void lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo);
 
-    void lvaInitVarDsc(LclVarDsc*              varDsc,
-                       unsigned                varNum,
-                       CorInfoType             corInfoType,
-                       CORINFO_CLASS_HANDLE    typeHnd,
-                       CORINFO_ARG_LIST_HANDLE varList,
-                       CORINFO_SIG_INFO*       varSig);
+    void lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd);
 
     var_types lvaGetActualType(unsigned lclNum);
     var_types lvaGetRealType(unsigned lclNum);
