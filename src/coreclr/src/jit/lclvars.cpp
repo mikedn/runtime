@@ -1230,18 +1230,16 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
         compFloatingPointUsed = true;
     }
 
-    if (typeHnd)
+    if (typeHnd != NO_CLASS_HANDLE)
     {
-        unsigned cFlags = info.compCompHnd->getClassAttribs(typeHnd);
+        unsigned attribs = info.compCompHnd->getClassAttribs(typeHnd);
 
         // We can get typeHnds for primitive types, these are value types which only contain
         // a primitive. We will need the typeHnd to distinguish them, so we store it here.
-        if ((cFlags & CORINFO_FLG_VALUECLASS) && !varTypeIsStruct(type))
+        if (((attribs & CORINFO_FLG_VALUECLASS) != 0) && !varTypeIsStruct(type))
         {
             varDsc->lvVerTypeInfo = verMakeTypeInfo(typeHnd);
         }
-
-        varDsc->lvOverlappingFields = StructHasOverlappingFields(cFlags);
     }
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
