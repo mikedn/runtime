@@ -564,17 +564,29 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo)
     {
         LclVarDsc*           varDsc  = varDscInfo->varDsc;
         CORINFO_CLASS_HANDLE typeHnd = nullptr;
+        CorInfoType corInfoType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd));
 
-        CorInfoTypeWithMod corInfoType = info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd);
-        varDsc->lvIsParam              = 1;
+        varDsc->lvIsParam = 1;
+        lvaInitVarDsc(varDsc, varDscInfo->varNum, corInfoType, typeHnd);
 
-        lvaInitVarDsc(varDsc, varDscInfo->varNum, strip(corInfoType), typeHnd);
-
-        if (strip(corInfoType) == CORINFO_TYPE_CLASS)
+        if (corInfoType == CORINFO_TYPE_CLASS)
         {
             CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->args, argLst);
             lvaSetClass(varDscInfo->varNum, clsHnd);
         }
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+        else if (varTypeIsStruct(varDsc->GetType()))
+        {
+            structPassingKind howToReturnStruct;
+            getArgTypeForStruct(typeHnd, &howToReturnStruct, info.compIsVarArgs, varDsc->lvExactSize);
+
+            if (howToReturnStruct == SPK_ByReference)
+            {
+                JITDUMP("Marking V%02i as a byref parameter\n", varDscInfo->varNum);
+                varDsc->lvIsImplicitByRef = 1;
+            }
+        }
+#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
 
         // For ARM, ARM64, and AMD64 varargs, all arguments go in integer registers
         var_types argType = mangleVarArgsType(varDsc->TypeGet());
@@ -2513,21 +2525,6 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
             var_types simdBaseType = TYP_UNKNOWN;
             varDsc->lvType         = impNormStructType(typeHnd, &simdBaseType);
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-            // Mark implicit byref struct parameters
-            if (varDsc->lvIsParam && !varDsc->lvIsStructField)
-            {
-                structPassingKind howToReturnStruct;
-                getArgTypeForStruct(typeHnd, &howToReturnStruct, this->info.compIsVarArgs, varDsc->lvExactSize);
-
-                if (howToReturnStruct == SPK_ByReference)
-                {
-                    JITDUMP("Marking V%02i as a byref parameter\n", varNum);
-                    varDsc->lvIsImplicitByRef = 1;
-                }
-            }
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
 #if FEATURE_SIMD
             if (simdBaseType != TYP_UNKNOWN)
             {
@@ -2536,6 +2533,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
                 varDsc->lvBaseType = simdBaseType;
             }
 #endif // FEATURE_SIMD
+
 #ifdef FEATURE_HFA
             // For structs that are small enough, we check and set HFA element type
             if (varDsc->lvExactSize <= MAX_PASS_MULTIREG_BYTES)
