@@ -2114,8 +2114,6 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
             compiler->compFloatingPointUsed = true;
         }
 
-// Now grab the temp for the field local.
-
 #ifdef DEBUG
         char buf[200];
         sprintf_s(buf, sizeof(buf), "%s V%02u.%s (fldOffset=0x%x)", "field", lclNum,
@@ -2132,16 +2130,14 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         }
 #endif
 
+        // Now grab the temp for the field local.
         // Lifetime of field locals might span multiple BBs, so they must be long lifetime temps.
         const unsigned varNum = compiler->lvaGrabTemp(false DEBUGARG(bufp));
 
-        // lvaGrabTemp can reallocate the lvaTable, so
-        // refresh the cached varDsc for lclNum.
+        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached varDsc for lclNum.
         varDsc = compiler->lvaGetDesc(lclNum);
 
         LclVarDsc* fieldVarDsc       = compiler->lvaGetDesc(varNum);
-        fieldVarDsc->lvType          = pFieldInfo->fldType;
-        fieldVarDsc->lvExactSize     = pFieldInfo->fldSize;
         fieldVarDsc->lvIsStructField = true;
         fieldVarDsc->lvFieldHnd      = pFieldInfo->fldHnd;
         fieldVarDsc->lvFldOffset     = pFieldInfo->fldOffset;
@@ -2149,10 +2145,24 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         fieldVarDsc->lvParentLcl     = lclNum;
         fieldVarDsc->lvIsParam       = varDsc->lvIsParam;
 
-        // This new local may be the first time we've seen a long typed local.
-        if (fieldVarDsc->lvType == TYP_LONG)
+        if (varTypeIsSIMD(pFieldInfo->fldType))
         {
-            compiler->compLongUsed = true;
+            compiler->lvaSetStruct(varNum, pFieldInfo->fldTypeHnd, false);
+            // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
+            // be promoting this if we didn't think it could be enregistered.
+            fieldVarDsc->lvRegStruct = true;
+        }
+        else
+        {
+            fieldVarDsc->SetType(pFieldInfo->fldType);
+
+            // TODO-MIKE-Cleanup: This code is likely bogus, lvExactSize is relevant only for struct/block typed locals.
+            fieldVarDsc->lvExactSize = pFieldInfo->fldSize;
+
+            if (fieldVarDsc->GetType() == TYP_LONG)
+            {
+                compiler->compLongUsed = true;
+            }
         }
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
@@ -2175,23 +2185,9 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         }
 #endif
 
-#ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(pFieldInfo->fldType))
-        {
-            // Set size to zero so that lvaSetStruct will appropriately set the SIMD-relevant fields.
-            fieldVarDsc->lvExactSize = 0;
-            compiler->lvaSetStruct(varNum, pFieldInfo->fldTypeHnd, false);
-            // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
-            // be promoting this if we didn't think it could be enregistered.
-            fieldVarDsc->lvRegStruct = true;
-        }
-#endif // FEATURE_SIMD
-
-#ifdef DEBUG
         // This temporary should not be converted to a double in stress mode,
         // because we introduce assigns to it after the stress conversion
-        fieldVarDsc->lvKeepType = 1;
-#endif
+        INDEBUG(fieldVarDsc->lvKeepType = 1;)
     }
 }
 

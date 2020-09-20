@@ -16761,37 +16761,37 @@ unsigned Compiler::impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reas
         impInlineInfo->lclTmpNum[lclNum] = tmpNum = lvaGrabTemp(false DEBUGARG(reason));
 
         // Copy over key info
-        lvaTable[tmpNum].lvType                 = lclTyp;
         lvaTable[tmpNum].lvHasLdAddrOp          = inlineeLocal.lclHasLdlocaOp;
         lvaTable[tmpNum].lvPinned               = inlineeLocal.lclIsPinned;
         lvaTable[tmpNum].lvHasILStoreOp         = inlineeLocal.lclHasStlocOp;
         lvaTable[tmpNum].lvHasMultipleILStoreOp = inlineeLocal.lclHasMultipleStlocOp;
 
-        // Copy over class handle for ref types. Note this may be a
-        // shared type -- someday perhaps we can get the exact
-        // signature and pass in a more precise type.
-        if (lclTyp == TYP_REF)
+        if (varTypeIsStruct(lclTyp))
         {
-            assert(lvaTable[tmpNum].lvSingleDef == 0);
-
-            lvaTable[tmpNum].lvSingleDef = !inlineeLocal.lclHasMultipleStlocOp && !inlineeLocal.lclHasLdlocaOp;
-            if (lvaTable[tmpNum].lvSingleDef)
-            {
-                JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
-            }
-
-            lvaSetClass(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandleForObjRef());
+            lvaSetStruct(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandle(), true /* unsafe value cls check */);
         }
-
-        if (inlineeLocal.lclVerTypeInfo.IsType(TI_STRUCT))
+        else
         {
-            if (varTypeIsStruct(lclTyp))
+            lvaTable[tmpNum].SetType(lclTyp);
+
+            // Copy over class handle for ref types. Note this may be a
+            // shared type -- someday perhaps we can get the exact
+            // signature and pass in a more precise type.
+            if (lclTyp == TYP_REF)
             {
-                lvaSetStruct(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandle(), true /* unsafe value cls check */);
+                assert(lvaTable[tmpNum].lvSingleDef == 0);
+
+                lvaTable[tmpNum].lvSingleDef = !inlineeLocal.lclHasMultipleStlocOp && !inlineeLocal.lclHasLdlocaOp;
+                if (lvaTable[tmpNum].lvSingleDef)
+                {
+                    JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
+                }
+
+                lvaSetClass(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandleForObjRef());
             }
-            else
+            else if (inlineeLocal.lclVerTypeInfo.IsType(TI_STRUCT))
             {
-                // This is a wrapped primitive.  Make sure the verstate knows that
+                // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
                 lvaTable[tmpNum].lvVerTypeInfo = inlineeLocal.lclVerTypeInfo;
             }
         }
@@ -16961,48 +16961,46 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
 
             const unsigned tmpNum = lvaGrabTemp(true DEBUGARG("Inlining Arg"));
 
-            lvaTable[tmpNum].lvType = lclTyp;
-
-            // For ref types, determine the type of the temp.
-            if (lclTyp == TYP_REF)
-            {
-                if (!argCanBeModified)
-                {
-                    // If the arg can't be modified in the method
-                    // body, use the type of the value, if
-                    // known. Otherwise, use the declared type.
-                    assert(lvaTable[tmpNum].lvSingleDef == 0);
-                    lvaTable[tmpNum].lvSingleDef = 1;
-                    JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
-                    lvaSetClass(tmpNum, argInfo.argNode, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
-                }
-                else
-                {
-                    // Arg might be modified, use the declared type of
-                    // the argument.
-                    lvaSetClass(tmpNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
-                }
-            }
-
             assert(lvaTable[tmpNum].lvAddrExposed == 0);
             if (argInfo.argHasLdargaOp)
             {
                 lvaTable[tmpNum].lvHasLdAddrOp = 1;
             }
 
-            if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
+            if (varTypeIsStruct(lclTyp))
             {
-                if (varTypeIsStruct(lclTyp))
+                lvaSetStruct(tmpNum, lclInfo.lclVerTypeInfo.GetClassHandle(), true /* unsafe value cls check */);
+                if (info.compIsVarArgs)
                 {
-                    lvaSetStruct(tmpNum, lclInfo.lclVerTypeInfo.GetClassHandle(), true /* unsafe value cls check */);
-                    if (info.compIsVarArgs)
+                    lvaSetStructUsedAsVarArg(tmpNum);
+                }
+            }
+            else
+            {
+                lvaTable[tmpNum].SetType(lclTyp);
+
+                if (lclTyp == TYP_REF)
+                {
+                    if (!argCanBeModified)
                     {
-                        lvaSetStructUsedAsVarArg(tmpNum);
+                        // If the arg can't be modified in the method
+                        // body, use the type of the value, if
+                        // known. Otherwise, use the declared type.
+                        assert(lvaTable[tmpNum].lvSingleDef == 0);
+                        lvaTable[tmpNum].lvSingleDef = 1;
+                        JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
+                        lvaSetClass(tmpNum, argInfo.argNode, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
+                    }
+                    else
+                    {
+                        // Arg might be modified, use the declared type of
+                        // the argument.
+                        lvaSetClass(tmpNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
                     }
                 }
-                else
+                else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
                 {
-                    // This is a wrapped primitive.  Make sure the verstate knows that
+                    // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
                     lvaTable[tmpNum].lvVerTypeInfo = lclInfo.lclVerTypeInfo;
                 }
             }
