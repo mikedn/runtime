@@ -2492,94 +2492,103 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
     return false;
 }
 
-/*****************************************************************************
- * Set the lvClass for a local variable of a struct type */
-
 void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck)
 {
     noway_assert(varNum < lvaCount);
 
-    LclVarDsc* varDsc     = &lvaTable[varNum];
+    LclVarDsc* varDsc = lvaGetDesc(varNum);
+
     varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
 
-    // Set the type and associated info if we haven't already set it.
-    if (varDsc->lvType == TYP_UNDEF)
+    if (varDsc->lvExactSize != 0)
     {
-        varDsc->lvType = TYP_STRUCT;
-    }
-    if (varDsc->GetLayout() == nullptr)
-    {
-        ClassLayout* layout = typGetObjLayout(typeHnd);
-        varDsc->SetLayout(layout);
+        // TODO-MIKE-Cleanup: Normally we should not attemp to call lvaSetStruct on a local that
+        // already has struct type. Some trivial cases have been fixed but there are a at least
+        // 2 more:
+        //   - Spill clique temps may be assigned multiple times via impAssignTempGen.
+        //   - fgInlinePrependStatements initializes inlinee parameters also using impAssignTempGen.
+        //     Inlinee parameters (temps really) have already been created and assigned a type when
+        //     inlining started.
+        //
+        // impAssignTempGen insists on calling lvaSetStruct itself, which makes sense in most cases
+        // (it's typically called immediately after creating a temp). It may be better to add a
+        // new function that assigns without attempting to set the temp's type.
+        //
+        // To make things more complicated, in the inlining case the struct types can be different.
+        // If a generic method is inlined then the inlinee parameter may have type A<Canon> and
+        // the inliner value may have type A<SomeRefClass>. These 2 types are equivalent for most
+        // purposes but they have different class handles which complicates things. Probably it
+        // would be better to keep the inliner type (A<SomeRefClass>) because it's more precise.
+        // On the other hand, all the inlined code uses A<Canon> so it may be better to keep that,
+        // unless there's a way to import the inlined code using A<SomeRefClass>.
+        //
+        // The current code is messed up and sets lvVerTypeInfo unconditionally but sets layout
+        // only if lvExactSize wasn't already set. Go figure.
+        //
+        // In theory we can also have different class handles in the spill clique case but that
+        // would be caused by invalid IL so it's probably something that can be ignored.
+        //
+        // For now at least assert that the existing type is the same type we would get from the
+        // provided class handle. This catches attempts to change between STRUCT and SIMD types
+        // that would leave LclVarDsc in a weird state.
 
-        assert(varDsc->lvExactSize == 0);
-        varDsc->lvExactSize = layout->GetSize();
-        assert(varDsc->lvExactSize != 0);
-
-        if (layout->IsValueClass())
-        {
-            var_types simdBaseType = TYP_UNKNOWN;
-            varDsc->lvType         = impNormStructType(typeHnd, &simdBaseType);
-
-#if FEATURE_SIMD
-            if (simdBaseType != TYP_UNKNOWN)
-            {
-                assert(varTypeIsSIMD(varDsc));
-                varDsc->lvSIMDType = true;
-                varDsc->lvBaseType = simdBaseType;
-            }
-#endif // FEATURE_SIMD
-
-#ifdef FEATURE_HFA
-            // For structs that are small enough, we check and set HFA element type
-            if (varDsc->lvExactSize <= MAX_PASS_MULTIREG_BYTES)
-            {
-                // hfaType is set to float, double or SIMD type if it is an HFA, otherwise TYP_UNDEF
-                var_types hfaType = GetHfaType(typeHnd);
-                if (varTypeIsValidHfaType(hfaType))
-                {
-                    varDsc->SetHfaType(hfaType);
-
-                    // hfa variables can never contain GC pointers
-                    assert(!layout->HasGCPtr());
-                    // The size of this struct should be evenly divisible by 4 or 8
-                    assert((varDsc->lvExactSize % genTypeSize(hfaType)) == 0);
-                    // The number of elements in the HFA should fit into our MAX_ARG_REG_COUNT limit
-                    assert((varDsc->lvExactSize / genTypeSize(hfaType)) <= MAX_ARG_REG_COUNT);
-                }
-            }
-#endif // FEATURE_HFA
-        }
+        assert(varDsc->GetType() == impNormStructType(typeHnd));
+        assert(varDsc->lvExactSize == typGetObjLayout(typeHnd)->GetSize());
     }
     else
     {
-#if FEATURE_SIMD
-        assert(!varTypeIsSIMD(varDsc) || (varDsc->lvBaseType != TYP_UNKNOWN));
-#endif // FEATURE_SIMD
         ClassLayout* layout = typGetObjLayout(typeHnd);
-        assert(ClassLayout::AreCompatible(varDsc->GetLayout(), layout));
-        // Inlining could replace a canon struct type with an exact one.
+
+        varDsc->lvType = TYP_STRUCT;
         varDsc->SetLayout(layout);
-        assert(varDsc->lvExactSize != 0);
+        varDsc->lvExactSize = layout->GetSize();
+
+        if (layout->IsValueClass())
+        {
+#if FEATURE_SIMD
+            var_types simdBaseType = TYP_UNKNOWN;
+            var_types simdType     = impNormStructType(typeHnd, &simdBaseType);
+
+            if (simdType != TYP_STRUCT)
+            {
+                assert(varTypeIsSIMD(simdType));
+                assert(varTypeIsArithmetic(simdBaseType));
+
+                varDsc->lvType     = simdType;
+                varDsc->lvBaseType = simdBaseType;
+                varDsc->lvSIMDType = true;
+            }
+#endif
+
+#ifdef FEATURE_HFA
+            if (varDsc->lvExactSize <= MAX_PASS_MULTIREG_BYTES)
+            {
+                var_types hfaType = GetHfaType(typeHnd);
+
+                if (hfaType != TYP_UNDEF)
+                {
+                    assert(!layout->HasGCPtr());
+                    assert((varDsc->lvExactSize % varTypeSize(hfaType)) == 0);
+                    assert((varDsc->lvExactSize / varTypeSize(hfaType)) <= MAX_ARG_REG_COUNT);
+
+                    varDsc->SetHfaType(hfaType);
+                }
+            }
+#endif
+        }
     }
 
 #ifndef TARGET_64BIT
-    BOOL fDoubleAlignHint = FALSE;
+    BOOL doubleAlignHint = FALSE;
 #ifdef TARGET_X86
-    fDoubleAlignHint = TRUE;
+    doubleAlignHint = TRUE;
 #endif
-
-    if (info.compCompHnd->getClassAlignmentRequirement(typeHnd, fDoubleAlignHint) == 8)
+    if (info.compCompHnd->getClassAlignmentRequirement(typeHnd, doubleAlignHint) == 8)
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Marking struct in V%02i with double align flag\n", varNum);
-        }
-#endif
+        JITDUMP("Marking struct in V%02i with double align flag\n", varNum);
         varDsc->lvStructDoubleAlign = 1;
     }
-#endif // not TARGET_64BIT
+#endif
 
     unsigned classAttribs = info.compCompHnd->getClassAttribs(typeHnd);
 
@@ -2587,18 +2596,19 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
 
     // Check whether this local is an unsafe value type and requires GS cookie protection.
     // GS checks require the stack to be re-ordered, which can't be done with EnC.
-    if (unsafeValueClsCheck && (classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) && !opts.compDbgEnC)
+    if (unsafeValueClsCheck && ((classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) != 0) && !opts.compDbgEnC)
     {
         setNeedsGSSecurityCookie();
         compGSReorderStackLayout = true;
         varDsc->lvIsUnsafeBuffer = true;
     }
+
 #ifdef DEBUG
     if (JitConfig.EnableExtraSuperPmiQueries())
     {
         makeExtraStructQueries(typeHnd, 2);
     }
-#endif // DEBUG
+#endif
 }
 
 #ifdef DEBUG
