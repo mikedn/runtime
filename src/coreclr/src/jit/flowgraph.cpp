@@ -23669,8 +23669,6 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                 }
                 else
                 {
-                    CORINFO_CLASS_HANDLE structType =
-                        lclVarInfo[lclNum + inlineInfo->argCnt].lclVerTypeInfo.GetClassHandle();
                     tree = gtNewBlkOpNode(gtNewLclvNode(tmpNum, lclTyp), // Dest
                                           gtNewIconNode(0),              // Value
                                           false,                         // isVolatile

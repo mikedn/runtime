@@ -4746,9 +4746,7 @@ typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsH
     return tiResult;
 }
 
-/******************************************************************************/
-
-typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd, bool bashStructToRef /* = false */)
+typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 {
     if (clsHnd == nullptr)
     {
@@ -4788,11 +4786,6 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd, bool bashStructT
         if (t != CORINFO_TYPE_UNDEF)
         {
             return typeInfo(JITtype2tiType(t));
-        }
-
-        if (bashStructToRef)
-        {
-            return typeInfo(TI_REF, clsHnd);
         }
 
         return typeInfo(TI_STRUCT, clsHnd);

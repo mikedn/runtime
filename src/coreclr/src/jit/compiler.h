@@ -9338,46 +9338,10 @@ public:
     }
 #endif // DEBUG
 
-    /*
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XX                                                                           XX
-    XX                           typeInfo                                        XX
-    XX                                                                           XX
-    XX   Checks for type compatibility and merges types                          XX
-    XX                                                                           XX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    */
-
 public:
-#ifdef DEBUG
     // Returns TRUE if child is equal to or a subtype of parent.
-    // normalisedForStack indicates that both types are normalised for the stack
-    BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent) const;
-#endif
+    INDEBUG(BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent) const;)
 
-#ifdef DEBUG
-    // <BUGNUM> VSW 471305
-    // IJW allows assigning REF to BYREF. The following allows us to temporarily
-    // bypass the assert check in gcMarkRegSetGCref and gcMarkRegSetByref
-    // We use a "short" as we need to push/pop this scope.
-    // </BUGNUM>
-    short compRegSetCheckLevel;
-#endif
-
-    /*
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XX                                                                           XX
-    XX                           IL verification stuff                           XX
-    XX                                                                           XX
-    XX                                                                           XX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    */
-
-public:
     // The following is used to track liveness of local variables, initialization
     // of valueclass constructors, and type safe use of IL instructions.
 
@@ -9386,8 +9350,7 @@ public:
 
     void impSetCurrentState(BasicBlock* block);
 
-    typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd,
-                             bool bashStructToRef = false); // converts from jit type representation to typeInfo
+    typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd); // converts from jit type representation to typeInfo
     typeInfo verMakeTypeInfo(CorInfoType          ciType,
                              CORINFO_CLASS_HANDLE clsHnd); // converts from jit type representation to typeInfo
 

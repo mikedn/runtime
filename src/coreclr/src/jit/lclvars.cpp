@@ -1242,16 +1242,7 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
         }
     }
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-    varDsc->lvIsImplicitByRef = 0;
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
-// Set the lvType (before this point it is TYP_UNDEF).
-
-#ifdef FEATURE_HFA
-    varDsc->SetHfaType(TYP_UNDEF);
-#endif
-    if ((varTypeIsStruct(type)))
+    if (varTypeIsStruct(type))
     {
         lvaSetStruct(varNum, typeHnd, typeHnd != nullptr);
         if (info.compIsVarArgs)
@@ -2153,12 +2144,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         }
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
-        // Reset the implicitByRef flag.
-        fieldVarDsc->lvIsImplicitByRef = 0;
-
         // Do we have a parameter that can be enregistered?
-        //
         if (varDsc->lvIsRegArg)
         {
             fieldVarDsc->lvIsRegArg = true;
