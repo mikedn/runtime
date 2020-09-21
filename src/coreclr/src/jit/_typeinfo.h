@@ -50,51 +50,24 @@ inline ti_types JITtype2tiType(CorInfoType type)
     return g_ti_types_map[type];
 };
 
-/*****************************************************************************
- * Declares the typeInfo class, which represents the type of an entity on the
- * stack, in a local variable or an argument.
- *
- * Flags: LLLLLLLLLLLLLLLLffffffffffTTTTTT
- *
- * L = local var # or instance field #
- * x = unused
- * f = flags
- * T = type
- *
- * The lower bits are used to store the type component, and may be one of:
- *
- * TI_* (primitive)   - see tyelist.h for enumeration (BYTE, SHORT, INT..)
- * TI_REF             - OBJREF / ARRAY use m_cls for the type
- *                       (including arrays and null objref)
- * TI_STRUCT          - VALUE type, use m_cls for the actual type
- *
- * NOTE carefully that BYREF info is not stored here.  You will never see a
- * TI_BYREF in this component.  For example, the type component
- * of a "byref TI_INT" is TI_FLAG_BYREF | TI_INT.
- *
- * NOTE carefully that Generic Type Variable info is
- * only stored here in part.  Values of type "T" (e.g "!0" in ILASM syntax),
- * i.e. some generic variable type, appear only when verifying generic
- * code.  They come in two flavours: unboxed and boxed.  Unboxed
- * is the norm, e.g. a local, field or argument of type T.  Boxed
- * values arise from an IL instruction such as "box !0".
- * The EE provides type handles for each different type
- * variable and the EE's "canCast" operation decides casting
- * for boxed type variable. Thus:
- *
- *    (TI_REF, <type-variable-type-handle>) == boxed type variable
- *
- *    (TI_REF, <type-variable-type-handle>)
- *          + TI_FLAG_GENERIC_TYPE_VAR      == unboxed type variable
- *
- * Using TI_REF for these may seem odd but using TI_STRUCT means the
- * code-generation parts of the importer get confused when they
- * can't work out the size, GC-ness etc. of the "struct".  So using TI_REF
- * just tricks these backend parts into generating pseudo-trees for
- * the generic code we're verifying.  These trees then get thrown away
- * anyway as we do verification of generic code in import-only mode.
- *
- */
+// Declares the typeInfo class, which represents the type of an entity on the
+// stack.
+//
+// Flags: ffffffffffTTTTTT
+//
+// f = flags
+// T = type
+//
+// The lower bits are used to store the type component, and may be one of:
+//
+// TI_* (primitive)   - see ti_types enum
+// TI_REF             - OBJREF / ARRAY use m_cls for the type
+//                       (including arrays and null objref)
+// TI_STRUCT          - VALUE type, use m_cls for the actual type
+//
+// NOTE carefully that BYREF info is not stored here.  You will never see a
+// TI_BYREF in this component.  For example, the type component
+// of a "byref TI_INT" is TI_FLAG_BYREF | TI_INT.
 
 #define TI_FLAG_DATA_BITS 6
 #define TI_FLAG_DATA_MASK ((1 << TI_FLAG_DATA_BITS) - 1)
@@ -126,40 +99,7 @@ inline ti_types JITtype2tiType(CorInfoType type)
 // This item contains resolved token. It is used for ctor delegate optimization.
 #define TI_FLAG_TOKEN 0x00000400
 
-// This is for use when verifying generic code.
-// This indicates that the type handle is really an unboxed
-// generic type variable (e.g. the result of loading an argument
-// of type T in a class List<T>).  Without this flag
-// the same type handle indicates a boxed generic value,
-// e.g. the result of a "box T" instruction.
-#define TI_FLAG_GENERIC_TYPE_VAR 0x00004000
-
-// Number of bits local var # is shifted
-
-#define TI_FLAG_LOCAL_VAR_SHIFT 16
-#define TI_FLAG_LOCAL_VAR_MASK 0xFFFF0000
-
-// Field info uses the same space as the local info
-
-#define TI_FLAG_FIELD_SHIFT TI_FLAG_LOCAL_VAR_SHIFT
-#define TI_FLAG_FIELD_MASK TI_FLAG_LOCAL_VAR_MASK
-
 #define TI_ALL_BYREF_FLAGS (TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY)
-
-/*****************************************************************************
- * A typeInfo can be one of several types:
- * - A primitive type (I4,I8,R4,R8,I)
- * - A type (ref, array, value type) (m_cls describes the type)
- * - An array (m_cls describes the array type)
- * - A byref (byref flag set, otherwise the same as the above),
- * - A Function Pointer (m_token)
- * - A byref local variable (byref and byref local flags set), can be
- *   uninitialized
- *
- * The reason that there can be 2 types of byrefs (general byrefs, and byref
- * locals) is that byref locals initially point to uninitialized items.
- * Therefore these byrefs must be tracked specially.
- */
 
 class typeInfo
 {
@@ -220,8 +160,7 @@ public:
         assert((tiType >= TI_INT) && (tiType <= TI_NULL));
     }
 
-    typeInfo(ti_types tiType, CORINFO_CLASS_HANDLE cls, bool typeVar = false)
-        : m_flags(typeVar ? tiType | TI_FLAG_GENERIC_TYPE_VAR : tiType), m_cls(cls)
+    typeInfo(ti_types tiType, CORINFO_CLASS_HANDLE cls) : m_flags(tiType), m_cls(cls)
     {
         assert((tiType == TI_STRUCT) || (tiType == TI_REF));
         assert((cls != nullptr) && !isInvalidHandle(cls));
@@ -309,8 +248,7 @@ public:
     BOOL IsType(ti_types type) const
     {
         assert(type != TI_ERROR);
-        return (m_flags & (TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY | TI_FLAG_GENERIC_TYPE_VAR)) ==
-               static_cast<unsigned>(type);
+        return (m_flags & (TI_FLAG_DATA_MASK | TI_ALL_BYREF_FLAGS)) == static_cast<unsigned>(type);
     }
 
     // Returns whether this is a by-ref
@@ -320,11 +258,6 @@ public:
     }
 
 #ifdef DEBUG
-    BOOL IsUnboxedGenericTypeVar() const
-    {
-        return !IsByRef() && ((m_flags & TI_FLAG_GENERIC_TYPE_VAR) != 0);
-    }
-
     BOOL IsReadonlyByRef() const
     {
         return IsByRef() && ((m_flags & TI_FLAG_BYREF_READONLY) != 0);

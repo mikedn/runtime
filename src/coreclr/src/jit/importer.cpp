@@ -4717,8 +4717,6 @@ typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsH
                 return typeInfo();
             }
             break;
-        case CORINFO_TYPE_VAR:
-            return verMakeTypeInfo(clsHnd);
 
         case CORINFO_TYPE_PTR: // for now, pointers are treated as an error
         case CORINFO_TYPE_VOID:
@@ -4732,6 +4730,9 @@ typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsH
             return verMakeTypeInfo(childType, childClassHandle).MakeByRef();
         }
         break;
+
+        case CORINFO_TYPE_VAR:
+            unreached();
 
         default:
             if (clsHnd)
@@ -4793,8 +4794,7 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 
     if ((attribs & CORINFO_FLG_GENERIC_TYPE_VARIABLE) != 0)
     {
-        // See comment in _typeInfo.h for why we do it this way.
-        return typeInfo(TI_REF, clsHnd, true);
+        unreached();
     }
 
     return typeInfo(TI_REF, clsHnd);
