@@ -9283,7 +9283,7 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         if ((genTypeSize(tree->GetType()) != genTypeSize(lclVarNode->GetType())) ||
             (!isDest && !varTypeIsStruct(lclVarNode->GetType())))
         {
-            lvaSetVarDoNotEnregister(lclVarNode->GetLclNum() DEBUG_ARG(DNER_VMNeedsStackAddr));
+            lvaSetVarDoNotEnregister(lclVarNode->GetLclNum() DEBUG_ARG(DNER_BlockOp));
         }
     }
 
@@ -16539,7 +16539,6 @@ void Compiler::fgRetypeImplicitByRefArgs()
 #ifdef DEBUG
                 newVarDsc->lvLclBlockOpAddr   = varDsc->lvLclBlockOpAddr;
                 newVarDsc->lvLclFieldExpr     = varDsc->lvLclFieldExpr;
-                newVarDsc->lvVMNeedsStackAddr = varDsc->lvVMNeedsStackAddr;
                 newVarDsc->lvLiveInOutOfHndlr = varDsc->lvLiveInOutOfHndlr;
                 newVarDsc->lvLiveAcrossUCall  = varDsc->lvLiveAcrossUCall;
 #endif // DEBUG

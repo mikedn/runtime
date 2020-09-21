@@ -2419,10 +2419,6 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
             JITDUMP("was accessed as a local field\n");
             varDsc->lvLclFieldExpr = 1;
             break;
-        case DNER_VMNeedsStackAddr:
-            JITDUMP("needs stack addr\n");
-            varDsc->lvVMNeedsStackAddr = 1;
-            break;
         case DNER_LiveInOutOfHandler:
             JITDUMP("live in/out of a handler\n");
             varDsc->lvLiveInOutOfHndlr = 1;
@@ -7017,10 +7013,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         if (varTypeIsStruct(varDsc))
         {
             printf("S");
-        }
-        if (varDsc->lvVMNeedsStackAddr)
-        {
-            printf("V");
         }
         if (lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
         {

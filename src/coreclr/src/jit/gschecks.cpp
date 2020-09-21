@@ -419,7 +419,6 @@ void Compiler::gsParamsToShadows()
         shadowVarDsc->lvAddrExposed     = varDsc->lvAddrExposed;
         shadowVarDsc->lvDoNotEnregister = varDsc->lvDoNotEnregister;
 #ifdef DEBUG
-        shadowVarDsc->lvVMNeedsStackAddr = varDsc->lvVMNeedsStackAddr;
         shadowVarDsc->lvLiveInOutOfHndlr = varDsc->lvLiveInOutOfHndlr;
         shadowVarDsc->lvLclFieldExpr     = varDsc->lvLclFieldExpr;
         shadowVarDsc->lvLiveAcrossUCall  = varDsc->lvLiveAcrossUCall;

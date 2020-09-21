@@ -416,12 +416,10 @@ public:
     // These further document the reasons for setting "lvDoNotEnregister".  (Note that "lvAddrExposed" is one of the
     // reasons;
     // also, lvType == TYP_STRUCT prevents enregistration.  At least one of the reasons should be true.
-    unsigned char lvVMNeedsStackAddr : 1; // The VM may have access to a stack-relative address of the variable, and
-                                          // read/write its value.
-    unsigned char lvLclFieldExpr : 1;     // The variable is not a struct, but was accessed like one (e.g., reading a
-                                          // particular byte from an int).
-    unsigned char lvLclBlockOpAddr : 1;   // The variable was written to via a block operation that took its address.
-    unsigned char lvLiveAcrossUCall : 1;  // The variable is live across an unmanaged call.
+    unsigned char lvLclFieldExpr : 1;    // The variable is not a struct, but was accessed like one (e.g., reading a
+                                         // particular byte from an int).
+    unsigned char lvLclBlockOpAddr : 1;  // The variable was written to via a block operation that took its address.
+    unsigned char lvLiveAcrossUCall : 1; // The variable is live across an unmanaged call.
 #endif
     unsigned char lvIsCSE : 1;       // Indicates if this LclVar is a CSE variable.
     unsigned char lvHasLdAddrOp : 1; // has ldloca or ldarga opcode on this local.
@@ -2988,7 +2986,6 @@ public:
         DNER_AddrExposed,
         DNER_IsStruct,
         DNER_LocalField,
-        DNER_VMNeedsStackAddr,
         DNER_LiveInOutOfHandler,
         DNER_LiveAcrossUnmanagedCall,
         DNER_BlockOp,     // Is read or written via a block operation that explicitly takes the address.
