@@ -10204,7 +10204,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             LOC_ST:
                 if (compIsForInlining())
                 {
-                    lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclTypeInfo;
+                    lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclType;
 
                     /* Have we allocated a temp for this local? */
 
@@ -10380,13 +10380,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
-                    // Get the local type
-                    lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclTypeInfo;
-
-                    // Have we allocated a temp for this local?
+                    lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclType;
                     lclNum = impInlineFetchLocal(lclNum DEBUGARG("Inline ldloca(s) first use temp"));
-
-                    op1 = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
+                    op1    = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
                     goto PUSH_ADRVAR;
                 }
 
@@ -14406,7 +14402,7 @@ void Compiler::impLoadLoc(unsigned ilLclNum, IL_OFFSET offset)
         }
 
         // Get the local type
-        var_types lclTyp = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclTypeInfo;
+        var_types lclTyp = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclType;
 
         typeInfo type = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclVerTypeInfo;
 
@@ -16483,8 +16479,8 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
         }
 #endif // FEATURE_SIMD
 
-        var_types sigType         = ((clsAttr & CORINFO_FLG_VALUECLASS) != 0) ? TYP_BYREF : TYP_REF;
-        lclVarInfo[0].lclTypeInfo = sigType;
+        var_types sigType     = ((clsAttr & CORINFO_FLG_VALUECLASS) != 0) ? TYP_BYREF : TYP_REF;
+        lclVarInfo[0].lclType = sigType;
 
         GenTree* thisArgNode = thisArg->GetNode();
 
@@ -16538,7 +16534,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
         }
 #endif // FEATURE_SIMD
 
-        lclVarInfo[i].lclTypeInfo    = sigType;
+        lclVarInfo[i].lclType        = sigType;
         lclVarInfo[i].lclHasLdlocaOp = false;
 
         /* Does the tree type match the signature type? */
@@ -16650,7 +16646,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
         var_types type = (var_types)eeGetArgType(localsSig, &methInfo->locals, &isPinned);
 
         lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
-        lclVarInfo[i + argCnt].lclTypeInfo    = type;
+        lclVarInfo[i + argCnt].lclType        = type;
 
         if (varTypeIsGC(type))
         {
@@ -16713,7 +16709,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
             if (supportSIMDTypes() && type == TYP_STRUCT)
             {
                 var_types structType = impNormStructType(lclVarInfo[i + argCnt].lclVerTypeInfo.GetClassHandle());
-                lclVarInfo[i + argCnt].lclTypeInfo = structType;
+                lclVarInfo[i + argCnt].lclType = structType;
             }
         }
 #endif // FEATURE_SIMD
@@ -16754,7 +16750,7 @@ unsigned Compiler::impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reas
     if (tmpNum == BAD_VAR_NUM)
     {
         const InlLclVarInfo& inlineeLocal = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt];
-        const var_types      lclTyp       = inlineeLocal.lclTypeInfo;
+        const var_types      lclTyp       = inlineeLocal.lclType;
 
         // The lifetime of this local might span multiple BBs.
         // So it is a long lifetime local.
@@ -16856,7 +16852,7 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
     InlArgInfo&          argInfo          = inlArgInfo[lclNum];
     const InlLclVarInfo& lclInfo          = lclVarInfo[lclNum];
     const bool           argCanBeModified = argInfo.argHasLdargaOp || argInfo.argHasStargOp;
-    const var_types      lclTyp           = lclInfo.lclTypeInfo;
+    const var_types      lclTyp           = lclInfo.lclType;
     GenTree*             op1              = nullptr;
 
     if (argInfo.argIsInvariant && !argCanBeModified)

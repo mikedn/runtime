@@ -564,7 +564,7 @@ struct InlArgInfo
 struct InlLclVarInfo
 {
     typeInfo  lclVerTypeInfo;
-    var_types lclTypeInfo;
+    var_types lclType;
     unsigned  lclHasLdlocaOp : 1;        // Is there LDLOCA(s) operation on this local?
     unsigned  lclHasStlocOp : 1;         // Is there a STLOC on this local?
     unsigned  lclHasMultipleStlocOp : 1; // Is there more than one STLOC on this local

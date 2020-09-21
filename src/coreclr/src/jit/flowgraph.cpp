@@ -4786,7 +4786,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                 {
                     if (opcode == CEE_LDLOCA || opcode == CEE_LDLOCA_S)
                     {
-                        varType = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclTypeInfo;
+                        varType = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclType;
                         ti      = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclVerTypeInfo;
 
                         impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclHasLdlocaOp = true;
@@ -4795,7 +4795,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     {
                         noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
 
-                        varType = impInlineInfo->lclVarInfo[varNum].lclTypeInfo;
+                        varType = impInlineInfo->lclVarInfo[varNum].lclType;
                         ti      = impInlineInfo->lclVarInfo[varNum].lclVerTypeInfo;
 
                         impInlineInfo->inlArgInfo[varNum].argHasLdargaOp = true;
@@ -23426,7 +23426,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     // We're going to assign the argument value to the
                     // temp we use for it in the inline body.
                     const unsigned  tmpNum  = argInfo.argTmpNum;
-                    const var_types argType = lclVarInfo[argNum].lclTypeInfo;
+                    const var_types argType = lclVarInfo[argNum].lclType;
 
                     // Create the temp assignment for this argument
                     CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
@@ -23657,7 +23657,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                 }
 
                 var_types lclTyp = (var_types)lvaTable[tmpNum].lvType;
-                noway_assert(lclTyp == lclVarInfo[lclNum + inlineInfo->argCnt].lclTypeInfo);
+                noway_assert(lclTyp == lclVarInfo[lclNum + inlineInfo->argCnt].lclType);
 
                 if (!varTypeIsStruct(lclTyp))
                 {
@@ -23745,7 +23745,7 @@ void Compiler::fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* bloc
         // Is the local a gc ref type? Need to look at the
         // inline info for this since we will not have local
         // temps for unused inlinee locals.
-        const var_types lclTyp = lclVarInfo[argCnt + lclNum].lclTypeInfo;
+        const var_types lclTyp = lclVarInfo[argCnt + lclNum].lclType;
 
         if (!varTypeIsGC(lclTyp))
         {
