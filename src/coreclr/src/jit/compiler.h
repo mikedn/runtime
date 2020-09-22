@@ -7770,11 +7770,7 @@ private:
     // Returns true if the lclVar is an opaque SIMD type.
     bool isOpaqueSIMDLclVar(const LclVarDsc* varDsc) const
     {
-        if (!varDsc->lvSIMDType)
-        {
-            return false;
-        }
-        return isOpaqueSIMDType(varDsc->GetStructHnd());
+        return varTypeIsSIMD(varDsc->GetType()) && isOpaqueSIMDType(varDsc->lvVerTypeInfo.GetClassHandle());
     }
 
     static bool isRelOpSIMDIntrinsic(SIMDIntrinsicID intrinsicId)

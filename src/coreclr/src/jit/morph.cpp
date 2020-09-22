@@ -16387,48 +16387,41 @@ void Compiler::fgPromoteStructs()
     }
 #endif // DEBUG
 
+    assert(structPromotionHelper != nullptr);
+
     // The lvaTable might grow as we grab temps. Make a local copy here.
     unsigned startLvaCount = lvaCount;
 
-    //
-    // Loop through the original lvaTable. Looking for struct locals to be promoted.
-    //
-    lvaStructPromotionInfo structPromotionInfo;
-    bool                   tooManyLocalsReported = false;
-
     for (unsigned lclNum = 0; lclNum < startLvaCount; lclNum++)
     {
-        // Whether this var got promoted
-        bool       promotedVar = false;
-        LclVarDsc* varDsc      = &lvaTable[lclNum];
-
-        // If we have marked this as lvUsedInSIMDIntrinsic, then we do not want to promote
-        // its fields.  Instead, we will attempt to enregister the entire struct.
-        if (varDsc->lvIsSIMDType() && (varDsc->lvIsUsedInSIMDIntrinsic() || isOpaqueSIMDLclVar(varDsc)))
+        if (lvaHaveManyLocals())
         {
-            varDsc->lvRegStruct = true;
-        }
-        // Don't promote if we have reached the tracking limit.
-        else if (lvaHaveManyLocals())
-        {
-            // Print the message first time when we detected this condition
-            if (!tooManyLocalsReported)
-            {
-                JITDUMP("Stopped promoting struct fields, due to too many locals.\n");
-            }
-            tooManyLocalsReported = true;
-        }
-        else if (varTypeIsStruct(varDsc))
-        {
-            assert(structPromotionHelper != nullptr);
-            promotedVar = structPromotionHelper->TryPromoteStructVar(lclNum);
+            JITDUMP("Stopped promoting struct fields, due to too many locals.\n");
+            break;
         }
 
-        if (!promotedVar && varDsc->lvIsSIMDType() && !varDsc->lvFieldAccessed)
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (!varTypeIsStruct(lcl->GetType()))
+        {
+            continue;
+        }
+
+        if (varTypeIsSIMD(lcl->GetType()) && (lcl->lvIsUsedInSIMDIntrinsic() || isOpaqueSIMDLclVar(lcl)))
+        {
+            // If we have marked this as lvUsedInSIMDIntrinsic, then we do not want to promote
+            // its fields. Instead, we will attempt to enregister the entire struct.
+            lcl->lvRegStruct = true;
+            continue;
+        }
+
+        bool promoted = structPromotionHelper->TryPromoteStructVar(lclNum);
+
+        if (!promoted && varTypeIsSIMD(lcl->GetType()) && !lcl->lvFieldAccessed)
         {
             // Even if we have not used this in a SIMD intrinsic, if it is not being promoted,
             // we will treat it as a reg struct.
-            varDsc->lvRegStruct = true;
+            lcl->lvRegStruct = true;
         }
     }
 
