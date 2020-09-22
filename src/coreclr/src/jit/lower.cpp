@@ -1911,7 +1911,7 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
             // TODO-1stClassStructs: This can be simplified with 1st class structs work.
             if (tmpTyp == TYP_STRUCT)
             {
-                comp->lvaSetStruct(tmpLclNum, comp->lvaGetStruct(lclNum), false);
+                comp->lvaSetStruct(tmpLclNum, callerArgDsc->GetLayout()->GetClassHandle(), false);
                 GenTree* loc = new (comp, GT_LCL_VAR_ADDR) GenTreeLclVar(GT_LCL_VAR_ADDR, TYP_STRUCT, tmpLclNum);
                 loc->gtType  = TYP_BYREF;
                 GenTreeBlk* storeBlk = new (comp, GT_STORE_BLK)
@@ -2805,10 +2805,9 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 #if FEATURE_MULTIREG_RET
         if (retVal->OperIs(GT_LCL_VAR) && varTypeIsStruct(retVal))
         {
+            LclVarDsc*     varDsc = comp->lvaGetDesc(retVal->AsLclVar());
             ReturnTypeDesc retTypeDesc;
-            LclVarDsc*     varDsc = nullptr;
-            varDsc                = comp->lvaGetDesc(retVal->AsLclVar()->GetLclNum());
-            retTypeDesc.InitializeStructReturnType(comp, varDsc->GetStructHnd());
+            retTypeDesc.InitializeStructReturnType(comp, varDsc->GetLayout()->GetClassHandle());
             if (retTypeDesc.GetReturnRegCount() > 1)
             {
                 CheckMultiRegLclVar(retVal->AsLclVar(), &retTypeDesc);

@@ -23455,7 +23455,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
 
                         if ((argType == TYP_STRUCT) && (structHnd != tmpLayout->GetClassHandle()))
                         {
-                            assert(info.compCompHnd->getClassSize(structHnd) == tmpLcl->lvExactSize);
+                            assert(info.compCompHnd->getClassSize(structHnd) == tmpLayout->GetSize());
 
                             tmpLcl->SetLayout(typGetObjLayout(structHnd));
                             tmpLcl->lvVerTypeInfo = typeInfo(TI_STRUCT, structHnd);

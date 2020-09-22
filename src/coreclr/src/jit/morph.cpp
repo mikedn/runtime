@@ -9397,11 +9397,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             if (destLclNode->TypeIs(TYP_STRUCT))
             {
-                // It would be nice if lvExactSize always corresponded to the size of the struct,
-                // but it doesn't always for the temps that the importer creates when it spills side
-                // effects.
-                // TODO-Cleanup: Determine when this happens, and whether it can be changed.
-                destSize = info.compCompHnd->getClassSize(destLclVar->lvVerTypeInfo.GetClassHandle());
+                destSize = destLclVar->GetLayout()->GetSize();
             }
             else
             {
@@ -9591,7 +9587,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         // but there doesn't appear to be any such case in the entire FX. Copies between variables of
         // different types but same layout do occur though - Memory's implicit operator ReadOnlyMemory
         // uses Unsafe.As to perform the conversion, instead of copying the struct field by field.
-        if (destLclVar->lvVerTypeInfo.GetClassHandle() != srcLclVar->lvVerTypeInfo.GetClassHandle())
+        if (destLclVar->GetLayout() != srcLclVar->GetLayout())
         {
             bool sameLayout = destLclVar->GetPromotedFieldCount() == srcLclVar->GetPromotedFieldCount();
 
@@ -9985,7 +9981,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             // otherwise we could combine the two field sequences if they match. Doesn't seem to be
             // worth the trouble, even the currently implemented trivial case has only a minor impact.
             if ((destLclOffs == 0) && (destFieldSeq == nullptr) && varTypeIsStruct(destLclVar->GetType()) &&
-                (destLclVar->lvVerTypeInfo.GetClassHandle() == srcLclVar->lvVerTypeInfo.GetClassHandle()))
+                (destLclVar->GetLayout() == srcLclVar->GetLayout()))
             {
                 destField->AsLclFld()->SetFieldSeq(
                     GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle()));
@@ -10079,7 +10075,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             // We don't have a field sequence for the source field but one can be obtained from
             // the destination field if the destination and source have the same type.
             if ((srcLclOffs == 0) && (srcFieldSeq == nullptr) && varTypeIsStruct(srcLclVar->GetType()) &&
-                (srcLclVar->lvVerTypeInfo.GetClassHandle() == destLclVar->lvVerTypeInfo.GetClassHandle()))
+                (srcLclVar->GetLayout() == destLclVar->GetLayout()))
             {
                 srcField->AsLclFld()->SetFieldSeq(
                     GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle()));
@@ -16497,8 +16493,7 @@ void Compiler::fgRetypeImplicitByRefArgs()
             }
             else
             {
-                CORINFO_CLASS_HANDLE typeHnd = varDsc->GetStructHnd();
-                size                         = info.compCompHnd->getClassSize(typeHnd);
+                size = varDsc->GetLayout()->GetSize();
             }
 
             if (varDsc->lvPromoted)
@@ -16506,14 +16501,13 @@ void Compiler::fgRetypeImplicitByRefArgs()
                 // This implicit-by-ref was promoted; create a new temp to represent the
                 // promoted struct before rewriting this parameter as a pointer.
                 unsigned newLclNum = lvaGrabTemp(false DEBUGARG("Promoted implicit byref"));
-                lvaSetStruct(newLclNum, lvaGetStruct(lclNum), true);
+                // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
+                varDsc = lvaGetDesc(lclNum);
+                lvaSetStruct(newLclNum, varDsc->GetLayout()->GetClassHandle(), true);
                 if (info.compIsVarArgs)
                 {
                     lvaSetStructUsedAsVarArg(newLclNum);
                 }
-
-                // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
-                varDsc = &lvaTable[lclNum];
 
                 // Copy the struct promotion annotations to the new temp.
                 LclVarDsc* newVarDsc       = &lvaTable[newLclNum];

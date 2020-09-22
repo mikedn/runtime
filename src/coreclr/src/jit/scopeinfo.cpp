@@ -1548,9 +1548,9 @@ void CodeGen::psiBegProlog()
             bool isStructHandled = false;
 #if defined(UNIX_AMD64_ABI)
             SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            if (varTypeIsStruct(lclVarDsc))
+            if (varTypeIsStruct(lclVarDsc->GetType()))
             {
-                CORINFO_CLASS_HANDLE typeHnd = lclVarDsc->GetStructHnd();
+                CORINFO_CLASS_HANDLE typeHnd = lclVarDsc->GetLayout()->GetClassHandle();
                 assert(typeHnd != nullptr);
                 compiler->eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
                 if (structDesc.passedInRegisters)

@@ -944,26 +944,6 @@ public:
     // for a struct handle use `GetStructHnd()`.
     CORINFO_CLASS_HANDLE lvClassHnd;
 
-    // Get class handle for a struct local or implicitByRef struct local.
-    CORINFO_CLASS_HANDLE GetStructHnd() const
-    {
-#ifdef FEATURE_SIMD
-        if (lvSIMDType && (m_layout == nullptr))
-        {
-            return NO_CLASS_HANDLE;
-        }
-#endif
-        assert(m_layout != nullptr);
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        assert(varTypeIsStruct(TypeGet()) || (lvIsImplicitByRef && (TypeGet() == TYP_BYREF)));
-#else
-        assert(varTypeIsStruct(TypeGet()));
-#endif
-        CORINFO_CLASS_HANDLE structHnd = m_layout->GetClassHandle();
-        assert(structHnd != NO_CLASS_HANDLE);
-        return structHnd;
-    }
-
     CORINFO_FIELD_HANDLE lvFieldHnd; // field handle for promoted struct fields
 
 private:
@@ -3245,8 +3225,6 @@ public:
     // Returns true if this local var is a multireg struct
     bool lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVararg);
 
-    // If the local is a TYP_STRUCT, get/set a class handle describing it
-    CORINFO_CLASS_HANDLE lvaGetStruct(unsigned varNum);
     void lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck);
     void lvaSetStructUsedAsVarArg(unsigned varNum);
 
@@ -7770,7 +7748,7 @@ private:
     // Returns true if the lclVar is an opaque SIMD type.
     bool isOpaqueSIMDLclVar(const LclVarDsc* varDsc) const
     {
-        return varTypeIsSIMD(varDsc->GetType()) && isOpaqueSIMDType(varDsc->lvVerTypeInfo.GetClassHandle());
+        return varTypeIsSIMD(varDsc->GetType()) && isOpaqueSIMDType(varDsc->GetLayout()->GetClassHandle());
     }
 
     static bool isRelOpSIMDIntrinsic(SIMDIntrinsicID intrinsicId)
