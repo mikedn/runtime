@@ -2494,8 +2494,6 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
 
     LclVarDsc* varDsc = lvaGetDesc(varNum);
 
-    varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
-
     if (varDsc->lvExactSize != 0)
     {
         // TODO-MIKE-Cleanup: Normally we should not attemp to call lvaSetStruct on a local that
@@ -2518,11 +2516,15 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
         // On the other hand, all the inlined code uses A<Canon> so it may be better to keep that,
         // unless there's a way to import the inlined code using A<SomeRefClass>.
         //
-        // The current code is messed up and sets lvVerTypeInfo unconditionally but sets layout
-        // only if lvExactSize wasn't already set. Go figure.
+        // This means that we can end up with "A<SomeRefClass> = A<Canon>" struct assignments but
+        // that's OK, fgMorphCopyBlock and codegen support that. It may be that such mismatches
+        // have some CQ consequences (block copy prop/CSE due to different VNs?).
+        // In FX there aren't many such type mismatch cases but Microsoft.CodeAnalysis.CSharp.dll
+        // has a lot more.
         //
         // In theory we can also have different class handles in the spill clique case but that
         // would be caused by invalid IL so it's probably something that can be ignored.
+        // Ideally, such IL would just result in InvalidProgramException.
         //
         // For now at least assert that the existing type is the same type we would get from the
         // provided class handle. This catches attempts to change between STRUCT and SIMD types
@@ -2537,7 +2539,8 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
 
         varDsc->lvType = TYP_STRUCT;
         varDsc->SetLayout(layout);
-        varDsc->lvExactSize = layout->GetSize();
+        varDsc->lvExactSize   = layout->GetSize();
+        varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
 
         if (layout->IsValueClass())
         {

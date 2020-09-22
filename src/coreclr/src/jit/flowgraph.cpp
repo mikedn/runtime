@@ -23429,20 +23429,52 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     const var_types argType = lclVarInfo[argNum].lclType;
 
                     // Create the temp assignment for this argument
-                    CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
 
                     if (varTypeIsStruct(argType))
                     {
-                        structHnd = gtGetStructHandleIfPresent(argNode);
+                        CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(argNode);
                         noway_assert((structHnd != NO_CLASS_HANDLE) || (argType != TYP_STRUCT));
-                    }
 
-                    // Unsafe value cls check is not needed for
-                    // argTmpNum here since in-linee compiler instance
-                    // would have iterated over these and marked them
-                    // accordingly.
-                    impAssignTempGen(tmpNum, argNode, structHnd, (unsigned)CHECK_SPILL_NONE, &afterStmt, callILOffset,
-                                     block);
+                        // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
+                        // lvaSetStruct - the temp may have type A<SomeRefClass> and argNode may
+                        // have type A<Canon>. In such a case, impAssignStructPtr wraps the dest
+                        // temp in an OBJ that then cannot be removed and causes CQ issues.
+                        // To avoid that, temporarily change the type of the temp to the argNode's
+                        // type.
+                        //
+                        // In general the JIT doesn't care if the 2 sides of a struct assignment
+                        // have the same type so perhaps we can just change impAssignStructPtr to
+                        // simply not add the OBJ. But for now it's safer to do this here because
+                        // we're 99.99% sure that the types are really the same. If they're not
+                        // then the IL is likely invalid (pushed a struct with a different type
+                        // than the parameter type).
+
+                        LclVarDsc*   tmpLcl        = lvaGetDesc(tmpNum);
+                        ClassLayout* tmpLayout     = tmpLcl->GetLayout();
+                        bool         restoreLayout = false;
+
+                        if ((argType == TYP_STRUCT) && (structHnd != tmpLayout->GetClassHandle()))
+                        {
+                            assert(info.compCompHnd->getClassSize(structHnd) == tmpLcl->lvExactSize);
+
+                            tmpLcl->SetLayout(typGetObjLayout(structHnd));
+                            tmpLcl->lvVerTypeInfo = typeInfo(TI_STRUCT, structHnd);
+
+                            restoreLayout = true;
+                        }
+
+                        impAssignTempGen(tmpNum, argNode, structHnd, CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
+
+                        if (restoreLayout)
+                        {
+                            tmpLcl->SetLayout(tmpLayout);
+                            tmpLcl->lvVerTypeInfo = typeInfo(TI_STRUCT, tmpLayout->GetClassHandle());
+                        }
+                    }
+                    else
+                    {
+                        impAssignTempGen(tmpNum, argNode, CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
+                    }
 
                     // We used to refine the temp type here based on
                     // the actual arg, but we now do this up front, when
