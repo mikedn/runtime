@@ -6362,16 +6362,7 @@ void Compiler::impHandleAccessAllowedInternal(CorInfoIsAccessAllowedResult resul
         case CORINFO_ACCESS_ALLOWED:
             break;
         case CORINFO_ACCESS_ILLEGAL:
-            // if we're verifying, then we need to reject the illegal access to ensure that we don't think the
-            // method is verifiable.  Otherwise, delay the exception to runtime.
-            if (compIsForImportOnly())
-            {
-                info.compCompHnd->ThrowExceptionForHelper(helperCall);
-            }
-            else
-            {
-                impInsertHelperCall(helperCall);
-            }
+            impInsertHelperCall(helperCall);
             break;
     }
 }
@@ -11227,7 +11218,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 /* Try to fold the really simple cases like 'iconst *, ifne/ifeq'*/
                 /* Don't make any blocks unreachable in import only mode */
 
-                if ((op1->gtOper == GT_CNS_INT) && !compIsForImportOnly())
+                if (op1->OperIs(GT_CNS_INT))
                 {
                     /* gtFoldExpr() should prevent this as we don't want to make any blocks
                        unreachable under compDbgCode */
@@ -15753,7 +15744,7 @@ void Compiler::impImport()
     {
         impImportBlock(block);
 
-        if (compDonotInline() || compIsForImportOnly())
+        if (compDonotInline())
         {
             return;
         }
@@ -17218,14 +17209,6 @@ void Compiler::impMarkInlineCandidateHelper(GenTreeCall*           call,
          * figure out why we did not set MAXOPT for this compile.
          */
         assert(!compIsForInlining());
-        return;
-    }
-
-    if (compIsForImportOnly())
-    {
-        // Don't bother creating the inline candidate during verification.
-        // Otherwise the call to info.compCompHnd->canInline will trigger a recursive verification
-        // that leads to the creation of multiple instances of Compiler.
         return;
     }
 

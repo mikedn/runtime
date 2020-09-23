@@ -207,11 +207,6 @@ void Compiler::fgInit()
 //
 bool Compiler::fgHaveProfileData()
 {
-    if (compIsForImportOnly())
-    {
-        return false;
-    }
-
     return (fgBlockCounts != nullptr);
 }
 

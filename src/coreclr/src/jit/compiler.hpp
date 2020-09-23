@@ -3912,15 +3912,6 @@ inline bool Compiler::impIsDUP_LDVIRTFTN_TOKEN(const BYTE* delegateCreateStart, 
             delegateCreateStart[0] == CEE_DUP && delegateCreateStart[1] == CEE_PREFIX1 &&
             delegateCreateStart[2] == (CEE_LDVIRTFTN & 0xFF));
 }
-/*****************************************************************************
- *
- * Returns true if the compiler instance is created for import only (verification).
- */
-
-inline bool Compiler::compIsForImportOnly()
-{
-    return opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY);
-}
 
 /*****************************************************************************
  *

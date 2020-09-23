@@ -9136,7 +9136,6 @@ public:
     static void PrintAggregateLoopHoistStats(FILE* f);
 #endif // LOOP_HOIST_STATS
 
-    bool compIsForImportOnly();
     bool compIsForInlining() const;
     bool compDonotInline();
 
