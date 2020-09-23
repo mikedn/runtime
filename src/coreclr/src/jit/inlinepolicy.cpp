@@ -781,24 +781,19 @@ int DefaultPolicy::DetermineCallsiteNativeSizeEstimate(CORINFO_METHOD_INFO* meth
 
     for (unsigned i = (hasThis ? 1 : 0); i < methInfo->args.totalILArgs(); i++, argLst = comp->getArgNext(argLst))
     {
-        var_types sigType = (var_types)m_RootCompiler->eeGetArgType(argLst, &methInfo->args);
+        CORINFO_CLASS_HANDLE argClass;
+        CorInfoType argType = strip(m_RootCompiler->info.compCompHnd->getArgType(&methInfo->args, argLst, &argClass));
 
-        if (sigType == TYP_STRUCT)
+        if (JITtype2varType(argType) == TYP_STRUCT)
         {
-            typeInfo verType = m_RootCompiler->verParseArgSigToTypeInfo(&methInfo->args, argLst);
-
-            /*
-
-            IN0028: 00009B      lea     EAX, bword ptr [EBP-14H]
-            IN0029: 00009E      push    dword ptr [EAX+4]
-            IN002a: 0000A1      push    gword ptr [EAX]
-            IN002b: 0000A3      call    [MyStruct.staticGetX2(struct):int]
-
-            */
+            // IN0028: 00009B      lea     EAX, bword ptr [EBP-14H]
+            // IN0029: 00009E      push    dword ptr [EAX+4]
+            // IN002a: 0000A1      push    gword ptr [EAX]
+            // IN002b: 0000A3      call    [MyStruct.staticGetX2(struct):int]
 
             callsiteSize += 10; // "lea     EAX, bword ptr [EBP-14H]"
 
-            unsigned opsz  = roundUp(comp->getClassSize(verType.GetClassHandle()), TARGET_POINTER_SIZE);
+            unsigned opsz  = roundUp(comp->getClassSize(argClass), TARGET_POINTER_SIZE);
             unsigned slots = opsz / TARGET_POINTER_SIZE;
 
             callsiteSize += slots * 20; // "push    gword ptr [EAX+offs]  "

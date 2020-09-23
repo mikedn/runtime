@@ -4552,65 +4552,63 @@ GenTree* Compiler::impArrayAccessIntrinsic(
         return nullptr;
     }
 
-    CORINFO_CLASS_HANDLE arrElemClsHnd = nullptr;
-    var_types            elemType      = JITtype2varType(info.compCompHnd->getChildType(clsHnd, &arrElemClsHnd));
+    CORINFO_CLASS_HANDLE elemClsHnd = nullptr;
+    var_types            elemType   = JITtype2varType(info.compCompHnd->getChildType(clsHnd, &elemClsHnd));
 
     // For the ref case, we will only be able to inline if the types match
     // (verifier checks for this, we don't care for the nonverified case and the
     // type is final (so we don't need to do the cast)
-    if ((intrinsicID != CORINFO_INTRINSIC_Array_Get) && !readonlyCall && varTypeIsGC(elemType))
+    if ((intrinsicID != CORINFO_INTRINSIC_Array_Get) && !readonlyCall && (elemType == TYP_REF))
     {
-        // Get the call site signature
-        CORINFO_SIG_INFO LocalSig;
-        eeGetCallSiteSig(memberRef, info.compScopeHnd, impTokenLookupContextHandle, &LocalSig);
-        assert(LocalSig.hasThis());
+        CORINFO_SIG_INFO callSig;
+        eeGetCallSiteSig(memberRef, info.compScopeHnd, impTokenLookupContextHandle, &callSig);
+        assert(callSig.hasThis());
 
-        CORINFO_CLASS_HANDLE actualElemClsHnd;
+        CORINFO_CLASS_HANDLE accessClsHnd;
 
         if (intrinsicID == CORINFO_INTRINSIC_Array_Set)
         {
             // Fetch the last argument, the one that indicates the type we are setting.
-            CORINFO_ARG_LIST_HANDLE argType = LocalSig.args;
+            CORINFO_ARG_LIST_HANDLE arg = callSig.args;
             for (unsigned r = 0; r < rank; r++)
             {
-                argType = info.compCompHnd->getArgNext(argType);
+                arg = info.compCompHnd->getArgNext(arg);
             }
 
-            typeInfo argInfo = verParseArgSigToTypeInfo(&LocalSig, argType);
-            actualElemClsHnd = argInfo.GetClassHandle();
+            assert(strip(info.compCompHnd->getArgType(&callSig, arg, &accessClsHnd)) == CORINFO_TYPE_CLASS);
+
+            accessClsHnd = info.compCompHnd->getArgClass(&callSig, arg);
         }
         else
         {
             assert(intrinsicID == CORINFO_INTRINSIC_Array_Address);
+            assert(callSig.retType == CORINFO_TYPE_BYREF);
 
-            // Fetch the return type
-            typeInfo retInfo = verMakeTypeInfo(LocalSig.retType, LocalSig.retTypeClass);
-            assert(retInfo.IsByRef());
-            actualElemClsHnd = retInfo.GetClassHandle();
+            info.compCompHnd->getChildType(callSig.retTypeClass, &accessClsHnd);
         }
 
         // if it's not final, we can't do the optimization
-        if (!(info.compCompHnd->getClassAttribs(actualElemClsHnd) & CORINFO_FLG_FINAL))
+        if ((info.compCompHnd->getClassAttribs(accessClsHnd) & CORINFO_FLG_FINAL) == 0)
         {
             return nullptr;
         }
     }
 
-    unsigned arrayElemSize;
+    unsigned elemSize;
     if (elemType == TYP_STRUCT)
     {
-        assert(arrElemClsHnd);
+        assert(elemClsHnd != NO_CLASS_HANDLE);
 
-        arrayElemSize = info.compCompHnd->getClassSize(arrElemClsHnd);
+        elemSize = info.compCompHnd->getClassSize(elemClsHnd);
     }
     else
     {
-        arrayElemSize = genTypeSize(elemType);
+        elemSize = genTypeSize(elemType);
     }
 
-    if ((unsigned char)arrayElemSize != arrayElemSize)
+    if (static_cast<unsigned char>(elemSize) != elemSize)
     {
-        // arrayElemSize would be truncated as an unsigned char.
+        // elemSize would be truncated as an unsigned char.
         // This means the array element is too large. Don't do the optimization.
         return nullptr;
     }
@@ -4643,9 +4641,8 @@ GenTree* Compiler::impArrayAccessIntrinsic(
     GenTree* arr = impPopStack().val;
     assert(arr->gtType == TYP_REF);
 
-    GenTree* arrElem =
-        new (this, GT_ARR_ELEM) GenTreeArrElem(TYP_BYREF, arr, static_cast<unsigned char>(rank),
-                                               static_cast<unsigned char>(arrayElemSize), elemType, &inds[0]);
+    GenTree* arrElem = new (this, GT_ARR_ELEM) GenTreeArrElem(TYP_BYREF, arr, static_cast<unsigned char>(rank),
+                                                              static_cast<unsigned char>(elemSize), elemType, &inds[0]);
 
     if (intrinsicID != CORINFO_INTRINSIC_Array_Address)
     {
@@ -4669,13 +4666,6 @@ GenTree* Compiler::impArrayAccessIntrinsic(
         return arrElem;
     }
 }
-
-/*****************************************************************************
- * 'logMsg' is true if a log message needs to be logged. false if the caller has
- *   already logged it (presumably in a more detailed fashion than done here)
- * 'bVerificationException' is true for a verification exception, false for a
- *   "call unauthorized by host" exception.
- */
 
 typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
 {
@@ -7573,7 +7563,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                 assert(newobjThis->gtOper == GT_ADDR && newobjThis->AsOp()->gtOp1->gtOper == GT_LCL_VAR);
 
                 unsigned tmp = newobjThis->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-                impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), verMakeTypeInfo(clsHnd));
+                impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), typeInfo(TI_STRUCT, clsHnd));
             }
             else
             {
@@ -10771,7 +10761,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Create an OBJ for the result
                         op1 = gtNewObjNode(ldelemClsHnd, op1);
                         op1->gtFlags |= GTF_EXCEPT;
-                        tiRetVal = verMakeTypeInfo(ldelemClsHnd);
+                        tiRetVal = typeInfo(TI_STRUCT, ldelemClsHnd);
                     }
 
                     impPushOnStack(op1, tiRetVal);
@@ -13333,7 +13323,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 block->bbFlags |= BBF_HAS_NEWARRAY;
                 optMethodFlags |= OMF_HAS_NEWARRAY;
 
-                impPushOnStack(op1, verMakeTypeInfo(resolvedToken.hClass));
+                impPushOnStack(op1, typeInfo(TI_REF, resolvedToken.hClass));
 
                 callTyp = TYP_REF;
             }
@@ -13606,7 +13596,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDTOKEN:
-            {
                 assertImp(sz == sizeof(unsigned));
                 lastLoadToken = codeAddr;
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Ldtoken);
@@ -13630,9 +13619,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     helper = CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD;
                 }
 
-                GenTreeCall::Use* helperArgs = gtNewCallArgs(op1);
-
-                op1 = gtNewHelperCallNode(helper, TYP_STRUCT, helperArgs);
+                op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op1));
 
                 // The handle struct is returned in register and
                 // it could be consumed both as `TYP_STRUCT` and `TYP_REF`.
@@ -13645,9 +13632,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->AsCall()->gtRetClsHnd = tokenType;
                 }
 
-                impPushOnStack(op1, verMakeTypeInfo(tokenType));
-            }
-            break;
+                impPushOnStack(op1, typeInfo(TI_STRUCT, tokenType));
+                break;
 
             case CEE_UNBOX:
             case CEE_UNBOX_ANY:
@@ -13883,8 +13869,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         op2 = gtNewOperNode(GT_ADDR, TYP_BYREF, op2);
                         op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
 
-                        // In this case the return value of the unbox helper is TYP_BYREF.
-                        // Make sure the right type is placed on the operand type stack.
                         impPushOnStack(op1, typeInfo());
 
                         // Load the struct.
@@ -14221,7 +14205,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // MKREFANY returns a struct.  op2 is the class token.
                 op1 = gtNewOperNode(oper, TYP_STRUCT, op1, op2);
 
-                impPushOnStack(op1, verMakeTypeInfo(impGetRefAnyClass()));
+                impPushOnStack(op1, typeInfo(TI_STRUCT, impGetRefAnyClass()));
                 break;
 
             case CEE_LDOBJ:
@@ -14257,7 +14241,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
-                impPushOnStack(op1, verMakeTypeInfo(resolvedToken.hClass));
+                impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
                 break;
 
             case CEE_LDLEN:

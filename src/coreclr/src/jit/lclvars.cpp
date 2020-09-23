@@ -1257,8 +1257,7 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
         }
 #endif
 
-        if ((typeHnd != NO_CLASS_HANDLE) &&
-            ((info.compCompHnd->getClassAttribs(typeHnd) & CORINFO_FLG_VALUECLASS) != 0))
+        if ((typeHnd != NO_CLASS_HANDLE) && info.compCompHnd->isValueClass(typeHnd))
         {
             // This is a "normed type" - a struct that contains a single primitive type field.
             // In general this is just a primtive type as far as the JIT is concerned but there
@@ -1272,7 +1271,9 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
             // since the rest of the bits in typeInfo aren't useful.
             // Note: impInlineFetchArg and impInlineFetchLocal have similar code.
 
-            varDsc->lvVerTypeInfo = verMakeTypeInfo(typeHnd);
+            assert(info.compCompHnd->getTypeForPrimitiveValueClass(typeHnd) == CORINFO_TYPE_UNDEF);
+
+            varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
         }
     }
 
