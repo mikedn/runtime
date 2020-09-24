@@ -16257,10 +16257,30 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
 
     if (thisArg != nullptr)
     {
-        var_types argType = ((clsAttr & CORINFO_FLG_VALUECLASS) != 0) ? TYP_BYREF : TYP_REF;
+        var_types argType;
+        typeInfo  argTypeInfo;
+
+        if ((clsAttr & CORINFO_FLG_VALUECLASS) == 0)
+        {
+            argType     = TYP_REF;
+            argTypeInfo = typeInfo(TI_REF, pInlineInfo->inlineCandidateInfo->clsHandle);
+        }
+        else
+        {
+            argType = TYP_BYREF;
+
+            if (info.compCompHnd->getTypeForPrimitiveValueClass(pInlineInfo->inlineCandidateInfo->clsHandle) ==
+                CORINFO_TYPE_UNDEF)
+            {
+                // TODO-MIKE-Cleanup: Like LDLOCA import, this generates incorrect type information,
+                // TI_STRUCT without marking it byref.
+
+                argTypeInfo = typeInfo(TI_STRUCT, pInlineInfo->inlineCandidateInfo->clsHandle);
+            }
+        }
 
         lclVarInfo[0].lclType        = argType;
-        lclVarInfo[0].lclVerTypeInfo = verMakeTypeInfo(pInlineInfo->inlineCandidateInfo->clsHandle);
+        lclVarInfo[0].lclVerTypeInfo = argTypeInfo;
         lclVarInfo[0].lclHasLdlocaOp = false;
 
 #ifdef FEATURE_SIMD
@@ -16305,24 +16325,51 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
         CORINFO_CLASS_HANDLE argClass;
         CorInfoType          argCorType = strip(info.compCompHnd->getArgType(&methInfo->args, argLst, &argClass));
         var_types            argType    = JITtype2varType(argCorType);
+        typeInfo             argTypeInfo;
 
-        if (varTypeIsGC(argType))
+        if (argType == TYP_REF)
         {
-            argClass = info.compCompHnd->getArgClass(&methInfo->args, argLst);
+            argTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&methInfo->args, argLst));
         }
+        else if (argType == TYP_BYREF)
+        {
+            // Don't generate typeInfo for byref, it's not needed and requires extra VM calls.
+        }
+        else if (argType == TYP_STRUCT)
+        {
 #ifdef FEATURE_SIMD
-        else if ((argType == TYP_STRUCT) && isSIMDorHWSIMDClass(argClass))
-        {
-            // If this is a SIMD class (i.e. in the SIMD assembly), then we will consider that we've
-            // found a SIMD type, even if this may not be a type we recognize (the assumption is that
-            // it is likely to use a SIMD type, and therefore we want to increase the inlining multiplier).
-            foundSIMDType = true;
-            argType       = impNormStructType(argClass);
-        }
+            if (isSIMDorHWSIMDClass(argClass))
+            {
+                // If this is a SIMD class (i.e. in the SIMD assembly), then we will consider that we've
+                // found a SIMD type, even if this may not be a type we recognize (the assumption is that
+                // it is likely to use a SIMD type, and therefore we want to increase the inlining multiplier).
+                foundSIMDType = true;
+                argType       = impNormStructType(argClass);
+            }
 #endif // FEATURE_SIMD
 
+            argTypeInfo = typeInfo(TI_STRUCT, argClass);
+        }
+        else if (argClass != NO_CLASS_HANDLE)
+        {
+            assert(info.compCompHnd->isValueClass(argClass));
+            assert(info.compCompHnd->getTypeForPrimitiveValueClass(argClass) == CORINFO_TYPE_UNDEF);
+
+            // This is a "normed type" - a struct that contains a single primitive type field.
+            // See lvaInitVarDsc.
+            argTypeInfo = typeInfo(TI_STRUCT, argClass);
+        }
+        else if (argCorType <= CORINFO_TYPE_DOUBLE)
+        {
+            // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
+            // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
+            // primitive type, and thus detects any primitive type local as being normed type.
+
+            argTypeInfo = typeInfo(JITtype2tiType(argCorType));
+        }
+
         lclVarInfo[i].lclType        = argType;
-        lclVarInfo[i].lclVerTypeInfo = verMakeTypeInfo(argCorType, argClass);
+        lclVarInfo[i].lclVerTypeInfo = argTypeInfo;
         lclVarInfo[i].lclHasLdlocaOp = false;
 
         // Does the tree type match the signature type?
@@ -16433,10 +16480,14 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
         CORINFO_CLASS_HANDLE lclClass;
         CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&methInfo->locals, argLst, &lclClass);
         var_types            lclType    = JITtype2varType(strip(lclCorType));
+        typeInfo             lclTypeInfo;
 
         if (varTypeIsGC(lclType))
         {
-            lclClass = info.compCompHnd->getArgClass(&methInfo->locals, argLst);
+            if (lclType == TYP_REF)
+            {
+                lclTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&methInfo->locals, argLst));
+            }
 
             if ((lclCorType & CORINFO_TYPE_MOD_PINNED) != 0)
             {
@@ -16485,10 +16536,29 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
                 lclType       = impNormStructType(lclClass);
             }
 #endif
+
+            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
+        }
+        else if (lclClass != NO_CLASS_HANDLE)
+        {
+            assert(info.compCompHnd->isValueClass(lclClass));
+            assert(info.compCompHnd->getTypeForPrimitiveValueClass(lclClass) == CORINFO_TYPE_UNDEF);
+
+            // This is a "normed type" - a struct that contains a single primitive type field.
+            // See lvaInitVarDsc.
+            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
+        }
+        else if (strip(lclCorType) <= CORINFO_TYPE_DOUBLE)
+        {
+            // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
+            // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
+            // primitive type, and thus detects any primitive type local as being normed type.
+
+            lclTypeInfo = typeInfo(JITtype2tiType(strip(lclCorType)));
         }
 
         lclVarInfo[i + argCnt].lclType        = lclType;
-        lclVarInfo[i + argCnt].lclVerTypeInfo = verMakeTypeInfo(strip(lclCorType), lclClass);
+        lclVarInfo[i + argCnt].lclVerTypeInfo = lclTypeInfo;
         lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
     }
 
