@@ -4792,19 +4792,6 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 
 #ifdef DEBUG
 
-BOOL Compiler::verIsByRefLike(const typeInfo& ti)
-{
-    if (ti.IsByRef())
-    {
-        return TRUE;
-    }
-    if (!ti.IsType(TI_STRUCT))
-    {
-        return FALSE;
-    }
-    return info.compCompHnd->getClassAttribs(ti.GetClassHandleForValueClass()) & CORINFO_FLG_CONTAINS_STACK_PTR;
-}
-
 bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
                                           CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                           CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained."
@@ -4891,24 +4878,20 @@ bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
 
         if (opcode == CEE_CALLI)
         {
-            // For CALLI, we don't know the methodClassHnd. Therefore, let's check the "this" object
-            // on the stack.
-            tiThis = impStackTop(popCount).seTypeInfo;
+            // For CALLI, we don't know the methodClassHnd. Therefore, let's check the "this" arg on
+            // the stack. If it's not REF then it must be BYREF/I_IMPL and could point to a local.
+            if (!impStackTop(popCount).val->TypeIs(TYP_REF))
+            {
+                return false;
+            }
         }
         else
         {
-            // Check type compatibility of the this argument
-            tiThis = verMakeTypeInfo(methodClassHnd);
-        }
-
-        if (tiThis.IsValueClass())
-        {
-            tiThis.MakeByRef();
-        }
-
-        if (verIsByRefLike(tiThis))
-        {
-            return false;
+            // If it's a value class then it may be a local so we can't tailcall.
+            if (info.compCompHnd->isValueClass(methodClassHnd))
+            {
+                return false;
+            }
         }
 
         popCount++;
