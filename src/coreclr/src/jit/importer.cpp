@@ -4790,27 +4790,6 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
     return typeInfo(TI_REF, clsHnd);
 }
 
-typeInfo Compiler::verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args)
-{
-    CORINFO_CLASS_HANDLE classHandle;
-    CorInfoType          ciType = strip(info.compCompHnd->getArgType(sig, args, &classHandle));
-
-    var_types type = JITtype2varType(ciType);
-    if (varTypeIsGC(type))
-    {
-        // For efficiency, getArgType only returns something in classHandle for
-        // value types.  For other types that have addition type info, you
-        // have to call back explicitly
-        classHandle = info.compCompHnd->getArgClass(sig, args);
-        if (!classHandle)
-        {
-            NO_WAY("Could not figure out Class specified in argument or local signature");
-        }
-    }
-
-    return verMakeTypeInfo(ciType, classHandle);
-}
-
 #ifdef DEBUG
 
 BOOL Compiler::verIsByRefLike(const typeInfo& ti)
@@ -4825,11 +4804,6 @@ BOOL Compiler::verIsByRefLike(const typeInfo& ti)
     }
     return info.compCompHnd->getClassAttribs(ti.GetClassHandleForValueClass()) & CORINFO_FLG_CONTAINS_STACK_PTR;
 }
-
-/*****************************************************************************
- *
- *  Check if a TailCall is legal.
- */
 
 bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
                                           CORINFO_RESOLVED_TOKEN* pResolvedToken,
@@ -4890,30 +4864,21 @@ bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
     }
 
     // check compatibility of the arguments
-    unsigned int argCount;
-    argCount = sig.numArgs;
-    CORINFO_ARG_LIST_HANDLE args;
-    args = sig.args;
-    while (argCount--)
+    CORINFO_ARG_LIST_HANDLE args = sig.args;
+
+    for (unsigned i = 0; i < sig.numArgs; i++, args = info.compCompHnd->getArgNext(args))
     {
-        typeInfo tiDeclared = verParseArgSigToTypeInfo(&sig, args);
-
-        if (verIsByRefLike(tiDeclared))
-        {
-            return false;
-        }
-
         // For unsafe code, we might have parameters containing pointer to the stack location.
         // Disallow the tailcall for this kind.
-        CORINFO_CLASS_HANDLE classHandle;
-        CorInfoType          ciType = strip(info.compCompHnd->getArgType(&sig, args, &classHandle));
+        CORINFO_CLASS_HANDLE argClass;
+        CorInfoType          argCorType = strip(info.compCompHnd->getArgType(&sig, args, &argClass));
 
-        if (ciType == CORINFO_TYPE_PTR)
+        if ((argCorType == CORINFO_TYPE_PTR) || (argCorType == CORINFO_TYPE_BYREF) ||
+            ((argCorType == CORINFO_TYPE_VALUECLASS) &&
+             ((info.compCompHnd->getClassAttribs(argClass) & CORINFO_FLG_CONTAINS_STACK_PTR) != 0)))
         {
             return false;
         }
-
-        args = info.compCompHnd->getArgNext(args);
     }
 
     // update popCount
@@ -16485,119 +16450,125 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
 
     for (unsigned i = (thisArg ? 1 : 0); i < argCnt; i++, argLst = info.compCompHnd->getArgNext(argLst))
     {
-        var_types argType = eeGetArgType(argLst, &methInfo->args);
+        CORINFO_CLASS_HANDLE argClass;
+        CorInfoType          argCorType = strip(info.compCompHnd->getArgType(&methInfo->args, argLst, &argClass));
+        var_types            argType    = JITtype2varType(argCorType);
 
-        lclVarInfo[i].lclVerTypeInfo = verParseArgSigToTypeInfo(&methInfo->args, argLst);
-
+        if (varTypeIsGC(argType))
+        {
+            argClass = info.compCompHnd->getArgClass(&methInfo->args, argLst);
+        }
 #ifdef FEATURE_SIMD
-        if ((argType == TYP_STRUCT) && isSIMDorHWSIMDClass(lclVarInfo[i].lclVerTypeInfo.GetClassHandle()))
+        else if ((argType == TYP_STRUCT) && isSIMDorHWSIMDClass(argClass))
         {
             // If this is a SIMD class (i.e. in the SIMD assembly), then we will consider that we've
             // found a SIMD type, even if this may not be a type we recognize (the assumption is that
             // it is likely to use a SIMD type, and therefore we want to increase the inlining multiplier).
             foundSIMDType = true;
-            argType       = impNormStructType(lclVarInfo[i].lclVerTypeInfo.GetClassHandle());
+            argType       = impNormStructType(argClass);
         }
 #endif // FEATURE_SIMD
 
         lclVarInfo[i].lclType        = argType;
+        lclVarInfo[i].lclVerTypeInfo = verMakeTypeInfo(argCorType, argClass);
         lclVarInfo[i].lclHasLdlocaOp = false;
 
         // Does the tree type match the signature type?
 
         GenTree* inlArgNode = inlArgInfo[i].argNode;
 
-        if (argType != inlArgNode->gtType)
+        if (argType == inlArgNode->GetType())
         {
-            // In valid IL, this can only happen for short integer types or byrefs <-> [native] ints,
-            // but in bad IL cases with caller-callee signature mismatches we can see other types.
-            // Intentionally reject cases with mismatches so the jit is more flexible when
-            // encountering bad IL. */
+            continue;
+        }
 
-            bool isPlausibleTypeMatch = (genActualType(argType) == genActualType(inlArgNode->gtType)) ||
-                                        (genActualTypeIsIntOrI(argType) && inlArgNode->gtType == TYP_BYREF) ||
-                                        (argType == TYP_BYREF && genActualTypeIsIntOrI(inlArgNode->gtType));
+        // In valid IL, this can only happen for short integer types or byrefs <-> [native] ints,
+        // but in bad IL cases with caller-callee signature mismatches we can see other types.
+        // Intentionally reject cases with mismatches so the jit is more flexible when
+        // encountering bad IL. */
 
-            if (!isPlausibleTypeMatch)
+        bool isPlausibleTypeMatch = (genActualType(argType) == genActualType(inlArgNode->gtType)) ||
+                                    (genActualTypeIsIntOrI(argType) && inlArgNode->gtType == TYP_BYREF) ||
+                                    (argType == TYP_BYREF && genActualTypeIsIntOrI(inlArgNode->gtType));
+
+        if (!isPlausibleTypeMatch)
+        {
+            inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
+            return;
+        }
+
+        // Is it a narrowing or widening cast?
+        // Widening casts are ok since the value computed is already
+        // normalized to an int (on the IL stack)
+
+        if (genTypeSize(inlArgNode->gtType) >= genTypeSize(argType))
+        {
+            if (argType == TYP_BYREF)
             {
-                inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-                return;
+                lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
             }
-
-            // Is it a narrowing or widening cast?
-            // Widening casts are ok since the value computed is already
-            // normalized to an int (on the IL stack)
-
-            if (genTypeSize(inlArgNode->gtType) >= genTypeSize(argType))
+            else if (inlArgNode->gtType == TYP_BYREF)
             {
-                if (argType == TYP_BYREF)
+                assert(varTypeIsIntOrI(argType));
+
+                // If possible bash the BYREF to an int
+                if (inlArgNode->IsLocalAddrExpr() != nullptr)
                 {
+                    inlArgNode->gtType           = TYP_I_IMPL;
                     lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
                 }
-                else if (inlArgNode->gtType == TYP_BYREF)
+                else
                 {
-                    assert(varTypeIsIntOrI(argType));
-
-                    // If possible bash the BYREF to an int
-                    if (inlArgNode->IsLocalAddrExpr() != nullptr)
-                    {
-                        inlArgNode->gtType           = TYP_I_IMPL;
-                        lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
-                    }
-                    else
-                    {
-                        // Arguments 'int <- byref' cannot be changed
-                        inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
-                        return;
-                    }
+                    // Arguments 'int <- byref' cannot be changed
+                    inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
+                    return;
                 }
-                else if (genTypeSize(argType) < EA_PTRSIZE)
-                {
-                    // Narrowing cast
-
-                    if (inlArgNode->gtOper == GT_LCL_VAR &&
-                        !lvaTable[inlArgNode->AsLclVarCommon()->GetLclNum()].lvNormalizeOnLoad() &&
-                        argType == lvaGetRealType(inlArgNode->AsLclVarCommon()->GetLclNum()))
-                    {
-                        // We don't need to insert a cast here as the variable
-                        // was assigned a normalized value of the right type
-
-                        continue;
-                    }
-
-                    inlArgNode = inlArgInfo[i].argNode = gtNewCastNode(TYP_INT, inlArgNode, false, argType);
-
-                    inlArgInfo[i].argIsLclVar = false;
-
-                    // Try to fold the node in case we have constant arguments
-
-                    if (inlArgInfo[i].argIsInvariant)
-                    {
-                        inlArgNode            = gtFoldExprConst(inlArgNode);
-                        inlArgInfo[i].argNode = inlArgNode;
-                        assert(inlArgNode->OperIsConst());
-                    }
-                }
-#ifdef TARGET_64BIT
-                else if (genTypeSize(genActualType(inlArgNode->gtType)) < genTypeSize(argType))
-                {
-                    // This should only happen for int -> native int widening
-                    inlArgNode = inlArgInfo[i].argNode =
-                        gtNewCastNode(genActualType(argType), inlArgNode, false, argType);
-
-                    inlArgInfo[i].argIsLclVar = false;
-
-                    // Try to fold the node in case we have constant arguments
-
-                    if (inlArgInfo[i].argIsInvariant)
-                    {
-                        inlArgNode            = gtFoldExprConst(inlArgNode);
-                        inlArgInfo[i].argNode = inlArgNode;
-                        assert(inlArgNode->OperIsConst());
-                    }
-                }
-#endif // TARGET_64BIT
             }
+            else if (genTypeSize(argType) < EA_PTRSIZE)
+            {
+                // Narrowing cast
+
+                if (inlArgNode->gtOper == GT_LCL_VAR &&
+                    !lvaTable[inlArgNode->AsLclVarCommon()->GetLclNum()].lvNormalizeOnLoad() &&
+                    argType == lvaGetRealType(inlArgNode->AsLclVarCommon()->GetLclNum()))
+                {
+                    // We don't need to insert a cast here as the variable
+                    // was assigned a normalized value of the right type
+
+                    continue;
+                }
+
+                inlArgNode = inlArgInfo[i].argNode = gtNewCastNode(TYP_INT, inlArgNode, false, argType);
+
+                inlArgInfo[i].argIsLclVar = false;
+
+                // Try to fold the node in case we have constant arguments
+
+                if (inlArgInfo[i].argIsInvariant)
+                {
+                    inlArgNode            = gtFoldExprConst(inlArgNode);
+                    inlArgInfo[i].argNode = inlArgNode;
+                    assert(inlArgNode->OperIsConst());
+                }
+            }
+#ifdef TARGET_64BIT
+            else if (genTypeSize(genActualType(inlArgNode->gtType)) < genTypeSize(argType))
+            {
+                // This should only happen for int -> native int widening
+                inlArgNode = inlArgInfo[i].argNode = gtNewCastNode(genActualType(argType), inlArgNode, false, argType);
+
+                inlArgInfo[i].argIsLclVar = false;
+
+                // Try to fold the node in case we have constant arguments
+
+                if (inlArgInfo[i].argIsInvariant)
+                {
+                    inlArgNode            = gtFoldExprConst(inlArgNode);
+                    inlArgInfo[i].argNode = inlArgNode;
+                    assert(inlArgNode->OperIsConst());
+                }
+            }
+#endif // TARGET_64BIT
         }
     }
 
@@ -16607,44 +16578,37 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
 
     for (unsigned i = 0; i < methInfo->locals.numArgs; i++, argLst = info.compCompHnd->getArgNext(argLst))
     {
-        bool      isPinned;
-        var_types type = eeGetArgType(argLst, &methInfo->locals, &isPinned);
+        CORINFO_CLASS_HANDLE lclClass;
+        CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&methInfo->locals, argLst, &lclClass);
+        var_types            lclType    = JITtype2varType(strip(lclCorType));
 
-        lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
-        lclVarInfo[i + argCnt].lclType        = type;
-
-        if (varTypeIsGC(type))
+        if (varTypeIsGC(lclType))
         {
-            if (isPinned)
-            {
-                JITDUMP("Inlinee local #%02u is pinned\n", i);
-                lclVarInfo[i + argCnt].lclIsPinned = true;
+            lclClass = info.compCompHnd->getArgClass(&methInfo->locals, argLst);
 
+            if ((lclCorType & CORINFO_TYPE_MOD_PINNED) != 0)
+            {
                 // Pinned locals may cause inlines to fail.
                 inlineResult->Note(InlineObservation::CALLEE_HAS_PINNED_LOCALS);
                 if (inlineResult->IsFailure())
                 {
                     return;
                 }
+
+                JITDUMP("Inlinee local #%02u is pinned\n", i);
+
+                lclVarInfo[i + argCnt].lclIsPinned = true;
             }
 
             pInlineInfo->numberOfGcRefLocals++;
         }
-        else if (isPinned)
+        else if (lclType == TYP_STRUCT)
         {
-            JITDUMP("Ignoring pin on inlinee local #%02u -- not a GC type\n", i);
-        }
-
-        lclVarInfo[i + argCnt].lclVerTypeInfo = verParseArgSigToTypeInfo(&methInfo->locals, argLst);
-
-        // If this local is a struct type with GC fields, inform the inliner. It may choose to bail
-        // out on the inline.
-        if (type == TYP_STRUCT)
-        {
-            CORINFO_CLASS_HANDLE lclHandle = lclVarInfo[i + argCnt].lclVerTypeInfo.GetClassHandle();
-            DWORD                typeFlags = info.compCompHnd->getClassAttribs(lclHandle);
-            if ((typeFlags & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
+            if ((info.compCompHnd->getClassAttribs(lclClass) & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
             {
+                // If this local is a struct type with GC fields, inform the inliner.
+                // It may choose to bail out on the inline.
+
                 inlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
                 if (inlineResult->IsFailure())
                 {
@@ -16658,21 +16622,22 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
                     inlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
                     if (inlineResult->IsFailure())
                     {
-
                         return;
                     }
                 }
             }
-
 #ifdef FEATURE_SIMD
-            if (isSIMDorHWSIMDClass(lclVarInfo[i + argCnt].lclVerTypeInfo.GetClassHandle()))
+            else if (isSIMDorHWSIMDClass(lclClass))
             {
                 foundSIMDType = true;
-                lclVarInfo[i + argCnt].lclType =
-                    impNormStructType(lclVarInfo[i + argCnt].lclVerTypeInfo.GetClassHandle());
+                lclType       = impNormStructType(lclClass);
             }
-#endif // FEATURE_SIMD
+#endif
         }
+
+        lclVarInfo[i + argCnt].lclType        = lclType;
+        lclVarInfo[i + argCnt].lclVerTypeInfo = verMakeTypeInfo(strip(lclCorType), lclClass);
+        lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
     }
 
 #ifdef FEATURE_SIMD

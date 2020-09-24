@@ -9300,8 +9300,6 @@ public:
     typeInfo verMakeTypeInfo(CorInfoType          ciType,
                              CORINFO_CLASS_HANDLE clsHnd); // converts from jit type representation to typeInfo
 
-    typeInfo verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args);
-
 #ifdef DEBUG
     BOOL verIsByRefLike(const typeInfo& ti);
 
