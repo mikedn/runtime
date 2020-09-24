@@ -35,6 +35,129 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
     TI_ERROR,  // CORINFO_TYPE_VAR             = 0x16,
 };
 
+typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
+{
+    assert(ciType < CORINFO_TYPE_COUNT);
+
+    typeInfo tiResult;
+    switch (ciType)
+    {
+        case CORINFO_TYPE_STRING:
+        case CORINFO_TYPE_CLASS:
+            tiResult = verMakeTypeInfo(clsHnd);
+            if (!tiResult.IsType(TI_REF))
+            { // type must be consistent with element type
+                return typeInfo();
+            }
+            break;
+
+#ifdef TARGET_64BIT
+        case CORINFO_TYPE_NATIVEINT:
+        case CORINFO_TYPE_NATIVEUINT:
+            if (clsHnd)
+            {
+                // If we have more precise information, use it
+                return verMakeTypeInfo(clsHnd);
+            }
+            else
+            {
+                return typeInfo::nativeInt();
+            }
+            break;
+#endif // TARGET_64BIT
+
+        case CORINFO_TYPE_VALUECLASS:
+        case CORINFO_TYPE_REFANY:
+            tiResult = verMakeTypeInfo(clsHnd);
+            // type must be constant with element type;
+            if (!tiResult.IsValueClass())
+            {
+                return typeInfo();
+            }
+            break;
+
+        case CORINFO_TYPE_PTR: // for now, pointers are treated as an error
+        case CORINFO_TYPE_VOID:
+            return typeInfo();
+            break;
+
+        case CORINFO_TYPE_BYREF:
+        {
+            CORINFO_CLASS_HANDLE childClassHandle;
+            CorInfoType          childType = info.compCompHnd->getChildType(clsHnd, &childClassHandle);
+            return verMakeTypeInfo(childType, childClassHandle).MakeByRef();
+        }
+        break;
+
+        case CORINFO_TYPE_VAR:
+            unreached();
+
+        default:
+            if (clsHnd)
+            { // If we have more precise information, use it
+                return typeInfo(TI_STRUCT, clsHnd);
+            }
+            else
+            {
+                return typeInfo(JITtype2tiType(ciType));
+            }
+    }
+    return tiResult;
+}
+
+typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
+{
+    if (clsHnd == nullptr)
+    {
+        return typeInfo();
+    }
+
+    // Byrefs should only occur in method and local signatures, which are accessed
+    // using ICorClassInfo and ICorClassInfo.getChildType.
+    // So findClass() and getClassAttribs() should not be called for byrefs
+
+    if (JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd)) == TYP_BYREF)
+    {
+        assert(!"Did findClass() return a Byref?");
+        return typeInfo();
+    }
+
+    unsigned attribs = info.compCompHnd->getClassAttribs(clsHnd);
+
+    if ((attribs & CORINFO_FLG_VALUECLASS) != 0)
+    {
+        CorInfoType t = info.compCompHnd->getTypeForPrimitiveValueClass(clsHnd);
+
+        // Meta-data validation should ensure that CORINF_TYPE_BYREF should
+        // not occur here, so we may want to change this to an assert instead.
+        if ((t == CORINFO_TYPE_VOID) || (t == CORINFO_TYPE_BYREF) || (t == CORINFO_TYPE_PTR))
+        {
+            return typeInfo();
+        }
+
+#ifdef TARGET_64BIT
+        if ((t == CORINFO_TYPE_NATIVEINT) || (t == CORINFO_TYPE_NATIVEUINT))
+        {
+            return typeInfo::nativeInt();
+        }
+#endif // TARGET_64BIT
+
+        if (t != CORINFO_TYPE_UNDEF)
+        {
+            return typeInfo(JITtype2tiType(t));
+        }
+
+        return typeInfo(TI_STRUCT, clsHnd);
+    }
+
+    if ((attribs & CORINFO_FLG_GENERIC_TYPE_VARIABLE) != 0)
+    {
+        unreached();
+    }
+
+    return typeInfo(TI_REF, clsHnd);
+}
+
 #ifdef DEBUG
 
 // Note that we specifically ignore the permanent byref here. The rationale is that
