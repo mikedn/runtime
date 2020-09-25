@@ -76,14 +76,6 @@ inline ti_types JITtype2tiType(CorInfoType type)
 
 #define TI_FLAG_BYREF 0x00000080
 
-// This item is a byref generated using the readonly. prefix
-// to a ldelema or Address function on an array type.  The
-// runtime type check is ignored in these cases, but the
-// resulting byref can only be used in order to perform a
-// constraint call.
-
-#define TI_FLAG_BYREF_READONLY 0x00000100
-
 // This item is the MSIL 'I' type which is pointer-sized
 // (different size depending on platform) but which on ALL platforms
 // is implicitly convertible with a 32-bit int but not with a 64-bit one.
@@ -98,8 +90,6 @@ inline ti_types JITtype2tiType(CorInfoType type)
 
 // This item contains resolved token. It is used for ctor delegate optimization.
 #define TI_FLAG_TOKEN 0x00000400
-
-#define TI_ALL_BYREF_FLAGS (TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY)
 
 class typeInfo
 {
@@ -192,12 +182,6 @@ public:
     // Operations
     /////////////////////////////////////////////////////////////////////////
 
-    void SetIsReadonlyByRef()
-    {
-        assert(IsByRef());
-        m_flags |= TI_FLAG_BYREF_READONLY;
-    }
-
     typeInfo& DereferenceByRef()
     {
         if (!IsByRef())
@@ -205,7 +189,6 @@ public:
             m_flags = TI_ERROR;
             INDEBUG(m_cls = NO_CLASS_HANDLE);
         }
-        m_flags &= ~TI_ALL_BYREF_FLAGS;
         return *this;
     }
 
@@ -248,7 +231,7 @@ public:
     BOOL IsType(ti_types type) const
     {
         assert(type != TI_ERROR);
-        return (m_flags & (TI_FLAG_DATA_MASK | TI_ALL_BYREF_FLAGS)) == static_cast<unsigned>(type);
+        return (m_flags & (TI_FLAG_DATA_MASK | TI_FLAG_BYREF)) == static_cast<unsigned>(type);
     }
 
     // Returns whether this is a by-ref
@@ -256,13 +239,6 @@ public:
     {
         return (m_flags & TI_FLAG_BYREF) != 0;
     }
-
-#ifdef DEBUG
-    BOOL IsReadonlyByRef() const
-    {
-        return IsByRef() && ((m_flags & TI_FLAG_BYREF_READONLY) != 0);
-    }
-#endif
 
     // A byref value class is NOT a value class
     BOOL IsValueClass() const

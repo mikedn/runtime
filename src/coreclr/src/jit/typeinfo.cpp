@@ -167,7 +167,7 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 // the bit
 bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
 {
-    unsigned allFlags = TI_FLAG_DATA_MASK | TI_FLAG_BYREF | TI_FLAG_BYREF_READONLY;
+    unsigned allFlags = TI_FLAG_DATA_MASK | TI_FLAG_BYREF;
 #ifdef TARGET_64BIT
     allFlags |= TI_FLAG_NATIVE_INT;
 #endif // TARGET_64BIT
@@ -207,11 +207,6 @@ static BOOL tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const 
     assert(parent.IsByRef());
 
     if (!child.IsByRef())
-    {
-        return FALSE;
-    }
-
-    if (child.IsReadonlyByRef() && !parent.IsReadonlyByRef())
     {
         return FALSE;
     }

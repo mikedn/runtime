@@ -7634,13 +7634,6 @@ DONE_CALL:
 
         typeInfo tiRetVal = verMakeTypeInfo(sig->retType, sig->retTypeClass);
 
-        // The CEE_READONLY prefix modifies the verification semantics of an Address
-        // operation on an array type.
-        if ((clsFlags & CORINFO_FLG_ARRAY) && isReadonlyCall && tiRetVal.IsByRef())
-        {
-            tiRetVal.SetIsReadonlyByRef();
-        }
-
         if (call->IsCall())
         {
             // Sometimes "call" is not a GT_CALL (if we imported an intrinsic that didn't turn into a call)
