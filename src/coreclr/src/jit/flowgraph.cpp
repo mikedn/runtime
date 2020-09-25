@@ -23453,8 +23453,6 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                             assert(info.compCompHnd->getClassSize(structHnd) == tmpLayout->GetSize());
 
                             tmpLcl->SetLayout(typGetObjLayout(structHnd));
-                            tmpLcl->lvVerTypeInfo = typeInfo(TI_STRUCT, structHnd);
-
                             restoreLayout = true;
                         }
 
@@ -23463,7 +23461,6 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                         if (restoreLayout)
                         {
                             tmpLcl->SetLayout(tmpLayout);
-                            tmpLcl->lvVerTypeInfo = typeInfo(TI_STRUCT, tmpLayout->GetClassHandle());
                         }
                     }
                     else
