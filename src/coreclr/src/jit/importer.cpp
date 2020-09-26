@@ -9699,7 +9699,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
         }
 
         CORINFO_CLASS_HANDLE clsHnd       = DUMMY_INIT(NULL);
-        CORINFO_CLASS_HANDLE ldelemClsHnd = DUMMY_INIT(NULL);
         CORINFO_CLASS_HANDLE stelemClsHnd = DUMMY_INIT(NULL);
 
         var_types lclTyp, ovflType = TYP_UNKNOWN;
@@ -9768,7 +9767,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             CORINFO_SIG_INFO     sig;
             IL_OFFSET            jmpAddr;
             bool                 ovfl, unordered, callNode;
-            bool                 ldstruct;
             CORINFO_CLASS_HANDLE tokenType;
 
             union {
@@ -10396,26 +10394,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
-                ldelemClsHnd = resolvedToken.hClass;
+                clsHnd = resolvedToken.hClass;
 
                 // If it's a value class array we just do a simple address-of
-                if (eeIsValueClass(ldelemClsHnd))
+                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    CorInfoType cit = info.compCompHnd->getTypeForPrimitiveValueClass(ldelemClsHnd);
-                    if (cit == CORINFO_TYPE_UNDEF)
-                    {
-                        lclTyp = TYP_STRUCT;
-                    }
-                    else
-                    {
-                        lclTyp = JITtype2varType(cit);
-                    }
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
                     goto ARR_LD;
                 }
 
                 // Similarly, if its a readonly access, we can do a simple address-of
                 // without doing a runtime type-check
-                if (prefixFlags & PREFIX_READONLY)
+                if ((prefixFlags & PREFIX_READONLY) != 0)
                 {
                     lclTyp = TYP_REF;
                     goto ARR_LD;
@@ -10442,21 +10432,19 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
-                ldelemClsHnd = resolvedToken.hClass;
+                clsHnd = resolvedToken.hClass;
 
-                // If it's a reference type or generic variable type
-                // then just generate code as though it's a ldelem.ref instruction
-                if (!eeIsValueClass(resolvedToken.hClass))
+                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = TYP_REF;
-                    opcode = CEE_LDELEM_REF;
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
+                    goto ARR_LD;
                 }
-                else
-                {
-                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
-                }
+
+                opcode = CEE_LDELEM_REF;
+                __fallthrough;
+            case CEE_LDELEM_REF:
+                lclTyp = TYP_REF;
                 goto ARR_LD;
-
             case CEE_LDELEM_I1:
                 lclTyp = TYP_BYTE;
                 goto ARR_LD;
@@ -10474,9 +10462,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto ARR_LD;
             case CEE_LDELEM_I8:
                 lclTyp = TYP_LONG;
-                goto ARR_LD;
-            case CEE_LDELEM_REF:
-                lclTyp = TYP_REF;
                 goto ARR_LD;
             case CEE_LDELEM_R4:
                 lclTyp = TYP_FLOAT;
@@ -10518,63 +10503,36 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /* Create the index node and push it on the stack */
-
                 op1 = gtNewIndexRef(lclTyp, op1, op2);
 
-                ldstruct = (opcode == CEE_LDELEM && lclTyp == TYP_STRUCT);
-
-                if ((opcode == CEE_LDELEMA) || ldstruct ||
-                    (ldelemClsHnd != DUMMY_INIT(NULL) && eeIsValueClass(ldelemClsHnd)))
+                if (lclTyp == TYP_STRUCT)
                 {
-                    assert(ldelemClsHnd != DUMMY_INIT(NULL));
+                    assert((opcode == CEE_LDELEM) || (opcode == CEE_LDELEMA));
 
-                    // remember the element size
-                    if (lclTyp == TYP_REF)
-                    {
-                        op1->AsIndex()->gtIndElemSize = TARGET_POINTER_SIZE;
-                    }
-                    else
-                    {
-                        // If ldElemClass is precisely a primitive type, use that, otherwise, preserve the struct type.
-                        if (info.compCompHnd->getTypeForPrimitiveValueClass(ldelemClsHnd) == CORINFO_TYPE_UNDEF)
-                        {
-                            op1->AsIndex()->gtStructElemClass = ldelemClsHnd;
-                        }
-                        assert(lclTyp != TYP_STRUCT || op1->AsIndex()->gtStructElemClass != nullptr);
-                        if (lclTyp == TYP_STRUCT)
-                        {
-                            size                          = info.compCompHnd->getClassSize(ldelemClsHnd);
-                            op1->AsIndex()->gtIndElemSize = size;
-                            op1->gtType                   = lclTyp;
-                        }
-                    }
-
-                    if ((opcode == CEE_LDELEMA) || ldstruct)
-                    {
-                        // wrap it in a &
-                        lclTyp = TYP_BYREF;
-
-                        op1 = gtNewOperNode(GT_ADDR, lclTyp, op1);
-                    }
-                    else
-                    {
-                        assert(lclTyp != TYP_STRUCT);
-                    }
+                    op1->AsIndex()->gtStructElemClass = clsHnd;
+                    op1->AsIndex()->gtIndElemSize     = info.compCompHnd->getClassSize(clsHnd);
                 }
 
+                if ((opcode == CEE_LDELEMA) || (lclTyp == TYP_STRUCT))
                 {
-                    typeInfo tiRetVal;
+                    op1 = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
+                }
 
-                    if (ldstruct)
-                    {
-                        // Create an OBJ for the result
-                        op1 = gtNewObjNode(ldelemClsHnd, op1);
-                        op1->gtFlags |= GTF_EXCEPT;
-                        tiRetVal = typeInfo(TI_STRUCT, ldelemClsHnd);
-                    }
+                if ((opcode == CEE_LDELEM) && (lclTyp == TYP_STRUCT))
+                {
+                    op1 = gtNewObjNode(clsHnd, op1);
+                    op1->gtFlags |= GTF_EXCEPT;
+                }
 
-                    impPushOnStack(op1, tiRetVal);
+                if ((opcode == CEE_LDELEM) &&
+                    ((lclTyp == TYP_STRUCT) ||
+                     (info.compCompHnd->getTypeForPrimitiveValueClass(clsHnd) == CORINFO_TYPE_UNDEF)))
+                {
+                    impPushOnStack(op1, typeInfo(TI_STRUCT, clsHnd));
+                }
+                else
+                {
+                    impPushOnStack(op1, typeInfo());
                 }
                 break;
 
@@ -12480,10 +12438,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                typeInfo tiRetVal = verMakeTypeInfo(ciType, clsHnd);
+                typeInfo tiField = verMakeTypeInfo(ciType, clsHnd);
                 if (isLoadAddress)
                 {
-                    tiRetVal.MakeByRef();
+                    tiField.MakeByRef();
                 }
 
                 // Perform this check always to ensure that we get field access exceptions even with
@@ -12731,7 +12689,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
             FIELD_DONE:
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, tiField);
             }
             break;
 
@@ -13621,7 +13579,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                   |---------------------------------------------------------------------
                 */
 
-                typeInfo tiRetVal;
+                typeInfo tiUnbox;
 
                 if (opcode == CEE_UNBOX)
                 {
@@ -13660,7 +13618,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     assert(helper == CORINFO_HELP_UNBOX_NULLABLE && "Make sure the helper is nullable!");
 
 #if FEATURE_MULTIREG_RET
-
                     if (varTypeIsStruct(op1) && IsMultiRegReturnedType(resolvedToken.hClass))
                     {
                         // Unbox nullable helper returns a TYP_STRUCT.
@@ -13684,19 +13641,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Load the struct.
                         goto LDOBJ;
                     }
-                    else
-
 #endif // !FEATURE_MULTIREG_RET
 
-                    {
-                        // If non register passable struct we have it materialized in the RetBuf.
-                        assert(op1->gtType == TYP_STRUCT);
-                        tiRetVal = verMakeTypeInfo(resolvedToken.hClass);
-                        assert(tiRetVal.IsValueClass());
-                    }
+                    // If non register passable struct we have it materialized in the RetBuf.
+                    assert(op1->gtType == TYP_STRUCT);
+                    tiUnbox = verMakeTypeInfo(resolvedToken.hClass);
+                    assert(tiUnbox.IsValueClass());
                 }
 
-                impPushOnStack(op1, tiRetVal);
+                impPushOnStack(op1, tiUnbox);
             }
             break;
 
@@ -14024,26 +13977,30 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
 
             LDOBJ:
-                if (!eeIsValueClass(resolvedToken.hClass))
+                if (!info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
                     lclTyp = TYP_REF;
+                    opcode = CEE_LDIND_REF;
                     goto LDIND;
                 }
 
-                {
-                    CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
-                    if (impIsPrimitive(jitTyp))
-                    {
-                        lclTyp = JITtype2varType(jitTyp);
-                        goto LDIND;
-                    }
-                }
-
                 op1 = impPopStack().val;
-
                 assertImp(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-                op1 = gtNewObjNode(resolvedToken.hClass, op1);
+                lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+
+                if (lclTyp == TYP_STRUCT)
+                {
+                    op1 = gtNewObjNode(resolvedToken.hClass, op1);
+                }
+                else
+                {
+                    assertImp(varTypeIsArithmetic(lclTyp));
+
+                    op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+                    op1->gtFlags |= GTF_IND_TGTANYWHERE | GTF_GLOB_REF;
+                }
+
                 op1->gtFlags |= GTF_EXCEPT;
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
@@ -14051,7 +14008,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
-                impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
+                if ((lclTyp == TYP_STRUCT) ||
+                    (info.compCompHnd->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))
+                {
+                    impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
+                }
+                else
+                {
+                    impPushOnStack(op1, typeInfo());
+                }
                 break;
 
             case CEE_LDLEN:
