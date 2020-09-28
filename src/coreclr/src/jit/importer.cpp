@@ -14979,13 +14979,16 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
-            unsigned spillTempLclNum = spillTempBaseLclNum + level;
-            GenTree* tree            = verCurrentState.esStack[level].val;
+            unsigned   spillTempLclNum = spillTempBaseLclNum + level;
+            LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
+            GenTree*   tree            = verCurrentState.esStack[level].val;
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
             impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
                              CHECK_SPILL_NONE);
+
+            spillTempLcl->lvVerTypeInfo = verCurrentState.esStack[level].seTypeInfo;
         }
     }
     else
@@ -14998,8 +15001,8 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
             unsigned   spillTempLclNum = state->GetSpillTempBaseLclNum() + level;
-            LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
-            GenTree*   tree            = verCurrentState.esStack[level].val;
+            LclVarDsc* spillTempLcl = lvaGetDesc(spillTempLclNum);
+            GenTree* tree = verCurrentState.esStack[level].val;
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
@@ -15103,7 +15106,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             }
 
             impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
-                             CHECK_SPILL_NONE);
+                CHECK_SPILL_NONE);
         }
     }
 
@@ -15345,16 +15348,8 @@ void Compiler::impSetCurrentState(BasicBlock* block)
         unsigned   lclNum = block->bbEntryState->GetSpillTempBaseLclNum() + i;
         LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-        verCurrentState.esStack[i].val = gtNewLclvNode(lclNum, lcl->GetType());
-
-        if (varTypeIsStruct(lcl->GetType()))
-        {
-            verCurrentState.esStack[i].seTypeInfo = typeInfo(TI_STRUCT, lcl->GetLayout()->GetClassHandle());
-        }
-        else
-        {
-            verCurrentState.esStack[i].seTypeInfo = typeInfo();
-        }
+        verCurrentState.esStack[i].val        = gtNewLclvNode(lclNum, lcl->GetType());
+        verCurrentState.esStack[i].seTypeInfo = lcl->lvVerTypeInfo;
     }
 }
 
