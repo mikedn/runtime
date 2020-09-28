@@ -14884,6 +14884,11 @@ void Compiler::impImportBlock(BasicBlock* block)
         BADCODE("Evaluation stack must be empty on entry into a try block");
     }
 
+    if (block->hasTryIndex())
+    {
+        impAddPendingEHSuccessors(block);
+    }
+
     impImportBlockCode(block);
 
     if (compDonotInline())
@@ -14910,11 +14915,6 @@ void Compiler::impImportBlock(BasicBlock* block)
     // impReimportSpillClique might clear it if this block is both a
     // predecessor and successor in the current spill clique
     assert((block->bbFlags & BBF_IMPORTED) != 0);
-
-    if (block->hasTryIndex())
-    {
-        impAddPendingEHSuccessors(block);
-    }
 
     // If we had a int/native int, or float/double collision, we need to re-import
     if (reimportSpillClique)
