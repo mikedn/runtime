@@ -163,46 +163,6 @@ public:
         assert(!isInvalidHandle(token->hMethod));
     }
 
-    static typeInfo nativeInt()
-    {
-        typeInfo result = typeInfo(TI_I_IMPL);
-#ifdef TARGET_64BIT
-        result.m_flags |= TI_FLAG_NATIVE_INT;
-#endif
-        return result;
-    }
-
-    static bool AreEquivalent(const typeInfo& li, const typeInfo& ti);
-
-#ifdef DEBUG
-    static BOOL tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent);
-#endif // DEBUG
-
-    /////////////////////////////////////////////////////////////////////////
-    // Operations
-    /////////////////////////////////////////////////////////////////////////
-
-    typeInfo& DereferenceByRef()
-    {
-        if (!IsByRef())
-        {
-            m_flags = TI_ERROR;
-            INDEBUG(m_cls = NO_CLASS_HANDLE);
-        }
-        return *this;
-    }
-
-    typeInfo& MakeByRef()
-    {
-        assert(!IsByRef());
-        m_flags |= TI_FLAG_BYREF;
-        return *this;
-    }
-
-    /////////////////////////////////////////////////////////////////////////
-    // Getters
-    /////////////////////////////////////////////////////////////////////////
-
     CORINFO_CLASS_HANDLE GetClassHandle() const
     {
         return m_cls;
@@ -234,12 +194,6 @@ public:
         return (m_flags & (TI_FLAG_DATA_MASK | TI_FLAG_BYREF)) == static_cast<unsigned>(type);
     }
 
-    // Returns whether this is a by-ref
-    BOOL IsByRef() const
-    {
-        return (m_flags & TI_FLAG_BYREF) != 0;
-    }
-
     // A byref value class is NOT a value class
     BOOL IsValueClass() const
     {
@@ -261,6 +215,43 @@ public:
     {
         return (GetType() == TI_METHOD) && ((m_flags & TI_FLAG_TOKEN) != 0);
     }
+
+#ifdef DEBUG
+    static typeInfo nativeInt()
+    {
+        typeInfo result = typeInfo(TI_I_IMPL);
+#ifdef TARGET_64BIT
+        result.m_flags |= TI_FLAG_NATIVE_INT;
+#endif
+        return result;
+    }
+
+    typeInfo& MakeByRef()
+    {
+        assert(!IsByRef());
+        m_flags |= TI_FLAG_BYREF;
+        return *this;
+    }
+
+    BOOL IsByRef() const
+    {
+        return (m_flags & TI_FLAG_BYREF) != 0;
+    }
+
+    typeInfo& DereferenceByRef()
+    {
+        if (!IsByRef())
+        {
+            m_flags = TI_ERROR;
+            INDEBUG(m_cls = NO_CLASS_HANDLE);
+        }
+        return *this;
+    }
+
+    static bool AreEquivalent(const typeInfo& li, const typeInfo& ti);
+
+    static BOOL tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent);
+#endif // DEBUG
 };
 
 #endif // _TYPEINFO_H_

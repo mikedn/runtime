@@ -59,6 +59,51 @@ void Compiler::impPushOnStack(GenTree* tree, typeInfo ti)
     }
 }
 
+typeInfo Compiler::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle)
+{
+    assert((type != CORINFO_TYPE_UNDEF) && (type != CORINFO_TYPE_VOID) && (type != CORINFO_TYPE_VAR));
+    assert(classHandle != NO_CLASS_HANDLE);
+
+    switch (type)
+    {
+        case CORINFO_TYPE_CLASS:
+        case CORINFO_TYPE_STRING:
+            assert(!info.compCompHnd->isValueClass(classHandle));
+            return typeInfo(TI_REF, classHandle);
+
+        case CORINFO_TYPE_VALUECLASS:
+        case CORINFO_TYPE_REFANY:
+            assert(info.compCompHnd->isValueClass(classHandle));
+            return typeInfo(TI_STRUCT, classHandle);
+
+        case CORINFO_TYPE_BYREF:
+        case CORINFO_TYPE_PTR:
+            // Ignore the handle for byrefs and pointers. Currently it's not needed and
+            // for byrefs we'd need to call getChildType to get the correct handle. For
+            // pointers the class handle may be IntPtr/UIntPtr, not only that's totally
+            // useless but building a TI_STRUCT typeInfo for it would make it look like
+            // a "normed type". The (x86) VM does treat a struct containing a single
+            // pointer typed field as a "normed type" but it also lies about the field
+            // type - the "normed type" of such a struct is CORINFO_TYPE_NATIVEUINT
+            // rather than CORINFO_TYPE_PTR.
+            return typeInfo();
+
+        default:
+            assert(info.compCompHnd->isValueClass(classHandle));
+
+            if (info.compCompHnd->getTypeForPrimitiveValueClass(classHandle) == CORINFO_TYPE_UNDEF)
+            {
+                // This is a "normed type", a struct type with a single field that the VM claims
+                // to be a primitive type. We need to record the fact that it is really a struct
+                // so LDFLD import doesn't confuse it with the unmanaged pointer which too is a
+                // primitive type (INT or LONG).
+                return typeInfo(TI_STRUCT, classHandle);
+            }
+
+            return typeInfo();
+    }
+}
+
 inline void Compiler::impPushNullObjRefOnStack()
 {
     impPushOnStack(gtNewIconNode(0, TYP_REF), typeInfo());
@@ -5440,7 +5485,7 @@ GenTree* Compiler::impTransformThis(GenTree*                thisPtr,
             var_types type = JITtype2varType(info.compCompHnd->asCorInfoType(pConstrainedResolvedToken->hClass));
             GenTree*  indir;
 
-            if (varTypeIsStruct(type))
+            if (type == TYP_STRUCT)
             {
                 indir = gtNewObjNode(pConstrainedResolvedToken->hClass, thisPtr);
             }
@@ -5451,9 +5496,15 @@ GenTree* Compiler::impTransformThis(GenTree*                thisPtr,
 
             indir->gtFlags |= GTF_EXCEPT;
 
-            // This pushes on the dereferenced byref
-            // This is then used immediately to box.
-            impPushOnStack(indir, verMakeTypeInfo(pConstrainedResolvedToken->hClass));
+            if ((type == TYP_STRUCT) || (info.compCompHnd->getTypeForPrimitiveValueClass(
+                                             pConstrainedResolvedToken->hClass) == CORINFO_TYPE_UNDEF))
+            {
+                impPushOnStack(indir, typeInfo(TI_STRUCT, pConstrainedResolvedToken->hClass));
+            }
+            else
+            {
+                impPushOnStack(indir, typeInfo());
+            }
 
             // This pops off the byref-to-a-value-type remaining on the stack and
             // replaces it with a boxed object.
@@ -7632,7 +7683,12 @@ DONE_CALL:
             eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, sig);
         }
 
-        typeInfo tiRetVal = verMakeTypeInfo(sig->retType, sig->retTypeClass);
+        typeInfo tiRetVal;
+
+        if (sig->retTypeClass != NO_CLASS_HANDLE)
+        {
+            tiRetVal = impMakeTypeInfo(sig->retType, sig->retTypeClass);
+        }
 
         if (call->IsCall())
         {
@@ -9559,7 +9615,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
         CORINFO_RESOLVED_TOKEN resolvedToken;
         CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
         CORINFO_CALL_INFO      callInfo;
-        CORINFO_FIELD_INFO     fieldInfo;
 
         //---------------------------------------------------------------------
 
@@ -12362,8 +12417,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDFLDA:
             case CEE_LDSFLDA:
             {
-                BOOL isLoadAddress = (opcode == CEE_LDFLDA || opcode == CEE_LDSFLDA);
-                BOOL isLoadStatic  = (opcode == CEE_LDSFLD || opcode == CEE_LDSFLDA);
+                const bool isLoadAddress = (opcode == CEE_LDFLDA || opcode == CEE_LDSFLDA);
+                const bool isLoadStatic  = (opcode == CEE_LDSFLD || opcode == CEE_LDSFLDA);
 
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
@@ -12371,16 +12426,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 int aflags = isLoadAddress ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
 
-                GenTree*             obj     = nullptr;
-                typeInfo*            tiObj   = nullptr;
-                CORINFO_CLASS_HANDLE objType = nullptr; // used for fields
+                GenTree* obj = nullptr;
+                typeInfo tiObj;
 
-                if (opcode == CEE_LDFLD || opcode == CEE_LDFLDA)
+                if ((opcode == CEE_LDFLD) || (opcode == CEE_LDFLDA))
                 {
-                    tiObj         = &impStackTop().seTypeInfo;
-                    StackEntry se = impPopStack();
-                    objType       = se.seTypeInfo.GetClassHandle();
-                    obj           = se.val;
+                    tiObj = impStackTop().seTypeInfo;
+                    obj   = impPopStack().val;
 
                     if (impIsThis(obj))
                     {
@@ -12388,14 +12440,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
+                CORINFO_FIELD_INFO fieldInfo;
                 eeGetFieldInfo(&resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo);
 
-                // Figure out the type of the member.  We always call canAccessField, so you always need this
-                // handle
-                CorInfoType ciType = fieldInfo.fieldType;
-                clsHnd             = fieldInfo.structType;
-
-                lclTyp = JITtype2varType(ciType);
+                lclTyp = JITtype2varType(fieldInfo.fieldType);
 
                 if (compIsForInlining())
                 {
@@ -12420,11 +12468,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             break;
                     }
 
-                    if (!isLoadAddress && (fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) && lclTyp == TYP_STRUCT &&
-                        clsHnd)
+                    if (!isLoadAddress && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) != 0) &&
+                        (lclTyp == TYP_STRUCT) && (fieldInfo.structType != NO_CLASS_HANDLE))
                     {
-                        if ((info.compCompHnd->getTypeForPrimitiveValueClass(clsHnd) == CORINFO_TYPE_UNDEF) &&
-                            !(info.compFlags & CORINFO_FLG_FORCEINLINE))
+                        if ((info.compCompHnd->getTypeForPrimitiveValueClass(fieldInfo.structType) ==
+                             CORINFO_TYPE_UNDEF) &&
+                            ((info.compFlags & CORINFO_FLG_FORCEINLINE) == 0))
                         {
                             // Loading a static valuetype field usually will cause a JitHelper to be called
                             // for the static base. This will bloat the code.
@@ -12436,12 +12485,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             }
                         }
                     }
-                }
-
-                typeInfo tiField = verMakeTypeInfo(ciType, clsHnd);
-                if (isLoadAddress)
-                {
-                    tiField.MakeByRef();
                 }
 
                 // Perform this check always to ensure that we get field access exceptions even with
@@ -12465,12 +12508,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     obj = nullptr;
                 }
 
-                /* Preserve 'small' int types */
-                if (!varTypeIsSmall(lclTyp))
-                {
-                    lclTyp = genActualType(lclTyp);
-                }
-
                 bool usesHelper = false;
 
                 switch (fieldInfo.fieldAccessor)
@@ -12484,11 +12521,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         // If the object is a struct, what we really want is
                         // for the field to operate on the address of the struct.
-                        if (!varTypeGCtype(obj->TypeGet()) && (tiObj != nullptr) && tiObj->IsValueClassWithClsHnd())
+                        if (!varTypeGCtype(obj->GetType()) && tiObj.IsType(TI_STRUCT))
                         {
-                            assert(opcode == CEE_LDFLD && objType != nullptr);
+                            assert((opcode == CEE_LDFLD) && (tiObj.GetClassHandle() != NO_CLASS_HANDLE));
 
-                            obj = impGetStructAddr(obj, objType, (unsigned)CHECK_SPILL_ALL, true);
+                            obj = impGetStructAddr(obj, tiObj.GetClassHandle(), CHECK_SPILL_ALL, true);
                         }
 
                         /* Create the data member node */
@@ -12563,7 +12600,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_INSTANCE_HELPER:
                     case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
                         op1 = gtNewRefCOMfield(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo, lclTyp,
-                                               clsHnd, nullptr);
+                                               fieldInfo.structType, nullptr);
                         usesHelper = true;
                         break;
 
@@ -12688,8 +12725,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
+                if (!isLoadAddress && (fieldInfo.structType != NO_CLASS_HANDLE))
+                {
+                    impPushOnStack(op1, impMakeTypeInfo(fieldInfo.fieldType, fieldInfo.structType));
+                    break;
+                }
+
             FIELD_DONE:
-                impPushOnStack(op1, tiField);
+                impPushOnStack(op1, typeInfo());
             }
             break;
 
@@ -12726,6 +12769,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
+                CORINFO_FIELD_INFO fieldInfo;
                 eeGetFieldInfo(&resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo);
 
                 // Figure out the type of the member.  We always call canAccessField, so you always need this
@@ -13423,7 +13467,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
                 impHandleAccessAllowed(accessAllowedResult, &calloutHelper);
 
-                if (opcode == CEE_UNBOX_ANY && !eeIsValueClass(resolvedToken.hClass))
+                if ((opcode == CEE_UNBOX_ANY) && !info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
                     JITDUMP("\n Importing UNBOX.ANY(refClass) as CASTCLASS\n");
                     op1 = impPopStack().val;
@@ -13479,9 +13523,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                             // For UNBOX.ANY load the struct from the box payload byref (the load will nullcheck)
                             assert(opcode == CEE_UNBOX_ANY);
-                            GenTree* boxPayloadOffset  = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-                            GenTree* boxPayloadAddress = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
-                            impPushOnStack(boxPayloadAddress, typeInfo());
+                            GenTree* boxPayloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+                            op1                       = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
                             goto LDOBJ;
                         }
                         else
@@ -13554,32 +13597,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                assert((helper == CORINFO_HELP_UNBOX && op1->gtType == TYP_BYREF) || // Unbox helper returns a byref.
-                       (helper == CORINFO_HELP_UNBOX_NULLABLE &&
-                        varTypeIsStruct(op1)) // UnboxNullable helper returns a struct.
-                       );
-
-                /*
-                  ----------------------------------------------------------------------
-                  | \ helper  |                         |                              |
-                  |   \       |                         |                              |
-                  |     \     | CORINFO_HELP_UNBOX      | CORINFO_HELP_UNBOX_NULLABLE  |
-                  |       \   | (which returns a BYREF) | (which returns a STRUCT)     |                              |
-                  | opcode  \ |                         |                              |
-                  |---------------------------------------------------------------------
-                  | UNBOX     | push the BYREF          | spill the STRUCT to a local, |
-                  |           |                         | push the BYREF to this local |
-                  |---------------------------------------------------------------------
-                  | UNBOX_ANY | push a GT_OBJ of        | push the STRUCT              |
-                  |           | the BYREF               | For Linux when the           |
-                  |           |                         |  struct is returned in two   |
-                  |           |                         |  registers create a temp     |
-                  |           |                         |  which address is passed to  |
-                  |           |                         |  the unbox_nullable helper.  |
-                  |---------------------------------------------------------------------
-                */
-
-                typeInfo tiUnbox;
+                assert(((helper == CORINFO_HELP_UNBOX) && op1->TypeIs(TYP_BYREF)) ||
+                       ((helper == CORINFO_HELP_UNBOX_NULLABLE) && op1->TypeIs(TYP_STRUCT)));
 
                 if (opcode == CEE_UNBOX)
                 {
@@ -13594,7 +13613,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         lvaSetStruct(tmp, resolvedToken.hClass, true /* unsafe value cls check */);
 
                         op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                        op1 = impAssignStruct(op2, op1, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
+                        op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
                         assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
 
                         op2 = gtNewLclvNode(tmp, TYP_STRUCT);
@@ -13602,54 +13621,47 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
                     }
 
-                    assert(op1->gtType == TYP_BYREF);
+                    assert(op1->TypeIs(TYP_BYREF));
+
+                    impPushOnStack(op1, typeInfo());
+                    break;
                 }
-                else
+
+                assert(opcode == CEE_UNBOX_ANY);
+
+                if (helper == CORINFO_HELP_UNBOX)
                 {
-                    assert(opcode == CEE_UNBOX_ANY);
+                    // Normal unbox helper returns a TYP_BYREF.
+                    goto LDOBJ;
+                }
 
-                    if (helper == CORINFO_HELP_UNBOX)
-                    {
-                        // Normal unbox helper returns a TYP_BYREF.
-                        impPushOnStack(op1, typeInfo());
-                        goto LDOBJ;
-                    }
-
-                    assert(helper == CORINFO_HELP_UNBOX_NULLABLE && "Make sure the helper is nullable!");
+                assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
+                assert(op1->TypeIs(TYP_STRUCT));
 
 #if FEATURE_MULTIREG_RET
-                    if (varTypeIsStruct(op1) && IsMultiRegReturnedType(resolvedToken.hClass))
-                    {
-                        // Unbox nullable helper returns a TYP_STRUCT.
-                        // For the multi-reg case we need to spill it to a temp so that
-                        // we can pass the address to the unbox_nullable jit helper.
+                if (IsMultiRegReturnedType(resolvedToken.hClass))
+                {
+                    // Unbox nullable helper returns a TYP_STRUCT.
+                    // For the multi-reg case we need to spill it to a temp so that
+                    // we can pass the address to the unbox_nullable jit helper.
 
-                        unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a register returnable nullable"));
-                        lvaTable[tmp].lvIsMultiRegArg = true;
-                        lvaSetStruct(tmp, resolvedToken.hClass, true /* unsafe value cls check */);
+                    unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a register returnable nullable"));
+                    lvaTable[tmp].lvIsMultiRegArg = true;
+                    lvaSetStruct(tmp, resolvedToken.hClass, true /* unsafe value cls check */);
 
-                        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                        op1 = impAssignStruct(op2, op1, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
-                        assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
+                    op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+                    op1 = impAssignStruct(op2, op1, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
+                    assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
 
-                        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                        op2 = gtNewOperNode(GT_ADDR, TYP_BYREF, op2);
-                        op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
+                    op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+                    op2 = gtNewOperNode(GT_ADDR, TYP_BYREF, op2);
+                    op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
 
-                        impPushOnStack(op1, typeInfo());
-
-                        // Load the struct.
-                        goto LDOBJ;
-                    }
+                    goto LDOBJ;
+                }
 #endif // !FEATURE_MULTIREG_RET
 
-                    // If non register passable struct we have it materialized in the RetBuf.
-                    assert(op1->gtType == TYP_STRUCT);
-                    tiUnbox = verMakeTypeInfo(resolvedToken.hClass);
-                    assert(tiUnbox.IsValueClass());
-                }
-
-                impPushOnStack(op1, tiUnbox);
+                impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
             }
             break;
 
@@ -13976,17 +13988,26 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-            LDOBJ:
                 if (!info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
                     lclTyp = TYP_REF;
                     opcode = CEE_LDIND_REF;
+
+                    // TODO-MIKE-Cleanup: It's convenient to reuse the LDIND.REF import code but in doing so
+                    // we are losing the class handle. The code below already handles primitive types (and
+                    // cannot easily reuse the LDIND import code due to pesky normed types) and it should be
+                    // pretty easy to adapt it to also handle object references.
+                    // Though it's unlikely to be very useful to do this, such LDOBJs are probably only
+                    // appearing in generic code and only when byrefs are involved (e.g. a method argument of
+                    // type `ref SomeClass`).
+
                     goto LDIND;
                 }
 
                 op1 = impPopStack().val;
                 assertImp(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
+            LDOBJ:
                 lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
 
                 if (lclTyp == TYP_STRUCT)
@@ -14007,6 +14028,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
+
+                // TODO-MIKE-Fix: This doesn't check for volatile. prefix...
 
                 if ((lclTyp == TYP_STRUCT) ||
                     (info.compCompHnd->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))

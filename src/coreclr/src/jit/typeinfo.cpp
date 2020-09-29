@@ -35,6 +35,8 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
     TI_ERROR,  // CORINFO_TYPE_VAR             = 0x16,
 };
 
+#ifdef DEBUG
+
 typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
 {
     assert(ciType < CORINFO_TYPE_COUNT);
@@ -157,8 +159,6 @@ typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 
     return typeInfo(TI_REF, clsHnd);
 }
-
-#ifdef DEBUG
 
 // Note that we specifically ignore the permanent byref here. The rationale is that
 // the type system doesn't know about this (it's jit only), ie, signatures don't specify if
