@@ -13018,13 +13018,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /* stfld can interfere with value classes (consider the sequence
-                   ldloc, ldloca, ..., stfld, stloc).  We will be conservative and
-                   spill all value class references from the stack. */
+                // stfld can interfere with value classes (consider the sequence
+                // ldloc, ldloca, ..., stfld, stloc).  We will be conservative and
+                // spill all value class references from the stack.
 
                 if ((obj != nullptr) && obj->TypeIs(TYP_BYREF, TYP_I_IMPL))
                 {
-                    if (tiObj->IsValueClassWithClsHnd())
+                    if (tiObj->IsType(TI_STRUCT))
                     {
                         impSpillEvalStack();
                     }

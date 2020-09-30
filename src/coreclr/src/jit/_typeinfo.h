@@ -200,17 +200,6 @@ public:
         return IsType(TI_STRUCT) || IsPrimitiveType();
     }
 
-    // Does not return true for primitives. Will return true for value types that behave
-    // as primitives
-    BOOL IsValueClassWithClsHnd() const
-    {
-        unsigned type = GetType();
-
-        return (type == TI_STRUCT) ||
-               ((m_cls != NO_CLASS_HANDLE) && (type != TI_REF) && (type != TI_METHOD) &&
-                (type != TI_ERROR)); // necessary because if byref bit is set, we return TI_ERROR)
-    }
-
     BOOL IsToken() const
     {
         return (GetType() == TI_METHOD) && ((m_flags & TI_FLAG_TOKEN) != 0);
