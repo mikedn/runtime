@@ -670,20 +670,14 @@ void Compiler::impAssignTempGen(unsigned             tmpNum,
 {
     GenTree* asg;
 
-    assert(val->TypeGet() != TYP_STRUCT || structType != NO_CLASS_HANDLE);
-    if (varTypeIsStruct(val) && (structType != NO_CLASS_HANDLE))
-    {
-        assert(tmpNum < lvaCount);
-        assert(structType != NO_CLASS_HANDLE);
+    assert((val->GetType() != TYP_STRUCT) || (structType != NO_CLASS_HANDLE));
 
-        // if the method is non-verifiable the assert is not true
-        // so at least ignore it in the case when verification is turned on
-        // since any block that tries to use the temp would have failed verification.
-        var_types varType = lvaTable[tmpNum].lvType;
-        assert((varType == TYP_UNDEF) || varTypeIsStruct(varType));
+    if (varTypeIsStruct(val->GetType()) && (structType != NO_CLASS_HANDLE))
+    {
         lvaSetStruct(tmpNum, structType, false);
 
-        varType = lvaTable[tmpNum].lvType;
+        var_types lclType = lvaGetDesc(tmpNum)->GetType();
+
         // Now, set the type of the struct value. Note that lvaSetStruct may modify the type
         // of the lclVar to a specialized type (e.g. TYP_SIMD), based on the handle (structType)
         // that has been passed in for the value being assigned to the temp, in which case we
@@ -694,10 +688,10 @@ void Compiler::impAssignTempGen(unsigned             tmpNum,
 
         if (compDoOldStructRetyping())
         {
-            val->gtType = varType;
+            val->SetType(lclType);
         }
 
-        GenTree* dst = gtNewLclvNode(tmpNum, varType);
+        GenTree* dst = gtNewLclvNode(tmpNum, lclType);
         asg          = impAssignStruct(dst, val, structType, curLevel, pAfterStmt, ilOffset, block);
     }
     else
