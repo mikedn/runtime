@@ -13669,13 +13669,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
                 impHandleAccessAllowed(accessAllowedResult, &calloutHelper);
 
-                // Note BOX can be used on things that are not value classes, in which
-                // case we get a NOP.  However the verifier's view of the type on the
-                // stack changes (in generic code a 'T' becomes a 'boxed T')
-                if (!eeIsValueClass(resolvedToken.hClass))
+                if (!info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    JITDUMP("\n Importing BOX(refClass) as NOP\n");
-                    verCurrentState.esStack[verCurrentState.esStackDepth - 1].seTypeInfo = typeInfo();
+                    // Boxing a reference type has no effect.
                     break;
                 }
 
