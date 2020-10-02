@@ -18,7 +18,6 @@ enum ti_types
     TI_INT,
     TI_LONG,
     TI_DOUBLE,
-    TI_NULL,
     TI_ONLY_ENUM = TI_METHOD, // Enum values with greater value are completely described by the enumeration.
 };
 
@@ -147,7 +146,7 @@ public:
 
     typeInfo(ti_types tiType) : m_flags(static_cast<unsigned>(tiType)), m_cls(NO_CLASS_HANDLE)
     {
-        assert((tiType >= TI_INT) && (tiType <= TI_NULL));
+        assert((tiType >= TI_INT) && (tiType <= TI_DOUBLE));
     }
 
     typeInfo(ti_types tiType, CORINFO_CLASS_HANDLE cls) : m_flags(tiType), m_cls(cls)

@@ -3469,7 +3469,6 @@ protected:
     void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CorInfoTokenKind kind);
 
     void impPushOnStack(GenTree* tree, typeInfo ti);
-    void       impPushNullObjRefOnStack();
     StackEntry impPopStack();
     GenTree* impPopStackCoerceArg(var_types signatureType);
     StackEntry& impStackTop(unsigned n = 0);

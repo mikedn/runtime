@@ -272,7 +272,7 @@ BOOL typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const ty
 
     if (parent.IsType(TI_REF))
     {
-        return child.IsType(TI_NULL) || (child.IsType(TI_REF) && vm->canCast(child.m_cls, parent.m_cls));
+        return child.IsType(TI_REF) && vm->canCast(child.m_cls, parent.m_cls);
     }
 
     if (parent.IsType(TI_METHOD))

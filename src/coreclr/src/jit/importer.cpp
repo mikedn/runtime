@@ -104,11 +104,6 @@ typeInfo Compiler::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classH
     }
 }
 
-inline void Compiler::impPushNullObjRefOnStack()
-{
-    impPushOnStack(gtNewIconNode(0, TYP_REF), typeInfo());
-}
-
 // helper function that will tell us if the IL instruction at the addr passed
 // by param consumes an address at the top of the stack. We use it to save
 // us lvAddrTaken
@@ -9885,7 +9880,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDNULL:
-                impPushNullObjRefOnStack();
+                impPushOnStack(gtNewIconNode(0, TYP_REF), typeInfo());
                 break;
 
             case CEE_LDC_I4_M1:
