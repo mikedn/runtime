@@ -7672,13 +7672,6 @@ DONE_CALL:
             eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, sig);
         }
 
-        typeInfo tiRetVal;
-
-        if (sig->retTypeClass != NO_CLASS_HANDLE)
-        {
-            tiRetVal = impMakeTypeInfo(sig->retType, sig->retTypeClass);
-        }
-
         if (call->IsCall())
         {
             // Sometimes "call" is not a GT_CALL (if we imported an intrinsic that didn't turn into a call)
@@ -7728,13 +7721,10 @@ DONE_CALL:
                     assert(IsTargetAbi(CORINFO_CORERT_ABI));
                     if (call->OperGet() != GT_LCL_VAR) // can be already converted by impFixupCallStructReturn.
                     {
-                        unsigned   calliSlot  = lvaGrabTemp(true DEBUGARG("calli"));
-                        LclVarDsc* varDsc     = &lvaTable[calliSlot];
-                        varDsc->lvVerTypeInfo = tiRetVal;
-                        impAssignTempGen(calliSlot, call, tiRetVal.GetClassHandle(), (unsigned)CHECK_SPILL_NONE);
+                        unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli"));
+                        impAssignTempGen(calliTempLclNum, call, sig->retTypeClass, (unsigned)CHECK_SPILL_NONE);
                         // impAssignTempGen can change src arg list and return type for call that returns struct.
-                        var_types type = genActualType(lvaTable[calliSlot].TypeGet());
-                        call           = gtNewLclvNode(calliSlot, type);
+                        call = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
                     }
                 }
 
@@ -7784,7 +7774,14 @@ DONE_CALL:
             }
         }
 
-        impPushOnStack(call, tiRetVal);
+        if (sig->retTypeClass != NO_CLASS_HANDLE)
+        {
+            impPushOnStack(call, impMakeTypeInfo(sig->retType, sig->retTypeClass));
+        }
+        else
+        {
+            impPushOnStack(call, typeInfo());
+        }
     }
 
     // VSD functions get a new call target each time we getCallInfo, so clear the cache.
@@ -15009,8 +15006,8 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
             unsigned   spillTempLclNum = state->GetSpillTempBaseLclNum() + level;
-            LclVarDsc* spillTempLcl = lvaGetDesc(spillTempLclNum);
-            GenTree* tree = verCurrentState.esStack[level].val;
+            LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
+            GenTree*   tree            = verCurrentState.esStack[level].val;
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
@@ -15114,7 +15111,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             }
 
             impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
-                CHECK_SPILL_NONE);
+                             CHECK_SPILL_NONE);
         }
     }
 
