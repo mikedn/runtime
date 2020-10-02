@@ -4804,7 +4804,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     // and causes a few diffs.
                     //
                     // Note that in the non-inlining case the check was also incorrect but because
-                    // lvVerTypeInfo is not normally set on true primitive locals the mistake had no
+                    // lvImpTypeInfo is not normally set on true primitive locals the mistake had no
                     // observable effects.
 
                     typeIsNormed = !varTypeIsStruct(lclType) && ti.IsValueClass();
@@ -4834,7 +4834,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                     LclVarDsc* lcl = lvaGetDesc(varNum);
 
-                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvVerTypeInfo.IsType(TI_STRUCT);
+                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvImpTypeInfo.IsType(TI_STRUCT);
 
                     // Determine if the next instruction will consume
                     // the address. If so we won't mark this var as

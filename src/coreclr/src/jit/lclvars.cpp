@@ -1267,13 +1267,11 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
             //   - The inliner state machine assigns special weights to LDLOCA/LDARGA used
             //     with normed type locals.
             //
-            // TODO-MIKE-Cleanup: Maybe lvVerTypeInfo can be replaced with CORINFO_CLASS_HANDLE
-            // since the rest of the bits in typeInfo aren't useful.
             // Note: impInlineFetchArg and impInlineFetchLocal have similar code.
 
             assert(info.compCompHnd->getTypeForPrimitiveValueClass(typeHnd) == CORINFO_TYPE_UNDEF);
 
-            varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
+            varDsc->lvImpTypeInfo = typeInfo(TI_STRUCT, typeHnd);
         }
     }
 
@@ -2529,7 +2527,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
         varDsc->lvType = TYP_STRUCT;
         varDsc->SetLayout(layout);
         varDsc->lvExactSize   = layout->GetSize();
-        varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
+        varDsc->lvImpTypeInfo = typeInfo(TI_STRUCT, typeHnd);
 
         if (layout->IsValueClass())
         {

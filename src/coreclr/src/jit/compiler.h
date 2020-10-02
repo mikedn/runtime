@@ -938,7 +938,14 @@ public:
 
     unsigned lvSlotNum; // original slot # (if remapped)
 
-    typeInfo lvVerTypeInfo; // type info needed for verification
+    // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
+    // since the rest of the bits in typeInfo aren't very useful, they can be recreated
+    // from the local's type. Also:
+    //   - For primitive type locals this is not supposed to be set/used.
+    //   - For struct type locals this is a duplicate of m_layout.
+    //   - For REF type locals this is similar to lvClassHnd (but not identical).
+    //   - Only "normed type" locals truly need this.
+    typeInfo lvImpTypeInfo;
 
     // class handle for the local or null if not known or not a class,
     // for a struct handle use `GetStructHnd()`.

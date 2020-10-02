@@ -3154,15 +3154,8 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     CORINFO_CLASS_HANDLE elemClsHnd;
     var_types            elementType = JITtype2varType(info.compCompHnd->getChildType(arrayClsHnd, &elemClsHnd));
 
-    //
     // Note that genTypeSize will return zero for non primitive types, which is exactly
     // what we want (size will then be 0, and we will catch this in the conditional below).
-    // Note that we don't expect this to fail for valid binaries, so we assert in the
-    // non-verification case (the verification case should not assert but rather correctly
-    // handle bad binaries).  This assert is not guarding any specific invariant, but rather
-    // saying that we don't expect this to happen, and if it is hit, we need to investigate
-    // why.
-    //
 
     S_UINT32 elemSize(genTypeSize(elementType));
     S_UINT32 size = elemSize * S_UINT32(numElements);
@@ -4590,8 +4583,7 @@ GenTree* Compiler::impArrayAccessIntrinsic(
     var_types            elemType   = JITtype2varType(info.compCompHnd->getChildType(clsHnd, &elemClsHnd));
 
     // For the ref case, we will only be able to inline if the types match
-    // (verifier checks for this, we don't care for the nonverified case and the
-    // type is final (so we don't need to do the cast)
+    // and the type is final (so we don't need to do the cast).
     if ((intrinsicID != CORINFO_INTRINSIC_Array_Get) && !readonlyCall && (elemType == TYP_REF))
     {
         CORINFO_SIG_INFO callSig;
@@ -6191,9 +6183,6 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedT
     return op1;
 }
 
-// In general try to call this before most of the verification work.  Most people expect the access
-// exceptions before the verification exceptions.  If you do this after, that usually doesn't happen.  Turns
-// out if you can't access something we also think that you're unverifiable for other reasons.
 void Compiler::impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, CORINFO_HELPER_DESC* helperCall)
 {
     if (result != CORINFO_ACCESS_ALLOWED)
@@ -6926,8 +6915,9 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             call->AsCall()->gtCallMoreFlags |= GTF_CALL_M_SPECIAL_INTRINSIC;
         }
     }
-    assert(sig);
-    assert(clsHnd || (opcode == CEE_CALLI)); // We're never verifying for CALLI, so this is not set.
+
+    assert(sig != nullptr);
+    assert((clsHnd != NO_CLASS_HANDLE) || (opcode == CEE_CALLI));
 
     /* Some sanity checks */
 
@@ -9570,9 +9560,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
     signed jmpDist;
 
-    /* remember the start of the delegate creation sequence (used for verification) */
-    const BYTE* delegateCreateStart = nullptr;
-
     int  prefixFlags = 0;
     bool explicitTailCall, constraintCall, readonlyCall;
 
@@ -10271,7 +10258,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // &aliasedVar doesnt need GTF_GLOB_REF, though alisasedVar does
                 assert((op1->gtFlags & GTF_GLOB_REF) == 0);
 
-                // TODO-MIKE-Cleanup: This is weird, lvVerTypeInfo is pushed on the stack for what really
+                // TODO-MIKE-Cleanup: This is weird, lvImpTypeInfo is pushed on the stack for what really
                 // is the address of the local. Only when verification was enabled the pushed typeInfo
                 // was transformed into a byref.
                 //
@@ -10281,13 +10268,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // that case we really need the address of the struct value.
                 // But with the "normed type" thing we can end up with INT/LONG instead of STRUCT on the
                 // stack and then the LDFLD import code can no longer figure out if it needs the address.
-                // So it checks if lvVerTypeInfo contains a handle, set by lvaInitVarDsc and others.
+                // So it checks if lvImpTypeInfo contains a handle, set by lvaInitVarDsc and others.
                 //
                 // In addition to this being confusing, it also seems to be a small CQ issue because some
                 // other importer code sees that handle, thinks that the value is a struct and spills the
                 // stack even if there's no need for that.
 
-                impPushOnStack(op1, lvaTable[lclNum].lvVerTypeInfo);
+                impPushOnStack(op1, lvaTable[lclNum].lvImpTypeInfo);
                 break;
 
             case CEE_ARGLIST:
@@ -12473,8 +12460,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                // Perform this check always to ensure that we get field access exceptions even with
-                // SkipVerification.
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
                 // Raise InvalidProgramException if static load accesses non-static field
@@ -12794,8 +12779,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, &fieldInfo.accessCalloutHelper);
 
-                // tiVerificationNeed is false.
-                // Raise InvalidProgramException if static store accesses non-static field
                 if (isStoreStatic && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0))
                 {
                     BADCODE("static access on an instance field");
@@ -13448,7 +13431,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     return;
                 }
 
-                // Run this always so we can get access exceptions even with SkipVerification.
                 accessAllowedResult =
                     info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
                 impHandleAccessAllowed(accessAllowedResult, &calloutHelper);
@@ -14099,7 +14081,7 @@ void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset)
         lclTyp = lvaGetActualType(lclNum);
     }
 
-    impPushOnStack(gtNewLclvNode(lclNum, lclTyp DEBUGARG(offset)), lvaTable[lclNum].lvVerTypeInfo);
+    impPushOnStack(gtNewLclvNode(lclNum, lclTyp DEBUGARG(offset)), lvaTable[lclNum].lvImpTypeInfo);
 }
 
 // Load an argument on the operand stack
@@ -14850,11 +14832,6 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
     }
 }
 
-//***************************************************************
-// Import the instructions for the given basic block.  Perform
-// verification, throwing an exception on failure.  Push any successor blocks that are enabled for the first
-// time, or whose verification pre-state is changed.
-
 void Compiler::impImportBlock(BasicBlock* block)
 {
     // BBF_INTERNAL blocks only exist during importation due to EH canonicalization. We need to
@@ -14993,7 +14970,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
                              CHECK_SPILL_NONE);
 
-            spillTempLcl->lvVerTypeInfo = verCurrentState.esStack[level].seTypeInfo;
+            spillTempLcl->lvImpTypeInfo = verCurrentState.esStack[level].seTypeInfo;
         }
     }
     else
@@ -15354,7 +15331,7 @@ void Compiler::impSetCurrentState(BasicBlock* block)
         LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
         verCurrentState.esStack[i].val        = gtNewLclvNode(lclNum, lcl->GetType());
-        verCurrentState.esStack[i].seTypeInfo = lcl->lvVerTypeInfo;
+        verCurrentState.esStack[i].seTypeInfo = lcl->lvImpTypeInfo;
     }
 }
 
@@ -15859,10 +15836,6 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
                 goto _exit;
             }
 
-            // Given the EE the final say in whether to inline or not.
-            // This should be last since for verifiable code, this can be expensive
-
-            /* VM Inline check also ensures that the method is verifiable if needed */
             CorInfoInline vmResult;
             vmResult = pParam->pThis->info.compCompHnd->canInline(pParam->pThis->info.compMethodHnd, pParam->fncHandle,
                                                                   &dwRestrictions);
@@ -16593,7 +16566,7 @@ unsigned Compiler::impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reas
             else if (inlineeLocal.lclVerTypeInfo.IsType(TI_STRUCT))
             {
                 // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
-                lvaTable[tmpNum].lvVerTypeInfo = inlineeLocal.lclVerTypeInfo;
+                lvaTable[tmpNum].lvImpTypeInfo = inlineeLocal.lclVerTypeInfo;
             }
         }
 
@@ -16802,7 +16775,7 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
                 else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
                 {
                     // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
-                    lvaTable[tmpNum].lvVerTypeInfo = lclInfo.lclVerTypeInfo;
+                    lvaTable[tmpNum].lvImpTypeInfo = lclInfo.lclVerTypeInfo;
                 }
             }
 
