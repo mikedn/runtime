@@ -14964,13 +14964,21 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             unsigned   spillTempLclNum = spillTempBaseLclNum + level;
             LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
             GenTree*   tree            = verCurrentState.esStack[level].val;
+            typeInfo   stackType       = verCurrentState.esStack[level].seTypeInfo;
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
-            impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
-                             CHECK_SPILL_NONE);
+            impAssignTempGen(spillTempLclNum, tree, stackType.GetClassHandle(), CHECK_SPILL_NONE);
 
-            spillTempLcl->lvImpTypeInfo = verCurrentState.esStack[level].seTypeInfo;
+            if (stackType.IsType(TI_STRUCT))
+            {
+                // We must propagate stack type info if it's TI_STRUCT, at least because
+                // LDFLD import code needs it to recognize "normed types".
+                // We must NOT propagate the type info if it's TI_REF because we don't
+                // have any checks to ensure that all predecessors produce the same type,
+                // nor do we attempt to determine a common base type if they don't.
+                spillTempLcl->lvImpTypeInfo = stackType;
+            }
         }
     }
     else
