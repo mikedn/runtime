@@ -4420,9 +4420,6 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
     const BYTE* codeEndp = codeAddr + codeSize;
     unsigned    varNum;
     bool        seenJump = false;
-    var_types   varType  = DUMMY_INIT(TYP_UNDEF); // TYP_ type
-    typeInfo    ti;                               // Verifier type.
-    bool        typeIsNormed = false;
     FgStack     pushedStack;
     const bool  isForceInline          = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
     const bool  makeInlineObservations = (compInlineResult != nullptr);
@@ -4466,7 +4463,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
         OPCODE opcode = (OPCODE)getU1LittleEndian(codeAddr);
         codeAddr += sizeof(__int8);
         opts.instrCount++;
-        typeIsNormed = false;
+        bool typeIsNormed = false;
 
     DECODE_OPCODE:
 
@@ -4779,9 +4776,12 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (isInlining)
                 {
+                    var_types lclType;
+                    typeInfo  ti;
+
                     if (opcode == CEE_LDLOCA || opcode == CEE_LDLOCA_S)
                     {
-                        varType = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclType;
+                        lclType = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclType;
                         ti      = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclVerTypeInfo;
 
                         impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclHasLdlocaOp = true;
@@ -4790,13 +4790,24 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     {
                         noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
 
-                        varType = impInlineInfo->lclVarInfo[varNum].lclType;
+                        lclType = impInlineInfo->lclVarInfo[varNum].lclType;
                         ti      = impInlineInfo->lclVarInfo[varNum].lclVerTypeInfo;
 
                         impInlineInfo->inlArgInfo[varNum].argHasLdargaOp = true;
 
                         pushedStack.PushArgument(varNum);
                     }
+
+                    // TODO-MIKE-Cleanup: The below IsValueClass check is incorrect, it also includes
+                    // primitive types so any primitive type local is treated as "normed type". The
+                    // correct check is IsType(TI_STRUCT) but changing this affects inlining decisions
+                    // and causes a few diffs.
+                    //
+                    // Note that in the non-inlining case the check was also incorrect but because
+                    // lvVerTypeInfo is not normally set on true primitive locals the mistake had no
+                    // observable effects.
+
+                    typeIsNormed = !varTypeIsStruct(lclType) && ti.IsValueClass();
                 }
                 else
                 {
@@ -4821,8 +4832,9 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                         varNum = compMapILargNum(varNum); // account for possible hidden param
                     }
 
-                    varType = (var_types)lvaTable[varNum].lvType;
-                    ti      = lvaTable[varNum].lvVerTypeInfo;
+                    LclVarDsc* lcl = lvaGetDesc(varNum);
+
+                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvVerTypeInfo.IsType(TI_STRUCT);
 
                     // Determine if the next instruction will consume
                     // the address. If so we won't mark this var as
@@ -4839,9 +4851,8 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     // is based in that we know what trees we will
                     // generate for this ldfld, and we require that we
                     // won't need the address of this local at all
-                    noway_assert(varNum < lvaTableCnt);
 
-                    const bool notStruct    = !varTypeIsStruct(&lvaTable[varNum]);
+                    const bool notStruct    = !varTypeIsStruct(lcl->GetType());
                     const bool notLastInstr = (codeAddr < codeEndp - sz);
                     const bool notDebugCode = !opts.compDbgCode;
 
@@ -4852,7 +4863,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     }
                     else
                     {
-                        lvaTable[varNum].lvHasLdAddrOp = 1;
+                        lcl->lvHasLdAddrOp = 1;
                         if (!info.compIsStatic && (varNum == 0))
                         {
                             // Addr taken on "this" pointer is significant,
@@ -4862,8 +4873,6 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                         }
                     }
                 } // isInlining
-
-                typeIsNormed = ti.IsValueClass() && !varTypeIsStruct(varType);
             }
             break;
 
