@@ -252,7 +252,7 @@ void Compiler::lvaInitTypeRef()
             info.compCompHnd->getArgType(&info.compMethodInfo->locals, localsSig, &typeHnd);
         CorInfoType corInfoType = strip(corInfoTypeWithMod);
 
-        lvaInitVarDsc(varDsc, varNum, corInfoType, typeHnd, localsSig, &info.compMethodInfo->locals);
+        lvaInitVarDsc(varDsc, varNum, corInfoType, typeHnd);
 
         if ((corInfoTypeWithMod & CORINFO_TYPE_MOD_PINNED) != 0)
         {
@@ -438,24 +438,8 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
             lvaSetClass(varDscInfo->varNum, info.compClassHnd);
         }
 
-        if (tiVerificationNeeded)
-        {
-            varDsc->lvVerTypeInfo = verMakeTypeInfo(info.compClassHnd);
-
-            if (varDsc->lvVerTypeInfo.IsValueClass())
-            {
-                varDsc->lvVerTypeInfo.MakeByRef();
-            }
-        }
-        else
-        {
-            varDsc->lvVerTypeInfo = typeInfo();
-        }
-
-        // Mark the 'this' pointer for the method
-        varDsc->lvVerTypeInfo.SetIsThisPtr();
-
-        varDsc->lvIsRegArg = 1;
+        varDsc->lvIsThisPtr = true;
+        varDsc->lvIsRegArg  = true;
         noway_assert(varDscInfo->intRegArgNum == 0);
 
         varDsc->SetArgReg(genMapRegArgNumToRegNum(varDscInfo->allocRegArg(TYP_INT), varDsc->TypeGet()));
@@ -580,17 +564,29 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo)
     {
         LclVarDsc*           varDsc  = varDscInfo->varDsc;
         CORINFO_CLASS_HANDLE typeHnd = nullptr;
+        CorInfoType corInfoType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd));
 
-        CorInfoTypeWithMod corInfoType = info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd);
-        varDsc->lvIsParam              = 1;
+        varDsc->lvIsParam = 1;
+        lvaInitVarDsc(varDsc, varDscInfo->varNum, corInfoType, typeHnd);
 
-        lvaInitVarDsc(varDsc, varDscInfo->varNum, strip(corInfoType), typeHnd, argLst, &info.compMethodInfo->args);
-
-        if (strip(corInfoType) == CORINFO_TYPE_CLASS)
+        if (corInfoType == CORINFO_TYPE_CLASS)
         {
             CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->args, argLst);
             lvaSetClass(varDscInfo->varNum, clsHnd);
         }
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+        else if (varTypeIsStruct(varDsc->GetType()))
+        {
+            structPassingKind howToReturnStruct;
+            getArgTypeForStruct(typeHnd, &howToReturnStruct, info.compIsVarArgs, varDsc->lvExactSize);
+
+            if (howToReturnStruct == SPK_ByReference)
+            {
+                JITDUMP("Marking V%02i as a byref parameter\n", varDscInfo->varNum);
+                varDsc->lvIsImplicitByRef = 1;
+            }
+        }
+#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
 
         // For ARM, ARM64, and AMD64 varargs, all arguments go in integer registers
         var_types argType = mangleVarArgsType(varDsc->TypeGet());
@@ -1209,12 +1205,7 @@ void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)
 }
 
 /*****************************************************************************/
-void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
-                             unsigned                varNum,
-                             CorInfoType             corInfoType,
-                             CORINFO_CLASS_HANDLE    typeHnd,
-                             CORINFO_ARG_LIST_HANDLE varList,
-                             CORINFO_SIG_INFO*       varSig)
+void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd)
 {
     noway_assert(varDsc == &lvaTable[varNum]);
 
@@ -1241,83 +1232,11 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
     }
 
     var_types type = JITtype2varType(corInfoType);
-    if (varTypeIsFloating(type))
+
+    if (varTypeIsStruct(type))
     {
-        compFloatingPointUsed = true;
-    }
+        lvaSetStruct(varNum, typeHnd, true);
 
-    if (tiVerificationNeeded)
-    {
-        varDsc->lvVerTypeInfo = verParseArgSigToTypeInfo(varSig, varList);
-    }
-
-    if (tiVerificationNeeded)
-    {
-        if (varDsc->lvIsParam)
-        {
-            // For an incoming ValueType we better be able to have the full type information
-            // so that we can layout the parameter offsets correctly
-
-            if (varTypeIsStruct(type) && varDsc->lvVerTypeInfo.IsDead())
-            {
-                BADCODE("invalid ValueType parameter");
-            }
-
-            // For an incoming reference type we need to verify that the actual type is
-            // a reference type and not a valuetype.
-
-            if (type == TYP_REF &&
-                !(varDsc->lvVerTypeInfo.IsType(TI_REF) || varDsc->lvVerTypeInfo.IsUnboxedGenericTypeVar()))
-            {
-                BADCODE("parameter type mismatch");
-            }
-        }
-
-        // Disallow byrefs to byref like objects (ArgTypeHandle)
-        // techncally we could get away with just not setting them
-        if (varDsc->lvVerTypeInfo.IsByRef() && verIsByRefLike(DereferenceByRef(varDsc->lvVerTypeInfo)))
-        {
-            varDsc->lvVerTypeInfo = typeInfo();
-        }
-
-        // we don't want the EE to assert in lvaSetStruct on bad sigs, so change
-        // the JIT type to avoid even trying to call back
-        if (varTypeIsStruct(type) && varDsc->lvVerTypeInfo.IsDead())
-        {
-            type = TYP_VOID;
-        }
-    }
-
-    if (typeHnd)
-    {
-        unsigned cFlags = info.compCompHnd->getClassAttribs(typeHnd);
-
-        // We can get typeHnds for primitive types, these are value types which only contain
-        // a primitive. We will need the typeHnd to distinguish them, so we store it here.
-        if ((cFlags & CORINFO_FLG_VALUECLASS) && !varTypeIsStruct(type))
-        {
-            if (tiVerificationNeeded == false)
-            {
-                // printf("This is a struct that the JIT will treat as a primitive\n");
-                varDsc->lvVerTypeInfo = verMakeTypeInfo(typeHnd);
-            }
-        }
-
-        varDsc->lvOverlappingFields = StructHasOverlappingFields(cFlags);
-    }
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-    varDsc->lvIsImplicitByRef = 0;
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
-// Set the lvType (before this point it is TYP_UNDEF).
-
-#ifdef FEATURE_HFA
-    varDsc->SetHfaType(TYP_UNDEF);
-#endif
-    if ((varTypeIsStruct(type)))
-    {
-        lvaSetStruct(varNum, typeHnd, typeHnd != nullptr, !tiVerificationNeeded);
         if (info.compIsVarArgs)
         {
             lvaSetStructUsedAsVarArg(varNum);
@@ -1325,23 +1244,42 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
     }
     else
     {
-        varDsc->lvType = type;
-    }
+        varDsc->SetType(type);
 
+        if (varTypeIsFloating(type))
+        {
+            compFloatingPointUsed = true;
+        }
 #if OPT_BOOL_OPS
-    if (type == TYP_BOOL)
-    {
-        varDsc->lvIsBoolean = true;
-    }
+        else if (type == TYP_BOOL)
+        {
+            varDsc->lvIsBoolean = true;
+        }
 #endif
 
-#ifdef DEBUG
-    varDsc->lvStkOffs = BAD_STK_OFFS;
-#endif
+        if ((typeHnd != NO_CLASS_HANDLE) && info.compCompHnd->isValueClass(typeHnd))
+        {
+            // This is a "normed type" - a struct that contains a single primitive type field.
+            // In general this is just a primtive type as far as the JIT is concerned but there
+            // are 2 exceptions:
+            //   - ldfld import code needs to know that the value on the stack is really a
+            //     struct object, otherwise it could think it's the address of the object.
+            //   - The inliner state machine assigns special weights to LDLOCA/LDARGA used
+            //     with normed type locals.
+            //
+            // Note: impInlineFetchArg and impInlineFetchLocal have similar code.
+
+            assert(info.compCompHnd->getTypeForPrimitiveValueClass(typeHnd) == CORINFO_TYPE_UNDEF);
+
+            varDsc->lvImpTypeInfo = typeInfo(TI_STRUCT, typeHnd);
+        }
+    }
+
+    INDEBUG(varDsc->lvStkOffs = BAD_STK_OFFS;)
 
 #if FEATURE_MULTIREG_ARGS
     varDsc->SetOtherArgReg(REG_NA);
-#endif // FEATURE_MULTIREG_ARGS
+#endif
 }
 
 /*****************************************************************************
@@ -1485,18 +1423,6 @@ bool Compiler::lvaVarDoNotEnregister(unsigned varNum)
     LclVarDsc* varDsc = &lvaTable[varNum];
 
     return varDsc->lvDoNotEnregister;
-}
-
-/*****************************************************************************
- * Returns the handle to the class of the local variable varNum
- */
-
-CORINFO_CLASS_HANDLE Compiler::lvaGetStruct(unsigned varNum)
-{
-    noway_assert(varNum < lvaCount);
-    const LclVarDsc* varDsc = lvaGetDesc(varNum);
-
-    return varDsc->GetStructHnd();
 }
 
 //--------------------------------------------------------------------------------------------
@@ -1827,8 +1753,8 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
         return false;
     }
 
-    CORINFO_CLASS_HANDLE typeHnd = varDsc->GetStructHnd();
-    assert(typeHnd != NO_CLASS_HANDLE);
+    CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
+    assert(typeHnd != nullptr);
 
     bool canPromote = CanPromoteStructType(typeHnd);
     if (canPromote && varDsc->lvIsMultiRegArgOrRet())
@@ -1868,7 +1794,7 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
 
     LclVarDsc* varDsc = &compiler->lvaTable[lclNum];
     assert(varTypeIsStruct(varDsc));
-    assert(varDsc->GetStructHnd() == structPromotionInfo.typeHnd);
+    assert(varDsc->GetLayout()->GetClassHandle() == structPromotionInfo.typeHnd);
     assert(structPromotionInfo.canPromote);
 
     bool shouldPromote = true;
@@ -2139,7 +2065,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
     // We should never see a reg-sized non-field-addressed struct here.
     assert(!varDsc->lvRegStruct);
 
-    assert(varDsc->GetStructHnd() == structPromotionInfo.typeHnd);
+    assert(varDsc->GetLayout()->GetClassHandle() == structPromotionInfo.typeHnd);
     assert(structPromotionInfo.canPromote);
 
     varDsc->lvFieldCnt      = structPromotionInfo.fieldCnt;
@@ -2156,7 +2082,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("\nPromoting struct local V%02u (%s):", lclNum, compiler->eeGetClassName(varDsc->GetStructHnd()));
+        printf("\nPromoting struct local V%02u (%s):", lclNum, varDsc->GetLayout()->GetClassName());
     }
 #endif
 
@@ -2175,8 +2101,6 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
             compiler->compFloatingPointUsed = true;
         }
 
-// Now grab the temp for the field local.
-
 #ifdef DEBUG
         char buf[200];
         sprintf_s(buf, sizeof(buf), "%s V%02u.%s (fldOffset=0x%x)", "field", lclNum,
@@ -2193,16 +2117,14 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         }
 #endif
 
+        // Now grab the temp for the field local.
         // Lifetime of field locals might span multiple BBs, so they must be long lifetime temps.
         const unsigned varNum = compiler->lvaGrabTemp(false DEBUGARG(bufp));
 
-        // lvaGrabTemp can reallocate the lvaTable, so
-        // refresh the cached varDsc for lclNum.
+        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached varDsc for lclNum.
         varDsc = compiler->lvaGetDesc(lclNum);
 
         LclVarDsc* fieldVarDsc       = compiler->lvaGetDesc(varNum);
-        fieldVarDsc->lvType          = pFieldInfo->fldType;
-        fieldVarDsc->lvExactSize     = pFieldInfo->fldSize;
         fieldVarDsc->lvIsStructField = true;
         fieldVarDsc->lvFieldHnd      = pFieldInfo->fldHnd;
         fieldVarDsc->lvFldOffset     = pFieldInfo->fldOffset;
@@ -2210,19 +2132,28 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         fieldVarDsc->lvParentLcl     = lclNum;
         fieldVarDsc->lvIsParam       = varDsc->lvIsParam;
 
-        // This new local may be the first time we've seen a long typed local.
-        if (fieldVarDsc->lvType == TYP_LONG)
+        if (varTypeIsSIMD(pFieldInfo->fldType))
         {
-            compiler->compLongUsed = true;
+            compiler->lvaSetStruct(varNum, pFieldInfo->fldTypeHnd, false);
+            // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
+            // be promoting this if we didn't think it could be enregistered.
+            fieldVarDsc->lvRegStruct = true;
+        }
+        else
+        {
+            fieldVarDsc->SetType(pFieldInfo->fldType);
+
+            // TODO-MIKE-Cleanup: This code is likely bogus, lvExactSize is relevant only for struct/block typed locals.
+            fieldVarDsc->lvExactSize = pFieldInfo->fldSize;
+
+            if (fieldVarDsc->GetType() == TYP_LONG)
+            {
+                compiler->compLongUsed = true;
+            }
         }
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
-        // Reset the implicitByRef flag.
-        fieldVarDsc->lvIsImplicitByRef = 0;
-
         // Do we have a parameter that can be enregistered?
-        //
         if (varDsc->lvIsRegArg)
         {
             fieldVarDsc->lvIsRegArg = true;
@@ -2241,23 +2172,9 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         }
 #endif
 
-#ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(pFieldInfo->fldType))
-        {
-            // Set size to zero so that lvaSetStruct will appropriately set the SIMD-relevant fields.
-            fieldVarDsc->lvExactSize = 0;
-            compiler->lvaSetStruct(varNum, pFieldInfo->fldTypeHnd, false, true);
-            // We will not recursively promote this, so mark it as 'lvRegStruct' (note that we wouldn't
-            // be promoting this if we didn't think it could be enregistered.
-            fieldVarDsc->lvRegStruct = true;
-        }
-#endif // FEATURE_SIMD
-
-#ifdef DEBUG
         // This temporary should not be converted to a double in stress mode,
         // because we introduce assigns to it after the stress conversion
-        fieldVarDsc->lvKeepType = 1;
-#endif
+        INDEBUG(fieldVarDsc->lvKeepType = 1;)
     }
 }
 
@@ -2489,10 +2406,6 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
             JITDUMP("was accessed as a local field\n");
             varDsc->lvLclFieldExpr = 1;
             break;
-        case DNER_VMNeedsStackAddr:
-            JITDUMP("needs stack addr\n");
-            varDsc->lvVMNeedsStackAddr = 1;
-            break;
         case DNER_LiveInOutOfHandler:
             JITDUMP("live in/out of a handler\n");
             varDsc->lvLiveInOutOfHndlr = 1;
@@ -2540,7 +2453,7 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
 {
     if (varTypeIsStruct(varDsc->TypeGet()))
     {
-        CORINFO_CLASS_HANDLE clsHnd = varDsc->GetStructHnd();
+        CORINFO_CLASS_HANDLE clsHnd = varDsc->GetLayout()->GetClassHandle();
         structPassingKind    howToPassStruct;
 
         var_types type = getArgTypeForStruct(clsHnd, &howToPassStruct, isVarArg, varDsc->lvExactSize);
@@ -2562,111 +2475,106 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
     return false;
 }
 
-/*****************************************************************************
- * Set the lvClass for a local variable of a struct type */
-
-void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck, bool setTypeInfo)
+void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck)
 {
     noway_assert(varNum < lvaCount);
 
-    LclVarDsc* varDsc = &lvaTable[varNum];
-    if (setTypeInfo)
+    LclVarDsc* varDsc = lvaGetDesc(varNum);
+
+    if (varDsc->lvExactSize != 0)
     {
-        varDsc->lvVerTypeInfo = typeInfo(TI_STRUCT, typeHnd);
-    }
+        // TODO-MIKE-Cleanup: Normally we should not attemp to call lvaSetStruct on a local that
+        // already has struct type. Some trivial cases have been fixed but there are a at least
+        // 2 more:
+        //   - Spill clique temps may be assigned multiple times via impAssignTempGen.
+        //   - fgInlinePrependStatements initializes inlinee parameters also using impAssignTempGen.
+        //     Inlinee parameters (temps really) have already been created and assigned a type when
+        //     inlining started.
+        //
+        // impAssignTempGen insists on calling lvaSetStruct itself, which makes sense in most cases
+        // (it's typically called immediately after creating a temp). It may be better to add a
+        // new function that assigns without attempting to set the temp's type.
+        //
+        // To make things more complicated, in the inlining case the struct types can be different.
+        // If a generic method is inlined then the inlinee parameter may have type A<Canon> and
+        // the inliner value may have type A<SomeRefClass>. These 2 types are equivalent for most
+        // purposes but they have different class handles which complicates things. Probably it
+        // would be better to keep the inliner type (A<SomeRefClass>) because it's more precise.
+        // On the other hand, all the inlined code uses A<Canon> so it may be better to keep that,
+        // unless there's a way to import the inlined code using A<SomeRefClass>.
+        //
+        // This means that we can end up with "A<SomeRefClass> = A<Canon>" struct assignments but
+        // that's OK, fgMorphCopyBlock and codegen support that. It may be that such mismatches
+        // have some CQ consequences (block copy prop/CSE due to different VNs?).
+        // In FX there aren't many such type mismatch cases but Microsoft.CodeAnalysis.CSharp.dll
+        // has a lot more.
+        //
+        // In theory we can also have different class handles in the spill clique case but that
+        // would be caused by invalid IL so it's probably something that can be ignored.
+        // Ideally, such IL would just result in InvalidProgramException.
+        //
+        // For now at least assert that the existing type is the same type we would get from the
+        // provided class handle. This catches attempts to change between STRUCT and SIMD types
+        // that would leave LclVarDsc in a weird state.
 
-    // Set the type and associated info if we haven't already set it.
-    if (varDsc->lvType == TYP_UNDEF)
-    {
-        varDsc->lvType = TYP_STRUCT;
-    }
-    if (varDsc->GetLayout() == nullptr)
-    {
-        ClassLayout* layout = typGetObjLayout(typeHnd);
-        varDsc->SetLayout(layout);
-
-        assert(varDsc->lvExactSize == 0);
-        varDsc->lvExactSize = layout->GetSize();
-        assert(varDsc->lvExactSize != 0);
-
-        if (layout->IsValueClass())
-        {
-            var_types simdBaseType = TYP_UNKNOWN;
-            varDsc->lvType         = impNormStructType(typeHnd, &simdBaseType);
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-            // Mark implicit byref struct parameters
-            if (varDsc->lvIsParam && !varDsc->lvIsStructField)
-            {
-                structPassingKind howToReturnStruct;
-                getArgTypeForStruct(typeHnd, &howToReturnStruct, this->info.compIsVarArgs, varDsc->lvExactSize);
-
-                if (howToReturnStruct == SPK_ByReference)
-                {
-                    JITDUMP("Marking V%02i as a byref parameter\n", varNum);
-                    varDsc->lvIsImplicitByRef = 1;
-                }
-            }
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
-#if FEATURE_SIMD
-            if (simdBaseType != TYP_UNKNOWN)
-            {
-                assert(varTypeIsSIMD(varDsc));
-                varDsc->lvSIMDType = true;
-                varDsc->lvBaseType = simdBaseType;
-            }
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HFA
-            // For structs that are small enough, we check and set HFA element type
-            if (varDsc->lvExactSize <= MAX_PASS_MULTIREG_BYTES)
-            {
-                // hfaType is set to float, double or SIMD type if it is an HFA, otherwise TYP_UNDEF
-                var_types hfaType = GetHfaType(typeHnd);
-                if (varTypeIsValidHfaType(hfaType))
-                {
-                    varDsc->SetHfaType(hfaType);
-
-                    // hfa variables can never contain GC pointers
-                    assert(!layout->HasGCPtr());
-                    // The size of this struct should be evenly divisible by 4 or 8
-                    assert((varDsc->lvExactSize % genTypeSize(hfaType)) == 0);
-                    // The number of elements in the HFA should fit into our MAX_ARG_REG_COUNT limit
-                    assert((varDsc->lvExactSize / genTypeSize(hfaType)) <= MAX_ARG_REG_COUNT);
-                }
-            }
-#endif // FEATURE_HFA
-        }
+        assert(varDsc->GetType() == impNormStructType(typeHnd));
+        assert(varDsc->lvExactSize == typGetObjLayout(typeHnd)->GetSize());
     }
     else
     {
-#if FEATURE_SIMD
-        assert(!varTypeIsSIMD(varDsc) || (varDsc->lvBaseType != TYP_UNKNOWN));
-#endif // FEATURE_SIMD
         ClassLayout* layout = typGetObjLayout(typeHnd);
-        assert(ClassLayout::AreCompatible(varDsc->GetLayout(), layout));
-        // Inlining could replace a canon struct type with an exact one.
+
+        varDsc->lvType = TYP_STRUCT;
         varDsc->SetLayout(layout);
-        assert(varDsc->lvExactSize != 0);
+        varDsc->lvExactSize   = layout->GetSize();
+        varDsc->lvImpTypeInfo = typeInfo(TI_STRUCT, typeHnd);
+
+        if (layout->IsValueClass())
+        {
+#if FEATURE_SIMD
+            var_types simdBaseType = TYP_UNKNOWN;
+            var_types simdType     = impNormStructType(typeHnd, &simdBaseType);
+
+            if (simdType != TYP_STRUCT)
+            {
+                assert(varTypeIsSIMD(simdType));
+                assert(varTypeIsArithmetic(simdBaseType));
+
+                varDsc->lvType     = simdType;
+                varDsc->lvBaseType = simdBaseType;
+                varDsc->lvSIMDType = true;
+            }
+#endif
+
+#ifdef FEATURE_HFA
+            if (varDsc->lvExactSize <= MAX_PASS_MULTIREG_BYTES)
+            {
+                var_types hfaType = GetHfaType(typeHnd);
+
+                if (hfaType != TYP_UNDEF)
+                {
+                    assert(!layout->HasGCPtr());
+                    assert((varDsc->lvExactSize % varTypeSize(hfaType)) == 0);
+                    assert((varDsc->lvExactSize / varTypeSize(hfaType)) <= MAX_ARG_REG_COUNT);
+
+                    varDsc->SetHfaType(hfaType);
+                }
+            }
+#endif
+        }
     }
 
 #ifndef TARGET_64BIT
-    BOOL fDoubleAlignHint = FALSE;
+    BOOL doubleAlignHint = FALSE;
 #ifdef TARGET_X86
-    fDoubleAlignHint = TRUE;
+    doubleAlignHint = TRUE;
 #endif
-
-    if (info.compCompHnd->getClassAlignmentRequirement(typeHnd, fDoubleAlignHint) == 8)
+    if (info.compCompHnd->getClassAlignmentRequirement(typeHnd, doubleAlignHint) == 8)
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Marking struct in V%02i with double align flag\n", varNum);
-        }
-#endif
+        JITDUMP("Marking struct in V%02i with double align flag\n", varNum);
         varDsc->lvStructDoubleAlign = 1;
     }
-#endif // not TARGET_64BIT
+#endif
 
     unsigned classAttribs = info.compCompHnd->getClassAttribs(typeHnd);
 
@@ -2674,18 +2582,19 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
 
     // Check whether this local is an unsafe value type and requires GS cookie protection.
     // GS checks require the stack to be re-ordered, which can't be done with EnC.
-    if (unsafeValueClsCheck && (classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) && !opts.compDbgEnC)
+    if (unsafeValueClsCheck && ((classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) != 0) && !opts.compDbgEnC)
     {
         setNeedsGSSecurityCookie();
         compGSReorderStackLayout = true;
         varDsc->lvIsUnsafeBuffer = true;
     }
+
 #ifdef DEBUG
     if (JitConfig.EnableExtraSuperPmiQueries())
     {
         makeExtraStructQueries(typeHnd, 2);
     }
-#endif // DEBUG
+#endif
 }
 
 #ifdef DEBUG
@@ -2767,13 +2676,6 @@ void Compiler::lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool is
 {
     noway_assert(varNum < lvaCount);
 
-    // If we are just importing, we cannot reliably track local ref types,
-    // since the jit maps CORINFO_TYPE_VAR to TYP_REF.
-    if (compIsForImportOnly())
-    {
-        return;
-    }
-
     // Else we should have a type handle.
     assert(clsHnd != nullptr);
 
@@ -2851,13 +2753,6 @@ void Compiler::lvaSetClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE 
 void Compiler::lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
 {
     assert(varNum < lvaCount);
-
-    // If we are just importing, we cannot reliably track local ref types,
-    // since the jit maps CORINFO_TYPE_VAR to TYP_REF.
-    if (compIsForImportOnly())
-    {
-        return;
-    }
 
     // Else we should have a class handle to consider
     assert(clsHnd != nullptr);
@@ -3899,8 +3794,8 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
 #endif // UNIX_AMD64_ABI
 
         /* Variables must be used as the same type throughout the method */
-        noway_assert(tiVerificationNeeded || varDsc->lvType == TYP_UNDEF || tree->gtType == TYP_UNKNOWN ||
-                     allowStructs || genActualType(varDsc->TypeGet()) == genActualType(tree->gtType) ||
+        noway_assert(varDsc->lvType == TYP_UNDEF || tree->gtType == TYP_UNKNOWN || allowStructs ||
+                     genActualType(varDsc->TypeGet()) == genActualType(tree->gtType) ||
                      (tree->gtType == TYP_BYREF && varDsc->TypeGet() == TYP_I_IMPL) ||
                      (tree->gtType == TYP_I_IMPL && varDsc->TypeGet() == TYP_BYREF) || (tree->gtFlags & GTF_VAR_CAST) ||
                      (varTypeIsFloating(varDsc) && varTypeIsFloating(tree)) ||
@@ -7095,10 +6990,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         {
             printf("S");
         }
-        if (varDsc->lvVMNeedsStackAddr)
-        {
-            printf("V");
-        }
         if (lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
         {
             printf("H");
@@ -7150,7 +7041,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
     {
         printf(" ld-addr-op");
     }
-    if (varDsc->lvVerTypeInfo.IsThisPtr())
+    if (varDsc->lvIsThisPtr)
     {
         printf(" this");
     }
@@ -7206,7 +7097,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         else
 #endif // !defined(TARGET_64BIT)
         {
-            CORINFO_CLASS_HANDLE typeHnd = parentvarDsc->GetStructHnd();
+            CORINFO_CLASS_HANDLE typeHnd = parentvarDsc->GetLayout()->GetClassHandle();
             CORINFO_FIELD_HANDLE fldHnd  = info.compCompHnd->getFieldInClass(typeHnd, varDsc->lvFldOrdinal);
 
             printf(" V%02u.%s(offs=0x%02x)", varDsc->lvParentLcl, eeGetFieldName(fldHnd), varDsc->lvFldOffset);

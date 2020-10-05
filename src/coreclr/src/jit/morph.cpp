@@ -4390,8 +4390,7 @@ unsigned Compiler::abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass)
             indexType lclNum;
             FOREACH_HBV_BIT_SET(lclNum, m_abiStructArgTemps)
             {
-                if (typeInfo::AreEquivalent(lvaGetDesc(static_cast<unsigned>(lclNum))->lvVerTypeInfo,
-                                            typeInfo(TI_STRUCT, argClass)) &&
+                if ((lvaGetDesc(static_cast<unsigned>(lclNum))->GetLayout()->GetClassHandle() == argClass) &&
                     !m_abiStructArgTempsInUse->testBit(lclNum))
                 {
                     tempLclNum = static_cast<unsigned>(lclNum);
@@ -9284,7 +9283,7 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         if ((genTypeSize(tree->GetType()) != genTypeSize(lclVarNode->GetType())) ||
             (!isDest && !varTypeIsStruct(lclVarNode->GetType())))
         {
-            lvaSetVarDoNotEnregister(lclVarNode->GetLclNum() DEBUG_ARG(DNER_VMNeedsStackAddr));
+            lvaSetVarDoNotEnregister(lclVarNode->GetLclNum() DEBUG_ARG(DNER_BlockOp));
         }
     }
 
@@ -9398,11 +9397,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             if (destLclNode->TypeIs(TYP_STRUCT))
             {
-                // It would be nice if lvExactSize always corresponded to the size of the struct,
-                // but it doesn't always for the temps that the importer creates when it spills side
-                // effects.
-                // TODO-Cleanup: Determine when this happens, and whether it can be changed.
-                destSize = info.compCompHnd->getClassSize(destLclVar->lvVerTypeInfo.GetClassHandle());
+                destSize = destLclVar->GetLayout()->GetSize();
             }
             else
             {
@@ -9592,7 +9587,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         // but there doesn't appear to be any such case in the entire FX. Copies between variables of
         // different types but same layout do occur though - Memory's implicit operator ReadOnlyMemory
         // uses Unsafe.As to perform the conversion, instead of copying the struct field by field.
-        if (destLclVar->lvVerTypeInfo.GetClassHandle() != srcLclVar->lvVerTypeInfo.GetClassHandle())
+        if (destLclVar->GetLayout() != srcLclVar->GetLayout())
         {
             bool sameLayout = destLclVar->GetPromotedFieldCount() == srcLclVar->GetPromotedFieldCount();
 
@@ -9986,7 +9981,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             // otherwise we could combine the two field sequences if they match. Doesn't seem to be
             // worth the trouble, even the currently implemented trivial case has only a minor impact.
             if ((destLclOffs == 0) && (destFieldSeq == nullptr) && varTypeIsStruct(destLclVar->GetType()) &&
-                (destLclVar->lvVerTypeInfo.GetClassHandle() == srcLclVar->lvVerTypeInfo.GetClassHandle()))
+                (destLclVar->GetLayout() == srcLclVar->GetLayout()))
             {
                 destField->AsLclFld()->SetFieldSeq(
                     GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle()));
@@ -10080,7 +10075,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             // We don't have a field sequence for the source field but one can be obtained from
             // the destination field if the destination and source have the same type.
             if ((srcLclOffs == 0) && (srcFieldSeq == nullptr) && varTypeIsStruct(srcLclVar->GetType()) &&
-                (srcLclVar->lvVerTypeInfo.GetClassHandle() == destLclVar->lvVerTypeInfo.GetClassHandle()))
+                (srcLclVar->GetLayout() == destLclVar->GetLayout()))
             {
                 srcField->AsLclFld()->SetFieldSeq(
                     GetFieldSeqStore()->CreateSingleton(destFieldLclVar->GetPromotedFieldHandle()));
@@ -14597,10 +14592,6 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
     {
         /* Ensure that we have morphed this node */
         assert((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) && "ERROR: Did not morph this node!");
-
-#ifdef DEBUG
-        TransferTestDataToNode(oldTree, tree);
-#endif
     }
     else
     {
@@ -16392,48 +16383,41 @@ void Compiler::fgPromoteStructs()
     }
 #endif // DEBUG
 
+    assert(structPromotionHelper != nullptr);
+
     // The lvaTable might grow as we grab temps. Make a local copy here.
     unsigned startLvaCount = lvaCount;
 
-    //
-    // Loop through the original lvaTable. Looking for struct locals to be promoted.
-    //
-    lvaStructPromotionInfo structPromotionInfo;
-    bool                   tooManyLocalsReported = false;
-
     for (unsigned lclNum = 0; lclNum < startLvaCount; lclNum++)
     {
-        // Whether this var got promoted
-        bool       promotedVar = false;
-        LclVarDsc* varDsc      = &lvaTable[lclNum];
-
-        // If we have marked this as lvUsedInSIMDIntrinsic, then we do not want to promote
-        // its fields.  Instead, we will attempt to enregister the entire struct.
-        if (varDsc->lvIsSIMDType() && (varDsc->lvIsUsedInSIMDIntrinsic() || isOpaqueSIMDLclVar(varDsc)))
+        if (lvaHaveManyLocals())
         {
-            varDsc->lvRegStruct = true;
-        }
-        // Don't promote if we have reached the tracking limit.
-        else if (lvaHaveManyLocals())
-        {
-            // Print the message first time when we detected this condition
-            if (!tooManyLocalsReported)
-            {
-                JITDUMP("Stopped promoting struct fields, due to too many locals.\n");
-            }
-            tooManyLocalsReported = true;
-        }
-        else if (varTypeIsStruct(varDsc))
-        {
-            assert(structPromotionHelper != nullptr);
-            promotedVar = structPromotionHelper->TryPromoteStructVar(lclNum);
+            JITDUMP("Stopped promoting struct fields, due to too many locals.\n");
+            break;
         }
 
-        if (!promotedVar && varDsc->lvIsSIMDType() && !varDsc->lvFieldAccessed)
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (!varTypeIsStruct(lcl->GetType()))
+        {
+            continue;
+        }
+
+        if (varTypeIsSIMD(lcl->GetType()) && (lcl->lvIsUsedInSIMDIntrinsic() || isOpaqueSIMDLclVar(lcl)))
+        {
+            // If we have marked this as lvUsedInSIMDIntrinsic, then we do not want to promote
+            // its fields. Instead, we will attempt to enregister the entire struct.
+            lcl->lvRegStruct = true;
+            continue;
+        }
+
+        bool promoted = structPromotionHelper->TryPromoteStructVar(lclNum);
+
+        if (!promoted && varTypeIsSIMD(lcl->GetType()) && !lcl->lvFieldAccessed)
         {
             // Even if we have not used this in a SIMD intrinsic, if it is not being promoted,
             // we will treat it as a reg struct.
-            varDsc->lvRegStruct = true;
+            lcl->lvRegStruct = true;
         }
     }
 
@@ -16509,8 +16493,7 @@ void Compiler::fgRetypeImplicitByRefArgs()
             }
             else
             {
-                CORINFO_CLASS_HANDLE typeHnd = varDsc->GetStructHnd();
-                size                         = info.compCompHnd->getClassSize(typeHnd);
+                size = varDsc->GetLayout()->GetSize();
             }
 
             if (varDsc->lvPromoted)
@@ -16518,14 +16501,13 @@ void Compiler::fgRetypeImplicitByRefArgs()
                 // This implicit-by-ref was promoted; create a new temp to represent the
                 // promoted struct before rewriting this parameter as a pointer.
                 unsigned newLclNum = lvaGrabTemp(false DEBUGARG("Promoted implicit byref"));
-                lvaSetStruct(newLclNum, lvaGetStruct(lclNum), true);
+                // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
+                varDsc = lvaGetDesc(lclNum);
+                lvaSetStruct(newLclNum, varDsc->GetLayout()->GetClassHandle(), true);
                 if (info.compIsVarArgs)
                 {
                     lvaSetStructUsedAsVarArg(newLclNum);
                 }
-
-                // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
-                varDsc = &lvaTable[lclNum];
 
                 // Copy the struct promotion annotations to the new temp.
                 LclVarDsc* newVarDsc       = &lvaTable[newLclNum];
@@ -16544,7 +16526,6 @@ void Compiler::fgRetypeImplicitByRefArgs()
 #ifdef DEBUG
                 newVarDsc->lvLclBlockOpAddr   = varDsc->lvLclBlockOpAddr;
                 newVarDsc->lvLclFieldExpr     = varDsc->lvLclFieldExpr;
-                newVarDsc->lvVMNeedsStackAddr = varDsc->lvVMNeedsStackAddr;
                 newVarDsc->lvLiveInOutOfHndlr = varDsc->lvLiveInOutOfHndlr;
                 newVarDsc->lvLiveAcrossUCall  = varDsc->lvLiveAcrossUCall;
 #endif // DEBUG

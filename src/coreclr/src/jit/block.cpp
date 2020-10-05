@@ -241,10 +241,6 @@ void BasicBlock::dspBlockILRange() const
 //
 void BasicBlock::dspFlags()
 {
-    if (bbFlags & BBF_VISITED)
-    {
-        printf("v ");
-    }
     if (bbFlags & BBF_MARKED)
     {
         printf("m ");
@@ -268,10 +264,6 @@ void BasicBlock::dspFlags()
     if (bbFlags & BBF_INTERNAL)
     {
         printf("internal ");
-    }
-    if (bbFlags & BBF_FAILED_VERIFICATION)
-    {
-        printf("failV ");
     }
     if (bbFlags & BBF_TRY_BEG)
     {
@@ -627,9 +619,6 @@ bool BasicBlock::CloneBlockState(
     to->copyEHRegion(from);
     to->bbCatchTyp    = from->bbCatchTyp;
     to->bbRefs        = from->bbRefs;
-    to->bbStkTempsIn  = from->bbStkTempsIn;
-    to->bbStkTempsOut = from->bbStkTempsOut;
-    to->bbStkDepth    = from->bbStkDepth;
     to->bbCodeOffs    = from->bbCodeOffs;
     to->bbCodeOffsEnd = from->bbCodeOffsEnd;
     VarSetOps::AssignAllowUninitRhs(compiler, to->bbScope, from->bbScope);
@@ -1320,10 +1309,8 @@ BasicBlock* Compiler::bbNewBasicBlock(BBjumpKinds jumpKind)
     block->bbRefs   = 1;
     block->bbWeight = BB_UNITY_WEIGHT;
 
-    block->bbStkTempsIn  = NO_BASE_TMP;
-    block->bbStkTempsOut = NO_BASE_TMP;
-
     block->bbEntryState = nullptr;
+    block->bbExitState  = nullptr;
 
     /* Record the jump kind in the block */
 

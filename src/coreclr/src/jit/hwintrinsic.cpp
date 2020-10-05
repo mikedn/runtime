@@ -424,7 +424,7 @@ GenTree* Compiler::getArgForHWIntrinsic(var_types            argType,
 
         if (newobjThis == nullptr)
         {
-            arg = impSIMDPopStack(argType, expectAddr);
+            arg = expectAddr ? impSIMDPopStackAddr(argType) : impSIMDPopStack(argType);
             assert(varTypeIsSIMD(arg->TypeGet()));
         }
         else
@@ -434,7 +434,7 @@ GenTree* Compiler::getArgForHWIntrinsic(var_types            argType,
 
             // push newobj result on type stack
             unsigned tmp = arg->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-            impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), verMakeTypeInfo(argClass).NormaliseForStack());
+            impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), typeInfo(TI_STRUCT, argClass));
         }
     }
     else

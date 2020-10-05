@@ -123,23 +123,59 @@ struct StackEntry
     GenTree* val;
     typeInfo seTypeInfo;
 };
-/*****************************************************************************/
-
-enum ThisInitState
-{
-    TIS_Bottom, // We don't know anything about the 'this' pointer.
-    TIS_Uninit, // The 'this' pointer for this constructor is known to be uninitialized.
-    TIS_Init,   // The 'this' pointer for this constructor is known to be initialized.
-    TIS_Top,    // This results from merging the state of two blocks one with TIS_Unint and the other with TIS_Init.
-                // We use this in fault blocks to prevent us from accessing the 'this' pointer, but otherwise
-                // allowing the fault block to generate code.
-};
 
 struct EntryState
 {
-    ThisInitState thisInitialized; // used to track whether the this ptr is initialized.
-    unsigned      esStackDepth;    // size of esStack
-    StackEntry*   esStack;         // ptr to  stack
+    unsigned    esStackDepth; // size of esStack
+    StackEntry* esStack;      // ptr to  stack
+};
+
+class ImportSpillCliqueState
+{
+    unsigned const hasCatchArg : 1;
+    unsigned const spillTempCount : 31;
+    union {
+        CORINFO_CLASS_HANDLE const catchArgType;
+        unsigned const             spillTempBaseLclNum;
+    };
+
+public:
+    ImportSpillCliqueState(CORINFO_CLASS_HANDLE catchArgType)
+        : hasCatchArg(1), spillTempCount(0), catchArgType(catchArgType)
+    {
+    }
+
+    ImportSpillCliqueState(unsigned spillTempBaseLclNum, unsigned spillTempCount)
+        : hasCatchArg(0), spillTempCount(spillTempCount), spillTempBaseLclNum(spillTempBaseLclNum)
+    {
+    }
+
+    bool HasCatchArg() const
+    {
+        return hasCatchArg;
+    }
+
+    CORINFO_CLASS_HANDLE GetCatchArgType() const
+    {
+        assert(hasCatchArg);
+        return catchArgType;
+    }
+
+    unsigned GetSpillTempCount() const
+    {
+        return spillTempCount;
+    }
+
+    unsigned GetSpillTempBaseLclNum() const
+    {
+        assert(!hasCatchArg);
+        return spillTempBaseLclNum;
+    }
+
+    unsigned GetStackDepth() const
+    {
+        return hasCatchArg ? 1 : spillTempCount;
+    }
 };
 
 // Enumeration of the kinds of memory whose state changes the compiler tracks
@@ -382,7 +418,6 @@ struct BasicBlock : private LIR::Range
 
 // clang-format off
 
-#define BBF_VISITED             0x00000001 // BB visited during optimizations
 #define BBF_MARKED              0x00000002 // BB marked  during optimizations
 #define BBF_CHANGED             0x00000004 // input/output of this block has changed
 #define BBF_REMOVED             0x00000008 // BB has been removed from bb-list
@@ -390,7 +425,6 @@ struct BasicBlock : private LIR::Range
 #define BBF_DONT_REMOVE         0x00000010 // BB should not be removed during flow graph optimizations
 #define BBF_IMPORTED            0x00000020 // BB byte-code has been imported
 #define BBF_INTERNAL            0x00000040 // BB has been added by the compiler
-#define BBF_FAILED_VERIFICATION 0x00000080 // BB has verification exception
 
 #define BBF_TRY_BEG             0x00000100 // BB starts a 'try' block
 #define BBF_FUNCLET_BEG         0x00000200 // BB is the beginning of a funclet
@@ -725,13 +759,11 @@ struct BasicBlock : private LIR::Range
     }
 
     union {
-        EntryState* bbEntryState; // verifier tracked state of all entries in stack.
-        flowList*   bbLastPred;   // last pred list entry
+        ImportSpillCliqueState* bbEntryState; // import state at the start of the block
+        flowList*               bbLastPred;   // last pred list entry
     };
 
-#define NO_BASE_TMP UINT_MAX // base# to use when we have none
-    unsigned bbStkTempsIn;   // base# for input stack temps
-    unsigned bbStkTempsOut;  // base# for output stack temps
+    ImportSpillCliqueState* bbExitState;
 
 #define MAX_XCPTN_INDEX (USHRT_MAX - 1)
 
@@ -854,12 +886,6 @@ struct BasicBlock : private LIR::Range
 
 #define MAX_LOOP_NUM 16       // we're using a 'short' for the mask
 #define LOOP_MASK_TP unsigned // must be big enough for a mask
-
-    // TODO-Cleanup: Get rid of bbStkDepth and use bbStackDepthOnEntry() instead
-    union {
-        unsigned short bbStkDepth; // stack depth on entry
-        unsigned short bbFPinVars; // number of inner enregistered FP vars
-    };
 
     // Basic block predecessor lists. Early in compilation, some phases might need to compute "cheap" predecessor
     // lists. These are stored in bbCheapPreds, computed by fgComputeCheapPreds(). If bbCheapPreds is valid,
@@ -1009,11 +1035,8 @@ struct BasicBlock : private LIR::Range
     unsigned bbID;
 #endif // DEBUG
 
-    ThisInitState bbThisOnEntry();
-    unsigned      bbStackDepthOnEntry();
-    void bbSetStack(void* stackBuffer);
-    StackEntry* bbStackOnEntry();
-    void        bbSetRunRarely();
+    unsigned bbStackDepthOnEntry();
+    void     bbSetRunRarely();
 
     // "bbNum" is one-based (for unknown reasons); it is sometimes useful to have the corresponding
     // zero-based number for use as an array index.

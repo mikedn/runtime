@@ -32,12 +32,12 @@ DEF_TP(tn      ,nm        , jitType,     verType, sz,sze,asze, st,al, tf)
 DEF_TP(UNDEF   ,"<UNDEF>" , TYP_UNDEF,   TI_ERROR, 0,  0,  0,   0, 0, VTF_ANY)
 DEF_TP(VOID    ,"void"    , TYP_VOID,    TI_ERROR, 0,  0,  0,   0, 0, VTF_ANY)
 
-DEF_TP(BOOL    ,"bool"    , TYP_INT,     TI_BYTE,  1,  1,  4,   1, 1, VTF_INT|VTF_UNS)
-DEF_TP(BYTE    ,"byte"    , TYP_INT,     TI_BYTE,  1,  1,  4,   1, 1, VTF_INT)
-DEF_TP(UBYTE   ,"ubyte"   , TYP_INT,     TI_BYTE,  1,  1,  4,   1, 1, VTF_INT|VTF_UNS)
+DEF_TP(BOOL    ,"bool"    , TYP_INT,     TI_INT,   1,  1,  4,   1, 1, VTF_INT|VTF_UNS)
+DEF_TP(BYTE    ,"byte"    , TYP_INT,     TI_INT,   1,  1,  4,   1, 1, VTF_INT)
+DEF_TP(UBYTE   ,"ubyte"   , TYP_INT,     TI_INT,   1,  1,  4,   1, 1, VTF_INT|VTF_UNS)
 
-DEF_TP(SHORT   ,"short"   , TYP_INT,     TI_SHORT, 2,  2,  4,   1, 2, VTF_INT)
-DEF_TP(USHORT  ,"ushort"  , TYP_INT,     TI_SHORT, 2,  2,  4,   1, 2, VTF_INT|VTF_UNS)
+DEF_TP(SHORT   ,"short"   , TYP_INT,     TI_INT,   2,  2,  4,   1, 2, VTF_INT)
+DEF_TP(USHORT  ,"ushort"  , TYP_INT,     TI_INT,   2,  2,  4,   1, 2, VTF_INT|VTF_UNS)
 
 DEF_TP(INT     ,"int"     , TYP_INT,     TI_INT,   4,  4,  4,   1, 4, VTF_INT|VTF_I32)
 DEF_TP(UINT    ,"uint"    , TYP_INT,     TI_INT,   4,  4,  4,   1, 4, VTF_INT|VTF_UNS|VTF_I32) // Only used in GT_CAST nodes
@@ -45,7 +45,7 @@ DEF_TP(UINT    ,"uint"    , TYP_INT,     TI_INT,   4,  4,  4,   1, 4, VTF_INT|VT
 DEF_TP(LONG    ,"long"    , TYP_LONG,    TI_LONG,  8, PS, PS,   2, 8, VTF_INT|VTF_I64)
 DEF_TP(ULONG   ,"ulong"   , TYP_LONG,    TI_LONG,  8, PS, PS,   2, 8, VTF_INT|VTF_UNS|VTF_I64) // Only used in GT_CAST nodes
 
-DEF_TP(FLOAT   ,"float"   , TYP_FLOAT,   TI_FLOAT, 4,  4,  4,   1, 4, VTF_FLT)
+DEF_TP(FLOAT   ,"float"   , TYP_FLOAT,   TI_DOUBLE,4,  4,  4,   1, 4, VTF_FLT)
 DEF_TP(DOUBLE  ,"double"  , TYP_DOUBLE,  TI_DOUBLE,8,  8,  8,   2, 8, VTF_FLT)
 
 DEF_TP(REF     ,"ref"     , TYP_REF,     TI_REF,  PS,GCS,GCS, PST,PS, VTF_ANY|VTF_GCR|VTF_I)

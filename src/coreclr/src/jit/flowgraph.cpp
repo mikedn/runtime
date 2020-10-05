@@ -207,11 +207,6 @@ void Compiler::fgInit()
 //
 bool Compiler::fgHaveProfileData()
 {
-    if (compIsForImportOnly())
-    {
-        return false;
-    }
-
     return (fgBlockCounts != nullptr);
 }
 
@@ -4425,9 +4420,6 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
     const BYTE* codeEndp = codeAddr + codeSize;
     unsigned    varNum;
     bool        seenJump = false;
-    var_types   varType  = DUMMY_INIT(TYP_UNDEF); // TYP_ type
-    typeInfo    ti;                               // Verifier type.
-    bool        typeIsNormed = false;
     FgStack     pushedStack;
     const bool  isForceInline          = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
     const bool  makeInlineObservations = (compInlineResult != nullptr);
@@ -4471,7 +4463,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
         OPCODE opcode = (OPCODE)getU1LittleEndian(codeAddr);
         codeAddr += sizeof(__int8);
         opts.instrCount++;
-        typeIsNormed = false;
+        bool typeIsNormed = false;
 
     DECODE_OPCODE:
 
@@ -4784,9 +4776,12 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (isInlining)
                 {
+                    var_types lclType;
+                    typeInfo  ti;
+
                     if (opcode == CEE_LDLOCA || opcode == CEE_LDLOCA_S)
                     {
-                        varType = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclTypeInfo;
+                        lclType = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclType;
                         ti      = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclVerTypeInfo;
 
                         impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclHasLdlocaOp = true;
@@ -4795,13 +4790,24 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     {
                         noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
 
-                        varType = impInlineInfo->lclVarInfo[varNum].lclTypeInfo;
+                        lclType = impInlineInfo->lclVarInfo[varNum].lclType;
                         ti      = impInlineInfo->lclVarInfo[varNum].lclVerTypeInfo;
 
                         impInlineInfo->inlArgInfo[varNum].argHasLdargaOp = true;
 
                         pushedStack.PushArgument(varNum);
                     }
+
+                    // TODO-MIKE-Cleanup: The below IsValueClass check is incorrect, it also includes
+                    // primitive types so any primitive type local is treated as "normed type". The
+                    // correct check is IsType(TI_STRUCT) but changing this affects inlining decisions
+                    // and causes a few diffs.
+                    //
+                    // Note that in the non-inlining case the check was also incorrect but because
+                    // lvImpTypeInfo is not normally set on true primitive locals the mistake had no
+                    // observable effects.
+
+                    typeIsNormed = !varTypeIsStruct(lclType) && ti.IsValueClass();
                 }
                 else
                 {
@@ -4826,8 +4832,9 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                         varNum = compMapILargNum(varNum); // account for possible hidden param
                     }
 
-                    varType = (var_types)lvaTable[varNum].lvType;
-                    ti      = lvaTable[varNum].lvVerTypeInfo;
+                    LclVarDsc* lcl = lvaGetDesc(varNum);
+
+                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvImpTypeInfo.IsType(TI_STRUCT);
 
                     // Determine if the next instruction will consume
                     // the address. If so we won't mark this var as
@@ -4844,9 +4851,8 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     // is based in that we know what trees we will
                     // generate for this ldfld, and we require that we
                     // won't need the address of this local at all
-                    noway_assert(varNum < lvaTableCnt);
 
-                    const bool notStruct    = !varTypeIsStruct(&lvaTable[varNum]);
+                    const bool notStruct    = !varTypeIsStruct(lcl->GetType());
                     const bool notLastInstr = (codeAddr < codeEndp - sz);
                     const bool notDebugCode = !opts.compDbgCode;
 
@@ -4857,7 +4863,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     }
                     else
                     {
-                        lvaTable[varNum].lvHasLdAddrOp = 1;
+                        lcl->lvHasLdAddrOp = 1;
                         if (!info.compIsStatic && (varNum == 0))
                         {
                             // Addr taken on "this" pointer is significant,
@@ -4867,8 +4873,6 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                         }
                     }
                 } // isInlining
-
-                typeIsNormed = ti.IsValueClass() && !varTypeIsStruct(varType);
             }
             break;
 
@@ -5101,7 +5105,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 {
     // Optionally enable adjustment during stress.
-    if (!tiVerificationNeeded && compStressCompile(STRESS_GENERIC_VARN, 15))
+    if (compStressCompile(STRESS_GENERIC_VARN, 15))
     {
         lvaTable[info.compThisArg].lvHasILStoreOp = true;
     }
@@ -5116,17 +5120,15 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
         lvaTable[lvaArg0Var].lvAddrExposed     = lvaTable[info.compThisArg].lvAddrExposed;
         lvaTable[lvaArg0Var].lvDoNotEnregister = lvaTable[info.compThisArg].lvDoNotEnregister;
 #ifdef DEBUG
-        lvaTable[lvaArg0Var].lvVMNeedsStackAddr = lvaTable[info.compThisArg].lvVMNeedsStackAddr;
         lvaTable[lvaArg0Var].lvLiveInOutOfHndlr = lvaTable[info.compThisArg].lvLiveInOutOfHndlr;
         lvaTable[lvaArg0Var].lvLclFieldExpr     = lvaTable[info.compThisArg].lvLclFieldExpr;
         lvaTable[lvaArg0Var].lvLiveAcrossUCall  = lvaTable[info.compThisArg].lvLiveAcrossUCall;
 #endif
         lvaTable[lvaArg0Var].lvHasILStoreOp = lvaTable[info.compThisArg].lvHasILStoreOp;
-        lvaTable[lvaArg0Var].lvVerTypeInfo  = lvaTable[info.compThisArg].lvVerTypeInfo;
+        lvaTable[lvaArg0Var].lvIsThisPtr    = lvaTable[info.compThisArg].lvIsThisPtr;
 
-        // Clear the TI_FLAG_THIS_PTR in the original 'this' pointer.
-        noway_assert(lvaTable[lvaArg0Var].lvVerTypeInfo.IsThisPtr());
-        lvaTable[info.compThisArg].lvVerTypeInfo.ClearThisPtr();
+        noway_assert(lvaTable[lvaArg0Var].lvIsThisPtr);
+        lvaTable[info.compThisArg].lvIsThisPtr    = false;
         lvaTable[info.compThisArg].lvAddrExposed  = false;
         lvaTable[info.compThisArg].lvHasILStoreOp = false;
     }
@@ -6451,18 +6453,13 @@ void Compiler::fgFindBasicBlocks()
 
 #endif // !FEATURE_EH_FUNCLETS
 
-#ifndef DEBUG
-    if (tiVerificationNeeded)
-#endif
-    {
-        // always run these checks for a debug build
-        verCheckNestingLevel(initRoot);
-    }
+    // always run these checks for a debug build
+    INDEBUG(verCheckNestingLevel(initRoot);)
 
 #ifndef DEBUG
     // fgNormalizeEH assumes that this test has been passed.  And Ssa assumes that fgNormalizeEHTable
     // has been run.  So do this unless we're in minOpts mode (and always in debug).
-    if (tiVerificationNeeded || !opts.MinOpts())
+    if (!opts.MinOpts())
 #endif
     {
         fgCheckBasicBlockControlFlow();
@@ -23249,7 +23246,6 @@ _Done:
     compLocallocUsed |= InlineeCompiler->compLocallocUsed;
     compLocallocOptimized |= InlineeCompiler->compLocallocOptimized;
     compQmarkUsed |= InlineeCompiler->compQmarkUsed;
-    compUnsafeCastUsed |= InlineeCompiler->compUnsafeCastUsed;
     compNeedsGSSecurityCookie |= InlineeCompiler->compNeedsGSSecurityCookie;
     compGSReorderStackLayout |= InlineeCompiler->compGSReorderStackLayout;
     compHasBackwardJump |= InlineeCompiler->compHasBackwardJump;
@@ -23434,23 +23430,52 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     // We're going to assign the argument value to the
                     // temp we use for it in the inline body.
                     const unsigned  tmpNum  = argInfo.argTmpNum;
-                    const var_types argType = lclVarInfo[argNum].lclTypeInfo;
+                    const var_types argType = lclVarInfo[argNum].lclType;
 
                     // Create the temp assignment for this argument
-                    CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
 
                     if (varTypeIsStruct(argType))
                     {
-                        structHnd = gtGetStructHandleIfPresent(argNode);
+                        CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(argNode);
                         noway_assert((structHnd != NO_CLASS_HANDLE) || (argType != TYP_STRUCT));
-                    }
 
-                    // Unsafe value cls check is not needed for
-                    // argTmpNum here since in-linee compiler instance
-                    // would have iterated over these and marked them
-                    // accordingly.
-                    impAssignTempGen(tmpNum, argNode, structHnd, (unsigned)CHECK_SPILL_NONE, &afterStmt, callILOffset,
-                                     block);
+                        // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
+                        // lvaSetStruct - the temp may have type A<SomeRefClass> and argNode may
+                        // have type A<Canon>. In such a case, impAssignStructPtr wraps the dest
+                        // temp in an OBJ that then cannot be removed and causes CQ issues.
+                        // To avoid that, temporarily change the type of the temp to the argNode's
+                        // type.
+                        //
+                        // In general the JIT doesn't care if the 2 sides of a struct assignment
+                        // have the same type so perhaps we can just change impAssignStructPtr to
+                        // simply not add the OBJ. But for now it's safer to do this here because
+                        // we're 99.99% sure that the types are really the same. If they're not
+                        // then the IL is likely invalid (pushed a struct with a different type
+                        // than the parameter type).
+
+                        LclVarDsc*   tmpLcl        = lvaGetDesc(tmpNum);
+                        ClassLayout* tmpLayout     = tmpLcl->GetLayout();
+                        bool         restoreLayout = false;
+
+                        if ((argType == TYP_STRUCT) && (structHnd != tmpLayout->GetClassHandle()))
+                        {
+                            assert(info.compCompHnd->getClassSize(structHnd) == tmpLayout->GetSize());
+
+                            tmpLcl->SetLayout(typGetObjLayout(structHnd));
+                            restoreLayout = true;
+                        }
+
+                        impAssignTempGen(tmpNum, argNode, structHnd, CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
+
+                        if (restoreLayout)
+                        {
+                            tmpLcl->SetLayout(tmpLayout);
+                        }
+                    }
+                    else
+                    {
+                        impAssignTempGen(tmpNum, argNode, CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
+                    }
 
                     // We used to refine the temp type here based on
                     // the actual arg, but we now do this up front, when
@@ -23665,7 +23690,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                 }
 
                 var_types lclTyp = (var_types)lvaTable[tmpNum].lvType;
-                noway_assert(lclTyp == lclVarInfo[lclNum + inlineInfo->argCnt].lclTypeInfo);
+                noway_assert(lclTyp == lclVarInfo[lclNum + inlineInfo->argCnt].lclType);
 
                 if (!varTypeIsStruct(lclTyp))
                 {
@@ -23676,8 +23701,6 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                 }
                 else
                 {
-                    CORINFO_CLASS_HANDLE structType =
-                        lclVarInfo[lclNum + inlineInfo->argCnt].lclVerTypeInfo.GetClassHandle();
                     tree = gtNewBlkOpNode(gtNewLclvNode(tmpNum, lclTyp), // Dest
                                           gtNewIconNode(0),              // Value
                                           false,                         // isVolatile
@@ -23755,7 +23778,7 @@ void Compiler::fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* bloc
         // Is the local a gc ref type? Need to look at the
         // inline info for this since we will not have local
         // temps for unused inlinee locals.
-        const var_types lclTyp = lclVarInfo[argCnt + lclNum].lclTypeInfo;
+        const var_types lclTyp = lclVarInfo[argCnt + lclNum].lclType;
 
         if (!varTypeIsGC(lclTyp))
         {

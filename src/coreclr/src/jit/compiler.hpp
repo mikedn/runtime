@@ -2323,29 +2323,29 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 inline unsigned Compiler::compMapILargNum(unsigned ILargNum)
 {
-    assert(ILargNum < info.compILargsCount || tiVerificationNeeded);
+    assert(ILargNum < info.compILargsCount);
 
     // Note that this works because if compRetBuffArg/compTypeCtxtArg/lvVarargsHandleArg are not present
     // they will be BAD_VAR_NUM (MAX_UINT), which is larger than any variable number.
     if (ILargNum >= info.compRetBuffArg)
     {
         ILargNum++;
-        assert(ILargNum < info.compLocalsCount || tiVerificationNeeded); // compLocals count already adjusted.
+        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
     }
 
     if (ILargNum >= (unsigned)info.compTypeCtxtArg)
     {
         ILargNum++;
-        assert(ILargNum < info.compLocalsCount || tiVerificationNeeded); // compLocals count already adjusted.
+        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
     }
 
     if (ILargNum >= (unsigned)lvaVarargsHandleArg)
     {
         ILargNum++;
-        assert(ILargNum < info.compLocalsCount || tiVerificationNeeded); // compLocals count already adjusted.
+        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
     }
 
-    assert(ILargNum < info.compArgsCount || tiVerificationNeeded);
+    assert(ILargNum < info.compArgsCount);
     return (ILargNum);
 }
 
@@ -3911,15 +3911,6 @@ inline bool Compiler::impIsDUP_LDVIRTFTN_TOKEN(const BYTE* delegateCreateStart, 
     return (newobjCodeAddr - delegateCreateStart == 7 && // DUP LDVIRTFTN <TOK> takes 6 bytes
             delegateCreateStart[0] == CEE_DUP && delegateCreateStart[1] == CEE_PREFIX1 &&
             delegateCreateStart[2] == (CEE_LDVIRTFTN & 0xFF));
-}
-/*****************************************************************************
- *
- * Returns true if the compiler instance is created for import only (verification).
- */
-
-inline bool Compiler::compIsForImportOnly()
-{
-    return opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY);
 }
 
 /*****************************************************************************

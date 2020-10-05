@@ -568,11 +568,11 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
         {
             // We fold away the cast here, as it only exists to satisfy
             // the type system. It is safe to do this here since the retNode type
-            // and the signature return type are both the same TYP_SIMD.
+            // and the signature return type are both the same SIMD type.
 
             assert(sig->numArgs == 1);
 
-            retNode = impSIMDPopStack(retType, /* expectAddr: */ false, sig->retTypeClass);
+            retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
             assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
             break;
@@ -592,9 +592,9 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
             // We fold away the cast here, as it only exists to satisfy
             // the type system. It is safe to do this here since the retNode type
-            // and the signature return type are both the same TYP_SIMD.
+            // and the signature return type are both the same SIMD type.
 
-            retNode = impSIMDPopStack(retType, /* expectAddr: */ false, sig->retTypeClass);
+            retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
             assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
 
@@ -613,10 +613,9 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
         {
             // We fold away the cast here, as it only exists to satisfy
             // the type system. It is safe to do this here since the retNode type
-            // and the signature return type are both the same TYP_SIMD or the
-            // return type is a smaller TYP_SIMD that shares the same register.
+            // and the signature return type are both the same SIMD type.
 
-            retNode = impSIMDPopStack(retType, /* expectAddr: */ false, sig->retTypeClass);
+            retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
             assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
 
@@ -646,9 +645,9 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                 {
                     // We fold away the cast here, as it only exists to satisfy
                     // the type system. It is safe to do this here since the retNode type
-                    // and the signature return type are both the same TYP_SIMD.
+                    // and the signature return type are both the same SIMD type.
 
-                    retNode = impSIMDPopStack(retType, /* expectAddr: */ false, sig->retTypeClass);
+                    retNode = impSIMDPopStack(retType);
                     SetOpLclRelatedToSIMDIntrinsic(retNode);
                     assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
 
@@ -679,9 +678,9 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             {
                 // We fold away the cast here, as it only exists to satisfy
                 // the type system. It is safe to do this here since the retNode type
-                // and the signature return type are both the same TYP_SIMD.
+                // and the signature return type are both the same SIMD type.
 
-                retNode = impSIMDPopStack(retType, /* expectAddr: */ false, sig->retTypeClass);
+                retNode = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(retNode);
                 assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
 

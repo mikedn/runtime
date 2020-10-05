@@ -1826,9 +1826,8 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
 
         // If this method were a real constructor for Compiler, these would
         // become method initializations.
-        impPendingBlockMembers    = JitExpandArray<BYTE>(getAllocator());
-        impSpillCliquePredMembers = JitExpandArray<BYTE>(getAllocator());
-        impSpillCliqueSuccMembers = JitExpandArray<BYTE>(getAllocator());
+        impPendingBlockMembers = JitExpandArray<bool>(getAllocator());
+        impSpillCliqueMembers  = JitExpandArray<uint8_t>(getAllocator());
 
         lvMemoryPerSsaData = SsaDefArray<SsaMemDef>();
 
@@ -1861,7 +1860,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     compQmarkRationalized = false;
     compQmarkUsed         = false;
     compFloatingPointUsed = false;
-    compUnsafeCastUsed    = false;
 
     compSuppressedZeroInit = false;
 
@@ -1876,7 +1874,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
 
 #ifdef DEBUG
     compCodeGenDone        = false;
-    compRegSetCheckLevel   = 0;
     opts.compMinOptsIsUsed = false;
 #endif
     opts.compMinOptsIsSet = false;
@@ -1888,10 +1885,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     optMethodFlags       = 0;
     optNoReturnCallCount = 0;
 
-#ifdef DEBUG
-    m_nodeTestData      = nullptr;
-    m_loopHoistCSEClass = FIRST_LOOP_HOIST_CSE_CLASS;
-#endif
     m_switchDescMap      = nullptr;
     m_blockToEHPreds     = nullptr;
     m_fieldSeqStore      = nullptr;
@@ -2659,21 +2652,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #ifdef DEBUG
 
     bool altJitConfig = !pfAltJit->isEmpty();
-
-    //  If we have a non-empty AltJit config then we change all of these other
-    //  config values to refer only to the AltJit. Otherwise, a lot of COMPlus_* variables
-    //  would apply to both the altjit and the normal JIT, but we only care about
-    //  debugging the altjit if the COMPlus_AltJit configuration is set.
-    //
-    if (compIsForImportOnly() && (!altJitConfig || opts.altJit))
-    {
-        if (JitConfig.JitImportBreak().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-        {
-            assert(!"JitImportBreak reached");
-        }
-    }
-
-    bool verboseDump = false;
+    bool verboseDump  = false;
 
     if (!altJitConfig || opts.altJit)
     {
@@ -2725,11 +2704,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 
     lvaEnregEHVars       = (((opts.compFlags & CLFLG_REGVAR) != 0) && JitConfig.EnableEHWriteThru());
     lvaEnregMultiRegVars = (((opts.compFlags & CLFLG_REGVAR) != 0) && JitConfig.EnableMultiRegLocals());
-
-    if (compIsForImportOnly())
-    {
-        return;
-    }
 
 #if FEATURE_TAILCALL_OPT
     // By default opportunistic tail call optimization is enabled.
@@ -4172,8 +4146,7 @@ void Compiler::compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, b
 
         /* { editor brace-matching workaround for following printf */
         printf("} Jitted Method %4d at" FMT_ADDR "method %s size %08x%s%s\n", methodNumber, DBG_ADDR(methodCodePtr),
-               info.compFullName, methodCodeSize, isNYI ? " NYI" : (compIsForImportOnly() ? " import only" : ""),
-               opts.altJit ? " altjit" : "");
+               info.compFullName, methodCodeSize, isNYI ? " NYI" : "", opts.altJit ? " altjit" : "");
     }
 #endif // DEBUG
 }
@@ -4318,13 +4291,6 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
     // been run, and inlinee compiles have exited, so we should only
     // get this far if we are jitting the root method.
     noway_assert(!compIsForInlining());
-
-    // Maybe the caller was not interested in generating code
-    if (compIsForImportOnly())
-    {
-        compFunctionTraceEnd(nullptr, 0, false);
-        return;
-    }
 
 #if !FEATURE_EH
     // If we aren't yet supporting EH in a compiler bring-up, remove as many EH handlers as possible, so
@@ -5418,12 +5384,9 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
 
 #endif // DEBUG
 
-    // Set this before the first 'BADCODE'
-    // Skip verification where possible
-    //.tiVerificationNeeded = !compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
+    // Verification isn't supported
     assert(compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
-
-    assert(!compIsForInlining() || !tiVerificationNeeded); // Inlinees must have been verified.
+    assert(!compileFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
 
     /* Setup an error trap */
 
@@ -5890,18 +5853,9 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         JITLOG((LL_INFO100000, "\nINLINER impTokenLookupContextHandle for %s is 0x%p.\n",
                 eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle)));
     }
-
-    if (tiVerificationNeeded)
-    {
-        JITLOG((LL_INFO10000, "tiVerificationNeeded initially set to true for %s\n", info.compFullName));
-    }
 #endif // DEBUG
 
-    /* Since tiVerificationNeeded can be turned off in the middle of
-       compiling a method, and it might have caused blocks to be queued up
-       for reimporting, impCanReimport can be used to check for reimporting. */
-
-    impCanReimport = (tiVerificationNeeded || compStressCompile(STRESS_CHK_REIMPORT, 15));
+    impCanReimport = compStressCompile(STRESS_CHK_REIMPORT, 15);
 
     /* Initialize set a bunch of global values */
 
@@ -7003,81 +6957,6 @@ void Compiler::GetStructTypeOffset(CORINFO_CLASS_HANDLE typeHnd,
 }
 
 #endif // defined(UNIX_AMD64_ABI)
-
-/*****************************************************************************/
-/*****************************************************************************/
-
-#ifdef DEBUG
-Compiler::NodeToIntMap* Compiler::FindReachableNodesInNodeTestData()
-{
-    NodeToIntMap* reachable = new (getAllocatorDebugOnly()) NodeToIntMap(getAllocatorDebugOnly());
-
-    if (m_nodeTestData == nullptr)
-    {
-        return reachable;
-    }
-
-    // Otherwise, iterate.
-
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
-    {
-        for (Statement* stmt = block->FirstNonPhiDef(); stmt != nullptr; stmt = stmt->GetNextStmt())
-        {
-            for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
-            {
-                TestLabelAndNum tlAndN;
-
-                // For call nodes, translate late args to what they stand for.
-                if (tree->OperGet() == GT_CALL)
-                {
-                    GenTreeCall* call = tree->AsCall();
-                    unsigned     i    = 0;
-                    for (GenTreeCall::Use& use : call->Args())
-                    {
-                        if ((use.GetNode()->gtFlags & GTF_LATE_ARG) != 0)
-                        {
-                            // Find the corresponding late arg.
-                            GenTree* lateArg = call->GetArgNodeByArgNum(i);
-                            if (GetNodeTestData()->Lookup(lateArg, &tlAndN))
-                            {
-                                reachable->Set(lateArg, 0);
-                            }
-                        }
-                        i++;
-                    }
-                }
-
-                if (GetNodeTestData()->Lookup(tree, &tlAndN))
-                {
-                    reachable->Set(tree, 0);
-                }
-            }
-        }
-    }
-    return reachable;
-}
-
-void Compiler::TransferTestDataToNode(GenTree* from, GenTree* to)
-{
-    TestLabelAndNum tlAndN;
-    // We can't currently associate multiple annotations with a single node.
-    // If we need to, we can fix this...
-
-    // If the table is null, don't create it just to do the lookup, which would fail...
-    if (m_nodeTestData != nullptr && GetNodeTestData()->Lookup(from, &tlAndN))
-    {
-        assert(!GetNodeTestData()->Lookup(to, &tlAndN));
-        // We can't currently associate multiple annotations with a single node.
-        // If we need to, we can fix this...
-        TestLabelAndNum tlAndNTo;
-        assert(!GetNodeTestData()->Lookup(to, &tlAndNTo));
-
-        GetNodeTestData()->Remove(from);
-        GetNodeTestData()->Set(to, tlAndN);
-    }
-}
-
-#endif // DEBUG
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

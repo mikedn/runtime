@@ -5321,11 +5321,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         }
 
 #if defined(UNIX_AMD64_ABI)
-        if (varTypeIsStruct(varDsc))
+        if (varTypeIsStruct(varDsc->GetType()))
         {
-            CORINFO_CLASS_HANDLE typeHnd = varDsc->GetStructHnd();
-            assert(typeHnd != nullptr);
-
+            CORINFO_CLASS_HANDLE                                typeHnd = varDsc->GetLayout()->GetClassHandle();
             SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
             compiler->eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
             assert(structDesc.passedInRegisters);

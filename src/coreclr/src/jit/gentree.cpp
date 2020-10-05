@@ -6038,7 +6038,8 @@ GenTree* Compiler::gtNewStructVal(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)
         {
             unsigned   lclNum = addr->gtGetOp1()->AsLclVarCommon()->GetLclNum();
             LclVarDsc* varDsc = &(lvaTable[lclNum]);
-            if (varTypeIsStruct(varDsc) && (varDsc->GetStructHnd() == structHnd) && !lvaIsImplicitByRefLocal(lclNum))
+            if (varTypeIsStruct(varDsc->GetType()) && (varDsc->GetLayout()->GetClassHandle() == structHnd) &&
+                !lvaIsImplicitByRefLocal(lclNum))
             {
                 return addr->gtGetOp1();
             }
@@ -10029,7 +10030,7 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
                 }
                 else
                 {
-                    CORINFO_CLASS_HANDLE typeHnd = varDsc->GetStructHnd();
+                    CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
                     CORINFO_FIELD_HANDLE fldHnd;
 
                     for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
@@ -14437,7 +14438,7 @@ GenTree* Compiler::gtNewTempAssign(
         return gtNewNothingNode();
     }
 
-    LclVarDsc* varDsc = lvaTable + tmp;
+    LclVarDsc* varDsc = lvaGetDesc(tmp);
 
     if (varDsc->TypeGet() == TYP_I_IMPL && val->TypeGet() == TYP_BYREF)
     {
@@ -14543,7 +14544,7 @@ GenTree* Compiler::gtNewTempAssign(
         assert(val->OperIs(GT_IND, GT_LCL_FLD, GT_CNS_INT));
         assert(!compDoOldStructRetyping());
         assert(tmp == genReturnLocal);
-        valStructHnd = lvaGetStruct(genReturnLocal);
+        valStructHnd = varDsc->GetLayout()->GetClassHandle();
         assert(valStructHnd != NO_CLASS_HANDLE);
     }
 
@@ -16616,11 +16617,8 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
 #endif
                 break;
             case GT_LCL_VAR:
-            {
-                unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
-                structHnd       = lvaGetStruct(lclNum);
+                structHnd = lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
                 break;
-            }
             case GT_RETURN:
                 structHnd = gtGetStructHandleIfPresent(tree->AsOp()->gtOp1);
                 break;
@@ -16731,14 +16729,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
     *pIsNonNull                   = false;
     *pIsExact                     = false;
     CORINFO_CLASS_HANDLE objClass = nullptr;
-
-    // Bail out if we're just importing and not generating code, since
-    // the jit uses TYP_REF for CORINFO_TYPE_VAR locals and args, but
-    // these may not be ref types.
-    if (compIsForImportOnly())
-    {
-        return objClass;
-    }
 
     // Bail out if the tree is not a ref type.
     var_types treeType = tree->TypeGet();

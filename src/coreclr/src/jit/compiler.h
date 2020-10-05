@@ -60,10 +60,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "simd.h"
 #include "simdashwintrinsic.h"
 
-// This is only used locally in the JIT to indicate that
-// a verification block should be inserted
-#define SEH_VERIFICATION_EXCEPTION 0xe0564552 // VER
-
 /*****************************************************************************
  *                  Forward declarations
  */
@@ -420,12 +416,10 @@ public:
     // These further document the reasons for setting "lvDoNotEnregister".  (Note that "lvAddrExposed" is one of the
     // reasons;
     // also, lvType == TYP_STRUCT prevents enregistration.  At least one of the reasons should be true.
-    unsigned char lvVMNeedsStackAddr : 1; // The VM may have access to a stack-relative address of the variable, and
-                                          // read/write its value.
-    unsigned char lvLclFieldExpr : 1;     // The variable is not a struct, but was accessed like one (e.g., reading a
-                                          // particular byte from an int).
-    unsigned char lvLclBlockOpAddr : 1;   // The variable was written to via a block operation that took its address.
-    unsigned char lvLiveAcrossUCall : 1;  // The variable is live across an unmanaged call.
+    unsigned char lvLclFieldExpr : 1;    // The variable is not a struct, but was accessed like one (e.g., reading a
+                                         // particular byte from an int).
+    unsigned char lvLclBlockOpAddr : 1;  // The variable was written to via a block operation that took its address.
+    unsigned char lvLiveAcrossUCall : 1; // The variable is live across an unmanaged call.
 #endif
     unsigned char lvIsCSE : 1;       // Indicates if this LclVar is a CSE variable.
     unsigned char lvHasLdAddrOp : 1; // has ldloca or ldarga opcode on this local.
@@ -548,6 +542,17 @@ public:
     unsigned char lvHasExplicitInit : 1; // The local is explicitly initialized and doesn't need zero initialization in
                                          // the prolog. If the local has gc pointers, there are no gc-safe points
                                          // between the prolog and the explicit initialization.
+
+    // TODO-MIKE-Cleanup/Fix: This is pretty much bogus. Only VN Copy Prop uses this and for the wrong reasons.
+    // It assumes that if this is set then the local is live, because "this" is supposed to always be live.
+    // Except that isn't really true, "this" is always live only in certain methods (e.g. those that need
+    // it for the generic context). Also, if "this" is stored to, a copy of "this" is created and lvIsThisPtr
+    // is set on that copy, not on the original "this" local. And that copy doesn't have the same "always live"
+    // behavior as the "this" param itself.
+    // This is primarily a cleanup issue, LclVarDsc already contains too much information and the last thing
+    // it needs is such bogus info.
+    // It's also a bug but it requires rather exotic IL code to reproduce it (see copy-prop-test.il test).
+    unsigned char lvIsThisPtr : 1;
 
     union {
         unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted struct
@@ -933,31 +938,18 @@ public:
 
     unsigned lvSlotNum; // original slot # (if remapped)
 
-    typeInfo lvVerTypeInfo; // type info needed for verification
+    // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
+    // since the rest of the bits in typeInfo aren't very useful, they can be recreated
+    // from the local's type. Also:
+    //   - For primitive type locals this is not supposed to be set/used.
+    //   - For struct type locals this is a duplicate of m_layout.
+    //   - For REF type locals this is similar to lvClassHnd (but not identical).
+    //   - Only "normed type" locals truly need this.
+    typeInfo lvImpTypeInfo;
 
     // class handle for the local or null if not known or not a class,
     // for a struct handle use `GetStructHnd()`.
     CORINFO_CLASS_HANDLE lvClassHnd;
-
-    // Get class handle for a struct local or implicitByRef struct local.
-    CORINFO_CLASS_HANDLE GetStructHnd() const
-    {
-#ifdef FEATURE_SIMD
-        if (lvSIMDType && (m_layout == nullptr))
-        {
-            return NO_CLASS_HANDLE;
-        }
-#endif
-        assert(m_layout != nullptr);
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        assert(varTypeIsStruct(TypeGet()) || (lvIsImplicitByRef && (TypeGet() == TYP_BYREF)));
-#else
-        assert(varTypeIsStruct(TypeGet()));
-#endif
-        CORINFO_CLASS_HANDLE structHnd = m_layout->GetClassHandle();
-        assert(structHnd != NO_CLASS_HANDLE);
-        return structHnd;
-    }
 
     CORINFO_FIELD_HANDLE lvFieldHnd; // field handle for promoted struct fields
 
@@ -1886,37 +1878,6 @@ public:
 };
 
 typedef fgArgInfo CallInfo;
-
-#ifdef DEBUG
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-// We have the ability to mark source expressions with "Test Labels."
-// These drive assertions within the JIT, or internal JIT testing.  For example, we could label expressions
-// that should be CSE defs, and other expressions that should uses of those defs, with a shared label.
-
-enum TestLabel // This must be kept identical to System.Runtime.CompilerServices.JitTestLabel.TestLabel.
-{
-    TL_SsaName,
-    TL_VN,        // Defines a "VN equivalence class".  (For full VN, including exceptions thrown).
-    TL_VNNorm,    // Like above, but uses the non-exceptional value of the expression.
-    TL_CSE_Def,   //  This must be identified in the JIT as a CSE def
-    TL_CSE_Use,   //  This must be identified in the JIT as a CSE use
-    TL_LoopHoist, // Expression must (or must not) be hoisted out of the loop.
-};
-
-struct TestLabelAndNum
-{
-    TestLabel m_tl;
-    ssize_t   m_num;
-
-    TestLabelAndNum() : m_tl(TestLabel(0)), m_num(0)
-    {
-    }
-};
-
-typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, TestLabelAndNum> NodeToTestDataMap;
-
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-#endif // DEBUG
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -3012,7 +2973,6 @@ public:
         DNER_AddrExposed,
         DNER_IsStruct,
         DNER_LocalField,
-        DNER_VMNeedsStackAddr,
         DNER_LiveInOutOfHandler,
         DNER_LiveAcrossUnmanagedCall,
         DNER_BlockOp,     // Is read or written via a block operation that explicitly takes the address.
@@ -3177,12 +3137,7 @@ public:
     void lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo);
     void lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo);
 
-    void lvaInitVarDsc(LclVarDsc*              varDsc,
-                       unsigned                varNum,
-                       CorInfoType             corInfoType,
-                       CORINFO_CLASS_HANDLE    typeHnd,
-                       CORINFO_ARG_LIST_HANDLE varList,
-                       CORINFO_SIG_INFO*       varSig);
+    void lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd);
 
     var_types lvaGetActualType(unsigned lclNum);
     var_types lvaGetRealType(unsigned lclNum);
@@ -3277,9 +3232,7 @@ public:
     // Returns true if this local var is a multireg struct
     bool lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVararg);
 
-    // If the local is a TYP_STRUCT, get/set a class handle describing it
-    CORINFO_CLASS_HANDLE lvaGetStruct(unsigned varNum);
-    void lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck, bool setTypeInfo = true);
+    void lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck);
     void lvaSetStructUsedAsVarArg(unsigned varNum);
 
     // If the local is TYP_REF, set or update the associated class information.
@@ -3517,25 +3470,18 @@ protected:
 
 #define SMALL_STACK_SIZE 16 // number of elements in impSmallStack
 
-    struct SavedStack // used to save/restore stack contents.
-    {
-        unsigned    ssDepth; // number of values on stack
-        StackEntry* ssTrees; // saved tree values
-    };
-
     bool impIsPrimitive(CorInfoType type);
     bool impILConsumesAddr(const BYTE* codeAddr);
 
     void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CorInfoTokenKind kind);
 
     void impPushOnStack(GenTree* tree, typeInfo ti);
-    void        impPushNullObjRefOnStack();
-    StackEntry  impPopStack();
+    StackEntry impPopStack();
+    GenTree* impPopStackCoerceArg(var_types signatureType);
     StackEntry& impStackTop(unsigned n = 0);
     unsigned impStackHeight();
 
-    void impSaveStackState(SavedStack* savePtr, bool copy);
-    void impRestoreStackState(SavedStack* savePtr);
+    typeInfo impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle);
 
     GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
 
@@ -3571,10 +3517,6 @@ protected:
     GenTree* impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HANDLE retClsHnd);
 
     GenTree* impFixupStructReturnType(GenTree* op, CORINFO_CLASS_HANDLE retClsHnd);
-
-#ifdef DEBUG
-    var_types impImportJitTestLabelMark(int numArgs);
-#endif // DEBUG
 
     GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
@@ -3818,7 +3760,6 @@ private:
 #ifdef DEBUG
     unsigned    impCurOpcOffs;
     const char* impCurOpcName;
-    bool        impNestedStackSpill;
 
     // For displaying instrs with generated native code (-n:B)
     Statement* impLastILoffsStmt; // oldest stmt added for which we did not call SetLastILOffset().
@@ -3865,44 +3806,26 @@ private:
     static const unsigned MAX_TREE_SIZE = 200;
     bool impCanSpillNow(OPCODE prevOpcode);
 
-    struct PendingDsc
-    {
-        PendingDsc*   pdNext;
-        BasicBlock*   pdBB;
-        SavedStack    pdSavedStack;
-        ThisInitState pdThisPtrInit;
-    };
-
-    PendingDsc* impPendingList; // list of BBs currently waiting to be imported.
-    PendingDsc* impPendingFree; // Freed up dscs that can be reused
-
     // We keep a byte-per-block map (dynamically extended) in the top-level Compiler object of a compilation.
-    JitExpandArray<BYTE> impPendingBlockMembers;
+    JitExpandArray<bool> impPendingBlockMembers;
 
     // Return the byte for "b" (allocating/extending impPendingBlockMembers if necessary.)
     // Operates on the map in the top-level ancestor.
-    BYTE impGetPendingBlockMember(BasicBlock* blk)
+    bool impIsPendingBlockMember(BasicBlock* blk)
     {
         return impInlineRoot()->impPendingBlockMembers.Get(blk->bbInd());
     }
 
     // Set the byte for "b" to "val" (allocating/extending impPendingBlockMembers if necessary.)
     // Operates on the map in the top-level ancestor.
-    void impSetPendingBlockMember(BasicBlock* blk, BYTE val)
+    void impSetPendingBlockMember(BasicBlock* blk, bool val)
     {
         impInlineRoot()->impPendingBlockMembers.Set(blk->bbInd(), val);
     }
 
     bool impCanReimport;
 
-    bool impSpillStackEntry(unsigned level,
-                            unsigned varNum
-#ifdef DEBUG
-                            ,
-                            bool        bAssertOnRecursion,
-                            const char* reason
-#endif
-                            );
+    void impSpillStackEntry(unsigned level DEBUGARG(const char* reason));
 
     void impSpillStackEnsure(bool spillLeaves = false);
     void impEvalSideEffects();
@@ -3914,24 +3837,20 @@ private:
     void impSpillLclRefs(ssize_t lclNum);
 
     BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
+    GenTree* impNewCatchArg();
 
     void impImportBlockCode(BasicBlock* block);
 
-    void impReimportMarkBlock(BasicBlock* block);
-    void impReimportMarkSuccessors(BasicBlock* block);
-
-    void impVerifyEHBlock(BasicBlock* block, bool isTryStart);
+    void impAddPendingEHSuccessors(BasicBlock* block);
 
     void impImportBlockPending(BasicBlock* block);
-
-    // Similar to impImportBlockPending, but assumes that block has already been imported once and is being
-    // reimported for some reason.  It specifically does *not* look at verCurrentState to set the EntryState
-    // for the block, but instead, just re-uses the block's existing EntryState.
-    void impReimportBlockPending(BasicBlock* block);
+    void impPushPendingBlock(BasicBlock* block);
+    BasicBlock* impPopPendingBlock();
 
     var_types impGetByRefResultType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
 
     void impImportBlock(BasicBlock* block);
+    bool impSpillStackAtBlockEnd(BasicBlock* block);
 
     // Assumes that "block" is a basic block that completes with a non-empty stack. We will assign the values
     // on the stack to local variables (the "spill temp" variables). The successor blocks will assume that
@@ -3946,7 +3865,7 @@ private:
     // which "block" is a member (asserting, in debug mode, that no block in this clique had its spill temps
     // chosen already. More precisely, that the incoming or outgoing spill temps are not chosen, depending
     // on which kind of member of the clique the block is).
-    unsigned impGetSpillTmpBase(BasicBlock* block);
+    void impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState* state);
 
     // Assumes that "block" is a basic block that completes with a non-empty stack. We have previously
     // assigned the values on the stack to local variables (the "spill temp" variables). The successor blocks
@@ -3965,8 +3884,7 @@ private:
     // When we compute a "spill clique" (see above) these byte-maps are allocated to have a byte per basic
     // block, and represent the predecessor and successor members of the clique currently being computed.
     // *** Access to these will need to be locked in a parallel compiler.
-    JitExpandArray<BYTE> impSpillCliquePredMembers;
-    JitExpandArray<BYTE> impSpillCliqueSuccMembers;
+    JitExpandArray<uint8_t> impSpillCliqueMembers;
 
     enum SpillCliqueDir
     {
@@ -3981,48 +3899,14 @@ private:
         virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk) = 0;
     };
 
-    // This class is used for setting the bbStkTempsIn and bbStkTempsOut on the blocks within a spill clique
-    class SetSpillTempsBase : public SpillCliqueWalker
-    {
-        unsigned m_baseTmp;
-
-    public:
-        SetSpillTempsBase(unsigned baseTmp) : m_baseTmp(baseTmp)
-        {
-        }
-        virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk);
-    };
-
-    // This class is used for implementing impReimportSpillClique part on each block within the spill clique
-    class ReimportSpillClique : public SpillCliqueWalker
-    {
-        Compiler* m_pComp;
-
-    public:
-        ReimportSpillClique(Compiler* pComp) : m_pComp(pComp)
-        {
-        }
-        virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk);
-    };
-
     // This is the heart of the algorithm for walking spill cliques. It invokes callback->Visit for each
     // predecessor or successor within the spill clique
     void impWalkSpillCliqueFromPred(BasicBlock* pred, SpillCliqueWalker* callback);
 
-    // For a BasicBlock that has already been imported, the EntryState has an array of GenTrees for the
-    // incoming locals. This walks that list an resets the types of the GenTrees to match the types of
-    // the VarDscs. They get out of sync when we have int/native int issues (see impReimportSpillClique).
-    void impRetypeEntryStateTemps(BasicBlock* blk);
+    bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
+    bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
 
-    BYTE impSpillCliqueGetMember(SpillCliqueDir predOrSucc, BasicBlock* blk);
-    void impSpillCliqueSetMember(SpillCliqueDir predOrSucc, BasicBlock* blk, BYTE val);
-
-    void impPushVar(GenTree* op, typeInfo tiRetVal);
-    void impLoadVar(unsigned lclNum, IL_OFFSET offset, const typeInfo& tiRetVal);
-    void impLoadVar(unsigned lclNum, IL_OFFSET offset)
-    {
-        impLoadVar(lclNum, offset, lvaTable[lclNum].lvVerTypeInfo);
-    }
+    void impLoadVar(unsigned lclNum, IL_OFFSET offset);
     void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
     void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
     bool impReturnInstruction(int prefixFlags, OPCODE& opcode);
@@ -4042,10 +3926,10 @@ private:
         void* operator new(size_t sz, Compiler* comp);
     };
     BlockListNode* impBlockListNodeFreeList;
+    BlockListNode* impPendingBlockStack;
 
     void FreeBlockListNode(BlockListNode* node);
 
-    bool impIsValueType(typeInfo* pTypeInfo);
     var_types mangleVarArgsType(var_types type);
 
 #if FEATURE_VARARG
@@ -4088,7 +3972,7 @@ private:
 
     unsigned impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reason));
 
-    GenTree* impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclTypeInfo);
+    GenTree* impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo);
 
     BOOL impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo);
 
@@ -7034,7 +6918,6 @@ public:
                        CORINFO_RESOLVED_TOKEN* pConstrainedToken,
                        CORINFO_CALLINFO_FLAGS  flags,
                        CORINFO_CALL_INFO*      pResult);
-    inline CORINFO_CALLINFO_FLAGS addVerifyFlag(CORINFO_CALLINFO_FLAGS flags);
 
     void eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                         CORINFO_ACCESS_FLAGS    flags,
@@ -7873,11 +7756,7 @@ private:
     // Returns true if the lclVar is an opaque SIMD type.
     bool isOpaqueSIMDLclVar(const LclVarDsc* varDsc) const
     {
-        if (!varDsc->lvSIMDType)
-        {
-            return false;
-        }
-        return isOpaqueSIMDType(varDsc->GetStructHnd());
+        return varTypeIsSIMD(varDsc->GetType()) && isOpaqueSIMDType(varDsc->GetLayout()->GetClassHandle());
     }
 
     static bool isRelOpSIMDIntrinsic(SIMDIntrinsicID intrinsicId)
@@ -7923,11 +7802,6 @@ private:
         return info.compCompHnd->getTypeInstantiationArgument(cls, index);
     }
 
-    bool isSIMDClass(typeInfo* pTypeInfo)
-    {
-        return pTypeInfo->IsStruct() && isSIMDClass(pTypeInfo->GetClassHandleForValueClass());
-    }
-
     bool isHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
 #ifdef FEATURE_HW_INTRINSICS
@@ -7941,23 +7815,9 @@ private:
         return false;
     }
 
-    bool isHWSIMDClass(typeInfo* pTypeInfo)
-    {
-#ifdef FEATURE_HW_INTRINSICS
-        return pTypeInfo->IsStruct() && isHWSIMDClass(pTypeInfo->GetClassHandleForValueClass());
-#else
-        return false;
-#endif
-    }
-
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
         return isSIMDClass(clsHnd) || isHWSIMDClass(clsHnd);
-    }
-
-    bool isSIMDorHWSIMDClass(typeInfo* pTypeInfo)
-    {
-        return isSIMDClass(pTypeInfo) || isHWSIMDClass(pTypeInfo);
     }
 
     // Get the base (element) type and size in bytes for a SIMD type. Returns TYP_UNKNOWN
@@ -7979,9 +7839,8 @@ private:
                                                   var_types*            baseType,
                                                   unsigned*             sizeBytes);
 
-    // Pops and returns GenTree node from importers type stack.
-    // Normalizes TYP_STRUCT value in case of GT_CALL, GT_RET_EXPR and arg nodes.
-    GenTree* impSIMDPopStack(var_types type, bool expectAddr = false, CORINFO_CLASS_HANDLE structType = nullptr);
+    GenTree* impSIMDPopStack(var_types type);
+    GenTree* impSIMDPopStackAddr(var_types type);
 
     // Transforms operands and returns the SIMD intrinsic to be applied on
     // transformed operands to obtain given relop result.
@@ -8412,7 +8271,6 @@ public:
     bool compLocallocOptimized;    // Does the method have an optimized localloc
     bool compQmarkUsed;            // Does the method use GT_QMARK/GT_COLON
     bool compQmarkRationalized;    // Is it allowed to use a GT_QMARK/GT_COLON node.
-    bool compUnsafeCastUsed;       // Does the method use LDIND/STIND to cast between scalar/refernce types
     bool compHasBackwardJump;      // Does the method (or some inlinee) have a lexically backwards jump?
     bool compSwitchedToOptimized;  // Codegen initially was Tier0 but jit switched to FullOpts
     bool compSwitchedToMinOpts;    // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
@@ -9267,7 +9125,6 @@ public:
     static void PrintAggregateLoopHoistStats(FILE* f);
 #endif // LOOP_HOIST_STATS
 
-    bool compIsForImportOnly();
     bool compIsForInlining() const;
     bool compDonotInline();
 
@@ -9435,140 +9292,27 @@ public:
     }
 #endif // DEBUG
 
-    /*
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XX                                                                           XX
-    XX                           typeInfo                                        XX
-    XX                                                                           XX
-    XX   Checks for type compatibility and merges types                          XX
-    XX                                                                           XX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    */
-
 public:
-    // Set to TRUE if verification cannot be skipped for this method
-    // CoreCLR does not ever run IL verification. Compile out the verifier from the JIT by making this a constant.
-    // TODO: Delete the verifier from the JIT? (https://github.com/dotnet/runtime/issues/32648)
-    // BOOL tiVerificationNeeded;
-    static const BOOL tiVerificationNeeded = FALSE;
-
-    // Returns TRUE if child is equal to or a subtype of parent for merge purposes
-    // This support is necessary to suport attributes that are not described in
-    // for example, signatures. For example, the permanent home byref (byref that
-    // points to the gc heap), isn't a property of method signatures, therefore,
-    // it is safe to have mismatches here (that tiCompatibleWith will not flag),
-    // but when deciding if we need to reimport a block, we need to take these
-    // in account
-    BOOL tiMergeCompatibleWith(const typeInfo& pChild, const typeInfo& pParent, bool normalisedForStack) const;
-
     // Returns TRUE if child is equal to or a subtype of parent.
-    // normalisedForStack indicates that both types are normalised for the stack
-    BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent, bool normalisedForStack) const;
+    INDEBUG(BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent) const;)
 
-    // Merges pDest and pSrc. Returns FALSE if merge is undefined.
-    // *pDest is modified to represent the merged type.  Sets "*changed" to true
-    // if this changes "*pDest".
-    BOOL tiMergeToCommonParent(typeInfo* pDest, const typeInfo* pSrc, bool* changed) const;
-
-#ifdef DEBUG
-    // <BUGNUM> VSW 471305
-    // IJW allows assigning REF to BYREF. The following allows us to temporarily
-    // bypass the assert check in gcMarkRegSetGCref and gcMarkRegSetByref
-    // We use a "short" as we need to push/pop this scope.
-    // </BUGNUM>
-    short compRegSetCheckLevel;
-#endif
-
-    /*
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XX                                                                           XX
-    XX                           IL verification stuff                           XX
-    XX                                                                           XX
-    XX                                                                           XX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    */
-
-public:
     // The following is used to track liveness of local variables, initialization
     // of valueclass constructors, and type safe use of IL instructions.
 
     // dynamic state info needed for verification
     EntryState verCurrentState;
 
-    // this ptr of object type .ctors are considered intited only after
-    // the base class ctor is called, or an alternate ctor is called.
-    // An uninited this ptr can be used to access fields, but cannot
-    // be used to call a member function.
-    BOOL verTrackObjCtorInitState;
-
-    void verInitBBEntryState(BasicBlock* block, EntryState* currentState);
-
-    // Requires that "tis" is not TIS_Bottom -- it's a definite init/uninit state.
-    void verSetThisInit(BasicBlock* block, ThisInitState tis);
-    void verInitCurrentState();
-    void verResetCurrentState(BasicBlock* block, EntryState* currentState);
-
-    // Merges the current verification state into the entry state of "block", return FALSE if that merge fails,
-    // TRUE if it succeeds.  Further sets "*changed" to true if this changes the entry state of "block".
-    BOOL verMergeEntryStates(BasicBlock* block, bool* changed);
-
-    void verConvertBBToThrowVerificationException(BasicBlock* block DEBUGARG(bool logMsg));
-    void verHandleVerificationFailure(BasicBlock* block DEBUGARG(bool logMsg));
-    typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd,
-                             bool bashStructToRef = false); // converts from jit type representation to typeInfo
-    typeInfo verMakeTypeInfo(CorInfoType          ciType,
-                             CORINFO_CLASS_HANDLE clsHnd); // converts from jit type representation to typeInfo
-    BOOL verIsSDArray(const typeInfo& ti);
-    typeInfo verGetArrayElemType(const typeInfo& ti);
-
-    typeInfo verParseArgSigToTypeInfo(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args);
-    BOOL verIsByRefLike(const typeInfo& ti);
-    BOOL verIsSafeToReturnByRef(const typeInfo& ti);
-
-    // generic type variables range over types that satisfy IsBoxable
-    BOOL verIsBoxable(const typeInfo& ti);
-
-    void DECLSPEC_NORETURN verRaiseVerifyException(INDEBUG(const char* reason) DEBUGARG(const char* file)
-                                                       DEBUGARG(unsigned line));
-    void verRaiseVerifyExceptionIfNeeded(INDEBUG(const char* reason) DEBUGARG(const char* file)
-                                             DEBUGARG(unsigned line));
-    bool verCheckTailCallConstraint(OPCODE                  opcode,
-                                    CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken, // Is this a "constrained." call
-                                                                                       // on a type parameter?
-                                    bool speculative // If true, won't throw if verificatoin fails. Instead it will
-                                                     // return false to the caller.
-                                                     // If false, it will throw.
-                                    );
-    bool verIsBoxedValueType(const typeInfo& ti);
-
-    void verVerifyCall(OPCODE                  opcode,
-                       CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                       CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
-                       bool                    tailCall,
-                       bool                    readonlyCall, // is this a "readonly." call?
-                       const BYTE*             delegateCreateStart,
-                       const BYTE*             codeAddr,
-                       CORINFO_CALL_INFO* callInfo DEBUGARG(const char* methodName));
-
-    BOOL verCheckDelegateCreation(const BYTE* delegateCreateStart, const BYTE* codeAddr, mdMemberRef& targetMemberRef);
-
-    typeInfo verVerifySTIND(const typeInfo& ptr, const typeInfo& value, const typeInfo& instrType);
-    typeInfo verVerifyLDIND(const typeInfo& ptr, const typeInfo& instrType);
-    void verVerifyField(CORINFO_RESOLVED_TOKEN*   pResolvedToken,
-                        const CORINFO_FIELD_INFO& fieldInfo,
-                        const typeInfo*           tiThis,
-                        BOOL                      mutator,
-                        BOOL                      allowPlainStructAsThis = FALSE);
-    void verVerifyCond(const typeInfo& tiOp1, const typeInfo& tiOp2, unsigned opcode);
-    void verVerifyThisPtrInitialised();
-    BOOL verIsCallToInitThisPtr(CORINFO_CLASS_HANDLE context, CORINFO_CLASS_HANDLE target);
+    void impSetCurrentState(BasicBlock* block);
 
 #ifdef DEBUG
+    typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd);
+    typeInfo verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd);
+
+    bool verCheckTailCallConstraint(OPCODE                  opcode,
+                                    CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained." call
+                                                                                      // on a type parameter?
+                                    );
 
     // One line log function. Default level is 0. Increasing it gives you
     // more log information
@@ -9725,41 +9469,6 @@ public:
                                   const char** methodName,
                                   unsigned*    methodHash);
 #endif // !FEATURE_TRACELOGGING
-
-#ifdef DEBUG
-private:
-    NodeToTestDataMap* m_nodeTestData;
-
-    static const unsigned FIRST_LOOP_HOIST_CSE_CLASS = 1000;
-    unsigned              m_loopHoistCSEClass; // LoopHoist test annotations turn into CSE requirements; we
-                                               // label them with CSE Class #'s starting at FIRST_LOOP_HOIST_CSE_CLASS.
-                                               // Current kept in this.
-public:
-    NodeToTestDataMap* GetNodeTestData()
-    {
-        Compiler* compRoot = impInlineRoot();
-        if (compRoot->m_nodeTestData == nullptr)
-        {
-            compRoot->m_nodeTestData = new (getAllocatorDebugOnly()) NodeToTestDataMap(getAllocatorDebugOnly());
-        }
-        return compRoot->m_nodeTestData;
-    }
-
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, int> NodeToIntMap;
-
-    // Returns the set (i.e., the domain of the result map) of nodes that are keys in m_nodeTestData, and
-    // currently occur in the AST graph.
-    NodeToIntMap* FindReachableNodesInNodeTestData();
-
-    // Node "from" is being eliminated, and being replaced by node "to".  If "from" had any associated
-    // test data, associate that data with "to".
-    void TransferTestDataToNode(GenTree* from, GenTree* to);
-
-    // These are the methods that test that the various conditions implied by the
-    // test attributes are satisfied.
-    void JitTestCheckSSA(); // SSA builder tests.
-    void JitTestCheckVN();  // Value numbering tests.
-#endif                      // DEBUG
 
     // The "FieldSeqStore", for canonicalizing field sequences.  See the definition of FieldSeqStore for
     // operations.

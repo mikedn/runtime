@@ -419,17 +419,17 @@ void Compiler::gsParamsToShadows()
         shadowVarDsc->lvAddrExposed     = varDsc->lvAddrExposed;
         shadowVarDsc->lvDoNotEnregister = varDsc->lvDoNotEnregister;
 #ifdef DEBUG
-        shadowVarDsc->lvVMNeedsStackAddr = varDsc->lvVMNeedsStackAddr;
         shadowVarDsc->lvLiveInOutOfHndlr = varDsc->lvLiveInOutOfHndlr;
         shadowVarDsc->lvLclFieldExpr     = varDsc->lvLclFieldExpr;
         shadowVarDsc->lvLiveAcrossUCall  = varDsc->lvLiveAcrossUCall;
 #endif
-        shadowVarDsc->lvVerTypeInfo = varDsc->lvVerTypeInfo;
+        shadowVarDsc->lvIsThisPtr = varDsc->lvIsThisPtr;
         if (varTypeIsStruct(type))
         {
             // We don't need unsafe value cls check here since we are copying the params and this flag
             // would have been set on the original param before reaching here.
-            lvaSetStruct(shadowVarNum, varDsc->GetStructHnd(), false);
+            lvaSetStruct(shadowVarNum, varDsc->GetLayout()->GetClassHandle(), false);
+
             shadowVarDsc->lvIsMultiRegArg = varDsc->lvIsMultiRegArg;
             shadowVarDsc->lvIsMultiRegRet = varDsc->lvIsMultiRegRet;
         }
@@ -526,8 +526,10 @@ void Compiler::gsParamsToShadows()
         GenTree* opAssign = nullptr;
         if (type == TYP_STRUCT)
         {
-            assert(shadowVarDsc->GetLayout() != nullptr);
-            assert(shadowVarDsc->lvExactSize != 0);
+            // We don't need unsafe value cls check here since we are copying the params and this flag
+            // would have been set on the original param before reaching here.
+            lvaSetStruct(shadowVarNum, varDsc->GetLayout()->GetClassHandle(), false);
+
             opAssign = gtNewBlkOpNode(dst, src, false, true);
         }
         else
