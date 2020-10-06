@@ -523,13 +523,6 @@ void Compiler::gsParamsToShadows()
         src->gtFlags |= GTF_DONT_CSE;
         dst->gtFlags |= GTF_DONT_CSE;
 
-        if (type == TYP_STRUCT)
-        {
-            // We don't need unsafe value cls check here since we are copying the params and this flag
-            // would have been set on the original param before reaching here.
-            lvaSetStruct(shadowVarNum, varDsc->GetLayout()->GetClassHandle(), false);
-        }
-
         fgEnsureFirstBBisScratch();
         fgNewStmtAtBeg(fgFirstBB, fgMorphTree(gtNewAssignNode(dst, src)));
     }
