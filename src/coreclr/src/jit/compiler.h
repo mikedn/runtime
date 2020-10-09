@@ -4993,7 +4993,6 @@ private:
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
 
-    void fgFixupStructReturn(GenTree* call);
     GenTree* fgMorphLocalVar(GenTree* tree, bool forceRemorph);
 
 public:
@@ -8572,11 +8571,6 @@ public:
 #else  // !TARGET_AMD64
         return (compIsProfilerHookNeeded()) && (info.compRetBuffArg != BAD_VAR_NUM);
 #endif // !TARGET_AMD64
-    }
-
-    bool compDoOldStructRetyping()
-    {
-        return JitConfig.JitDoOldStructRetyping();
     }
 
     // Returns true if the method returns a value in more than one return register

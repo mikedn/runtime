@@ -4465,84 +4465,6 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
 #endif // !TARGET_X86
 
-//****************************************************************************
-//  fgFixupStructReturn:
-//    The companion to impFixupCallStructReturn.  Now that the importer is done
-//    change the gtType to the precomputed native return type
-//    requires that callNode currently has a struct type
-//
-void Compiler::fgFixupStructReturn(GenTree* callNode)
-{
-    if (!compDoOldStructRetyping())
-    {
-        return;
-    }
-    assert(varTypeIsStruct(callNode));
-
-    GenTreeCall* call              = callNode->AsCall();
-    bool         callHasRetBuffArg = call->HasRetBufArg();
-    bool         isHelperCall      = call->IsHelperCall();
-
-    // Decide on the proper return type for this call that currently returns a struct
-    //
-    CORINFO_CLASS_HANDLE        retClsHnd = call->gtRetClsHnd;
-    Compiler::structPassingKind howToReturnStruct;
-    var_types                   returnType;
-
-    // There are a couple of Helper Calls that say they return a TYP_STRUCT but they
-    // expect this method to re-type this to a TYP_REF (what is in call->gtReturnType)
-    //
-    //    CORINFO_HELP_METHODDESC_TO_STUBRUNTIMEMETHOD
-    //    CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD
-    //    CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL
-    //
-    if (isHelperCall)
-    {
-        assert(!callHasRetBuffArg);
-        assert(retClsHnd == NO_CLASS_HANDLE);
-
-        // Now that we are past the importer, re-type this node
-        howToReturnStruct = SPK_PrimitiveType;
-        returnType        = (var_types)call->gtReturnType;
-    }
-    else
-    {
-        returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-    }
-
-    if (howToReturnStruct == SPK_ByReference)
-    {
-        assert(returnType == TYP_UNKNOWN);
-        assert(callHasRetBuffArg);
-    }
-    else
-    {
-        assert(returnType != TYP_UNKNOWN);
-
-        if (!varTypeIsStruct(returnType))
-        {
-            // Widen the primitive type if necessary
-            returnType = genActualType(returnType);
-        }
-        call->gtType = returnType;
-    }
-
-#if FEATURE_MULTIREG_RET
-    // Either we don't have a struct now or if struct, then it is a struct returned in regs or in return buffer.
-    assert((call->gtType != TYP_STRUCT) || call->HasMultiRegRetVal() || callHasRetBuffArg);
-#else // !FEATURE_MULTIREG_RET
-    // No more struct returns
-    assert(call->TypeGet() != TYP_STRUCT);
-#endif
-
-#if !defined(UNIX_AMD64_ABI)
-    // If it was a struct return, it has been transformed into a call
-    // with a return buffer (that returns TYP_VOID) or into a return
-    // of a primitive/enregisterable type
-    assert(!callHasRetBuffArg || (call->TypeGet() == TYP_VOID));
-#endif
-}
-
 /*****************************************************************************
  *
  *  A little helper used to rearrange nested commutative operations. The
@@ -5969,8 +5891,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 #ifdef DEBUG
     if (callee->IsTailPrefixedCall())
     {
-        var_types retType = (compDoOldStructRetyping() ? info.compRetNativeType : info.compRetType);
-        assert(impTailCallRetTypeCompatible(retType, info.compMethodInfo->args.retTypeClass,
+        assert(impTailCallRetTypeCompatible(info.compRetType, info.compMethodInfo->args.retTypeClass,
                                             (var_types)callee->gtReturnType, callee->gtRetClsHnd));
     }
 #endif
@@ -7918,10 +7839,6 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
 
 GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 {
-    if (varTypeIsStruct(call))
-    {
-        fgFixupStructReturn(call);
-    }
     if (call->CanTailCall())
     {
         GenTree* newNode = fgMorphPotentialTailCall(call);
@@ -9111,7 +9028,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     }
 #endif // FEATURE_MULTIREG_RET
 
-    if (src->IsCall() && !compDoOldStructRetyping())
+    if (src->IsCall())
     {
         if (dest->OperIs(GT_OBJ))
         {
@@ -10668,7 +10585,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 return tree;
             }
-            if (!compDoOldStructRetyping() && !tree->TypeIs(TYP_VOID))
+            if (!tree->TypeIs(TYP_VOID))
             {
                 if (op1->OperIs(GT_OBJ, GT_IND))
                 {
@@ -13031,7 +12948,6 @@ DONE_MORPHING_CHILDREN:
 //
 GenTree* Compiler::fgMorphRetInd(GenTreeUnOp* ret)
 {
-    assert(!compDoOldStructRetyping());
     assert(ret->OperIs(GT_RETURN));
     assert(ret->gtGetOp1()->OperIs(GT_IND, GT_OBJ));
     GenTreeIndir* ind  = ret->gtGetOp1()->AsIndir();

@@ -6040,14 +6040,7 @@ void Compiler::fgFindBasicBlocks()
             {
                 // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
                 lvaInlineeReturnSpillTemp = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
-                if (compDoOldStructRetyping())
-                {
-                    lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetNativeType;
-                }
-                else
-                {
-                    lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetType;
-                }
+                lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetType;
 
                 // If the method returns a ref class, set the class of the spill temp
                 // to the method's return value. We may update this later if it turns
@@ -8659,17 +8652,10 @@ private:
 
             if (comp->compMethodReturnsNativeScalarType())
             {
-                if (!comp->compDoOldStructRetyping())
+                returnLocalDsc.lvType = genActualType(comp->info.compRetType);
+                if (varTypeIsStruct(returnLocalDsc.lvType))
                 {
-                    returnLocalDsc.lvType = genActualType(comp->info.compRetType);
-                    if (varTypeIsStruct(returnLocalDsc.lvType))
-                    {
-                        comp->lvaSetStruct(returnLocalNum, comp->info.compMethodInfo->args.retTypeClass, false);
-                    }
-                }
-                else
-                {
-                    returnLocalDsc.lvType = genActualType(comp->info.compRetNativeType);
+                    comp->lvaSetStruct(returnLocalNum, comp->info.compMethodInfo->args.retTypeClass, false);
                 }
             }
             else if (comp->compMethodReturnsMultiRegRetType())

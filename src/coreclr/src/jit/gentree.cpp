@@ -13978,7 +13978,6 @@ GenTree* Compiler::gtNewTempAssign(
         {
             // It could come from `ASG(struct, 0)` that was propagated to `RETURN struct(0)`,
             // and now it is merging to a struct again.
-            assert(!compDoOldStructRetyping());
             assert(tmp == genReturnLocal);
             ok = true;
         }
@@ -14024,7 +14023,6 @@ GenTree* Compiler::gtNewTempAssign(
         // 2. we are propogating `ASG(struct V01, 0)` to `RETURN(struct V01)`, `CNT_INT` doesn't `structHnd`;
         // in these cases, we can use the type of the merge return for the assignment.
         assert(val->OperIs(GT_IND, GT_LCL_FLD, GT_CNS_INT));
-        assert(!compDoOldStructRetyping());
         assert(tmp == genReturnLocal);
         valStructHnd = varDsc->GetLayout()->GetClassHandle();
         assert(valStructHnd != NO_CLASS_HANDLE);
@@ -14032,7 +14030,6 @@ GenTree* Compiler::gtNewTempAssign(
 
     if ((valStructHnd != NO_CLASS_HANDLE) && val->IsConstInitVal())
     {
-        assert(!compDoOldStructRetyping());
         asg = gtNewAssignNode(dest, val);
     }
     else if (varTypeIsStruct(varDsc) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valTyp)))
