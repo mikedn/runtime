@@ -1013,17 +1013,9 @@ private:
     // Update reg state for an incoming register argument
     void updateRegStateForArg(LclVarDsc* argDsc);
 
-    inline bool isCandidateLocalRef(GenTree* tree)
+    inline bool isCandidateLclVar(GenTree* tree)
     {
-        if (tree->IsLocal())
-        {
-            unsigned int lclNum = tree->AsLclVarCommon()->GetLclNum();
-            assert(lclNum < compiler->lvaCount);
-            LclVarDsc* varDsc = compiler->lvaTable + tree->AsLclVarCommon()->GetLclNum();
-
-            return isCandidateVar(varDsc);
-        }
-        return false;
+        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && isCandidateVar(compiler->lvaGetDesc(tree->AsLclVar()));
     }
 
     // Helpers for getKillSetForNode().
@@ -1101,9 +1093,9 @@ private:
         return localVarIntervals[varIndex];
     }
 
-    Interval* getIntervalForLocalVarNode(GenTreeLclVarCommon* tree)
+    Interval* getIntervalForLocalVarNode(GenTreeLclVar* tree)
     {
-        LclVarDsc* varDsc = &compiler->lvaTable[tree->GetLclNum()];
+        LclVarDsc* varDsc = compiler->lvaGetDesc(tree);
         assert(varDsc->lvTracked);
         return getIntervalForLocalVar(varDsc->lvVarIndex);
     }

@@ -1187,16 +1187,16 @@ void CodeGen::genFloatReturn(GenTree* treeNode)
     GenTree* op1 = treeNode->gtGetOp1();
     // Spill the return value register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
-    if (genIsRegCandidateLocal(op1) && compiler->lvaTable[op1->AsLclVarCommon()->GetLclNum()].lvOnFrame)
+    if (genIsRegCandidateLclVar(op1) && compiler->lvaGetDesc(op1->AsLclVar())->lvOnFrame)
     {
-        if (compiler->lvaTable[op1->AsLclVarCommon()->GetLclNum()].GetRegNum() != REG_STK)
+        if (compiler->lvaGetDesc(op1->AsLclVar())->GetRegNum() != REG_STK)
         {
             op1->gtFlags |= GTF_SPILL;
-            inst_TT_RV(ins_Store(op1->gtType, compiler->isSIMDTypeLocalAligned(op1->AsLclVarCommon()->GetLclNum())),
+            inst_TT_RV(ins_Store(op1->gtType, compiler->isSIMDTypeLocalAligned(op1->AsLclVar()->GetLclNum())),
                        emitTypeSize(op1->TypeGet()), op1, op1->GetRegNum());
         }
         // Now, load it to the fp stack.
-        GetEmitter()->emitIns_S(INS_fld, emitTypeSize(op1), op1->AsLclVarCommon()->GetLclNum(), 0);
+        GetEmitter()->emitIns_S(INS_fld, emitTypeSize(op1), op1->AsLclVar()->GetLclNum(), 0);
     }
     else
     {
@@ -3066,14 +3066,14 @@ void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
         unsigned dstLclVarNum     = BAD_VAR_NUM;
         bool     isSrcAddrLiveOut = false;
         bool     isDstAddrLiveOut = false;
-        if (genIsRegCandidateLocal(actualSrcAddr))
+        if (genIsRegCandidateLclVar(actualSrcAddr))
         {
-            srcLclVarNum     = actualSrcAddr->AsLclVarCommon()->GetLclNum();
+            srcLclVarNum     = actualSrcAddr->AsLclVar()->GetLclNum();
             isSrcAddrLiveOut = ((actualSrcAddr->gtFlags & (GTF_VAR_DEATH | GTF_SPILL)) == 0);
         }
-        if (genIsRegCandidateLocal(actualDstAddr))
+        if (genIsRegCandidateLclVar(actualDstAddr))
         {
-            dstLclVarNum     = actualDstAddr->AsLclVarCommon()->GetLclNum();
+            dstLclVarNum     = actualDstAddr->AsLclVar()->GetLclNum();
             isDstAddrLiveOut = ((actualDstAddr->gtFlags & (GTF_VAR_DEATH | GTF_SPILL)) == 0);
         }
         assert((actualSrcAddr->GetRegNum() != REG_RSI) || !isSrcAddrLiveOut ||
@@ -4493,14 +4493,14 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     // Swap is only supported for lclVar operands that are enregistered
     // We do not consume or produce any registers.  Both operands remain enregistered.
     // However, the gc-ness may change.
-    assert(genIsRegCandidateLocal(tree->gtOp1) && genIsRegCandidateLocal(tree->gtOp2));
+    assert(genIsRegCandidateLclVar(tree->gtOp1) && genIsRegCandidateLclVar(tree->gtOp2));
 
-    GenTreeLclVarCommon* lcl1    = tree->gtOp1->AsLclVarCommon();
-    LclVarDsc*           varDsc1 = &(compiler->lvaTable[lcl1->GetLclNum()]);
-    var_types            type1   = varDsc1->TypeGet();
-    GenTreeLclVarCommon* lcl2    = tree->gtOp2->AsLclVarCommon();
-    LclVarDsc*           varDsc2 = &(compiler->lvaTable[lcl2->GetLclNum()]);
-    var_types            type2   = varDsc2->TypeGet();
+    GenTreeLclVar* lcl1    = tree->gtOp1->AsLclVar();
+    LclVarDsc*     varDsc1 = compiler->lvaGetDesc(lcl1);
+    var_types      type1   = varDsc1->TypeGet();
+    GenTreeLclVar* lcl2    = tree->gtOp2->AsLclVar();
+    LclVarDsc*     varDsc2 = compiler->lvaGetDesc(lcl2);
+    var_types      type2   = varDsc2->TypeGet();
 
     // We must have both int or both fp regs
     assert(!varTypeUsesFloatReg(type1) || varTypeUsesFloatReg(type2));

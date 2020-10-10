@@ -651,7 +651,7 @@ RefPosition* LinearScan::newUseRefPosition(Interval* theInterval,
                                            regMaskTP mask,
                                            unsigned  multiRegIdx)
 {
-    GenTree* treeNode = isCandidateLocalRef(theTreeNode) ? theTreeNode : nullptr;
+    GenTree* treeNode = isCandidateLclVar(theTreeNode) ? theTreeNode : nullptr;
 
     RefPosition* pos = newRefPosition(theInterval, currentLoc, RefTypeUse, treeNode, mask, multiRegIdx);
     if (theTreeNode->IsRegOptional())
@@ -1676,7 +1676,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, BasicBlock* block, Lsra
             }
         }
 #else  // TARGET_XARCH
-        assert(!isCandidateLocalRef(tree));
+        assert(!isCandidateLclVar(tree));
 #endif // TARGET_XARCH
         JITDUMP("Contained\n");
         return;
@@ -2884,9 +2884,9 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
     Interval* interval;
     bool      regOptional = operand->IsRegOptional();
 
-    if (isCandidateLocalRef(operand))
+    if (isCandidateLclVar(operand))
     {
-        interval = getIntervalForLocalVarNode(operand->AsLclVarCommon());
+        interval = getIntervalForLocalVarNode(operand->AsLclVar());
 
         // We have only approximate last-use information at this point.  This is because the
         // execution order doesn't actually reflect the true order in which the localVars
@@ -3640,7 +3640,7 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 
     bool isSpecialPutArg = false;
 
-    if (supportsSpecialPutArg() && isCandidateLocalRef(src) && ((src->gtFlags & GTF_VAR_DEATH) == 0))
+    if (supportsSpecialPutArg() && isCandidateLclVar(src) && ((src->gtFlags & GTF_VAR_DEATH) == 0))
     {
         // This is the case for a "pass-through" copy of a lclVar.  In the case where it is a non-last-use,
         // we don't want the def of the copy to kill the lclVar register, if it is assigned the same register

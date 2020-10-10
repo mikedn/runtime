@@ -186,13 +186,12 @@ unsigned LinearScan::getWeight(RefPosition* refPos)
 
     if (treeNode != nullptr)
     {
-        if (isCandidateLocalRef(treeNode))
+        if (isCandidateLclVar(treeNode))
         {
             // Tracked locals: use weighted ref cnt as the weight of the
             // ref position.
-            GenTreeLclVarCommon* lclCommon = treeNode->AsLclVarCommon();
-            LclVarDsc*           varDsc    = &(compiler->lvaTable[lclCommon->GetLclNum()]);
-            weight                         = varDsc->lvRefCntWtd();
+            LclVarDsc* varDsc = compiler->lvaGetDesc(treeNode->AsLclVar());
+            weight            = varDsc->lvRefCntWtd();
             if (refPos->getInterval()->isSpilled)
             {
                 // Decrease the weight if the interval has already been spilled.
@@ -6790,7 +6789,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         if (refPosition->copyReg)
         {
             // This is a TEMPORARY copy
-            assert(isCandidateLocalRef(tree) || tree->IsMultiRegLclVar());
+            assert(isCandidateLclVar(tree) || tree->IsMultiRegLclVar());
             newNode->SetLastUse(multiRegIdx);
         }
 
@@ -11133,8 +11132,8 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
 
     if (dst->OperGet() == GT_SWAP)
     {
-        GenTreeLclVarCommon* left          = dst->gtGetOp1()->AsLclVarCommon();
-        GenTreeLclVarCommon* right         = dst->gtGetOp2()->AsLclVarCommon();
+        GenTreeLclVarCommon* left          = dst->gtGetOp1()->AsLclVar();
+        GenTreeLclVarCommon* right         = dst->gtGetOp2()->AsLclVar();
         regNumber            leftRegNum    = left->GetRegNum();
         regNumber            rightRegNum   = right->GetRegNum();
         LclVarDsc*           leftVarDsc    = compiler->lvaTable + left->GetLclNum();
@@ -11163,17 +11162,17 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
         }
         return;
     }
-    regNumber            dstRegNum = dst->GetRegNum();
-    regNumber            srcRegNum;
-    GenTreeLclVarCommon* lcl;
+    regNumber      dstRegNum = dst->GetRegNum();
+    regNumber      srcRegNum;
+    GenTreeLclVar* lcl;
     if (dst->OperGet() == GT_COPY)
     {
-        lcl       = dst->gtGetOp1()->AsLclVarCommon();
+        lcl       = dst->gtGetOp1()->AsLclVar();
         srcRegNum = lcl->GetRegNum();
     }
     else
     {
-        lcl = dst->AsLclVarCommon();
+        lcl = dst->AsLclVar();
         if ((lcl->gtFlags & GTF_SPILLED) != 0)
         {
             srcRegNum = REG_STK;
