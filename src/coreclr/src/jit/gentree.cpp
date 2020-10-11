@@ -5925,7 +5925,7 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     {
         CallArgInfo* argInfo = fgArgInfo->GetArgInfo(i);
 
-        if (argInfo->HasLateUse() && (argInfo->lateUse == use))
+        if (argInfo->HasLateUse() && (argInfo->GetLateUse() == use))
         {
             return argInfo;
         }

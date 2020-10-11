@@ -858,9 +858,9 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
         {
             for (unsigned i = 0; i < argCount; i++)
             {
-                if (argTable[i]->lateUse == oldUse.GetUse())
+                if (argTable[i]->GetLateUse() == oldUse.GetUse())
                 {
-                    argTable[i]->lateUse = newUse.GetUse();
+                    argTable[i]->SetLateUse(newUse.GetUse());
                     break;
                 }
             }
@@ -1374,7 +1374,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             }
 
             lateArgUseListTail = lateArgUse;
-            argInfo->lateUse   = lateArgUse;
+            argInfo->SetLateUse(lateArgUse);
         }
     }
 }

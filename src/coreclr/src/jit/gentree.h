@@ -4690,10 +4690,11 @@ struct GenTreeCall final : public GenTree
 class CallArgInfo
 {
 public:
-    GenTreeCall::Use* use;     // Points to the argument's GenTreeCall::Use in gtCallArgs or gtCallThisArg.
-    GenTreeCall::Use* lateUse; // Points to the argument's GenTreeCall::Use in gtCallLateArgs, if any.
+    GenTreeCall::Use* use; // Points to the argument's GenTreeCall::Use in gtCallArgs or gtCallThisArg.
 
 private:
+    GenTreeCall::Use* m_lateUse; // Points to the argument's GenTreeCall::Use in gtCallLateArgs, if any.
+
     unsigned m_argNum; // The original argument number, also specifies the IL argument evaluation order
 
     unsigned m_slotNum;   // When an argument is passed in the OutArg area this is the slot number in the OutArg area
@@ -4735,7 +4736,7 @@ private:
 public:
     CallArgInfo(unsigned argNum, GenTreeCall::Use* use, unsigned regCount)
         : use(use)
-        , lateUse(nullptr)
+        , m_lateUse(nullptr)
         , m_argNum(argNum)
         , m_slotNum(0)
         , m_slotCount(0)
@@ -4761,7 +4762,7 @@ public:
     // This is the "real" argument use and not the use of the setup tree.
     GenTreeCall::Use* GetUse() const
     {
-        return lateUse == nullptr ? use : lateUse;
+        return m_lateUse == nullptr ? use : m_lateUse;
     }
 
     GenTree* GetNode() const
@@ -4774,9 +4775,20 @@ public:
         GetUse()->SetNode(node);
     }
 
+    GenTreeCall::Use* GetLateUse() const
+    {
+        return m_lateUse;
+    }
+
+    void SetLateUse(GenTreeCall::Use* lateUse)
+    {
+        assert(lateUse != nullptr);
+        m_lateUse = lateUse;
+    }
+
     bool HasLateUse() const
     {
-        return lateUse != nullptr;
+        return m_lateUse != nullptr;
     }
 
     unsigned GetArgNum() const
