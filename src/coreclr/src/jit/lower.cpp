@@ -1152,8 +1152,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
         unsigned int regIndex = 0;
         for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
         {
-            GenTree* node      = use.GetNode();
-            GenTree* putArgReg = InsertPutArgReg(node->GetType(), node, info, regIndex);
+            GenTree* putArgReg = InsertPutArgReg(use.GetNode(), info, regIndex);
             use.SetNode(putArgReg);
 
 #ifdef TARGET_ARM
@@ -1169,7 +1168,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 #endif
     }
 
-    GenTree* putArgReg = InsertPutArgReg(varActualType(arg->GetType()), arg, info, 0);
+    GenTree* putArgReg = InsertPutArgReg(arg, info, 0);
     info->SetNode(putArgReg);
 
 #ifdef TARGET_ARM
@@ -1181,8 +1180,9 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
     return putArgReg;
 }
 
-GenTree* Lowering::InsertPutArgReg(var_types type, GenTree* arg, CallArgInfo* argInfo, unsigned regIndex)
+GenTree* Lowering::InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex)
 {
+    var_types type   = varActualType(arg->GetType());
     regNumber argReg = argInfo->GetRegNum(regIndex);
 
 #ifdef TARGET_ARM

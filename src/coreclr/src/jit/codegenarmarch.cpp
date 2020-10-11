@@ -883,6 +883,7 @@ void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
     var_types type   = putArg->GetType();
     regNumber argReg = putArg->GetRegNum();
 
+    assert(!varTypeIsSmall(type));
 #ifdef TARGET_ARM
     assert((type != TYP_LONG) || src->OperIs(GT_BITCAST));
 #endif
@@ -891,7 +892,7 @@ void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
 
     if (argReg != srcReg)
     {
-        GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, srcReg);
+        GetEmitter()->emitIns_R_R(ins_Copy(type), emitTypeSize(type), argReg, srcReg);
     }
 
     genProduceReg(putArg);
@@ -1005,12 +1006,13 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                 continue;
             }
 
-            var_types type   = putArg->GetRegType(regIndex);
             regNumber argReg = putArg->GetRegNumByIdx(regIndex);
 
             if (argReg != fieldReg)
             {
-                GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, fieldReg);
+                emitAttr attr = emitTypeSize(putArg->GetRegType(regIndex));
+                assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
+                GetEmitter()->emitIns_R_R(INS_mov, attr, argReg, fieldReg);
             }
 
             regIndex++;
@@ -1022,7 +1024,6 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
                 fieldReg = fieldNode->AsMultiRegOp()->GetRegByIndex(1);
 
-                var_types type   = putArg->GetRegType(regIndex);
                 regNumber argReg = putArg->GetRegNumByIdx(regIndex);
 
                 if (argReg != fieldReg)

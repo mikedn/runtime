@@ -7338,9 +7338,14 @@ void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
     var_types type   = putArg->GetType();
     regNumber argReg = putArg->GetRegNum();
 
+    assert(!varTypeIsSmall(type));
+#ifdef TARGET_X86
+    assert(type != TYP_LONG);
+#endif
+
     if (argReg != srcReg)
     {
-        GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, srcReg);
+        GetEmitter()->emitIns_R_R(ins_Copy(type), emitTypeSize(type), argReg, srcReg);
     }
 
     genProduceReg(putArg);
