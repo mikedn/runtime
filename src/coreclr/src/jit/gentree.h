@@ -5133,7 +5133,7 @@ struct GenTreeMultiRegOp : public GenTreeOp
 
     MultiRegSpillFlags gtSpillFlags;
 
-    GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
+    GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 = nullptr)
         : GenTreeOp(oper, type, op1, op2), gtOtherReg(REG_NA)
     {
         ClearOtherRegFlags();

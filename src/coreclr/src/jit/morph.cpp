@@ -2612,17 +2612,30 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         arg          = fgMorphTree(arg);
         argUse->SetNode(arg);
 
-        if (arg->IsLocalAddrExpr() != nullptr)
-        {
-            arg->SetType(TYP_I_IMPL);
-        }
-
         if (!varTypeIsStruct(arg->GetType()))
         {
-            // Non-struct args do not require any additional transformations.
-            // For ARM soft-fp we could bitcast floating point arguments to INT/LONG but
-            // BITCAST LONG isn't currently supported on 32 bit targets so we leave it
-            // to lowering to handle this case.
+            if (arg->TypeIs(TYP_BYREF) && arg->IsLocalAddrExpr() != nullptr)
+            {
+                arg->SetType(TYP_I_IMPL);
+            }
+
+#if (defined(TARGET_ARM64) && defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
+            // win-arm64 varargs and arm-soft-fp pass floating point args in integer registers.
+            if ((argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum(0)) &&
+#ifdef TARGET_ARM
+                // Decomposition doesn't support LONG BITCAST so we'll have to handle the DOUBLE
+                // case in lowering/codegen.
+                arg->TypeIs(TYP_FLOAT)
+#else
+                arg->TypeIs(TYP_FLOAT, TYP_DOUBLE)
+#endif
+                    )
+            {
+                arg = gtNewBitCastNode(arg->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, arg);
+                argUse->SetNode(arg);
+            }
+#endif // (defined(TARGET_ARM64) && defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
+
             argsSideEffects |= arg->gtFlags;
             continue;
         }

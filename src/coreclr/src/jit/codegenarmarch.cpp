@@ -883,6 +883,12 @@ void CodeGen::genPutArgReg(GenTreeUnOp* putArg)
     var_types type   = putArg->GetType();
     regNumber argReg = putArg->GetRegNum();
 
+#ifdef TARGET_ARM
+    assert((type != TYP_LONG) || src->OperIs(GT_BITCAST));
+#endif
+
+    // TODO-MIKE-Review: How come this doesn't check for "other reg" on ARM???
+
     if (argReg != srcReg)
     {
         GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, srcReg);
@@ -1021,7 +1027,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
                 if (argReg != fieldReg)
                 {
-                    GetEmitter()->emitIns_R_R(ins_Copy(type), emitActualTypeSize(type), argReg, fieldReg);
+                    GetEmitter()->emitIns_R_R(INS_mov, EA_4BYTE, argReg, fieldReg);
                 }
 
                 regIndex++;

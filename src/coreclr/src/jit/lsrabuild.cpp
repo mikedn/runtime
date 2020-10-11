@@ -3656,6 +3656,8 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 #ifdef TARGET_ARM
     if (putArg->TypeIs(TYP_LONG))
     {
+        assert(src->OperIs(GT_BITCAST));
+
         regMaskTP nextArgRegMask = genRegMask(genRegArgNext(argReg));
 
         BuildUse(src, nextArgRegMask, 1);

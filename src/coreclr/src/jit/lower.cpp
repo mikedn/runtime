@@ -1185,28 +1185,23 @@ GenTree* Lowering::InsertPutArgReg(var_types type, GenTree* arg, CallArgInfo* ar
 {
     regNumber argReg = argInfo->GetRegNum(regIndex);
 
-    if (varTypeIsFloating(type) && genIsValidIntReg(argReg))
-    {
-#ifndef TARGET_ARMARCH
-        unreached();
-#else
-        type = (type == TYP_DOUBLE) ? TYP_LONG : TYP_INT;
-
-        GenTree* intArg = comp->gtNewBitCastNode(type, arg);
-        intArg->SetRegNum(argReg);
 #ifdef TARGET_ARM
-        if (type == TYP_LONG)
-        {
-            intArg->AsMultiRegOp()->gtOtherReg = argInfo->GetRegNum(regIndex + 1);
-        }
-#endif
+    // LONG args are passed via FIELD_LIST.
+    assert(type != TYP_LONG);
+
+    if ((type == TYP_DOUBLE) && genIsValidIntReg(argReg))
+    {
+        GenTree* intArg = comp->gtNewBitCastNode(TYP_LONG, arg);
+        intArg->SetRegNum(argReg);
+        intArg->AsMultiRegOp()->gtOtherReg = argInfo->GetRegNum(regIndex + 1);
         BlockRange().InsertAfter(arg, intArg);
-        arg         = intArg;
-#endif
+
+        arg  = intArg;
+        type = TYP_LONG;
     }
 
-#ifdef TARGET_ARM
-    GenTreeMultiRegOp* putArg = new (comp, GT_PUTARG_REG) GenTreeMultiRegOp(GT_PUTARG_REG, type, arg, nullptr);
+    GenTreeMultiRegOp* putArg = new (comp, GT_PUTARG_REG) GenTreeMultiRegOp(GT_PUTARG_REG, type, arg);
+
     if (type == TYP_LONG)
     {
         putArg->gtOtherReg = argInfo->GetRegNum(regIndex + 1);
@@ -1214,6 +1209,9 @@ GenTree* Lowering::InsertPutArgReg(var_types type, GenTree* arg, CallArgInfo* ar
 #else
     GenTree* putArg = comp->gtNewOperNode(GT_PUTARG_REG, type, arg);
 #endif
+
+    assert(varTypeUsesFloatReg(type) == genIsValidFloatReg(argReg));
+
     putArg->SetRegNum(argReg);
     BlockRange().InsertAfter(arg, putArg);
     return putArg;
@@ -6291,7 +6289,7 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     }
     else if (src->OperIs(GT_LCL_VAR))
     {
-        if (!m_lsra->isRegCandidate(comp->lvaGetDesc(src->AsLclVar())))
+        if (comp->lvaGetDesc(src->AsLclVar())->lvDoNotEnregister)
         {
             // If it's not a register candidate then we can turn it into a LCL_FLD and retype it.
             src->ChangeOper(GT_LCL_FLD);
