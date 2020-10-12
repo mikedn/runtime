@@ -9730,7 +9730,7 @@ void Compiler::fgSimpleLowering()
                     {
                         // Update outgoing arg size to handle this call
                         const unsigned thisCallOutAreaSize =
-                            max(call->fgArgInfo->GetNextSlotNum() * REGSIZE_BYTES, MIN_ARG_AREA_FOR_CALL);
+                            max(call->GetInfo()->GetNextSlotNum() * REGSIZE_BYTES, MIN_ARG_AREA_FOR_CALL);
 
                         if (thisCallOutAreaSize > outgoingArgSpaceSize)
                         {

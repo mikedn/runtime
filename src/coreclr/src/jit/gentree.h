@@ -3923,9 +3923,8 @@ public:
     }
 };
 
-class fgArgInfo;
-typedef struct fgArgTabEntry CallArgInfo;
-typedef class fgArgInfo      CallInfo;
+class CallInfo;
+class CallArgInfo;
 
 struct GenTreeCall final : public GenTree
 {
@@ -4039,11 +4038,16 @@ struct GenTreeCall final : public GenTree
     Use* gtCallLateArgs; // On x86:     The register arguments in an optimal order
                          // On ARM/x64: - also includes any outgoing arg space arguments
                          //             - that were evaluated into a temp LclVar
-    fgArgInfo* fgArgInfo;
+    CallInfo* fgArgInfo;
 
     CallInfo* GetInfo() const
     {
         return fgArgInfo;
+    }
+
+    void SetInfo(CallInfo* info)
+    {
+        fgArgInfo = info;
     }
 
     UseList Args()
@@ -4683,6 +4687,415 @@ struct GenTreeCall final : public GenTree
 #endif
 };
 
+class CallArgInfo
+{
+public:
+    GenTreeCall::Use* use; // Points to the argument's GenTreeCall::Use in gtCallArgs or gtCallThisArg.
+
+private:
+    GenTreeCall::Use* m_lateUse; // Points to the argument's GenTreeCall::Use in gtCallLateArgs, if any.
+
+    unsigned m_argNum; // The original argument number, also specifies the IL argument evaluation order
+
+    unsigned m_slotNum;   // When an argument is passed in the OutArg area this is the slot number in the OutArg area
+    unsigned m_slotCount; // Count of number of slots that this argument uses
+
+    unsigned m_tempLclNum; // the LclVar number if we had to force evaluation of this arg
+
+    var_types m_argType; // The type used to pass this argument. This is generally the original argument type, but when
+                         // a struct is passed as a scalar type, this is that type.
+                         // Note that if a struct is passed by reference, this will still be the struct type.
+
+    bool m_tempNeeded : 1; // True when we force this argument's evaluation into a temp LclVar
+#if FEATURE_FIXED_OUT_ARGS
+    bool m_placeholderNeeded : 1; // True when we must replace this argument with a placeholder node
+#endif
+    bool m_isNonStandard : 1; // True if it is an arg that is passed in a reg other than a standard arg reg, or is
+                              // forced to be on the stack despite its arg list position.
+#ifdef TARGET_64BIT
+    bool m_isImplicitByRef : 1;
+#endif
+
+    // Count of registers used by this argument.
+    // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
+    uint8_t m_regCount;
+
+#ifdef UNIX_AMD64_ABI
+    // On unix-x64 arg registers may have different types so we need to store all of them.
+    var_types      m_regTypes[MAX_ARG_REG_COUNT];
+    regNumberSmall m_regNums[MAX_ARG_REG_COUNT];
+#else
+#ifdef FEATURE_HFA
+    var_types m_regType;
+#endif
+    // Other multireg targets (ARM, ARM64) always use the same register type so it's enough
+    // to store only the first register in arg info, the rest can be computed on the fly.
+    regNumberSmall m_regNum;
+#endif
+
+public:
+    CallArgInfo(unsigned argNum, GenTreeCall::Use* use, unsigned regCount)
+        : use(use)
+        , m_lateUse(nullptr)
+        , m_argNum(argNum)
+        , m_slotNum(0)
+        , m_slotCount(0)
+        , m_tempLclNum(BAD_VAR_NUM)
+        , m_argType(TYP_UNDEF)
+        , m_tempNeeded(false)
+#if FEATURE_FIXED_OUT_ARGS
+        , m_placeholderNeeded(false)
+#endif
+        , m_isNonStandard(false)
+#ifdef TARGET_64BIT
+        , m_isImplicitByRef(false)
+#endif
+        , m_regCount(static_cast<uint8_t>(regCount))
+#ifdef FEATURE_HFA
+        , m_regType(TYP_I_IMPL)
+#endif
+    {
+        assert(regCount <= MAX_ARG_REG_COUNT);
+    }
+
+    // Get the use that coresponds to this argument.
+    // This is the "real" argument use and not the use of the setup tree.
+    GenTreeCall::Use* GetUse() const
+    {
+        return m_lateUse == nullptr ? use : m_lateUse;
+    }
+
+    GenTree* GetNode() const
+    {
+        return GetUse()->GetNode();
+    }
+
+    void SetNode(GenTree* node)
+    {
+        GetUse()->SetNode(node);
+    }
+
+    GenTreeCall::Use* GetLateUse() const
+    {
+        return m_lateUse;
+    }
+
+    void SetLateUse(GenTreeCall::Use* lateUse)
+    {
+        assert(lateUse != nullptr);
+        m_lateUse = lateUse;
+    }
+
+    bool HasLateUse() const
+    {
+        return m_lateUse != nullptr;
+    }
+
+    unsigned GetArgNum() const
+    {
+        return m_argNum;
+    }
+
+    var_types GetArgType() const
+    {
+        return m_argType;
+    }
+
+    void SetArgType(var_types argType)
+    {
+        m_argType = argType;
+    }
+
+    bool HasTemp() const
+    {
+        return m_tempLclNum != BAD_VAR_NUM;
+    }
+
+    unsigned GetTempLclNum() const
+    {
+        return m_tempLclNum;
+    }
+
+    void SetTempLclNum(unsigned lclNum)
+    {
+        assert(m_tempLclNum == BAD_VAR_NUM);
+        m_tempLclNum = lclNum;
+    }
+
+    bool IsTempNeeded() const
+    {
+        return m_tempNeeded;
+    }
+
+    void SetTempNeeded()
+    {
+        m_tempNeeded = true;
+    }
+
+    bool IsPlaceholderNeeded() const
+    {
+#if FEATURE_FIXED_OUT_ARGS
+        return m_placeholderNeeded;
+#else
+        return false;
+#endif
+    }
+
+#if FEATURE_FIXED_OUT_ARGS
+    void SetPlaceholderNeeded()
+    {
+        assert(m_slotCount != 0);
+        m_placeholderNeeded = true;
+    }
+#endif
+
+    bool IsNonStandard() const
+    {
+        return m_isNonStandard;
+    }
+
+    void SetNonStandard(bool isNonStandard)
+    {
+        m_isNonStandard = isNonStandard;
+    }
+
+#ifdef UNIX_AMD64_ABI
+    var_types GetRegType(unsigned i) const
+    {
+        assert(i < m_regCount);
+        return m_regTypes[i];
+    }
+
+    void SetRegType(unsigned i, var_types type)
+    {
+        assert(i < m_regCount);
+        m_regTypes[i] = type;
+    }
+#elif defined(FEATURE_HFA)
+    var_types GetRegType(unsigned i = 0) const
+    {
+        assert(i < m_regCount);
+        return m_regType;
+    }
+
+    void SetRegType(var_types type)
+    {
+        assert(m_regCount > 0);
+        m_regType = type;
+    }
+#else
+    var_types GetRegType(unsigned i = 0) const
+    {
+        assert(i < m_regCount);
+        return TYP_I_IMPL;
+    }
+#endif
+
+    regNumber GetRegNum(unsigned i = 0) const
+    {
+        assert(i < m_regCount);
+#if defined(FEATURE_HFA) && defined(TARGET_ARM)
+        if (m_regType == TYP_DOUBLE)
+        {
+            return static_cast<regNumber>(m_regNum + i * 2);
+        }
+#endif
+#ifdef UNIX_AMD64_ABI
+        return static_cast<regNumber>(m_regNums[i]);
+#else
+        return static_cast<regNumber>(m_regNum + i);
+#endif
+    }
+
+    void SetRegNum(unsigned i, regNumber regNum)
+    {
+#ifdef UNIX_AMD64_ABI
+        assert(i < m_regCount);
+        m_regNums[i] = static_cast<regNumberSmall>(regNum);
+#else
+        assert(i == 0);
+        m_regNum = static_cast<regNumberSmall>(regNum);
+#endif
+    }
+
+    unsigned GetSlotNum() const
+    {
+        return m_slotNum;
+    }
+
+    void SetSlots(unsigned firstSlot, unsigned slotCount)
+    {
+        m_slotNum   = firstSlot;
+        m_slotCount = slotCount;
+    }
+
+    bool IsHfaArg()
+    {
+#ifdef FEATURE_HFA
+        return m_regType != TYP_I_IMPL;
+#else
+        return false;
+#endif
+    }
+
+    bool IsSplit() const
+    {
+#ifdef FEATURE_ARG_SPLIT
+        return (m_regCount != 0) && (m_slotCount != 0);
+#else
+        return false;
+#endif
+    }
+
+    bool IsSingleRegOrSlot()
+    {
+        return m_regCount + m_slotCount == 1;
+    }
+
+    unsigned GetRegCount()
+    {
+        return m_regCount;
+    }
+
+    unsigned GetSlotCount()
+    {
+        return m_slotCount;
+    }
+
+    bool IsImplicitByRef() const
+    {
+#ifdef TARGET_64BIT
+        return m_isImplicitByRef;
+#else
+        return false;
+#endif
+    }
+
+    void SetIsImplicitByRef(bool isImplicitByRef)
+    {
+// UNIX_AMD64_ABI has implicit by-ref parameters but they're C++ specific
+// and thus not expected to appear in CLR programs.
+#if defined(TARGET_64BIT) && !defined(UNIX_AMD64_ABI)
+        m_isImplicitByRef = isImplicitByRef;
+#else
+        assert(!isImplicitByRef);
+#endif
+    }
+
+    INDEBUG(void Dump() const;)
+};
+
+typedef CallArgInfo fgArgTabEntry;
+
+class CallInfo
+{
+    CallArgInfo** argTable;         // variable sized array of per argument descrption: (i.e. argTable[argTableSize])
+    INDEBUG(unsigned argTableSize;) // size of argTable array (equal to the argCount when done with fgMorphArgs)
+    unsigned argCount;              // Updatable arg count value
+    unsigned nextSlotNum;           // Updatable slot count value
+
+#if defined(UNIX_X86_ABI)
+    unsigned stkSizeBytes;  // Size of stack used by this call, in bytes. Calculated during fgMorphArgs().
+    unsigned padStkAlign;   // Stack alignment in bytes required before arguments are pushed for this call.
+                            // Computed dynamically during codegen, based on stkSizeBytes and the current
+                            // stack level (genStackLevel) when the first stack adjustment is made for
+                            // this call.
+    bool alignmentDone : 1; // Updateable flag, set to 'true' after we've done any required alignment.
+#endif
+    bool hasRegArgs : 1;   // true if we have one or more register arguments
+    bool argsComplete : 1; // marker for state
+
+    void SortArgs(Compiler* compiler, GenTreeCall* call);
+    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call);
+
+public:
+    CallInfo(class Compiler* comp, GenTreeCall* call, unsigned argCount);
+    CallInfo(class Compiler* comp, GenTreeCall* newCall, GenTreeCall* oldCall);
+
+    void AddArg(CallArgInfo* argInfo);
+
+    unsigned AllocateStackSlots(unsigned slotCount, unsigned alignment);
+
+    void ArgsComplete(class Compiler* compiler, GenTreeCall* call);
+
+    unsigned GetArgCount() const
+    {
+        return argCount;
+    }
+
+    CallArgInfo* GetArgInfo(unsigned i) const
+    {
+        assert(i < argCount);
+        return argTable[i];
+    }
+
+    unsigned ArgCount() const
+    {
+        return argCount;
+    }
+
+    fgArgTabEntry** ArgTable() const
+    {
+        return argTable;
+    }
+
+    unsigned GetNextSlotNum() const
+    {
+        return nextSlotNum;
+    }
+
+    bool HasRegArgs() const
+    {
+        return hasRegArgs;
+    }
+
+    bool HasStackArgs() const
+    {
+        return nextSlotNum != INIT_ARG_STACK_SLOT;
+    }
+
+    bool AreArgsComplete() const
+    {
+        return argsComplete;
+    }
+
+#if defined(UNIX_X86_ABI)
+    void ComputeStackAlignment(unsigned curStackLevelInBytes)
+    {
+        padStkAlign = AlignmentPad(curStackLevelInBytes, STACK_ALIGN);
+    }
+
+    unsigned GetStkAlign() const
+    {
+        return padStkAlign;
+    }
+
+    void SetStkSizeBytes(unsigned newStkSizeBytes)
+    {
+        stkSizeBytes = newStkSizeBytes;
+    }
+
+    unsigned GetStkSizeBytes() const
+    {
+        return stkSizeBytes;
+    }
+
+    bool IsStkAlignmentDone() const
+    {
+        return alignmentDone;
+    }
+
+    void SetStkAlignmentDone()
+    {
+        alignmentDone = true;
+    }
+#endif // defined(UNIX_X86_ABI)
+
+    void Dump() const;
+};
+
+typedef CallInfo fgArgInfo;
+
 struct GenTreeCmpXchg : public GenTree
 {
     GenTree* gtOpLocation;
@@ -4720,7 +5133,7 @@ struct GenTreeMultiRegOp : public GenTreeOp
 
     MultiRegSpillFlags gtSpillFlags;
 
-    GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
+    GenTreeMultiRegOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 = nullptr)
         : GenTreeOp(oper, type, op1, op2), gtOtherReg(REG_NA)
     {
         ClearOtherRegFlags();
@@ -6507,18 +6920,21 @@ struct GenTreePhiArg : public GenTreeLclVarCommon
 #endif
 };
 
-/* gtPutArgStk -- Argument passed on stack (GT_PUTARG_STK) */
+// Argument passed on stack (GT_PUTARG_STK)
 
 struct GenTreePutArgStk : public GenTreeUnOp
 {
-#if defined(DEBUG) || defined(UNIX_X86_ABI)
-    GenTreeCall* gtCall; // the call node to which this argument belongs
-#endif
-
 private:
-    unsigned m_slotNum; // Slot number of the argument to be passed on stack
-#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
-    unsigned m_slotCount; // Number of slots for the argument to be passed on stack
+    CallArgInfo* m_argInfo;
+#if defined(DEBUG) || defined(UNIX_X86_ABI)
+    GenTreeCall* m_call; // the call node to which this argument belongs
+#endif
+#if FEATURE_FASTTAILCALL
+private:
+    bool m_putInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
+                                 // By default this is false and will be placed in out-going arg area.
+                                 // Fast tail calls set this to true.
+                                 // In future if we need to add more such bool fields consider bit fields.
 #endif
 
 public:
@@ -6545,46 +6961,43 @@ public:
 
     Kind gtPutArgStkKind;
 #endif // TARGET_XARCH
-#if FEATURE_FASTTAILCALL
-    bool gtPutInIncomingArgArea; // Whether this arg needs to be placed in incoming arg area.
-                                 // By default this is false and will be placed in out-going arg area.
-                                 // Fast tail calls set this to true.
-                                 // In future if we need to add more such bool fields consider bit fields.
-#endif
 
     // clang-format off
-    GenTreePutArgStk(genTreeOps   oper,
-                     var_types    type,
-                     GenTree*     op1,
-                     unsigned     slotNum,
-                     unsigned     slotCount,
-                     bool         putInIncomingArgArea = false,
-                     GenTreeCall* callNode = nullptr)
-        : GenTreeUnOp(oper, type, op1)
+    GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call, genTreeOps oper = GT_PUTARG_STK)
+        : GenTreeUnOp(oper, TYP_VOID, arg)
+        , m_argInfo(argInfo)
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
-        , gtCall(callNode)
+        , m_call(call)
 #endif
-        , m_slotNum(slotNum)
-#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
-        , m_slotCount(slotCount)
+#if FEATURE_FASTTAILCALL
+        , m_putInIncomingArgArea(call->IsFastTailCall())
 #endif
 #ifdef TARGET_XARCH
         , gtPutArgStkKind(Kind::Invalid)
 #endif
-#if FEATURE_FASTTAILCALL
-        , gtPutInIncomingArgArea(putInIncomingArgArea)
-#endif
     {
 #if defined(TARGET_AMD64) && defined(TARGET_WINDOWS)
-        assert(slotCount == 1);
+        assert(argInfo->GetSlotCount() == 1);
 #endif
     }
     // clang-format on
 
-    bool putInIncomingArgArea() const
+    CallArgInfo* GetArgInfo() const
+    {
+        return m_argInfo;
+    }
+
+#if defined(DEBUG) || defined(UNIX_X86_ABI)
+    GenTreeCall* GetCall() const
+    {
+        return m_call;
+    }
+#endif
+
+    bool PutInIncomingArgArea() const
     {
 #if FEATURE_FASTTAILCALL
-        return gtPutInIncomingArgArea;
+        return m_putInIncomingArgArea;
 #else
         return false;
 #endif
@@ -6592,34 +7005,34 @@ public:
 
     unsigned GetSlotNum() const
     {
-        return m_slotNum;
+        return m_argInfo->GetSlotCount();
+    }
+
+    unsigned GetSlotOffset() const
+    {
+        return m_argInfo->GetSlotNum() * REGSIZE_BYTES;
     }
 
     unsigned GetSlotCount() const
     {
 #if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
-        return m_slotCount;
+        return m_argInfo->GetSlotCount();
 #else
         return 1;
 #endif
     }
 
-    unsigned getArgOffset() const
+    unsigned GetArgSize() const
     {
-        return m_slotNum * TARGET_POINTER_SIZE;
-    }
-
-    unsigned getArgSize() const
-    {
-        return GetSlotCount() * TARGET_POINTER_SIZE;
+        return GetSlotCount() * REGSIZE_BYTES;
     }
 
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
     // Return true if this is a PutArgStk of a SIMD12 struct.
     // This is needed because such values are re-typed to SIMD16, and the type of PutArgStk is VOID.
-    unsigned isSIMD12() const
+    unsigned IsSIMD12() const
     {
-        return (varTypeIsSIMD(gtOp1) && (m_slotCount == 3));
+        return varTypeIsSIMD(gtOp1->GetType()) && (m_argInfo->GetSlotCount() == 3);
     }
 #endif
 
@@ -6644,7 +7057,6 @@ private:
 #endif
 
 #ifdef TARGET_ARM
-    unsigned gtNumRegs;
     // First reg of struct is always given by GetRegNum().
     // gtOtherRegs holds the other reg numbers of struct.
     regNumberSmall gtOtherRegs[MAX_SPLIT_ARG_REGS - 1];
@@ -6656,22 +7068,15 @@ private:
 #endif
 
 public:
-    GenTreePutArgSplit(GenTree*     op1,
-                       unsigned     slotNum,
-                       unsigned     numSlots,
-                       unsigned     numRegs,
-                       bool         putIncomingArgArea = false,
-                       GenTreeCall* callNode           = nullptr)
-        : GenTreePutArgStk(GT_PUTARG_SPLIT, TYP_STRUCT, op1, slotNum, numSlots, putIncomingArgArea, callNode)
-#ifdef TARGET_ARM
-        , gtNumRegs(numRegs)
-#endif
+    GenTreePutArgSplit(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
+        : GenTreePutArgStk(arg, argInfo, call, GT_PUTARG_SPLIT)
     {
-        assert((0 < numRegs) && (numRegs <= MAX_SPLIT_ARG_REGS));
+        assert((0 < argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_SPLIT_ARG_REGS));
 #ifdef TARGET_ARM64
-        assert(numSlots == 1);
+        assert(argInfo->GetSlotCount() == 1);
 #endif
 
+        SetType(TYP_STRUCT);
         ClearOtherRegs();
         ClearOtherRegFlags();
     }
@@ -6679,7 +7084,7 @@ public:
     unsigned GetRegCount() const
     {
 #ifdef TARGET_ARM
-        return gtNumRegs;
+        return GetArgInfo()->GetRegCount();
 #else
         return 1;
 #endif
@@ -6774,10 +7179,10 @@ public:
 #endif
     }
 
-    unsigned getArgSize() const
+    unsigned GetArgSize() const
     {
 #ifdef TARGET_ARM
-        return (GetSlotCount() + gtNumRegs) * REGSIZE_BYTES;
+        return (GetSlotCount() + GetRegCount()) * REGSIZE_BYTES;
 #else
         return 2 * REGSIZE_BYTES;
 #endif

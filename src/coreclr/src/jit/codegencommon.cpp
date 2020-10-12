@@ -11462,7 +11462,7 @@ void CodeGen::genStructReturn(GenTree* treeNode)
     assert(regCount <= MAX_RET_REG_COUNT);
 
 #if FEATURE_MULTIREG_RET
-    if (genIsRegCandidateLocal(actualOp1))
+    if (genIsRegCandidateLclVar(actualOp1))
     {
         // Right now the only enregisterable structs supported are SIMD vector types.
         assert(varTypeIsSIMD(op1));

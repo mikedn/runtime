@@ -688,42 +688,46 @@ REMOVE_CAST:
 }
 
 #ifdef DEBUG
-void fgArgTabEntry::Dump() const
+void CallArgInfo::Dump() const
 {
-    printf("arg %u:", argNum);
-    printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(argType));
+    printf("arg %u:", m_argNum);
+    printf(" [%06u] %s %s", GetNode()->gtTreeID, GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
 
     if (IsImplicitByRef())
     {
         printf(", implicit by-ref");
     }
 
-    if (numRegs != 0)
+    if (m_regCount != 0)
     {
-        printf(", %u reg%s (", numRegs, numRegs == 1 ? "" : "s");
-        for (unsigned i = 0; i < numRegs; i++)
-        {
-#if defined(FEATURE_HFA) || defined(UNIX_AMD64_ABI)
-            printf("%s%s %s", i == 0 ? "" : ", ", getRegName(regNums[i]), varTypeName(GetRegType(i)));
+#ifdef UNIX_AMD64_ABI
+        printf(", %u reg%s (", m_regCount, m_regCount == 1 ? "" : "s");
 #else
-            printf("%s%s", i == 0 ? "" : ", ", getRegName(regNums[i]));
+        printf(", %u %s reg%s (", m_regCount, varTypeName(GetRegType()), m_regCount == 1 ? "" : "s");
+#endif
+        for (unsigned i = 0; i < m_regCount; i++)
+        {
+#if defined(UNIX_AMD64_ABI)
+            printf("%s%s %s", i == 0 ? "" : ", ", getRegName(GetRegNum(i)), varTypeName(GetRegType(i)));
+#else
+            printf("%s%s", i == 0 ? "" : ", ", getRegName(GetRegNum(i)));
 #endif
         }
         printf(")");
     }
 
-    if (numSlots == 1)
+    if (m_slotCount == 1)
     {
-        printf(", 1 slot (%u)", slotNum);
+        printf(", 1 slot (%u)", m_slotNum);
     }
-    else if (numSlots > 1)
+    else if (m_slotCount > 1)
     {
-        printf(", %u slots (%u..%u)", numSlots, slotNum, slotNum + numSlots - 1);
+        printf(", %u slots (%u..%u)", m_slotCount, m_slotNum, m_slotNum + m_slotCount - 1);
     }
 
     if (HasTemp())
     {
-        printf(", temp V%02u", tempLclNum);
+        printf(", temp V%02u", m_tempLclNum);
     }
 
 #if FEATURE_FIXED_OUT_ARGS
@@ -733,7 +737,7 @@ void fgArgTabEntry::Dump() const
     }
 #endif
 
-    if (isNonStandard)
+    if (m_isNonStandard)
     {
         printf(", isNonStandard");
     }
@@ -741,7 +745,7 @@ void fgArgTabEntry::Dump() const
     printf("\n");
 }
 
-void fgArgInfo::Dump() const
+void CallInfo::Dump() const
 {
     for (unsigned i = 0; i < argCount; i++)
     {
@@ -750,7 +754,7 @@ void fgArgInfo::Dump() const
 }
 #endif
 
-fgArgInfo::fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
+CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
 {
     argCount    = 0; // filled in arg count, starts at zero
     nextSlotNum = INIT_ARG_STACK_SLOT;
@@ -771,24 +775,24 @@ fgArgInfo::fgArgInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
     }
     else
     {
-        argTable = new (comp, CMK_fgArgInfoPtrArr) fgArgTabEntry*[numArgs];
+        argTable = new (comp, CMK_CallInfo) CallArgInfo*[numArgs];
     }
 }
 
-/*****************************************************************************
- *
- *  fgArgInfo Copy Constructor
- *
- *  This method needs to act like a copy constructor for fgArgInfo.
- *  The newCall needs to have its fgArgInfo initialized such that
- *  we have newCall that is an exact copy of the oldCall.
- *  We have to take care since the argument information
- *  in the argTable contains pointers that must point to the
- *  new arguments and not the old arguments.
- */
-fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCall)
+//------------------------------------------------------------------------------
+//
+//  CallInfo "copy constructor"
+//
+//  This method needs to act like a copy constructor for CallInfo.
+//  The newCall needs to have its CallInfo initialized such that
+//  we have newCall that is an exact copy of the oldCall.
+//  We have to take care since the argument information
+//  in the argTable contains pointers that must point to the
+//  new arguments and not the old arguments.
+//
+CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCall)
 {
-    fgArgInfo* oldArgInfo = oldCall->AsCall()->fgArgInfo;
+    CallInfo* oldArgInfo = oldCall->AsCall()->GetInfo();
 
     argCount    = oldArgInfo->argCount;
     nextSlotNum = INIT_ARG_STACK_SLOT;
@@ -806,12 +810,12 @@ fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldC
 
     if (argCount > 0)
     {
-        argTable = new (compiler, CMK_fgArgInfoPtrArr) fgArgTabEntry*[argCount];
+        argTable = new (compiler, CMK_CallInfo) fgArgTabEntry*[argCount];
 
         // Copy the old arg entries
         for (unsigned i = 0; i < argCount; i++)
         {
-            argTable[i] = new (compiler, CMK_fgArgInfo) fgArgTabEntry(*oldArgInfo->argTable[i]);
+            argTable[i] = new (compiler, CMK_CallInfo) fgArgTabEntry(*oldArgInfo->argTable[i]);
         }
 
         // The copied arg entries contain pointers to old uses, they need
@@ -854,9 +858,9 @@ fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldC
         {
             for (unsigned i = 0; i < argCount; i++)
             {
-                if (argTable[i]->lateUse == oldUse.GetUse())
+                if (argTable[i]->GetLateUse() == oldUse.GetUse())
                 {
-                    argTable[i]->lateUse = newUse.GetUse();
+                    argTable[i]->SetLateUse(newUse.GetUse());
                     break;
                 }
             }
@@ -868,7 +872,7 @@ fgArgInfo::fgArgInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldC
     argsComplete = true;
 }
 
-void fgArgInfo::AddArg(CallArgInfo* argInfo)
+void CallInfo::AddArg(CallArgInfo* argInfo)
 {
     assert(argCount < argTableSize);
     argTable[argCount] = argInfo;
@@ -876,7 +880,7 @@ void fgArgInfo::AddArg(CallArgInfo* argInfo)
     hasRegArgs |= argInfo->GetRegCount() != 0;
 }
 
-unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
+unsigned CallInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
 {
     assert(!argsComplete);
 
@@ -885,7 +889,7 @@ unsigned fgArgInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
     return firstSlot;
 }
 
-void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
+void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 {
     assert(!argsComplete);
 
@@ -957,7 +961,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             {
                 CallArgInfo* prevArgInfo = argTable[prevArgIndex];
 
-                assert(prevArgInfo->argNum < argInfo->argNum);
+                assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
 
                 if (!prevArgInfo->GetNode()->OperIs(GT_CNS_INT))
                 {
@@ -1017,7 +1021,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             {
                 CallArgInfo* prevArgInfo = argTable[prevArgIndex];
 
-                assert(prevArgInfo->argNum < argInfo->argNum);
+                assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
 
                 // For all previous arguments, if they have any GTF_ALL_EFFECT
                 //  we require that they be evaluated into a temp
@@ -1117,7 +1121,7 @@ void fgArgInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     argsComplete = true;
 }
 
-void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
+void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 {
     // Shuffle the arguments around before we build the gtCallLateArgs list.
     // The idea is to move all "simple" arguments like constants and local vars
@@ -1260,7 +1264,7 @@ void fgArgInfo::SortArgs(Compiler* compiler, GenTreeCall* call)
 #endif
 }
 
-void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
+void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 {
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
@@ -1370,7 +1374,7 @@ void fgArgInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             }
 
             lateArgUseListTail = lateArgUse;
-            argInfo->lateUse   = lateArgUse;
+            argInfo->SetLateUse(lateArgUse);
         }
     }
 }
@@ -1761,9 +1765,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
 #endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
 
-    // Allocate the fgArgInfo for the call node;
-    //
-    call->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(this, call, numArgs);
+    call->SetInfo(new (this, CMK_CallInfo) CallInfo(this, call, numArgs));
 
     // Add the 'this' argument value, if present.
     if (call->gtCallThisArg != nullptr)
@@ -1773,9 +1775,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(call->gtCallType == CT_USER_FUNC || call->gtCallType == CT_INDIRECT);
         assert(varTypeIsGC(argx) || (argx->gtType == TYP_I_IMPL));
 
-        CallArgInfo* argInfo = new (this, CMK_fgArgInfo) CallArgInfo(0, call->gtCallThisArg, 1);
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, call->gtCallThisArg, 1);
         argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
-        argInfo->argType = argx->GetType();
+        argInfo->SetArgType(argx->GetType());
         call->fgArgInfo->AddArg(argInfo);
         intArgRegNum++;
 #ifdef WINDOWS_AMD64_ABI
@@ -2390,6 +2392,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             unsigned regCount = size;
 #if FEATURE_ARG_SPLIT
+            unsigned firstSlot = 0;
             unsigned slotCount = 0;
 #endif
 
@@ -2416,10 +2419,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                             assert((isStructArg) || argx->OperIs(GT_FIELD_LIST) || argx->OperIsCopyBlkOp() ||
                                    (argx->gtOper == GT_COMMA && (argx->gtFlags & GTF_ASG)));
 
-                            regCount           = MAX_REG_ARG - intArgRegNum;
-                            slotCount          = size - regCount;
-                            unsigned firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
-                            assert(firstSlot == INIT_ARG_STACK_SLOT);
+                            regCount  = MAX_REG_ARG - intArgRegNum;
+                            slotCount = size - regCount;
+                            firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
                         }
 #endif // FEATURE_ARG_SPLIT
 
@@ -2448,33 +2450,32 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
 
-#ifdef FEATURE_HFA
+#if defined(TARGET_ARM) && defined(FEATURE_HFA)
+            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
+            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
+            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
+            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
+            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
+
             if (isHfaArg)
             {
                 regCount = hfaSlots;
-#ifdef TARGET_ARM
                 if (hfaType == TYP_DOUBLE)
                 {
                     // Must be an even number of registers.
                     assert((regCount & 1) == 0);
                     regCount = hfaSlots / 2;
                 }
-#endif
+            }
+            else if (argx->TypeIs(TYP_DOUBLE))
+            {
+                regCount = 1;
             }
 #endif
 
-            newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, regCount);
+            newArgEntry = new (this, CMK_CallInfo) CallArgInfo(argIndex, args, regCount);
             newArgEntry->SetRegNum(0, nextRegNum);
-            newArgEntry->isNonStandard = isNonStandard;
-#ifdef FEATURE_HFA
-            if (isHfaArg)
-            {
-                newArgEntry->SetRegType(hfaType);
-            }
-#endif
-#if FEATURE_ARG_SPLIT
-            newArgEntry->numSlots = slotCount;
-#endif
+            newArgEntry->SetNonStandard(isNonStandard);
 #ifdef UNIX_AMD64_ABI
             assert(regCount <= 2);
 
@@ -2495,24 +2496,37 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 newArgEntry->SetRegType(0, argx->GetType());
             }
-#elif defined(FEATURE_MULTIREG_ARGS)
-            newArgEntry->SetMultiRegNums();
+#elif defined(FEATURE_HFA)
+            if (isHfaArg)
+            {
+                newArgEntry->SetRegType(hfaType);
+            }
+            else if (varTypeIsFloating(argx->GetType()))
+            {
+                newArgEntry->SetRegType(argx->GetType());
+            }
+#endif
+#if FEATURE_ARG_SPLIT
+            if (slotCount != 0)
+            {
+                newArgEntry->SetSlots(firstSlot, slotCount);
+            }
 #endif
         }
         else // We have an argument that is not passed in a register
         {
-            newArgEntry = new (this, CMK_fgArgInfo) CallArgInfo(argIndex, args, 0);
-            newArgEntry->SetStackSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
+            newArgEntry = new (this, CMK_CallInfo) CallArgInfo(argIndex, args, 0);
+            newArgEntry->SetSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
         }
 
         if (isStructArg)
         {
             newArgEntry->SetIsImplicitByRef(passStructByRef);
-            newArgEntry->argType = (structBaseType == TYP_UNKNOWN) ? argx->TypeGet() : structBaseType;
+            newArgEntry->SetArgType((structBaseType == TYP_UNKNOWN) ? argx->GetType() : structBaseType);
         }
         else
         {
-            newArgEntry->argType = argx->TypeGet();
+            newArgEntry->SetArgType(argx->GetType());
         }
 
         call->fgArgInfo->AddArg(newArgEntry);
@@ -2598,23 +2612,36 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         arg          = fgMorphTree(arg);
         argUse->SetNode(arg);
 
-        if (arg->IsLocalAddrExpr() != nullptr)
-        {
-            arg->SetType(TYP_I_IMPL);
-        }
-
         if (!varTypeIsStruct(arg->GetType()))
         {
-            // Non-struct args do not require any additional transformations.
-            // For ARM soft-fp we could bitcast floating point arguments to INT/LONG but
-            // BITCAST LONG isn't currently supported on 32 bit targets so we leave it
-            // to lowering to handle this case.
+            if (arg->TypeIs(TYP_BYREF) && arg->IsLocalAddrExpr() != nullptr)
+            {
+                arg->SetType(TYP_I_IMPL);
+            }
+
+#if (defined(TARGET_ARM64) && defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
+            // win-arm64 varargs and arm-soft-fp pass floating point args in integer registers.
+            if ((argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum(0)) &&
+#ifdef TARGET_ARM
+                // Decomposition doesn't support LONG BITCAST so we'll have to handle the DOUBLE
+                // case in lowering/codegen.
+                arg->TypeIs(TYP_FLOAT)
+#else
+                arg->TypeIs(TYP_FLOAT, TYP_DOUBLE)
+#endif
+                    )
+            {
+                arg = gtNewBitCastNode(arg->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, arg);
+                argUse->SetNode(arg);
+            }
+#endif // (defined(TARGET_ARM64) && defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
+
             argsSideEffects |= arg->gtFlags;
             continue;
         }
 
         // Non-standard args are expected to have primitive type.
-        assert(!argInfo->isNonStandard);
+        assert(!argInfo->IsNonStandard());
 
         // TODO-MIKE-Review: Can we get COMMAs here other than those generated for
         // temp arg copies? The struct arg morph code below doesn't handle that.
@@ -2829,12 +2856,12 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         arg->SetType(fieldType);
         arg->gtFlags = 0;
 
-        argInfo->argType = fieldType;
+        argInfo->SetArgType(fieldType);
 
         return false;
     }
 
-    if (arg->TypeIs(TYP_STRUCT) && (argInfo->argType != TYP_STRUCT))
+    if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
     {
         // While not required for corectness, we can change the type of a struct arg to
         // be a primitive type of suitable size (e.g. a 2 byte struct can be treated as
@@ -2845,9 +2872,9 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         // VN be able to convert from a "zero map" to any primitive type in order to
         // const propagate default struct initialization?
 
-        assert(argInfo->GetSlotCount() * REGSIZE_BYTES == roundUp(varTypeSize(argInfo->argType), REGSIZE_BYTES));
+        assert(argInfo->GetSlotCount() * REGSIZE_BYTES == roundUp(varTypeSize(argInfo->GetArgType()), REGSIZE_BYTES));
 
-        var_types argType   = argInfo->argType;
+        var_types argType   = argInfo->GetArgType();
         bool      canRetype = false;
 
         if (arg->OperIs(GT_OBJ))
@@ -2989,7 +3016,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
     assert((argInfo->GetRegCount() == 1) && (argInfo->GetSlotCount() == 0));
 
-    var_types argRegType = argInfo->argType;
+    var_types argRegType = argInfo->GetArgType();
     unsigned  argSize    = 0;
 
     if (varTypeIsSmall(argRegType))
@@ -3511,12 +3538,6 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
 #ifdef TARGET_64BIT
             reg++;
 #else
-            if (reg < argInfo->GetRegCount())
-            {
-                // We don't have decomposition support for LONG BITCAST so we cannot pass it in registers.
-                return false;
-            }
-
             if (reg == regAndSlotCount - 1)
             {
                 // We need to have at least 2 slots left to load a DOUBLE field.
@@ -3695,10 +3716,11 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
             reg++;
 #else
-            // We don't have decomposition support for LONG BITCAST so we cannot pass it in registers.
-            assert(reg >= argInfo->GetRegCount());
             // We need to have at least 2 slots left to load a DOUBLE field.
             assert(reg != regAndSlotCount - 1);
+
+            // Ideally we'd bitcast the DOUBLE to LONG but decomposition doesn't currently support
+            // LONG BITCAST nodes so we'll leave it as is and defer it to lowering.
 
             reg += 2;
 #endif
@@ -6405,7 +6427,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
                 continue;
             }
 
-            if ((argInfo2->argType != TYP_BYREF) && (argInfo2->argType != TYP_I_IMPL))
+            if ((argInfo2->GetArgType() != TYP_BYREF) && (argInfo2->GetArgType() != TYP_I_IMPL))
             {
                 // TODO-MIKE-Review: Similar to the above comment. We could have a struct parameter that
                 // contains the address of any param.
@@ -8023,7 +8045,7 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
     // some argument trees may reference parameters directly.
 
     GenTree* argInTemp             = nullptr;
-    unsigned originalArgNum        = argTabEntry->argNum;
+    unsigned originalArgNum        = argTabEntry->GetArgNum();
     bool     needToAssignParameter = true;
 
     // TODO-CQ: enable calls with struct arguments passed in registers.

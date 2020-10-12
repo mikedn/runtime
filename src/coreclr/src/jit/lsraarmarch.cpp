@@ -165,8 +165,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
         }
     }
 
-    GenTree*  ctrlExpr           = call->gtControlExpr;
-    regMaskTP ctrlExprCandidates = RBM_NONE;
+    GenTree* ctrlExpr = call->gtControlExpr;
     if (call->gtCallType == CT_INDIRECT)
     {
         // either gtControlExpr != null or gtCallAddr != null.
@@ -179,6 +178,8 @@ int LinearScan::BuildCall(GenTreeCall* call)
     // set reg requirements on call target represented as control sequence.
     if (ctrlExpr != nullptr)
     {
+        regMaskTP ctrlExprCandidates = RBM_NONE;
+
         // we should never see a gtControlExpr whose type is void.
         assert(ctrlExpr->TypeGet() != TYP_VOID);
 
@@ -239,93 +240,80 @@ int LinearScan::BuildCall(GenTreeCall* call)
         dstCandidates = RBM_INTRET;
     }
 
-    // First, count reg args
-    // Each register argument corresponds to one source.
-    bool callHasFloatRegArgs = false;
-
     for (GenTreeCall::Use& arg : call->LateArgs())
     {
         GenTree* argNode = arg.GetNode();
 
-#ifdef DEBUG
-        // During Build, we only use the ArgTabEntry for validation,
-        // as getting it is rather expensive.
-        fgArgTabEntry* curArgTabEntry = call->GetArgInfoByArgNode(argNode);
-        assert(curArgTabEntry != nullptr);
-#endif
+        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
 
-        if (argNode->gtOper == GT_PUTARG_STK)
+        if (argNode->OperIs(GT_PUTARG_STK))
         {
-            // late arg that is not passed in a register
-            assert(curArgTabEntry->GetRegCount() == 0);
-            // These should never be contained.
+            assert(argInfo->GetRegCount() == 0);
             assert(!argNode->isContained());
+
             continue;
         }
 
-        // A GT_FIELD_LIST has a TYP_VOID, but is used to represent a multireg struct
-        if (argNode->OperGet() == GT_FIELD_LIST)
+        if (argNode->OperIs(GT_FIELD_LIST))
         {
             assert(argNode->isContained());
 
-            INDEBUG(regNumber argReg = curArgTabEntry->GetRegNum(0);)
-
-            // There could be up to 2-4 PUTARG_REGs in the list (3 or 4 can only occur for HFAs)
+            unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
             {
-#ifdef DEBUG
-                assert(use.GetNode()->OperIs(GT_PUTARG_REG));
-                assert(use.GetNode()->GetRegNum() == argReg);
-                // Update argReg for the next putarg_reg (if any)
-                argReg = genRegArgNext(argReg);
+                assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
 
-#if defined(TARGET_ARM)
-                // A double register is modelled as an even-numbered single one
-                if (use.GetNode()->TypeGet() == TYP_DOUBLE)
-                {
-                    argReg = genRegArgNext(argReg);
-                }
-#endif // TARGET_ARM
-#endif
                 BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
                 srcCount++;
+                regIndex++;
+
+#ifdef TARGET_ARM
+                if (use.GetNode()->TypeIs(TYP_LONG))
+                {
+                    BuildUse(use.GetNode(), genRegMask(genRegArgNext(use.GetNode()->GetRegNum())), 1);
+                    srcCount++;
+                    regIndex++;
+                }
+#endif
             }
+
+            continue;
         }
+
 #if FEATURE_ARG_SPLIT
-        else if (argNode->OperGet() == GT_PUTARG_SPLIT)
+        if (argNode->OperIs(GT_PUTARG_SPLIT))
         {
             unsigned regCount = argNode->AsPutArgSplit()->GetRegCount();
-            assert(regCount == curArgTabEntry->numRegs);
+
             for (unsigned int i = 0; i < regCount; i++)
             {
+                assert(argNode->AsPutArgSplit()->GetRegNumByIdx(i) == argInfo->GetRegNum(i));
+
                 BuildUse(argNode, genRegMask(argNode->AsPutArgSplit()->GetRegNumByIdx(i)), i);
-            }
-            srcCount += regCount;
-        }
-#endif // FEATURE_ARG_SPLIT
-        else
-        {
-            assert(argNode->OperIs(GT_PUTARG_REG));
-            assert(argNode->GetRegNum() == curArgTabEntry->GetRegNum());
-            HandleFloatVarArgs(call, argNode, &callHasFloatRegArgs);
-#ifdef TARGET_ARM
-            // The `double` types have been transformed to `long` on armel,
-            // while the actual long types have been decomposed.
-            // On ARM we may have bitcasts from DOUBLE to LONG.
-            if (argNode->TypeGet() == TYP_LONG)
-            {
-                assert(argNode->IsMultiRegNode());
-                BuildUse(argNode, genRegMask(argNode->GetRegNum()), 0);
-                BuildUse(argNode, genRegMask(genRegArgNext(argNode->GetRegNum())), 1);
-                srcCount += 2;
-            }
-            else
-#endif // TARGET_ARM
-            {
-                BuildUse(argNode, genRegMask(argNode->GetRegNum()));
                 srcCount++;
             }
+
+            continue;
         }
+#endif
+
+        assert(argNode->OperIs(GT_PUTARG_REG));
+        assert(argNode->GetRegNum() == argInfo->GetRegNum());
+
+#ifdef TARGET_ARM
+        if (argNode->TypeIs(TYP_LONG))
+        {
+            assert(argNode->IsMultiRegNode());
+
+            BuildUse(argNode, genRegMask(argNode->GetRegNum()), 0);
+            BuildUse(argNode, genRegMask(genRegArgNext(argNode->GetRegNum())), 1);
+            srcCount += 2;
+            continue;
+        }
+#endif
+
+        BuildUse(argNode, genRegMask(argNode->GetRegNum()));
+        srcCount++;
     }
 
 #ifdef DEBUG
@@ -362,21 +350,9 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
 #endif // DEBUG
 
-    // If it is a fast tail call, it is already preferenced to use IP0.
-    // Therefore, no need set src candidates on call tgt again.
-    if (call->IsVarargs() && callHasFloatRegArgs && !call->IsFastTailCall() && (ctrlExpr != nullptr))
-    {
-        NYI_ARM("float reg varargs");
-
-        // Don't assign the call target to any of the argument registers because
-        // we will use them to also pass floating point arguments as required
-        // by Arm64 ABI.
-        ctrlExprCandidates = allRegs(TYP_INT) & ~(RBM_ARG_REGS);
-    }
-
     if (ctrlExpr != nullptr)
     {
-        BuildUse(ctrlExpr, ctrlExprCandidates);
+        BuildUse(ctrlExpr);
         srcCount++;
     }
 
@@ -452,65 +428,64 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 //
 int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
-    GenTree* src = putArg->GetOp(0);
-    assert(src->isContained());
+    CallArgInfo* argInfo    = putArg->GetArgInfo();
+    regMaskTP    argRegMask = RBM_NONE;
 
-    regMaskTP argRegMask = RBM_NONE;
-
-    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
+    for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
     {
-        regNumber argRegNum = (regNumber)((unsigned)putArg->GetRegNum() + i);
-        argRegMask |= genRegMask(argRegNum);
-        putArg->SetRegNumByIdx(argRegNum, i);
+        argRegMask |= genRegMask(argInfo->GetRegNum(i));
     }
+
+    GenTree* src      = putArg->GetOp(0);
+    unsigned srcCount = 0;
+
+    assert(src->TypeIs(TYP_STRUCT));
+    assert(src->isContained());
 
     if (src->OperIs(GT_FIELD_LIST))
     {
-        assert(src->isContained());
-
-        unsigned sourceRegCount = 0;
-
+        unsigned regIndex = 0;
         for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
         {
-            GenTree* node = use.GetNode();
-            assert(!node->isContained());
-            // The only multi-reg nodes we should see are OperIsMultiRegOp()
-            unsigned currentRegCount;
+            GenTree*  node    = use.GetNode();
+            regMaskTP regMask = RBM_NONE;
+
+            if (regIndex < argInfo->GetRegCount())
+            {
+                regMask = genRegMask(argInfo->GetRegNum(regIndex));
+            }
+
+            BuildUse(node, regMask);
+            srcCount++;
+            regIndex++;
+
 #ifdef TARGET_ARM
-            if (node->OperIsMultiRegOp())
+            if (node->TypeIs(TYP_LONG))
             {
-                currentRegCount = node->AsMultiRegOp()->GetRegCount();
+                assert(node->OperIs(GT_BITCAST));
+
+                regMask = genRegMask(argInfo->GetRegNum(regIndex));
+
+                BuildUse(node, regMask, 1);
+                srcCount++;
+                regIndex++;
             }
-            else
-#endif // TARGET_ARM
-            {
-                assert(!node->IsMultiRegNode());
-                currentRegCount = 1;
-            }
-            // Consume all the registers, setting the appropriate register mask for the ones that
-            // go into registers.
-            for (unsigned regIndex = 0; regIndex < currentRegCount; regIndex++)
-            {
-                regMaskTP sourceMask = RBM_NONE;
-                if (sourceRegCount < putArg->GetRegCount())
-                {
-                    sourceMask = genRegMask((regNumber)((unsigned)putArg->GetRegNum() + sourceRegCount));
-                }
-                sourceRegCount++;
-                BuildUse(node, sourceMask, regIndex);
-            }
+#endif
+        }
+    }
+    else
+    {
+        buildInternalIntRegisterDefForNode(putArg, allRegs(TYP_INT) & ~argRegMask);
+
+        if (src->OperIs(GT_OBJ))
+        {
+            srcCount += BuildAddrUses(src->AsObj()->GetAddr());
         }
 
-        BuildDefs(putArg, putArg->GetRegCount(), argRegMask);
-        return sourceRegCount;
+        buildInternalRegisterUses();
     }
 
-    assert(src->TypeIs(TYP_STRUCT));
-
-    buildInternalIntRegisterDefForNode(putArg, allRegs(TYP_INT) & ~argRegMask);
-    int srcCount = src->OperIs(GT_OBJ) ? BuildAddrUses(src->AsObj()->GetAddr()) : 0;
-    buildInternalRegisterUses();
-    BuildDefs(putArg, putArg->GetRegCount(), argRegMask);
+    BuildDefs(putArg, argInfo->GetRegCount(), argRegMask);
     return srcCount;
 }
 #endif // FEATURE_ARG_SPLIT

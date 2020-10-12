@@ -498,7 +498,7 @@ int LinearScan::BuildNode(GenTree* tree)
         {
             // For a GT_ADDR, the child node should not be evaluated into a register
             GenTree* child = tree->gtGetOp1();
-            assert(!isCandidateLocalRef(child));
+            assert(!isCandidateLclVar(child));
             assert(child->isContained());
             assert(dstCount == 1);
             srcCount = 0;

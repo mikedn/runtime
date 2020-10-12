@@ -967,7 +967,7 @@ protected:
     void genCodeForCompare(GenTreeOp* tree);
     void genIntrinsic(GenTree* treeNode);
     void genPutArgStk(GenTreePutArgStk* treeNode);
-    void genPutArgReg(GenTreeOp* tree);
+    void genPutArgReg(GenTreeUnOp* putArg);
 #if FEATURE_ARG_SPLIT
     void genPutArgSplit(GenTreePutArgSplit* treeNode);
 #endif // FEATURE_ARG_SPLIT
@@ -1327,14 +1327,9 @@ protected:
 
     void genLclHeap(GenTree* tree);
 
-    bool genIsRegCandidateLocal(GenTree* tree)
+    bool genIsRegCandidateLclVar(GenTree* node)
     {
-        if (!tree->IsLocal())
-        {
-            return false;
-        }
-        const LclVarDsc* varDsc = &compiler->lvaTable[tree->AsLclVarCommon()->GetLclNum()];
-        return (varDsc->lvIsRegCandidate());
+        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(node->AsLclVar())->lvIsRegCandidate();
     }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)

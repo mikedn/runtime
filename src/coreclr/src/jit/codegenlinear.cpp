@@ -1127,7 +1127,7 @@ void CodeGen::genUnspillRegIfNeeded(GenTree* tree)
 
     if ((unspillTree->gtFlags & GTF_SPILLED) != 0)
     {
-        if (genIsRegCandidateLocal(unspillTree))
+        if (genIsRegCandidateLclVar(unspillTree))
         {
             // We never have a GT_RELOAD for this case.
             assert(tree == unspillTree);
@@ -1412,10 +1412,9 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
     // location, which matches the GetRegNum() on the node).
     // (Note that it doesn't matter if we call this before or after genUnspillRegIfNeeded
     // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
-    if (genIsRegCandidateLocal(tree))
+    if (genIsRegCandidateLclVar(tree))
     {
-        GenTreeLclVarCommon* lcl    = tree->AsLclVarCommon();
-        LclVarDsc*           varDsc = &compiler->lvaTable[lcl->GetLclNum()];
+        LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
         if (varDsc->GetRegNum() != REG_STK && varDsc->GetRegNum() != tree->GetRegNum())
         {
             inst_RV_RV(ins_Copy(tree->TypeGet()), tree->GetRegNum(), varDsc->GetRegNum());
@@ -1432,12 +1431,11 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
     // 2. it was produced by a local that is going dead
     // 3. it was produced by a local that does not live in that reg (like one allocated on the stack)
 
-    if (genIsRegCandidateLocal(tree))
+    if (genIsRegCandidateLclVar(tree))
     {
         assert(tree->gtHasReg());
 
-        GenTreeLclVarCommon* lcl    = tree->AsLclVar();
-        LclVarDsc*           varDsc = &compiler->lvaTable[lcl->GetLclNum()];
+        LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
         assert(varDsc->lvLRACandidate);
 
         if (varDsc->GetRegNum() == REG_STK)
@@ -1909,9 +1907,9 @@ void CodeGen::genProduceReg(GenTree* tree)
         // parent and should never be marked for spilling.
         noway_assert(!tree->IsCopyOrReload());
 
-        if (genIsRegCandidateLocal(tree))
+        if (genIsRegCandidateLclVar(tree))
         {
-            unsigned varNum = tree->AsLclVarCommon()->GetLclNum();
+            unsigned varNum = tree->AsLclVar()->GetLclNum();
             genSpillLocal(varNum, tree->TypeGet(), tree->AsLclVar(), tree->GetRegNum());
         }
         else if (tree->IsMultiRegLclVar())
@@ -2017,7 +2015,7 @@ void CodeGen::genProduceReg(GenTree* tree)
         //    the register wouldn't be relevant.
         // 2. The register candidate local is going dead. There's no point to mark
         //    the register as live, with a GC pointer, if the variable is dead.
-        if (!genIsRegCandidateLocal(tree) || ((tree->gtFlags & GTF_VAR_DEATH) == 0))
+        if (!genIsRegCandidateLclVar(tree) || ((tree->gtFlags & GTF_VAR_DEATH) == 0))
         {
             // Multi-reg nodes will produce more than one register result.
             // Mark all the regs produced by the node.

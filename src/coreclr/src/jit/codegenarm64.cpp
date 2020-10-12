@@ -3251,13 +3251,13 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     // Swap is only supported for lclVar operands that are enregistered
     // We do not consume or produce any registers.  Both operands remain enregistered.
     // However, the gc-ness may change.
-    assert(genIsRegCandidateLocal(tree->gtOp1) && genIsRegCandidateLocal(tree->gtOp2));
+    assert(genIsRegCandidateLclVar(tree->gtOp1) && genIsRegCandidateLclVar(tree->gtOp2));
 
-    GenTreeLclVarCommon* lcl1    = tree->gtOp1->AsLclVarCommon();
-    LclVarDsc*           varDsc1 = &(compiler->lvaTable[lcl1->GetLclNum()]);
+    GenTreeLclVarCommon* lcl1    = tree->gtOp1->AsLclVar();
+    LclVarDsc*           varDsc1 = compiler->lvaGetDesc(lcl1);
     var_types            type1   = varDsc1->TypeGet();
-    GenTreeLclVarCommon* lcl2    = tree->gtOp2->AsLclVarCommon();
-    LclVarDsc*           varDsc2 = &(compiler->lvaTable[lcl2->GetLclNum()]);
+    GenTreeLclVarCommon* lcl2    = tree->gtOp2->AsLclVar();
+    LclVarDsc*           varDsc2 = compiler->lvaGetDesc(lcl2);
     var_types            type2   = varDsc2->TypeGet();
 
     // We must have both int or both fp regs

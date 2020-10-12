@@ -651,7 +651,7 @@ RefPosition* LinearScan::newUseRefPosition(Interval* theInterval,
                                            regMaskTP mask,
                                            unsigned  multiRegIdx)
 {
-    GenTree* treeNode = isCandidateLocalRef(theTreeNode) ? theTreeNode : nullptr;
+    GenTree* treeNode = isCandidateLclVar(theTreeNode) ? theTreeNode : nullptr;
 
     RefPosition* pos = newRefPosition(theInterval, currentLoc, RefTypeUse, treeNode, mask, multiRegIdx);
     if (theTreeNode->IsRegOptional())
@@ -1676,7 +1676,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, BasicBlock* block, Lsra
             }
         }
 #else  // TARGET_XARCH
-        assert(!isCandidateLocalRef(tree));
+        assert(!isCandidateLclVar(tree));
 #endif // TARGET_XARCH
         JITDUMP("Contained\n");
         return;
@@ -2884,9 +2884,9 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int mu
     Interval* interval;
     bool      regOptional = operand->IsRegOptional();
 
-    if (isCandidateLocalRef(operand))
+    if (isCandidateLclVar(operand))
     {
-        interval = getIntervalForLocalVarNode(operand->AsLclVarCommon());
+        interval = getIntervalForLocalVarNode(operand->AsLclVar());
 
         // We have only approximate last-use information at this point.  This is because the
         // execution order doesn't actually reflect the true order in which the localVars
@@ -3623,127 +3623,62 @@ bool LinearScan::supportsSpecialPutArg()
 #endif
 }
 
-//------------------------------------------------------------------------
-// BuildPutArgReg: Set the NodeInfo for a PUTARG_REG.
-//
-// Arguments:
-//    node                - The PUTARG_REG node.
-//    argReg              - The register in which to pass the argument.
-//    info                - The info for the node's using call.
-//    isVarArgs           - True if the call uses a varargs calling convention.
-//    callHasFloatRegArgs - Set to true if this PUTARG_REG uses an FP register.
-//
-// Return Value:
-//    None.
-//
-int LinearScan::BuildPutArgReg(GenTreeUnOp* node)
+int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 {
-    assert(node != nullptr);
-    assert(node->OperIsPutArgReg());
-    regNumber argReg = node->GetRegNum();
-    assert(argReg != REG_NA);
-    bool     isSpecialPutArg = false;
-    int      srcCount        = 1;
-    GenTree* op1             = node->gtGetOp1();
+    assert(putArg->OperIs(GT_PUTARG_REG));
 
-    // First, handle the GT_OBJ case, which loads into the arg register
-    // (so we don't set the use to prefer that register for the source address).
-    if (op1->OperIs(GT_OBJ))
-    {
-        GenTreeObj* obj  = op1->AsObj();
-        GenTree*    addr = obj->Addr();
-        unsigned    size = obj->GetLayout()->GetSize();
-        assert(size <= MAX_PASS_SINGLEREG_BYTES);
-        if (addr->OperIsLocalAddr())
-        {
-            // We don't need a source register.
-            assert(addr->isContained());
-            srcCount = 0;
-        }
-        else if (!isPow2(size))
-        {
-            // We'll need an internal register to do the odd-size load.
-            // This can only happen with integer registers.
-            assert(genIsValidIntReg(argReg));
-            buildInternalIntRegisterDefForNode(node);
-            BuildUse(addr);
-            buildInternalRegisterUses();
-        }
-        return srcCount;
-    }
+    regNumber argReg = putArg->GetRegNum();
+    assert(argReg != REG_NA);
+
+    GenTree* src = putArg->GetOp(0);
 
     // To avoid redundant moves, have the argument operand computed in the
     // register in which the argument is passed to the call.
-    regMaskTP    argMask = genRegMask(argReg);
-    RefPosition* use     = BuildUse(op1, argMask);
+    regMaskTP    argRegMask = genRegMask(argReg);
+    RefPosition* use        = BuildUse(src, argRegMask);
+    int          srcCount   = 1;
 
-    if (supportsSpecialPutArg() && isCandidateLocalRef(op1) && ((op1->gtFlags & GTF_VAR_DEATH) == 0))
+    bool isSpecialPutArg = false;
+
+    if (supportsSpecialPutArg() && isCandidateLclVar(src) && ((src->gtFlags & GTF_VAR_DEATH) == 0))
     {
         // This is the case for a "pass-through" copy of a lclVar.  In the case where it is a non-last-use,
         // we don't want the def of the copy to kill the lclVar register, if it is assigned the same register
         // (which is actually what we hope will happen).
-        JITDUMP("Setting putarg_reg as a pass-through of a non-last use lclVar\n");
+        JITDUMP("Setting PUTARG_REG as a pass-through of a non-last use lclVar\n");
+
+        assert(use->getInterval()->isLocalVar);
 
         // Preference the destination to the interval of the first register defined by the first operand.
-        assert(use->getInterval()->isLocalVar);
         isSpecialPutArg = true;
     }
 
 #ifdef TARGET_ARM
-    // If type of node is `long` then it is actually `double`.
-    // The actual `long` types must have been transformed as a field list with two fields.
-    if (node->TypeGet() == TYP_LONG)
+    if (putArg->TypeIs(TYP_LONG))
     {
+        assert(src->OperIs(GT_BITCAST));
+
+        regMaskTP nextArgRegMask = genRegMask(genRegArgNext(argReg));
+
+        BuildUse(src, nextArgRegMask, 1);
         srcCount++;
-        regMaskTP argMaskHi = genRegMask(REG_NEXT(argReg));
-        assert(genRegArgNext(argReg) == REG_NEXT(argReg));
-        use = BuildUse(op1, argMaskHi, 1);
-        BuildDef(node, argMask, 0);
-        BuildDef(node, argMaskHi, 1);
+
+        BuildDef(putArg, argRegMask, 0);
+        BuildDef(putArg, nextArgRegMask, 1);
     }
     else
-#endif // TARGET_ARM
+#endif
     {
-        RefPosition* def = BuildDef(node, argMask);
+        RefPosition* def = BuildDef(putArg, argRegMask);
+
         if (isSpecialPutArg)
         {
             def->getInterval()->isSpecialPutArg = true;
             def->getInterval()->assignRelatedInterval(use->getInterval());
         }
     }
+
     return srcCount;
-}
-
-//------------------------------------------------------------------------
-// HandleFloatVarArgs: Handle additional register requirements for a varargs call
-//
-// Arguments:
-//    call    - The call node of interest
-//    argNode - The current argument
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    In the case of a varargs call, the ABI dictates that if we have floating point args,
-//    we must pass the enregistered arguments in both the integer and floating point registers.
-//    Since the integer register is not associated with the arg node, we will reserve it as
-//    an internal register on the call so that it is not used during the evaluation of the call node
-//    (e.g. for the target).
-void LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode, bool* callHasFloatRegArgs)
-{
-#if FEATURE_VARARG
-    if (call->IsVarargs() && varTypeIsFloating(argNode))
-    {
-        *callHasFloatRegArgs = true;
-
-        // We'll have to return the internal def and then later create a use for it.
-        regNumber argReg    = argNode->GetRegNum();
-        regNumber targetReg = compiler->getCallArgIntRegister(argReg);
-
-        buildInternalIntRegisterDefForNode(call, genRegMask(targetReg));
-    }
-#endif // FEATURE_VARARG
 }
 
 //------------------------------------------------------------------------
