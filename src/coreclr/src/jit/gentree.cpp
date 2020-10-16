@@ -17322,17 +17322,14 @@ FieldSeqNode* FieldSeqStore::CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd)
 {
     FieldSeqNode  fsn(fieldHnd, nullptr);
     FieldSeqNode* res = nullptr;
-    if (m_canonMap->Lookup(fsn, &res))
+
+    if (!m_canonMap->Lookup(fsn, &res))
     {
-        return res;
-    }
-    else
-    {
-        res  = m_alloc.allocate<FieldSeqNode>(1);
-        *res = fsn;
+        res = new (m_alloc) FieldSeqNode(fsn);
         m_canonMap->Set(fsn, res);
-        return res;
     }
+
+    return res;
 }
 
 FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
@@ -17341,38 +17338,35 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     {
         return b;
     }
-    else if (a == NotAField())
+
+    if (a == NotAField())
     {
         return NotAField();
     }
-    else if (b == nullptr)
+
+    if (b == nullptr)
     {
         return a;
     }
-    else if (b == NotAField())
+
+    if (b == NotAField())
     {
         return NotAField();
     }
-    else
-    {
-        // We should never add a duplicate FieldSeqNode
-        assert(a != b);
 
-        FieldSeqNode* tmp = Append(a->m_next, b);
-        FieldSeqNode  fsn(a->m_fieldHnd, tmp);
-        FieldSeqNode* res = nullptr;
-        if (m_canonMap->Lookup(fsn, &res))
-        {
-            return res;
-        }
-        else
-        {
-            res  = m_alloc.allocate<FieldSeqNode>(1);
-            *res = fsn;
-            m_canonMap->Set(fsn, res);
-            return res;
-        }
+    // We should never add a duplicate FieldSeqNode
+    assert(a != b);
+
+    FieldSeqNode  fsn(a->m_fieldHnd, Append(a->m_next, b));
+    FieldSeqNode* res = nullptr;
+
+    if (!m_canonMap->Lookup(fsn, &res))
+    {
+        res = new (m_alloc) FieldSeqNode(fsn);
+        m_canonMap->Set(fsn, res);
     }
+
+    return res;
 }
 
 // Static vars.
