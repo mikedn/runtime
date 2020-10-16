@@ -5194,10 +5194,6 @@ void ValueNumStore::vnDumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isH
     {
         printf("#FirstElem");
     }
-    else if (fldHnd == FieldSeqStore::ConstantIndexPseudoField)
-    {
-        printf("#ConstantIndex");
-    }
     else
     {
         const char* modName;

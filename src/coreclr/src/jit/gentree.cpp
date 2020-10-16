@@ -6810,10 +6810,6 @@ GenTree* Compiler::gtCloneExpr(
                 if (tree->AsLclVar()->GetLclNum() == varNum)
                 {
                     copy = gtNewIconNode(varVal, tree->gtType);
-                    if (tree->gtFlags & GTF_VAR_ARR_INDEX)
-                    {
-                        copy->LabelIndex(this);
-                    }
                 }
                 else
                 {
@@ -9060,12 +9056,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     --msgLength;
                     break;
                 }
-                if (tree->gtFlags & GTF_VAR_ARR_INDEX)
-                {
-                    printf("i");
-                    --msgLength;
-                    break;
-                }
                 if (tree->gtFlags & GTF_VAR_CONTEXT)
                 {
                     printf("!");
@@ -9879,10 +9869,6 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
         else if (fieldSeq->m_fieldHnd == FieldSeqStore::FirstElemPseudoField)
         {
             printf("#FirstElem");
-        }
-        else if (fieldSeq->m_fieldHnd == FieldSeqStore::ConstantIndexPseudoField)
-        {
-            printf("#ConstantIndex");
         }
         else
         {
@@ -12762,15 +12748,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                 i1 = (int)op1->AsIntCon()->gtIconVal;
 
-                // If we fold a unary oper, then the folded constant
-                // is considered a ConstantIndexField if op1 was one
-                //
-
-                if ((op1->AsIntCon()->gtFieldSeq != nullptr) && op1->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq())
-                {
-                    fieldSeq = op1->AsIntCon()->gtFieldSeq;
-                }
-
                 switch (tree->gtOper)
                 {
                     case GT_NOT:
@@ -13426,21 +13403,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 goto INT_OVF;
                             }
                         }
-                    }
-                    // For the very particular case of the "constant array index" pseudo-field, we
-                    // assume that multiplication is by the field width, and preserves that field.
-                    // This could obviously be made more robust by a more complicated set of annotations...
-                    if ((op1->AsIntCon()->gtFieldSeq != nullptr) &&
-                        op1->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq())
-                    {
-                        assert(op2->AsIntCon()->gtFieldSeq == FieldSeqStore::NotAField());
-                        fieldSeq = op1->AsIntCon()->gtFieldSeq;
-                    }
-                    else if ((op2->AsIntCon()->gtFieldSeq != nullptr) &&
-                             op2->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq())
-                    {
-                        assert(op1->AsIntCon()->gtFieldSeq == FieldSeqStore::NotAField());
-                        fieldSeq = op2->AsIntCon()->gtFieldSeq;
                     }
                     i1 = itemp;
                     break;
@@ -17026,26 +16988,7 @@ bool GenTree::ParseArrayAddress(
     // Also, find the first non-pseudo field...
     while (fldSeq != nullptr)
     {
-        if (fldSeq == FieldSeqStore::NotAField())
-        {
-            // TODO-Review: A NotAField here indicates a failure to properly maintain the field sequence
-            // See test case self_host_tests_x86\jit\regression\CLR-x86-JIT\v1-m12-beta2\ b70992\ b70992.exe
-            // Safest thing to do here is to drop back to MinOpts
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-            if (comp->opts.optRepeat)
-            {
-                // We don't guarantee preserving these annotations through the entire optimizer, so
-                // just conservatively return null if under optRepeat.
-                return false;
-            }
-#endif
-
-            noway_assert(!"fldSeqIter is NotAField() in ParseArrayAddress");
-        }
-
-        if (!FieldSeqStore::IsPseudoField(fldSeq->m_fieldHnd))
+        if ((fldSeq != FieldSeqStore::NotAField()) && !FieldSeqStore::IsPseudoField(fldSeq->m_fieldHnd))
         {
             // Due to the way INDEX is expanded in IR we don't expected to encounter any struct
             // fields in the field sequence. Access to a struct field of an array element is
@@ -17211,7 +17154,6 @@ void GenTree::ParseArrayAddressWork(Compiler*       comp,
                     fieldSeqOp = op2->AsIntCon();
                 }
 
-                assert(fieldSeqOp->GetFieldSeq()->IsConstantIndexFieldSeq());
                 *pFldSeq = comp->GetFieldSeqStore()->Append(*pFldSeq, fieldSeqOp->GetFieldSeq());
 
                 assert(!op1->AsIntCon()->ImmedValNeedsReloc(comp));
@@ -17366,59 +17308,6 @@ bool GenTree::ParseOffsetForm(Compiler* comp) const
     }
 }
 
-void GenTree::LabelIndex(Compiler* comp, bool isConst)
-{
-    switch (OperGet())
-    {
-        case GT_CNS_INT:
-            // If we got here, this is a contribution to the constant part of the index.
-            if (isConst)
-            {
-                AsIntCon()->gtFieldSeq =
-                    comp->GetFieldSeqStore()->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField);
-            }
-            return;
-
-        case GT_LCL_VAR:
-            gtFlags |= GTF_VAR_ARR_INDEX;
-            return;
-
-        case GT_ADD:
-        case GT_SUB:
-            AsOp()->gtOp1->LabelIndex(comp, isConst);
-            AsOp()->gtOp2->LabelIndex(comp, isConst);
-            break;
-
-        case GT_CAST:
-            AsOp()->gtOp1->LabelIndex(comp, isConst);
-            break;
-
-        case GT_ARR_LENGTH:
-            gtFlags |= GTF_ARRLEN_ARR_IDX;
-            return;
-
-        default:
-            // For all other operators, peel off one constant; and then label the other if it's also a constant.
-            if (OperIsArithmetic() || OperIsCompare())
-            {
-                if (AsOp()->gtOp2->OperGet() == GT_CNS_INT)
-                {
-                    AsOp()->gtOp1->LabelIndex(comp, isConst);
-                    break;
-                }
-                else if (AsOp()->gtOp1->OperGet() == GT_CNS_INT)
-                {
-                    AsOp()->gtOp2->LabelIndex(comp, isConst);
-                    break;
-                }
-                // Otherwise continue downward on both, labeling vars.
-                AsOp()->gtOp1->LabelIndex(comp, false);
-                AsOp()->gtOp2->LabelIndex(comp, false);
-            }
-            break;
-    }
-}
-
 // Note that the value of the below field doesn't matter; it exists only to provide a distinguished address.
 //
 // static
@@ -17463,13 +17352,6 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     else if (b == NotAField())
     {
         return NotAField();
-        // Extremely special case for ConstantIndex pseudo-fields -- appending consecutive such
-        // together collapse to one.
-    }
-    else if (a->m_next == nullptr && a->m_fieldHnd == ConstantIndexPseudoField &&
-             b->m_fieldHnd == ConstantIndexPseudoField)
-    {
-        return b;
     }
     else
     {
@@ -17495,26 +17377,18 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
 
 // Static vars.
 int FieldSeqStore::FirstElemPseudoFieldStruct;
-int FieldSeqStore::ConstantIndexPseudoFieldStruct;
 
 CORINFO_FIELD_HANDLE FieldSeqStore::FirstElemPseudoField =
     (CORINFO_FIELD_HANDLE)&FieldSeqStore::FirstElemPseudoFieldStruct;
-CORINFO_FIELD_HANDLE FieldSeqStore::ConstantIndexPseudoField =
-    (CORINFO_FIELD_HANDLE)&FieldSeqStore::ConstantIndexPseudoFieldStruct;
 
 bool FieldSeqNode::IsFirstElemFieldSeq()
 {
     return m_fieldHnd == FieldSeqStore::FirstElemPseudoField;
 }
 
-bool FieldSeqNode::IsConstantIndexFieldSeq()
-{
-    return m_fieldHnd == FieldSeqStore::ConstantIndexPseudoField;
-}
-
 bool FieldSeqNode::IsPseudoField() const
 {
-    return m_fieldHnd == FieldSeqStore::FirstElemPseudoField || m_fieldHnd == FieldSeqStore::ConstantIndexPseudoField;
+    return m_fieldHnd == FieldSeqStore::FirstElemPseudoField;
 }
 
 #ifdef FEATURE_SIMD

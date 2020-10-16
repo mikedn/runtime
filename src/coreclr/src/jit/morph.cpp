@@ -5224,34 +5224,15 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         if (addr->gtOper == GT_CNS_INT)
         {
             cnsOff = addr;
-            addr   = nullptr;
         }
-        else
+        else if ((addr->OperGet() == GT_ADD) && (addr->AsOp()->gtOp2->gtOper == GT_CNS_INT))
         {
-            if ((addr->OperGet() == GT_ADD) && (addr->AsOp()->gtOp2->gtOper == GT_CNS_INT))
-            {
-                cnsOff = addr->AsOp()->gtOp2;
-                addr   = addr->AsOp()->gtOp1;
-            }
-
-            // Label any constant array index contributions with #ConstantIndex and any LclVars with GTF_VAR_ARR_INDEX
-            addr->LabelIndex(this);
+            cnsOff = addr->AsOp()->gtOp2;
         }
 
         if (cnsOff != nullptr)
         {
-            FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
-            FieldSeqNode*  fieldSeq      = fieldSeqStore->CreateSingleton(FieldSeqStore::FirstElemPseudoField);
-
-            if (cnsOff->AsIntCon()->GetValue() != elemOffs)
-            {
-                // We have folded the first element's offset with the index expression
-                fieldSeq =
-                    fieldSeqStore->Append(fieldSeqStore->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField),
-                                          fieldSeq);
-            }
-
-            cnsOff->AsIntCon()->SetFieldSeq(fieldSeq);
+            cnsOff->AsIntCon()->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(FieldSeqStore::FirstElemPseudoField));
         }
     }
 
@@ -12311,11 +12292,7 @@ DONE_MORPHING_CHILDREN:
 #endif // TARGET_64BIT
                 noway_assert(!tree->gtOverflow());
 
-                ssize_t mult            = op2->AsIntConCommon()->IconValue();
-                bool    op2IsConstIndex = op2->OperGet() == GT_CNS_INT && op2->AsIntCon()->gtFieldSeq != nullptr &&
-                                       op2->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq();
-
-                assert(!op2IsConstIndex || op2->AsIntCon()->gtFieldSeq->m_next == nullptr);
+                ssize_t mult = op2->AsIntConCommon()->IconValue();
 
                 if (mult == 0)
                 {
@@ -12353,22 +12330,6 @@ DONE_MORPHING_CHILDREN:
                         fgMorphTreeDone(op1);
                     }
 
-                    // If "op2" is a constant array index, the other multiplicand must be a constant.
-                    // Transfer the annotation to the other one.
-                    if (op2->OperGet() == GT_CNS_INT && op2->AsIntCon()->gtFieldSeq != nullptr &&
-                        op2->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq())
-                    {
-                        assert(op2->AsIntCon()->gtFieldSeq->m_next == nullptr);
-                        GenTree* otherOp = op1;
-                        if (otherOp->OperGet() == GT_NEG)
-                        {
-                            otherOp = otherOp->AsOp()->gtOp1;
-                        }
-                        assert(otherOp->OperGet() == GT_CNS_INT);
-                        assert(otherOp->AsIntCon()->gtFieldSeq == FieldSeqStore::NotAField());
-                        otherOp->AsIntCon()->gtFieldSeq = op2->AsIntCon()->gtFieldSeq;
-                    }
-
                     if (abs_mult == 1)
                     {
                         DEBUG_DESTROY_NODE(op2);
@@ -12396,11 +12357,6 @@ DONE_MORPHING_CHILDREN:
                         }
 
                         GenTree* factorIcon = gtNewIconNode(factor, TYP_I_IMPL);
-                        if (op2IsConstIndex)
-                        {
-                            factorIcon->AsIntCon()->gtFieldSeq =
-                                GetFieldSeqStore()->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField);
-                        }
 
                         // change the multiplication into a smaller multiplication (by 3, 5 or 9) and a shift
                         tree->AsOp()->gtOp1 = op1 = gtNewOperNode(GT_MUL, tree->gtType, op1, factorIcon);
@@ -13547,13 +13503,6 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 
                     // we are reusing the shift amount node here, but the type we want is that of the shift result
                     op2->gtType = op1->gtType;
-
-                    if (cns->gtOper == GT_CNS_INT && cns->AsIntCon()->gtFieldSeq != nullptr &&
-                        cns->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq())
-                    {
-                        assert(cns->AsIntCon()->gtFieldSeq->m_next == nullptr);
-                        op2->AsIntCon()->gtFieldSeq = cns->AsIntCon()->gtFieldSeq;
-                    }
 
                     op1->ChangeOper(GT_LSH);
 
