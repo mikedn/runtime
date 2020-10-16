@@ -7699,8 +7699,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
                 if (lhs->OperGet() == GT_IND)
                 {
-                    GenTree*      arg           = lhs->AsOp()->gtOp1->gtEffectiveVal(/*commaOnly*/ true);
-                    FieldSeqNode* fldSeqArrElem = nullptr;
+                    GenTree* arg = lhs->AsOp()->gtOp1->gtEffectiveVal(/*commaOnly*/ true);
 
                     if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
                     {
@@ -7736,7 +7735,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
                     }
                     // Is the LHS an array index expression?
-                    else if (lhs->ParseArrayElemForm(this, &arrInfo, &fldSeqArrElem))
+                    else if (lhs->ParseArrayElemForm(this, &arrInfo))
                     {
                         // We actually ignore "fldSeq" -- any modification to an S[], at any
                         // field of "S", will lose all information about the array type.

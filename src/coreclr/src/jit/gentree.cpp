@@ -17260,7 +17260,7 @@ void GenTree::ParseArrayAddressWork(Compiler*       comp,
     }
 }
 
-bool GenTree::ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo, FieldSeqNode** pFldSeq)
+bool GenTree::ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo)
 {
     if (OperIsIndir())
     {
@@ -17273,7 +17273,7 @@ bool GenTree::ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo, FieldSeqN
 
         // Otherwise...
         GenTree* addr = AsIndir()->Addr();
-        return addr->ParseArrayElemAddrForm(comp, arrayInfo, pFldSeq);
+        return addr->ParseArrayElemAddrForm(comp, arrayInfo);
     }
     else
     {
@@ -17281,7 +17281,7 @@ bool GenTree::ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo, FieldSeqN
     }
 }
 
-bool GenTree::ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo, FieldSeqNode** pFldSeq)
+bool GenTree::ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo)
 {
     switch (OperGet())
     {
@@ -17303,11 +17303,11 @@ bool GenTree::ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo, Field
             {
                 return false;
             }
-            if (!offset->ParseOffsetForm(comp, pFldSeq))
+            if (!offset->ParseOffsetForm(comp))
             {
                 return false;
             }
-            return arrAddr->ParseArrayElemAddrForm(comp, arrayInfo, pFldSeq);
+            return arrAddr->ParseArrayElemAddrForm(comp, arrayInfo);
         }
 
         case GT_ADDR:
@@ -17319,13 +17319,7 @@ bool GenTree::ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo, Field
             }
             else
             {
-                // The "Addr" node might be annotated with a zero-offset field sequence.
-                FieldSeqNode* zeroOffsetFldSeq = nullptr;
-                if (comp->GetZeroOffsetFieldMap()->Lookup(this, &zeroOffsetFldSeq))
-                {
-                    *pFldSeq = comp->GetFieldSeqStore()->Append(*pFldSeq, zeroOffsetFldSeq);
-                }
-                return addrArg->ParseArrayElemForm(comp, arrayInfo, pFldSeq);
+                return addrArg->ParseArrayElemForm(comp, arrayInfo);
             }
         }
 
@@ -17334,23 +17328,19 @@ bool GenTree::ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo, Field
     }
 }
 
-bool GenTree::ParseOffsetForm(Compiler* comp, FieldSeqNode** pFldSeq)
+bool GenTree::ParseOffsetForm(Compiler* comp)
 {
     switch (OperGet())
     {
         case GT_CNS_INT:
-        {
-            GenTreeIntCon* icon = AsIntCon();
-            *pFldSeq            = comp->GetFieldSeqStore()->Append(*pFldSeq, icon->gtFieldSeq);
             return true;
-        }
 
         case GT_ADD:
-            if (!AsOp()->gtOp1->ParseOffsetForm(comp, pFldSeq))
+            if (!AsOp()->gtOp1->ParseOffsetForm(comp))
             {
                 return false;
             }
-            return AsOp()->gtOp2->ParseOffsetForm(comp, pFldSeq);
+            return AsOp()->gtOp2->ParseOffsetForm(comp);
 
         default:
             return false;
