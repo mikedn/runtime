@@ -7542,8 +7542,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             FieldSeqNode* fldSeq = nullptr;
                             GenTree*      arr    = nullptr;
 
-                            arg->ParseArrayAddress(this, &arrInfo, &arr, &inxVN, &fldSeq);
-                            if (arr == nullptr)
+                            if (!arg->ParseArrayAddress(this, &arrInfo, &arr, &inxVN, &fldSeq))
                             {
                                 fgMutateGcHeap(tree DEBUGARG("assignment to unparseable array expression"));
                                 return;
@@ -7879,8 +7878,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 FieldSeqNode* fldSeq = nullptr;
                 GenTree*      arr    = nullptr;
 
-                addr->ParseArrayAddress(this, &arrInfo, &arr, &inxVN, &fldSeq);
-                if (arr == nullptr)
+                if (!addr->ParseArrayAddress(this, &arrInfo, &arr, &inxVN, &fldSeq))
                 {
                     tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
                     return;

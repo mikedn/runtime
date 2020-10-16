@@ -1204,17 +1204,21 @@ LinearScanInterface* getLinearScanAllocator(Compiler* comp);
 struct ArrayInfo
 {
     var_types            m_elemType;
-    CORINFO_CLASS_HANDLE m_elemStructType;
+    uint8_t              m_elemOffset;
     unsigned             m_elemSize;
-    unsigned             m_elemOffset;
+    CORINFO_CLASS_HANDLE m_elemStructType;
 
-    ArrayInfo() : m_elemType(TYP_UNDEF), m_elemStructType(nullptr), m_elemSize(0), m_elemOffset(0)
+    ArrayInfo() : m_elemType(TYP_UNDEF), m_elemOffset(0), m_elemSize(0), m_elemStructType(nullptr)
     {
     }
 
     ArrayInfo(var_types elemType, unsigned elemSize, unsigned elemOffset, CORINFO_CLASS_HANDLE elemStructType)
-        : m_elemType(elemType), m_elemStructType(elemStructType), m_elemSize(elemSize), m_elemOffset(elemOffset)
+        : m_elemType(elemType)
+        , m_elemOffset(static_cast<uint8_t>(elemOffset))
+        , m_elemSize(elemSize)
+        , m_elemStructType(elemStructType)
     {
+        assert(elemOffset <= UINT8_MAX);
     }
 };
 

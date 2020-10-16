@@ -1899,29 +1899,33 @@ public:
     // Sets "*pArrayType" to the class handle for the array type.
     // Sets "*inxVN" to the value number inferred for the array index.
     // Sets "*pFldSeq" to the sequence, if any, of struct fields used to index into the array element.
-    void ParseArrayAddress(
-        Compiler* comp, struct ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq);
+    bool ParseArrayAddress(
+        Compiler* comp, const struct ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq);
 
+private:
     // Helper method for the above.
     void ParseArrayAddressWork(Compiler*       comp,
-                               target_ssize_t  inputMul,
+                               target_ssize_t  scale,
                                GenTree**       pArr,
                                ValueNum*       pInxVN,
                                target_ssize_t* pOffset,
                                FieldSeqNode**  pFldSeq);
 
+public:
     // Requires "this" to be a GT_IND.  Requires the outermost caller to set "*pFldSeq" to nullptr.
     // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
     // array information.
-    bool ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo);
+    bool ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo) const;
 
+private:
     // Requires "this" to be the address of a (possible) array element (or struct field within that).
     // If it is, sets "*arrayInfo" to the array access info and returns true.  If not, returns "false".
-    bool ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo);
+    bool ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo) const;
 
     // Requires "this" to be an int expression.
-    bool ParseOffsetForm(Compiler* comp);
+    bool ParseOffsetForm(Compiler* comp) const;
 
+public:
     // Labels "*this" as an array index expression: label all constants and variables that could contribute, as part of
     // an affine expression, to the value of the of the index.
     void LabelIndex(Compiler* comp, bool isConst = true);
