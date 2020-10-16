@@ -17000,7 +17000,9 @@ bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
 void GenTree::ParseArrayAddress(
     Compiler* comp, ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq)
 {
-    *pArr                 = nullptr;
+    *pFldSeq = nullptr;
+    *pArr    = nullptr;
+
     ValueNum       inxVN  = ValueNumStore::NoVN;
     target_ssize_t offset = 0;
     FieldSeqNode*  fldSeq = nullptr;
@@ -17014,14 +17016,10 @@ void GenTree::ParseArrayAddress(
     }
 
     // OK, new we have to figure out if any part of the "offset" is a constant contribution to the index.
-    // First, sum the offsets of any fields in fldSeq.
-    unsigned      fieldOffsets = 0;
-    FieldSeqNode* fldSeqIter   = fldSeq;
     // Also, find the first non-pseudo field...
-    assert(*pFldSeq == nullptr);
-    while (fldSeqIter != nullptr)
+    while (fldSeq != nullptr)
     {
-        if (fldSeqIter == FieldSeqStore::NotAField())
+        if (fldSeq == FieldSeqStore::NotAField())
         {
             // TODO-Review: A NotAField here indicates a failure to properly maintain the field sequence
             // See test case self_host_tests_x86\jit\regression\CLR-x86-JIT\v1-m12-beta2\ b70992\ b70992.exe
@@ -17040,30 +17038,40 @@ void GenTree::ParseArrayAddress(
             noway_assert(!"fldSeqIter is NotAField() in ParseArrayAddress");
         }
 
-        if (!FieldSeqStore::IsPseudoField(fldSeqIter->m_fieldHnd))
+        if (!FieldSeqStore::IsPseudoField(fldSeq->m_fieldHnd))
         {
-            if (*pFldSeq == nullptr)
-            {
-                *pFldSeq = fldSeqIter;
-            }
-            CORINFO_CLASS_HANDLE fldCls = nullptr;
-            noway_assert(fldSeqIter->m_fieldHnd != nullptr);
-            CorInfoType cit = comp->info.compCompHnd->getFieldType(fldSeqIter->m_fieldHnd, &fldCls);
-            fieldOffsets += comp->compGetTypeSize(cit, fldCls);
+            // Due to the way INDEX is expanded in IR we don't expected to encounter any struct
+            // fields in the field sequence. Access to a struct field of an array element is
+            // imported as FIELD(ADDR(INDEX(a, i)) and INDEX gets expanded to IND(element_addr)
+            // so we end up with ADDR(IND(element_addr)). Normally this would become element_addr
+            // but the IND has GTF_IND_ARR_INDEX set on it, which blocks this kind of transform
+            // and thus prevents the field offset from becoming a part of the element address
+            // expression.
+            //
+            // This means that ParseArrayAddress will always valid a null field sequence so the
+            // pFldSeq parameter is useless. But let's keep it for now as it would be better to
+            // be able to sink the field offset into the element address expression (not clear
+            // how, in addition to GTF_IND_ARR_INDEX there's also the range check COMMA...).
+
+            assert(!"Unexpected struct field encountered in array address expression");
+
+            *pArr = nullptr;
+            return;
         }
-        fldSeqIter = fldSeqIter->m_next;
+
+        fldSeq = fldSeq->m_next;
     }
 
     // Is there some portion of the "offset" beyond the first-elem offset and the struct field suffix we just computed?
-    if (!FitsIn<target_ssize_t>(fieldOffsets + arrayInfo->m_elemOffset) ||
-        !FitsIn<target_ssize_t>(arrayInfo->m_elemSize))
+    if (!FitsIn<target_ssize_t>(arrayInfo->m_elemOffset) || !FitsIn<target_ssize_t>(arrayInfo->m_elemSize))
     {
         // This seems unlikely, but no harm in being safe...
         *pInxVN = comp->GetValueNumStore()->VNForExpr(nullptr, TYP_INT);
         return;
     }
+
     // Otherwise...
-    target_ssize_t offsetAccountedFor = static_cast<target_ssize_t>(fieldOffsets + arrayInfo->m_elemOffset);
+    target_ssize_t offsetAccountedFor = static_cast<target_ssize_t>(arrayInfo->m_elemOffset);
     target_ssize_t elemSize           = static_cast<target_ssize_t>(arrayInfo->m_elemSize);
 
     target_ssize_t constIndOffset = offset - offsetAccountedFor;

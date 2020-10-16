@@ -7537,26 +7537,27 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             ArrayInfo arrInfo;
                             bool      b = GetArrayInfoMap()->Lookup(lhs, &arrInfo);
                             assert(b);
-                            ValueNum      arrVN  = ValueNumStore::NoVN;
+
                             ValueNum      inxVN  = ValueNumStore::NoVN;
                             FieldSeqNode* fldSeq = nullptr;
+                            GenTree*      arr    = nullptr;
 
-                            // Try to parse it.
-                            GenTree* arr = nullptr;
                             arg->ParseArrayAddress(this, &arrInfo, &arr, &inxVN, &fldSeq);
                             if (arr == nullptr)
                             {
                                 fgMutateGcHeap(tree DEBUGARG("assignment to unparseable array expression"));
                                 return;
                             }
-                            // Otherwise, parsing succeeded.
+
+                            // Currently struct fields are not included in array element address expressions.
+                            assert(fldSeq == nullptr);
 
                             // Need to form H[arrType][arr][ind][fldSeq] = rhsVNPair.GetLiberal()
 
                             // Get the element type equivalence class representative.
                             CORINFO_CLASS_HANDLE elemTypeEq =
                                 EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
-                            arrVN = arr->gtVNPair.GetLiberal();
+                            ValueNum arrVN = arr->gtVNPair.GetLiberal();
 
                             FieldSeqNode* zeroOffsetFldSeq = nullptr;
                             if (GetZeroOffsetFieldMap()->Lookup(arg, &zeroOffsetFldSeq))
@@ -7876,16 +7877,17 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                 ValueNum      inxVN  = ValueNumStore::NoVN;
                 FieldSeqNode* fldSeq = nullptr;
+                GenTree*      arr    = nullptr;
 
-                // Try to parse it.
-                GenTree* arr = nullptr;
                 addr->ParseArrayAddress(this, &arrInfo, &arr, &inxVN, &fldSeq);
                 if (arr == nullptr)
                 {
                     tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
                     return;
                 }
-                assert(fldSeq != FieldSeqStore::NotAField());
+
+                // Currently struct fields are not included in array element address expressions.
+                assert(fldSeq == nullptr);
 
                 // Otherwise...
                 // Need to form H[arrType][arr][ind][fldSeq]
