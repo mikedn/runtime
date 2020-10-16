@@ -5242,30 +5242,19 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         cnsOff = addr;
     }
 
-    FieldSeqNode* firstElemFseq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::FirstElemPseudoField);
-
-    if ((cnsOff != nullptr) && (cnsOff->AsIntCon()->gtIconVal == elemOffs))
+    if (cnsOff != nullptr)
     {
-        // Assign it the [#FirstElem] field sequence
-        //
-        cnsOff->AsIntCon()->gtFieldSeq = firstElemFseq;
-    }
-    else //  We have folded the first element's offset with the index expression
-    {
-        // Build the [#ConstantIndex, #FirstElem] field sequence
-        //
-        FieldSeqNode* constantIndexFseq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField);
-        FieldSeqNode* fieldSeq          = GetFieldSeqStore()->Append(constantIndexFseq, firstElemFseq);
+        FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
+        FieldSeqNode*  fieldSeq      = fieldSeqStore->CreateSingleton(FieldSeqStore::FirstElemPseudoField);
 
-        if (cnsOff == nullptr) // It must have folded into a zero offset
+        if (cnsOff->AsIntCon()->GetValue() != elemOffs)
         {
-            // Record in the general zero-offset map.
-            fgAddFieldSeqForZeroOffset(addr, fieldSeq);
+            // We have folded the first element's offset with the index expression
+            fieldSeq = fieldSeqStore->Append(fieldSeqStore->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField),
+                                             fieldSeq);
         }
-        else
-        {
-            cnsOff->AsIntCon()->gtFieldSeq = fieldSeq;
-        }
+
+        cnsOff->AsIntCon()->SetFieldSeq(fieldSeq);
     }
 
     return tree;

@@ -3061,6 +3061,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return gtFieldSeq;
     }
 
+    void SetFieldSeq(FieldSeqNode* fieldSeq)
+    {
+        gtFieldSeq = fieldSeq;
+    }
+
     void FixupInitBlkValue(var_types asgType);
 
 #ifdef TARGET_64BIT
