@@ -5210,7 +5210,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
 
     assert(addr->TypeGet() == TYP_BYREF);
 
-    GenTree* cnsOff = nullptr;
     if (addr->OperGet() == GT_ADD)
     {
         assert(addr->TypeGet() == TYP_BYREF);
@@ -5219,6 +5218,8 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         addr = addr->AsOp()->gtOp2;
 
         // Look for the constant [#FirstElem] node here, or as the RHS of an ADD.
+
+        GenTree* cnsOff = nullptr;
 
         if (addr->gtOper == GT_CNS_INT)
         {
@@ -5236,25 +5237,22 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
             // Label any constant array index contributions with #ConstantIndex and any LclVars with GTF_VAR_ARR_INDEX
             addr->LabelIndex(this);
         }
-    }
-    else if (addr->OperGet() == GT_CNS_INT)
-    {
-        cnsOff = addr;
-    }
 
-    if (cnsOff != nullptr)
-    {
-        FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
-        FieldSeqNode*  fieldSeq      = fieldSeqStore->CreateSingleton(FieldSeqStore::FirstElemPseudoField);
-
-        if (cnsOff->AsIntCon()->GetValue() != elemOffs)
+        if (cnsOff != nullptr)
         {
-            // We have folded the first element's offset with the index expression
-            fieldSeq = fieldSeqStore->Append(fieldSeqStore->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField),
-                                             fieldSeq);
-        }
+            FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
+            FieldSeqNode*  fieldSeq      = fieldSeqStore->CreateSingleton(FieldSeqStore::FirstElemPseudoField);
 
-        cnsOff->AsIntCon()->SetFieldSeq(fieldSeq);
+            if (cnsOff->AsIntCon()->GetValue() != elemOffs)
+            {
+                // We have folded the first element's offset with the index expression
+                fieldSeq =
+                    fieldSeqStore->Append(fieldSeqStore->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField),
+                                          fieldSeq);
+            }
+
+            cnsOff->AsIntCon()->SetFieldSeq(fieldSeq);
+        }
     }
 
     return tree;
