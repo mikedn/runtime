@@ -4841,9 +4841,6 @@ BasicBlock* Compiler::fgSetRngChkTargetInner(SpecialCodeKind kind, bool delay)
  *  The fully expanded tree is then morphed.  This causes gtFoldExpr to
  *  perform local constant prop and reorder the constants in the tree and
  *  fold them.
- *
- *  We then parse the resulting array element expression in order to locate
- *  and label the constants and variables that occur in the tree.
  */
 
 const int MAX_ARR_COMPLEXITY   = 4;
@@ -5152,10 +5149,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
     // Store information about it.
     GetArrayInfoMap()->Set(tree, ArrayInfo(elemTyp, elemSize, (int)elemOffs, elemStructType));
 
-    // Remember this 'indTree' that we just created, as we still need to attach the fieldSeq information to it.
-
-    GenTree* indTree = tree;
-
     // Did we create a bndsChk tree?
     if (bndsChk)
     {
@@ -5180,61 +5173,11 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         tree = gtNewOperNode(GT_COMMA, tree->TypeGet(), arrRefDefn, tree);
     }
 
-    // Currently we morph the tree to perform some folding operations prior
-    // to attaching fieldSeq info and labeling constant array index contributions
-    //
     fgMorphTree(tree);
 
-    // Ideally we just want to proceed to attaching fieldSeq info and labeling the
-    // constant array index contributions, but the morphing operation may have changed
-    // the 'tree' into something that now unconditionally throws an exception.
-    //
-    // In such case the gtEffectiveVal could be a new tree or it's gtOper could be modified
-    // or it could be left unchanged.  If it is unchanged then we should not return,
-    // instead we should proceed to attaching fieldSeq info, etc...
-    //
-    GenTree* arrElem = tree->gtEffectiveVal();
-
-    if (fgIsCommaThrow(tree))
-    {
-        if ((arrElem != indTree) ||         // A new tree node may have been created
-            (indTree->OperGet() != GT_IND)) // The GT_IND may have been changed to a GT_CNS_INT
-        {
-            return tree; // Just return the Comma-Throw, don't try to attach the fieldSeq info, etc..
-        }
-    }
-
-    assert(!fgGlobalMorph || (arrElem->gtDebugFlags & GTF_DEBUG_NODE_MORPHED));
-
-    addr = arrElem->AsOp()->gtOp1;
-
-    assert(addr->TypeGet() == TYP_BYREF);
-
-    if (addr->OperGet() == GT_ADD)
-    {
-        assert(addr->TypeGet() == TYP_BYREF);
-        assert(addr->AsOp()->gtOp1->TypeGet() == TYP_REF);
-
-        addr = addr->AsOp()->gtOp2;
-
-        // Look for the constant [#FirstElem] node here, or as the RHS of an ADD.
-
-        GenTree* cnsOff = nullptr;
-
-        if (addr->gtOper == GT_CNS_INT)
-        {
-            cnsOff = addr;
-        }
-        else if ((addr->OperGet() == GT_ADD) && (addr->AsOp()->gtOp2->gtOper == GT_CNS_INT))
-        {
-            cnsOff = addr->AsOp()->gtOp2;
-        }
-
-        if (cnsOff != nullptr)
-        {
-            cnsOff->AsIntCon()->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(FieldSeqStore::FirstElemPseudoField));
-        }
-    }
+    INDEBUG(GenTree* arrElem = tree->gtEffectiveVal();)
+    assert(arrElem->AsIndir()->GetAddr()->TypeIs(TYP_BYREF));
+    assert(((arrElem->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) != 0) || !fgGlobalMorph);
 
     return tree;
 }
