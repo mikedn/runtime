@@ -2158,9 +2158,13 @@ void Compiler::optAssertionGen(GenTree* tree)
             }
             break;
 
-        case GT_OBJ:
         case GT_BLK:
-        case GT_DYN_BLK:
+            if (tree->AsBlk()->GetLayout()->GetSize() == 0)
+            {
+                break;
+            }
+            __fallthrough;
+        case GT_OBJ:
         case GT_IND:
         case GT_NULLCHECK:
             // All indirections create non-null assertions
