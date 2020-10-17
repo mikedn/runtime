@@ -13941,14 +13941,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 goto EVAL_APPEND;
 
-            case CEE_INITOBJ:
-                assertImp(sz == sizeof(unsigned));
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
-                JITDUMP(" %08X", resolvedToken.token);
-
-                op1 = impImportInitObj(impPopStack().val, resolvedToken.hClass);
-                goto SPILL_APPEND;
-
             case CEE_INITBLK:
                 op3 = impPopStack().val; // Size
                 op2 = impPopStack().val; // Value
@@ -13963,6 +13955,36 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val; // Dest
 
                 op1 = impImportCpBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
+                goto SPILL_APPEND;
+
+            case CEE_INITOBJ:
+                assertImp(sz == sizeof(unsigned));
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                JITDUMP(" %08X", resolvedToken.token);
+
+                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
+                {
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                }
+                else
+                {
+                    lclTyp = TYP_REF;
+                }
+
+                op1 = impPopStack().val; // Destination address
+
+                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
+                impBashVarAddrsToI(op1);
+
+                if (lclTyp != TYP_STRUCT)
+                {
+                    op2 = gtNewZeroConNode(varActualType(lclTyp));
+
+                    goto STIND_CPOBJ;
+                }
+
+                op1 = impImportInitObj(op1, resolvedToken.hClass);
                 goto SPILL_APPEND;
 
             case CEE_CPOBJ:
