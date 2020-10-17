@@ -18435,11 +18435,10 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
 
 GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle)
 {
-    unsigned size = info.compCompHnd->getClassSize(classHandle);
-    GenTree* dst  = nullptr;
-
-    // By default we treat this as an opaque struct type with known size.
-    var_types type = TYP_STRUCT;
+    ClassLayout* layout       = typGetObjLayout(classHandle);
+    var_types    type         = TYP_UNDEF;
+    var_types    simdBaseType = TYP_UNDEF;
+    GenTree*     dst          = nullptr;
 
     if (dstAddr->OperIs(GT_ADDR))
     {
@@ -18449,26 +18448,33 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
         {
             LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
 
-            if (size == (varTypeIsStruct(lcl->GetType()) ? lcl->lvExactSize : varTypeSize(lcl->GetType())))
+            if (layout->GetSize() >= lcl->GetLayout()->GetSize())
             {
-                dst = location;
+                type         = lcl->GetType();
+                simdBaseType = lcl->GetSIMDBaseType();
+                dst          = location;
             }
         }
-
-#if FEATURE_SIMD
-        if (varTypeIsSIMD(location->GetType()) && (varTypeSize(location->GetType()) == size))
-        {
-            type = location->GetType();
-        }
-#endif
     }
 
     if (dst == nullptr)
     {
-        dst = new (this, GT_BLK) GenTreeBlk(GT_BLK, type, dstAddr, typGetBlkLayout(size));
+        type = impNormStructType(classHandle, &simdBaseType);
+        dst  = gtNewObjNode(type, layout, dstAddr);
     }
 
-    GenTree* initValue = gtNewIconNode(0);
+    GenTree* initValue;
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(type))
+    {
+        initValue = gtNewSIMDVectorZero(type, simdBaseType, varTypeSize(type));
+    }
+    else
+#endif
+    {
+        initValue = gtNewIconNode(0);
+    }
 
     return gtNewAssignNode(dst, initValue);
 }
