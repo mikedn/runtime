@@ -8914,9 +8914,6 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* 
 
 GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 {
-    GenTree* handleTree = nullptr;
-    GenTree* addr       = nullptr;
-
     if (tree->OperIs(GT_COMMA))
     {
         // In order to CSE and value number array index expressions and bounds checks,
@@ -8966,48 +8963,50 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
             gtUpdateNodeSideEffects(comma);
         }
 
-        handleTree = effectiveVal;
-        addr       = tree;
-    }
+        GenTree* addr = tree;
+        GenTree* indir;
 
-    if (addr != nullptr)
-    {
-        var_types structType = handleTree->GetType();
+        var_types structType = effectiveVal->GetType();
 
         if (structType == TYP_STRUCT)
         {
-            CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(handleTree);
+            CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(effectiveVal);
 
             if (structHnd == NO_CLASS_HANDLE)
             {
-                tree = gtNewOperNode(GT_IND, structType, addr);
+                indir = gtNewOperNode(GT_IND, structType, addr);
             }
             else
             {
-                tree = gtNewObjNode(structHnd, addr);
+                indir = gtNewObjNode(structHnd, addr);
             }
-        }
-        else if (varTypeIsSIMD(structType))
-        {
-            tree = gtNewOperNode(GT_IND, structType, addr);
         }
         else
         {
-            // TODO-MIKE-Cleanup: Can this actually happen? The LHS of a copy block has struct type,
-            // otherwise it wouldn't be a copy block. So this can only happen if the RHS has primitive
-            // type. That's odd but it can happen, either due to struct promotion (which probably
-            // doesn't matter here as this code mostly deals with array element access) or perhaps
-            // some sort of reinterpretation.
-            // But ideally we'd transform the entire copy block to a primitive type assignment. Or if
-            // we have to keep the copy block then this should be IND.struct or take the struct handle
-            // from the LHS, if any.
+            if (!varTypeIsSIMD(structType))
+            {
+                // This shouldn't happen - if the tree is the destination of a block assignment then it should
+                // have struct type. If it's not the destination then, well, it still should have struct type
+                // but due to the messy nature of the JIT code the possibility of seeing a primitive type here
+                // can't be ruled out completely. Change the type to TYP_STRUCT, since it's always valid for an
+                // IND source of a block assignment.
+                //
+                // Note that block copies can have primitive type sources, mostly due to pseudo-recursive struct
+                // promotion. However, this code is intended to handle array access, the main user of COMMAs at
+                // this point. Still, it's not clear if it's impossible to get a promoted struct field under a
+                // COMMA too...
 
-            tree = new (this, GT_BLK) GenTreeBlk(GT_BLK, structType, addr, typGetBlkLayout(varTypeSize(structType)));
+                assert(!"Unexpected primitive type block operand");
+
+                structType = TYP_STRUCT;
+            }
+
+            indir = gtNewOperNode(GT_IND, structType, addr);
         }
 
-        gtUpdateNodeSideEffects(tree);
-        INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-        return tree;
+        gtUpdateNodeSideEffects(indir);
+        INDEBUG(indir->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        return indir;
     }
 
     if (tree->OperIs(GT_DYN_BLK))
