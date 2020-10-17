@@ -2844,23 +2844,21 @@ CORINFO_CLASS_HANDLE Compiler::impGetObjectClass()
     return objectClass;
 }
 
-/*****************************************************************************
- *  "&var" can be used either as TYP_BYREF or TYP_I_IMPL, but we
- *  set its type to TYP_BYREF when we create it. We know if it can be
- *  changed to TYP_I_IMPL only at the point where we use it
- */
-
 /* static */
-void Compiler::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2)
+void Compiler::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 /* = nullptr */)
 {
-    if (tree1->IsLocalAddrExpr() != nullptr)
+    // "&local" can be used either as TYP_BYREF or TYP_I_IMPL, but we
+    // set its type to TYP_BYREF when we create it. We know if it can
+    // be changed to TYP_I_IMPL only at the point where we use it.
+
+    if (tree1->TypeIs(TYP_BYREF) && (tree1->IsLocalAddrExpr() != nullptr))
     {
-        tree1->gtType = TYP_I_IMPL;
+        tree1->SetType(TYP_I_IMPL);
     }
 
-    if (tree2 && (tree2->IsLocalAddrExpr() != nullptr))
+    if ((tree2 != nullptr) && tree2->TypeIs(TYP_BYREF) && (tree2->IsLocalAddrExpr() != nullptr))
     {
-        tree2->gtType = TYP_I_IMPL;
+        tree2->SetType(TYP_I_IMPL);
     }
 }
 
@@ -11790,7 +11788,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val; // address to store to
 
                 // you can indirect off of a TYP_I_IMPL (if we are in C) or a BYREF
-                assertImp(genActualType(op1->gtType) == TYP_I_IMPL || op1->gtType == TYP_BYREF);
+                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
                 impBashVarAddrsToI(op1, op2);
 
@@ -11819,11 +11817,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 #endif // TARGET_64BIT
 
-                if (opcode == CEE_STIND_REF)
+                if ((lclTyp == TYP_REF) && !op2->TypeIs(TYP_REF))
                 {
-                    // STIND_REF can be used to store TYP_INT, TYP_I_IMPL, TYP_REF, or TYP_BYREF
-                    assertImp(varTypeIsIntOrI(op2->gtType) || varTypeIsGC(op2->gtType));
-                    lclTyp = genActualType(op2->TypeGet());
+                    // STIND_REF can be used to store TYP_INT, TYP_I_IMPL, TYP_REF, or TYP_BYREF.
+                    assertImp(op2->TypeIs(TYP_INT, TYP_I_IMPL, TYP_BYREF));
+                    lclTyp = op2->GetType();
                 }
 
 // Check target type.
@@ -11847,19 +11845,20 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 #endif
 
+            // For CPOBJ op2 always has type lclType so we can skip all the type
+            // compatibility checks above.
+            STIND_CPOBJ:
                 op1 = gtNewOperNode(GT_IND, lclTyp, op1);
 
-                if (prefixFlags & PREFIX_VOLATILE)
+                if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
-                    assert(op1->OperGet() == GT_IND);
                     op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
                     op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
                     op1->gtFlags |= GTF_IND_VOLATILE;
                 }
 
-                if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp))
+                if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
                 {
-                    assert(op1->OperGet() == GT_IND);
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
@@ -13971,53 +13970,50 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                if (!eeIsValueClass(resolvedToken.hClass))
+                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    op1 = impPopStack().val; // address to load from
-
-                    impBashVarAddrsToI(op1);
-
-                    assertImp(genActualType(op1->gtType) == TYP_I_IMPL || op1->gtType == TYP_BYREF);
-
-                    op1 = gtNewOperNode(GT_IND, TYP_REF, op1);
-                    op1->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-
-                    impPushOnStack(op1, typeInfo());
-                    opcode = CEE_STIND_REF;
-                    lclTyp = TYP_REF;
-                    goto STIND;
-                }
-
-                op2 = impPopStack().val; // Src
-                op1 = impPopStack().val; // Dest
-                op1 = impImportCpObj(op1, op2, resolvedToken.hClass);
-                goto SPILL_APPEND;
-
-            case CEE_STOBJ:
-            {
-                assertImp(sz == sizeof(unsigned));
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
-                JITDUMP(" %08X", resolvedToken.token);
-
-                if (eeIsValueClass(resolvedToken.hClass))
-                {
-                    lclTyp = TYP_STRUCT;
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
                     lclTyp = TYP_REF;
                 }
 
-                if (lclTyp == TYP_REF)
+                op2 = impPopStack().val; // Source address
+                op1 = impPopStack().val; // Destination address
+
+                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
+                assertImp(op2->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
+                impBashVarAddrsToI(op1, op2);
+
+                if (lclTyp != TYP_STRUCT)
                 {
-                    opcode = CEE_STIND_REF;
-                    goto STIND;
+                    op2 = gtNewOperNode(GT_IND, lclTyp, op2);
+                    op2->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+
+                    goto STIND_CPOBJ;
                 }
 
-                CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
-                if (impIsPrimitive(jitTyp))
+                op1 = impImportCpObj(op1, op2, resolvedToken.hClass);
+                goto SPILL_APPEND;
+
+            case CEE_STOBJ:
+                assertImp(sz == sizeof(unsigned));
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                JITDUMP(" %08X", resolvedToken.token);
+
+                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = JITtype2varType(jitTyp);
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                }
+                else
+                {
+                    lclTyp = TYP_REF;
+                }
+
+                if (lclTyp != TYP_STRUCT)
+                {
                     goto STIND;
                 }
 
@@ -14033,7 +14029,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->AsOp()->GetOp(0)->AsIndir()->SetUnaligned();
                 }
                 goto SPILL_APPEND;
-            }
 
             case CEE_MKREFANY:
                 assert(!compIsForInlining());
@@ -18458,8 +18453,7 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
 
 GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle)
 {
-    GenTree*     dst    = nullptr;
-    ClassLayout* layout = nullptr;
+    GenTree* dst = nullptr;
 
     if (dstAddr->OperIs(GT_ADDR))
     {
@@ -18472,16 +18466,14 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
             if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
                 (lcl->GetLayout()->GetClassHandle() == classHandle))
             {
-                dst    = location;
-                layout = lcl->GetLayout();
+                dst = location;
             }
         }
     }
 
     if (dst == nullptr)
     {
-        dst    = gtNewObjNode(classHandle, dstAddr);
-        layout = dst->AsObj()->GetLayout();
+        dst = gtNewObjNode(classHandle, dstAddr);
     }
 
     GenTree* src = nullptr;
