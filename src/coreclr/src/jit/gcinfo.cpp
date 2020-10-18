@@ -227,23 +227,19 @@ void GCInfo::gcMarkRegPtrVal(regNumber reg, var_types type)
 
 GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTreeStoreInd* store)
 {
-    /* Are we storing a GC ptr? */
-
-    if (!varTypeIsGC(store->TypeGet()))
+    if (!store->TypeIs(TYP_REF))
     {
+        // Only object references need write barriers.
+        // A managed pointer cannot be stored in the managed heap so we'll
+        // treat it as any other value that doesn't require a write barrier.
         return WBF_NoBarrier;
     }
 
-    if (store->GetValue()->IsIntegralConst(0))
+    if (store->GetValue()->OperIsConst())
     {
-        // Storing a null reference doesn't require a write barrier.
-        return WBF_NoBarrier;
-    }
-
-    if (store->TypeIs(TYP_BYREF))
-    {
-        // Byref values cannot be in managed heap.
-        // This case occurs for Span<T>.
+        // Constant values (normally null since there aren't any other
+        // TYP_REF constants) cannot represent GC heap objects so no
+        // write barrier is needed.
         return WBF_NoBarrier;
     }
 
