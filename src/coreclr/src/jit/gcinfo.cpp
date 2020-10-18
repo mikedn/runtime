@@ -250,8 +250,6 @@ GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTree* tgt, GenTree
 
     /* Where are we storing into? */
 
-    tgt = tgt->gtEffectiveVal();
-
     switch (tgt->gtOper)
     {
 
