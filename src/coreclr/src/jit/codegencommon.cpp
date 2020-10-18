@@ -2890,26 +2890,7 @@ CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTr
 {
     assert(wbf != GCInfo::WBF_NoBarrier);
 
-    CorInfoHelpFunc helper = CORINFO_HELP_ASSIGN_REF;
-
-    if (wbf != GCInfo::WBF_BarrierUnchecked)
-    {
-        if ((store->gtFlags & GTF_IND_TGTANYWHERE) != 0)
-        {
-            helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
-        }
-        else if (store->GetAddr()->TypeIs(TYP_I_IMPL))
-        {
-            helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
-        }
-    }
-
-    assert(((helper == CORINFO_HELP_CHECKED_ASSIGN_REF) &&
-            (wbf == GCInfo::WBF_BarrierChecked || wbf == GCInfo::WBF_BarrierUnknown)) ||
-           ((helper == CORINFO_HELP_ASSIGN_REF) &&
-            (wbf == GCInfo::WBF_BarrierUnchecked || wbf == GCInfo::WBF_BarrierUnknown)));
-
-    return helper;
+    return (wbf == GCInfo::WBF_BarrierUnchecked) ? CORINFO_HELP_ASSIGN_REF : CORINFO_HELP_CHECKED_ASSIGN_REF;
 }
 
 void CodeGen::genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf)
