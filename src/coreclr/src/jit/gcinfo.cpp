@@ -598,14 +598,29 @@ void GCInfo::gcRegPtrSetInit()
 
 GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* tgtAddr)
 {
-    // If we store through an int to a GC_REF field, we'll assume that needs to use a checked barriers.
-    if (tgtAddr->TypeGet() == TYP_I_IMPL)
+    if (tgtAddr->IsIntegralConst(0))
     {
-        return GCInfo::WBF_BarrierChecked; // Why isn't this GCInfo::WBF_BarrierUnknown?
+        // If the address is null it doesn't need a write barrier. Other constants
+        // typically need write barriers, usually they're GC statics.
+        return GCInfo::WBF_NoBarrier;
     }
 
-    // Otherwise...
-    assert(tgtAddr->TypeGet() == TYP_BYREF);
+    if (!tgtAddr->TypeIs(TYP_BYREF))
+    {
+        // Normally object references should be stored to the GC heap via managed pointers.
+        //
+        // If it is an unmanaged pointer then it's not tracked so its value may very well
+        // be bogus. If it's an object reference then it means that we're trying to store
+        // an object reference into the method table pointer field of an object...
+        //
+        // There's also the special case of GC statics - in some cases the static address
+        // is an unmanaged pointer (a constant) but a write barrier is still required.
+        //
+        // To keep things simple and safe just emit a checked barrier in all cases.
+
+        return GCInfo::WBF_BarrierChecked;
+    }
+
     bool simplifiedExpr = true;
     while (simplifiedExpr)
     {
