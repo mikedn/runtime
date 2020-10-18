@@ -2875,11 +2875,7 @@ void CodeGen::genReportEH()
 bool CodeGenInterface::genUseOptimizedWriteBarriers(GCInfo::WriteBarrierForm wbf)
 {
 #if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-#ifdef DEBUG
-    return (wbf != GCInfo::WBF_NoBarrier_CheckNotHeapInDebug); // This one is always a call to a C++ method.
-#else
     return true;
-#endif
 #else
     return false;
 #endif
@@ -2905,12 +2901,7 @@ bool CodeGenInterface::genUseOptimizedWriteBarriers(GCInfo::WriteBarrierForm wbf
 bool CodeGenInterface::genUseOptimizedWriteBarriers(GenTree* tgt, GenTree* assignVal)
 {
 #if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-#ifdef DEBUG
-    GCInfo::WriteBarrierForm wbf = compiler->codeGen->gcInfo.gcIsWriteBarrierCandidate(tgt, assignVal);
-    return (wbf != GCInfo::WBF_NoBarrier_CheckNotHeapInDebug); // This one is always a call to a C++ method.
-#else
     return true;
-#endif
 #else
     return false;
 #endif
@@ -2936,14 +2927,7 @@ CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTr
 
     CorInfoHelpFunc helper = CORINFO_HELP_ASSIGN_REF;
 
-#ifdef DEBUG
-    if (wbf == GCInfo::WBF_NoBarrier_CheckNotHeapInDebug)
-    {
-        helper = CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP;
-    }
-    else
-#endif
-        if (tgt->gtOper != GT_CLS_VAR)
+    if (tgt->gtOper != GT_CLS_VAR)
     {
         if (wbf != GCInfo::WBF_BarrierUnchecked) // This overrides the tests below.
         {
@@ -2957,8 +2941,8 @@ CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTr
             }
         }
     }
-    assert(((helper == CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP) && (wbf == GCInfo::WBF_NoBarrier_CheckNotHeapInDebug)) ||
-           ((helper == CORINFO_HELP_CHECKED_ASSIGN_REF) &&
+
+    assert(((helper == CORINFO_HELP_CHECKED_ASSIGN_REF) &&
             (wbf == GCInfo::WBF_BarrierChecked || wbf == GCInfo::WBF_BarrierUnknown)) ||
            ((helper == CORINFO_HELP_ASSIGN_REF) &&
             (wbf == GCInfo::WBF_BarrierUnchecked || wbf == GCInfo::WBF_BarrierUnknown)));
