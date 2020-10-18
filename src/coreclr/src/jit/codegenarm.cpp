@@ -1303,49 +1303,36 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.gcIsWriteBarrierCandidate(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        // data and addr must be in registers.
-        // Consume both registers so that any copies of interfering
-        // registers are taken care of.
         genConsumeOperands(tree);
 
         // At this point, we should not have any interference.
         // That is, 'data' must not be in REG_ARG_0,
-        //  as that is where 'addr' must go.
+        // as that is where 'addr' must go.
         noway_assert(data->GetRegNum() != REG_ARG_0);
 
-        // addr goes in REG_ARG_0
-        if (addr->GetRegNum() != REG_ARG_0)
-        {
-            inst_RV_RV(INS_mov, REG_ARG_0, addr->GetRegNum(), addr->TypeGet());
-        }
-
-        // data goes in REG_ARG_1
-        if (data->GetRegNum() != REG_ARG_1)
-        {
-            inst_RV_RV(INS_mov, REG_ARG_1, data->GetRegNum(), data->TypeGet());
-        }
-
+        genCopyRegIfNeeded(addr, REG_ARG_0);
+        genCopyRegIfNeeded(data, REG_ARG_1);
         genGCWriteBarrier(tree, writeBarrierForm);
+
+        return;
     }
-    else // A normal store, not a WriteBarrier store
+
+    // We must consume the operands in the proper execution order,
+    // so that liveness is updated appropriately.
+    genConsumeAddress(addr);
+
+    if (!data->isContained())
     {
-        // We must consume the operands in the proper execution order,
-        // so that liveness is updated appropriately.
-        genConsumeAddress(addr);
-
-        if (!data->isContained())
-        {
-            genConsumeRegs(data);
-        }
-
-        if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
-        {
-            // issue a full memory barrier a before volatile StInd
-            instGen_MemoryBarrier();
-        }
-
-        GetEmitter()->emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), data->GetRegNum(), tree);
+        genConsumeRegs(data);
     }
+
+    if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
+    {
+        // issue a full memory barrier a before volatile StInd
+        instGen_MemoryBarrier();
+    }
+
+    GetEmitter()->emitInsLoadStoreOp(ins_Store(type), emitActualTypeSize(type), data->GetRegNum(), tree);
 }
 
 // genLongToIntCast: Generate code for long to int casts.

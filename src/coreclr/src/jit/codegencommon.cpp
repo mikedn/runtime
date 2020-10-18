@@ -2882,34 +2882,25 @@ bool CodeGenInterface::genUseOptimizedWriteBarriers()
 // genWriteBarrierHelperForWriteBarrierForm: Given a write node requiring a write
 // barrier, and the write barrier form required, determine the helper to call.
 //
-// Arguments:
-//   tgt - target tree of write (e.g., GT_STOREIND)
-//   wbf - already computed write barrier form to use
-//
-// Return Value:
-//   Write barrier helper to use.
-//
 // Note: do not call this function to get an optimized write barrier helper (e.g.,
 // for x86).
 //
-CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTree* tgt, GCInfo::WriteBarrierForm wbf)
+CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTreeStoreInd*         store,
+                                                                           GCInfo::WriteBarrierForm wbf)
 {
-    noway_assert(tgt->gtOper == GT_STOREIND);
+    assert(wbf != GCInfo::WBF_NoBarrier);
 
     CorInfoHelpFunc helper = CORINFO_HELP_ASSIGN_REF;
 
-    if (tgt->gtOper != GT_CLS_VAR)
+    if (wbf != GCInfo::WBF_BarrierUnchecked)
     {
-        if (wbf != GCInfo::WBF_BarrierUnchecked) // This overrides the tests below.
+        if ((store->gtFlags & GTF_IND_TGTANYWHERE) != 0)
         {
-            if (tgt->gtFlags & GTF_IND_TGTANYWHERE)
-            {
-                helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
-            }
-            else if (tgt->AsOp()->gtOp1->TypeGet() == TYP_I_IMPL)
-            {
-                helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
-            }
+            helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
+        }
+        else if (store->GetAddr()->TypeIs(TYP_I_IMPL))
+        {
+            helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
         }
     }
 
@@ -2921,20 +2912,11 @@ CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTr
     return helper;
 }
 
-//----------------------------------------------------------------------
-// genGCWriteBarrier: Generate a write barrier for a node.
-//
-// Arguments:
-//   tgt - target tree of write (e.g., GT_STOREIND)
-//   wbf - already computed write barrier form to use
-//
-void CodeGen::genGCWriteBarrier(GenTree* tgt, GCInfo::WriteBarrierForm wbf)
+void CodeGen::genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf)
 {
-    CorInfoHelpFunc helper = genWriteBarrierHelperForWriteBarrierForm(tgt, wbf);
+    CorInfoHelpFunc helper = genWriteBarrierHelperForWriteBarrierForm(store, wbf);
 
-    genEmitHelperCall(helper,
-                      0,           // argSize
-                      EA_PTRSIZE); // retSize
+    genEmitHelperCall(helper, 0, EA_PTRSIZE);
 }
 
 /*
