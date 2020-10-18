@@ -628,12 +628,6 @@ GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* tg
 
         tgtAddr = tgtAddr->gtSkipReloadOrCopy();
 
-        while (tgtAddr->OperGet() == GT_ADDR && tgtAddr->AsOp()->gtOp1->OperGet() == GT_IND)
-        {
-            tgtAddr        = tgtAddr->AsOp()->gtOp1->AsOp()->gtOp1;
-            simplifiedExpr = true;
-            assert(tgtAddr->TypeGet() == TYP_BYREF);
-        }
         // For additions, one of the operands is a byref or a ref (and the other is not).  Follow this down to its
         // source.
         while (tgtAddr->OperIs(GT_ADD, GT_LEA))
