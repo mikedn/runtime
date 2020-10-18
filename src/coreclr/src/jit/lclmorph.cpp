@@ -1104,7 +1104,7 @@ private:
                 m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
             }
 
-            INDEBUG(m_stmtModified = !indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_FIELD);)
+            INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_FIELD);)
 
             return;
         }
