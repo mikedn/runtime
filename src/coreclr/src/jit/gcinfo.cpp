@@ -253,12 +253,6 @@ GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTreeStoreInd* stor
     return gcWriteBarrierFormFromTargetAddress(store->GetAddr());
 }
 
-bool GCInfo::gcIsWriteBarrierStoreIndNode(GenTreeStoreInd* store)
-{
-    return gcIsWriteBarrierCandidate(store) != WBF_NoBarrier;
-}
-
-/*****************************************************************************/
 /*****************************************************************************
  *
  *  Initialize the non-register pointer variable tracking logic.
