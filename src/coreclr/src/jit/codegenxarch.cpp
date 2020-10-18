@@ -4619,10 +4619,6 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
         tgtAnywhere = 1;
     }
 
-    // We might want to call a modified version of genGCWriteBarrier() to get the benefit of
-    // the FEATURE_COUNT_GC_WRITE_BARRIERS code there, but that code doesn't look like it works
-    // with rationalized RyuJIT IR. So, for now, just emit the helper call directly here.
-
     genEmitHelperCall(regToHelper[tgtAnywhere][reg],
                       0,           // argSize
                       EA_PTRSIZE); // retSize
