@@ -738,13 +738,11 @@ void LinearScan::addRefsForPhysRegMask(regMaskTP mask, LsraLocation currentLoc, 
 //
 regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
 {
-    assert(tree->OperIs(GT_STOREIND));
-
     regMaskTP killMask = RBM_NONE;
 
     GenTree* data = tree->Data();
 
-    GCInfo::WriteBarrierForm writeBarrierForm = compiler->codeGen->gcInfo.gcIsWriteBarrierCandidate(tree, data);
+    GCInfo::WriteBarrierForm writeBarrierForm = compiler->codeGen->gcInfo.gcIsWriteBarrierCandidate(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
         if (compiler->codeGen->genUseOptimizedWriteBarriers(writeBarrierForm))

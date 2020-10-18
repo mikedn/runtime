@@ -225,16 +225,18 @@ void GCInfo::gcMarkRegPtrVal(regNumber reg, var_types type)
 
 /*****************************************************************************/
 
-GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTree* tgt, GenTree* assignVal)
+GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTreeStoreInd* store)
 {
     /* Are we storing a GC ptr? */
 
-    if (!varTypeIsGC(tgt->TypeGet()))
+    if (!varTypeIsGC(store->TypeGet()))
     {
         return WBF_NoBarrier;
     }
 
     /* Ignore any assignments of NULL */
+
+    GenTree* assignVal = store->GetValue();
 
     // 'assignVal' can be the constant Null or something else (LclVar, etc..)
     //  that is known to be null via Value Numbering.
@@ -248,54 +250,26 @@ GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTree* tgt, GenTree
         return WBF_NoBarrier;
     }
 
-    /* Where are we storing into? */
-
-    switch (tgt->gtOper)
+    if (store->TypeIs(TYP_BYREF))
     {
-
-        case GT_STOREIND:
-        case GT_IND: /* Could be the managed heap */
-            if (tgt->TypeGet() == TYP_BYREF)
-            {
-                // Byref values cannot be in managed heap.
-                // This case occurs for Span<T>.
-                return WBF_NoBarrier;
-            }
-            if (tgt->gtFlags & GTF_IND_TGT_NOT_HEAP)
-            {
-                // This indirection is not from to the heap.
-                // This case occurs for stack-allocated objects.
-                return WBF_NoBarrier;
-            }
-            return gcWriteBarrierFormFromTargetAddress(tgt->AsOp()->gtOp1);
-
-        case GT_LEA:
-            return gcWriteBarrierFormFromTargetAddress(tgt->AsAddrMode()->Base());
-
-        case GT_ARR_ELEM: /* Definitely in the managed heap */
-        case GT_CLS_VAR:
-            return WBF_BarrierUnchecked;
-
-        case GT_LCL_VAR: /* Definitely not in the managed heap  */
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
-            return WBF_NoBarrier;
-
-        default:
-            break;
+        // Byref values cannot be in managed heap.
+        // This case occurs for Span<T>.
+        return WBF_NoBarrier;
     }
 
-    assert(!"Missing case in gcIsWriteBarrierCandidate");
+    if ((store->gtFlags & GTF_IND_TGT_NOT_HEAP) != 0)
+    {
+        // This indirection is not from to the heap.
+        // This case occurs for stack-allocated objects.
+        return WBF_NoBarrier;
+    }
 
-    return WBF_NoBarrier;
+    return gcWriteBarrierFormFromTargetAddress(store->GetAddr());
 }
 
-bool GCInfo::gcIsWriteBarrierStoreIndNode(GenTree* op)
+bool GCInfo::gcIsWriteBarrierStoreIndNode(GenTreeStoreInd* store)
 {
-    assert(op->OperIs(GT_STOREIND));
-
-    return gcIsWriteBarrierCandidate(op, op->AsOp()->gtOp2) != WBF_NoBarrier;
+    return gcIsWriteBarrierCandidate(store) != WBF_NoBarrier;
 }
 
 /*****************************************************************************/

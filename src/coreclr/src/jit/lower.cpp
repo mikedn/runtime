@@ -116,7 +116,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_STOREIND:
-            LowerStoreIndirCommon(node->AsIndir());
+            LowerStoreIndirCommon(node->AsStoreInd());
             break;
 
 #ifdef TARGET_ARM64
@@ -3275,7 +3275,7 @@ void Lowering::LowerStoreSingleRegCallStruct(GenTreeBlk* store)
     {
         store->ChangeType(regType);
         store->SetOper(GT_STOREIND);
-        LowerStoreIndirCommon(store);
+        LowerStoreIndirCommon(store->AsStoreInd());
         return;
     }
     else
@@ -6411,11 +6411,12 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 // Arguments:
 //    ind - the store indirection node we are lowering.
 //
-void Lowering::LowerStoreIndirCommon(GenTreeIndir* ind)
+void Lowering::LowerStoreIndirCommon(GenTreeStoreInd* ind)
 {
-    assert(ind->OperIs(GT_STOREIND));
-    assert(ind->TypeGet() != TYP_STRUCT);
+    assert(!ind->TypeIs(TYP_STRUCT));
+
     TryCreateAddrMode(ind->Addr(), true);
+
     if (!comp->codeGen->gcInfo.gcIsWriteBarrierStoreIndNode(ind))
     {
         LowerStoreIndir(ind);
@@ -6617,7 +6618,7 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
     {
         assert(src->TypeIs(regType) || src->IsCnsIntOrI() || src->IsCall());
     }
-    LowerStoreIndirCommon(blkNode);
+    LowerStoreIndirCommon(blkNode->AsStoreInd());
     return true;
 }
 
