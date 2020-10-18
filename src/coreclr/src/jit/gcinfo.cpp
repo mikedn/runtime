@@ -596,16 +596,16 @@ void GCInfo::gcRegPtrSetInit()
 
 #endif // JIT32_GCENCODER
 
-GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* tgtAddr)
+GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* addr)
 {
-    if (tgtAddr->IsIntegralConst(0))
+    if (addr->IsIntegralConst(0))
     {
         // If the address is null it doesn't need a write barrier. Other constants
         // typically need write barriers, usually they're GC statics.
         return GCInfo::WBF_NoBarrier;
     }
 
-    if (!tgtAddr->TypeIs(TYP_BYREF))
+    if (!addr->TypeIs(TYP_BYREF))
     {
         // Normally object references should be stored to the GC heap via managed pointers.
         //
@@ -621,72 +621,44 @@ GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* tg
         return GCInfo::WBF_BarrierChecked;
     }
 
-    bool simplifiedExpr = true;
-    while (simplifiedExpr)
+    for (addr = addr->gtSkipReloadOrCopy(); addr->OperIs(GT_ADD, GT_LEA); addr = addr->gtSkipReloadOrCopy())
     {
-        simplifiedExpr = false;
+        GenTree* op1 = addr->AsOp()->gtOp1;
+        GenTree* op2 = addr->AsOp()->gtOp2;
 
-        tgtAddr = tgtAddr->gtSkipReloadOrCopy();
-
-        // For additions, one of the operands is a byref or a ref (and the other is not).  Follow this down to its
-        // source.
-        while (tgtAddr->OperIs(GT_ADD, GT_LEA))
+        if ((op1 != nullptr) && op1->TypeIs(TYP_BYREF, TYP_REF))
         {
-            if (tgtAddr->OperGet() == GT_ADD)
-            {
-                GenTree*  addOp1     = tgtAddr->AsOp()->gtGetOp1();
-                GenTree*  addOp2     = tgtAddr->AsOp()->gtGetOp2();
-                var_types addOp1Type = addOp1->TypeGet();
-                var_types addOp2Type = addOp2->TypeGet();
-                if (addOp1Type == TYP_BYREF || addOp1Type == TYP_REF)
-                {
-                    assert(addOp2Type != TYP_BYREF && addOp2Type != TYP_REF);
-                    tgtAddr        = addOp1;
-                    simplifiedExpr = true;
-                }
-                else if (addOp2Type == TYP_BYREF || addOp2Type == TYP_REF)
-                {
-                    tgtAddr        = addOp2;
-                    simplifiedExpr = true;
-                }
-                else
-                {
-                    // We might have a native int. For example:
-                    //        const     int    0
-                    //    +         byref
-                    //        lclVar    int    V06 loc5  // this is a local declared "valuetype VType*"
-                    return GCInfo::WBF_BarrierUnknown;
-                }
-            }
-            else
-            {
-                // Must be an LEA (i.e., an AddrMode)
-                assert(tgtAddr->OperGet() == GT_LEA);
-                tgtAddr = tgtAddr->AsAddrMode()->Base();
-                if (tgtAddr->TypeGet() == TYP_BYREF || tgtAddr->TypeGet() == TYP_REF)
-                {
-                    simplifiedExpr = true;
-                }
-                else
-                {
-                    // We might have a native int.
-                    return GCInfo::WBF_BarrierUnknown;
-                }
-            }
+            assert((op2 == nullptr) || !op2->TypeIs(TYP_BYREF, TYP_REF));
+
+            addr = op1;
+        }
+        else if ((op2 != nullptr) && op2->TypeIs(TYP_BYREF, TYP_REF))
+        {
+            addr = op2;
+        }
+        else
+        {
+            // At least one operand has to be a GC pointer, otherwise it means that
+            // we're dealing with unmanaged pointers pointing into the GC heap...
+            return GCInfo::WBF_BarrierUnknown;
         }
     }
 
-    if (tgtAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (addr->TypeIs(TYP_REF))
+    {
+        // If we found an object reference then this should be a store the GC heap,
+        // unless we're dealing with weird code that converts an unmanaged pointer
+        // to TYP_REF...
+
+        return GCInfo::WBF_BarrierUnchecked;
+    }
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
     {
         // No need for a GC barrier when writing to a local variable.
         return GCInfo::WBF_NoBarrier;
     }
 
-    if (tgtAddr->TypeGet() == TYP_REF)
-    {
-        return GCInfo::WBF_BarrierUnchecked;
-    }
-    // Otherwise, we have no information.
     return GCInfo::WBF_BarrierUnknown;
 }
 
