@@ -717,21 +717,6 @@ GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* tg
     {
         unsigned lclNum = tgtAddr->AsLclVar()->GetLclNum();
 
-        LclVarDsc* varDsc = &compiler->lvaTable[lclNum];
-
-        // Instead of marking LclVar with 'lvStackByref',
-        // Consider decomposing the Value Number given to this LclVar to see if it was
-        // created using a GT_ADDR(GT_LCLVAR)  or a GT_ADD( GT_ADDR(GT_LCLVAR), Constant)
-
-        // We may have an internal compiler temp created in fgMorphCopyBlock() that we know
-        // points at one of our stack local variables, it will have lvStackByref set to true.
-        //
-        if (varDsc->lvStackByref)
-        {
-            assert(varDsc->TypeGet() == TYP_BYREF);
-            return GCInfo::WBF_NoBarrier;
-        }
-
         // We don't eliminate for inlined methods, where we (can) know where the "retBuff" points.
         if (!compiler->compIsForInlining() && lclNum == compiler->info.compRetBuffArg)
         {

@@ -421,11 +421,8 @@ public:
     unsigned char lvLclBlockOpAddr : 1;  // The variable was written to via a block operation that took its address.
     unsigned char lvLiveAcrossUCall : 1; // The variable is live across an unmanaged call.
 #endif
-    unsigned char lvIsCSE : 1;       // Indicates if this LclVar is a CSE variable.
-    unsigned char lvHasLdAddrOp : 1; // has ldloca or ldarga opcode on this local.
-    unsigned char lvStackByref : 1;  // This is a compiler temporary of TYP_BYREF that is known to point into our local
-                                     // stack frame.
-
+    unsigned char lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
+    unsigned char lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
     unsigned char lvHasILStoreOp : 1;         // there is at least one STLOC or STARG on this local
     unsigned char lvHasMultipleILStoreOp : 1; // there is more than one STLOC on this local
 

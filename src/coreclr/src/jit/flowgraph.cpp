@@ -7323,13 +7323,6 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
         {
             return false;
         }
-
-        LclVarDsc* varDsc = &lvaTable[varNum];
-
-        if (varDsc->lvStackByref)
-        {
-            return false;
-        }
     }
     else if (addr->gtOper == GT_ADDR)
     {
