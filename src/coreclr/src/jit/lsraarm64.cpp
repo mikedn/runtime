@@ -701,11 +701,11 @@ int LinearScan::BuildNode(GenTree* tree)
 
             if (compiler->codeGen->gcInfo.gcIsWriteBarrierStoreIndNode(tree->AsStoreInd()))
             {
-                srcCount = BuildGCWriteBarrier(tree);
+                srcCount = BuildGCWriteBarrier(tree->AsStoreInd());
                 break;
             }
 
-            srcCount = BuildIndir(tree->AsIndir());
+            srcCount = BuildIndir(tree->AsStoreInd());
             if (!tree->gtGetOp2()->isContained())
             {
                 BuildUse(tree->gtGetOp2());

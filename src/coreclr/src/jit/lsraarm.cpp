@@ -681,11 +681,11 @@ int LinearScan::BuildNode(GenTree* tree)
 
             if (compiler->codeGen->gcInfo.gcIsWriteBarrierStoreIndNode(tree->AsStoreInd()))
             {
-                srcCount = BuildGCWriteBarrier(tree);
+                srcCount = BuildGCWriteBarrier(tree->AsStoreInd());
                 break;
             }
 
-            srcCount = BuildIndir(tree->AsIndir());
+            srcCount = BuildIndir(tree->AsStoreInd());
             // No contained source on ARM.
             assert(!src->isContained());
             srcCount++;

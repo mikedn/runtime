@@ -3682,35 +3682,27 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 //------------------------------------------------------------------------
 // BuildGCWriteBarrier: Handle additional register requirements for a GC write barrier
 //
-// Arguments:
-//    tree    - The STORE_IND for which a write barrier is required
-//
-int LinearScan::BuildGCWriteBarrier(GenTree* tree)
+int LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
 {
-    GenTree* dst  = tree;
-    GenTree* addr = tree->gtGetOp1();
-    GenTree* src  = tree->gtGetOp2();
+    GenTree* addr = store->GetAddr();
+    GenTree* src  = store->GetValue();
 
     // In the case where we are doing a helper assignment, even if the dst
     // is an indir through an lea, we need to actually instantiate the
     // lea in a register
     assert(!addr->isContained() && !src->isContained());
-    int       srcCount       = 2;
+
     regMaskTP addrCandidates = RBM_ARG_0;
     regMaskTP srcCandidates  = RBM_ARG_1;
 
 #if defined(TARGET_ARM64)
-
     // the 'addr' goes into x14 (REG_WRITE_BARRIER_DST)
     // the 'src'  goes into x15 (REG_WRITE_BARRIER_SRC)
     //
     addrCandidates = RBM_WRITE_BARRIER_DST;
     srcCandidates  = RBM_WRITE_BARRIER_SRC;
-
 #elif defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-
-    bool useOptimizedWriteBarrierHelper = compiler->codeGen->genUseOptimizedWriteBarriers();
-    if (useOptimizedWriteBarrierHelper)
+    if (compiler->codeGen->genUseOptimizedWriteBarriers())
     {
         // Special write barrier:
         // op1 (addr) goes into REG_WRITE_BARRIER (rdx) and
@@ -3718,14 +3710,13 @@ int LinearScan::BuildGCWriteBarrier(GenTree* tree)
         addrCandidates = RBM_WRITE_BARRIER;
         srcCandidates  = RBM_WRITE_BARRIER_SRC;
     }
-
 #endif // defined(TARGET_X86) && NOGC_WRITE_BARRIERS
 
     BuildUse(addr, addrCandidates);
     BuildUse(src, srcCandidates);
 
-    regMaskTP killMask = getKillSetForStoreInd(tree->AsStoreInd());
-    buildKillPositionsForNode(tree, currentLoc + 1, killMask);
+    regMaskTP killMask = getKillSetForStoreInd(store);
+    buildKillPositionsForNode(store, currentLoc + 1, killMask);
     return 2;
 }
 

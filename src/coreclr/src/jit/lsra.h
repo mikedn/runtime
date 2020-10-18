@@ -1570,7 +1570,7 @@ private:
     int BuildMultiRegStoreLoc(GenTreeLclVar* storeLoc);
     int BuildStoreLoc(GenTreeLclVarCommon* tree);
     int BuildIndir(GenTreeIndir* indirTree);
-    int BuildGCWriteBarrier(GenTree* tree);
+    int BuildGCWriteBarrier(GenTreeStoreInd* store);
     int BuildCast(GenTreeCast* cast);
 
 #if defined(TARGET_XARCH)

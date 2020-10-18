@@ -149,7 +149,7 @@ protected:
     TreeLifeUpdater<true>* treeLifeUpdater;
 
 public:
-    bool genUseOptimizedWriteBarriers();
+    bool            genUseOptimizedWriteBarriers();
     CorInfoHelpFunc genWriteBarrierHelperForWriteBarrierForm(GenTree* tgt, GCInfo::WriteBarrierForm wbf);
 
     // The following property indicates whether the current method sets up
