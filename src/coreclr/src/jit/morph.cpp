@@ -10053,9 +10053,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             destField = gtNewIndir(srcFieldLclVar->GetType(), destFieldAddr);
             destField->gtFlags |= GTF_GLOB_REF;
-            // !!! The destination could be on stack. !!!
-            // This flag will let us choose the correct write barrier.
-            destField->gtFlags |= GTF_IND_TGTANYWHERE;
         }
 
         GenTree* srcField = nullptr;

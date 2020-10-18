@@ -1126,10 +1126,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             }
             else // we don't have a GT_ADDR of a GT_LCL_VAR
             {
-                // !!! The destination could be on stack. !!!
-                // This flag will let us choose the correct write barrier.
-                asgType   = returnType;
-                destFlags = GTF_IND_TGTANYWHERE;
+                asgType = returnType;
             }
         }
     }
@@ -1165,13 +1162,6 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             else
             {
                 asgType = src->gtType;
-            }
-
-            if ((destAddr->gtOper != GT_ADDR) || (destAddr->AsOp()->gtOp1->gtOper != GT_LCL_VAR))
-            {
-                // !!! The destination could be on stack. !!!
-                // This flag will let us choose the correct write barrier.
-                destFlags = GTF_IND_TGTANYWHERE;
             }
         }
     }
@@ -5446,8 +5436,7 @@ GenTree* Compiler::impTransformThis(GenTree*                thisPtr,
             CorInfoType constraintTyp = info.compCompHnd->asCorInfoType(pConstrainedResolvedToken->hClass);
 
             obj = gtNewOperNode(GT_IND, JITtype2varType(constraintTyp), obj);
-            // ldind could point anywhere, example a boxed class static int
-            obj->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF | GTF_IND_TGTANYWHERE);
+            obj->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
 
             return obj;
         }
@@ -6177,6 +6166,22 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedT
         {
             op1 = gtNewOperNode(GT_IND, lclTyp, op1);
             op1->gtFlags |= GTF_GLOB_REF;
+        }
+
+        if (op1->TypeIs(TYP_REF) && op1->AsIndir()->GetAddr()->TypeIs(TYP_BYREF))
+        {
+            // Storing an object reference into a static field requires a write barrier.
+            // But what kind of barrier? GCInfo::gcIsWriteBarrierCandidate has trouble
+            // figuring it out because the address is a byref that comes from a helper
+            // call, rather than being derived from an object reference.
+            //
+            // Set GTF_IND_TGT_HEAP to tell gcIsWriteBarrierCandidate that this is really
+            // a GC heap store so an unchecked write barrier can be used.
+
+            // TODO-MIKE-Review: Are the checked barriers significantly slower than the
+            // unchecked barriers to worth this trouble?
+
+            op1->gtFlags |= GTF_IND_TGT_HEAP;
         }
     }
 
@@ -8134,7 +8139,6 @@ REDO_RETURN_NODE:
             goto REDO_RETURN_NODE;
         }
         op->ChangeOperUnchecked(GT_IND);
-        op->gtFlags |= GTF_IND_TGTANYWHERE;
     }
     else if (op->gtOper == GT_CALL)
     {
@@ -11675,9 +11679,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 op1 = gtNewOperNode(GT_IND, lclTyp, op1);
 
-                // stind could point anywhere, example a boxed class static int
-                op1->gtFlags |= GTF_IND_TGTANYWHERE;
-
                 if (prefixFlags & PREFIX_VOLATILE)
                 {
                     assert(op1->OperGet() == GT_IND);
@@ -11750,8 +11751,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 op1 = gtNewOperNode(GT_IND, lclTyp, op1);
 
-                // ldind could point anywhere, example a boxed class static int
-                op1->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF | GTF_IND_TGTANYWHERE);
+                op1->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
 
                 if (prefixFlags & PREFIX_VOLATILE)
                 {
@@ -12517,13 +12517,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             op1->gtFlags |= GTF_EXCEPT;
                         }
 
-                        // If gtFldObj is a BYREF then our target is a value class and
-                        // it could point anywhere, example a boxed class static int
-                        if (obj->gtType == TYP_BYREF)
-                        {
-                            op1->gtFlags |= GTF_IND_TGTANYWHERE;
-                        }
-
                         DWORD typeFlags = info.compCompHnd->getClassAttribs(resolvedToken.hClass);
                         if (StructHasOverlappingFields(typeFlags))
                         {
@@ -12832,13 +12825,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         if (fgAddrCouldBeNull(obj))
                         {
                             op1->gtFlags |= GTF_EXCEPT;
-                        }
-
-                        // If gtFldObj is a BYREF then our target is a value class and
-                        // it could point anywhere, example a boxed class static int
-                        if (obj->gtType == TYP_BYREF)
-                        {
-                            op1->gtFlags |= GTF_IND_TGTANYWHERE;
                         }
 
                         if (compIsForInlining() &&
@@ -13983,7 +13969,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     assertImp(varTypeIsArithmetic(lclTyp));
 
                     op1 = gtNewOperNode(GT_IND, lclTyp, op1);
-                    op1->gtFlags |= GTF_IND_TGTANYWHERE | GTF_GLOB_REF;
+                    op1->gtFlags |= GTF_GLOB_REF;
                 }
 
                 op1->gtFlags |= GTF_EXCEPT;

@@ -1880,9 +1880,7 @@ public:
                         // Change LCL_FLD<>(arg) into IND<>(ADD(LCL_VAR<BYREF>(arg), lclOffs))
                         tree->ChangeOper(GT_IND);
                         tree->AsIndir()->SetAddr(addr);
-                        // TODO-CQ: If the VM ever stops violating the ABI and passing heap references we could remove
-                        // TGTANYWHERE
-                        tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGTANYWHERE;
+                        tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                     }
                 }
             }
@@ -1937,9 +1935,7 @@ public:
                 }
 
                 tree->AsIndir()->SetAddr(m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, lclNode, offset));
-                // TODO-CQ: If the VM ever stops violating the ABI and passing heap references we could remove
-                // TGTANYWHERE
-                tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGTANYWHERE;
+                tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
             }
 
             INDEBUG(m_stmtModified = true;)
@@ -1995,7 +1991,7 @@ public:
         }
 
         indir->AsIndir()->SetAddr(addr);
-        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_TGTANYWHERE | GTF_IND_NONFAULTING;
+        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
 
         INDEBUG(m_stmtModified = true;)
     }

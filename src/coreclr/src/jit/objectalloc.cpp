@@ -726,9 +726,8 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
 // Notes:
 //                      If newType is TYP_I_IMPL, the tree is definitely pointing to the stack (or is null);
 //                      if newType is TYP_BYREF, the tree may point to the stack.
-//                      In addition to updating types this method may set GTF_IND_TGTANYWHERE
-//                      or GTF_IND_TGT_NOT_HEAP on ancestor indirections to help codegen
-//                      with write barrier selection.
+//                      In addition to updating types this method may set GTF_IND_TGT_NOT_HEAP
+//                      or on ancestor indirections to help codegen with write barrier selection.
 
 void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* parentStack, var_types newType)
 {
@@ -783,13 +782,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
             case GT_FIELD:
             case GT_IND:
             {
-                if (newType == TYP_BYREF)
-                {
-                    // This ensures that a checked write barrier is used when writing
-                    // to this field/indirection (it can be inside a stack-allocated object).
-                    parent->gtFlags |= GTF_IND_TGTANYWHERE;
-                }
-                else
+                if (newType != TYP_BYREF)
                 {
                     // This indicates that a write barrier is not needed when writing
                     // to this field/indirection since the address is not pointing to the heap.

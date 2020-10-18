@@ -254,10 +254,10 @@ GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTreeStoreInd* stor
 
     if (form == WBF_BarrierUnknown)
     {
-        // If we can't figure out where the address is then use TGTANYWHERE to
+        // If we can't figure out where the address is then use TGT_HEAP to
         // select between checked and unchecked barriers.
 
-        form = ((store->gtFlags & GTF_IND_TGTANYWHERE) != 0) ? WBF_BarrierChecked : WBF_BarrierUnchecked;
+        form = ((store->gtFlags & GTF_IND_TGT_HEAP) != 0) ? WBF_BarrierUnchecked : WBF_BarrierChecked;
     }
 
     return form;
