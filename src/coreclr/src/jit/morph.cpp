@@ -7278,37 +7278,29 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         assert(retBufArg->OperIsLocal());
         assert(retBufArg->AsLclVarCommon()->GetLclNum() == info.compRetBuffArg);
 
-        if (info.compRetBuffDefStack)
-        {
-            // Use existing retbuf.
-            retValArg = retBufArg;
-        }
-        else
-        {
-            // Caller return buffer argument retBufArg can point to GC heap while the dispatcher expects
-            // the return value argument retValArg to point to the stack.
-            // We use a temporary stack allocated return buffer to hold the value during the dispatcher call
-            // and copy the value back to the caller return buffer after that.
-            unsigned int tmpRetBufNum = lvaGrabTemp(true DEBUGARG("substitute local for return buffer"));
+        // Caller return buffer argument retBufArg can point to GC heap while the dispatcher expects
+        // the return value argument retValArg to point to the stack.
+        // We use a temporary stack allocated return buffer to hold the value during the dispatcher call
+        // and copy the value back to the caller return buffer after that.
+        unsigned int tmpRetBufNum = lvaGrabTemp(true DEBUGARG("substitute local for return buffer"));
 
-            constexpr bool unsafeValueClsCheck = false;
-            lvaSetStruct(tmpRetBufNum, origCall->gtRetClsHnd, unsafeValueClsCheck);
-            lvaSetVarAddrExposed(tmpRetBufNum);
+        constexpr bool unsafeValueClsCheck = false;
+        lvaSetStruct(tmpRetBufNum, origCall->gtRetClsHnd, unsafeValueClsCheck);
+        lvaSetVarAddrExposed(tmpRetBufNum);
 
-            var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
+        var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
 
-            retValArg = gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(tmpRetBufNum, tmpRetBufType));
+        retValArg = gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(tmpRetBufNum, tmpRetBufType));
 
-            var_types callerRetBufType = lvaGetDesc(info.compRetBuffArg)->TypeGet();
+        var_types callerRetBufType = lvaGetDesc(info.compRetBuffArg)->TypeGet();
 
-            GenTree* dstAddr = gtNewLclvNode(info.compRetBuffArg, callerRetBufType);
-            GenTree* dst     = gtNewObjNode(info.compMethodInfo->args.retTypeClass, dstAddr);
-            GenTree* src     = gtNewLclvNode(tmpRetBufNum, tmpRetBufType);
+        GenTree* dstAddr = gtNewLclvNode(info.compRetBuffArg, callerRetBufType);
+        GenTree* dst     = gtNewObjNode(info.compMethodInfo->args.retTypeClass, dstAddr);
+        GenTree* src     = gtNewLclvNode(tmpRetBufNum, tmpRetBufType);
 
-            constexpr bool isVolatile  = false;
-            constexpr bool isCopyBlock = true;
-            copyToRetBufNode           = gtNewBlkOpNode(dst, src, isVolatile, isCopyBlock);
-        }
+        constexpr bool isVolatile  = false;
+        constexpr bool isCopyBlock = true;
+        copyToRetBufNode           = gtNewBlkOpNode(dst, src, isVolatile, isCopyBlock);
 
         if (origCall->gtType != TYP_VOID)
         {
