@@ -234,19 +234,9 @@ GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTreeStoreInd* stor
         return WBF_NoBarrier;
     }
 
-    /* Ignore any assignments of NULL */
-
-    GenTree* assignVal = store->GetValue();
-
-    // 'assignVal' can be the constant Null or something else (LclVar, etc..)
-    //  that is known to be null via Value Numbering.
-    if (assignVal->GetVN(VNK_Liberal) == ValueNumStore::VNForNull())
+    if (store->GetValue()->IsIntegralConst(0))
     {
-        return WBF_NoBarrier;
-    }
-
-    if (assignVal->gtOper == GT_CNS_INT && assignVal->AsIntCon()->gtIconVal == 0)
-    {
+        // Storing a null reference doesn't require a write barrier.
         return WBF_NoBarrier;
     }
 
