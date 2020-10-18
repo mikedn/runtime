@@ -290,15 +290,15 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_LCL_VAR, GT_LCL_FLD));
         src->SetContained();
 
-        if (src->OperIs(GT_IND))
+        if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
         {
             // TODO-Cleanup: Make sure that GT_IND lowering didn't mark the source address as contained.
             // Sometimes the GT_IND type is a non-struct type and then GT_IND lowering may contain the
             // address, not knowing that GT_IND is part of a block op that has containment restrictions.
-            src->AsIndir()->Addr()->ClearContained();
+            src->AsIndir()->GetAddr()->ClearContained();
         }
 
         if (blkNode->OperIs(GT_STORE_OBJ))
@@ -327,9 +327,9 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
         {
             blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
 
-            if (src->OperIs(GT_IND))
+            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
-                ContainBlockStoreAddress(blkNode, size, src->AsIndir()->Addr());
+                ContainBlockStoreAddress(blkNode, size, src->AsIndir()->GetAddr());
             }
 
             ContainBlockStoreAddress(blkNode, size, dstAddr);

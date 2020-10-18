@@ -3250,7 +3250,7 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     }
 
     void* initData = info.compCompHnd->getArrayInitializationData(fieldToken, size.Value());
-    if (!initData)
+    if (initData == nullptr)
     {
         return nullptr;
     }
@@ -3276,19 +3276,15 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         dataOffset = eeGetArrayDataOffset(elementType);
     }
 
-    GenTree* dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
-    GenTree* dst     = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, typGetBlkLayout(blkSize));
-    GenTree* src     = gtNewIndOfIconHandleNode(TYP_STRUCT, (size_t)initData, GTF_ICON_CONST_PTR, true);
+    GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
+    GenTreeBlk* dst     = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, typGetBlkLayout(blkSize));
+    GenTree*    srcAddr = gtNewIconHandleNode(reinterpret_cast<size_t>(initData), GTF_ICON_CONST_PTR);
+    GenTreeBlk* src     = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, srcAddr, dst->GetLayout());
 
-#ifdef DEBUG
-    src->gtGetOp1()->AsIntCon()->gtTargetHandle = THT_IntializeArrayIntrinsics;
-#endif
+    dst->gtFlags |= GTF_IND_NONFAULTING;
+    src->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
-    // TODO-MIKE-Cleanup: This should probably be removed, it's here only because
-    // a previous implementation (gtNewBlkOpNode) was setting it. It's unlikely
-    // that is has any effect since the source is a STRUCT IND with no layout so
-    // CSE can't do anything with it.
-    src->gtFlags |= GTF_DONT_CSE;
+    INDEBUG(srcAddr->AsIntCon()->gtTargetHandle = THT_IntializeArrayIntrinsics;)
 
     return gtNewAssignNode(dst, src);
 }
@@ -18556,12 +18552,13 @@ GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTre
 
 GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
 {
-    GenTreeIndir* dst;
+    ClassLayout* layout = nullptr;
+    GenTreeBlk*  dst;
 
     if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
     {
-        dst = new (this, GT_BLK)
-            GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue())));
+        layout = typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue()));
+        dst    = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, layout);
     }
     else
     {
@@ -18575,29 +18572,29 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
 
     // TODO-MIKE-Review: Currently CPBLK ignores the unaligned prefix.
 
-    GenTree* src;
+    GenTreeIndir* src;
 
-    if (!isVolatile && srcAddr->OperIs(GT_ADDR))
+    if (layout != nullptr)
     {
-        src = srcAddr->AsUnOp()->GetOp(0);
+        src = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, srcAddr, layout);
     }
     else
     {
-        src = gtNewOperNode(GT_IND, TYP_STRUCT, srcAddr);
+        // STRUCT typed IND aren't normally used, we'll use it here as a special case, to denote
+        // a "load" of unknown size. Maybe using DYN_BLK as source would make more sense.
+        // We'd need to spill the size tree so it can have multiple uses but such copies are
+        // rare so getting an extra local shouldn't be a problem.
 
-        if (isVolatile)
-        {
-            src->AsIndir()->SetVolatile();
-        }
+        // TODO-MIKE-Consider: Replace GT_DYN_BLK with GT_COPY_BLK. Using load/store semantics
+        // for untyped, arbitrary sized copies is kind of nonsense.
+
+        src = new (this, GT_IND) GenTreeIndir(GT_IND, TYP_STRUCT, srcAddr);
     }
 
-    // TODO-MIKE-CQ: This should probably be removed, it's here only because
-    // a previous implementation (gtNewBlkOpNode) was setting it. This might
-    // block SIMD tree CSEing, though it would be unusual to use CPBLK to
-    // copy struct values so it probably doesn't matter.
-    src->gtFlags |= GTF_DONT_CSE;
+    if (isVolatile)
+    {
+        src->SetVolatile();
+    }
 
-    GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructCopyAsg(asg);
-    return asg;
+    return gtNewAssignNode(dst, src);
 }

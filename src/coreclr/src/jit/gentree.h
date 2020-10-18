@@ -6457,7 +6457,8 @@ struct GenTreeIndir : public GenTreeOp
     unsigned Scale();
     ssize_t  Offset();
 
-    GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* data) : GenTreeOp(oper, type, addr, data)
+    GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
+        : GenTreeOp(oper, type, addr, value)
     {
     }
 

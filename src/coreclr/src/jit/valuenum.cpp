@@ -7382,11 +7382,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     break;
 
                 case GT_OBJ:
-                    noway_assert(!"GT_OBJ can not be LHS when (tree->TypeGet() != TYP_STRUCT)!");
-                    break;
-
                 case GT_BLK:
-                    FALLTHROUGH;
+                    noway_assert(!"OBJ/BLK can not be LHS when (tree->TypeGet() != TYP_STRUCT)!");
+                    break;
 
                 case GT_IND:
                 {

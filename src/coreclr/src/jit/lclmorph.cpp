@@ -964,7 +964,32 @@ private:
         }
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
-        const bool isDef  = user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
+
+        if (indir->OperIs(GT_BLK))
+        {
+            // Keep BLKs and mark any involved locals address exposed for now.
+            //
+            // CPBLK and INITBLK are rarely used (the C# compiler doesn't emit them at all).
+            // Only the VM sometimes uses CPBLK in PInvoke IL stubs, to deal with x86 ABI
+            // mismatches it seems (Windows x86 ABI can return structs in 2 registers but
+            // CLR uses a return buffer instead).
+            //
+            // TODO-MIKE-CQ: A previous implementation avoided address exposed locals, but
+            // still forced locals in memory because PInvoke IL stubs copy from a LONG local
+            // to a STRUCT local and one way or another this results in DNER/P-DEP locals.
+            // This can be avoided but it's unlikely that it's worth the effort for x86...
+
+            m_compiler->lvaSetVarAddrExposed(val.LclNum());
+
+            if (varDsc->IsPromotedField())
+            {
+                m_compiler->lvaSetVarAddrExposed(varDsc->GetPromotedFieldParentLclNum());
+            }
+
+            return;
+        }
+
+        const bool isDef = user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
 
         if (!varTypeIsStruct(varDsc->GetType()))
         {

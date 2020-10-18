@@ -2581,16 +2581,16 @@ void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
     bool      sourceIsLocal = false;
 
     assert(source->isContained());
-    if (source->gtOper == GT_IND)
+    if (source->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        GenTree* srcAddr = source->gtGetOp1();
-        assert(!srcAddr->isContained());
-        srcAddrType = srcAddr->TypeGet();
+        sourceIsLocal = true;
     }
     else
     {
-        noway_assert(source->IsLocal());
-        sourceIsLocal = true;
+        assert(source->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        GenTree* srcAddr = source->AsIndir()->GetAddr();
+        assert(!srcAddr->isContained());
+        srcAddrType = srcAddr->TypeGet();
     }
 
     bool dstOnStack = dstAddr->gtSkipReloadOrCopy()->OperIsLocalAddr();

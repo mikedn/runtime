@@ -1742,23 +1742,19 @@ void CodeGen::genSetBlockSize(GenTreeBlk* blkNode, regNumber sizeReg)
 
 void CodeGen::genConsumeBlockSrc(GenTreeBlk* blkNode)
 {
-    GenTree* src = blkNode->Data();
+    GenTree* src = blkNode->GetValue();
+
     if (blkNode->OperIsCopyBlkOp())
     {
-        // For a CopyBlk we need the address of the source.
         assert(src->isContained());
-        if (src->OperGet() == GT_IND)
+
+        if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            src = src->AsOp()->gtOp1;
-        }
-        else
-        {
-            // This must be a local.
-            // For this case, there is no source address register, as it is a
-            // stack-based address.
-            assert(src->OperIsLocal());
             return;
         }
+
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        src = src->AsIndir()->GetAddr();
     }
     else
     {
@@ -1767,6 +1763,7 @@ void CodeGen::genConsumeBlockSrc(GenTreeBlk* blkNode)
             src = src->gtGetOp1();
         }
     }
+
     genConsumeReg(src);
 }
 
@@ -1779,21 +1776,18 @@ void CodeGen::genConsumeBlockSrc(GenTreeBlk* blkNode)
 //
 void CodeGen::genSetBlockSrc(GenTreeBlk* blkNode, regNumber srcReg)
 {
-    GenTree* src = blkNode->Data();
+    GenTree* src = blkNode->GetValue();
+
     if (blkNode->OperIsCopyBlkOp())
     {
-        // For a CopyBlk we need the address of the source.
-        if (src->OperGet() == GT_IND)
+        if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            src = src->AsOp()->gtOp1;
-        }
-        else
-        {
-            // This must be a local struct.
-            // Load its address into srcReg.
             inst_RV_TT(INS_lea, srcReg, src, 0, EA_BYREF);
             return;
         }
+
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        src = src->AsIndir()->GetAddr();
     }
     else
     {
@@ -1802,6 +1796,7 @@ void CodeGen::genSetBlockSrc(GenTreeBlk* blkNode, regNumber srcReg)
             src = src->gtGetOp1();
         }
     }
+
     genCopyRegIfNeeded(src, srcReg);
 }
 

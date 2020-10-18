@@ -104,8 +104,7 @@ void Rationalizer::RewriteIndir(LIR::Use& use)
     else
     {
         assert(indir->OperIs(GT_BLK));
-        // We should only see GT_BLK for TYP_STRUCT or for InitBlocks.
-        assert((indir->TypeGet() == TYP_STRUCT) || use.User()->OperIsInitBlkOp());
+        assert(indir->TypeIs(TYP_STRUCT));
     }
 }
 

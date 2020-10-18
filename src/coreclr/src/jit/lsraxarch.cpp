@@ -1325,10 +1325,10 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
     }
     else
     {
-        if (src->OperIs(GT_IND))
+        if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
         {
             assert(src->isContained());
-            srcAddrOrFill = src->AsIndir()->Addr();
+            srcAddrOrFill = src->AsIndir()->GetAddr();
         }
 
         if (blkNode->OperIs(GT_STORE_OBJ))

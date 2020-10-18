@@ -141,14 +141,34 @@ void Lowering::LowerStoreIndir(GenTreeIndir* node)
 //
 void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
 {
-    TryCreateAddrMode(blkNode->Addr(), false);
+    TryCreateAddrMode(blkNode->GetAddr(), false);
 
-    GenTree* dstAddr = blkNode->Addr();
-    GenTree* src     = blkNode->Data();
+    GenTree* dstAddr = blkNode->GetAddr();
+    GenTree* src     = blkNode->GetValue();
     unsigned size    = blkNode->Size();
 
     if (blkNode->OperIsInitBlkOp())
     {
+        switch (blkNode->GetOper())
+        {
+            case GT_STORE_OBJ:
+                assert(!blkNode->GetLayout()->IsBlockLayout());
+                assert(varTypeIsStruct(blkNode->GetType()));
+                assert(src->IsIntegralConst(0));
+                break;
+            case GT_STORE_BLK:
+                assert(blkNode->GetLayout()->IsBlockLayout());
+                assert(blkNode->TypeIs(TYP_STRUCT));
+                assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
+                break;
+            case GT_STORE_DYN_BLK:
+                assert(blkNode->GetLayout() == nullptr);
+                assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
+                break;
+            default:
+                unreached();
+        }
+
         if (src->OperIs(GT_INIT_VAL))
         {
             src->SetContained();
@@ -220,15 +240,50 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_LCL_VAR, GT_LCL_FLD));
+        switch (blkNode->GetOper())
+        {
+            case GT_STORE_OBJ:
+                assert(!blkNode->GetLayout()->IsBlockLayout());
+                assert(varTypeIsStruct(blkNode->GetType()));
+                assert(blkNode->GetType() == src->GetType());
+                if (src->OperIs(GT_OBJ))
+                {
+                    // assert(blkNode->GetLayout() == src->AsObj()->GetLayout());
+                }
+                else if (src->OperIs(GT_LCL_FLD))
+                {
+                    // assert(blkNode->GetLayout() == src->AsLclFld()->GetLayout(comp));
+                }
+                else
+                {
+                    // assert(blkNode->GetLayout() == comp->lvaGetDesc(src->AsLclVar())->GetLayout());
+                }
+                break;
+            case GT_STORE_BLK:
+                assert(blkNode->GetLayout()->IsBlockLayout());
+                assert(blkNode->TypeIs(TYP_STRUCT));
+                assert(src->OperIs(GT_BLK));
+                assert(src->TypeIs(TYP_STRUCT));
+                assert(blkNode->GetLayout() == src->AsBlk()->GetLayout());
+                break;
+            case GT_STORE_DYN_BLK:
+                assert(blkNode->GetLayout() == nullptr);
+                assert(src->OperIs(GT_IND));
+                assert(src->TypeIs(TYP_STRUCT));
+                break;
+            default:
+                unreached();
+        }
+
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_LCL_VAR, GT_LCL_FLD));
         src->SetContained();
 
-        if (src->OperIs(GT_IND))
+        if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
         {
             // TODO-Cleanup: Make sure that GT_IND lowering didn't mark the source address as contained.
             // Sometimes the GT_IND type is a non-struct type and then GT_IND lowering may contain the
             // address, not knowing that GT_IND is part of a block op that has containment restrictions.
-            src->AsIndir()->Addr()->ClearContained();
+            src->AsIndir()->GetAddr()->ClearContained();
         }
 
         if (blkNode->OperIs(GT_STORE_OBJ))
@@ -252,7 +307,7 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
 
         if (blkNode->OperIs(GT_STORE_OBJ))
         {
-            assert((dstAddr->TypeGet() == TYP_BYREF) || (dstAddr->TypeGet() == TYP_I_IMPL));
+            assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
             // If we have a long enough sequence of slots that do not require write barriers then
             // we can use REP MOVSD/Q instead of a sequence of MOVSD/Q instructions. According to the
@@ -297,14 +352,19 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             {
                 blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
             }
+
+            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+            {
+                TryCreateAddrMode(src->AsIndir()->GetAddr(), false);
+            }
         }
         else if (blkNode->OperIs(GT_STORE_BLK) && (size <= CPBLK_UNROLL_LIMIT))
         {
             blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
 
-            if (src->OperIs(GT_IND))
+            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
-                ContainBlockStoreAddress(blkNode, size, src->AsIndir()->Addr());
+                ContainBlockStoreAddress(blkNode, size, src->AsIndir()->GetAddr());
             }
 
             ContainBlockStoreAddress(blkNode, size, dstAddr);
@@ -319,6 +379,11 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
             blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
 #endif
+
+            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+            {
+                TryCreateAddrMode(src->AsIndir()->GetAddr(), false);
+            }
         }
     }
 }

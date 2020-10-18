@@ -2825,8 +2825,8 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     }
     else
     {
-        assert(src->OperIs(GT_IND));
-        GenTree* srcAddr = src->AsIndir()->Addr();
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        GenTree* srcAddr = src->AsIndir()->GetAddr();
 
         if (!srcAddr->isContained())
         {
@@ -3037,8 +3037,8 @@ void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
     // This is because these registers are incremented as we go through the struct.
     if (!source->IsLocal())
     {
-        assert(source->gtOper == GT_IND);
-        srcAddr                   = source->gtGetOp1();
+        assert(source->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        srcAddr                   = source->AsIndir()->GetAddr();
         GenTree* actualSrcAddr    = srcAddr->gtSkipReloadOrCopy();
         GenTree* actualDstAddr    = dstAddr->gtSkipReloadOrCopy();
         unsigned srcLclVarNum     = BAD_VAR_NUM;
