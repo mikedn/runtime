@@ -745,7 +745,7 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
     GCInfo::WriteBarrierForm writeBarrierForm = compiler->codeGen->gcInfo.gcIsWriteBarrierCandidate(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        if (compiler->codeGen->genUseOptimizedWriteBarriers(writeBarrierForm))
+        if (compiler->codeGen->genUseOptimizedWriteBarriers())
         {
             // We can't determine the exact helper to be used at this point, because it depends on
             // the allocated register for the `data` operand. However, all the (x86) optimized
@@ -3709,7 +3709,7 @@ int LinearScan::BuildGCWriteBarrier(GenTree* tree)
 
 #elif defined(TARGET_X86) && NOGC_WRITE_BARRIERS
 
-    bool useOptimizedWriteBarrierHelper = compiler->codeGen->genUseOptimizedWriteBarriers(tree, src);
+    bool useOptimizedWriteBarrierHelper = compiler->codeGen->genUseOptimizedWriteBarriers();
     if (useOptimizedWriteBarrierHelper)
     {
         // Special write barrier:

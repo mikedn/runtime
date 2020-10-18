@@ -2864,41 +2864,12 @@ void CodeGen::genReportEH()
 // genUseOptimizedWriteBarriers: Determine if an optimized write barrier
 // helper should be used.
 //
-// Arguments:
-//   wbf - The WriteBarrierForm of the write (GT_STOREIND) that is happening.
-//
 // Return Value:
 //   true if an optimized write barrier helper should be used, false otherwise.
 //   Note: only x86 implements register-specific source optimized write
 //   barriers currently.
 //
-bool CodeGenInterface::genUseOptimizedWriteBarriers(GCInfo::WriteBarrierForm wbf)
-{
-#if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-    return true;
-#else
-    return false;
-#endif
-}
-
-//----------------------------------------------------------------------
-// genUseOptimizedWriteBarriers: Determine if an optimized write barrier
-// helper should be used.
-//
-// This has the same functionality as the version of
-// genUseOptimizedWriteBarriers that takes a WriteBarrierForm, but avoids
-// determining what the required write barrier form is, if possible.
-//
-// Arguments:
-//   tgt - target tree of write (e.g., GT_STOREIND)
-//   assignVal - tree with value to write
-//
-// Return Value:
-//   true if an optimized write barrier helper should be used, false otherwise.
-//   Note: only x86 implements register-specific source optimized write
-//   barriers currently.
-//
-bool CodeGenInterface::genUseOptimizedWriteBarriers(GenTree* tgt, GenTree* assignVal)
+bool CodeGenInterface::genUseOptimizedWriteBarriers()
 {
 #if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
     return true;
