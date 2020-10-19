@@ -742,7 +742,7 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
 
     GenTree* data = tree->Data();
 
-    GCInfo::WriteBarrierForm writeBarrierForm = compiler->codeGen->gcInfo.gcIsWriteBarrierCandidate(tree);
+    GCInfo::WriteBarrierForm writeBarrierForm = compiler->codeGen->gcInfo.GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
         if (compiler->codeGen->genUseOptimizedWriteBarriers())

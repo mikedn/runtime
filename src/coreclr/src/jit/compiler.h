@@ -9311,7 +9311,7 @@ private:
     // mode displacement.
     // There's just not enough room for both imm32 and disp32, no matter how things are packed.
     // Except if we steal some bits from GenTree, value numbers aren't normally needed in and
-    // post lowering (except for the dumb gcIsWriteBarrierCandidate that checks for nulls !?!).
+    // post lowering.
     static constexpr unsigned NUM_OPS_BITS = 2;
     static constexpr unsigned INS_BITS     = 10;
     static constexpr unsigned SIZE_BITS    = 9;

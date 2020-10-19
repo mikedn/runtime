@@ -6171,11 +6171,11 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedT
         if (op1->TypeIs(TYP_REF) && op1->AsIndir()->GetAddr()->TypeIs(TYP_BYREF))
         {
             // Storing an object reference into a static field requires a write barrier.
-            // But what kind of barrier? GCInfo::gcIsWriteBarrierCandidate has trouble
+            // But what kind of barrier? GCInfo::GetWriteBarrierForm has trouble
             // figuring it out because the address is a byref that comes from a helper
             // call, rather than being derived from an object reference.
             //
-            // Set GTF_IND_TGT_HEAP to tell gcIsWriteBarrierCandidate that this is really
+            // Set GTF_IND_TGT_HEAP to tell GetWriteBarrierForm that this is really
             // a GC heap store so an unchecked write barrier can be used.
 
             // TODO-MIKE-Review: Are the checked barriers significantly slower than the

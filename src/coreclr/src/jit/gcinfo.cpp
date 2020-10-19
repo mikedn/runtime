@@ -225,7 +225,7 @@ void GCInfo::gcMarkRegPtrVal(regNumber reg, var_types type)
 
 /*****************************************************************************/
 
-GCInfo::WriteBarrierForm GCInfo::gcIsWriteBarrierCandidate(GenTreeStoreInd* store)
+GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
 {
     if (!store->TypeIs(TYP_REF))
     {

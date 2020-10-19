@@ -6417,7 +6417,7 @@ void Lowering::LowerStoreIndirCommon(GenTreeStoreInd* ind)
 
     TryCreateAddrMode(ind->Addr(), true);
 
-    if (comp->codeGen->gcInfo.gcIsWriteBarrierCandidate(ind) == GCInfo::WBF_NoBarrier)
+    if (comp->codeGen->gcInfo.GetWriteBarrierForm(ind) == GCInfo::WBF_NoBarrier)
     {
         LowerStoreIndir(ind);
     }

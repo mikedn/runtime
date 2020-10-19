@@ -315,7 +315,7 @@ public:
         WBF_BarrierUnchecked, // An unchecked barrier is required.
     };
 
-    WriteBarrierForm gcIsWriteBarrierCandidate(GenTreeStoreInd* store);
+    WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
 
     // Returns a WriteBarrierForm decision based on the form of "tgtAddr", which is assumed to be the
     // argument of a GT_IND LHS.
