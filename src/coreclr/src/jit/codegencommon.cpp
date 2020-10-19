@@ -2864,53 +2864,15 @@ void CodeGen::genReportEH()
 // genUseOptimizedWriteBarriers: Determine if an optimized write barrier
 // helper should be used.
 //
-// Arguments:
-//   wbf - The WriteBarrierForm of the write (GT_STOREIND) that is happening.
-//
 // Return Value:
 //   true if an optimized write barrier helper should be used, false otherwise.
 //   Note: only x86 implements register-specific source optimized write
 //   barriers currently.
 //
-bool CodeGenInterface::genUseOptimizedWriteBarriers(GCInfo::WriteBarrierForm wbf)
+bool CodeGenInterface::genUseOptimizedWriteBarriers()
 {
 #if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-#ifdef DEBUG
-    return (wbf != GCInfo::WBF_NoBarrier_CheckNotHeapInDebug); // This one is always a call to a C++ method.
-#else
     return true;
-#endif
-#else
-    return false;
-#endif
-}
-
-//----------------------------------------------------------------------
-// genUseOptimizedWriteBarriers: Determine if an optimized write barrier
-// helper should be used.
-//
-// This has the same functionality as the version of
-// genUseOptimizedWriteBarriers that takes a WriteBarrierForm, but avoids
-// determining what the required write barrier form is, if possible.
-//
-// Arguments:
-//   tgt - target tree of write (e.g., GT_STOREIND)
-//   assignVal - tree with value to write
-//
-// Return Value:
-//   true if an optimized write barrier helper should be used, false otherwise.
-//   Note: only x86 implements register-specific source optimized write
-//   barriers currently.
-//
-bool CodeGenInterface::genUseOptimizedWriteBarriers(GenTree* tgt, GenTree* assignVal)
-{
-#if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-#ifdef DEBUG
-    GCInfo::WriteBarrierForm wbf = compiler->codeGen->gcInfo.gcIsWriteBarrierCandidate(tgt, assignVal);
-    return (wbf != GCInfo::WBF_NoBarrier_CheckNotHeapInDebug); // This one is always a call to a C++ method.
-#else
-    return true;
-#endif
 #else
     return false;
 #endif
@@ -2920,155 +2882,22 @@ bool CodeGenInterface::genUseOptimizedWriteBarriers(GenTree* tgt, GenTree* assig
 // genWriteBarrierHelperForWriteBarrierForm: Given a write node requiring a write
 // barrier, and the write barrier form required, determine the helper to call.
 //
-// Arguments:
-//   tgt - target tree of write (e.g., GT_STOREIND)
-//   wbf - already computed write barrier form to use
-//
-// Return Value:
-//   Write barrier helper to use.
-//
 // Note: do not call this function to get an optimized write barrier helper (e.g.,
 // for x86).
 //
-CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTree* tgt, GCInfo::WriteBarrierForm wbf)
+CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTreeStoreInd*         store,
+                                                                           GCInfo::WriteBarrierForm wbf)
 {
-    noway_assert(tgt->gtOper == GT_STOREIND);
+    assert(wbf != GCInfo::WBF_NoBarrier);
 
-    CorInfoHelpFunc helper = CORINFO_HELP_ASSIGN_REF;
-
-#ifdef DEBUG
-    if (wbf == GCInfo::WBF_NoBarrier_CheckNotHeapInDebug)
-    {
-        helper = CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP;
-    }
-    else
-#endif
-        if (tgt->gtOper != GT_CLS_VAR)
-    {
-        if (wbf != GCInfo::WBF_BarrierUnchecked) // This overrides the tests below.
-        {
-            if (tgt->gtFlags & GTF_IND_TGTANYWHERE)
-            {
-                helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
-            }
-            else if (tgt->AsOp()->gtOp1->TypeGet() == TYP_I_IMPL)
-            {
-                helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
-            }
-        }
-    }
-    assert(((helper == CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP) && (wbf == GCInfo::WBF_NoBarrier_CheckNotHeapInDebug)) ||
-           ((helper == CORINFO_HELP_CHECKED_ASSIGN_REF) &&
-            (wbf == GCInfo::WBF_BarrierChecked || wbf == GCInfo::WBF_BarrierUnknown)) ||
-           ((helper == CORINFO_HELP_ASSIGN_REF) &&
-            (wbf == GCInfo::WBF_BarrierUnchecked || wbf == GCInfo::WBF_BarrierUnknown)));
-
-    return helper;
+    return (wbf == GCInfo::WBF_BarrierUnchecked) ? CORINFO_HELP_ASSIGN_REF : CORINFO_HELP_CHECKED_ASSIGN_REF;
 }
 
-//----------------------------------------------------------------------
-// genGCWriteBarrier: Generate a write barrier for a node.
-//
-// Arguments:
-//   tgt - target tree of write (e.g., GT_STOREIND)
-//   wbf - already computed write barrier form to use
-//
-void CodeGen::genGCWriteBarrier(GenTree* tgt, GCInfo::WriteBarrierForm wbf)
+void CodeGen::genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf)
 {
-    CorInfoHelpFunc helper = genWriteBarrierHelperForWriteBarrierForm(tgt, wbf);
+    CorInfoHelpFunc helper = genWriteBarrierHelperForWriteBarrierForm(store, wbf);
 
-#ifdef FEATURE_COUNT_GC_WRITE_BARRIERS
-    // We classify the "tgt" trees as follows:
-    // If "tgt" is of the form (where [ x ] indicates an optional x, and { x1, ..., xn } means "one of the x_i forms"):
-    //    IND [-> ADDR -> IND] -> { GT_LCL_VAR, ADD({GT_LCL_VAR}, X), ADD(X, (GT_LCL_VAR)) }
-    // then let "v" be the GT_LCL_VAR.
-    //   * If "v" is the return buffer argument, classify as CWBKind_RetBuf.
-    //   * If "v" is another by-ref argument, classify as CWBKind_ByRefArg.
-    //   * Otherwise, classify as CWBKind_OtherByRefLocal.
-    // If "tgt" is of the form IND -> ADDR -> GT_LCL_VAR, clasify as CWBKind_AddrOfLocal.
-    // Otherwise, classify as CWBKind_Unclassified.
-
-    CheckedWriteBarrierKinds wbKind = CWBKind_Unclassified;
-    if (tgt->gtOper == GT_IND)
-    {
-        GenTree* lcl = NULL;
-
-        GenTree* indArg = tgt->AsOp()->gtOp1;
-        if (indArg->gtOper == GT_ADDR && indArg->AsOp()->gtOp1->gtOper == GT_IND)
-        {
-            indArg = indArg->AsOp()->gtOp1->AsOp()->gtOp1;
-        }
-        if (indArg->gtOper == GT_LCL_VAR)
-        {
-            lcl = indArg;
-        }
-        else if (indArg->gtOper == GT_ADD)
-        {
-            if (indArg->AsOp()->gtOp1->gtOper == GT_LCL_VAR)
-            {
-                lcl = indArg->AsOp()->gtOp1;
-            }
-            else if (indArg->AsOp()->gtOp2->gtOper == GT_LCL_VAR)
-            {
-                lcl = indArg->AsOp()->gtOp2;
-            }
-        }
-        if (lcl != NULL)
-        {
-            wbKind          = CWBKind_OtherByRefLocal; // Unclassified local variable.
-            unsigned lclNum = lcl->AsLclVar()->GetLclNum();
-            if (lclNum == compiler->info.compRetBuffArg)
-            {
-                wbKind = CWBKind_RetBuf; // Ret buff.  Can happen if the struct exceeds the size limit.
-            }
-            else
-            {
-                LclVarDsc* varDsc = &compiler->lvaTable[lclNum];
-                if (varDsc->lvIsParam && varDsc->lvType == TYP_BYREF)
-                {
-                    wbKind = CWBKind_ByRefArg; // Out (or in/out) arg
-                }
-            }
-        }
-        else
-        {
-            // We should have eliminated the barrier for this case.
-            assert(!(indArg->gtOper == GT_ADDR && indArg->AsOp()->gtOp1->gtOper == GT_LCL_VAR));
-        }
-    }
-
-    if (helper == CORINFO_HELP_CHECKED_ASSIGN_REF)
-    {
-#if 0
-#ifdef DEBUG
-        // Enable this to sample the unclassified trees.
-        static int unclassifiedBarrierSite = 0;
-        if (wbKind == CWBKind_Unclassified)
-        {
-            unclassifiedBarrierSite++;
-            printf("unclassifiedBarrierSite = %d:\n", unclassifiedBarrierSite); compiler->gtDispTree(tgt); printf(""); printf("\n");
-        }
-#endif // DEBUG
-#endif // 0
-        AddStackLevel(4);
-        inst_IV(INS_push, wbKind);
-        genEmitHelperCall(helper,
-                          4,           // argSize
-                          EA_PTRSIZE); // retSize
-        SubtractStackLevel(4);
-    }
-    else
-    {
-        genEmitHelperCall(helper,
-                          0,           // argSize
-                          EA_PTRSIZE); // retSize
-    }
-
-#else  // !FEATURE_COUNT_GC_WRITE_BARRIERS
-    genEmitHelperCall(helper,
-                      0,           // argSize
-                      EA_PTRSIZE); // retSize
-#endif // !FEATURE_COUNT_GC_WRITE_BARRIERS
+    genEmitHelperCall(helper, 0, EA_PTRSIZE);
 }
 
 /*

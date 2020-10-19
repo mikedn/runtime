@@ -281,7 +281,7 @@ private:
 #endif // defined(TARGET_XARCH)
 
     // Per tree node member functions
-    void LowerStoreIndirCommon(GenTreeIndir* ind);
+    void LowerStoreIndirCommon(GenTreeStoreInd* ind);
     void LowerIndir(GenTreeIndir* ind);
     void LowerStoreIndir(GenTreeIndir* node);
     GenTree* LowerAdd(GenTreeOp* node);

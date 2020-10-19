@@ -3161,81 +3161,74 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     GenTree* data = tree->Data();
     GenTree* addr = tree->Addr();
 
-    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.gcIsWriteBarrierCandidate(tree, data);
+    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        // data and addr must be in registers.
-        // Consume both registers so that any copies of interfering
-        // registers are taken care of.
         genConsumeOperands(tree);
 
         // At this point, we should not have any interference.
         // That is, 'data' must not be in REG_WRITE_BARRIER_DST_BYREF,
-        //  as that is where 'addr' must go.
+        // as that is where 'addr' must go.
         noway_assert(data->GetRegNum() != REG_WRITE_BARRIER_DST_BYREF);
 
-        // 'addr' goes into x14 (REG_WRITE_BARRIER_DST)
         genCopyRegIfNeeded(addr, REG_WRITE_BARRIER_DST);
-
-        // 'data' goes into x15 (REG_WRITE_BARRIER_SRC)
         genCopyRegIfNeeded(data, REG_WRITE_BARRIER_SRC);
-
         genGCWriteBarrier(tree, writeBarrierForm);
+
+        return;
     }
-    else // A normal store, not a WriteBarrier store
+
+    // We must consume the operands in the proper execution order,
+    // so that liveness is updated appropriately.
+    genConsumeAddress(addr);
+
+    if (!data->isContained())
     {
-        // We must consume the operands in the proper execution order,
-        // so that liveness is updated appropriately.
-        genConsumeAddress(addr);
-
-        if (!data->isContained())
-        {
-            genConsumeRegs(data);
-        }
-
-        var_types type = tree->GetType();
-        regNumber dataReg;
-
-        if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_HWINTRINSIC))
-        {
-            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsHWIntrinsicZero());
-            assert(varTypeSize(type) <= REGSIZE_BYTES);
-            dataReg = REG_ZR;
-        }
-        else // data is not contained, so evaluate it into a register
-        {
-            assert(!data->isContained());
-            dataReg = data->GetRegNum();
-        }
-
-        instruction ins = ins_Store(type);
-
-        if (tree->IsVolatile())
-        {
-            bool addrIsInReg   = addr->isUsedFromReg();
-            bool addrIsAligned = ((tree->gtFlags & GTF_IND_UNALIGNED) == 0);
-
-            if ((ins == INS_strb) && addrIsInReg)
-            {
-                ins = INS_stlrb;
-            }
-            else if ((ins == INS_strh) && addrIsInReg && addrIsAligned)
-            {
-                ins = INS_stlrh;
-            }
-            else if ((ins == INS_str) && genIsValidIntReg(dataReg) && addrIsInReg && addrIsAligned)
-            {
-                ins = INS_stlr;
-            }
-            else
-            {
-                // issue a full memory barrier before a volatile StInd
-                instGen_MemoryBarrier();
-            }
-        }
-
-        GetEmitter()->emitInsLoadStoreOp(ins, emitActualTypeSize(type), dataReg, tree);
+        genConsumeRegs(data);
     }
+
+    var_types type = tree->GetType();
+    regNumber dataReg;
+
+    if (data->isContained() && data->OperIs(GT_CNS_INT, GT_CNS_DBL, GT_HWINTRINSIC))
+    {
+        assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsHWIntrinsicZero());
+        assert(varTypeSize(type) <= REGSIZE_BYTES);
+        dataReg = REG_ZR;
+    }
+    else // data is not contained, so evaluate it into a register
+    {
+        assert(!data->isContained());
+        dataReg = data->GetRegNum();
+    }
+
+    instruction ins = ins_Store(type);
+
+    if (tree->IsVolatile())
+    {
+        bool addrIsInReg   = addr->isUsedFromReg();
+        bool addrIsAligned = ((tree->gtFlags & GTF_IND_UNALIGNED) == 0);
+
+        if ((ins == INS_strb) && addrIsInReg)
+        {
+            ins = INS_stlrb;
+        }
+        else if ((ins == INS_strh) && addrIsInReg && addrIsAligned)
+        {
+            ins = INS_stlrh;
+        }
+        else if ((ins == INS_str) && genIsValidIntReg(dataReg) && addrIsInReg && addrIsAligned)
+        {
+            ins = INS_stlr;
+        }
+        else
+        {
+            // issue a full memory barrier before a volatile StInd
+            instGen_MemoryBarrier();
+        }
+    }
+
+    GetEmitter()->emitInsLoadStoreOp(ins, emitActualTypeSize(type), dataReg, tree);
 }
 
 //------------------------------------------------------------------------

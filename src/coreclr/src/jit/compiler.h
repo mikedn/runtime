@@ -421,11 +421,8 @@ public:
     unsigned char lvLclBlockOpAddr : 1;  // The variable was written to via a block operation that took its address.
     unsigned char lvLiveAcrossUCall : 1; // The variable is live across an unmanaged call.
 #endif
-    unsigned char lvIsCSE : 1;       // Indicates if this LclVar is a CSE variable.
-    unsigned char lvHasLdAddrOp : 1; // has ldloca or ldarga opcode on this local.
-    unsigned char lvStackByref : 1;  // This is a compiler temporary of TYP_BYREF that is known to point into our local
-                                     // stack frame.
-
+    unsigned char lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
+    unsigned char lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
     unsigned char lvHasILStoreOp : 1;         // there is at least one STLOC or STARG on this local
     unsigned char lvHasMultipleILStoreOp : 1; // there is more than one STLOC on this local
 
@@ -8401,7 +8398,6 @@ public:
         bool compInitMem : 1;            // Is the CORINFO_OPT_INIT_LOCALS bit set in the method info options?
         bool compProfilerCallback : 1;   // JIT inserted a profiler Enter callback
         bool compPublishStubParam : 1;   // EAX captured in prolog will be available through an intrinsic
-        bool compRetBuffDefStack : 1;    // The ret buff argument definitely points into the stack.
         bool compHasNextCallRetAddr : 1; // The NextCallReturnAddress intrinsic is used.
 
         var_types compRetType;       // Return type of the method as declared in IL
@@ -9315,7 +9311,7 @@ private:
     // mode displacement.
     // There's just not enough room for both imm32 and disp32, no matter how things are packed.
     // Except if we steal some bits from GenTree, value numbers aren't normally needed in and
-    // post lowering (except for the dumb gcIsWriteBarrierCandidate that checks for nulls !?!).
+    // post lowering.
     static constexpr unsigned NUM_OPS_BITS = 2;
     static constexpr unsigned INS_BITS     = 10;
     static constexpr unsigned SIZE_BITS    = 9;

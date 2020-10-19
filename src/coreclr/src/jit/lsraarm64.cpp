@@ -696,23 +696,24 @@ int LinearScan::BuildNode(GenTree* tree)
         break;
 
         case GT_STOREIND:
-        {
             assert(dstCount == 0);
 
-            if (compiler->codeGen->gcInfo.gcIsWriteBarrierStoreIndNode(tree))
+            if (compiler->codeGen->gcInfo.GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
             {
-                srcCount = BuildGCWriteBarrier(tree);
-                break;
+                srcCount = BuildGCWriteBarrier(tree->AsStoreInd());
             }
+            else
+            {
+                GenTreeStoreInd* store = tree->AsStoreInd();
 
-            srcCount = BuildIndir(tree->AsIndir());
-            if (!tree->gtGetOp2()->isContained())
-            {
-                BuildUse(tree->gtGetOp2());
-                srcCount++;
+                srcCount = BuildIndir(store);
+                if (!store->GetValue()->isContained())
+                {
+                    BuildUse(store->GetValue());
+                    srcCount++;
+                }
             }
-        }
-        break;
+            break;
 
         case GT_NULLCHECK:
         case GT_IND:

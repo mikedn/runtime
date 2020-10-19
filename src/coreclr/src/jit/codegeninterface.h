@@ -149,9 +149,8 @@ protected:
     TreeLifeUpdater<true>* treeLifeUpdater;
 
 public:
-    bool genUseOptimizedWriteBarriers(GCInfo::WriteBarrierForm wbf);
-    bool genUseOptimizedWriteBarriers(GenTree* tgt, GenTree* assignVal);
-    CorInfoHelpFunc genWriteBarrierHelperForWriteBarrierForm(GenTree* tgt, GCInfo::WriteBarrierForm wbf);
+    bool            genUseOptimizedWriteBarriers();
+    CorInfoHelpFunc genWriteBarrierHelperForWriteBarrierForm(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
 
     // The following property indicates whether the current method sets up
     // an explicit stack frame or not.

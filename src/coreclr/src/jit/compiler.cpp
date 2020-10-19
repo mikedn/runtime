@@ -8604,9 +8604,9 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[IND_VOLATILE]");
                 }
-                if (tree->gtFlags & GTF_IND_TGTANYWHERE)
+                if (tree->gtFlags & GTF_IND_TGT_HEAP)
                 {
-                    chars += printf("[IND_TGTANYWHERE]");
+                    chars += printf("[IND_TGT_HEAP]");
                 }
                 if (tree->gtFlags & GTF_IND_TGT_NOT_HEAP)
                 {

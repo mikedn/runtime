@@ -602,12 +602,14 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_STOREIND:
-            if (compiler->codeGen->gcInfo.gcIsWriteBarrierStoreIndNode(tree))
+            if (compiler->codeGen->gcInfo.GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
             {
-                srcCount = BuildGCWriteBarrier(tree);
-                break;
+                srcCount = BuildGCWriteBarrier(tree->AsStoreInd());
             }
-            srcCount = BuildIndir(tree->AsIndir());
+            else
+            {
+                srcCount = BuildIndir(tree->AsStoreInd());
+            }
             break;
 
         case GT_NULLCHECK:

@@ -675,23 +675,19 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_STOREIND:
-        {
             assert(dstCount == 0);
-            GenTree* src = tree->gtGetOp2();
 
-            if (compiler->codeGen->gcInfo.gcIsWriteBarrierStoreIndNode(tree))
+            if (compiler->codeGen->gcInfo.GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
             {
-                srcCount = BuildGCWriteBarrier(tree);
-                break;
+                srcCount = BuildGCWriteBarrier(tree->AsStoreInd());
             }
-
-            srcCount = BuildIndir(tree->AsIndir());
-            // No contained source on ARM.
-            assert(!src->isContained());
-            srcCount++;
-            BuildUse(src);
-        }
-        break;
+            else
+            {
+                srcCount = BuildIndir(tree->AsStoreInd());
+                BuildUse(tree->AsStoreInd()->GetValue());
+                srcCount++;
+            }
+            break;
 
         case GT_NULLCHECK:
 #ifdef TARGET_ARM

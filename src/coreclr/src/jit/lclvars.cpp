@@ -492,22 +492,14 @@ void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo)
 #endif
         varDsc->lvOnFrame = true; // The final home for this incoming register might be our local stack frame
 
-        info.compRetBuffDefStack = 0;
         if (info.compRetType == TYP_STRUCT)
         {
             CORINFO_SIG_INFO sigInfo;
             info.compCompHnd->getMethodSig(info.compMethodHnd, &sigInfo);
             assert(JITtype2varType(sigInfo.retType) == info.compRetType); // Else shouldn't have a ret buff.
 
-            info.compRetBuffDefStack =
-                (info.compCompHnd->isStructRequiringStackAllocRetBuf(sigInfo.retTypeClass) == TRUE);
-            if (info.compRetBuffDefStack)
-            {
-                // If we're assured that the ret buff argument points into a callers stack, we will type it as
-                // "TYP_I_IMPL"
-                // (native int/unmanaged pointer) so that it's not tracked as a GC ref.
-                varDsc->lvType = TYP_I_IMPL;
-            }
+            // The VM has disabled this optimization a long time ago.
+            assert(!info.compCompHnd->isStructRequiringStackAllocRetBuf(sigInfo.retTypeClass));
         }
 #ifdef FEATURE_SIMD
         else if (supportSIMDTypes() && varTypeIsSIMD(info.compRetType))
@@ -7048,10 +7040,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
     if (varDsc->lvPinned)
     {
         printf(" pinned");
-    }
-    if (varDsc->lvStackByref)
-    {
-        printf(" stack-byref");
     }
     if (varDsc->lvClassHnd != NO_CLASS_HANDLE)
     {
