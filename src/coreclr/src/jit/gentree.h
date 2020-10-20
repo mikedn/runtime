@@ -5893,7 +5893,6 @@ struct GenTreeIndexAddr : public GenTreeOp
 {
 private:
     BasicBlock* m_throwBlock;
-    uint8_t     m_lenOffs;
     uint8_t     m_dataOffs;
     unsigned    m_elemSize;
 
@@ -5901,17 +5900,18 @@ public:
     GenTreeIndexAddr(GenTree* arr, GenTree* ind, uint8_t lenOffs, uint8_t dataOffs, unsigned elemSize)
         : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, arr, ind)
         , m_throwBlock(nullptr)
-        , m_lenOffs(lenOffs)
         , m_dataOffs(dataOffs)
         , m_elemSize(elemSize)
     {
+        // The offset of length is always the same for both strings and arrays.
+        assert(lenOffs == TARGET_POINTER_SIZE);
+
         gtFlags |= GTF_EXCEPT | GTF_GLOB_REF | ((arr->gtFlags | ind->gtFlags) & GTF_ALL_EFFECT);
     }
 
     GenTreeIndexAddr(const GenTreeIndexAddr* copyFrom)
         : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, copyFrom->gtOp1, copyFrom->gtOp2)
         , m_throwBlock(copyFrom->m_throwBlock)
-        , m_lenOffs(copyFrom->m_lenOffs)
         , m_dataOffs(copyFrom->m_dataOffs)
         , m_elemSize(copyFrom->m_elemSize)
     {
@@ -5951,7 +5951,7 @@ public:
 
     uint8_t GetLenOffs() const
     {
-        return m_lenOffs;
+        return TARGET_POINTER_SIZE;
     }
 
     uint8_t GetDataOffs() const
