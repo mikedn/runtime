@@ -5888,45 +5888,80 @@ struct GenTreeIndex : public GenTreeOp
 #endif
 };
 
-// gtIndexAddr: given an array object and an index, checks that the index is within the bounds of the array if
-//              necessary and produces the address of the value at that index of the array.
+// Computes the address of an array element. Also checks if the array index is valid.
 struct GenTreeIndexAddr : public GenTreeOp
 {
-    GenTree*& Arr()
+private:
+    BasicBlock* m_throwBlock;
+    uint8_t     m_lenOffs;
+    uint8_t     m_dataOffs;
+    unsigned    m_elemSize;
+
+public:
+    GenTreeIndexAddr(GenTree* arr, GenTree* ind, uint8_t lenOffs, uint8_t dataOffs, unsigned elemSize)
+        : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, arr, ind)
+        , m_throwBlock(nullptr)
+        , m_lenOffs(lenOffs)
+        , m_dataOffs(dataOffs)
+        , m_elemSize(elemSize)
+    {
+        gtFlags |= GTF_EXCEPT | GTF_GLOB_REF | ((arr->gtFlags | ind->gtFlags) & GTF_ALL_EFFECT);
+    }
+
+    GenTreeIndexAddr(const GenTreeIndexAddr* copyFrom)
+        : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, copyFrom->gtOp1, copyFrom->gtOp2)
+        , m_throwBlock(copyFrom->m_throwBlock)
+        , m_lenOffs(copyFrom->m_lenOffs)
+        , m_dataOffs(copyFrom->m_dataOffs)
+        , m_elemSize(copyFrom->m_elemSize)
+    {
+    }
+
+    GenTree* GetArray() const
     {
         return gtOp1;
     }
-    GenTree*& Index()
+
+    void SetArray(GenTree* array)
+    {
+        assert(array->TypeIs(TYP_REF));
+        gtOp1 = array;
+    }
+
+    GenTree* GetIndex() const
     {
         return gtOp2;
     }
 
-    BasicBlock* gtIndRngFailBB; // Basic block to jump to for array-index-out-of-range
-
-    unsigned gtElemSize;   // size of elements in the array
-    uint8_t  gtLenOffset;  // The offset from the array's base address to its length.
-    uint8_t  gtElemOffset; // The offset from the array's base address to its first element.
-
-    GenTreeIndexAddr(GenTree* arr, GenTree* ind, unsigned elemSize, uint8_t lenOffset, uint8_t elemOffset)
-        : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, arr, ind)
-        , gtIndRngFailBB(nullptr)
-        , gtElemSize(elemSize)
-        , gtLenOffset(lenOffset)
-        , gtElemOffset(elemOffset)
+    void SetIndex(GenTree* index)
     {
-#ifdef DEBUG
-        if (JitConfig.JitSkipArrayBoundCheck() == 1)
-        {
-            // Skip bounds check
-        }
-        else
-#endif
-        {
-            // Do bounds check
-            gtFlags |= GTF_INX_RNGCHK;
-        }
+        assert(varTypeIsIntegral(index->GetType()));
+        gtOp2 = index;
+    }
 
-        gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+    BasicBlock* GetThrowBlock() const
+    {
+        return m_throwBlock;
+    }
+
+    void SetThrowBlock(BasicBlock* block)
+    {
+        m_throwBlock = block;
+    }
+
+    uint8_t GetLenOffs() const
+    {
+        return m_lenOffs;
+    }
+
+    uint8_t GetDataOffs() const
+    {
+        return m_dataOffs;
+    }
+
+    unsigned GetElemSize() const
+    {
+        return m_elemSize;
     }
 
 #if DEBUGGABLE_GENTREE

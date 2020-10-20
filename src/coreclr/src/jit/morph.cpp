@@ -4798,7 +4798,7 @@ void Compiler::fgSetRngChkTarget(GenTree* tree, bool delay)
         BasicBlock* const       failBlock = fgSetRngChkTargetInner(SCK_RNGCHK_FAIL, delay);
         if (failBlock != nullptr)
         {
-            indexAddr->gtIndRngFailBB = failBlock;
+            indexAddr->SetThrowBlock(failBlock);
         }
     }
     else
@@ -4937,8 +4937,8 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         GenTree* index = fgMorphTree(asIndex->Index());
 
         GenTreeIndexAddr* indexAddr =
-            new (this, GT_INDEX_ADDR) GenTreeIndexAddr(array, index, elemSize, lenOffs, elemOffs);
-        indexAddr->gtFlags |= (array->gtFlags | index->gtFlags) & GTF_ALL_EFFECT;
+            new (this, GT_INDEX_ADDR) GenTreeIndexAddr(array, index, lenOffs, elemOffs, elemSize);
+        indexAddr->gtFlags |= asIndex->gtFlags & GTF_INX_RNGCHK;
         INDEBUG(indexAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
         // Mark the indirection node as needing a range check if necessary.
@@ -14461,14 +14461,14 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
         case GT_INDEX_ADDR:
             GenTreeIndexAddr* indexAddr;
-            indexAddr          = tree->AsIndexAddr();
-            indexAddr->Index() = fgMorphTree(indexAddr->Index());
-            indexAddr->Arr()   = fgMorphTree(indexAddr->Arr());
+            indexAddr = tree->AsIndexAddr();
+            indexAddr->SetIndex(fgMorphTree(indexAddr->GetIndex()));
+            indexAddr->SetArray(fgMorphTree(indexAddr->GetArray()));
 
             tree->gtFlags &= ~GTF_CALL;
 
-            tree->gtFlags |= indexAddr->Index()->gtFlags & GTF_ALL_EFFECT;
-            tree->gtFlags |= indexAddr->Arr()->gtFlags & GTF_ALL_EFFECT;
+            tree->gtFlags |= indexAddr->GetIndex()->gtFlags & GTF_ALL_EFFECT;
+            tree->gtFlags |= indexAddr->GetArray()->gtFlags & GTF_ALL_EFFECT;
             break;
 
         default:

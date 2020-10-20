@@ -4206,8 +4206,8 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
 //
 void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
 {
-    GenTree* const base  = node->Arr();
-    GenTree* const index = node->Index();
+    GenTree* const base  = node->GetArray();
+    GenTree* const index = node->GetIndex();
 
     const regNumber baseReg  = genConsumeReg(base);
     regNumber       indexReg = genConsumeReg(index);
@@ -4234,16 +4234,16 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
         // is a native int on a 64-bit platform, we will need to widen the array length and then compare.
         if (index->TypeGet() == TYP_I_IMPL)
         {
-            GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, baseReg, node->gtLenOffset);
+            GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, baseReg, node->GetLenOffs());
             GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, indexReg, tmpReg);
         }
         else
 #endif // TARGET_64BIT
         {
-            GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, indexReg, baseReg, node->gtLenOffset);
+            GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, indexReg, baseReg, node->GetLenOffs());
         }
 
-        genJumpToThrowHlpBlk(EJ_jae, SCK_RNGCHK_FAIL, node->gtIndRngFailBB);
+        genJumpToThrowHlpBlk(EJ_jae, SCK_RNGCHK_FAIL, node->GetThrowBlock());
     }
 
 #ifdef TARGET_64BIT
@@ -4256,7 +4256,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
 #endif // TARGET_64BIT
 
     // Compute the address of the array element.
-    unsigned scale = node->gtElemSize;
+    unsigned scale = node->GetElemSize();
 
     switch (scale)
     {
@@ -4283,7 +4283,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     }
 
     GetEmitter()->emitIns_R_ARX(INS_lea, emitTypeSize(node->TypeGet()), dstReg, baseReg, tmpReg, scale,
-                                static_cast<int>(node->gtElemOffset));
+                                node->GetDataOffs());
 
     gcInfo.gcMarkRegSetNpt(base->gtGetRegMask());
 

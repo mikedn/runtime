@@ -1384,7 +1384,7 @@ AGAIN:
                     }
                     break;
                 case GT_INDEX_ADDR:
-                    if (op1->AsIndexAddr()->gtElemSize != op2->AsIndexAddr()->gtElemSize)
+                    if (op1->AsIndexAddr()->GetElemSize() != op2->AsIndexAddr()->GetElemSize())
                     {
                         return false;
                     }
@@ -2026,7 +2026,7 @@ AGAIN:
                     hash += tree->AsIndex()->gtIndElemSize;
                     break;
                 case GT_INDEX_ADDR:
-                    hash += tree->AsIndexAddr()->gtElemSize;
+                    hash += tree->AsIndexAddr()->GetElemSize();
                     break;
                 case GT_ALLOCOBJ:
                     hash = genTreeHashAdd(hash, static_cast<unsigned>(
@@ -4684,17 +4684,17 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costEx = 6; // cmp reg,reg; jae throw; mov reg, [addrmode]  (not taken)
             costSz = 9; // jump to cold section
 
-            level = gtSetEvalOrder(tree->AsIndexAddr()->Index());
-            costEx += tree->AsIndexAddr()->Index()->GetCostEx();
-            costSz += tree->AsIndexAddr()->Index()->GetCostSz();
+            level = gtSetEvalOrder(tree->AsIndexAddr()->GetIndex());
+            costEx += tree->AsIndexAddr()->GetIndex()->GetCostEx();
+            costSz += tree->AsIndexAddr()->GetIndex()->GetCostSz();
 
-            lvl2 = gtSetEvalOrder(tree->AsIndexAddr()->Arr());
+            lvl2 = gtSetEvalOrder(tree->AsIndexAddr()->GetArray());
             if (level < lvl2)
             {
                 level = lvl2;
             }
-            costEx += tree->AsIndexAddr()->Arr()->GetCostEx();
-            costSz += tree->AsIndexAddr()->Arr()->GetCostSz();
+            costEx += tree->AsIndexAddr()->GetArray()->GetCostEx();
+            costSz += tree->AsIndexAddr()->GetArray()->GetCostSz();
             break;
 
         default:
@@ -6942,15 +6942,8 @@ GenTree* Compiler::gtCloneExpr(
             break;
 
             case GT_INDEX_ADDR:
-            {
-                GenTreeIndexAddr* asIndAddr = tree->AsIndexAddr();
-
-                copy = new (this, GT_INDEX_ADDR)
-                    GenTreeIndexAddr(asIndAddr->Arr(), asIndAddr->Index(), asIndAddr->gtElemSize,
-                                     asIndAddr->gtLenOffset, asIndAddr->gtElemOffset);
-                copy->AsIndexAddr()->gtIndRngFailBB = asIndAddr->gtIndRngFailBB;
-            }
-            break;
+                copy = new (this, GT_INDEX_ADDR) GenTreeIndexAddr(tree->AsIndexAddr());
+                break;
 
             case GT_ALLOCOBJ:
             {
