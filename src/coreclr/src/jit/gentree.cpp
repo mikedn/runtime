@@ -1378,7 +1378,7 @@ AGAIN:
                     }
                     break;
                 case GT_INDEX:
-                    if (op1->AsIndex()->gtIndElemSize != op2->AsIndex()->gtIndElemSize)
+                    if (op1->AsIndex()->GetElemSize() != op2->AsIndex()->GetElemSize())
                     {
                         return false;
                     }
@@ -2023,7 +2023,7 @@ AGAIN:
                     hash ^= tree->AsCast()->gtCastType;
                     break;
                 case GT_INDEX:
-                    hash += tree->AsIndex()->gtIndElemSize;
+                    hash += tree->AsIndex()->GetElemSize();
                     break;
                 case GT_INDEX_ADDR:
                     hash += tree->AsIndexAddr()->GetElemSize();
@@ -6933,13 +6933,8 @@ GenTree* Compiler::gtCloneExpr(
             // The nodes below this are not bashed, so they can be allocated at their individual sizes.
 
             case GT_INDEX:
-            {
-                GenTreeIndex* asInd = tree->AsIndex();
-                copy                = new (this, GT_INDEX)
-                    GenTreeIndex(asInd->TypeGet(), asInd->Arr(), asInd->Index(), asInd->gtIndElemSize);
-                copy->AsIndex()->gtStructElemClass = asInd->gtStructElemClass;
-            }
-            break;
+                copy = new (this, GT_INDEX) GenTreeIndex(tree->AsIndex());
+                break;
 
             case GT_INDEX_ADDR:
                 copy = new (this, GT_INDEX_ADDR) GenTreeIndexAddr(tree->AsIndexAddr());
@@ -16341,7 +16336,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 structHnd = tree->AsRetExpr()->gtRetClsHnd;
                 break;
             case GT_INDEX:
-                structHnd = tree->AsIndex()->gtStructElemClass;
+                structHnd = tree->AsIndex()->GetElemClassHandle();
                 break;
             case GT_FIELD:
                 info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
@@ -16721,14 +16716,10 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         }
 
         case GT_INDEX:
-        {
-            GenTree* array = obj->AsIndex()->Arr();
-
-            objClass    = gtGetArrayElementClassHandle(array);
+            objClass    = gtGetArrayElementClassHandle(obj->AsIndex()->GetArray());
             *pIsExact   = false;
             *pIsNonNull = false;
             break;
-        }
 
         default:
         {

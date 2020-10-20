@@ -2164,7 +2164,8 @@ public:
 
     GenTreeField* gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj = nullptr, DWORD offset = 0);
 
-    GenTree* gtNewIndexRef(var_types typ, GenTree* arrayOp, GenTree* indexOp);
+    GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
+    GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
 
     GenTreeArrLen* gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset, BasicBlock* block);
 

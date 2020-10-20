@@ -1222,16 +1222,16 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE
     return tree;
 }
 
-/*****************************************************************************
- *
- *  A little helper to create an array index node.
- */
-
-inline GenTree* Compiler::gtNewIndexRef(var_types typ, GenTree* arrayOp, GenTree* indexOp)
+inline GenTreeIndex* Compiler::gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind)
 {
-    GenTreeIndex* gtIndx = new (this, GT_INDEX) GenTreeIndex(typ, arrayOp, indexOp, genTypeSize(typ));
+    return new (this, GT_INDEX)
+        GenTreeIndex(type, arr, ind, OFFSETOF__CORINFO_Array__length, OFFSETOF__CORINFO_Array__data);
+}
 
-    return gtIndx;
+inline GenTreeIndex* Compiler::gtNewStringIndex(GenTree* arr, GenTree* ind)
+{
+    return new (this, GT_INDEX)
+        GenTreeIndex(TYP_USHORT, arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars);
 }
 
 //------------------------------------------------------------------------------

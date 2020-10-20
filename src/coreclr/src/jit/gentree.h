@@ -869,7 +869,6 @@ public:
 #define GTF_FLD_INITCLASS           0x20000000 // GT_FIELD/GT_CLS_VAR -- field access requires preceding class/static init helper
 
 #define GTF_INX_RNGCHK              0x80000000 // GT_INDEX/GT_INDEX_ADDR -- the array reference should be range-checked.
-#define GTF_INX_STRING_LAYOUT       0x40000000 // GT_INDEX -- this uses the special string array layout
 
 #define GTF_IND_TGT_NOT_HEAP        0x80000000 // GT_IND   -- the target is known not to be on the heap
 #define GTF_IND_VOLATILE            0x40000000 // GT_IND   -- the load or store must use volatile sematics (this is a nop on X86)
@@ -5846,27 +5845,24 @@ public:
 };
 #endif // FEATURE_HW_INTRINSICS
 
-/* gtIndex -- array access */
-
+// Represents an array element access.
 struct GenTreeIndex : public GenTreeOp
 {
-    GenTree*& Arr()
-    {
-        return gtOp1;
-    }
-    GenTree*& Index()
-    {
-        return gtOp2;
-    }
+private:
+    CORINFO_CLASS_HANDLE m_elemClassHandle;
+    uint8_t              m_dataOffs;
+    unsigned             m_elemSize;
 
-    unsigned             gtIndElemSize;     // size of elements in the array
-    CORINFO_CLASS_HANDLE gtStructElemClass; // If the element type is a struct, this is the struct type.
-
-    GenTreeIndex(var_types type, GenTree* arr, GenTree* ind, unsigned indElemSize)
+public:
+    GenTreeIndex(var_types type, GenTree* arr, GenTree* ind, uint8_t lenOffs, uint8_t dataOffs)
         : GenTreeOp(GT_INDEX, type, arr, ind)
-        , gtIndElemSize(indElemSize)
-        , gtStructElemClass(nullptr) // We always initialize this after construction.
+        , m_elemClassHandle(NO_CLASS_HANDLE)
+        , m_dataOffs(dataOffs)
+        , m_elemSize(varTypeSize(type))
     {
+        // The offset of length is always the same for both strings and arrays.
+        assert(lenOffs == TARGET_POINTER_SIZE);
+
 #ifdef DEBUG
         if (JitConfig.JitSkipArrayBoundCheck() == 1)
         {
@@ -5881,6 +5877,67 @@ struct GenTreeIndex : public GenTreeOp
 
         gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
     }
+
+    GenTreeIndex(const GenTreeIndex* copyFrom)
+        : GenTreeOp(GT_INDEX, copyFrom->GetType(), copyFrom->gtOp1, copyFrom->gtOp2)
+        , m_elemClassHandle(copyFrom->m_elemClassHandle)
+        , m_dataOffs(copyFrom->m_dataOffs)
+        , m_elemSize(copyFrom->m_elemSize)
+    {
+    }
+
+    GenTree* GetArray() const
+    {
+        return gtOp1;
+    }
+
+    void SetArray(GenTree* array)
+    {
+        assert(array->TypeIs(TYP_REF));
+        gtOp1 = array;
+    }
+
+    GenTree* GetIndex() const
+    {
+        return gtOp2;
+    }
+
+    void SetIndex(GenTree* index)
+    {
+        assert(varTypeIsIntegral(index->GetType()));
+        gtOp2 = index;
+    }
+
+    CORINFO_CLASS_HANDLE GetElemClassHandle() const
+    {
+        return m_elemClassHandle;
+    }
+
+    void SetElemClassHandle(CORINFO_CLASS_HANDLE classHandle)
+    {
+        m_elemClassHandle = classHandle;
+    }
+
+    uint8_t GetLenOffs() const
+    {
+        return TARGET_POINTER_SIZE;
+    }
+
+    uint8_t GetDataOffs() const
+    {
+        return m_dataOffs;
+    }
+
+    unsigned GetElemSize() const
+    {
+        return m_elemSize;
+    }
+
+    void SetElemSize(unsigned size)
+    {
+        m_elemSize = size;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeIndex() : GenTreeOp()
     {

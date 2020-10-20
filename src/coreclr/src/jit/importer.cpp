@@ -1174,10 +1174,10 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                    (varTypeIsSIMD(asgType) && (src->GetType() == asgType)));
         }
     }
-    else if (src->gtOper == GT_INDEX)
+    else if (src->OperIs(GT_INDEX))
     {
         asgType = impNormStructType(structHnd);
-        assert(src->AsIndex()->gtStructElemClass == structHnd);
+        assert(src->AsIndex()->GetElemClassHandle() == structHnd);
     }
     else if (src->gtOper == GT_MKREFANY)
     {
@@ -1513,9 +1513,9 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
 
         case GT_INDEX:
             // This will be transformed to an OBJ later.
-            alreadyNormalized                       = true;
-            structVal->AsIndex()->gtStructElemClass = structHnd;
-            structVal->AsIndex()->gtIndElemSize     = info.compCompHnd->getClassSize(structHnd);
+            alreadyNormalized = true;
+            structVal->AsIndex()->SetElemClassHandle(structHnd);
+            structVal->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(structHnd));
             break;
 
         case GT_FIELD:
@@ -3511,10 +3511,9 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             break;
 
         case CORINFO_INTRINSIC_StringGetChar:
-            op2 = impPopStack().val;
-            op1 = impPopStack().val;
-            op1 = gtNewIndexRef(TYP_USHORT, op1, op2);
-            op1->gtFlags |= GTF_INX_STRING_LAYOUT;
+            op2     = impPopStack().val;
+            op1     = impPopStack().val;
+            op1     = gtNewStringIndex(op1, op2);
             retNode = op1;
             break;
 
@@ -10535,14 +10534,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                op1 = gtNewIndexRef(lclTyp, op1, op2);
+                op1 = gtNewArrayIndex(lclTyp, op1, op2);
 
                 if (lclTyp == TYP_STRUCT)
                 {
                     assert((opcode == CEE_LDELEM) || (opcode == CEE_LDELEMA));
 
-                    op1->AsIndex()->gtStructElemClass = clsHnd;
-                    op1->AsIndex()->gtIndElemSize     = info.compCompHnd->getClassSize(clsHnd);
+                    op1->AsIndex()->SetElemClassHandle(clsHnd);
+                    op1->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(clsHnd));
                 }
 
                 if ((opcode == CEE_LDELEMA) || (lclTyp == TYP_STRUCT))
@@ -10671,7 +10670,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 /* Create the index node */
 
-                op1 = gtNewIndexRef(lclTyp, op3, op1);
+                op1 = gtNewArrayIndex(lclTyp, op3, op1);
 
                 /* Create the assignment node and append it */
 
@@ -10679,8 +10678,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     assert(stelemClsHnd != DUMMY_INIT(NULL));
 
-                    op1->AsIndex()->gtStructElemClass = stelemClsHnd;
-                    op1->AsIndex()->gtIndElemSize     = info.compCompHnd->getClassSize(stelemClsHnd);
+                    op1->AsIndex()->SetElemClassHandle(stelemClsHnd);
+                    op1->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(stelemClsHnd));
                 }
                 if (varTypeIsStruct(op1))
                 {
@@ -18182,7 +18181,7 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     // Check for assignment to same array, ie. arrLcl[i] = arrLcl[j]
     if (value->OperIs(GT_INDEX) && array->OperIs(GT_LCL_VAR))
     {
-        GenTree* valueIndex = value->AsIndex()->Arr();
+        GenTree* valueIndex = value->AsIndex()->GetArray();
         if (valueIndex->OperIs(GT_LCL_VAR))
         {
             unsigned valueLcl = valueIndex->AsLclVar()->GetLclNum();

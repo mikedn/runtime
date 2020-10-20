@@ -37,8 +37,8 @@ GenTree* LC_Array::ToGenTree(Compiler* comp, BasicBlock* bb)
         int      rank = GetDimRank();
         for (int i = 0; i < rank; ++i)
         {
-            arr = comp->gtNewIndexRef(TYP_REF, arr, comp->gtNewLclvNode(arrIndex->indLcls[i],
-                                                                        comp->lvaTable[arrIndex->indLcls[i]].lvType));
+            arr = comp->gtNewArrayIndex(TYP_REF, arr, comp->gtNewLclvNode(arrIndex->indLcls[i],
+                                                                          comp->lvaTable[arrIndex->indLcls[i]].lvType));
         }
         // If asked for arrlen invoke arr length operator.
         if (oper == ArrLen)
