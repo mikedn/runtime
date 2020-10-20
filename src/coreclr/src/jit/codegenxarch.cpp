@@ -4234,13 +4234,13 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
         // is a native int on a 64-bit platform, we will need to widen the array length and then compare.
         if (index->TypeGet() == TYP_I_IMPL)
         {
-            GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, baseReg, static_cast<int>(node->gtLenOffset));
+            GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, baseReg, node->gtLenOffset);
             GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, indexReg, tmpReg);
         }
         else
 #endif // TARGET_64BIT
         {
-            GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, indexReg, baseReg, static_cast<int>(node->gtLenOffset));
+            GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, indexReg, baseReg, node->gtLenOffset);
         }
 
         genJumpToThrowHlpBlk(EJ_jae, SCK_RNGCHK_FAIL, node->gtIndRngFailBB);

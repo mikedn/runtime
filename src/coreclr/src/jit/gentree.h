@@ -5904,10 +5904,10 @@ struct GenTreeIndexAddr : public GenTreeOp
     BasicBlock* gtIndRngFailBB; // Basic block to jump to for array-index-out-of-range
 
     unsigned gtElemSize;   // size of elements in the array
-    unsigned gtLenOffset;  // The offset from the array's base address to its length.
-    unsigned gtElemOffset; // The offset from the array's base address to its first element.
+    uint8_t  gtLenOffset;  // The offset from the array's base address to its length.
+    uint8_t  gtElemOffset; // The offset from the array's base address to its first element.
 
-    GenTreeIndexAddr(GenTree* arr, GenTree* ind, unsigned elemSize, unsigned lenOffset, unsigned elemOffset)
+    GenTreeIndexAddr(GenTree* arr, GenTree* ind, unsigned elemSize, uint8_t lenOffset, uint8_t elemOffset)
         : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, arr, ind)
         , gtIndRngFailBB(nullptr)
         , gtElemSize(elemSize)

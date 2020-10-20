@@ -4898,9 +4898,9 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
 
     // Set up the array length's offset into lenOffs
     // And    the first element's offset into elemOffs
-    ssize_t lenOffs;
-    ssize_t elemOffs;
-    if (tree->gtFlags & GTF_INX_STRING_LAYOUT)
+    uint8_t lenOffs;
+    uint8_t elemOffs;
+    if ((tree->gtFlags & GTF_INX_STRING_LAYOUT) != 0)
     {
         lenOffs  = OFFSETOF__CORINFO_String__stringLen;
         elemOffs = OFFSETOF__CORINFO_String__chars;
@@ -4936,8 +4936,8 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         GenTree* array = fgMorphTree(asIndex->Arr());
         GenTree* index = fgMorphTree(asIndex->Index());
 
-        GenTreeIndexAddr* indexAddr = new (this, GT_INDEX_ADDR)
-            GenTreeIndexAddr(array, index, elemSize, static_cast<unsigned>(lenOffs), static_cast<unsigned>(elemOffs));
+        GenTreeIndexAddr* indexAddr =
+            new (this, GT_INDEX_ADDR) GenTreeIndexAddr(array, index, elemSize, lenOffs, elemOffs);
         indexAddr->gtFlags |= (array->gtFlags | index->gtFlags) & GTF_ALL_EFFECT;
         INDEBUG(indexAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
