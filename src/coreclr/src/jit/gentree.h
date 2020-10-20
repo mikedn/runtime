@@ -5901,26 +5901,15 @@ struct GenTreeIndexAddr : public GenTreeOp
         return gtOp2;
     }
 
-    CORINFO_CLASS_HANDLE gtStructElemClass; // If the element type is a struct, this is the struct type.
-
     BasicBlock* gtIndRngFailBB; // Basic block to jump to for array-index-out-of-range
 
-    var_types gtElemType;   // The element type of the array.
-    unsigned  gtElemSize;   // size of elements in the array
-    unsigned  gtLenOffset;  // The offset from the array's base address to its length.
-    unsigned  gtElemOffset; // The offset from the array's base address to its first element.
+    unsigned gtElemSize;   // size of elements in the array
+    unsigned gtLenOffset;  // The offset from the array's base address to its length.
+    unsigned gtElemOffset; // The offset from the array's base address to its first element.
 
-    GenTreeIndexAddr(GenTree*             arr,
-                     GenTree*             ind,
-                     var_types            elemType,
-                     CORINFO_CLASS_HANDLE structElemClass,
-                     unsigned             elemSize,
-                     unsigned             lenOffset,
-                     unsigned             elemOffset)
+    GenTreeIndexAddr(GenTree* arr, GenTree* ind, unsigned elemSize, unsigned lenOffset, unsigned elemOffset)
         : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, arr, ind)
-        , gtStructElemClass(structElemClass)
         , gtIndRngFailBB(nullptr)
-        , gtElemType(elemType)
         , gtElemSize(elemSize)
         , gtLenOffset(lenOffset)
         , gtElemOffset(elemOffset)

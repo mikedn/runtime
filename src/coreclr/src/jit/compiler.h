@@ -9154,22 +9154,14 @@ public:
     //    True if the `GT_IND` node represents an array access; false otherwise.
     bool TryGetArrayInfo(GenTreeIndir* indir, ArrayInfo* arrayInfo)
     {
-        if ((indir->gtFlags & GTF_IND_ARR_INDEX) == 0)
+        if ((indir->gtFlags & GTF_IND_ARR_INDEX) != 0)
         {
-            return false;
-        }
-
-        if (indir->gtOp1->OperIs(GT_INDEX_ADDR))
-        {
-            GenTreeIndexAddr* const indexAddr = indir->gtOp1->AsIndexAddr();
-            *arrayInfo = ArrayInfo(indexAddr->gtElemType, indexAddr->gtElemSize, indexAddr->gtElemOffset,
-                                   indexAddr->gtStructElemClass);
+            bool found = GetArrayInfoMap()->Lookup(indir, arrayInfo);
+            assert(found);
             return true;
         }
 
-        bool found = GetArrayInfoMap()->Lookup(indir, arrayInfo);
-        assert(found);
-        return true;
+        return false;
     }
 
     NodeToUnsignedMap* m_memorySsaMap[MemoryKindCount];

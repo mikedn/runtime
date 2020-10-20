@@ -4913,7 +4913,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         elemOffs = OFFSETOF__CORINFO_Array__data;
     }
 
-    // In minopts, we expand GT_INDEX to GT_IND(GT_INDEX_ADDR) in order to minimize the size of the IR. As minopts
+    // In minopts, we expand GT_INDEX to indir(GT_INDEX_ADDR) in order to minimize the size of the IR. As minopts
     // compilation time is roughly proportional to the size of the IR, this helps keep compilation times down.
     // Furthermore, this representation typically saves on code size in minopts w.r.t. the complete expansion
     // performed when optimizing, as it does not require LclVar nodes (which are always stack loads/stores in
@@ -4933,13 +4933,13 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
     // for more straightforward bounds-check removal, CSE, etc.
     if (opts.MinOpts())
     {
-        GenTree* const array = fgMorphTree(asIndex->Arr());
-        GenTree* const index = fgMorphTree(asIndex->Index());
+        GenTree* array = fgMorphTree(asIndex->Arr());
+        GenTree* index = fgMorphTree(asIndex->Index());
 
-        GenTreeIndexAddr* const indexAddr =
-            new (this, GT_INDEX_ADDR) GenTreeIndexAddr(array, index, elemTyp, elemStructType, elemSize,
-                                                       static_cast<unsigned>(lenOffs), static_cast<unsigned>(elemOffs));
+        GenTreeIndexAddr* indexAddr = new (this, GT_INDEX_ADDR)
+            GenTreeIndexAddr(array, index, elemSize, static_cast<unsigned>(lenOffs), static_cast<unsigned>(elemOffs));
         indexAddr->gtFlags |= (array->gtFlags | index->gtFlags) & GTF_ALL_EFFECT;
+        INDEBUG(indexAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
         // Mark the indirection node as needing a range check if necessary.
         // Note this will always be true unless JitSkipArrayBoundCheck() is used
@@ -4948,20 +4948,29 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
             fgSetRngChkTarget(indexAddr);
         }
 
-        // Change `tree` into an indirection and return.
-        tree->ChangeOper(GT_IND);
-        GenTreeIndir* const indir = tree->AsIndir();
-        indir->Addr()             = indexAddr;
-        bool canCSE               = indir->CanCSE();
-        indir->gtFlags            = GTF_IND_ARR_INDEX | (indexAddr->gtFlags & GTF_ALL_EFFECT);
+        if (elemTyp == TYP_STRUCT)
+        {
+            tree->ChangeOper(GT_OBJ);
+            tree->AsObj()->SetLayout(typGetObjLayout(elemStructType));
+            tree->AsObj()->gtBlkOpKind = GenTreeBlk::BlkOpKindInvalid;
+#ifndef JIT32_GCENCODER
+            tree->AsObj()->gtBlkOpGcUnsafe = false;
+#endif
+        }
+        else
+        {
+            tree->ChangeOper(GT_IND);
+        }
+
+        GenTreeIndir* indir = tree->AsIndir();
+        indir->SetAddr(indexAddr);
+
+        bool canCSE    = indir->CanCSE();
+        indir->gtFlags = indexAddr->gtFlags & GTF_ALL_EFFECT;
         if (!canCSE)
         {
             indir->SetDoNotCSE();
         }
-
-#ifdef DEBUG
-        indexAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif // DEBUG
 
         return indir;
     }
@@ -9227,11 +9236,6 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 
         handleTree = effectiveVal;
         addr       = tree;
-    }
-    else if (tree->OperIs(GT_IND) && tree->AsIndir()->GetAddr()->OperIs(GT_INDEX_ADDR))
-    {
-        handleTree = tree;
-        addr       = tree->AsIndir()->GetAddr();
     }
 
     if (addr != nullptr)

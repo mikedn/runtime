@@ -6947,9 +6947,8 @@ GenTree* Compiler::gtCloneExpr(
                 GenTreeIndexAddr* asIndAddr = tree->AsIndexAddr();
 
                 copy = new (this, GT_INDEX_ADDR)
-                    GenTreeIndexAddr(asIndAddr->Arr(), asIndAddr->Index(), asIndAddr->gtElemType,
-                                     asIndAddr->gtStructElemClass, asIndAddr->gtElemSize, asIndAddr->gtLenOffset,
-                                     asIndAddr->gtElemOffset);
+                    GenTreeIndexAddr(asIndAddr->Arr(), asIndAddr->Index(), asIndAddr->gtElemSize,
+                                     asIndAddr->gtLenOffset, asIndAddr->gtElemOffset);
                 copy->AsIndexAddr()->gtIndRngFailBB = asIndAddr->gtIndRngFailBB;
             }
             break;
@@ -7086,7 +7085,7 @@ GenTree* Compiler::gtCloneExpr(
             case GT_STORE_OBJ:
             {
                 ArrayInfo arrInfo;
-                if (!tree->AsIndir()->gtOp1->OperIs(GT_INDEX_ADDR) && TryGetArrayInfo(tree->AsIndir(), &arrInfo))
+                if (TryGetArrayInfo(tree->AsIndir(), &arrInfo))
                 {
                     GetArrayInfoMap()->Set(copy, arrInfo);
                 }

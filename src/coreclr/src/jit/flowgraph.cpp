@@ -7389,6 +7389,11 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
             }
         }
     }
+    else if (addr->OperIs(GT_INDEX_ADDR))
+    {
+        return false;
+    }
+
     return true; // default result: addr could be null
 }
 
