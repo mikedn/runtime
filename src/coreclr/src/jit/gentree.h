@@ -279,6 +279,7 @@ class FieldSeqStore
 {
     typedef JitHashTable<FieldSeqNode, /*KeyFuncs*/ FieldSeqNode, FieldSeqNode*> FieldSeqNodeCanonMap;
 
+    Compiler*             m_compiler;
     CompAllocator         m_alloc;
     FieldSeqNodeCanonMap* m_canonMap;
 
@@ -288,7 +289,7 @@ class FieldSeqStore
     static int FirstElemPseudoFieldStruct;
 
 public:
-    FieldSeqStore(CompAllocator alloc);
+    FieldSeqStore(Compiler* compiler);
 
     // Returns the (canonical in the store) singleton field sequence for the given handle.
     FieldSeqNode* CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd);
@@ -306,6 +307,8 @@ public:
     // they are the results of CreateSingleton, NotAField, or Append calls.  If either of the arguments
     // are the "NotAField" value, so is the result.
     FieldSeqNode* Append(FieldSeqNode* a, FieldSeqNode* b);
+
+    INDEBUG(void DebugCheck(FieldSeqNode* f);)
 
     // We have a few "pseudo" field handles:
 

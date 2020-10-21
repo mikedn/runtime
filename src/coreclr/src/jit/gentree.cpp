@@ -17314,7 +17314,10 @@ bool GenTree::ParseOffsetForm(Compiler* comp) const
 FieldSeqNode FieldSeqStore::s_notAField(nullptr, nullptr);
 
 // FieldSeqStore methods.
-FieldSeqStore::FieldSeqStore(CompAllocator alloc) : m_alloc(alloc), m_canonMap(new (alloc) FieldSeqNodeCanonMap(alloc))
+FieldSeqStore::FieldSeqStore(Compiler* compiler)
+    : m_compiler(compiler)
+    , m_alloc(compiler->getAllocator(CMK_FieldSeqStore))
+    , m_canonMap(new (m_alloc) FieldSeqNodeCanonMap(m_alloc))
 {
 }
 
@@ -17364,10 +17367,84 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     {
         res = new (m_alloc) FieldSeqNode(fsn);
         m_canonMap->Set(fsn, res);
+
+        INDEBUG(DebugCheck(res);)
     }
 
     return res;
 }
+
+#ifdef DEBUG
+void FieldSeqStore::DebugCheck(FieldSeqNode* f)
+{
+    FieldSeqNode* a = f;
+    FieldSeqNode* b = f->m_next;
+
+    if (a->IsFirstElemFieldSeq())
+    {
+        // This is usually the "value" of a boxed object. We don't know its class
+        // so we can't check if the appended field is valid. At least check that
+        // we're not trying to append yet another pseudo field.
+        assert(!b->IsFirstElemFieldSeq());
+
+        return;
+    }
+
+    ICorJitInfo* vm = m_compiler->info.compCompHnd;
+
+    if (b->IsFirstElemFieldSeq())
+    {
+        // This is usually the "value" of a static boxed object. It can only
+        // be appended to a static field.
+        assert(!a->IsFirstElemFieldSeq());
+        assert(vm->isFieldStatic(a->m_fieldHnd));
+
+        return;
+    }
+
+    CORINFO_CLASS_HANDLE fieldClass;
+    CorInfoType          t = vm->getFieldType(a->m_fieldHnd, &fieldClass);
+
+    if ((t == CORINFO_TYPE_NATIVEINT) || (t == CORINFO_TYPE_NATIVEUINT))
+    {
+        // We don't get a class handle for IntPtr so we can't check its _value field...
+        assert(t == vm->asCorInfoType(vm->getFieldClass(b->m_fieldHnd)));
+
+        return;
+    }
+
+    // It really should be a value class but we may also get a primitive type
+    // due to the normed type mess.
+    // assert(t == CORINFO_TYPE_VALUECLASS);
+
+    // In theory the below check should be just
+    //     assert(vm->getFieldClass(b->m_fieldHnd) != fieldClass)
+    // but this doesn't work because sometimes one class is A<Cannon> while the other is A<SomeRefType>...
+
+    unsigned fieldCount = vm->getClassNumInstanceFields(fieldClass);
+    unsigned fieldIndex = 0;
+
+    for (fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
+    {
+        if (vm->getFieldInClass(fieldClass, fieldIndex) == b->m_fieldHnd)
+        {
+            break;
+        }
+    }
+
+    if (fieldIndex >= fieldCount)
+    {
+        if (m_compiler->verbose)
+        {
+            printf("%s.%s - field %s not found in class %s\n", m_compiler->eeGetFieldName(a->m_fieldHnd),
+                   m_compiler->eeGetFieldName(b->m_fieldHnd), m_compiler->eeGetFieldName(b->m_fieldHnd),
+                   m_compiler->eeGetClassName(fieldClass));
+        }
+
+        assert(!"Field not found in class");
+    }
+}
+#endif // DEBUG
 
 // Static vars.
 int FieldSeqStore::FirstElemPseudoFieldStruct;

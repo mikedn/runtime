@@ -9091,9 +9091,7 @@ public:
         Compiler* compRoot = impInlineRoot();
         if (compRoot->m_fieldSeqStore == nullptr)
         {
-            // Create a CompAllocator that labels sub-structure with CMK_FieldSeqStore, and use that for allocation.
-            CompAllocator ialloc(getAllocator(CMK_FieldSeqStore));
-            compRoot->m_fieldSeqStore = new (ialloc) FieldSeqStore(ialloc);
+            compRoot->m_fieldSeqStore = new (this, CMK_FieldSeqStore) FieldSeqStore(this);
         }
         return compRoot->m_fieldSeqStore;
     }
