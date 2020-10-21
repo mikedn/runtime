@@ -6965,6 +6965,11 @@ struct GenTreeClsVar : public GenTree
         gtFlags |= GTF_GLOB_REF;
     }
 
+    FieldSeqNode* GetFieldSeq() const
+    {
+        return gtFieldSeq;
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeClsVar() : GenTree()
     {

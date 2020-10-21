@@ -15838,65 +15838,66 @@ void GenTreeLclFld::SetLayout(ClassLayout* layout, Compiler* compiler)
 
 bool GenTree::IsFieldAddr(Compiler* comp, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq)
 {
-    FieldSeqNode* newFldSeq    = nullptr;
-    GenTree*      baseAddr     = nullptr;
-    bool          mustBeStatic = false;
-
-    FieldSeqNode* statStructFldSeq = nullptr;
-    if (TypeGet() == TYP_REF)
+    if (TypeIs(TYP_REF))
     {
         // Recognize struct static field patterns...
-        if (OperGet() == GT_IND)
+
+        FieldSeqNode* staticStructFldSeq = nullptr;
+
+        if (GenTreeIndir* indir = IsIndir())
         {
-            GenTree*       addr = AsOp()->gtOp1;
+            GenTree*       addr = indir->GetAddr();
             GenTreeIntCon* icon = nullptr;
-            if (addr->OperGet() == GT_CNS_INT)
+
+            if (addr->OperIs(GT_CNS_INT))
             {
                 icon = addr->AsIntCon();
             }
-            else if (addr->OperGet() == GT_ADD)
+            else if (addr->OperIs(GT_ADD))
             {
+                GenTree* op1 = addr->AsOp()->GetOp(0);
+                GenTree* op2 = addr->AsOp()->GetOp(1);
+
                 // op1 should never be a field sequence (or any other kind of handle)
-                assert((addr->AsOp()->gtOp1->gtOper != GT_CNS_INT) || !addr->AsOp()->gtOp1->IsIconHandle());
-                if (addr->AsOp()->gtOp2->OperGet() == GT_CNS_INT)
+                assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+
+                if (op2->OperIs(GT_CNS_INT))
                 {
-                    icon = addr->AsOp()->gtOp2->AsIntCon();
+                    icon = op2->AsIntCon();
                 }
             }
-            if (icon != nullptr && !icon->IsIconHandle(GTF_ICON_STR_HDL) // String handles are a source of TYP_REFs.
-                && icon->gtFieldSeq != nullptr &&
-                icon->gtFieldSeq->m_next == nullptr // A static field should be a singleton
+
+            if ((icon != nullptr) &&
+                !icon->IsIconHandle(GTF_ICON_STR_HDL) && // String handles are a source of TYP_REFs.
+                (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
+                (icon->GetFieldSeq()->m_next == nullptr) && // A static field should be a singleton
                 // TODO-Review: A pseudoField here indicates an issue - this requires investigation
                 // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
-                && !(FieldSeqStore::IsPseudoField(icon->gtFieldSeq->m_fieldHnd)) &&
-                icon->gtFieldSeq != FieldSeqStore::NotAField()) // Ignore non-fields.
+                !icon->GetFieldSeq()->IsPseudoField())
             {
-                statStructFldSeq = icon->gtFieldSeq;
+                staticStructFldSeq = icon->GetFieldSeq();
             }
             else
             {
                 addr = addr->gtEffectiveVal();
 
                 // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
-                if ((addr->OperGet() == GT_CALL) || (addr->OperGet() == GT_LCL_VAR))
+                FieldSeqNode* zeroFieldSeq = nullptr;
+
+                if (addr->OperIs(GT_CALL, GT_LCL_VAR) && comp->GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq) &&
+                    (zeroFieldSeq->m_next == nullptr))
                 {
-                    FieldSeqNode* zeroFieldSeq = nullptr;
-                    if (comp->GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq))
-                    {
-                        if (zeroFieldSeq->m_next == nullptr)
-                        {
-                            statStructFldSeq = zeroFieldSeq;
-                        }
-                    }
+                    staticStructFldSeq = zeroFieldSeq;
                 }
             }
         }
-        else if (OperGet() == GT_CLS_VAR)
+        else if (GenTreeClsVar* clsVar = IsClsVar())
         {
-            GenTreeClsVar* clsVar = AsClsVar();
-            if (clsVar->gtFieldSeq != nullptr && clsVar->gtFieldSeq->m_next == nullptr)
+            FieldSeqNode* fieldSeq = clsVar->GetFieldSeq();
+
+            if ((fieldSeq != nullptr) && (fieldSeq->m_next == nullptr))
             {
-                statStructFldSeq = clsVar->gtFieldSeq;
+                staticStructFldSeq = fieldSeq;
             }
         }
         else if (OperIsLocal())
@@ -15906,9 +15907,8 @@ bool GenTree::IsFieldAddr(Compiler* comp, GenTree** pObj, GenTree** pStatic, Fie
             // describes the RHS of the CSE assignment.
             //
             // The CSE could be a pointer to a boxed struct
-            //
-            GenTreeLclVarCommon* lclVar = AsLclVarCommon();
-            ValueNum             vn     = gtVNPair.GetLiberal();
+
+            ValueNum vn = gtVNPair.GetLiberal();
             if (vn != ValueNumStore::NoVN)
             {
                 // Is the ValueNum a MapSelect involving a SharedStatic helper?
@@ -15924,73 +15924,72 @@ bool GenTree::IsFieldAddr(Compiler* comp, GenTree** pObj, GenTree** pStatic, Fie
                     {
                         ValueNum fldHndVN = funcApp2.m_args[1];
                         // Is this new 'fldHndVN' VNhandle a FieldHandle?
-                        unsigned flags = comp->vnStore->GetHandleFlags(fldHndVN);
-                        if (flags == GTF_ICON_FIELD_HDL)
+                        if (comp->vnStore->GetHandleFlags(fldHndVN) == GTF_ICON_FIELD_HDL)
                         {
                             CORINFO_FIELD_HANDLE fieldHnd =
                                 CORINFO_FIELD_HANDLE(comp->vnStore->ConstantValue<ssize_t>(fldHndVN));
 
                             // Record this field sequence in 'statStructFldSeq' as it is likely to be a Boxed Struct
                             // field access.
-                            statStructFldSeq = comp->GetFieldSeqStore()->CreateSingleton(fieldHnd);
+                            staticStructFldSeq = comp->GetFieldSeqStore()->CreateSingleton(fieldHnd);
                         }
                     }
                 }
             }
         }
 
-        if (statStructFldSeq != nullptr)
-        {
-            assert(statStructFldSeq->m_next == nullptr);
-            // Is this a pointer to a boxed struct?
-            if (comp->gtIsStaticFieldPtrToBoxedStruct(TYP_REF, statStructFldSeq->m_fieldHnd))
-            {
-                *pFldSeq = comp->GetFieldSeqStore()->Append(statStructFldSeq, *pFldSeq);
-                *pObj    = nullptr;
-                *pStatic = this;
-                return true;
-            }
-        }
+        assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->m_next == nullptr));
 
-        // Otherwise...
-        *pObj    = this;
-        *pStatic = nullptr;
-        return true;
-    }
-    else if (OperGet() == GT_ADD)
-    {
-        // If one operator is a field sequence/handle, the other operator must not also be a field sequence/handle.
-        if ((AsOp()->gtOp1->OperGet() == GT_CNS_INT) && AsOp()->gtOp1->IsIconHandle())
+        if ((staticStructFldSeq != nullptr) &&
+            comp->gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->m_fieldHnd))
         {
-            assert((AsOp()->gtOp2->gtOper != GT_CNS_INT) || !AsOp()->gtOp2->IsIconHandle());
-            newFldSeq = AsOp()->gtOp1->AsIntCon()->gtFieldSeq;
-            baseAddr  = AsOp()->gtOp2;
-        }
-        else if (AsOp()->gtOp2->OperGet() == GT_CNS_INT)
-        {
-            assert((AsOp()->gtOp1->gtOper != GT_CNS_INT) || !AsOp()->gtOp1->IsIconHandle());
-            newFldSeq = AsOp()->gtOp2->AsIntCon()->gtFieldSeq;
-            baseAddr  = AsOp()->gtOp1;
-        }
-    }
-    else
-    {
-        // Check if "this" has a zero-offset annotation.
-        if (!comp->GetZeroOffsetFieldMap()->Lookup(this, &newFldSeq))
-        {
-            // If not, this is not a field address.
-            return false;
+            *pFldSeq = comp->GetFieldSeqStore()->Append(staticStructFldSeq, *pFldSeq);
+            *pObj    = nullptr;
+            *pStatic = this;
         }
         else
         {
-            baseAddr     = this;
-            mustBeStatic = true;
+            *pObj    = this;
+            *pStatic = nullptr;
         }
+
+        return true;
     }
 
-    // If not we don't have a field seq, it's not a field address.
-    if (newFldSeq == nullptr || newFldSeq == FieldSeqStore::NotAField())
+    FieldSeqNode* newFldSeq    = nullptr;
+    GenTree*      baseAddr     = nullptr;
+    bool          mustBeStatic = false;
+
+    if (OperIs(GT_ADD))
     {
+        GenTree* op1 = AsOp()->GetOp(0);
+        GenTree* op2 = AsOp()->GetOp(1);
+
+        if (op1->OperIs(GT_CNS_INT) && op1->IsIconHandle())
+        {
+            // If one operand is a field sequence/handle, the other operand must not also be a field sequence/handle.
+            assert(!op2->OperIs(GT_CNS_INT) || !op2->IsIconHandle());
+
+            newFldSeq = op1->AsIntCon()->GetFieldSeq();
+            baseAddr  = op2;
+        }
+        else if (op2->OperIs(GT_CNS_INT))
+        {
+            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+
+            newFldSeq = op2->AsIntCon()->GetFieldSeq();
+            baseAddr  = op1;
+        }
+    }
+    else if (comp->GetZeroOffsetFieldMap()->Lookup(this, &newFldSeq))
+    {
+        baseAddr     = this;
+        mustBeStatic = true;
+    }
+
+    if ((newFldSeq == nullptr) || (newFldSeq == FieldSeqStore::NotAField()))
+    {
+        // If we can't find a field sequence then it's not a field addres.
         return false;
     }
 
@@ -16004,17 +16003,18 @@ bool GenTree::IsFieldAddr(Compiler* comp, GenTree** pObj, GenTree** pStatic, Fie
         // It is a static field.  We're done.
         *pObj    = nullptr;
         *pStatic = baseAddr;
+
         return true;
     }
-    else if ((baseAddr != nullptr) && !mustBeStatic)
+
+    if ((baseAddr == nullptr) || mustBeStatic)
     {
-        // It's an instance field...but it must be for a struct field, since we've not yet encountered
-        // a "TYP_REF" address.  Analyze the reset of the address.
-        return baseAddr->gtEffectiveVal()->IsFieldAddr(comp, pObj, pStatic, pFldSeq);
+        return false;
     }
 
-    // Otherwise...
-    return false;
+    // It's an instance field...but it must be for a struct field, since we've not yet encountered
+    // a "TYP_REF" address.  Analyze the reset of the address.
+    return baseAddr->gtEffectiveVal()->IsFieldAddr(comp, pObj, pStatic, pFldSeq);
 }
 
 bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd)
