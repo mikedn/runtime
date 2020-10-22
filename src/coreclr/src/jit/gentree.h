@@ -1872,50 +1872,6 @@ public:
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
 
-    // If returns "true", "this" may represent the address of a static or instance field
-    // (or a field of such a field, in the case of an object field of type struct).
-    // If returns "true", then either "*pObj" is set to the object reference,
-    // or "*pStatic" is set to the baseAddr or offset to be added to the "*pFldSeq"
-    // Only one of "*pObj" or "*pStatic" will be set, the other one will be null.
-    // The boolean return value only indicates that "this" *may* be a field address
-    // -- the field sequence must also be checked.
-    // If it is a field address, the field sequence will be a sequence of length >= 1,
-    // starting with an instance or static field, and optionally continuing with struct fields.
-    bool IsFieldAddr(Compiler* comp, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq);
-
-    // Requires "this" to be the address of an array (the child of a GT_IND labeled with GTF_IND_ARR_INDEX).
-    // Sets "pArr" to the node representing the array (either an array object pointer, or perhaps a byref to the some
-    // element).
-    // Sets "*pArrayType" to the class handle for the array type.
-    // Sets "*inxVN" to the value number inferred for the array index.
-    // Sets "*pFldSeq" to the sequence, if any, of struct fields used to index into the array element.
-    bool ParseArrayAddress(
-        Compiler* comp, const struct ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq);
-
-private:
-    // Helper method for the above.
-    void ParseArrayAddressWork(Compiler*       comp,
-                               target_ssize_t  scale,
-                               GenTree**       pArr,
-                               ValueNum*       pInxVN,
-                               target_ssize_t* pOffset,
-                               FieldSeqNode**  pFldSeq);
-
-public:
-    // Requires "this" to be a GT_IND.  Requires the outermost caller to set "*pFldSeq" to nullptr.
-    // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
-    // array information.
-    bool ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo) const;
-
-private:
-    // Requires "this" to be the address of a (possible) array element (or struct field within that).
-    // If it is, sets "*arrayInfo" to the array access info and returns true.  If not, returns "false".
-    bool ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo) const;
-
-    // Requires "this" to be an int expression.
-    bool ParseOffsetForm(Compiler* comp) const;
-
-public:
     // Assumes that "this" occurs in a context where it is being dereferenced as the LHS of an assignment-like
     // statement (assignment, initblk, or copyblk).  The "width" should be the number of bytes copied by the
     // operation.  Returns "true" if "this" is an address of (or within)

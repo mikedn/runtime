@@ -7538,7 +7538,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             FieldSeqNode* fldSeq = nullptr;
                             GenTree*      arr    = nullptr;
 
-                            if (!arg->ParseArrayAddress(this, &arrInfo, &arr, &inxVN, &fldSeq))
+                            if (!optParseArrayAddress(arg, &arrInfo, &arr, &inxVN, &fldSeq))
                             {
                                 fgMutateGcHeap(tree DEBUGARG("assignment to unparseable array expression"));
                                 return;
@@ -7564,7 +7564,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                                                           rhsVNPair.GetLiberal(), lhs->TypeGet());
                             recordGcHeapStore(tree, heapVN DEBUGARG("ArrIndexAssign (case 2)"));
                         }
-                        else if (arg->IsFieldAddr(this, &obj, &staticOffset, &fldSeq))
+                        else if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
                             if (fldSeq == FieldSeqStore::NotAField())
                             {
@@ -7874,7 +7874,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 FieldSeqNode* fldSeq = nullptr;
                 GenTree*      arr    = nullptr;
 
-                if (!addr->ParseArrayAddress(this, &arrInfo, &arr, &inxVN, &fldSeq))
+                if (!optParseArrayAddress(addr, &arrInfo, &arr, &inxVN, &fldSeq))
                 {
                     tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
                     return;
@@ -7992,7 +7992,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 {
                     fgValueNumberArrIndexVal(tree, &funcApp, addrXvnp.GetLiberal());
                 }
-                else if (addr->IsFieldAddr(this, &obj, &staticOffset, &fldSeq2))
+                else if (optIsFieldAddr(addr, &obj, &staticOffset, &fldSeq2))
                 {
                     if (fldSeq2 == FieldSeqStore::NotAField())
                     {

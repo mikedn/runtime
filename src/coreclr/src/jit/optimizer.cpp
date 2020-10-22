@@ -7734,10 +7734,9 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         // Otherwise...
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
                     }
-                    // Is the LHS an array index expression?
-                    else if (lhs->ParseArrayElemForm(this, &arrInfo))
+                    else if (optIsArrayElem(lhs->AsIndir(), &arrInfo))
                     {
-                        // We actually ignore "fldSeq" -- any modification to an S[], at any
+                        // We actually ignore field sequences -- any modification to an S[], at any
                         // field of "S", will lose all information about the array type.
                         CORINFO_CLASS_HANDLE elemTypeEq = EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
                         AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeEq);
@@ -7752,8 +7751,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         GenTree*      staticOffset = nullptr; // unused
                         FieldSeqNode* fldSeq       = nullptr;
 
-                        if (arg->IsFieldAddr(this, &obj, &staticOffset, &fldSeq) &&
-                            (fldSeq != FieldSeqStore::NotAField()))
+                        if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq) && (fldSeq != FieldSeqStore::NotAField()))
                         {
                             // Get the first (object) field from field seq.  GcHeap[field] will yield the "field map".
                             assert(fldSeq != nullptr);
