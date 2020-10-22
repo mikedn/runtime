@@ -241,7 +241,6 @@ void GenTree::InitNodeSize()
 
     GenTree::s_gtNodeSizes[GT_CALL]             = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_BOX]              = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_INDEX_ADDR]       = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_ARR_ELEM]         = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_DYN_BLK]          = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_STORE_DYN_BLK]    = TREE_NODE_SZ_LARGE;
@@ -289,7 +288,7 @@ void GenTree::InitNodeSize()
     static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeIntrinsic)    <= TREE_NODE_SZ_LARGE); // *** large node
     static_assert_no_msg(sizeof(GenTreeIndex)        <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_LARGE); // *** large node
+    static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_SMALL);
     static_assert_no_msg(sizeof(GenTreeArrElem)      <= TREE_NODE_SZ_LARGE); // *** large node
@@ -1379,13 +1378,13 @@ AGAIN:
                     }
                     break;
                 case GT_INDEX:
-                    if (op1->AsIndex()->gtIndElemSize != op2->AsIndex()->gtIndElemSize)
+                    if (op1->AsIndex()->GetElemSize() != op2->AsIndex()->GetElemSize())
                     {
                         return false;
                     }
                     break;
                 case GT_INDEX_ADDR:
-                    if (op1->AsIndexAddr()->gtElemSize != op2->AsIndexAddr()->gtElemSize)
+                    if (op1->AsIndexAddr()->GetElemSize() != op2->AsIndexAddr()->GetElemSize())
                     {
                         return false;
                     }
@@ -2024,10 +2023,10 @@ AGAIN:
                     hash ^= tree->AsCast()->gtCastType;
                     break;
                 case GT_INDEX:
-                    hash += tree->AsIndex()->gtIndElemSize;
+                    hash += tree->AsIndex()->GetElemSize();
                     break;
                 case GT_INDEX_ADDR:
-                    hash += tree->AsIndexAddr()->gtElemSize;
+                    hash += tree->AsIndexAddr()->GetElemSize();
                     break;
                 case GT_ALLOCOBJ:
                     hash = genTreeHashAdd(hash, static_cast<unsigned>(
@@ -4685,17 +4684,17 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costEx = 6; // cmp reg,reg; jae throw; mov reg, [addrmode]  (not taken)
             costSz = 9; // jump to cold section
 
-            level = gtSetEvalOrder(tree->AsIndexAddr()->Index());
-            costEx += tree->AsIndexAddr()->Index()->GetCostEx();
-            costSz += tree->AsIndexAddr()->Index()->GetCostSz();
+            level = gtSetEvalOrder(tree->AsIndexAddr()->GetIndex());
+            costEx += tree->AsIndexAddr()->GetIndex()->GetCostEx();
+            costSz += tree->AsIndexAddr()->GetIndex()->GetCostSz();
 
-            lvl2 = gtSetEvalOrder(tree->AsIndexAddr()->Arr());
+            lvl2 = gtSetEvalOrder(tree->AsIndexAddr()->GetArray());
             if (level < lvl2)
             {
                 level = lvl2;
             }
-            costEx += tree->AsIndexAddr()->Arr()->GetCostEx();
-            costSz += tree->AsIndexAddr()->Arr()->GetCostSz();
+            costEx += tree->AsIndexAddr()->GetArray()->GetCostEx();
+            costSz += tree->AsIndexAddr()->GetArray()->GetCostSz();
             break;
 
         default:
@@ -6934,25 +6933,12 @@ GenTree* Compiler::gtCloneExpr(
             // The nodes below this are not bashed, so they can be allocated at their individual sizes.
 
             case GT_INDEX:
-            {
-                GenTreeIndex* asInd = tree->AsIndex();
-                copy                = new (this, GT_INDEX)
-                    GenTreeIndex(asInd->TypeGet(), asInd->Arr(), asInd->Index(), asInd->gtIndElemSize);
-                copy->AsIndex()->gtStructElemClass = asInd->gtStructElemClass;
-            }
-            break;
+                copy = new (this, GT_INDEX) GenTreeIndex(tree->AsIndex());
+                break;
 
             case GT_INDEX_ADDR:
-            {
-                GenTreeIndexAddr* asIndAddr = tree->AsIndexAddr();
-
-                copy = new (this, GT_INDEX_ADDR)
-                    GenTreeIndexAddr(asIndAddr->Arr(), asIndAddr->Index(), asIndAddr->gtElemType,
-                                     asIndAddr->gtStructElemClass, asIndAddr->gtElemSize, asIndAddr->gtLenOffset,
-                                     asIndAddr->gtElemOffset);
-                copy->AsIndexAddr()->gtIndRngFailBB = asIndAddr->gtIndRngFailBB;
-            }
-            break;
+                copy = new (this, GT_INDEX_ADDR) GenTreeIndexAddr(tree->AsIndexAddr());
+                break;
 
             case GT_ALLOCOBJ:
             {
@@ -7086,7 +7072,7 @@ GenTree* Compiler::gtCloneExpr(
             case GT_STORE_OBJ:
             {
                 ArrayInfo arrInfo;
-                if (!tree->AsIndir()->gtOp1->OperIs(GT_INDEX_ADDR) && TryGetArrayInfo(tree->AsIndir(), &arrInfo))
+                if (TryGetArrayInfo(tree->AsIndir(), &arrInfo))
                 {
                     GetArrayInfoMap()->Set(copy, arrInfo);
                 }
@@ -16350,7 +16336,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 structHnd = tree->AsRetExpr()->gtRetClsHnd;
                 break;
             case GT_INDEX:
-                structHnd = tree->AsIndex()->gtStructElemClass;
+                structHnd = tree->AsIndex()->GetElemClassHandle();
                 break;
             case GT_FIELD:
                 info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
@@ -16730,14 +16716,10 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         }
 
         case GT_INDEX:
-        {
-            GenTree* array = obj->AsIndex()->Arr();
-
-            objClass    = gtGetArrayElementClassHandle(array);
+            objClass    = gtGetArrayElementClassHandle(obj->AsIndex()->GetArray());
             *pIsExact   = false;
             *pIsNonNull = false;
             break;
-        }
 
         default:
         {

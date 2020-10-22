@@ -863,7 +863,7 @@ private:
                 case GT_LCL_FLD:
                     return genTypeSize(indir->TypeGet());
                 case GT_INDEX:
-                    return indir->AsIndex()->gtIndElemSize;
+                    return indir->AsIndex()->GetElemSize();
                 default:
                     break;
             }

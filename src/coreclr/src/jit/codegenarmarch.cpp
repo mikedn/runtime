@@ -1609,8 +1609,8 @@ void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
 //
 void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
 {
-    GenTree* const base  = node->Arr();
-    GenTree* const index = node->Index();
+    GenTree* const base  = node->GetArray();
+    GenTree* const index = node->GetIndex();
 
     genConsumeReg(base);
     genConsumeReg(index);
@@ -1631,17 +1631,17 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     // Generate the bounds check if necessary.
     if ((node->gtFlags & GTF_INX_RNGCHK) != 0)
     {
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, base->GetRegNum(), node->gtLenOffset);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, base->GetRegNum(), node->GetLenOffs());
         GetEmitter()->emitIns_R_R(INS_cmp, emitActualTypeSize(index->TypeGet()), index->GetRegNum(), tmpReg);
-        genJumpToThrowHlpBlk(EJ_hs, SCK_RNGCHK_FAIL, node->gtIndRngFailBB);
+        genJumpToThrowHlpBlk(EJ_hs, SCK_RNGCHK_FAIL, node->GetThrowBlock());
     }
 
     // Can we use a ScaledAdd instruction?
     //
-    if (isPow2(node->gtElemSize) && (node->gtElemSize <= 32768))
+    if (isPow2(node->GetElemSize()) && (node->GetElemSize() <= 32768))
     {
         DWORD scale;
-        BitScanForward(&scale, node->gtElemSize);
+        BitScanForward(&scale, node->GetElemSize());
 
         // dest = base + index * scale
         genScaledAdd(emitActualTypeSize(node), node->GetRegNum(), base->GetRegNum(), index->GetRegNum(), scale);
@@ -1649,7 +1649,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     else // we have to load the element size and use a MADD (multiply-add) instruction
     {
         // tmpReg = element size
-        CodeGen::genSetRegToIcon(tmpReg, (ssize_t)node->gtElemSize, TYP_INT);
+        CodeGen::genSetRegToIcon(tmpReg, (ssize_t)node->GetElemSize(), TYP_INT);
 
         // dest = index * tmpReg + base
         GetEmitter()->emitIns_R_R_R_R(INS_MULADD, emitActualTypeSize(node), node->GetRegNum(), index->GetRegNum(),
@@ -1658,7 +1658,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
 
     // dest = dest + elemOffs
     GetEmitter()->emitIns_R_R_I(INS_add, emitActualTypeSize(node), node->GetRegNum(), node->GetRegNum(),
-                                node->gtElemOffset);
+                                node->GetDataOffs());
 
     gcInfo.gcMarkRegSetNpt(base->gtGetRegMask());
 

@@ -1480,13 +1480,11 @@ bool Compiler::areArrayElementsContiguous(GenTree* op1, GenTree* op2)
     GenTreeIndex* op1Index = op1->AsIndex();
     GenTreeIndex* op2Index = op2->AsIndex();
 
-    GenTree* op1ArrayRef = op1Index->Arr();
-    GenTree* op2ArrayRef = op2Index->Arr();
-    assert(op1ArrayRef->TypeGet() == TYP_REF);
-    assert(op2ArrayRef->TypeGet() == TYP_REF);
+    GenTree* op1ArrayRef = op1Index->GetArray();
+    GenTree* op2ArrayRef = op2Index->GetArray();
 
-    GenTree* op1IndexNode = op1Index->Index();
-    GenTree* op2IndexNode = op2Index->Index();
+    GenTree* op1IndexNode = op1Index->GetIndex();
+    GenTree* op2IndexNode = op2Index->GetIndex();
     if ((op1IndexNode->OperGet() == GT_CNS_INT && op2IndexNode->OperGet() == GT_CNS_INT) &&
         op1IndexNode->AsIntCon()->gtIconVal + 1 == op2IndexNode->AsIntCon()->gtIconVal)
     {
@@ -1589,13 +1587,13 @@ GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize
     else if (tree->OperGet() == GT_INDEX)
     {
 
-        GenTree* index = tree->AsIndex()->Index();
+        GenTree* index = tree->AsIndex()->GetIndex();
         assert(index->OperGet() == GT_CNS_INT);
 
         GenTree* checkIndexExpr = nullptr;
         unsigned indexVal       = (unsigned)(index->AsIntCon()->gtIconVal);
         offset                  = indexVal * genTypeSize(tree->TypeGet());
-        GenTree* arrayRef       = tree->AsIndex()->Arr();
+        GenTree* arrayRef       = tree->AsIndex()->GetArray();
 
         // Generate the boundary check exception.
         // The length for boundary check should be the maximum index number which should be

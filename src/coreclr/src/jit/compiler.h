@@ -2164,7 +2164,8 @@ public:
 
     GenTreeField* gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj = nullptr, DWORD offset = 0);
 
-    GenTree* gtNewIndexRef(var_types typ, GenTree* arrayOp, GenTree* indexOp);
+    GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
+    GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
 
     GenTreeArrLen* gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset, BasicBlock* block);
 
@@ -9154,22 +9155,14 @@ public:
     //    True if the `GT_IND` node represents an array access; false otherwise.
     bool TryGetArrayInfo(GenTreeIndir* indir, ArrayInfo* arrayInfo)
     {
-        if ((indir->gtFlags & GTF_IND_ARR_INDEX) == 0)
+        if ((indir->gtFlags & GTF_IND_ARR_INDEX) != 0)
         {
-            return false;
-        }
-
-        if (indir->gtOp1->OperIs(GT_INDEX_ADDR))
-        {
-            GenTreeIndexAddr* const indexAddr = indir->gtOp1->AsIndexAddr();
-            *arrayInfo = ArrayInfo(indexAddr->gtElemType, indexAddr->gtElemSize, indexAddr->gtElemOffset,
-                                   indexAddr->gtStructElemClass);
+            bool found = GetArrayInfoMap()->Lookup(indir, arrayInfo);
+            assert(found);
             return true;
         }
 
-        bool found = GetArrayInfoMap()->Lookup(indir, arrayInfo);
-        assert(found);
-        return true;
+        return false;
     }
 
     NodeToUnsignedMap* m_memorySsaMap[MemoryKindCount];
