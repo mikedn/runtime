@@ -239,10 +239,8 @@ struct FieldSeqNode
     {
     }
 
-    // returns true when this is the pseudo #FirstElem field sequence
-    bool IsFirstElemFieldSeq();
+    bool IsBoxedValueField();
 
-    // returns true when this is the the pseudo #FirstElem field sequence or the pseudo #ConstantIndex field sequence
     bool IsPseudoField() const;
 
     CORINFO_FIELD_HANDLE GetFieldHandle() const
@@ -285,8 +283,8 @@ class FieldSeqStore
 
     static FieldSeqNode s_notAField; // No value, just exists to provide an address.
 
-    // Dummy variables to provide the addresses for the "pseudo field handle" statics below.
-    static int FirstElemPseudoFieldStruct;
+    // Dummy variable to provide an address for the "Boxed Value" pseudo field handle.
+    static int BoxedValuePseudoFieldStruct;
 
 public:
     FieldSeqStore(Compiler* compiler);
@@ -312,14 +310,10 @@ public:
 
     // We have a few "pseudo" field handles:
 
-    // This treats the constant offset of the first element of something as if it were a field.
-    // Works for method table offsets of boxed structs, or first elem offset of arrays/strings.
-    static CORINFO_FIELD_HANDLE FirstElemPseudoField;
-
-    static bool IsPseudoField(CORINFO_FIELD_HANDLE hnd)
-    {
-        return hnd == FirstElemPseudoField;
-    }
+    // The boxed value field identifies the value part of a boxed value object.
+    // Used with static struct fields which are implemented as static reference
+    // fields pointing to boxed structs allocated by the runtime.
+    static const CORINFO_FIELD_HANDLE BoxedValuePseudoFieldHandle;
 };
 
 class GenTreeUseEdgeIterator;

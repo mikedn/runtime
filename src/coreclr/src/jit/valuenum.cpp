@@ -3559,7 +3559,7 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
     {
         assert(fieldSeq != FieldSeqStore::NotAField());
 
-        // Skip any "FirstElem" pseudo-fields or any "ConstantIndex" pseudo-fields
+        // Skip any pseudo-fields
         if (fieldSeq->IsPseudoField())
         {
             return VNApplySelectors(vnk, map, fieldSeq->m_next, wbFinalStructSize);
@@ -3725,7 +3725,7 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
     {
         assert(fieldSeq != FieldSeqStore::NotAField());
 
-        // Skip any "FirstElem" pseudo-fields or any "ConstantIndex" pseudo-fields
+        // Skip any pseudo-fields.
         // These will occur, at least, in struct static expressions, for method table offsets.
         if (fieldSeq->IsPseudoField())
         {
@@ -5190,9 +5190,9 @@ void ValueNumStore::vnDumpFieldSeq(Compiler* comp, VNFuncApp* fieldSeq, bool isH
     }
 
     CORINFO_FIELD_HANDLE fldHnd = CORINFO_FIELD_HANDLE(fieldHndVal);
-    if (fldHnd == FieldSeqStore::FirstElemPseudoField)
+    if (fldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle)
     {
-        printf("#FirstElem");
+        printf("#BoxedValue");
     }
     else
     {
@@ -7586,7 +7586,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                                 // Get the first (instance or static) field from field seq.  GcHeap[field] will yield
                                 // the "field map".
-                                if (fldSeq->IsFirstElemFieldSeq())
+                                if (fldSeq->IsBoxedValueField())
                                 {
                                     fldSeq = fldSeq->m_next;
                                     assert(fldSeq != nullptr);

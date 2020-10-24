@@ -9858,9 +9858,9 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
         {
             printf("N/A");
         }
-        else if (fieldSeq->m_fieldHnd == FieldSeqStore::FirstElemPseudoField)
+        else if (fieldSeq->IsBoxedValueField())
         {
-            printf("#FirstElem");
+            printf("#BoxedValue");
         }
         else
         {
@@ -10555,14 +10555,7 @@ void Compiler::gtDispTree(GenTree*     tree,
 
         case GT_FIELD:
             printf("[+%u]", tree->AsField()->GetOffset());
-            if (FieldSeqStore::IsPseudoField(tree->AsField()->gtFldHnd))
-            {
-                printf(" #PseudoField:0x%x", tree->AsField()->gtFldOffset);
-            }
-            else
-            {
-                printf(" %s", eeGetFieldName(tree->AsField()->gtFldHnd), 0);
-            }
+            printf(" %s", eeGetFieldName(tree->AsField()->GetFieldHandle()), 0);
 
             gtDispCommonEndLine(tree);
 
@@ -15988,7 +15981,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
     *pFldSeq = GetFieldSeqStore()->Append(newFldSeq, *pFldSeq);
 
     // Is it a static or instance field?
-    if (!FieldSeqStore::IsPseudoField(newFldSeq->m_fieldHnd) && info.compCompHnd->isFieldStatic(newFldSeq->m_fieldHnd))
+    if (!newFldSeq->IsPseudoField() && info.compCompHnd->isFieldStatic(newFldSeq->m_fieldHnd))
     {
         // It is a static field.  We're done.
         *pObj    = nullptr;
@@ -16362,7 +16355,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                             {
                                 fieldSeq = fieldSeq->m_next;
                             }
-                            if (fieldSeq != FieldSeqStore::NotAField() && !fieldSeq->IsPseudoField())
+                            if ((fieldSeq != FieldSeqStore::NotAField()) && !fieldSeq->IsPseudoField())
                             {
                                 CORINFO_FIELD_HANDLE fieldHnd = fieldSeq->m_fieldHnd;
                                 CorInfoType fieldCorType      = info.compCompHnd->getFieldType(fieldHnd, &structHnd);
@@ -16978,7 +16971,7 @@ bool Compiler::optParseArrayAddress(
     // Also, find the first non-pseudo field...
     while (fldSeq != nullptr)
     {
-        if ((fldSeq != FieldSeqStore::NotAField()) && !FieldSeqStore::IsPseudoField(fldSeq->m_fieldHnd))
+        if ((fldSeq != FieldSeqStore::NotAField()) && !fldSeq->IsPseudoField())
         {
             // Due to the way INDEX is expanded in IR we don't expected to encounter any struct
             // fields in the field sequence. Access to a struct field of an array element is
@@ -16988,7 +16981,7 @@ bool Compiler::optParseArrayAddress(
             // and thus prevents the field offset from becoming a part of the element address
             // expression.
             //
-            // This means that ParseArrayAddress will always valid a null field sequence so the
+            // This means that ParseArrayAddress will always return a null field sequence so the
             // pFldSeq parameter is useless. But let's keep it for now as it would be better to
             // be able to sink the field offset into the element address expression (not clear
             // how, in addition to GTF_IND_ARR_INDEX there's also the range check COMMA...).
@@ -17370,23 +17363,22 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
     FieldSeqNode* a = f;
     FieldSeqNode* b = f->m_next;
 
-    if (a->IsFirstElemFieldSeq())
+    if (a->IsBoxedValueField())
     {
-        // This is usually the "value" of a boxed object. We don't know its class
-        // so we can't check if the appended field is valid. At least check that
-        // we're not trying to append yet another pseudo field.
-        assert(!b->IsFirstElemFieldSeq());
+        // We don't know the class of a boxed value field so we can't check
+        // if the appended field is valid. At least check that we're not
+        // trying to append yet another boxed value field.
+        assert(!b->IsBoxedValueField());
 
         return;
     }
 
     ICorJitInfo* vm = m_compiler->info.compCompHnd;
 
-    if (b->IsFirstElemFieldSeq())
+    if (b->IsBoxedValueField())
     {
-        // This is usually the "value" of a static boxed object. It can only
-        // be appended to a static field.
-        assert(!a->IsFirstElemFieldSeq());
+        // Boxed value fields are only used together with static fields.
+        assert(!a->IsBoxedValueField());
         assert(vm->isFieldStatic(a->m_fieldHnd));
 
         return;
@@ -17437,19 +17429,19 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
 #endif // DEBUG
 
 // Static vars.
-int FieldSeqStore::FirstElemPseudoFieldStruct;
+int FieldSeqStore::BoxedValuePseudoFieldStruct;
 
-CORINFO_FIELD_HANDLE FieldSeqStore::FirstElemPseudoField =
-    (CORINFO_FIELD_HANDLE)&FieldSeqStore::FirstElemPseudoFieldStruct;
+const CORINFO_FIELD_HANDLE FieldSeqStore::BoxedValuePseudoFieldHandle =
+    reinterpret_cast<CORINFO_FIELD_HANDLE>(&FieldSeqStore::BoxedValuePseudoFieldStruct);
 
-bool FieldSeqNode::IsFirstElemFieldSeq()
+bool FieldSeqNode::IsBoxedValueField()
 {
-    return m_fieldHnd == FieldSeqStore::FirstElemPseudoField;
+    return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
 }
 
 bool FieldSeqNode::IsPseudoField() const
 {
-    return m_fieldHnd == FieldSeqStore::FirstElemPseudoField;
+    return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
 }
 
 #ifdef FEATURE_SIMD

@@ -7755,7 +7755,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         {
                             // Get the first (object) field from field seq.  GcHeap[field] will yield the "field map".
                             assert(fldSeq != nullptr);
-                            if (fldSeq->IsFirstElemFieldSeq())
+                            if (fldSeq->IsBoxedValueField())
                             {
                                 fldSeq = fldSeq->m_next;
                                 assert(fldSeq != nullptr);
