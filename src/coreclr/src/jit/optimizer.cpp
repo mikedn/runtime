@@ -7751,7 +7751,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         GenTree*      staticOffset = nullptr; // unused
                         FieldSeqNode* fldSeq       = nullptr;
 
-                        if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq) && (fldSeq != FieldSeqStore::NotAField()))
+                        if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
                             // Get the first (object) field from field seq.  GcHeap[field] will yield the "field map".
                             assert(fldSeq != nullptr);
