@@ -15810,120 +15810,7 @@ void GenTreeLclFld::SetLayout(ClassLayout* layout, Compiler* compiler)
 
 bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq)
 {
-    if (addr->TypeIs(TYP_REF))
-    {
-        // Recognize struct static field patterns...
-
-        FieldSeqNode* staticStructFldSeq = nullptr;
-
-        if (GenTreeIndir* indir = addr->IsIndir())
-        {
-            GenTree*       addr = indir->GetAddr();
-            GenTreeIntCon* icon = nullptr;
-
-            if (addr->OperIs(GT_CNS_INT))
-            {
-                icon = addr->AsIntCon();
-            }
-            else if (addr->OperIs(GT_ADD))
-            {
-                GenTree* op1 = addr->AsOp()->GetOp(0);
-                GenTree* op2 = addr->AsOp()->GetOp(1);
-
-                // op1 should never be a field sequence (or any other kind of handle)
-                assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
-
-                if (op2->OperIs(GT_CNS_INT))
-                {
-                    icon = op2->AsIntCon();
-                }
-            }
-
-            if ((icon != nullptr) &&
-                !icon->IsIconHandle(GTF_ICON_STR_HDL) && // String handles are a source of TYP_REFs.
-                (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
-                (icon->GetFieldSeq()->m_next == nullptr) && // A static field should be a singleton
-                // TODO-Review: A pseudoField here indicates an issue - this requires investigation
-                // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
-                !icon->GetFieldSeq()->IsPseudoField())
-            {
-                staticStructFldSeq = icon->GetFieldSeq();
-            }
-            else
-            {
-                addr = addr->gtEffectiveVal();
-
-                // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
-                FieldSeqNode* zeroFieldSeq = nullptr;
-
-                if (addr->OperIs(GT_CALL, GT_LCL_VAR) && GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq) &&
-                    (zeroFieldSeq->m_next == nullptr))
-                {
-                    staticStructFldSeq = zeroFieldSeq;
-                }
-            }
-        }
-        else if (GenTreeClsVar* clsVar = addr->IsClsVar())
-        {
-            staticStructFldSeq = clsVar->GetFieldSeq();
-        }
-        else if (addr->OperIsLocal())
-        {
-            // If we have a GT_LCL_VAR, it can be result of a CSE substitution
-            // If it is then the CSE assignment will have a ValueNum that
-            // describes the RHS of the CSE assignment.
-            //
-            // The CSE could be a pointer to a boxed struct
-
-            ValueNum vn = addr->gtVNPair.GetLiberal();
-            if (vn != ValueNumStore::NoVN)
-            {
-                // Is the ValueNum a MapSelect involving a SharedStatic helper?
-                VNFuncApp funcApp1;
-                if (vnStore->GetVNFunc(vn, &funcApp1) && (funcApp1.m_func == VNF_MapSelect) &&
-                    (vnStore->IsSharedStatic(funcApp1.m_args[1])))
-                {
-                    ValueNum mapVN = funcApp1.m_args[0];
-                    // Is this new 'mapVN' ValueNum, a MapSelect involving a handle?
-                    VNFuncApp funcApp2;
-                    if (vnStore->GetVNFunc(mapVN, &funcApp2) && (funcApp2.m_func == VNF_MapSelect) &&
-                        (vnStore->IsVNHandle(funcApp2.m_args[1])))
-                    {
-                        ValueNum fldHndVN = funcApp2.m_args[1];
-                        // Is this new 'fldHndVN' VNhandle a FieldHandle?
-                        if (vnStore->GetHandleFlags(fldHndVN) == GTF_ICON_FIELD_HDL)
-                        {
-                            CORINFO_FIELD_HANDLE fieldHnd =
-                                CORINFO_FIELD_HANDLE(vnStore->ConstantValue<ssize_t>(fldHndVN));
-
-                            // Record this field sequence in 'statStructFldSeq' as it is likely to be a Boxed Struct
-                            // field access.
-                            staticStructFldSeq = GetFieldSeqStore()->CreateSingleton(fieldHnd);
-                        }
-                    }
-                }
-            }
-        }
-
-        assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->m_next == nullptr));
-
-        if ((staticStructFldSeq != nullptr) && gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->m_fieldHnd))
-        {
-            *pFldSeq = GetFieldSeqStore()->Append(staticStructFldSeq, *pFldSeq);
-            *pObj    = nullptr;
-            *pStatic = addr;
-        }
-        else
-        {
-            *pObj    = addr;
-            *pStatic = nullptr;
-        }
-
-        return true;
-    }
-
-    FieldSeqNode* newFldSeq    = nullptr;
-    GenTree*      baseAddr     = nullptr;
+    FieldSeqNode* fieldSeq     = nullptr;
     bool          mustBeStatic = false;
 
     if (addr->OperIs(GT_ADD))
@@ -15936,50 +15823,156 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
             // If one operand is a field sequence/handle, the other operand must not also be a field sequence/handle.
             assert(!op2->OperIs(GT_CNS_INT) || !op2->IsIconHandle());
 
-            newFldSeq = op1->AsIntCon()->GetFieldSeq();
-            baseAddr  = op2;
+            fieldSeq = op1->AsIntCon()->GetFieldSeq();
+            addr     = op2;
         }
         else if (op2->OperIs(GT_CNS_INT))
         {
             assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
 
-            newFldSeq = op2->AsIntCon()->GetFieldSeq();
-            baseAddr  = op1;
+            fieldSeq = op2->AsIntCon()->GetFieldSeq();
+            addr     = op1;
         }
     }
-    else if (GetZeroOffsetFieldMap()->Lookup(addr, &newFldSeq))
+    else if (GetZeroOffsetFieldMap()->Lookup(addr, &fieldSeq))
     {
-        baseAddr     = addr;
+        // Reference type objects can't have a field at offset 0 (that's where the method table
+        // pointer is) so this can only be a static field. If it isn't then it means that it's
+        // a field of a struct value accessed via an (un)managed pointer and we don't recognize
+        // those here.
+
         mustBeStatic = true;
     }
 
-    if ((newFldSeq == nullptr) || (newFldSeq == FieldSeqStore::NotAField()))
+    if ((fieldSeq == nullptr) || (fieldSeq == FieldSeqStore::NotAField()))
     {
         // If we can't find a field sequence then it's not a field addres.
         return false;
     }
 
-    // Prepend this field to whatever we've already accumulated (outside-in).
-    *pFldSeq = GetFieldSeqStore()->Append(newFldSeq, *pFldSeq);
-
-    // Is it a static or instance field?
-    if (!newFldSeq->IsPseudoField() && info.compCompHnd->isFieldStatic(newFldSeq->m_fieldHnd))
+    if (!fieldSeq->IsPseudoField() && info.compCompHnd->isFieldStatic(fieldSeq->m_fieldHnd))
     {
-        // It is a static field.  We're done.
         *pObj    = nullptr;
-        *pStatic = baseAddr;
+        *pStatic = addr;
+        *pFldSeq = fieldSeq;
 
         return true;
     }
 
-    if (mustBeStatic)
+    if (mustBeStatic || !addr->TypeIs(TYP_REF))
     {
         return false;
     }
 
-    // It's an instance field...but it must be for a struct field, since we've not yet encountered
-    // a "TYP_REF" address.  Analyze the reset of the address.
-    return optIsFieldAddr(baseAddr->gtEffectiveVal(), pObj, pStatic, pFldSeq);
+    addr = addr->gtEffectiveVal();
+
+    // Recognize struct static field patterns...
+
+    FieldSeqNode* staticStructFldSeq = nullptr;
+
+    if (GenTreeIndir* indir = addr->IsIndir())
+    {
+        GenTree*       addr = indir->GetAddr();
+        GenTreeIntCon* icon = nullptr;
+
+        if (addr->OperIs(GT_CNS_INT))
+        {
+            icon = addr->AsIntCon();
+        }
+        else if (addr->OperIs(GT_ADD))
+        {
+            GenTree* op1 = addr->AsOp()->GetOp(0);
+            GenTree* op2 = addr->AsOp()->GetOp(1);
+
+            // op1 should never be a field sequence (or any other kind of handle)
+            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+
+            if (op2->OperIs(GT_CNS_INT))
+            {
+                icon = op2->AsIntCon();
+            }
+        }
+
+        if ((icon != nullptr) && !icon->IsIconHandle(GTF_ICON_STR_HDL) && // String handles are a source of TYP_REFs.
+            (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
+            (icon->GetFieldSeq()->m_next == nullptr) && // A static field should be a singleton
+            // TODO-Review: A pseudoField here indicates an issue - this requires investigation
+            // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
+            !icon->GetFieldSeq()->IsPseudoField())
+        {
+            staticStructFldSeq = icon->GetFieldSeq();
+        }
+        else
+        {
+            addr = addr->gtEffectiveVal();
+
+            // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
+            FieldSeqNode* zeroFieldSeq = nullptr;
+
+            if (addr->OperIs(GT_CALL, GT_LCL_VAR) && GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq) &&
+                (zeroFieldSeq->m_next == nullptr))
+            {
+                staticStructFldSeq = zeroFieldSeq;
+            }
+        }
+    }
+    else if (GenTreeClsVar* clsVar = addr->IsClsVar())
+    {
+        staticStructFldSeq = clsVar->GetFieldSeq();
+    }
+    else if (addr->OperIsLocal())
+    {
+        // If we have a GT_LCL_VAR, it can be result of a CSE substitution
+        // If it is then the CSE assignment will have a ValueNum that
+        // describes the RHS of the CSE assignment.
+        //
+        // The CSE could be a pointer to a boxed struct
+
+        ValueNum vn = addr->gtVNPair.GetLiberal();
+        if (vn != ValueNumStore::NoVN)
+        {
+            // Is the ValueNum a MapSelect involving a SharedStatic helper?
+            VNFuncApp funcApp1;
+            if (vnStore->GetVNFunc(vn, &funcApp1) && (funcApp1.m_func == VNF_MapSelect) &&
+                (vnStore->IsSharedStatic(funcApp1.m_args[1])))
+            {
+                ValueNum mapVN = funcApp1.m_args[0];
+                // Is this new 'mapVN' ValueNum, a MapSelect involving a handle?
+                VNFuncApp funcApp2;
+                if (vnStore->GetVNFunc(mapVN, &funcApp2) && (funcApp2.m_func == VNF_MapSelect) &&
+                    (vnStore->IsVNHandle(funcApp2.m_args[1])))
+                {
+                    ValueNum fldHndVN = funcApp2.m_args[1];
+                    // Is this new 'fldHndVN' VNhandle a FieldHandle?
+                    if (vnStore->GetHandleFlags(fldHndVN) == GTF_ICON_FIELD_HDL)
+                    {
+                        CORINFO_FIELD_HANDLE fieldHnd = CORINFO_FIELD_HANDLE(vnStore->ConstantValue<ssize_t>(fldHndVN));
+
+                        // Record this field sequence in 'statStructFldSeq' as it is likely to be a Boxed Struct
+                        // field access.
+                        staticStructFldSeq = GetFieldSeqStore()->CreateSingleton(fieldHnd);
+                    }
+                }
+            }
+        }
+    }
+
+    assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->m_next == nullptr));
+
+    if ((staticStructFldSeq != nullptr) && gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->m_fieldHnd))
+    {
+        *pObj    = nullptr;
+        *pStatic = addr;
+        *pFldSeq = GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
+    }
+    else
+    {
+        *pObj    = addr;
+        *pStatic = nullptr;
+        *pFldSeq = fieldSeq;
+    }
+
+    return true;
 }
 
 bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd)
