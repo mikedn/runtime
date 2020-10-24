@@ -5632,6 +5632,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
             }
 
             tlsRef = gtNewOperNode(GT_IND, TYP_I_IMPL, tlsRef);
+            tlsRef->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
             if (dllRef != nullptr)
             {
