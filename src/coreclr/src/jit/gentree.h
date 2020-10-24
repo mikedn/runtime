@@ -6908,24 +6908,55 @@ public:
 struct GenTreeClsVar : public GenTree
 {
     CORINFO_FIELD_HANDLE gtClsVarHnd;
-    FieldSeqNode*        gtFieldSeq;
 
+private:
+    FieldSeqNode* m_fieldSeq;
+
+public:
     GenTreeClsVar(var_types type, CORINFO_FIELD_HANDLE clsVarHnd, FieldSeqNode* fldSeq)
-        : GenTree(GT_CLS_VAR, type), gtClsVarHnd(clsVarHnd), gtFieldSeq(fldSeq)
+        : GenTree(GT_CLS_VAR, type), gtClsVarHnd(clsVarHnd), m_fieldSeq(fldSeq)
     {
         gtFlags |= GTF_GLOB_REF;
     }
 
     GenTreeClsVar(genTreeOps oper, var_types type, CORINFO_FIELD_HANDLE clsVarHnd, FieldSeqNode* fldSeq)
-        : GenTree(oper, type), gtClsVarHnd(clsVarHnd), gtFieldSeq(fldSeq)
+        : GenTree(oper, type), gtClsVarHnd(clsVarHnd), m_fieldSeq(fldSeq)
     {
         assert((oper == GT_CLS_VAR) || (oper == GT_CLS_VAR_ADDR));
         gtFlags |= GTF_GLOB_REF;
     }
 
+    GenTreeClsVar(const GenTreeClsVar* copyFrom)
+        : GenTree(copyFrom->GetOper(), copyFrom->GetType())
+        , gtClsVarHnd(copyFrom->gtClsVarHnd)
+        , m_fieldSeq(copyFrom->m_fieldSeq)
+    {
+    }
+
+    CORINFO_FIELD_HANDLE GetFieldHandle() const
+    {
+        return gtClsVarHnd;
+    }
+
     FieldSeqNode* GetFieldSeq() const
     {
-        return gtFieldSeq;
+        assert(m_fieldSeq->m_fieldHnd == gtClsVarHnd);
+        return m_fieldSeq;
+    }
+
+    void SetFieldHandle(CORINFO_FIELD_HANDLE fieldHandle, FieldSeqNode* fieldSeq)
+    {
+        // TODO-MIKE-Consider: The field sequence is pretty much pointless since it should
+        // always be a singleton for the field handle we already have. Storing it in the
+        // node only avoids a hashtable lookup in those not so many places that care about
+        // field sequences.
+
+        assert(fieldHandle != nullptr);
+        assert(fieldSeq->m_fieldHnd == fieldHandle);
+        assert(fieldSeq->m_next == nullptr);
+
+        gtClsVarHnd = fieldHandle;
+        m_fieldSeq  = fieldSeq;
     }
 
 #if DEBUGGABLE_GENTREE

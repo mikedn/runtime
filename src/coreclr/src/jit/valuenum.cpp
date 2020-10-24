@@ -7099,11 +7099,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     // If the static field handle is for a struct type field, then the value of the static
                     // is a "ref" to the boxed struct -- treat it as the address of the static (we assume that a
                     // first element offset will be added to get to the actual struct...)
-                    GenTreeClsVar* clsVar = tree->AsClsVar();
-                    FieldSeqNode*  fldSeq = clsVar->gtFieldSeq;
-                    assert(fldSeq != nullptr); // We need to have one.
-                    ValueNum selectedStaticVar = ValueNumStore::NoVN;
-                    if (gtIsStaticFieldPtrToBoxedStruct(clsVar->TypeGet(), fldSeq->m_fieldHnd))
+                    FieldSeqNode* fldSeq = tree->AsClsVar()->GetFieldSeq();
+                    if (gtIsStaticFieldPtrToBoxedStruct(tree->GetType(), fldSeq->m_fieldHnd))
                     {
                         clsVarVNPair.SetBoth(
                             vnStore->VNForFunc(TYP_BYREF, VNF_PtrToStatic, vnStore->VNForFieldSeq(fldSeq)));
@@ -7115,9 +7112,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                         FieldSeqNode* fldSeqForStaticVar =
                             GetFieldSeqStore()->CreateSingleton(tree->AsClsVar()->gtClsVarHnd);
-                        size_t structSize = 0;
-                        selectedStaticVar = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
-                                                                      fldSeqForStaticVar, &structSize);
+                        size_t   structSize        = 0;
+                        ValueNum selectedStaticVar = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
+                                                                               fldSeqForStaticVar, &structSize);
                         selectedStaticVar =
                             vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, tree->TypeGet(), structSize);
 

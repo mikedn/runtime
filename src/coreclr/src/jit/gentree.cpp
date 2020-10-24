@@ -6638,8 +6638,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
             break;
 
         case GT_CLS_VAR:
-            copy = new (this, GT_CLS_VAR)
-                GenTreeClsVar(tree->gtType, tree->AsClsVar()->gtClsVarHnd, tree->AsClsVar()->gtFieldSeq);
+            copy = new (this, GT_CLS_VAR) GenTreeClsVar(tree->AsClsVar());
             break;
 
         default:
@@ -6655,12 +6654,12 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                 // copied from line 9850
 
                 objp = nullptr;
-                if (tree->AsField()->gtFldObj)
+                if (tree->AsField()->gtFldObj != nullptr)
                 {
                     objp = gtClone(tree->AsField()->gtFldObj, false);
-                    if (!objp)
+                    if (objp == nullptr)
                     {
-                        return objp;
+                        return nullptr;
                     }
                 }
 
@@ -6826,8 +6825,7 @@ GenTree* Compiler::gtCloneExpr(
                 goto DONE;
 
             case GT_CLS_VAR:
-                copy = new (this, GT_CLS_VAR)
-                    GenTreeClsVar(tree->TypeGet(), tree->AsClsVar()->gtClsVarHnd, tree->AsClsVar()->gtFieldSeq);
+                copy = new (this, GT_CLS_VAR) GenTreeClsVar(tree->AsClsVar());
                 goto DONE;
 
             case GT_RET_EXPR:
@@ -7109,7 +7107,7 @@ GenTree* Compiler::gtCloneExpr(
 
             copy = gtNewFieldRef(tree->TypeGet(), tree->AsField()->gtFldHnd, nullptr, tree->AsField()->gtFldOffset);
 
-            copy->AsField()->gtFldObj = tree->AsField()->gtFldObj
+            copy->AsField()->gtFldObj = tree->AsField()->gtFldObj != nullptr
                                             ? gtCloneExpr(tree->AsField()->gtFldObj, addFlags, deepVarNum, deepVarVal)
                                             : nullptr;
             copy->AsField()->gtFldMayOverlap = tree->AsField()->gtFldMayOverlap;
@@ -10016,8 +10014,8 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
         break;
 
         case GT_CLS_VAR:
-            printf(" Hnd=%#x", dspPtr(tree->AsClsVar()->gtClsVarHnd));
-            gtDispFieldSeq(tree->AsClsVar()->gtFieldSeq);
+            printf(" Hnd=%#x", dspPtr(tree->AsClsVar()->GetFieldHandle()));
+            gtDispFieldSeq(tree->AsClsVar()->GetFieldSeq());
             break;
 
         case GT_CLS_VAR_ADDR:
@@ -15878,12 +15876,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
         }
         else if (GenTreeClsVar* clsVar = addr->IsClsVar())
         {
-            FieldSeqNode* fieldSeq = clsVar->GetFieldSeq();
-
-            if ((fieldSeq != nullptr) && (fieldSeq->m_next == nullptr))
-            {
-                staticStructFldSeq = fieldSeq;
-            }
+            staticStructFldSeq = clsVar->GetFieldSeq();
         }
         else if (addr->OperIsLocal())
         {

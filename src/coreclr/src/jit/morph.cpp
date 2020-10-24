@@ -5268,9 +5268,7 @@ unsigned Compiler::fgGetBigOffsetMorphingTemp(var_types type)
 
 GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 {
-    assert(tree->gtOper == GT_FIELD);
-
-    CORINFO_FIELD_HANDLE symHnd          = tree->AsField()->gtFldHnd;
+    CORINFO_FIELD_HANDLE fldHandle       = tree->AsField()->gtFldHnd;
     unsigned             fldOffset       = tree->AsField()->gtFldOffset;
     GenTree*             objRef          = tree->AsField()->gtFldObj;
     bool                 fieldMayOverlap = false;
@@ -5306,9 +5304,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     }
 #endif
 
-    /* Is this an instance data member? */
-
-    if (objRef)
+    if (objRef != nullptr)
     {
         GenTree* addr;
         objIsLocal = objRef->IsLocal();
@@ -5517,7 +5513,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
                 gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(tree->AsField()->GetR2RFieldLookupAddr()),
                                          GTF_ICON_CONST_PTR, true);
 #ifdef DEBUG
-            offsetNode->gtGetOp1()->AsIntCon()->gtTargetHandle = (size_t)symHnd;
+            offsetNode->gtGetOp1()->AsIntCon()->gtTargetHandle = reinterpret_cast<size_t>(fldHandle);
 #endif
             var_types addType = (objRefType == TYP_I_IMPL) ? TYP_I_IMPL : TYP_BYREF;
             addr              = gtNewOperNode(GT_ADD, addType, addr, offsetNode);
@@ -5525,10 +5521,8 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 #endif
         if (fldOffset != 0)
         {
-            // Generate the "addr" node.
-            /* Add the member offset to the object's address */
             FieldSeqNode* fieldSeq =
-                fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(symHnd);
+                fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(fldHandle);
             addr = gtNewOperNode(GT_ADD, (var_types)(objRefType == TYP_I_IMPL ? TYP_I_IMPL : TYP_BYREF), addr,
                                  gtNewIconHandleNode(fldOffset, GTF_ICON_FIELD_OFF, fieldSeq));
         }
@@ -5565,7 +5559,9 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     }
     else /* This is a static data member */
     {
-        if (tree->gtFlags & GTF_IND_TLS_REF)
+        FieldSeqNode* fldSeq = GetFieldSeqStore()->CreateSingleton(fldHandle);
+
+        if ((tree->gtFlags & GTF_IND_TLS_REF) != 0)
         {
             // TODO-MIKE-Cleanup: It looks like all this code should be ifdef-ed out on all targets but win-x86.
             // There's no way it would work on win-x64 because the TLS array's TEB offset isn't 0x2c like on x86.
@@ -5599,7 +5595,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
             // # Denotes the orginal node
             //
             void**   pIdAddr = nullptr;
-            unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(symHnd, (void**)&pIdAddr);
+            unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(fldHandle, (void**)&pIdAddr);
 
             //
             // If we can we access the TLS DLL index ID value directly
@@ -5648,13 +5644,8 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 
             if (fldOffset != 0)
             {
-                FieldSeqNode* fieldSeq =
-                    fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(symHnd);
-                GenTree* fldOffsetNode = new (this, GT_CNS_INT) GenTreeIntCon(TYP_INT, fldOffset, fieldSeq);
-
-                /* Add the TLS static field offset to the address */
-
-                tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, fldOffsetNode);
+                // Add the TLS static field offset
+                tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, gtNewIconNode(fldOffset, fldSeq));
             }
 
             // Final indirect to get to actual value of TLS static field
@@ -5674,7 +5665,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
             //      fldAddr will be the actual address of the static field
             //
             void** pFldAddr = nullptr;
-            void*  fldAddr  = info.compCompHnd->getFieldAddress(symHnd, (void**)&pFldAddr);
+            void*  fldAddr  = info.compCompHnd->getFieldAddress(fldHandle, (void**)&pFldAddr);
 
             // We should always be able to access this static field address directly
             //
@@ -5686,11 +5677,8 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
                 // The address is not directly addressible, so force it into a
                 // constant, so we handle it properly
 
-                GenTree* addr = gtNewIconHandleNode((size_t)fldAddr, GTF_ICON_STATIC_HDL);
-                addr->gtType  = TYP_I_IMPL;
-                FieldSeqNode* fieldSeq =
-                    fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(symHnd);
-                addr->AsIntCon()->gtFieldSeq = fieldSeq;
+                GenTree* addr = gtNewIconHandleNode((size_t)fldAddr, GTF_ICON_STATIC_HDL, fldSeq);
+
                 // Translate GTF_FLD_INITCLASS to GTF_ICON_INITCLASS
                 if ((tree->gtFlags & GTF_FLD_INITCLASS) != 0)
                 {
@@ -5710,11 +5698,9 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
                 noway_assert((tree->gtFlags & ~(GTF_FLD_VOLATILE | GTF_FLD_INITCLASS | GTF_COMMON_MASK)) == 0);
                 static_assert_no_msg(GTF_FLD_VOLATILE == GTF_CLS_VAR_VOLATILE);
                 static_assert_no_msg(GTF_FLD_INITCLASS == GTF_CLS_VAR_INITCLASS);
+
                 tree->SetOper(GT_CLS_VAR);
-                tree->AsClsVar()->gtClsVarHnd = symHnd;
-                FieldSeqNode* fieldSeq =
-                    fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(symHnd);
-                tree->AsClsVar()->gtFieldSeq = fieldSeq;
+                tree->AsClsVar()->SetFieldHandle(fldHandle, fldSeq);
             }
 
             return tree;
@@ -5742,7 +5728,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 
         // Since we don't make a constant zero to attach the field sequence to, associate it with the "addr" node.
         FieldSeqNode* fieldSeq =
-            fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(symHnd);
+            fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(fldHandle);
         fgAddFieldSeqForZeroOffset(addr, fieldSeq);
     }
 

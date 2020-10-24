@@ -12542,7 +12542,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Legacy TLS access is implemented as intrinsic on x86 only
 
                         /* Create the data member node */
-                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, NULL, fieldInfo.offset);
+                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, nullptr, fieldInfo.offset);
                         op1->gtFlags |= GTF_IND_TLS_REF; // fgMorphField will handle the transformation
 
                         if (isLoadAddress)
@@ -12837,7 +12837,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Legacy TLS access is implemented as intrinsic on x86 only
 
                         /* Create the data member node */
-                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, NULL, fieldInfo.offset);
+                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, nullptr, fieldInfo.offset);
                         op1->gtFlags |= GTF_IND_TLS_REF; // fgMorphField will handle the transformation
 
                         break;
