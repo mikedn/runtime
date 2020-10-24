@@ -7563,16 +7563,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         }
                         else if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
-                            // Get the first (instance or static) field from field seq.  GcHeap[field] will yield
-                            // the "field map".
-                            if (fldSeq->IsBoxedValueField())
-                            {
-                                fldSeq = fldSeq->m_next;
-                                assert(fldSeq != nullptr);
-                            }
-
                             // Get a field sequence for just the first field in the sequence
-                            //
                             FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq->m_fieldHnd);
 
                             // The final field in the sequence will need to match the 'indType'
@@ -7968,11 +7959,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 }
                 else if (optIsFieldAddr(addr, &obj, &staticOffset, &fldSeq2))
                 {
-                    // Get the first (instance or static) field from field seq.  GcHeap[field] will yield the "field
-                    // map".
-
                     // Get a field sequence for just the first field in the sequence
-                    //
                     FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq2->m_fieldHnd);
                     size_t        structSize     = 0;
                     ValueNum      fldMapVN =

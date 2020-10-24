@@ -15846,7 +15846,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
 
     if ((fieldSeq == nullptr) || (fieldSeq == FieldSeqStore::NotAField()))
     {
-        // If we can't find a field sequence then it's not a field addres.
+        // If we can't find a field sequence then it's not a field address.
         return false;
     }
 
@@ -15967,6 +15967,15 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
     }
     else
     {
+        if (fieldSeq->IsBoxedValueField())
+        {
+            // Ignore boxed value fields, the same (pseudo) field is used for all boxed types
+            // so a store to such a field may alias multiple actual fields. These can only be
+            // disambiguated when used together with a static field.
+
+            return false;
+        }
+
         assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
 
         *pObj    = addr;

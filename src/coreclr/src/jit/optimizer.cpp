@@ -7753,14 +7753,6 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
                         if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
-                            // Get the first (object) field from field seq.  GcHeap[field] will yield the "field map".
-                            assert(fldSeq != nullptr);
-                            if (fldSeq->IsBoxedValueField())
-                            {
-                                fldSeq = fldSeq->m_next;
-                                assert(fldSeq != nullptr);
-                            }
-
                             AddModifiedFieldAllContainingLoops(mostNestedLoop, fldSeq->m_fieldHnd);
                             // Conservatively assume byrefs may alias this object.
                             memoryHavoc |= memoryKindSet(ByrefExposed);
