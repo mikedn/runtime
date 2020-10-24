@@ -921,7 +921,6 @@ public:
 #define GTF_ICON_CIDMID_HDL         0xE0000000 // GT_CNS_INT -- constant is a class ID or a module ID
 #define GTF_ICON_BBC_PTR            0xF0000000 // GT_CNS_INT -- constant is a basic block count pointer
 
-#define GTF_ICON_FIELD_OFF          0x08000000 // GT_CNS_INT -- constant is a field offset
 #define GTF_ICON_SIMD_COUNT         0x04000000 // GT_CNS_INT -- constant is Vector<T>.Count
 
 #define GTF_ICON_INITCLASS          0x02000000 // GT_CNS_INT -- Constant is used to access a static that requires preceding

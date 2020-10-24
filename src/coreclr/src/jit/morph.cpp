@@ -5523,8 +5523,8 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
         {
             FieldSeqNode* fieldSeq =
                 fieldMayOverlap ? FieldSeqStore::NotAField() : GetFieldSeqStore()->CreateSingleton(fldHandle);
-            addr = gtNewOperNode(GT_ADD, (var_types)(objRefType == TYP_I_IMPL ? TYP_I_IMPL : TYP_BYREF), addr,
-                                 gtNewIconHandleNode(fldOffset, GTF_ICON_FIELD_OFF, fieldSeq));
+            addr = gtNewOperNode(GT_ADD, (objRefType == TYP_I_IMPL) ? TYP_I_IMPL : TYP_BYREF, addr,
+                                 gtNewIconNode(fldOffset, fieldSeq));
         }
 
         // Now let's set the "tree" as a GT_IND tree.

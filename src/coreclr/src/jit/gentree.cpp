@@ -9097,12 +9097,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                         --msgLength;
                         break;
                     }
-                    else if ((tree->gtFlags & GTF_ICON_FIELD_OFF) != 0)
-                    {
-                        printf("O");
-                        --msgLength;
-                        break;
-                    }
                     else
                     {
                         // Some other handle
@@ -9796,11 +9790,6 @@ void Compiler::gtDispConst(GenTree* tree)
                             printf(" UNKNOWN");
                             break;
                     }
-                }
-
-                if ((tree->gtFlags & GTF_ICON_FIELD_OFF) != 0)
-                {
-                    printf(" field offset");
                 }
 
 #ifdef FEATURE_SIMD

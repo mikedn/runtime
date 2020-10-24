@@ -8782,11 +8782,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
 
                         chars += printf("[ICON_BBC_PTR]");
                         break;
-
-                    case GTF_ICON_FIELD_OFF:
-
-                        chars += printf("[ICON_FIELD_OFF]");
-                        break;
                 }
             }
             break;
