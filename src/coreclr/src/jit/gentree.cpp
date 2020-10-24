@@ -15972,7 +15972,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
         return true;
     }
 
-    if ((baseAddr == nullptr) || mustBeStatic)
+    if (mustBeStatic)
     {
         return false;
     }
