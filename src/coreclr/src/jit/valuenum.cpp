@@ -7563,17 +7563,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         }
                         else if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
-#ifdef DEBUG
-                            if (obj != nullptr)
-                            {
-                                // Make sure that the class containing it is not a value class (as we are expecting
-                                // an instance field)
-                                CORINFO_CLASS_HANDLE fldCls = info.compCompHnd->getFieldClass(fldSeq->m_fieldHnd);
-                                assert((info.compCompHnd->getClassAttribs(fldCls) & CORINFO_FLG_VALUECLASS) == 0);
-                                assert(staticOffset == nullptr);
-                            }
-#endif // DEBUG
-
                             // Get the first (instance or static) field from field seq.  GcHeap[field] will yield
                             // the "field map".
                             if (fldSeq->IsBoxedValueField())
@@ -7981,18 +7970,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 {
                     // Get the first (instance or static) field from field seq.  GcHeap[field] will yield the "field
                     // map".
-                    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-                    if (obj != nullptr)
-                    {
-                        // Make sure that the class containing it is not a value class (as we are expecting an
-                        // instance field)
-                        CORINFO_CLASS_HANDLE fldCls = info.compCompHnd->getFieldClass(fldSeq2->m_fieldHnd);
-                        assert((info.compCompHnd->getClassAttribs(fldCls) & CORINFO_FLG_VALUECLASS) == 0);
-                        assert(staticOffset == nullptr);
-                    }
-#endif // DEBUG
 
                     // Get a field sequence for just the first field in the sequence
                     //

@@ -15967,6 +15967,8 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
     }
     else
     {
+        assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
+
         *pObj    = addr;
         *pStatic = nullptr;
         *pFldSeq = fieldSeq;
