@@ -3597,6 +3597,11 @@ public:
         }
     }
 
+    CORINFO_FIELD_HANDLE GetFieldHandle() const
+    {
+        return gtFldHnd;
+    }
+
     unsigned GetOffset() const
     {
         return gtFldOffset;
