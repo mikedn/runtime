@@ -3431,7 +3431,7 @@ public:
         : GenTreeLclVarCommon(oper, type, lclNum)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
-        , m_fieldSeq(nullptr)
+        , m_fieldSeq(FieldSeqStore::NotAField())
     {
         assert(lclOffs <= UINT16_MAX);
     }

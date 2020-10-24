@@ -5807,15 +5807,7 @@ GenTreeLclFld* Compiler::gtNewLclFldAddrNode(unsigned lclNum, unsigned lclOffs, 
 
 GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset)
 {
-    GenTreeLclFld* node = new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
-
-    /* Cannot have this assert because the inliner uses this function
-     * to add temporaries */
-
-    // assert(lnum < lvaCount);
-
-    node->SetFieldSeq(FieldSeqStore::NotAField());
-    return node;
+    return new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
 }
 
 GenTreeRetExpr* Compiler::gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type, uint64_t bbFlags)
