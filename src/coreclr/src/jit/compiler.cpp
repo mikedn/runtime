@@ -8577,6 +8577,10 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[FLD_VOLATILE]");
                 }
+                if (tree->gtFlags & GTF_FLD_TLS_REF)
+                {
+                    chars += printf("[FLD_TLS_REF]");
+                }
                 break;
 
             case GT_INDEX:
@@ -8601,10 +8605,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 if (tree->gtFlags & GTF_IND_TGT_NOT_HEAP)
                 {
                     chars += printf("[IND_TGT_NOT_HEAP]");
-                }
-                if (tree->gtFlags & GTF_IND_TLS_REF)
-                {
-                    chars += printf("[IND_TLS_REF]");
                 }
                 if (tree->gtFlags & GTF_IND_ASG_LHS)
                 {

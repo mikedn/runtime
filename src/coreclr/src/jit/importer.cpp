@@ -12543,7 +12543,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         /* Create the data member node */
                         op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, nullptr, fieldInfo.offset);
-                        op1->gtFlags |= GTF_IND_TLS_REF; // fgMorphField will handle the transformation
+                        op1->gtFlags |= GTF_FLD_TLS_REF; // fgMorphField will handle the transformation
 
                         if (isLoadAddress)
                         {
@@ -12838,7 +12838,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         /* Create the data member node */
                         op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, nullptr, fieldInfo.offset);
-                        op1->gtFlags |= GTF_IND_TLS_REF; // fgMorphField will handle the transformation
+                        op1->gtFlags |= GTF_FLD_TLS_REF; // fgMorphField will handle the transformation
 
                         break;
 #else

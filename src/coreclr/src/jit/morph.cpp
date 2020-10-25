@@ -5309,7 +5309,7 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
         GenTree* addr;
         objIsLocal = objRef->IsLocal();
 
-        if (tree->gtFlags & GTF_IND_TLS_REF)
+        if ((tree->gtFlags & GTF_FLD_TLS_REF) != 0)
         {
             NO_WAY("instance field can not be a TLS ref.");
         }
@@ -5559,8 +5559,10 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     }
     else /* This is a static data member */
     {
-        if ((tree->gtFlags & GTF_IND_TLS_REF) != 0)
+        if ((tree->gtFlags & GTF_FLD_TLS_REF) != 0)
         {
+            tree->gtFlags &= ~GTF_FLD_TLS_REF;
+
             // TODO-MIKE-Cleanup: It looks like all this code should be ifdef-ed out on all targets but win-x86.
             // There's no way it would work on win-x64 because the TLS array's TEB offset isn't 0x2c like on x86.
             // The name and description of GTF_ICON_TLS_HDL is also messed up, it has nothing to do with TLS,
@@ -5652,8 +5654,6 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 
             tree->SetOper(GT_IND);
             tree->AsIndir()->SetAddr(tlsRef);
-
-            noway_assert((tree->gtFlags & GTF_IND_TLS_REF) != 0);
 
             return fgMorphSmpOp(tree, mac);
         }

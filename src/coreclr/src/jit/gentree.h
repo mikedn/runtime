@@ -850,6 +850,7 @@ public:
 
 #define GTF_NOP_DEATH               0x40000000 // GT_NOP -- operand dies here
 
+#define GTF_FLD_TLS_REF             0x08000000 // GT_FIELD            -- the target is accessed via TLS
 #define GTF_FLD_VOLATILE            0x40000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
 #define GTF_FLD_INITCLASS           0x20000000 // GT_FIELD/GT_CLS_VAR -- field access requires preceding class/static init helper
 
@@ -860,7 +861,6 @@ public:
 #define GTF_IND_NONFAULTING         0x20000000 // Operations for which OperIsIndir() is true  -- An indir that cannot fault.
                                                // Same as GTF_ARRLEN_NONFAULTING.
 #define GTF_IND_TGT_HEAP            0x10000000 // GT_IND   -- the target is known to be on the heap
-#define GTF_IND_TLS_REF             0x08000000 // GT_IND   -- the target is accessed via TLS
 #define GTF_IND_ASG_LHS             0x04000000 // GT_IND   -- this GT_IND node is (the effective val) of the LHS of an
                                                //             assignment; don't evaluate it independently.
 #define GTF_IND_REQ_ADDR_IN_REG GTF_IND_ASG_LHS // GT_IND  -- requires its addr operand to be evaluated
@@ -875,7 +875,7 @@ public:
 #define GTF_IND_ARR_INDEX           0x00800000 // GT_IND   -- the indirection represents an (SZ) array index
 
 #define GTF_IND_FLAGS \
-    (GTF_IND_VOLATILE | GTF_IND_TGT_HEAP | GTF_IND_NONFAULTING | GTF_IND_TLS_REF |          \
+    (GTF_IND_VOLATILE | GTF_IND_TGT_HEAP | GTF_IND_NONFAULTING |           \
      GTF_IND_UNALIGNED | GTF_IND_INVARIANT | GTF_IND_ARR_INDEX | GTF_IND_TGT_NOT_HEAP)
 
 #define GTF_CLS_VAR_VOLATILE        0x40000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
