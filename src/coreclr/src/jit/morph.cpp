@@ -5309,10 +5309,12 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
         GenTree* addr;
         objIsLocal = objRef->IsLocal();
 
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
         if ((tree->gtFlags & GTF_FLD_TLS_REF) != 0)
         {
             NO_WAY("instance field can not be a TLS ref.");
         }
+#endif
 
         /* We'll create the expression "*(objRef + mem_offs)" */
 
@@ -5559,14 +5561,10 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     }
     else /* This is a static data member */
     {
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
         if ((tree->gtFlags & GTF_FLD_TLS_REF) != 0)
         {
             tree->gtFlags &= ~GTF_FLD_TLS_REF;
-
-            // TODO-MIKE-Cleanup: It looks like all this code should be ifdef-ed out on all targets but win-x86.
-            // There's no way it would work on win-x64 because the TLS array's TEB offset isn't 0x2c like on x86.
-            // The name and description of GTF_ICON_TLS_HDL is also messed up, it has nothing to do with TLS,
-            // it just indicates that the constant is an offset in the TEB.
 
             // Thread Local Storage static field reference
             //
@@ -5657,59 +5655,57 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 
             return fgMorphSmpOp(tree, mac);
         }
-        else
-        {
-            // Normal static field reference
+#endif // TARGET_X86 && TARGET_WINDOWS
 
-            //
-            // If we can we access the static's address directly
-            // then pFldAddr will be NULL and
-            //      fldAddr will be the actual address of the static field
-            //
-            void** pFldAddr = nullptr;
-            void*  fldAddr  = info.compCompHnd->getFieldAddress(fldHandle, (void**)&pFldAddr);
+        // Normal static field reference
 
-            // We should always be able to access this static field address directly
-            //
-            assert(pFldAddr == nullptr);
+        //
+        // If we can we access the static's address directly
+        // then pFldAddr will be NULL and
+        //      fldAddr will be the actual address of the static field
+        //
+        void** pFldAddr = nullptr;
+        void*  fldAddr  = info.compCompHnd->getFieldAddress(fldHandle, (void**)&pFldAddr);
 
-            FieldSeqNode* fldSeq = GetFieldSeqStore()->CreateSingleton(fldHandle);
+        // We should always be able to access this static field address directly
+        //
+        assert(pFldAddr == nullptr);
+
+        FieldSeqNode* fldSeq = GetFieldSeqStore()->CreateSingleton(fldHandle);
 
 #ifdef TARGET_64BIT
-            if (IMAGE_REL_BASED_REL32 != eeGetRelocTypeHint(fldAddr))
+        if (IMAGE_REL_BASED_REL32 != eeGetRelocTypeHint(fldAddr))
+        {
+            // The address is not directly addressible, so force it into a
+            // constant, so we handle it properly
+
+            GenTree* addr = gtNewIconHandleNode((size_t)fldAddr, GTF_ICON_STATIC_HDL, fldSeq);
+
+            // Translate GTF_FLD_INITCLASS to GTF_ICON_INITCLASS
+            if ((tree->gtFlags & GTF_FLD_INITCLASS) != 0)
             {
-                // The address is not directly addressible, so force it into a
-                // constant, so we handle it properly
-
-                GenTree* addr = gtNewIconHandleNode((size_t)fldAddr, GTF_ICON_STATIC_HDL, fldSeq);
-
-                // Translate GTF_FLD_INITCLASS to GTF_ICON_INITCLASS
-                if ((tree->gtFlags & GTF_FLD_INITCLASS) != 0)
-                {
-                    tree->gtFlags &= ~GTF_FLD_INITCLASS;
-                    addr->gtFlags |= GTF_ICON_INITCLASS;
-                }
-
-                tree->SetOper(GT_IND);
-                tree->AsOp()->gtOp1 = addr;
-
-                return fgMorphSmpOp(tree);
-            }
-            else
-#endif // TARGET_64BIT
-            {
-                // Only volatile or classinit could be set, and they map over
-                noway_assert((tree->gtFlags & ~(GTF_FLD_VOLATILE | GTF_FLD_INITCLASS | GTF_COMMON_MASK)) == 0);
-                static_assert_no_msg(GTF_FLD_VOLATILE == GTF_CLS_VAR_VOLATILE);
-                static_assert_no_msg(GTF_FLD_INITCLASS == GTF_CLS_VAR_INITCLASS);
-
-                tree->SetOper(GT_CLS_VAR);
-                tree->AsClsVar()->SetFieldHandle(fldHandle, fldSeq);
+                tree->gtFlags &= ~GTF_FLD_INITCLASS;
+                addr->gtFlags |= GTF_ICON_INITCLASS;
             }
 
-            return tree;
+            tree->SetOper(GT_IND);
+            tree->AsOp()->gtOp1 = addr;
+
+            return fgMorphSmpOp(tree);
         }
+#endif // TARGET_64BIT
+
+        // Only volatile or classinit could be set, and they map over
+        noway_assert((tree->gtFlags & ~(GTF_FLD_VOLATILE | GTF_FLD_INITCLASS | GTF_COMMON_MASK)) == 0);
+        static_assert_no_msg(GTF_FLD_VOLATILE == GTF_CLS_VAR_VOLATILE);
+        static_assert_no_msg(GTF_FLD_INITCLASS == GTF_CLS_VAR_INITCLASS);
+
+        tree->SetOper(GT_CLS_VAR);
+        tree->AsClsVar()->SetFieldHandle(fldHandle, fldSeq);
+
+        return tree;
     }
+
     noway_assert(tree->gtOper == GT_IND);
 
     if (fldOffset == 0)

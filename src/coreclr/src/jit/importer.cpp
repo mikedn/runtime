@@ -12538,7 +12538,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     break;
 
                     case CORINFO_FIELD_STATIC_TLS:
-#ifdef TARGET_X86
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
 
                         /* Create the data member node */
@@ -12833,7 +12833,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     break;
 
                     case CORINFO_FIELD_STATIC_TLS:
-#ifdef TARGET_X86
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
 
                         /* Create the data member node */
