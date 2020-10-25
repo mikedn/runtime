@@ -4955,6 +4955,7 @@ public:
 
 private:
     GenTree* fgMorphField(GenTree* tree, MorphAddrContext* mac);
+    GenTree* fgMorphStaticField(GenTreeField* field, MorphAddrContext* mac);
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
 #if FEATURE_FASTTAILCALL
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
