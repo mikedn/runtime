@@ -17105,44 +17105,15 @@ void Compiler::optParseArrayAddressWork(GenTree*        addr,
         GenTree*       nonConstOp = nullptr;
         GenTreeIntCon* constOp    = nullptr;
 
-        if (op1->OperIs(GT_CNS_INT))
-        {
-            if (op2->OperIs(GT_CNS_INT))
-            {
-                // If the other arg is an int constant, and is a "not-a-field", choose
-                // that as the multiplier, thus preserving constant index offsets...
-
-                GenTreeIntCon* fieldSeqOp;
-
-                if (op2->AsIntCon()->GetFieldSeq() == FieldSeqStore::NotAField())
-                {
-                    fieldSeqOp = op1->AsIntCon();
-                }
-                else
-                {
-                    fieldSeqOp = op2->AsIntCon();
-                }
-
-                *pFldSeq = GetFieldSeqStore()->Append(*pFldSeq, fieldSeqOp->GetFieldSeq());
-
-                assert(!op1->AsIntCon()->ImmedValNeedsReloc(this));
-                assert(!op2->AsIntCon()->ImmedValNeedsReloc(this));
-
-                // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntConCommon::gtIconVal had
-                // target_ssize_t type.
-                *pOffset += static_cast<target_ssize_t>(op1->AsIntCon()->GetValue()) *
-                            static_cast<target_ssize_t>(op2->AsIntCon()->GetValue());
-
-                return;
-            }
-
-            constOp    = op1->AsIntCon();
-            nonConstOp = op2;
-        }
-        else if (op2->OperIs(GT_CNS_INT))
+        if (op2->OperIs(GT_CNS_INT))
         {
             nonConstOp = op1;
             constOp    = op2->AsIntCon();
+        }
+        else if (op1->OperIs(GT_CNS_INT))
+        {
+            constOp    = op1->AsIntCon();
+            nonConstOp = op2;
         }
 
         if (nonConstOp != nullptr)
