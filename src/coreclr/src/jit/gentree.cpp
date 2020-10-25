@@ -5807,15 +5807,7 @@ GenTreeLclFld* Compiler::gtNewLclFldAddrNode(unsigned lclNum, unsigned lclOffs, 
 
 GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset)
 {
-    GenTreeLclFld* node = new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
-
-    /* Cannot have this assert because the inliner uses this function
-     * to add temporaries */
-
-    // assert(lnum < lvaCount);
-
-    node->SetFieldSeq(FieldSeqStore::NotAField());
-    return node;
+    return new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
 }
 
 GenTreeRetExpr* Compiler::gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type, uint64_t bbFlags)
@@ -6646,8 +6638,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
             break;
 
         case GT_CLS_VAR:
-            copy = new (this, GT_CLS_VAR)
-                GenTreeClsVar(tree->gtType, tree->AsClsVar()->gtClsVarHnd, tree->AsClsVar()->gtFieldSeq);
+            copy = new (this, GT_CLS_VAR) GenTreeClsVar(tree->AsClsVar());
             break;
 
         default:
@@ -6663,12 +6654,12 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                 // copied from line 9850
 
                 objp = nullptr;
-                if (tree->AsField()->gtFldObj)
+                if (tree->AsField()->gtFldObj != nullptr)
                 {
                     objp = gtClone(tree->AsField()->gtFldObj, false);
-                    if (!objp)
+                    if (objp == nullptr)
                     {
-                        return objp;
+                        return nullptr;
                     }
                 }
 
@@ -6810,10 +6801,6 @@ GenTree* Compiler::gtCloneExpr(
                 if (tree->AsLclVar()->GetLclNum() == varNum)
                 {
                     copy = gtNewIconNode(varVal, tree->gtType);
-                    if (tree->gtFlags & GTF_VAR_ARR_INDEX)
-                    {
-                        copy->LabelIndex(this);
-                    }
                 }
                 else
                 {
@@ -6838,8 +6825,7 @@ GenTree* Compiler::gtCloneExpr(
                 goto DONE;
 
             case GT_CLS_VAR:
-                copy = new (this, GT_CLS_VAR)
-                    GenTreeClsVar(tree->TypeGet(), tree->AsClsVar()->gtClsVarHnd, tree->AsClsVar()->gtFieldSeq);
+                copy = new (this, GT_CLS_VAR) GenTreeClsVar(tree->AsClsVar());
                 goto DONE;
 
             case GT_RET_EXPR:
@@ -7121,7 +7107,7 @@ GenTree* Compiler::gtCloneExpr(
 
             copy = gtNewFieldRef(tree->TypeGet(), tree->AsField()->gtFldHnd, nullptr, tree->AsField()->gtFldOffset);
 
-            copy->AsField()->gtFldObj = tree->AsField()->gtFldObj
+            copy->AsField()->gtFldObj = tree->AsField()->gtFldObj != nullptr
                                             ? gtCloneExpr(tree->AsField()->gtFldObj, addFlags, deepVarNum, deepVarVal)
                                             : nullptr;
             copy->AsField()->gtFldMayOverlap = tree->AsField()->gtFldMayOverlap;
@@ -9060,12 +9046,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     --msgLength;
                     break;
                 }
-                if (tree->gtFlags & GTF_VAR_ARR_INDEX)
-                {
-                    printf("i");
-                    --msgLength;
-                    break;
-                }
                 if (tree->gtFlags & GTF_VAR_CONTEXT)
                 {
                     printf("!");
@@ -9114,12 +9094,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     if ((tree->gtFlags & GTF_ICON_INITCLASS) != 0)
                     {
                         printf("I"); // Static Field handle with INITCLASS requirement
-                        --msgLength;
-                        break;
-                    }
-                    else if ((tree->gtFlags & GTF_ICON_FIELD_OFF) != 0)
-                    {
-                        printf("O");
                         --msgLength;
                         break;
                     }
@@ -9818,11 +9792,6 @@ void Compiler::gtDispConst(GenTree* tree)
                     }
                 }
 
-                if ((tree->gtFlags & GTF_ICON_FIELD_OFF) != 0)
-                {
-                    printf(" field offset");
-                }
-
 #ifdef FEATURE_SIMD
                 if ((tree->gtFlags & GTF_ICON_SIMD_COUNT) != 0)
                 {
@@ -9876,13 +9845,9 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
         {
             printf("N/A");
         }
-        else if (fieldSeq->m_fieldHnd == FieldSeqStore::FirstElemPseudoField)
+        else if (fieldSeq->IsBoxedValueField())
         {
-            printf("#FirstElem");
-        }
-        else if (fieldSeq->m_fieldHnd == FieldSeqStore::ConstantIndexPseudoField)
-        {
-            printf("#ConstantIndex");
+            printf("#BoxedValue");
         }
         else
         {
@@ -10038,8 +10003,8 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
         break;
 
         case GT_CLS_VAR:
-            printf(" Hnd=%#x", dspPtr(tree->AsClsVar()->gtClsVarHnd));
-            gtDispFieldSeq(tree->AsClsVar()->gtFieldSeq);
+            printf(" Hnd=%#x", dspPtr(tree->AsClsVar()->GetFieldHandle()));
+            gtDispFieldSeq(tree->AsClsVar()->GetFieldSeq());
             break;
 
         case GT_CLS_VAR_ADDR:
@@ -10577,14 +10542,7 @@ void Compiler::gtDispTree(GenTree*     tree,
 
         case GT_FIELD:
             printf("[+%u]", tree->AsField()->GetOffset());
-            if (FieldSeqStore::IsPseudoField(tree->AsField()->gtFldHnd))
-            {
-                printf(" #PseudoField:0x%x", tree->AsField()->gtFldOffset);
-            }
-            else
-            {
-                printf(" %s", eeGetFieldName(tree->AsField()->gtFldHnd), 0);
-            }
+            printf(" %s", eeGetFieldName(tree->AsField()->GetFieldHandle()), 0);
 
             gtDispCommonEndLine(tree);
 
@@ -12762,15 +12720,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                 i1 = (int)op1->AsIntCon()->gtIconVal;
 
-                // If we fold a unary oper, then the folded constant
-                // is considered a ConstantIndexField if op1 was one
-                //
-
-                if ((op1->AsIntCon()->gtFieldSeq != nullptr) && op1->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq())
-                {
-                    fieldSeq = op1->AsIntCon()->gtFieldSeq;
-                }
-
                 switch (tree->gtOper)
                 {
                     case GT_NOT:
@@ -13426,21 +13375,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 goto INT_OVF;
                             }
                         }
-                    }
-                    // For the very particular case of the "constant array index" pseudo-field, we
-                    // assume that multiplication is by the field width, and preserves that field.
-                    // This could obviously be made more robust by a more complicated set of annotations...
-                    if ((op1->AsIntCon()->gtFieldSeq != nullptr) &&
-                        op1->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq())
-                    {
-                        assert(op2->AsIntCon()->gtFieldSeq == FieldSeqStore::NotAField());
-                        fieldSeq = op1->AsIntCon()->gtFieldSeq;
-                    }
-                    else if ((op2->AsIntCon()->gtFieldSeq != nullptr) &&
-                             op2->AsIntCon()->gtFieldSeq->IsConstantIndexFieldSeq())
-                    {
-                        assert(op1->AsIntCon()->gtFieldSeq == FieldSeqStore::NotAField());
-                        fieldSeq = op2->AsIntCon()->gtFieldSeq;
                     }
                     i1 = itemp;
                     break;
@@ -15874,185 +15808,182 @@ void GenTreeLclFld::SetLayout(ClassLayout* layout, Compiler* compiler)
     SetLayoutNum(layout == nullptr ? 0 : compiler->typGetLayoutNum(layout));
 }
 
-bool GenTree::IsFieldAddr(Compiler* comp, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq)
+bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq)
 {
-    FieldSeqNode* newFldSeq    = nullptr;
-    GenTree*      baseAddr     = nullptr;
+    FieldSeqNode* fieldSeq     = nullptr;
     bool          mustBeStatic = false;
 
-    FieldSeqNode* statStructFldSeq = nullptr;
-    if (TypeGet() == TYP_REF)
+    if (addr->OperIs(GT_ADD))
     {
-        // Recognize struct static field patterns...
-        if (OperGet() == GT_IND)
-        {
-            GenTree*       addr = AsOp()->gtOp1;
-            GenTreeIntCon* icon = nullptr;
-            if (addr->OperGet() == GT_CNS_INT)
-            {
-                icon = addr->AsIntCon();
-            }
-            else if (addr->OperGet() == GT_ADD)
-            {
-                // op1 should never be a field sequence (or any other kind of handle)
-                assert((addr->AsOp()->gtOp1->gtOper != GT_CNS_INT) || !addr->AsOp()->gtOp1->IsIconHandle());
-                if (addr->AsOp()->gtOp2->OperGet() == GT_CNS_INT)
-                {
-                    icon = addr->AsOp()->gtOp2->AsIntCon();
-                }
-            }
-            if (icon != nullptr && !icon->IsIconHandle(GTF_ICON_STR_HDL) // String handles are a source of TYP_REFs.
-                && icon->gtFieldSeq != nullptr &&
-                icon->gtFieldSeq->m_next == nullptr // A static field should be a singleton
-                // TODO-Review: A pseudoField here indicates an issue - this requires investigation
-                // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
-                && !(FieldSeqStore::IsPseudoField(icon->gtFieldSeq->m_fieldHnd)) &&
-                icon->gtFieldSeq != FieldSeqStore::NotAField()) // Ignore non-fields.
-            {
-                statStructFldSeq = icon->gtFieldSeq;
-            }
-            else
-            {
-                addr = addr->gtEffectiveVal();
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
 
-                // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
-                if ((addr->OperGet() == GT_CALL) || (addr->OperGet() == GT_LCL_VAR))
-                {
-                    FieldSeqNode* zeroFieldSeq = nullptr;
-                    if (comp->GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq))
-                    {
-                        if (zeroFieldSeq->m_next == nullptr)
-                        {
-                            statStructFldSeq = zeroFieldSeq;
-                        }
-                    }
-                }
-            }
-        }
-        else if (OperGet() == GT_CLS_VAR)
+        if (op1->OperIs(GT_CNS_INT) && op1->IsIconHandle())
         {
-            GenTreeClsVar* clsVar = AsClsVar();
-            if (clsVar->gtFieldSeq != nullptr && clsVar->gtFieldSeq->m_next == nullptr)
-            {
-                statStructFldSeq = clsVar->gtFieldSeq;
-            }
+            // If one operand is a field sequence/handle, the other operand must not also be a field sequence/handle.
+            assert(!op2->OperIs(GT_CNS_INT) || !op2->IsIconHandle());
+
+            fieldSeq = op1->AsIntCon()->GetFieldSeq();
+            addr     = op2;
         }
-        else if (OperIsLocal())
+        else if (op2->OperIs(GT_CNS_INT))
         {
-            // If we have a GT_LCL_VAR, it can be result of a CSE substitution
-            // If it is then the CSE assignment will have a ValueNum that
-            // describes the RHS of the CSE assignment.
-            //
-            // The CSE could be a pointer to a boxed struct
-            //
-            GenTreeLclVarCommon* lclVar = AsLclVarCommon();
-            ValueNum             vn     = gtVNPair.GetLiberal();
-            if (vn != ValueNumStore::NoVN)
-            {
-                // Is the ValueNum a MapSelect involving a SharedStatic helper?
-                VNFuncApp funcApp1;
-                if (comp->vnStore->GetVNFunc(vn, &funcApp1) && (funcApp1.m_func == VNF_MapSelect) &&
-                    (comp->vnStore->IsSharedStatic(funcApp1.m_args[1])))
-                {
-                    ValueNum mapVN = funcApp1.m_args[0];
-                    // Is this new 'mapVN' ValueNum, a MapSelect involving a handle?
-                    VNFuncApp funcApp2;
-                    if (comp->vnStore->GetVNFunc(mapVN, &funcApp2) && (funcApp2.m_func == VNF_MapSelect) &&
-                        (comp->vnStore->IsVNHandle(funcApp2.m_args[1])))
-                    {
-                        ValueNum fldHndVN = funcApp2.m_args[1];
-                        // Is this new 'fldHndVN' VNhandle a FieldHandle?
-                        unsigned flags = comp->vnStore->GetHandleFlags(fldHndVN);
-                        if (flags == GTF_ICON_FIELD_HDL)
-                        {
-                            CORINFO_FIELD_HANDLE fieldHnd =
-                                CORINFO_FIELD_HANDLE(comp->vnStore->ConstantValue<ssize_t>(fldHndVN));
+            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
 
-                            // Record this field sequence in 'statStructFldSeq' as it is likely to be a Boxed Struct
-                            // field access.
-                            statStructFldSeq = comp->GetFieldSeqStore()->CreateSingleton(fieldHnd);
-                        }
-                    }
-                }
-            }
+            fieldSeq = op2->AsIntCon()->GetFieldSeq();
+            addr     = op1;
         }
+    }
+    else if (GetZeroOffsetFieldMap()->Lookup(addr, &fieldSeq))
+    {
+        // Reference type objects can't have a field at offset 0 (that's where the method table
+        // pointer is) so this can only be a static field. If it isn't then it means that it's
+        // a field of a struct value accessed via an (un)managed pointer and we don't recognize
+        // those here.
 
-        if (statStructFldSeq != nullptr)
-        {
-            assert(statStructFldSeq->m_next == nullptr);
-            // Is this a pointer to a boxed struct?
-            if (comp->gtIsStaticFieldPtrToBoxedStruct(TYP_REF, statStructFldSeq->m_fieldHnd))
-            {
-                *pFldSeq = comp->GetFieldSeqStore()->Append(statStructFldSeq, *pFldSeq);
-                *pObj    = nullptr;
-                *pStatic = this;
-                return true;
-            }
-        }
+        mustBeStatic = true;
+    }
 
-        // Otherwise...
-        *pObj    = this;
-        *pStatic = nullptr;
+    if ((fieldSeq == nullptr) || (fieldSeq == FieldSeqStore::NotAField()))
+    {
+        // If we can't find a field sequence then it's not a field address.
+        return false;
+    }
+
+    if (!fieldSeq->IsPseudoField() && info.compCompHnd->isFieldStatic(fieldSeq->m_fieldHnd))
+    {
+        *pObj    = nullptr;
+        *pStatic = addr;
+        *pFldSeq = fieldSeq;
+
         return true;
     }
-    else if (OperGet() == GT_ADD)
-    {
-        // If one operator is a field sequence/handle, the other operator must not also be a field sequence/handle.
-        if ((AsOp()->gtOp1->OperGet() == GT_CNS_INT) && AsOp()->gtOp1->IsIconHandle())
-        {
-            assert((AsOp()->gtOp2->gtOper != GT_CNS_INT) || !AsOp()->gtOp2->IsIconHandle());
-            newFldSeq = AsOp()->gtOp1->AsIntCon()->gtFieldSeq;
-            baseAddr  = AsOp()->gtOp2;
-        }
-        else if (AsOp()->gtOp2->OperGet() == GT_CNS_INT)
-        {
-            assert((AsOp()->gtOp1->gtOper != GT_CNS_INT) || !AsOp()->gtOp1->IsIconHandle());
-            newFldSeq = AsOp()->gtOp2->AsIntCon()->gtFieldSeq;
-            baseAddr  = AsOp()->gtOp1;
-        }
-    }
-    else
-    {
-        // Check if "this" has a zero-offset annotation.
-        if (!comp->GetZeroOffsetFieldMap()->Lookup(this, &newFldSeq))
-        {
-            // If not, this is not a field address.
-            return false;
-        }
-        else
-        {
-            baseAddr     = this;
-            mustBeStatic = true;
-        }
-    }
 
-    // If not we don't have a field seq, it's not a field address.
-    if (newFldSeq == nullptr || newFldSeq == FieldSeqStore::NotAField())
+    if (mustBeStatic || !addr->TypeIs(TYP_REF))
     {
         return false;
     }
 
-    // Prepend this field to whatever we've already accumulated (outside-in).
-    *pFldSeq = comp->GetFieldSeqStore()->Append(newFldSeq, *pFldSeq);
+    addr = addr->gtEffectiveVal();
 
-    // Is it a static or instance field?
-    if (!FieldSeqStore::IsPseudoField(newFldSeq->m_fieldHnd) &&
-        comp->info.compCompHnd->isFieldStatic(newFldSeq->m_fieldHnd))
+    // Recognize struct static field patterns...
+
+    FieldSeqNode* staticStructFldSeq = nullptr;
+
+    if (GenTreeIndir* indir = addr->IsIndir())
     {
-        // It is a static field.  We're done.
+        GenTree*       addr = indir->GetAddr();
+        GenTreeIntCon* icon = nullptr;
+
+        if (addr->OperIs(GT_CNS_INT))
+        {
+            icon = addr->AsIntCon();
+        }
+        else if (addr->OperIs(GT_ADD))
+        {
+            GenTree* op1 = addr->AsOp()->GetOp(0);
+            GenTree* op2 = addr->AsOp()->GetOp(1);
+
+            // op1 should never be a field sequence (or any other kind of handle)
+            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+
+            if (op2->OperIs(GT_CNS_INT))
+            {
+                icon = op2->AsIntCon();
+            }
+        }
+
+        if ((icon != nullptr) && !icon->IsIconHandle(GTF_ICON_STR_HDL) && // String handles are a source of TYP_REFs.
+            (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
+            (icon->GetFieldSeq()->m_next == nullptr) && // A static field should be a singleton
+            // TODO-Review: A pseudoField here indicates an issue - this requires investigation
+            // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
+            !icon->GetFieldSeq()->IsPseudoField())
+        {
+            staticStructFldSeq = icon->GetFieldSeq();
+        }
+        else
+        {
+            addr = addr->gtEffectiveVal();
+
+            // Perhaps it's a direct indirection of a helper call or a cse with a zero offset annotation.
+            FieldSeqNode* zeroFieldSeq = nullptr;
+
+            if (addr->OperIs(GT_CALL, GT_LCL_VAR) && GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq) &&
+                (zeroFieldSeq->m_next == nullptr))
+            {
+                staticStructFldSeq = zeroFieldSeq;
+            }
+        }
+    }
+    else if (GenTreeClsVar* clsVar = addr->IsClsVar())
+    {
+        staticStructFldSeq = clsVar->GetFieldSeq();
+    }
+    else if (addr->OperIsLocal())
+    {
+        // If we have a GT_LCL_VAR, it can be result of a CSE substitution
+        // If it is then the CSE assignment will have a ValueNum that
+        // describes the RHS of the CSE assignment.
+        //
+        // The CSE could be a pointer to a boxed struct
+
+        ValueNum vn = addr->gtVNPair.GetLiberal();
+        if (vn != ValueNumStore::NoVN)
+        {
+            // Is the ValueNum a MapSelect involving a SharedStatic helper?
+            VNFuncApp funcApp1;
+            if (vnStore->GetVNFunc(vn, &funcApp1) && (funcApp1.m_func == VNF_MapSelect) &&
+                (vnStore->IsSharedStatic(funcApp1.m_args[1])))
+            {
+                ValueNum mapVN = funcApp1.m_args[0];
+                // Is this new 'mapVN' ValueNum, a MapSelect involving a handle?
+                VNFuncApp funcApp2;
+                if (vnStore->GetVNFunc(mapVN, &funcApp2) && (funcApp2.m_func == VNF_MapSelect) &&
+                    (vnStore->IsVNHandle(funcApp2.m_args[1])))
+                {
+                    ValueNum fldHndVN = funcApp2.m_args[1];
+                    // Is this new 'fldHndVN' VNhandle a FieldHandle?
+                    if (vnStore->GetHandleFlags(fldHndVN) == GTF_ICON_FIELD_HDL)
+                    {
+                        CORINFO_FIELD_HANDLE fieldHnd = CORINFO_FIELD_HANDLE(vnStore->ConstantValue<ssize_t>(fldHndVN));
+
+                        // Record this field sequence in 'statStructFldSeq' as it is likely to be a Boxed Struct
+                        // field access.
+                        staticStructFldSeq = GetFieldSeqStore()->CreateSingleton(fieldHnd);
+                    }
+                }
+            }
+        }
+    }
+
+    assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->m_next == nullptr));
+
+    if ((staticStructFldSeq != nullptr) && gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->m_fieldHnd))
+    {
         *pObj    = nullptr;
-        *pStatic = baseAddr;
-        return true;
+        *pStatic = addr;
+        *pFldSeq = GetFieldSeqStore()->Append(staticStructFldSeq, fieldSeq);
     }
-    else if ((baseAddr != nullptr) && !mustBeStatic)
+    else
     {
-        // It's an instance field...but it must be for a struct field, since we've not yet encountered
-        // a "TYP_REF" address.  Analyze the reset of the address.
-        return baseAddr->gtEffectiveVal()->IsFieldAddr(comp, pObj, pStatic, pFldSeq);
+        if (fieldSeq->IsBoxedValueField())
+        {
+            // Ignore boxed value fields, the same (pseudo) field is used for all boxed types
+            // so a store to such a field may alias multiple actual fields. These can only be
+            // disambiguated when used together with a static field.
+
+            return false;
+        }
+
+        assert(!info.compCompHnd->isValueClass(info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle())));
+
+        *pObj    = addr;
+        *pStatic = nullptr;
+        *pFldSeq = fieldSeq;
     }
 
-    // Otherwise...
-    return false;
+    return true;
 }
 
 bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_FIELD_HANDLE fldHnd)
@@ -16410,7 +16341,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                             {
                                 fieldSeq = fieldSeq->m_next;
                             }
-                            if (fieldSeq != FieldSeqStore::NotAField() && !fieldSeq->IsPseudoField())
+                            if ((fieldSeq != FieldSeqStore::NotAField()) && !fieldSeq->IsPseudoField())
                             {
                                 CORINFO_FIELD_HANDLE fieldHnd = fieldSeq->m_fieldHnd;
                                 CorInfoType fieldCorType      = info.compCompHnd->getFieldType(fieldHnd, &structHnd);
@@ -16997,336 +16928,304 @@ bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
     return false;
 }
 
-void GenTree::ParseArrayAddress(
-    Compiler* comp, ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq)
+bool Compiler::optParseArrayAddress(
+    GenTree* addr, const ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq)
 {
-    *pArr                 = nullptr;
+    assert(*pArr == nullptr);
+    assert(*pInxVN == ValueNumStore::NoVN);
+    assert(*pFldSeq == nullptr);
+
+    if (!FitsIn<target_ssize_t>(arrayInfo->m_elemSize))
+    {
+        // This seems unlikely, but no harm in being safe...
+        return false;
+    }
+
     ValueNum       inxVN  = ValueNumStore::NoVN;
     target_ssize_t offset = 0;
     FieldSeqNode*  fldSeq = nullptr;
 
-    ParseArrayAddressWork(comp, 1, pArr, &inxVN, &offset, &fldSeq);
+    optParseArrayAddressWork(addr, 1, pArr, &inxVN, &offset, &fldSeq);
 
     // If we didn't find an array reference (perhaps it is the constant null?) we will give up.
     if (*pArr == nullptr)
     {
-        return;
+        return false;
     }
 
     // OK, new we have to figure out if any part of the "offset" is a constant contribution to the index.
-    // First, sum the offsets of any fields in fldSeq.
-    unsigned      fieldOffsets = 0;
-    FieldSeqNode* fldSeqIter   = fldSeq;
     // Also, find the first non-pseudo field...
-    assert(*pFldSeq == nullptr);
-    while (fldSeqIter != nullptr)
+    while (fldSeq != nullptr)
     {
-        if (fldSeqIter == FieldSeqStore::NotAField())
+        if ((fldSeq != FieldSeqStore::NotAField()) && !fldSeq->IsPseudoField())
         {
-            // TODO-Review: A NotAField here indicates a failure to properly maintain the field sequence
-            // See test case self_host_tests_x86\jit\regression\CLR-x86-JIT\v1-m12-beta2\ b70992\ b70992.exe
-            // Safest thing to do here is to drop back to MinOpts
-            CLANG_FORMAT_COMMENT_ANCHOR;
+            // Due to the way INDEX is expanded in IR we don't expected to encounter any struct
+            // fields in the field sequence. Access to a struct field of an array element is
+            // imported as FIELD(ADDR(INDEX(a, i)) and INDEX gets expanded to IND(element_addr)
+            // so we end up with ADDR(IND(element_addr)). Normally this would become element_addr
+            // but the IND has GTF_IND_ARR_INDEX set on it, which blocks this kind of transform
+            // and thus prevents the field offset from becoming a part of the element address
+            // expression.
+            //
+            // This means that ParseArrayAddress will always return a null field sequence so the
+            // pFldSeq parameter is useless. But let's keep it for now as it would be better to
+            // be able to sink the field offset into the element address expression (not clear
+            // how, in addition to GTF_IND_ARR_INDEX there's also the range check COMMA...).
 
-#ifdef DEBUG
-            if (comp->opts.optRepeat)
-            {
-                // We don't guarantee preserving these annotations through the entire optimizer, so
-                // just conservatively return null if under optRepeat.
-                *pArr = nullptr;
-                return;
-            }
-#endif // DEBUG
-            noway_assert(!"fldSeqIter is NotAField() in ParseArrayAddress");
+            assert(!"Unexpected struct field encountered in array address expression");
+
+            return false;
         }
 
-        if (!FieldSeqStore::IsPseudoField(fldSeqIter->m_fieldHnd))
-        {
-            if (*pFldSeq == nullptr)
-            {
-                *pFldSeq = fldSeqIter;
-            }
-            CORINFO_CLASS_HANDLE fldCls = nullptr;
-            noway_assert(fldSeqIter->m_fieldHnd != nullptr);
-            CorInfoType cit = comp->info.compCompHnd->getFieldType(fldSeqIter->m_fieldHnd, &fldCls);
-            fieldOffsets += comp->compGetTypeSize(cit, fldCls);
-        }
-        fldSeqIter = fldSeqIter->m_next;
+        fldSeq = fldSeq->m_next;
     }
 
-    // Is there some portion of the "offset" beyond the first-elem offset and the struct field suffix we just computed?
-    if (!FitsIn<target_ssize_t>(fieldOffsets + arrayInfo->m_elemOffset) ||
-        !FitsIn<target_ssize_t>(arrayInfo->m_elemSize))
-    {
-        // This seems unlikely, but no harm in being safe...
-        *pInxVN = comp->GetValueNumStore()->VNForExpr(nullptr, TYP_INT);
-        return;
-    }
     // Otherwise...
-    target_ssize_t offsetAccountedFor = static_cast<target_ssize_t>(fieldOffsets + arrayInfo->m_elemOffset);
+    target_ssize_t firstElementOffset = static_cast<target_ssize_t>(arrayInfo->m_elemOffset);
     target_ssize_t elemSize           = static_cast<target_ssize_t>(arrayInfo->m_elemSize);
 
-    target_ssize_t constIndOffset = offset - offsetAccountedFor;
+    target_ssize_t constIndOffset = offset - firstElementOffset;
     // This should be divisible by the element size...
     assert((constIndOffset % elemSize) == 0);
     target_ssize_t constInd = constIndOffset / elemSize;
 
-    ValueNumStore* vnStore = comp->GetValueNumStore();
+    ValueNumStore* vnStore = GetValueNumStore();
 
     if (inxVN == ValueNumStore::NoVN)
     {
         // Must be a constant index.
         *pInxVN = vnStore->VNForPtrSizeIntCon(constInd);
+
+        return true;
+    }
+
+    // The value associated with the index value number (inxVN) is the offset into the array,
+    // which has been scaled by element size. We need to recover the array index from that offset
+    if (vnStore->IsVNConstant(inxVN))
+    {
+        target_ssize_t index = vnStore->CoercedConstantValue<target_ssize_t>(inxVN);
+        noway_assert(elemSize > 0 && ((index % elemSize) == 0));
+        *pInxVN = vnStore->VNForPtrSizeIntCon((index / elemSize) + constInd);
+
+        return true;
+    }
+
+    bool canFoldDiv = false;
+
+    // If the index VN is a MUL by elemSize, see if we can eliminate it instead of adding
+    // the division by elemSize.
+    VNFuncApp funcApp;
+    if (vnStore->GetVNFunc(inxVN, &funcApp) && (funcApp.m_func == VNFunc(GT_MUL)))
+    {
+        ValueNum vnForElemSize = vnStore->VNForLongCon(elemSize);
+
+        // One of the multiply operand is elemSize, so the resulting
+        // index VN should simply be the other operand.
+        if (funcApp.m_args[1] == vnForElemSize)
+        {
+            *pInxVN    = funcApp.m_args[0];
+            canFoldDiv = true;
+        }
+        else if (funcApp.m_args[0] == vnForElemSize)
+        {
+            *pInxVN    = funcApp.m_args[1];
+            canFoldDiv = true;
+        }
+    }
+
+    // Perform ((inxVN / elemSizeVN) + vnForConstInd)
+    if (!canFoldDiv)
+    {
+        ValueNum vnForElemSize  = vnStore->VNForPtrSizeIntCon(elemSize);
+        ValueNum vnForScaledInx = vnStore->VNForFunc(TYP_I_IMPL, VNFunc(GT_DIV), inxVN, vnForElemSize);
+
+        *pInxVN = vnForScaledInx;
+    }
+
+    if (constInd != 0)
+    {
+        ValueNum vnForConstInd = GetValueNumStore()->VNForPtrSizeIntCon(constInd);
+
+        *pInxVN = GetValueNumStore()->VNForFunc(TYP_I_IMPL, VNFunc(GT_ADD), *pInxVN, vnForConstInd);
+    }
+
+    return true;
+}
+
+void Compiler::optParseArrayAddressWork(GenTree*        addr,
+                                        target_ssize_t  scale,
+                                        GenTree**       pArr,
+                                        ValueNum*       pInxVN,
+                                        target_ssize_t* pOffset,
+                                        FieldSeqNode**  pFldSeq)
+{
+    if (addr->OperIs(GT_ADD, GT_SUB))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        optParseArrayAddressWork(op1, scale, pArr, pInxVN, pOffset, pFldSeq);
+        if (addr->OperIs(GT_SUB))
+        {
+            scale = -scale;
+        }
+        optParseArrayAddressWork(op2, scale, pArr, pInxVN, pOffset, pFldSeq);
+
+        return;
+    }
+
+    if (addr->TypeIs(TYP_REF))
+    {
+        // This must be the array reference.
+
+        assert(scale == 1); // Can't scale the array reference by anything.
+        *pArr = addr;
+
+        return;
+    }
+
+    if (GenTreeIntCon* icon = addr->IsIntCon())
+    {
+        assert(!icon->ImmedValNeedsReloc(this));
+
+        *pFldSeq = GetFieldSeqStore()->Append(*pFldSeq, icon->GetFieldSeq());
+
+        // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t
+        // type.
+        *pOffset += scale * static_cast<target_ssize_t>(icon->GetValue());
+
+        return;
+    }
+
+    if (addr->OperIs(GT_MUL))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        GenTree*       nonConstOp = nullptr;
+        GenTreeIntCon* constOp    = nullptr;
+
+        if (op2->OperIs(GT_CNS_INT))
+        {
+            nonConstOp = op1;
+            constOp    = op2->AsIntCon();
+        }
+        else if (op1->OperIs(GT_CNS_INT))
+        {
+            constOp    = op1->AsIntCon();
+            nonConstOp = op2;
+        }
+
+        if (nonConstOp != nullptr)
+        {
+            assert(!constOp->AsIntCon()->ImmedValNeedsReloc(this));
+
+            // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntConCommon::gtIconVal had
+            // target_ssize_t type.
+            scale *= static_cast<target_ssize_t>(constOp->AsIntCon()->GetValue());
+
+            optParseArrayAddressWork(nonConstOp, scale, pArr, pInxVN, pOffset, pFldSeq);
+
+            return;
+        }
+
+        // Otherwise treat as a contribution to the index.
+    }
+    else if (addr->OperIs(GT_LSH))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        if (op2->OperIs(GT_CNS_INT))
+        {
+            assert(!op2->AsIntCon()->ImmedValNeedsReloc(this));
+
+            // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t
+            // type.
+            scale *= target_ssize_t{1} << static_cast<target_ssize_t>(op2->AsIntCon()->GetValue());
+
+            optParseArrayAddressWork(op1, scale, pArr, pInxVN, pOffset, pFldSeq);
+
+            return;
+        }
+
+        // Otherwise, treat as a contribution to the index.
+    }
+    else if (addr->OperIs(GT_COMMA))
+    {
+        GenTree* op1 = addr->AsOp()->GetOp(0);
+        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+        // We don't care about exceptions for this purpose.
+        if (op1->OperIs(GT_ARR_BOUNDS_CHECK) || op1->IsNothingNode())
+        {
+            optParseArrayAddressWork(op2, scale, pArr, pInxVN, pOffset, pFldSeq);
+
+            return;
+        }
+
+        // Otherwise, treat as a contribution to the index.
+    }
+
+    // If we didn't return above, must be a contribution to the non-constant part of the index VN.
+    ValueNum vn = GetValueNumStore()->VNLiberalNormalValue(addr->gtVNPair);
+
+    if (scale != 1)
+    {
+        ValueNum mulVN = GetValueNumStore()->VNForLongCon(scale);
+        vn             = GetValueNumStore()->VNForFunc(addr->GetType(), VNFunc(GT_MUL), mulVN, vn);
+    }
+
+    if (*pInxVN == ValueNumStore::NoVN)
+    {
+        *pInxVN = vn;
     }
     else
     {
-        //
-        // Perform ((inxVN / elemSizeVN) + vnForConstInd)
-        //
-
-        // The value associated with the index value number (inxVN) is the offset into the array,
-        // which has been scaled by element size. We need to recover the array index from that offset
-        if (vnStore->IsVNConstant(inxVN))
-        {
-            target_ssize_t index = vnStore->CoercedConstantValue<target_ssize_t>(inxVN);
-            noway_assert(elemSize > 0 && ((index % elemSize) == 0));
-            *pInxVN = vnStore->VNForPtrSizeIntCon((index / elemSize) + constInd);
-        }
-        else
-        {
-            bool canFoldDiv = false;
-
-            // If the index VN is a MUL by elemSize, see if we can eliminate it instead of adding
-            // the division by elemSize.
-            VNFuncApp funcApp;
-            if (vnStore->GetVNFunc(inxVN, &funcApp) && funcApp.m_func == (VNFunc)GT_MUL)
-            {
-                ValueNum vnForElemSize = vnStore->VNForLongCon(elemSize);
-
-                // One of the multiply operand is elemSize, so the resulting
-                // index VN should simply be the other operand.
-                if (funcApp.m_args[1] == vnForElemSize)
-                {
-                    *pInxVN    = funcApp.m_args[0];
-                    canFoldDiv = true;
-                }
-                else if (funcApp.m_args[0] == vnForElemSize)
-                {
-                    *pInxVN    = funcApp.m_args[1];
-                    canFoldDiv = true;
-                }
-            }
-
-            // Perform ((inxVN / elemSizeVN) + vnForConstInd)
-            if (!canFoldDiv)
-            {
-                ValueNum vnForElemSize  = vnStore->VNForPtrSizeIntCon(elemSize);
-                ValueNum vnForScaledInx = vnStore->VNForFunc(TYP_I_IMPL, VNFunc(GT_DIV), inxVN, vnForElemSize);
-                *pInxVN                 = vnForScaledInx;
-            }
-
-            if (constInd != 0)
-            {
-                ValueNum vnForConstInd = comp->GetValueNumStore()->VNForPtrSizeIntCon(constInd);
-                VNFunc   vnFunc        = VNFunc(GT_ADD);
-
-                *pInxVN = comp->GetValueNumStore()->VNForFunc(TYP_I_IMPL, vnFunc, *pInxVN, vnForConstInd);
-            }
-        }
+        *pInxVN = GetValueNumStore()->VNForFunc(addr->GetType(), VNFunc(GT_ADD), *pInxVN, vn);
     }
 }
 
-void GenTree::ParseArrayAddressWork(Compiler*       comp,
-                                    target_ssize_t  inputMul,
-                                    GenTree**       pArr,
-                                    ValueNum*       pInxVN,
-                                    target_ssize_t* pOffset,
-                                    FieldSeqNode**  pFldSeq)
+bool Compiler::optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo)
 {
-    if (TypeGet() == TYP_REF)
+    assert(indir->OperIs(GT_IND));
+
+    if ((indir->gtFlags & GTF_IND_ARR_INDEX) != 0)
     {
-        // This must be the array pointer.
-        *pArr = this;
-        assert(inputMul == 1); // Can't multiply the array pointer by anything.
+        bool b = GetArrayInfoMap()->Lookup(indir, arrayInfo);
+        assert(b);
+        return true;
     }
-    else
-    {
-        switch (OperGet())
-        {
-            case GT_CNS_INT:
-                *pFldSeq = comp->GetFieldSeqStore()->Append(*pFldSeq, AsIntCon()->gtFieldSeq);
-                assert(!AsIntCon()->ImmedValNeedsReloc(comp));
-                // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t
-                // type.
-                *pOffset += (inputMul * (target_ssize_t)(AsIntCon()->gtIconVal));
-                return;
 
-            case GT_ADD:
-            case GT_SUB:
-                AsOp()->gtOp1->ParseArrayAddressWork(comp, inputMul, pArr, pInxVN, pOffset, pFldSeq);
-                if (OperGet() == GT_SUB)
-                {
-                    inputMul = -inputMul;
-                }
-                AsOp()->gtOp2->ParseArrayAddressWork(comp, inputMul, pArr, pInxVN, pOffset, pFldSeq);
-                return;
-
-            case GT_MUL:
-            {
-                // If one op is a constant, continue parsing down.
-                target_ssize_t subMul   = 0;
-                GenTree*       nonConst = nullptr;
-                if (AsOp()->gtOp1->IsCnsIntOrI())
-                {
-                    // If the other arg is an int constant, and is a "not-a-field", choose
-                    // that as the multiplier, thus preserving constant index offsets...
-                    if (AsOp()->gtOp2->OperGet() == GT_CNS_INT &&
-                        AsOp()->gtOp2->AsIntCon()->gtFieldSeq == FieldSeqStore::NotAField())
-                    {
-                        assert(!AsOp()->gtOp2->AsIntCon()->ImmedValNeedsReloc(comp));
-                        // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntConCommon::gtIconVal had
-                        // target_ssize_t type.
-                        subMul   = (target_ssize_t)AsOp()->gtOp2->AsIntConCommon()->IconValue();
-                        nonConst = AsOp()->gtOp1;
-                    }
-                    else
-                    {
-                        assert(!AsOp()->gtOp1->AsIntCon()->ImmedValNeedsReloc(comp));
-                        // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntConCommon::gtIconVal had
-                        // target_ssize_t type.
-                        subMul   = (target_ssize_t)AsOp()->gtOp1->AsIntConCommon()->IconValue();
-                        nonConst = AsOp()->gtOp2;
-                    }
-                }
-                else if (AsOp()->gtOp2->IsCnsIntOrI())
-                {
-                    assert(!AsOp()->gtOp2->AsIntCon()->ImmedValNeedsReloc(comp));
-                    // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntConCommon::gtIconVal had
-                    // target_ssize_t type.
-                    subMul   = (target_ssize_t)AsOp()->gtOp2->AsIntConCommon()->IconValue();
-                    nonConst = AsOp()->gtOp1;
-                }
-                if (nonConst != nullptr)
-                {
-                    nonConst->ParseArrayAddressWork(comp, inputMul * subMul, pArr, pInxVN, pOffset, pFldSeq);
-                    return;
-                }
-                // Otherwise, exit the switch, treat as a contribution to the index.
-            }
-            break;
-
-            case GT_LSH:
-                // If one op is a constant, continue parsing down.
-                if (AsOp()->gtOp2->IsCnsIntOrI())
-                {
-                    assert(!AsOp()->gtOp2->AsIntCon()->ImmedValNeedsReloc(comp));
-                    // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t
-                    // type.
-                    target_ssize_t shiftVal = (target_ssize_t)AsOp()->gtOp2->AsIntConCommon()->IconValue();
-                    target_ssize_t subMul   = target_ssize_t{1} << shiftVal;
-                    AsOp()->gtOp1->ParseArrayAddressWork(comp, inputMul * subMul, pArr, pInxVN, pOffset, pFldSeq);
-                    return;
-                }
-                // Otherwise, exit the switch, treat as a contribution to the index.
-                break;
-
-            case GT_COMMA:
-                // We don't care about exceptions for this purpose.
-                if ((AsOp()->gtOp1->OperGet() == GT_ARR_BOUNDS_CHECK) || AsOp()->gtOp1->IsNothingNode())
-                {
-                    AsOp()->gtOp2->ParseArrayAddressWork(comp, inputMul, pArr, pInxVN, pOffset, pFldSeq);
-                    return;
-                }
-                break;
-
-            default:
-                break;
-        }
-        // If we didn't return above, must be a contribution to the non-constant part of the index VN.
-        ValueNum vn = comp->GetValueNumStore()->VNLiberalNormalValue(gtVNPair);
-        if (inputMul != 1)
-        {
-            ValueNum mulVN = comp->GetValueNumStore()->VNForLongCon(inputMul);
-            vn             = comp->GetValueNumStore()->VNForFunc(TypeGet(), VNFunc(GT_MUL), mulVN, vn);
-        }
-        if (*pInxVN == ValueNumStore::NoVN)
-        {
-            *pInxVN = vn;
-        }
-        else
-        {
-            *pInxVN = comp->GetValueNumStore()->VNForFunc(TypeGet(), VNFunc(GT_ADD), *pInxVN, vn);
-        }
-    }
+    return optIsArrayElemAddr(indir->GetAddr(), arrayInfo);
 }
 
-bool GenTree::ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo, FieldSeqNode** pFldSeq)
+bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
 {
-    if (OperIsIndir())
-    {
-        if (gtFlags & GTF_IND_ARR_INDEX)
-        {
-            bool b = comp->GetArrayInfoMap()->Lookup(this, arrayInfo);
-            assert(b);
-            return true;
-        }
-
-        // Otherwise...
-        GenTree* addr = AsIndir()->Addr();
-        return addr->ParseArrayElemAddrForm(comp, arrayInfo, pFldSeq);
-    }
-    else
-    {
-        return false;
-    }
-}
-
-bool GenTree::ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo, FieldSeqNode** pFldSeq)
-{
-    switch (OperGet())
+    switch (addr->GetOper())
     {
         case GT_ADD:
         {
-            GenTree* arrAddr = nullptr;
-            GenTree* offset  = nullptr;
-            if (AsOp()->gtOp1->TypeGet() == TYP_BYREF)
+            GenTree* arrAddr = addr->AsOp()->GetOp(0);
+            GenTree* offset  = addr->AsOp()->GetOp(1);
+
+            if (!arrAddr->TypeIs(TYP_BYREF))
             {
-                arrAddr = AsOp()->gtOp1;
-                offset  = AsOp()->gtOp2;
+                if (!offset->TypeIs(TYP_BYREF))
+                {
+                    return false;
+                }
+
+                std::swap(arrAddr, offset);
             }
-            else if (AsOp()->gtOp2->TypeGet() == TYP_BYREF)
-            {
-                arrAddr = AsOp()->gtOp2;
-                offset  = AsOp()->gtOp1;
-            }
-            else
-            {
-                return false;
-            }
-            if (!offset->ParseOffsetForm(comp, pFldSeq))
-            {
-                return false;
-            }
-            return arrAddr->ParseArrayElemAddrForm(comp, arrayInfo, pFldSeq);
+
+            return optIsOffset(offset) && optIsArrayElemAddr(arrAddr, arrayInfo);
         }
 
         case GT_ADDR:
         {
-            GenTree* addrArg = AsOp()->gtOp1;
-            if (addrArg->OperGet() != GT_IND)
-            {
-                return false;
-            }
-            else
-            {
-                // The "Addr" node might be annotated with a zero-offset field sequence.
-                FieldSeqNode* zeroOffsetFldSeq = nullptr;
-                if (comp->GetZeroOffsetFieldMap()->Lookup(this, &zeroOffsetFldSeq))
-                {
-                    *pFldSeq = comp->GetFieldSeqStore()->Append(*pFldSeq, zeroOffsetFldSeq);
-                }
-                return addrArg->ParseArrayElemForm(comp, arrayInfo, pFldSeq);
-            }
+            GenTree* location = addr->AsUnOp()->GetOp(0);
+            return location->OperIs(GT_IND) && optIsArrayElem(location->AsIndir(), arrayInfo);
         }
 
         default:
@@ -17334,79 +17233,18 @@ bool GenTree::ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo, Field
     }
 }
 
-bool GenTree::ParseOffsetForm(Compiler* comp, FieldSeqNode** pFldSeq)
+bool Compiler::optIsOffset(GenTree* tree) const
 {
-    switch (OperGet())
+    switch (tree->GetOper())
     {
         case GT_CNS_INT:
-        {
-            GenTreeIntCon* icon = AsIntCon();
-            *pFldSeq            = comp->GetFieldSeqStore()->Append(*pFldSeq, icon->gtFieldSeq);
             return true;
-        }
 
         case GT_ADD:
-            if (!AsOp()->gtOp1->ParseOffsetForm(comp, pFldSeq))
-            {
-                return false;
-            }
-            return AsOp()->gtOp2->ParseOffsetForm(comp, pFldSeq);
+            return optIsOffset(tree->AsOp()->GetOp(0)) && optIsOffset(tree->AsOp()->GetOp(1));
 
         default:
             return false;
-    }
-}
-
-void GenTree::LabelIndex(Compiler* comp, bool isConst)
-{
-    switch (OperGet())
-    {
-        case GT_CNS_INT:
-            // If we got here, this is a contribution to the constant part of the index.
-            if (isConst)
-            {
-                AsIntCon()->gtFieldSeq =
-                    comp->GetFieldSeqStore()->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField);
-            }
-            return;
-
-        case GT_LCL_VAR:
-            gtFlags |= GTF_VAR_ARR_INDEX;
-            return;
-
-        case GT_ADD:
-        case GT_SUB:
-            AsOp()->gtOp1->LabelIndex(comp, isConst);
-            AsOp()->gtOp2->LabelIndex(comp, isConst);
-            break;
-
-        case GT_CAST:
-            AsOp()->gtOp1->LabelIndex(comp, isConst);
-            break;
-
-        case GT_ARR_LENGTH:
-            gtFlags |= GTF_ARRLEN_ARR_IDX;
-            return;
-
-        default:
-            // For all other operators, peel off one constant; and then label the other if it's also a constant.
-            if (OperIsArithmetic() || OperIsCompare())
-            {
-                if (AsOp()->gtOp2->OperGet() == GT_CNS_INT)
-                {
-                    AsOp()->gtOp1->LabelIndex(comp, isConst);
-                    break;
-                }
-                else if (AsOp()->gtOp1->OperGet() == GT_CNS_INT)
-                {
-                    AsOp()->gtOp2->LabelIndex(comp, isConst);
-                    break;
-                }
-                // Otherwise continue downward on both, labeling vars.
-                AsOp()->gtOp1->LabelIndex(comp, false);
-                AsOp()->gtOp2->LabelIndex(comp, false);
-            }
-            break;
     }
 }
 
@@ -17416,7 +17254,10 @@ void GenTree::LabelIndex(Compiler* comp, bool isConst)
 FieldSeqNode FieldSeqStore::s_notAField(nullptr, nullptr);
 
 // FieldSeqStore methods.
-FieldSeqStore::FieldSeqStore(CompAllocator alloc) : m_alloc(alloc), m_canonMap(new (alloc) FieldSeqNodeCanonMap(alloc))
+FieldSeqStore::FieldSeqStore(Compiler* compiler)
+    : m_compiler(compiler)
+    , m_alloc(compiler->getAllocator(CMK_FieldSeqStore))
+    , m_canonMap(new (m_alloc) FieldSeqNodeCanonMap(m_alloc))
 {
 }
 
@@ -17424,17 +17265,14 @@ FieldSeqNode* FieldSeqStore::CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd)
 {
     FieldSeqNode  fsn(fieldHnd, nullptr);
     FieldSeqNode* res = nullptr;
-    if (m_canonMap->Lookup(fsn, &res))
+
+    if (!m_canonMap->Lookup(fsn, &res))
     {
-        return res;
-    }
-    else
-    {
-        res  = m_alloc.allocate<FieldSeqNode>(1);
-        *res = fsn;
+        res = new (m_alloc) FieldSeqNode(fsn);
         m_canonMap->Set(fsn, res);
-        return res;
     }
+
+    return res;
 }
 
 FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
@@ -17443,69 +17281,124 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     {
         return b;
     }
-    else if (a == NotAField())
+
+    if (a == NotAField())
     {
         return NotAField();
     }
-    else if (b == nullptr)
+
+    if (b == nullptr)
     {
         return a;
     }
-    else if (b == NotAField())
+
+    if (b == NotAField())
     {
         return NotAField();
-        // Extremely special case for ConstantIndex pseudo-fields -- appending consecutive such
-        // together collapse to one.
     }
-    else if (a->m_next == nullptr && a->m_fieldHnd == ConstantIndexPseudoField &&
-             b->m_fieldHnd == ConstantIndexPseudoField)
-    {
-        return b;
-    }
-    else
-    {
-        // We should never add a duplicate FieldSeqNode
-        assert(a != b);
 
-        FieldSeqNode* tmp = Append(a->m_next, b);
-        FieldSeqNode  fsn(a->m_fieldHnd, tmp);
-        FieldSeqNode* res = nullptr;
-        if (m_canonMap->Lookup(fsn, &res))
+    // We should never add a duplicate FieldSeqNode
+    assert(a != b);
+
+    FieldSeqNode  fsn(a->m_fieldHnd, Append(a->m_next, b));
+    FieldSeqNode* res = nullptr;
+
+    if (!m_canonMap->Lookup(fsn, &res))
+    {
+        res = new (m_alloc) FieldSeqNode(fsn);
+        m_canonMap->Set(fsn, res);
+
+        INDEBUG(DebugCheck(res);)
+    }
+
+    return res;
+}
+
+#ifdef DEBUG
+void FieldSeqStore::DebugCheck(FieldSeqNode* f)
+{
+    FieldSeqNode* a = f;
+    FieldSeqNode* b = f->m_next;
+
+    if (a->IsBoxedValueField())
+    {
+        // We don't know the class of a boxed value field so we can't check
+        // if the appended field is valid. At least check that we're not
+        // trying to append yet another boxed value field.
+        assert(!b->IsBoxedValueField());
+
+        return;
+    }
+
+    ICorJitInfo* vm = m_compiler->info.compCompHnd;
+
+    if (b->IsBoxedValueField())
+    {
+        // Boxed value fields are only used together with static fields.
+        assert(!a->IsBoxedValueField());
+        assert(vm->isFieldStatic(a->m_fieldHnd));
+
+        return;
+    }
+
+    CORINFO_CLASS_HANDLE fieldClass;
+    CorInfoType          t = vm->getFieldType(a->m_fieldHnd, &fieldClass);
+
+    if ((t == CORINFO_TYPE_NATIVEINT) || (t == CORINFO_TYPE_NATIVEUINT))
+    {
+        // We don't get a class handle for IntPtr so we can't check its _value field...
+        assert(t == vm->asCorInfoType(vm->getFieldClass(b->m_fieldHnd)));
+
+        return;
+    }
+
+    // It really should be a value class but we may also get a primitive type
+    // due to the normed type mess.
+    // assert(t == CORINFO_TYPE_VALUECLASS);
+
+    // In theory the below check should be just
+    //     assert(vm->getFieldClass(b->m_fieldHnd) != fieldClass)
+    // but this doesn't work because sometimes one class is A<Cannon> while the other is A<SomeRefType>...
+
+    unsigned fieldCount = vm->getClassNumInstanceFields(fieldClass);
+    unsigned fieldIndex = 0;
+
+    for (fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
+    {
+        if (vm->getFieldInClass(fieldClass, fieldIndex) == b->m_fieldHnd)
         {
-            return res;
+            break;
         }
-        else
+    }
+
+    if (fieldIndex >= fieldCount)
+    {
+        if (m_compiler->verbose)
         {
-            res  = m_alloc.allocate<FieldSeqNode>(1);
-            *res = fsn;
-            m_canonMap->Set(fsn, res);
-            return res;
+            printf("%s.%s - field %s not found in class %s\n", m_compiler->eeGetFieldName(a->m_fieldHnd),
+                   m_compiler->eeGetFieldName(b->m_fieldHnd), m_compiler->eeGetFieldName(b->m_fieldHnd),
+                   m_compiler->eeGetClassName(fieldClass));
         }
+
+        assert(!"Field not found in class");
     }
 }
+#endif // DEBUG
 
 // Static vars.
-int FieldSeqStore::FirstElemPseudoFieldStruct;
-int FieldSeqStore::ConstantIndexPseudoFieldStruct;
+int FieldSeqStore::BoxedValuePseudoFieldStruct;
 
-CORINFO_FIELD_HANDLE FieldSeqStore::FirstElemPseudoField =
-    (CORINFO_FIELD_HANDLE)&FieldSeqStore::FirstElemPseudoFieldStruct;
-CORINFO_FIELD_HANDLE FieldSeqStore::ConstantIndexPseudoField =
-    (CORINFO_FIELD_HANDLE)&FieldSeqStore::ConstantIndexPseudoFieldStruct;
+const CORINFO_FIELD_HANDLE FieldSeqStore::BoxedValuePseudoFieldHandle =
+    reinterpret_cast<CORINFO_FIELD_HANDLE>(&FieldSeqStore::BoxedValuePseudoFieldStruct);
 
-bool FieldSeqNode::IsFirstElemFieldSeq()
+bool FieldSeqNode::IsBoxedValueField()
 {
-    return m_fieldHnd == FieldSeqStore::FirstElemPseudoField;
-}
-
-bool FieldSeqNode::IsConstantIndexFieldSeq()
-{
-    return m_fieldHnd == FieldSeqStore::ConstantIndexPseudoField;
+    return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
 }
 
 bool FieldSeqNode::IsPseudoField() const
 {
-    return m_fieldHnd == FieldSeqStore::FirstElemPseudoField || m_fieldHnd == FieldSeqStore::ConstantIndexPseudoField;
+    return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
 }
 
 #ifdef FEATURE_SIMD

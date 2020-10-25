@@ -6116,14 +6116,12 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedT
                     op1->gtFlags |= GTF_FLD_INITCLASS;
                 }
 
-                if (pFieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP)
+                if ((pFieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
                 {
-                    op1->gtType = TYP_REF; // points at boxed object
-                    FieldSeqNode* firstElemFldSeq =
-                        GetFieldSeqStore()->CreateSingleton(FieldSeqStore::FirstElemPseudoField);
-                    op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
-                                        new (this, GT_CNS_INT)
-                                            GenTreeIntCon(TYP_I_IMPL, TARGET_POINTER_SIZE, firstElemFldSeq));
+                    op1->SetType(TYP_REF); // points at boxed object
+                    FieldSeqNode* fieldSeq =
+                        GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
+                    op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
 
                     if (varTypeIsStruct(lclTyp))
                     {
@@ -6144,14 +6142,13 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedT
         }
     }
 
-    if (pFieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP)
+    if ((pFieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         op1 = gtNewOperNode(GT_IND, TYP_REF, op1);
 
-        FieldSeqNode* fldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::FirstElemPseudoField);
+        FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
 
-        op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
-                            new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, TARGET_POINTER_SIZE, fldSeq));
+        op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
     }
 
     if (!(access & CORINFO_ACCESS_ADDRESS))
@@ -12541,12 +12538,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     break;
 
                     case CORINFO_FIELD_STATIC_TLS:
-#ifdef TARGET_X86
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
 
                         /* Create the data member node */
-                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, NULL, fieldInfo.offset);
-                        op1->gtFlags |= GTF_IND_TLS_REF; // fgMorphField will handle the transformation
+                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, nullptr, fieldInfo.offset);
+                        op1->gtFlags |= GTF_FLD_TLS_REF; // fgMorphField will handle the transformation
 
                         if (isLoadAddress)
                         {
@@ -12836,12 +12833,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     break;
 
                     case CORINFO_FIELD_STATIC_TLS:
-#ifdef TARGET_X86
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
 
                         /* Create the data member node */
-                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, NULL, fieldInfo.offset);
-                        op1->gtFlags |= GTF_IND_TLS_REF; // fgMorphField will handle the transformation
+                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, nullptr, fieldInfo.offset);
+                        op1->gtFlags |= GTF_FLD_TLS_REF; // fgMorphField will handle the transformation
 
                         break;
 #else

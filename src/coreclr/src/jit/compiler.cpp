@@ -8553,10 +8553,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[VAR_DEATH]");
                 }
-                if (tree->gtFlags & GTF_VAR_ARR_INDEX)
-                {
-                    chars += printf("[VAR_ARR_INDEX]");
-                }
 #if defined(DEBUG)
                 if (tree->gtDebugFlags & GTF_DEBUG_VAR_CSE_REF)
                 {
@@ -8566,11 +8562,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 break;
 
             case GT_NOP:
-
-                if (tree->gtFlags & GTF_NOP_DEATH)
-                {
-                    chars += printf("[NOP_DEATH]");
-                }
                 break;
 
             case GT_NO_OP:
@@ -8581,6 +8572,12 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[FLD_VOLATILE]");
                 }
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
+                if (tree->gtFlags & GTF_FLD_TLS_REF)
+                {
+                    chars += printf("[FLD_TLS_REF]");
+                }
+#endif
                 break;
 
             case GT_INDEX:
@@ -8605,10 +8602,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 if (tree->gtFlags & GTF_IND_TGT_NOT_HEAP)
                 {
                     chars += printf("[IND_TGT_NOT_HEAP]");
-                }
-                if (tree->gtFlags & GTF_IND_TLS_REF)
-                {
-                    chars += printf("[IND_TLS_REF]");
                 }
                 if (tree->gtFlags & GTF_IND_ASG_LHS)
                 {
@@ -8785,11 +8778,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                     case GTF_ICON_BBC_PTR:
 
                         chars += printf("[ICON_BBC_PTR]");
-                        break;
-
-                    case GTF_ICON_FIELD_OFF:
-
-                        chars += printf("[ICON_FIELD_OFF]");
                         break;
                 }
             }

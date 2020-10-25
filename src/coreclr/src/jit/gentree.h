@@ -239,13 +239,8 @@ struct FieldSeqNode
     {
     }
 
-    // returns true when this is the pseudo #FirstElem field sequence
-    bool IsFirstElemFieldSeq();
+    bool IsBoxedValueField();
 
-    // returns true when this is the pseudo #ConstantIndex field sequence
-    bool IsConstantIndexFieldSeq();
-
-    // returns true when this is the the pseudo #FirstElem field sequence or the pseudo #ConstantIndex field sequence
     bool IsPseudoField() const;
 
     CORINFO_FIELD_HANDLE GetFieldHandle() const
@@ -282,17 +277,17 @@ class FieldSeqStore
 {
     typedef JitHashTable<FieldSeqNode, /*KeyFuncs*/ FieldSeqNode, FieldSeqNode*> FieldSeqNodeCanonMap;
 
+    Compiler*             m_compiler;
     CompAllocator         m_alloc;
     FieldSeqNodeCanonMap* m_canonMap;
 
     static FieldSeqNode s_notAField; // No value, just exists to provide an address.
 
-    // Dummy variables to provide the addresses for the "pseudo field handle" statics below.
-    static int FirstElemPseudoFieldStruct;
-    static int ConstantIndexPseudoFieldStruct;
+    // Dummy variable to provide an address for the "Boxed Value" pseudo field handle.
+    static int BoxedValuePseudoFieldStruct;
 
 public:
-    FieldSeqStore(CompAllocator alloc);
+    FieldSeqStore(Compiler* compiler);
 
     // Returns the (canonical in the store) singleton field sequence for the given handle.
     FieldSeqNode* CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd);
@@ -311,21 +306,14 @@ public:
     // are the "NotAField" value, so is the result.
     FieldSeqNode* Append(FieldSeqNode* a, FieldSeqNode* b);
 
+    INDEBUG(void DebugCheck(FieldSeqNode* f);)
+
     // We have a few "pseudo" field handles:
 
-    // This treats the constant offset of the first element of something as if it were a field.
-    // Works for method table offsets of boxed structs, or first elem offset of arrays/strings.
-    static CORINFO_FIELD_HANDLE FirstElemPseudoField;
-
-    // If there is a constant index, we make a psuedo field to correspond to the constant added to
-    // offset of the indexed field.  This keeps the field sequence structure "normalized", especially in the
-    // case where the element type is a struct, so we might add a further struct field offset.
-    static CORINFO_FIELD_HANDLE ConstantIndexPseudoField;
-
-    static bool IsPseudoField(CORINFO_FIELD_HANDLE hnd)
-    {
-        return hnd == FirstElemPseudoField || hnd == ConstantIndexPseudoField;
-    }
+    // The boxed value field identifies the value part of a boxed value object.
+    // Used with static struct fields which are implemented as static reference
+    // fields pointing to boxed structs allocated by the runtime.
+    static const CORINFO_FIELD_HANDLE BoxedValuePseudoFieldHandle;
 };
 
 class GenTreeUseEdgeIterator;
@@ -844,9 +832,6 @@ public:
 
                                        // Relevant for inlining optimizations (see fgInlinePrependStatements)
 
-#define GTF_VAR_ARR_INDEX   0x00000020 // The variable is part of (the index portion of) an array index expression.
-                                       // Shares a value with GTF_REVERSE_OPS, which is meaningless for local var.
-
                                                // For additional flags for GT_CALL node see GTF_CALL_M_*
 
 #define GTF_CALL_UNMANAGED          0x80000000 // GT_CALL -- direct call to unmanaged code
@@ -863,8 +848,9 @@ public:
 
 #define GTF_MEMORYBARRIER_LOAD      0x40000000 // GT_MEMORYBARRIER -- Load barrier
 
-#define GTF_NOP_DEATH               0x40000000 // GT_NOP -- operand dies here
-
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
+#define GTF_FLD_TLS_REF             0x08000000 // GT_FIELD            -- the target is accessed via TLS
+#endif
 #define GTF_FLD_VOLATILE            0x40000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
 #define GTF_FLD_INITCLASS           0x20000000 // GT_FIELD/GT_CLS_VAR -- field access requires preceding class/static init helper
 
@@ -875,7 +861,6 @@ public:
 #define GTF_IND_NONFAULTING         0x20000000 // Operations for which OperIsIndir() is true  -- An indir that cannot fault.
                                                // Same as GTF_ARRLEN_NONFAULTING.
 #define GTF_IND_TGT_HEAP            0x10000000 // GT_IND   -- the target is known to be on the heap
-#define GTF_IND_TLS_REF             0x08000000 // GT_IND   -- the target is accessed via TLS
 #define GTF_IND_ASG_LHS             0x04000000 // GT_IND   -- this GT_IND node is (the effective val) of the LHS of an
                                                //             assignment; don't evaluate it independently.
 #define GTF_IND_REQ_ADDR_IN_REG GTF_IND_ASG_LHS // GT_IND  -- requires its addr operand to be evaluated
@@ -890,7 +875,7 @@ public:
 #define GTF_IND_ARR_INDEX           0x00800000 // GT_IND   -- the indirection represents an (SZ) array index
 
 #define GTF_IND_FLAGS \
-    (GTF_IND_VOLATILE | GTF_IND_TGT_HEAP | GTF_IND_NONFAULTING | GTF_IND_TLS_REF |          \
+    (GTF_IND_VOLATILE | GTF_IND_TGT_HEAP | GTF_IND_NONFAULTING |           \
      GTF_IND_UNALIGNED | GTF_IND_INVARIANT | GTF_IND_ARR_INDEX | GTF_IND_TGT_NOT_HEAP)
 
 #define GTF_CLS_VAR_VOLATILE        0x40000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
@@ -936,7 +921,6 @@ public:
 #define GTF_ICON_CIDMID_HDL         0xE0000000 // GT_CNS_INT -- constant is a class ID or a module ID
 #define GTF_ICON_BBC_PTR            0xF0000000 // GT_CNS_INT -- constant is a basic block count pointer
 
-#define GTF_ICON_FIELD_OFF          0x08000000 // GT_CNS_INT -- constant is a field offset
 #define GTF_ICON_SIMD_COUNT         0x04000000 // GT_CNS_INT -- constant is Vector<T>.Count
 
 #define GTF_ICON_INITCLASS          0x02000000 // GT_CNS_INT -- Constant is used to access a static that requires preceding
@@ -957,7 +941,6 @@ public:
 
 #define GTF_ARR_BOUND_INBND         0x80000000 // GT_ARR_BOUNDS_CHECK -- have proved this check is always in-bounds
 
-#define GTF_ARRLEN_ARR_IDX          0x80000000 // GT_ARR_LENGTH -- Length which feeds into an array index expression
 #define GTF_ARRLEN_NONFAULTING      0x20000000 // GT_ARR_LENGTH  -- An array length operation that cannot fault. Same as GT_IND_NONFAULTING.
 
 #define GTF_SIMD12_OP               0x80000000 // GT_SIMD -- Indicates that the operands need to be handled as SIMD12
@@ -1881,53 +1864,6 @@ public:
     // Determine whether this is an assignment tree of the form X = X (op) Y,
     // where Y is an arbitrary tree, and X is a lclVar.
     unsigned IsLclVarUpdateTree(GenTree** otherTree, genTreeOps* updateOper);
-
-    // If returns "true", "this" may represent the address of a static or instance field
-    // (or a field of such a field, in the case of an object field of type struct).
-    // If returns "true", then either "*pObj" is set to the object reference,
-    // or "*pStatic" is set to the baseAddr or offset to be added to the "*pFldSeq"
-    // Only one of "*pObj" or "*pStatic" will be set, the other one will be null.
-    // The boolean return value only indicates that "this" *may* be a field address
-    // -- the field sequence must also be checked.
-    // If it is a field address, the field sequence will be a sequence of length >= 1,
-    // starting with an instance or static field, and optionally continuing with struct fields.
-    bool IsFieldAddr(Compiler* comp, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq);
-
-    // Requires "this" to be the address of an array (the child of a GT_IND labeled with GTF_IND_ARR_INDEX).
-    // Sets "pArr" to the node representing the array (either an array object pointer, or perhaps a byref to the some
-    // element).
-    // Sets "*pArrayType" to the class handle for the array type.
-    // Sets "*inxVN" to the value number inferred for the array index.
-    // Sets "*pFldSeq" to the sequence, if any, of struct fields used to index into the array element.
-    void ParseArrayAddress(
-        Compiler* comp, struct ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq);
-
-    // Helper method for the above.
-    void ParseArrayAddressWork(Compiler*       comp,
-                               target_ssize_t  inputMul,
-                               GenTree**       pArr,
-                               ValueNum*       pInxVN,
-                               target_ssize_t* pOffset,
-                               FieldSeqNode**  pFldSeq);
-
-    // Requires "this" to be a GT_IND.  Requires the outermost caller to set "*pFldSeq" to nullptr.
-    // Returns true if it is an array index expression, or access to a (sequence of) struct field(s)
-    // within a struct array element.  If it returns true, sets *arrayInfo to the array information, and sets *pFldSeq
-    // to the sequence of struct field accesses.
-    bool ParseArrayElemForm(Compiler* comp, ArrayInfo* arrayInfo, FieldSeqNode** pFldSeq);
-
-    // Requires "this" to be the address of a (possible) array element (or struct field within that).
-    // If it is, sets "*arrayInfo" to the array access info, "*pFldSeq" to the sequence of struct fields
-    // accessed within the array element, and returns true.  If not, returns "false".
-    bool ParseArrayElemAddrForm(Compiler* comp, ArrayInfo* arrayInfo, FieldSeqNode** pFldSeq);
-
-    // Requires "this" to be an int expression.  If it is a sequence of one or more integer constants added together,
-    // returns true and sets "*pFldSeq" to the sequence of fields with which those constants are annotated.
-    bool ParseOffsetForm(Compiler* comp, FieldSeqNode** pFldSeq);
-
-    // Labels "*this" as an array index expression: label all constants and variables that could contribute, as part of
-    // an affine expression, to the value of the of the index.
-    void LabelIndex(Compiler* comp, bool isConst = true);
 
     // Assumes that "this" occurs in a context where it is being dereferenced as the LHS of an assignment-like
     // statement (assignment, initblk, or copyblk).  The "width" should be the number of bytes copied by the
@@ -3064,6 +3000,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return gtFieldSeq;
     }
 
+    void SetFieldSeq(FieldSeqNode* fieldSeq)
+    {
+        gtFieldSeq = fieldSeq;
+    }
+
     void FixupInitBlkValue(var_types asgType);
 
 #ifdef TARGET_64BIT
@@ -3483,7 +3424,7 @@ public:
         : GenTreeLclVarCommon(oper, type, lclNum)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
-        , m_fieldSeq(nullptr)
+        , m_fieldSeq(FieldSeqStore::NotAField())
     {
         assert(lclOffs <= UINT16_MAX);
     }
@@ -3647,6 +3588,11 @@ public:
         {
             gtFlags |= (obj->gtFlags & GTF_ALL_EFFECT);
         }
+    }
+
+    CORINFO_FIELD_HANDLE GetFieldHandle() const
+    {
+        return gtFldHnd;
     }
 
     unsigned GetOffset() const
@@ -6961,19 +6907,55 @@ public:
 struct GenTreeClsVar : public GenTree
 {
     CORINFO_FIELD_HANDLE gtClsVarHnd;
-    FieldSeqNode*        gtFieldSeq;
 
+private:
+    FieldSeqNode* m_fieldSeq;
+
+public:
     GenTreeClsVar(var_types type, CORINFO_FIELD_HANDLE clsVarHnd, FieldSeqNode* fldSeq)
-        : GenTree(GT_CLS_VAR, type), gtClsVarHnd(clsVarHnd), gtFieldSeq(fldSeq)
+        : GenTree(GT_CLS_VAR, type), gtClsVarHnd(clsVarHnd), m_fieldSeq(fldSeq)
     {
         gtFlags |= GTF_GLOB_REF;
     }
 
     GenTreeClsVar(genTreeOps oper, var_types type, CORINFO_FIELD_HANDLE clsVarHnd, FieldSeqNode* fldSeq)
-        : GenTree(oper, type), gtClsVarHnd(clsVarHnd), gtFieldSeq(fldSeq)
+        : GenTree(oper, type), gtClsVarHnd(clsVarHnd), m_fieldSeq(fldSeq)
     {
         assert((oper == GT_CLS_VAR) || (oper == GT_CLS_VAR_ADDR));
         gtFlags |= GTF_GLOB_REF;
+    }
+
+    GenTreeClsVar(const GenTreeClsVar* copyFrom)
+        : GenTree(copyFrom->GetOper(), copyFrom->GetType())
+        , gtClsVarHnd(copyFrom->gtClsVarHnd)
+        , m_fieldSeq(copyFrom->m_fieldSeq)
+    {
+    }
+
+    CORINFO_FIELD_HANDLE GetFieldHandle() const
+    {
+        return gtClsVarHnd;
+    }
+
+    FieldSeqNode* GetFieldSeq() const
+    {
+        assert(m_fieldSeq->m_fieldHnd == gtClsVarHnd);
+        return m_fieldSeq;
+    }
+
+    void SetFieldHandle(CORINFO_FIELD_HANDLE fieldHandle, FieldSeqNode* fieldSeq)
+    {
+        // TODO-MIKE-Consider: The field sequence is pretty much pointless since it should
+        // always be a singleton for the field handle we already have. Storing it in the
+        // node only avoids a hashtable lookup in those not so many places that care about
+        // field sequences.
+
+        assert(fieldHandle != nullptr);
+        assert(fieldSeq->m_fieldHnd == fieldHandle);
+        assert(fieldSeq->m_next == nullptr);
+
+        gtClsVarHnd = fieldHandle;
+        m_fieldSeq  = fieldSeq;
     }
 
 #if DEBUGGABLE_GENTREE

@@ -7699,8 +7699,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
                 if (lhs->OperGet() == GT_IND)
                 {
-                    GenTree*      arg           = lhs->AsOp()->gtOp1->gtEffectiveVal(/*commaOnly*/ true);
-                    FieldSeqNode* fldSeqArrElem = nullptr;
+                    GenTree* arg = lhs->AsOp()->gtOp1->gtEffectiveVal(/*commaOnly*/ true);
 
                     if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
                     {
@@ -7735,10 +7734,9 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         // Otherwise...
                         memoryHavoc |= memoryKindSet(GcHeap, ByrefExposed);
                     }
-                    // Is the LHS an array index expression?
-                    else if (lhs->ParseArrayElemForm(this, &arrInfo, &fldSeqArrElem))
+                    else if (optIsArrayElem(lhs->AsIndir(), &arrInfo))
                     {
-                        // We actually ignore "fldSeq" -- any modification to an S[], at any
+                        // We actually ignore field sequences -- any modification to an S[], at any
                         // field of "S", will lose all information about the array type.
                         CORINFO_CLASS_HANDLE elemTypeEq = EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
                         AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeEq);
@@ -7753,17 +7751,8 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                         GenTree*      staticOffset = nullptr; // unused
                         FieldSeqNode* fldSeq       = nullptr;
 
-                        if (arg->IsFieldAddr(this, &obj, &staticOffset, &fldSeq) &&
-                            (fldSeq != FieldSeqStore::NotAField()))
+                        if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
-                            // Get the first (object) field from field seq.  GcHeap[field] will yield the "field map".
-                            assert(fldSeq != nullptr);
-                            if (fldSeq->IsFirstElemFieldSeq())
-                            {
-                                fldSeq = fldSeq->m_next;
-                                assert(fldSeq != nullptr);
-                            }
-
                             AddModifiedFieldAllContainingLoops(mostNestedLoop, fldSeq->m_fieldHnd);
                             // Conservatively assume byrefs may alias this object.
                             memoryHavoc |= memoryKindSet(ByrefExposed);

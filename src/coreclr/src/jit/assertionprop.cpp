@@ -2691,7 +2691,6 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
             }
             else
             {
-                bool isArrIndex = ((tree->gtFlags & GTF_VAR_ARR_INDEX) != 0);
                 // If we have done constant propagation of a struct type, it is only valid for zero-init,
                 // and we have to ensure that we have the right zero for the type.
                 if (varTypeIsStruct(tree))
@@ -2723,13 +2722,6 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
                         newTree->ChangeType(TYP_INT);
                     }
                 }
-                // If we're doing an array index address, assume any constant propagated contributes to the index.
-                if (isArrIndex)
-                {
-                    newTree->AsIntCon()->gtFieldSeq =
-                        GetFieldSeqStore()->CreateSingleton(FieldSeqStore::ConstantIndexPseudoField);
-                }
-                newTree->gtFlags &= ~GTF_VAR_ARR_INDEX;
             }
 
             // Constant ints are of type TYP_INT, not any of the short forms.
