@@ -848,8 +848,6 @@ public:
 
 #define GTF_MEMORYBARRIER_LOAD      0x40000000 // GT_MEMORYBARRIER -- Load barrier
 
-#define GTF_NOP_DEATH               0x40000000 // GT_NOP -- operand dies here
-
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)
 #define GTF_FLD_TLS_REF             0x08000000 // GT_FIELD            -- the target is accessed via TLS
 #endif
