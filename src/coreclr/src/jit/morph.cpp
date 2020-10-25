@@ -5559,8 +5559,6 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     }
     else /* This is a static data member */
     {
-        FieldSeqNode* fldSeq = GetFieldSeqStore()->CreateSingleton(fldHandle);
-
         if ((tree->gtFlags & GTF_IND_TLS_REF) != 0)
         {
             // TODO-MIKE-Cleanup: It looks like all this code should be ifdef-ed out on all targets but win-x86.
@@ -5645,16 +5643,19 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 
             if (fldOffset != 0)
             {
-                // Add the TLS static field offset
-                tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, gtNewIconNode(fldOffset, fldSeq));
+                // Add the TLS static field offset. Don't bother recording a field sequence
+                // for the field offset as it won't be recognized during value numbering.
+                tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, gtNewIconNode(fldOffset, TYP_I_IMPL));
             }
 
             // Final indirect to get to actual value of TLS static field
 
             tree->SetOper(GT_IND);
-            tree->AsOp()->gtOp1 = tlsRef;
+            tree->AsIndir()->SetAddr(tlsRef);
 
-            noway_assert(tree->gtFlags & GTF_IND_TLS_REF);
+            noway_assert((tree->gtFlags & GTF_IND_TLS_REF) != 0);
+
+            return fgMorphSmpOp(tree, mac);
         }
         else
         {
@@ -5671,6 +5672,8 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
             // We should always be able to access this static field address directly
             //
             assert(pFldAddr == nullptr);
+
+            FieldSeqNode* fldSeq = GetFieldSeqStore()->CreateSingleton(fldHandle);
 
 #ifdef TARGET_64BIT
             if (IMAGE_REL_BASED_REL32 != eeGetRelocTypeHint(fldAddr))
