@@ -1457,7 +1457,7 @@ bool Compiler::areLocalFieldsContiguous(GenTreeLclFld* first, GenTreeLclFld* sec
     assert(first->TypeIs(TYP_FLOAT));
     assert(second->TypeIs(TYP_FLOAT));
 
-    return (first->TypeGet() == second->TypeGet()) &&
+    return (first->TypeGet() == second->TypeGet()) && (first->GetLclNum() == second->GetLclNum()) &&
            (first->GetLclOffs() + genTypeSize(first->TypeGet()) == second->GetLclOffs());
 }
 
