@@ -1390,8 +1390,8 @@ bool areFieldsParentsLocatedSame(GenTree* op1, GenTree* op2)
             op2ObjRef = op2ObjRef->AsOp()->gtOp1;
         }
 
-        if (op1ObjRef->OperIsLocal() && op2ObjRef->OperIsLocal() &&
-            op1ObjRef->AsLclVarCommon()->GetLclNum() == op2ObjRef->AsLclVarCommon()->GetLclNum())
+        if (op1ObjRef->OperIs(GT_LCL_VAR) && op2ObjRef->OperIsLocal(GT_LCL_VAR) &&
+            (op1ObjRef->AsLclVar()->GetLclNum() == op2ObjRef->AsLclVar()->GetLclNum()))
         {
             return true;
         }
@@ -1493,8 +1493,8 @@ bool Compiler::areArrayElementsContiguous(GenTree* op1, GenTree* op2)
         {
             return true;
         }
-        else if (op1ArrayRef->OperIsLocal() && op2ArrayRef->OperIsLocal() &&
-                 op1ArrayRef->AsLclVarCommon()->GetLclNum() == op2ArrayRef->AsLclVarCommon()->GetLclNum())
+        else if (op1ArrayRef->OperIs(GT_LCL_VAR) && op2ArrayRef->OperIsLocal(GT_LCL_VAR) &&
+                 (op1ArrayRef->AsLclVar()->GetLclNum() == op2ArrayRef->AsLclVar()->GetLclNum()))
         {
             return true;
         }
@@ -1574,7 +1574,7 @@ GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize
             // TODO-CQ:
             //  In future, we should optimize this case so that if there is a nested field like s1.s2.x and s1.s2.x's
             //  address is used for initializing the vector, then s1 can be promoted but s2 can't.
-            if (varTypeIsSIMD(obj) && obj->OperIsLocal())
+            if (varTypeIsSIMD(obj) && obj->OperIs(GT_LCL_VAR))
             {
                 setLclRelatedToSIMDIntrinsic(obj);
             }
@@ -1636,10 +1636,10 @@ GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize
 //       A GenTree* which points the simd lclvar tree belongs to. If the tree is not the simd
 //       instrinic related field, return nullptr.
 //
-GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
-                                          var_types* pBaseTypeOut,
-                                          unsigned*  indexOut,
-                                          unsigned*  simdSizeOut)
+GenTreeLclVar* Compiler::getSIMDStructFromField(GenTree*   tree,
+                                                var_types* pBaseTypeOut,
+                                                unsigned*  indexOut,
+                                                unsigned*  simdSizeOut)
 {
     if (!tree->OperIs(GT_FIELD))
     {
@@ -1655,15 +1655,18 @@ GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
 
     GenTree* obj = addr->AsUnOp()->GetOp(0);
 
-    if (!isSIMDTypeLocal(obj))
+    if (!obj->OperIs(GT_LCL_VAR) || !varTypeIsSIMD(obj->GetType()))
     {
         return nullptr;
     }
 
-    *simdSizeOut  = lvaGetDesc(obj->AsLclVarCommon())->lvExactSize;
-    *pBaseTypeOut = getBaseTypeOfSIMDLocal(obj);
-    *indexOut     = tree->AsField()->GetOffset() / genTypeSize(*pBaseTypeOut);
-    return obj;
+    LclVarDsc* lcl = lvaGetDesc(obj->AsLclVar());
+
+    *simdSizeOut  = lcl->lvExactSize;
+    *pBaseTypeOut = lcl->GetSIMDBaseType();
+    *indexOut     = tree->AsField()->GetOffset() / varTypeSize(*pBaseTypeOut);
+
+    return obj->AsLclVar();
 }
 
 //-------------------------------------------------------------------------------
@@ -1683,17 +1686,17 @@ void Compiler::impMarkContiguousSIMDFieldAssignments(Statement* stmt)
     GenTree* expr = stmt->GetRootNode();
     if (expr->OperGet() == GT_ASG && expr->TypeGet() == TYP_FLOAT)
     {
-        GenTree*  curDst            = expr->AsOp()->gtOp1;
-        GenTree*  curSrc            = expr->AsOp()->gtOp2;
-        unsigned  index             = 0;
-        var_types baseType          = TYP_UNKNOWN;
-        unsigned  simdSize          = 0;
-        GenTree*  srcSimdStructNode = getSIMDStructFromField(curSrc, &baseType, &index, &simdSize);
-        if (srcSimdStructNode == nullptr || baseType != TYP_FLOAT)
+        GenTree*       curDst            = expr->AsOp()->gtOp1;
+        GenTree*       curSrc            = expr->AsOp()->gtOp2;
+        unsigned       index             = 0;
+        var_types      baseType          = TYP_UNKNOWN;
+        unsigned       simdSize          = 0;
+        GenTreeLclVar* srcSimdStructNode = getSIMDStructFromField(curSrc, &baseType, &index, &simdSize);
+        if ((srcSimdStructNode == nullptr) || baseType != TYP_FLOAT)
         {
             fgPreviousCandidateSIMDFieldAsgStmt = nullptr;
         }
-        else if (index == 0 && isSIMDTypeLocal(srcSimdStructNode))
+        else if (index == 0)
         {
             fgPreviousCandidateSIMDFieldAsgStmt = stmt;
         }
@@ -1712,10 +1715,7 @@ void Compiler::impMarkContiguousSIMDFieldAssignments(Statement* stmt)
                 if (index == (simdSize / genTypeSize(baseType) - 1))
                 {
                     // Successfully found the pattern, mark the lclvar as UsedInSIMDIntrinsic
-                    if (srcSimdStructNode->OperIsLocal())
-                    {
-                        setLclRelatedToSIMDIntrinsic(srcSimdStructNode);
-                    }
+                    setLclRelatedToSIMDIntrinsic(srcSimdStructNode);
 
                     if (curDst->OperGet() == GT_FIELD)
                     {

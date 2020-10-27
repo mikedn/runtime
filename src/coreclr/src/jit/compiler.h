@@ -4926,7 +4926,10 @@ private:
     static MorphAddrContext s_CopyBlockMAC;
 
 #ifdef FEATURE_SIMD
-    GenTree* getSIMDStructFromField(GenTree* tree, var_types* baseTypeOut, unsigned* indexOut, unsigned* simdSizeOut);
+    GenTreeLclVar* getSIMDStructFromField(GenTree*   tree,
+                                          var_types* baseTypeOut,
+                                          unsigned*  indexOut,
+                                          unsigned*  simdSizeOut);
     void fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt);
     void impMarkContiguousSIMDFieldAssignments(Statement* stmt);
 
@@ -7392,14 +7395,6 @@ private:
                 (structHandle != m_simdHandleCache->SIMDVector4Handle));
     }
 
-    // Returns true if the tree corresponds to a TYP_SIMD lcl var.
-    // Note that both SIMD vector args and locals are mared as lvSIMDType = true, but
-    // type of an arg node is TYP_BYREF and a local node is TYP_SIMD or TYP_STRUCT.
-    bool isSIMDTypeLocal(GenTree* tree)
-    {
-        return tree->OperIsLocal() && lvaTable[tree->AsLclVarCommon()->GetLclNum()].lvSIMDType;
-    }
-
     // Returns true if the lclVar is an opaque SIMD type.
     bool isOpaqueSIMDLclVar(const LclVarDsc* varDsc) const
     {
@@ -7409,18 +7404,6 @@ private:
     static bool isRelOpSIMDIntrinsic(SIMDIntrinsicID intrinsicId)
     {
         return (intrinsicId == SIMDIntrinsicEqual);
-    }
-
-    // Returns base type of a TYP_SIMD local.
-    // Returns TYP_UNKNOWN if the local is not TYP_SIMD.
-    var_types getBaseTypeOfSIMDLocal(GenTree* tree)
-    {
-        if (isSIMDTypeLocal(tree))
-        {
-            return lvaTable[tree->AsLclVarCommon()->GetLclNum()].lvBaseType;
-        }
-
-        return TYP_UNKNOWN;
     }
 
     bool isSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
