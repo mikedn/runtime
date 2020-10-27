@@ -1847,11 +1847,9 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
         fgRemoveStmt(block, stmt->GetNextStmt());
     }
 
-    GenTree* dstNode = asg->GetOp(0);
-
-    ChangeToSIMDMem(dstNode, simdType);
-
-    stmt->SetRootNode(gtNewAssignNode(dstNode, simdStructNode));
+    asg->SetType(simdType);
+    ChangeToSIMDMem(asg->GetOp(0), simdType);
+    asg->SetOp(1, simdStructNode);
 
     // Since we generated a new address node which didn't exist before,
     // we should expose this address manually here.
