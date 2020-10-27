@@ -1552,10 +1552,9 @@ bool Compiler::areArgumentsContiguous(GenTree* op1, GenTree* op2)
 GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize)
 {
     assert(tree->OperGet() == GT_FIELD || tree->OperGet() == GT_INDEX);
-    GenTree*  byrefNode  = nullptr;
-    GenTree*  startIndex = nullptr;
-    unsigned  offset     = 0;
-    var_types baseType   = tree->gtType;
+    GenTree*  byrefNode = nullptr;
+    unsigned  offset    = 0;
+    var_types baseType  = tree->gtType;
 
     if (tree->OperGet() == GT_FIELD)
     {
@@ -1613,8 +1612,7 @@ GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize
     {
         unreached();
     }
-    GenTree* address =
-        new (this, GT_LEA) GenTreeAddrMode(TYP_BYREF, byrefNode, startIndex, genTypeSize(tree->TypeGet()), offset);
+    GenTree* address = new (this, GT_LEA) GenTreeAddrMode(TYP_BYREF, byrefNode, nullptr, 1, offset);
     return address;
 }
 
