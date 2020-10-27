@@ -4930,7 +4930,7 @@ private:
                                           var_types* baseTypeOut,
                                           unsigned*  indexOut,
                                           unsigned*  simdSizeOut);
-    void fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt);
+    bool fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt);
     void impMarkContiguousSIMDFieldAssignments(Statement* stmt);
 
     // fgPreviousCandidateSIMDFieldAsgStmt is only used for tracking previous simd field assignment
@@ -5150,7 +5150,6 @@ private:
     void fgMarkDemotedImplicitByRefArgs();
 
     void fgMarkAddressExposedLocals();
-    void fgMarkAddressExposedLocals(Statement* stmt);
 
     static fgWalkPreFn  fgUpdateSideEffectsPre;
     static fgWalkPostFn fgUpdateSideEffectsPost;

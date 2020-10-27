@@ -1694,25 +1694,29 @@ void Compiler::fgMarkAddressExposedLocals()
         {
             visitor.VisitStmt(stmt);
         }
-    }
-}
 
-//------------------------------------------------------------------------
-// fgMarkAddressExposedLocals: Traverses the specified statement and marks address
-//    exposed locals.
-//
-// Arguments:
-//    stmt - the statement to traverse
-//
-// Notes:
-//    Trees such as IND(ADDR(LCL_VAR)), that morph is expected to fold
-//    to just LCL_VAR, do not result in the involved local being marked
-//    address exposed.
-//
-void Compiler::fgMarkAddressExposedLocals(Statement* stmt)
-{
-    LocalAddressVisitor visitor(this);
-    visitor.VisitStmt(stmt);
+#ifdef FEATURE_SIMD
+        if (opts.OptimizationEnabled())
+        {
+            for (Statement* stmt : block->Statements())
+            {
+                if (stmt->GetRootNode()->TypeIs(TYP_FLOAT) && stmt->GetRootNode()->OperIs(GT_ASG))
+                {
+                    if (fgMorphCombineSIMDFieldAssignments(block, stmt))
+                    {
+                        // Since we generated a new address node which didn't exist before,
+                        // we should expose this address manually here.
+                        // TODO-ADDR: Remove this when LocalAddressVisitor transforms all
+                        // local field access into LCL_FLDs, at that point we would be
+                        // combining 2 existing LCL_FLDs or 2 FIELDs that do not reference
+                        // a local and thus cannot result in a new address exposed local.
+                        visitor.VisitStmt(stmt);
+                    }
+                }
+            }
+        }
+#endif
+    }
 }
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)

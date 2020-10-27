@@ -14739,13 +14739,6 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
             fgRemoveStmt(block, stmt);
             continue;
         }
-#ifdef FEATURE_SIMD
-        if (opts.OptimizationEnabled() && stmt->GetRootNode()->TypeGet() == TYP_FLOAT &&
-            stmt->GetRootNode()->OperGet() == GT_ASG)
-        {
-            fgMorphCombineSIMDFieldAssignments(block, stmt);
-        }
-#endif
 
         fgMorphStmt = stmt;
         compCurStmt = stmt;

@@ -1757,7 +1757,7 @@ void Compiler::impMarkContiguousSIMDFieldAssignments(Statement* stmt)
 //    block - block which stmt belongs to
 //    stmt  - the stmt node we want to check
 //
-void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt)
+bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt)
 {
     GenTreeOp* asg = stmt->GetRootNode()->AsOp();
     assert(asg->OperIs(GT_ASG));
@@ -1783,7 +1783,7 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
 
     if (firstGetItem == nullptr)
     {
-        return;
+        return false;
     }
 
     unsigned       simdSize       = firstGetItem->GetSIMDSize();
@@ -1798,31 +1798,31 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
     {
         if (nextStmt == nullptr)
         {
-            return;
+            return false;
         }
 
         GenTree* nextAsg = nextStmt->GetRootNode();
 
         if (!nextAsg->OperIs(GT_ASG))
         {
-            return;
+            return false;
         }
 
         GenTreeSIMD* nextGetItem = IsSIMDGetItem(nextAsg->AsOp()->GetOp(1), i);
 
         if (nextGetItem == nullptr)
         {
-            return;
+            return false;
         }
 
         if (nextGetItem->GetOp(0)->AsLclVar()->GetLclNum() != simdStructNode->GetLclNum())
         {
-            return;
+            return false;
         }
 
         if (!areArgumentsContiguous(prevAsg->GetOp(0), nextAsg->AsOp()->GetOp(0)))
         {
-            return;
+            return false;
         }
 
         prevAsg = nextAsg->AsOp();
@@ -1851,14 +1851,6 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
     ChangeToSIMDMem(asg->GetOp(0), simdType);
     asg->SetOp(1, simdStructNode);
 
-    // Since we generated a new address node which didn't exist before,
-    // we should expose this address manually here.
-    // TODO-ADDR: Remove this when LocalAddressVisitor transforms all
-    // local field access into LCL_FLDs, at that point we would be
-    // combining 2 existing LCL_FLDs or 2 FIELDs that do not reference
-    // a local and thus cannot result in a new address exposed local.
-    fgMarkAddressExposedLocals(stmt);
-
 #ifdef DEBUG
     if (verbose)
     {
@@ -1867,6 +1859,8 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
         printf("\n");
     }
 #endif
+
+    return true;
 }
 
 //------------------------------------------------------------------------
