@@ -1533,7 +1533,7 @@ bool Compiler::areArgumentsContiguous(GenTree* op1, GenTree* op2)
 }
 
 //--------------------------------------------------------------------------------------------------------
-// createAddressNodeForSIMDInit: Generate the address node(GT_LEA) if we want to intialize vector2, vector3 or vector4
+// createAddressNodeForSIMDInit: Generate the address node if we want to intialize vector2, vector3 or vector4
 // from first argument's address.
 //
 // Arguments:
@@ -1547,8 +1547,7 @@ bool Compiler::areArgumentsContiguous(GenTree* op1, GenTree* op2)
 // TODO-CQ:
 //      1. Currently just support for GT_FIELD and GT_INDEX, because we can only verify the GT_INDEX node or GT_Field
 //         are located contiguously or not. In future we should support more cases.
-//      2. Though it happens to just work fine front-end phases are not aware of GT_LEA node.  Therefore, convert these
-//         to use GT_ADDR.
+//
 GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize)
 {
     assert(tree->OperGet() == GT_FIELD || tree->OperGet() == GT_INDEX);
@@ -1612,7 +1611,7 @@ GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize
     {
         unreached();
     }
-    GenTree* address = new (this, GT_LEA) GenTreeAddrMode(TYP_BYREF, byrefNode, nullptr, 1, offset);
+    GenTree* address = gtNewOperNode(GT_ADD, TYP_BYREF, byrefNode, gtNewIconNode(offset, TYP_I_IMPL));
     return address;
 }
 
