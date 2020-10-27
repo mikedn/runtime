@@ -1617,6 +1617,55 @@ GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize
     return address;
 }
 
+//--------------------------------------------------------------------------------------------------------------
+// getSIMDStructFromField:
+//   Checking whether the field belongs to a simd struct or not. If it is, return the GenTree* for
+//   the struct node, also base type, field index and simd size. If it is not, just return  nullptr.
+//
+// Arguments:
+//       tree - GentreePtr. This node will be checked to see this is a field which belongs to a simd
+//               struct used for simd intrinsic or not.
+//       pBaseTypeOut - var_types pointer, if the tree node is the tree we want, we set *pBaseTypeOut
+//                      to simd lclvar's base type.
+//       indexOut - unsigned pointer, if the tree is used for simd intrinsic, we will set *indexOut
+//                  equals to the index number of this field.
+//       simdSizeOut - unsigned pointer, if the tree is used for simd intrinsic, set the *simdSizeOut
+//                     equals to the simd struct size which this tree belongs to.
+//
+// return value:
+//       A GenTree* which points the simd lclvar tree belongs to. If the tree is not the simd
+//       instrinic related field, return nullptr.
+//
+GenTree* Compiler::getSIMDStructFromField(GenTree*   tree,
+                                          var_types* pBaseTypeOut,
+                                          unsigned*  indexOut,
+                                          unsigned*  simdSizeOut)
+{
+    if (!tree->OperIs(GT_FIELD))
+    {
+        return nullptr;
+    }
+
+    GenTree* addr = tree->AsField()->GetAddr();
+
+    if ((addr == nullptr) || !addr->OperIs(GT_ADDR))
+    {
+        return nullptr;
+    }
+
+    GenTree* obj = addr->AsUnOp()->GetOp(0);
+
+    if (!isSIMDTypeLocal(obj))
+    {
+        return nullptr;
+    }
+
+    *simdSizeOut  = lvaGetDesc(obj->AsLclVarCommon())->lvExactSize;
+    *pBaseTypeOut = getBaseTypeOfSIMDLocal(obj);
+    *indexOut     = tree->AsField()->GetOffset() / genTypeSize(*pBaseTypeOut);
+    return obj;
+}
+
 //-------------------------------------------------------------------------------
 // impMarkContiguousSIMDFieldAssignments: Try to identify if there are contiguous
 // assignments from SIMD field to memory. If there are, then mark the related
@@ -1692,6 +1741,149 @@ void Compiler::impMarkContiguousSIMDFieldAssignments(Statement* stmt)
     {
         fgPreviousCandidateSIMDFieldAsgStmt = nullptr;
     }
+}
+
+//-----------------------------------------------------------------------------------
+// fgMorphCombineSIMDFieldAssignments:
+//    If the RHS of the input stmt is a read for simd vector X Field, then this function
+//    will keep reading next few stmts based on the vector size(2, 3, 4).
+//    If the next stmts LHS are located contiguous and RHS are also located
+//    contiguous, then we replace those statements with a copyblk.
+//
+// Argument:
+//    block - block which stmt belongs to
+//    stmt  - the stmt node we want to check
+//
+void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt)
+{
+    GenTreeOp* asg = stmt->GetRootNode()->AsOp();
+    assert(asg->OperIs(GT_ASG));
+
+    auto IsSIMDGetItem = [](GenTree* node, unsigned index) -> GenTreeSIMD* {
+        if (!node->OperIs(GT_SIMD))
+        {
+            return nullptr;
+        }
+
+        GenTreeSIMD* simdElement = node->AsSIMD();
+
+        if ((simdElement->GetIntrinsic() != SIMDIntrinsicGetItem) || (simdElement->GetSIMDBaseType() != TYP_FLOAT) ||
+            !simdElement->GetOp(0)->OperIs(GT_LCL_VAR) || !simdElement->GetOp(1)->IsIntegralConst(index))
+        {
+            return nullptr;
+        }
+
+        return simdElement;
+    };
+
+    GenTreeSIMD* firstGetItem = IsSIMDGetItem(asg->GetOp(1), 0);
+
+    if (firstGetItem == nullptr)
+    {
+        return;
+    }
+
+    unsigned       simdSize       = firstGetItem->GetSIMDSize();
+    var_types      baseType       = firstGetItem->GetSIMDBaseType();
+    GenTreeLclVar* simdStructNode = firstGetItem->GetOp(0)->AsLclVar();
+
+    unsigned   assignmentsCount = simdSize / genTypeSize(baseType);
+    GenTreeOp* prevAsg          = asg;
+    Statement* nextStmt         = stmt->GetNextStmt();
+
+    for (unsigned i = 1; i < assignmentsCount; i++, nextStmt = nextStmt->GetNextStmt())
+    {
+        if (nextStmt == nullptr)
+        {
+            return;
+        }
+
+        GenTree* nextAsg = nextStmt->GetRootNode();
+
+        if (!nextAsg->OperIs(GT_ASG))
+        {
+            return;
+        }
+
+        GenTreeSIMD* nextGetItem = IsSIMDGetItem(nextAsg->AsOp()->GetOp(1), i);
+
+        if (nextGetItem == nullptr)
+        {
+            return;
+        }
+
+        if (nextGetItem->GetOp(0)->AsLclVar()->GetLclNum() != simdStructNode->GetLclNum())
+        {
+            return;
+        }
+
+        if (!areArgumentsContiguous(prevAsg->GetOp(0), nextAsg->AsOp()->GetOp(0)))
+        {
+            return;
+        }
+
+        prevAsg = nextAsg->AsOp();
+    }
+
+    var_types simdType = getSIMDTypeForSize(simdSize);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("\nFound %u contiguous assignments from a %s local to memory in " FMT_BB ":\n", assignmentsCount,
+               varTypeName(simdType), block->bbNum);
+        for (Statement* s = stmt; s != nextStmt; s = s->GetNextStmt())
+        {
+            gtDispStmt(s);
+        }
+    }
+#endif
+
+    for (unsigned i = 1; i < assignmentsCount; i++)
+    {
+        fgRemoveStmt(block, stmt->GetNextStmt());
+    }
+
+    GenTree* dstNode = asg->GetOp(0);
+
+    if (dstNode->OperIs(GT_LCL_FLD))
+    {
+        dstNode->SetType(simdType);
+        dstNode->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+
+        // This may have changed a partial local field into full local field
+        if (dstNode->IsPartialLclFld(this))
+        {
+            dstNode->gtFlags |= GTF_VAR_USEASG;
+        }
+        else
+        {
+            dstNode->gtFlags &= ~GTF_VAR_USEASG;
+        }
+    }
+    else
+    {
+        dstNode = gtNewOperNode(GT_IND, simdType, createAddressNodeForSIMDInit(asg->GetOp(0), simdSize));
+    }
+
+    stmt->SetRootNode(gtNewAssignNode(dstNode, simdStructNode));
+
+    // Since we generated a new address node which didn't exist before,
+    // we should expose this address manually here.
+    // TODO-ADDR: Remove this when LocalAddressVisitor transforms all
+    // local field access into LCL_FLDs, at that point we would be
+    // combining 2 existing LCL_FLDs or 2 FIELDs that do not reference
+    // a local and thus cannot result in a new address exposed local.
+    fgMarkAddressExposedLocals(stmt);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Changed to a single %s assignment:\n", varTypeName(simdType));
+        gtDispStmt(stmt);
+        printf("\n");
+    }
+#endif
 }
 
 //------------------------------------------------------------------------
