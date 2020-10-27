@@ -1746,121 +1746,110 @@ void Compiler::impMarkContiguousSIMDFieldAssignments(Statement* stmt)
     }
 }
 
-//-----------------------------------------------------------------------------------
-// fgMorphCombineSIMDFieldAssignments:
-//    If the RHS of the input stmt is a read for simd vector X Field, then this function
-//    will keep reading next few stmts based on the vector size(2, 3, 4).
-//    If the next stmts LHS are located contiguous and RHS are also located
-//    contiguous, then we replace those statements with a copyblk.
-//
-// Argument:
-//    block - block which stmt belongs to
-//    stmt  - the stmt node we want to check
-//
-bool Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt)
+bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, BasicBlock* block, Statement* stmt)
 {
-    GenTreeOp* asg = stmt->GetRootNode()->AsOp();
-    assert(asg->OperIs(GT_ASG));
-
     auto IsSIMDGetItem = [](GenTree* node, unsigned index) -> GenTreeSIMD* {
         if (!node->OperIs(GT_SIMD))
         {
             return nullptr;
         }
 
-        GenTreeSIMD* simdElement = node->AsSIMD();
+        GenTreeSIMD* getItem = node->AsSIMD();
 
-        if ((simdElement->GetIntrinsic() != SIMDIntrinsicGetItem) || (simdElement->GetSIMDBaseType() != TYP_FLOAT) ||
-            !simdElement->GetOp(0)->OperIs(GT_LCL_VAR) || !simdElement->GetOp(1)->IsIntegralConst(index))
+        if ((getItem->GetIntrinsic() != SIMDIntrinsicGetItem) || (getItem->GetSIMDBaseType() != TYP_FLOAT) ||
+            !getItem->GetOp(0)->OperIs(GT_LCL_VAR) || !getItem->GetOp(1)->IsIntegralConst(index))
         {
             return nullptr;
         }
 
-        return simdElement;
+        return getItem;
     };
 
-    GenTreeSIMD* firstGetItem = IsSIMDGetItem(asg->GetOp(1), 0);
+    GenTree* asg = stmt->GetRootNode();
 
-    if (firstGetItem == nullptr)
+    if (!asg->TypeIs(TYP_FLOAT) || !asg->OperIs(GT_ASG))
     {
+        Clear();
         return false;
     }
 
-    unsigned       simdSize       = firstGetItem->GetSIMDSize();
-    var_types      baseType       = firstGetItem->GetSIMDBaseType();
-    GenTreeLclVar* simdStructNode = firstGetItem->GetOp(0)->AsLclVar();
+    GenTreeSIMD* getItem = IsSIMDGetItem(asg->AsOp()->GetOp(1), m_index);
 
-    unsigned   assignmentsCount = simdSize / genTypeSize(baseType);
-    GenTreeOp* prevAsg          = asg;
-    Statement* nextStmt         = stmt->GetNextStmt();
-
-    for (unsigned i = 1; i < assignmentsCount; i++, nextStmt = nextStmt->GetNextStmt())
+    if (getItem == nullptr)
     {
-        if (nextStmt == nullptr)
-        {
-            return false;
-        }
-
-        GenTree* nextAsg = nextStmt->GetRootNode();
-
-        if (!nextAsg->OperIs(GT_ASG))
-        {
-            return false;
-        }
-
-        GenTreeSIMD* nextGetItem = IsSIMDGetItem(nextAsg->AsOp()->GetOp(1), i);
-
-        if (nextGetItem == nullptr)
-        {
-            return false;
-        }
-
-        if (nextGetItem->GetOp(0)->AsLclVar()->GetLclNum() != simdStructNode->GetLclNum())
-        {
-            return false;
-        }
-
-        if (!areArgumentsContiguous(prevAsg->GetOp(0), nextAsg->AsOp()->GetOp(0)))
-        {
-            return false;
-        }
-
-        prevAsg = nextAsg->AsOp();
+        Clear();
+        return false;
     }
 
-    var_types simdType = getSIMDTypeForSize(simdSize);
+    if (m_index == 0)
+    {
+        m_firstStmt = stmt;
+        m_lastStmt  = stmt;
+        m_index++;
+        return false;
+    }
+
+    GenTreeOp*     lastAsg        = m_lastStmt->GetRootNode()->AsOp();
+    GenTreeSIMD*   lastGetItem    = lastAsg->GetOp(1)->AsSIMD();
+    GenTreeLclVar* lastSimdLclVar = lastGetItem->GetOp(0)->AsLclVar();
+
+    if (lastSimdLclVar->GetLclNum() != getItem->GetOp(0)->AsLclVar()->GetLclNum())
+    {
+        Clear();
+        return false;
+    }
+
+    if (!compiler->areArgumentsContiguous(lastAsg->GetOp(0), asg->AsOp()->GetOp(0)))
+    {
+        Clear();
+        return false;
+    }
+
+    m_lastStmt = stmt;
+    m_index++;
+
+    return m_index == getItem->GetSIMDSize() / varTypeSize(getItem->GetSIMDBaseType());
+}
+
+void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
+{
+    assert(m_index > 1);
+
+    GenTreeOp*   asg      = m_firstStmt->GetRootNode()->AsOp();
+    GenTreeSIMD* getItem  = asg->GetOp(1)->AsSIMD();
+    var_types    simdType = getSIMDTypeForSize(getItem->GetSIMDSize());
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
-        printf("\nFound %u contiguous assignments from a %s local to memory in " FMT_BB ":\n", assignmentsCount,
+        printf("\nFound %u contiguous assignments from a %s local to memory in " FMT_BB ":\n", m_index,
                varTypeName(simdType), block->bbNum);
-        for (Statement* s = stmt; s != nextStmt; s = s->GetNextStmt())
+        for (Statement* s = m_firstStmt; s != m_lastStmt->GetNextStmt(); s = s->GetNextStmt())
         {
-            gtDispStmt(s);
+            compiler->gtDispStmt(s);
         }
     }
 #endif
 
-    for (unsigned i = 1; i < assignmentsCount; i++)
+    for (unsigned i = 1; i < m_index; i++)
     {
-        fgRemoveStmt(block, stmt->GetNextStmt());
+        compiler->fgRemoveStmt(block, m_firstStmt->GetNextStmt());
     }
 
     asg->SetType(simdType);
-    ChangeToSIMDMem(asg->GetOp(0), simdType);
-    asg->SetOp(1, simdStructNode);
+    compiler->ChangeToSIMDMem(asg->GetOp(0), simdType);
+    asg->SetOp(1, getItem->GetOp(0)->AsLclVar());
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("Changed to a single %s assignment:\n", varTypeName(simdType));
-        gtDispStmt(stmt);
+        compiler->gtDispStmt(m_firstStmt);
         printf("\n");
     }
 #endif
 
-    return true;
+    m_index = 0;
 }
 
 //------------------------------------------------------------------------

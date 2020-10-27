@@ -4930,8 +4930,27 @@ private:
                                           var_types* baseTypeOut,
                                           unsigned*  indexOut,
                                           unsigned*  simdSizeOut);
-    bool fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt);
     void impMarkContiguousSIMDFieldAssignments(Statement* stmt);
+
+    class SIMDCoalescingBuffer
+    {
+        Statement* m_firstStmt;
+        Statement* m_lastStmt;
+        unsigned   m_index;
+
+    public:
+        SIMDCoalescingBuffer() : m_index(0)
+        {
+        }
+
+        bool Add(Compiler* compiler, BasicBlock* block, Statement* stmt);
+        void Coalesce(Compiler* compiler, BasicBlock* block);
+
+        void Clear()
+        {
+            m_index = 0;
+        }
+    };
 
     // fgPreviousCandidateSIMDFieldAsgStmt is only used for tracking previous simd field assignment
     // in function: Complier::impMarkContiguousSIMDFieldAssignments.

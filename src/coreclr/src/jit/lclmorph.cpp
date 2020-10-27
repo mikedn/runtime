@@ -1684,38 +1684,38 @@ void Compiler::fgMarkAddressExposedLocals()
 #endif // DEBUG
 
     LocalAddressVisitor visitor(this);
+#ifdef FEATURE_SIMD
+    SIMDCoalescingBuffer buffer;
+#endif
 
     for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
         // Make the current basic block address available globally
         compCurBB = block;
 
+#ifdef FEATURE_SIMD
+        buffer.Clear();
+#endif
+
         for (Statement* stmt : block->Statements())
         {
             visitor.VisitStmt(stmt);
-        }
 
 #ifdef FEATURE_SIMD
-        if (opts.OptimizationEnabled())
-        {
-            for (Statement* stmt : block->Statements())
+            if (opts.OptimizationEnabled() && buffer.Add(this, block, stmt))
             {
-                if (stmt->GetRootNode()->TypeIs(TYP_FLOAT) && stmt->GetRootNode()->OperIs(GT_ASG))
-                {
-                    if (fgMorphCombineSIMDFieldAssignments(block, stmt))
-                    {
-                        // Since we generated a new address node which didn't exist before,
-                        // we should expose this address manually here.
-                        // TODO-ADDR: Remove this when LocalAddressVisitor transforms all
-                        // local field access into LCL_FLDs, at that point we would be
-                        // combining 2 existing LCL_FLDs or 2 FIELDs that do not reference
-                        // a local and thus cannot result in a new address exposed local.
-                        visitor.VisitStmt(stmt);
-                    }
-                }
+                buffer.Coalesce(this, block);
+
+                // Since we generated a new address node which didn't exist before,
+                // we should expose this address manually here.
+                // TODO-ADDR: Remove this when LocalAddressVisitor transforms all
+                // local field access into LCL_FLDs, at that point we would be
+                // combining 2 existing LCL_FLDs or 2 FIELDs that do not reference
+                // a local and thus cannot result in a new address exposed local.
+                visitor.VisitStmt(stmt);
             }
-        }
 #endif
+        }
     }
 }
 
