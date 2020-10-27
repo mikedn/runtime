@@ -7497,7 +7497,7 @@ private:
     bool areLocalFieldsContiguous(GenTreeLclFld* first, GenTreeLclFld* second);
     bool areArrayElementsContiguous(GenTree* op1, GenTree* op2);
     bool areArgumentsContiguous(GenTree* op1, GenTree* op2);
-    GenTree* createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize);
+    void ChangeToSIMDIndir(GenTree* tree, var_types simdType);
 
     // check methodHnd to see if it is a SIMD method that is expanded as an intrinsic in the JIT.
     GenTree* impSIMDIntrinsic(OPCODE                opcode,

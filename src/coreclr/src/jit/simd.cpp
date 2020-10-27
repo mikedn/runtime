@@ -1532,23 +1532,9 @@ bool Compiler::areArgumentsContiguous(GenTree* op1, GenTree* op2)
     return false;
 }
 
-//--------------------------------------------------------------------------------------------------------
-// createAddressNodeForSIMDInit: Generate the address node if we want to intialize vector2, vector3 or vector4
-// from first argument's address.
+// Change a FIELD/INDEX node into a SIMD typed IND.
 //
-// Arguments:
-//      tree - GenTree*. This the tree node which is used to get the address for indir.
-//      simdsize - unsigned. This the simd vector size.
-//      arrayElementsCount - unsigned. This is used for generating the boundary check for array.
-//
-// Return value:
-//      return the address node.
-//
-// TODO-CQ:
-//      1. Currently just support for GT_FIELD and GT_INDEX, because we can only verify the GT_INDEX node or GT_Field
-//         are located contiguously or not. In future we should support more cases.
-//
-GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize)
+void Compiler::ChangeToSIMDIndir(GenTree* tree, var_types simdType)
 {
     assert(tree->OperGet() == GT_FIELD || tree->OperGet() == GT_INDEX);
     GenTree*  byrefNode = nullptr;
@@ -1598,7 +1584,7 @@ GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize
         // The length for boundary check should be the maximum index number which should be
         // (first argument's index number) + (how many array arguments we have) - 1
         // = indexVal + arrayElementsCount - 1
-        unsigned arrayElementsCount  = simdSize / genTypeSize(baseType);
+        unsigned arrayElementsCount  = varTypeSize(simdType) / varTypeSize(baseType);
         checkIndexExpr               = new (this, GT_CNS_INT) GenTreeIntCon(TYP_INT, indexVal + arrayElementsCount - 1);
         GenTreeArrLen*    arrLen     = gtNewArrLen(TYP_INT, arrayRef, (int)OFFSETOF__CORINFO_Array__length, compCurBB);
         GenTreeBoundsChk* arrBndsChk = new (this, GT_ARR_BOUNDS_CHECK)
@@ -1611,8 +1597,10 @@ GenTree* Compiler::createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize
     {
         unreached();
     }
-    GenTree* address = gtNewOperNode(GT_ADD, TYP_BYREF, byrefNode, gtNewIconNode(offset, TYP_I_IMPL));
-    return address;
+
+    tree->ChangeOper(GT_IND);
+    tree->SetType(simdType);
+    tree->AsIndir()->SetAddr(gtNewOperNode(GT_ADD, TYP_BYREF, byrefNode, gtNewIconNode(offset, TYP_I_IMPL)));
 }
 
 //--------------------------------------------------------------------------------------------------------------
@@ -1861,7 +1849,7 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
     }
     else
     {
-        dstNode = gtNewOperNode(GT_IND, simdType, createAddressNodeForSIMDInit(asg->GetOp(0), simdSize));
+        ChangeToSIMDIndir(dstNode, simdType);
     }
 
     stmt->SetRootNode(gtNewAssignNode(dstNode, simdStructNode));
@@ -2089,11 +2077,9 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
             if (areArgsContiguous)
             {
-                // Since Vector2, Vector3 and Vector4's arguments type are only float,
-                // we intialize the vector from first argument address, only when
-                // the baseType is TYP_FLOAT and the arguments are located contiguously in memory
-                GenTree* op2Address = createAddressNodeForSIMDInit(args[0], size);
-                simdTree            = gtNewOperNode(GT_IND, simdType, op2Address);
+                ChangeToSIMDIndir(args[0], simdType);
+
+                simdTree = args[0];
 
                 if (op1->AsOp()->gtOp1->OperIsLocal())
                 {
