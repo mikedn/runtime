@@ -1488,7 +1488,8 @@ bool Compiler::areArrayElementsContiguous(GenTree* op1, GenTree* op2)
     if ((op1IndexNode->OperGet() == GT_CNS_INT && op2IndexNode->OperGet() == GT_CNS_INT) &&
         op1IndexNode->AsIntCon()->gtIconVal + 1 == op2IndexNode->AsIntCon()->gtIconVal)
     {
-        if (op1ArrayRef->OperGet() == GT_FIELD && op2ArrayRef->OperGet() == GT_FIELD &&
+        if (op1ArrayRef->OperIs(GT_FIELD) && op2ArrayRef->OperIs(GT_FIELD) &&
+            (op1ArrayRef->AsField()->GetFieldHandle() == op2ArrayRef->AsField()->GetFieldHandle()) &&
             areFieldsParentsLocatedSame(op1ArrayRef, op2ArrayRef))
         {
             return true;
