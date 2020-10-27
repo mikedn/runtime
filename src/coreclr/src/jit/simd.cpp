@@ -1532,11 +1532,28 @@ bool Compiler::areArgumentsContiguous(GenTree* op1, GenTree* op2)
     return false;
 }
 
-// Change a FIELD/INDEX node into a SIMD typed IND.
+// Change a FIELD/INDEX/LCL_FLD node into a SIMD typed IND/LCL_FLD.
 //
-void Compiler::ChangeToSIMDIndir(GenTree* tree, var_types simdType)
+void Compiler::ChangeToSIMDMem(GenTree* tree, var_types simdType)
 {
-    assert(tree->OperGet() == GT_FIELD || tree->OperGet() == GT_INDEX);
+    if (tree->OperIs(GT_LCL_FLD))
+    {
+        tree->SetType(simdType);
+        tree->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+
+        // This may have changed a partial local field into full local field
+        if (tree->IsPartialLclFld(this))
+        {
+            tree->gtFlags |= GTF_VAR_USEASG;
+        }
+        else
+        {
+            tree->gtFlags &= ~GTF_VAR_USEASG;
+        }
+
+        return;
+    }
+
     GenTree*  byrefNode = nullptr;
     unsigned  offset    = 0;
     var_types baseType  = tree->gtType;
@@ -1832,25 +1849,7 @@ void Compiler::fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* 
 
     GenTree* dstNode = asg->GetOp(0);
 
-    if (dstNode->OperIs(GT_LCL_FLD))
-    {
-        dstNode->SetType(simdType);
-        dstNode->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-
-        // This may have changed a partial local field into full local field
-        if (dstNode->IsPartialLclFld(this))
-        {
-            dstNode->gtFlags |= GTF_VAR_USEASG;
-        }
-        else
-        {
-            dstNode->gtFlags &= ~GTF_VAR_USEASG;
-        }
-    }
-    else
-    {
-        ChangeToSIMDIndir(dstNode, simdType);
-    }
+    ChangeToSIMDMem(dstNode, simdType);
 
     stmt->SetRootNode(gtNewAssignNode(dstNode, simdStructNode));
 
@@ -2077,7 +2076,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
             if (areArgsContiguous)
             {
-                ChangeToSIMDIndir(args[0], simdType);
+                ChangeToSIMDMem(args[0], simdType);
 
                 simdTree = args[0];
 
