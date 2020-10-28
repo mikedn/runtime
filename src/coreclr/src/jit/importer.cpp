@@ -9560,6 +9560,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
 #endif // FEATURE_ON_STACK_REPLACEMENT
 
+#ifdef FEATURE_SIMD
+    fgPreviousCandidateSIMDFieldAsgStmt = nullptr;
+#endif
+
     /* Walk the opcodes that comprise the basic block */
 
     const BYTE* codeAddr = info.compCode + block->bbCodeOffs;
