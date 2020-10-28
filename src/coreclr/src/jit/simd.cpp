@@ -1620,129 +1620,97 @@ void Compiler::ChangeToSIMDMem(GenTree* tree, var_types simdType)
     tree->AsIndir()->SetAddr(gtNewOperNode(GT_ADD, TYP_BYREF, byrefNode, gtNewIconNode(offset, TYP_I_IMPL)));
 }
 
-//--------------------------------------------------------------------------------------------------------------
-// getSIMDStructFromField:
-//   Checking whether the field belongs to a simd struct or not. If it is, return the GenTree* for
-//   the struct node, also base type, field index and simd size. If it is not, just return  nullptr.
-//
-// Arguments:
-//       tree - GentreePtr. This node will be checked to see this is a field which belongs to a simd
-//               struct used for simd intrinsic or not.
-//       pBaseTypeOut - var_types pointer, if the tree node is the tree we want, we set *pBaseTypeOut
-//                      to simd lclvar's base type.
-//       indexOut - unsigned pointer, if the tree is used for simd intrinsic, we will set *indexOut
-//                  equals to the index number of this field.
-//       simdSizeOut - unsigned pointer, if the tree is used for simd intrinsic, set the *simdSizeOut
-//                     equals to the simd struct size which this tree belongs to.
-//
-// return value:
-//       A GenTree* which points the simd lclvar tree belongs to. If the tree is not the simd
-//       instrinic related field, return nullptr.
-//
-GenTreeLclVar* Compiler::getSIMDStructFromField(GenTree*   tree,
-                                                var_types* pBaseTypeOut,
-                                                unsigned*  indexOut,
-                                                unsigned*  simdSizeOut)
+void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, BasicBlock* block, Statement* stmt)
 {
-    if (!tree->OperIs(GT_FIELD))
+    auto IsSIMDField = [](GenTree* node, unsigned index) -> GenTreeLclVar* {
+        if (!node->OperIs(GT_FIELD) || !node->TypeIs(TYP_FLOAT))
+        {
+            return nullptr;
+        }
+
+        if (node->AsField()->GetOffset() != index * varTypeSize(TYP_FLOAT))
+        {
+            return nullptr;
+        }
+
+        GenTree* addr = node->AsField()->GetAddr();
+
+        if ((addr == nullptr) || !addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+        {
+            return nullptr;
+        }
+
+        GenTreeLclVar* lclVar = addr->AsUnOp()->GetOp(0)->AsLclVar();
+
+        if (!varTypeIsSIMD(lclVar->GetType()))
+        {
+            return nullptr;
+        }
+
+        return lclVar;
+    };
+
+    GenTree* asg = stmt->GetRootNode();
+
+    if (!asg->TypeIs(TYP_FLOAT) || !asg->OperIs(GT_ASG))
     {
-        return nullptr;
-    }
-
-    GenTree* addr = tree->AsField()->GetAddr();
-
-    if ((addr == nullptr) || !addr->OperIs(GT_ADDR))
-    {
-        return nullptr;
-    }
-
-    GenTree* obj = addr->AsUnOp()->GetOp(0);
-
-    if (!obj->OperIs(GT_LCL_VAR) || !varTypeIsSIMD(obj->GetType()))
-    {
-        return nullptr;
-    }
-
-    LclVarDsc* lcl = lvaGetDesc(obj->AsLclVar());
-
-    *simdSizeOut  = lcl->lvExactSize;
-    *pBaseTypeOut = lcl->GetSIMDBaseType();
-    *indexOut     = tree->AsField()->GetOffset() / varTypeSize(*pBaseTypeOut);
-
-    return obj->AsLclVar();
-}
-
-//-------------------------------------------------------------------------------
-// impMarkContiguousSIMDFieldAssignments: Try to identify if there are contiguous
-// assignments from SIMD field to memory. If there are, then mark the related
-// lclvar so that it won't be promoted.
-//
-// Arguments:
-//      stmt - GenTree*. Input statement node.
-
-void Compiler::impMarkContiguousSIMDFieldAssignments(Statement* stmt)
-{
-    if (!featureSIMD || opts.OptimizationDisabled())
-    {
+        Clear();
         return;
     }
-    GenTree* expr = stmt->GetRootNode();
-    if (expr->OperGet() == GT_ASG && expr->TypeGet() == TYP_FLOAT)
-    {
-        GenTree*       curDst            = expr->AsOp()->gtOp1;
-        GenTree*       curSrc            = expr->AsOp()->gtOp2;
-        unsigned       index             = 0;
-        var_types      baseType          = TYP_UNKNOWN;
-        unsigned       simdSize          = 0;
-        GenTreeLclVar* srcSimdStructNode = getSIMDStructFromField(curSrc, &baseType, &index, &simdSize);
-        if ((srcSimdStructNode == nullptr) || baseType != TYP_FLOAT)
-        {
-            fgPreviousCandidateSIMDFieldAsgStmt = nullptr;
-        }
-        else if (index == 0)
-        {
-            fgPreviousCandidateSIMDFieldAsgStmt = stmt;
-        }
-        else if (fgPreviousCandidateSIMDFieldAsgStmt != nullptr)
-        {
-            assert(index > 0);
-            GenTree* prevAsgExpr = fgPreviousCandidateSIMDFieldAsgStmt->GetRootNode();
-            GenTree* prevDst     = prevAsgExpr->AsOp()->gtOp1;
-            GenTree* prevSrc     = prevAsgExpr->AsOp()->gtOp2;
-            if (!areArgumentsContiguous(prevDst, curDst) || !areArgumentsContiguous(prevSrc, curSrc))
-            {
-                fgPreviousCandidateSIMDFieldAsgStmt = nullptr;
-            }
-            else
-            {
-                if (index == (simdSize / genTypeSize(baseType) - 1))
-                {
-                    // Successfully found the pattern, mark the lclvar as UsedInSIMDIntrinsic
-                    setLclRelatedToSIMDIntrinsic(srcSimdStructNode);
 
-                    if (curDst->OperGet() == GT_FIELD)
-                    {
-                        GenTree* objRef = curDst->AsField()->gtFldObj;
-                        if (objRef != nullptr && objRef->gtOper == GT_ADDR)
-                        {
-                            GenTree* obj = objRef->AsOp()->gtOp1;
-                            if (varTypeIsStruct(obj) && obj->OperIsLocal())
-                            {
-                                setLclRelatedToSIMDIntrinsic(obj);
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    fgPreviousCandidateSIMDFieldAsgStmt = stmt;
-                }
+    GenTreeLclVar* simdLclVar = IsSIMDField(asg->AsOp()->GetOp(1), m_index);
+
+    if (simdLclVar == nullptr)
+    {
+        Clear();
+        return;
+    }
+
+    if (m_index == 0)
+    {
+        m_firstStmt = stmt;
+        m_lastStmt  = stmt;
+        m_lclNum    = simdLclVar->GetLclNum();
+        m_index++;
+        return;
+    }
+
+    if (simdLclVar->GetLclNum() != m_lclNum)
+    {
+        Clear();
+        return;
+    }
+
+    GenTreeOp* lastAsg = m_lastStmt->GetRootNode()->AsOp();
+
+    if (!compiler->areArgumentsContiguous(lastAsg->GetOp(0), asg->AsOp()->GetOp(0)))
+    {
+        Clear();
+        return;
+    }
+
+    m_lastStmt = stmt;
+    m_index++;
+
+    LclVarDsc* simdLcl = compiler->lvaGetDesc(simdLclVar);
+
+    if (m_index == varTypeSize(simdLcl->GetType()) / varTypeSize(simdLcl->GetSIMDBaseType()))
+    {
+        compiler->setLclRelatedToSIMDIntrinsic(simdLclVar);
+
+        GenTree* dest = asg->AsOp()->GetOp(0);
+
+        if (GenTreeField* field = dest->IsField())
+        {
+            GenTree* addr = field->GetAddr();
+
+            if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIsLocal())
+            {
+                compiler->setLclRelatedToSIMDIntrinsic(addr->AsUnOp()->GetOp(0));
             }
         }
-    }
-    else
-    {
-        fgPreviousCandidateSIMDFieldAsgStmt = nullptr;
+
+        m_index = 0;
     }
 }
 
@@ -1785,19 +1753,18 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, BasicBlock* block, 
     {
         m_firstStmt = stmt;
         m_lastStmt  = stmt;
+        m_lclNum    = getItem->GetOp(0)->AsLclVar()->GetLclNum();
         m_index++;
         return false;
     }
 
-    GenTreeOp*     lastAsg        = m_lastStmt->GetRootNode()->AsOp();
-    GenTreeSIMD*   lastGetItem    = lastAsg->GetOp(1)->AsSIMD();
-    GenTreeLclVar* lastSimdLclVar = lastGetItem->GetOp(0)->AsLclVar();
-
-    if (lastSimdLclVar->GetLclNum() != getItem->GetOp(0)->AsLclVar()->GetLclNum())
+    if (getItem->GetOp(0)->AsLclVar()->GetLclNum() != m_lclNum)
     {
         Clear();
         return false;
     }
+
+    GenTreeOp* lastAsg = m_lastStmt->GetRootNode()->AsOp();
 
     if (!compiler->areArgumentsContiguous(lastAsg->GetOp(0), asg->AsOp()->GetOp(0)))
     {
@@ -1808,7 +1775,7 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, BasicBlock* block, 
     m_lastStmt = stmt;
     m_index++;
 
-    return m_index == getItem->GetSIMDSize() / varTypeSize(getItem->GetSIMDBaseType());
+    return m_index == getItem->GetSIMDSize() / varTypeSize(TYP_FLOAT);
 }
 
 void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)

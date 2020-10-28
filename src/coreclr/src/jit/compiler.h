@@ -4926,16 +4926,11 @@ private:
     static MorphAddrContext s_CopyBlockMAC;
 
 #ifdef FEATURE_SIMD
-    GenTreeLclVar* getSIMDStructFromField(GenTree*   tree,
-                                          var_types* baseTypeOut,
-                                          unsigned*  indexOut,
-                                          unsigned*  simdSizeOut);
-    void impMarkContiguousSIMDFieldAssignments(Statement* stmt);
-
     class SIMDCoalescingBuffer
     {
         Statement* m_firstStmt;
         Statement* m_lastStmt;
+        unsigned   m_lclNum;
         unsigned   m_index;
 
     public:
@@ -4943,6 +4938,7 @@ private:
         {
         }
 
+        void Mark(Compiler* compiler, BasicBlock* block, Statement* stmt);
         bool Add(Compiler* compiler, BasicBlock* block, Statement* stmt);
         void Coalesce(Compiler* compiler, BasicBlock* block);
 
@@ -4952,11 +4948,9 @@ private:
         }
     };
 
-    // fgPreviousCandidateSIMDFieldAsgStmt is only used for tracking previous simd field assignment
-    // in function: Complier::impMarkContiguousSIMDFieldAssignments.
-    Statement* fgPreviousCandidateSIMDFieldAsgStmt;
-
+    SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
 #endif // FEATURE_SIMD
+
     GenTree* fgMorphArrayIndex(GenTree* tree);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
