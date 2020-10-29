@@ -1433,6 +1433,7 @@ bool Compiler::areFieldsContiguous(GenTree* first, GenTree* second)
     unsigned firstFieldEndOffset = first->AsField()->gtFldOffset + genTypeSize(firstFieldType);
     unsigned secondFieldOffset   = second->AsField()->gtFldOffset;
     if (firstFieldEndOffset == secondFieldOffset && firstFieldType == secondFieldType &&
+        !first->AsField()->IsVolatile() && !second->AsField()->IsVolatile() &&
         areFieldsParentsLocatedSame(first, second))
     {
         return true;
@@ -1560,6 +1561,8 @@ void Compiler::ChangeToSIMDMem(GenTree* tree, var_types simdType)
 
     if (tree->OperGet() == GT_FIELD)
     {
+        assert(!tree->AsField()->IsVolatile());
+
         GenTree* objRef = tree->AsField()->gtFldObj;
         if (objRef != nullptr && objRef->gtOper == GT_ADDR)
         {
@@ -1626,6 +1629,15 @@ GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDField(GenTree* node)
 {
     if (!node->OperIs(GT_FIELD))
     {
+        return nullptr;
+    }
+
+    if (node->AsField()->IsVolatile())
+    {
+        // It probably doesn't make sense to coalesce volatile fields. Anyway LocalAddressVisitor
+        // doesn't generate SIMDIntrinsicGetItem out of a volatile field and ChangeToSIMDMem does
+        // not bother to make the indir it creates volatile...
+
         return nullptr;
     }
 
