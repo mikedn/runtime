@@ -4933,13 +4933,18 @@ private:
         unsigned   m_lclNum;
         unsigned   m_index;
 
+        GenTreeLclVar* IsSIMDField(GenTree* node);
+        GenTreeLclVar* IsSIMDGetItem(GenTree* node);
+
+        bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, GenTreeLclVar* simdLclVar);
+
     public:
         SIMDCoalescingBuffer() : m_index(0)
         {
         }
 
-        void Mark(Compiler* compiler, BasicBlock* block, Statement* stmt);
-        bool Add(Compiler* compiler, BasicBlock* block, Statement* stmt);
+        void Mark(Compiler* compiler, Statement* stmt);
+        bool Add(Compiler* compiler, Statement* stmt);
         void Coalesce(Compiler* compiler, BasicBlock* block);
 
         void Clear()

@@ -1702,7 +1702,7 @@ void Compiler::fgMarkAddressExposedLocals()
             visitor.VisitStmt(stmt);
 
 #ifdef FEATURE_SIMD
-            if (opts.OptimizationEnabled() && buffer.Add(this, block, stmt))
+            if (opts.OptimizationEnabled() && buffer.Add(this, stmt))
             {
                 buffer.Coalesce(this, block);
 

@@ -489,7 +489,7 @@ inline void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
 #ifdef FEATURE_SIMD
     if (opts.OptimizationEnabled() && featureSIMD)
     {
-        m_impSIMDCoalescingBuffer.Mark(this, compCurBB, stmt);
+        m_impSIMDCoalescingBuffer.Mark(this, stmt);
     }
 #endif
 

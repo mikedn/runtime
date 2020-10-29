@@ -1620,50 +1620,71 @@ void Compiler::ChangeToSIMDMem(GenTree* tree, var_types simdType)
     tree->AsIndir()->SetAddr(gtNewOperNode(GT_ADD, TYP_BYREF, byrefNode, gtNewIconNode(offset, TYP_I_IMPL)));
 }
 
-void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, BasicBlock* block, Statement* stmt)
+// Recognize a field of a SIMD local variable (Vector2/3/4 fields).
+//
+GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDField(GenTree* node)
 {
-    auto IsSIMDField = [](GenTree* node, unsigned index) -> GenTreeLclVar* {
-        if (!node->OperIs(GT_FIELD) || !node->TypeIs(TYP_FLOAT))
-        {
-            return nullptr;
-        }
-
-        if (node->AsField()->GetOffset() != index * varTypeSize(TYP_FLOAT))
-        {
-            return nullptr;
-        }
-
-        GenTree* addr = node->AsField()->GetAddr();
-
-        if ((addr == nullptr) || !addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
-        {
-            return nullptr;
-        }
-
-        GenTreeLclVar* lclVar = addr->AsUnOp()->GetOp(0)->AsLclVar();
-
-        if (!varTypeIsSIMD(lclVar->GetType()))
-        {
-            return nullptr;
-        }
-
-        return lclVar;
-    };
-
-    GenTree* asg = stmt->GetRootNode();
-
-    if (!asg->TypeIs(TYP_FLOAT) || !asg->OperIs(GT_ASG))
+    if (!node->OperIs(GT_FIELD))
     {
-        Clear();
-        return;
+        return nullptr;
     }
 
-    GenTreeLclVar* simdLclVar = IsSIMDField(asg->AsOp()->GetOp(1), m_index);
+    if (node->AsField()->GetOffset() != m_index * varTypeSize(TYP_FLOAT))
+    {
+        return nullptr;
+    }
 
+    GenTree* addr = node->AsField()->GetAddr();
+
+    if ((addr == nullptr) || !addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+    {
+        return nullptr;
+    }
+
+    GenTreeLclVar* lclVar = addr->AsUnOp()->GetOp(0)->AsLclVar();
+
+    if (!varTypeIsSIMD(lclVar->GetType()))
+    {
+        return nullptr;
+    }
+
+    assert(node->TypeIs(TYP_FLOAT));
+
+    return lclVar;
+}
+
+// Recognize a SIMDIntrinsicGetItem that uses a SIMD local variable.
+//
+GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDGetItem(GenTree* node)
+{
+    if (!node->OperIs(GT_SIMD))
+    {
+        return nullptr;
+    }
+
+    GenTreeSIMD* getItem = node->AsSIMD();
+
+    if ((getItem->GetIntrinsic() != SIMDIntrinsicGetItem) || !getItem->GetOp(0)->OperIs(GT_LCL_VAR) ||
+        !getItem->GetOp(1)->IsIntegralConst(m_index))
+    {
+        return nullptr;
+    }
+
+    assert(getItem->GetSIMDBaseType() == TYP_FLOAT);
+    assert(getItem->TypeIs(TYP_FLOAT));
+
+    return getItem->GetOp(0)->AsLclVar();
+};
+
+// Try to add an assignment statement to the coalescing buffer (common code for Add and Mark).
+// Return true if the statment is added and the number of statements in the buffer equals the number of SIMD elements.
+//
+bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, GenTreeLclVar* simdLclVar)
+{
     if (simdLclVar == nullptr)
     {
         Clear();
-        return;
+        return false;
     }
 
     if (m_index == 0)
@@ -1672,13 +1693,13 @@ void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, BasicBlock* block,
         m_lastStmt  = stmt;
         m_lclNum    = simdLclVar->GetLclNum();
         m_index++;
-        return;
+        return false;
     }
 
     if (simdLclVar->GetLclNum() != m_lclNum)
     {
         Clear();
-        return;
+        return false;
     }
 
     GenTreeOp* lastAsg = m_lastStmt->GetRootNode()->AsOp();
@@ -1686,53 +1707,75 @@ void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, BasicBlock* block,
     if (!compiler->areArgumentsContiguous(lastAsg->GetOp(0), asg->AsOp()->GetOp(0)))
     {
         Clear();
-        return;
+        return false;
     }
 
     m_lastStmt = stmt;
     m_index++;
 
-    LclVarDsc* simdLcl = compiler->lvaGetDesc(simdLclVar);
-
-    if (m_index == varTypeSize(simdLcl->GetType()) / varTypeSize(simdLcl->GetSIMDBaseType()))
-    {
-        compiler->setLclRelatedToSIMDIntrinsic(simdLclVar);
-
-        GenTree* dest = asg->AsOp()->GetOp(0);
-
-        if (GenTreeField* field = dest->IsField())
-        {
-            GenTree* addr = field->GetAddr();
-
-            if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIsLocal())
-            {
-                compiler->setLclRelatedToSIMDIntrinsic(addr->AsUnOp()->GetOp(0));
-            }
-        }
-
-        m_index = 0;
-    }
+    return (m_index == varTypeSize(compiler->lvaGetDesc(simdLclVar)->GetType()) / varTypeSize(TYP_FLOAT));
 }
 
-bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, BasicBlock* block, Statement* stmt)
+// Mark local variables that may be subject to SIMD coalescing to prevent struct promotion.
+//
+// TODO-MIKE-Cleanup: It's unfortunate that we need to do SIMD coalescing in two steps: first mark
+// locals that are subject to coalescing, to prevent struct promotion, and then actually do coalescing.
+// In general phase ordering in this area is messy and it's likely better to be:
+//     - import (no SIMD coalescing marking)
+//     - other unrelated phases (e.g. inlining)
+//     - "local address visitor" - convert every (recognized) indirect local access to LCL_VAR/LCL_FLD
+//       and record some information to help guide struct promotion (though it's questionable if this
+//       phase needs to exist at all, most of it can be done during import and it's really importer's
+//       job to deal with issues arising from unfortunate IL characteristics)
+//     - struct promotion + implicit byref params + DNER marking
+//     - SIMD coalescing (likely done during the same flow graph traversal as struct promotion)
+//     - global morph
+//
+// That said, SIMD coalescing (or any other kind of memory coalescing) is better done in lowering,
+// doing it in the frontend interferes with VN and anything it depends on it. Unfortunately after
+// global morph it's more difficult to recognize contiguous memory locations because INDEX gets
+// expanded into more complex trees. But then the coalescing code only recognizes constant array
+// indices and COMMAs aren't present in LIR so probably there's not much difference.
+//
+void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
 {
-    auto IsSIMDGetItem = [](GenTree* node, unsigned index) -> GenTreeSIMD* {
-        if (!node->OperIs(GT_SIMD))
+    GenTree* asg = stmt->GetRootNode();
+
+    if (!asg->TypeIs(TYP_FLOAT) || !asg->OperIs(GT_ASG))
+    {
+        Clear();
+        return;
+    }
+
+    GenTreeLclVar* simdLclVar = IsSIMDField(asg->AsOp()->GetOp(1));
+
+    if (!Add(compiler, stmt, asg->AsOp(), simdLclVar))
+    {
+        return;
+    }
+
+    compiler->setLclRelatedToSIMDIntrinsic(simdLclVar);
+
+    GenTree* dest = asg->AsOp()->GetOp(0);
+
+    if (GenTreeField* field = dest->IsField())
+    {
+        GenTree* addr = field->GetAddr();
+
+        if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIsLocal())
         {
-            return nullptr;
+            compiler->setLclRelatedToSIMDIntrinsic(addr->AsUnOp()->GetOp(0));
         }
+    }
 
-        GenTreeSIMD* getItem = node->AsSIMD();
+    Clear();
+}
 
-        if ((getItem->GetIntrinsic() != SIMDIntrinsicGetItem) || (getItem->GetSIMDBaseType() != TYP_FLOAT) ||
-            !getItem->GetOp(0)->OperIs(GT_LCL_VAR) || !getItem->GetOp(1)->IsIntegralConst(index))
-        {
-            return nullptr;
-        }
-
-        return getItem;
-    };
-
+// Try to add an assignment statement to the coalescing buffer.
+// Return true if the statment is added and the number of statements in the buffer equals the number of SIMD elements.
+//
+bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
+{
     GenTree* asg = stmt->GetRootNode();
 
     if (!asg->TypeIs(TYP_FLOAT) || !asg->OperIs(GT_ASG))
@@ -1741,43 +1784,14 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, BasicBlock* block, 
         return false;
     }
 
-    GenTreeSIMD* getItem = IsSIMDGetItem(asg->AsOp()->GetOp(1), m_index);
+    GenTreeLclVar* simdLclVar = IsSIMDGetItem(asg->AsOp()->GetOp(1));
 
-    if (getItem == nullptr)
-    {
-        Clear();
-        return false;
-    }
-
-    if (m_index == 0)
-    {
-        m_firstStmt = stmt;
-        m_lastStmt  = stmt;
-        m_lclNum    = getItem->GetOp(0)->AsLclVar()->GetLclNum();
-        m_index++;
-        return false;
-    }
-
-    if (getItem->GetOp(0)->AsLclVar()->GetLclNum() != m_lclNum)
-    {
-        Clear();
-        return false;
-    }
-
-    GenTreeOp* lastAsg = m_lastStmt->GetRootNode()->AsOp();
-
-    if (!compiler->areArgumentsContiguous(lastAsg->GetOp(0), asg->AsOp()->GetOp(0)))
-    {
-        Clear();
-        return false;
-    }
-
-    m_lastStmt = stmt;
-    m_index++;
-
-    return m_index == getItem->GetSIMDSize() / varTypeSize(TYP_FLOAT);
+    return Add(compiler, stmt, asg->AsOp(), simdLclVar);
 }
 
+// Transform the first assignment in the buffer into a SIMD assignment
+// and remove the rest of the statements from the block.
+//
 void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
 {
     assert(m_index > 1);
@@ -1816,7 +1830,7 @@ void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* bl
     }
 #endif
 
-    m_index = 0;
+    Clear();
 }
 
 //------------------------------------------------------------------------
