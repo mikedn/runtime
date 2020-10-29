@@ -1260,6 +1260,11 @@ inline GenTreeArrLen* Compiler::gtNewArrLen(var_types typ, GenTree* arrayOp, int
     return arrLen;
 }
 
+inline GenTreeBoundsChk* Compiler::gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind)
+{
+    return new (this, GT_ARR_BOUNDS_CHECK) GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, length, kind);
+}
+
 //------------------------------------------------------------------------------
 // gtNewIndir : Helper to create an indirection node.
 //

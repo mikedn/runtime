@@ -2171,6 +2171,7 @@ public:
     GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
 
     GenTreeArrLen* gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset, BasicBlock* block);
+    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
 
     GenTree* gtNewIndir(var_types typ, GenTree* addr);
 
@@ -4944,6 +4945,7 @@ private:
         }
 
         static bool AreContiguousMemoryLocations(GenTree* l1, GenTree* l2);
+        static void ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType);
 
         void Mark(Compiler* compiler, Statement* stmt);
         bool Add(Compiler* compiler, Statement* stmt);
@@ -7512,7 +7514,6 @@ private:
 #endif // defined(TARGET_XARCH)
 
     void setLclRelatedToSIMDIntrinsic(GenTree* tree);
-    void ChangeToSIMDMem(GenTree* tree, var_types simdType);
 
     // check methodHnd to see if it is a SIMD method that is expanded as an intrinsic in the JIT.
     GenTree* impSIMDIntrinsic(OPCODE                opcode,

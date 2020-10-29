@@ -1448,15 +1448,17 @@ bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, G
 
 // Change a FIELD/INDEX/LCL_FLD node into a SIMD typed IND/LCL_FLD.
 //
-void Compiler::ChangeToSIMDMem(GenTree* tree, var_types simdType)
+void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType)
 {
+    assert(tree->TypeIs(TYP_FLOAT));
+
     if (tree->OperIs(GT_LCL_FLD))
     {
         tree->SetType(simdType);
         tree->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
 
         // This may have changed a partial local field into full local field
-        if (tree->IsPartialLclFld(this))
+        if (tree->IsPartialLclFld(compiler))
         {
             tree->gtFlags |= GTF_VAR_USEASG;
         }
@@ -1468,72 +1470,70 @@ void Compiler::ChangeToSIMDMem(GenTree* tree, var_types simdType)
         return;
     }
 
-    GenTree*  byrefNode = nullptr;
-    unsigned  offset    = 0;
-    var_types baseType  = tree->gtType;
+    GenTree* addr   = nullptr;
+    unsigned offset = 0;
 
-    if (tree->OperGet() == GT_FIELD)
+    if (GenTreeField* field = tree->IsField())
     {
         assert(!tree->AsField()->IsVolatile());
 
-        GenTree* objRef = tree->AsField()->gtFldObj;
-        if (objRef != nullptr && objRef->gtOper == GT_ADDR)
-        {
-            GenTree* obj = objRef->AsOp()->gtOp1;
+        addr   = field->GetAddr();
+        offset = field->GetOffset();
 
-            // If the field is directly from a struct, then in this case,
-            // we should set this struct's lvUsedInSIMDIntrinsic as true,
-            // so that this sturct won't be promoted.
-            // e.g. s.x x is a field, and s is a struct, then we should set the s's lvUsedInSIMDIntrinsic as true.
-            // so that s won't be promoted.
-            // Notice that if we have a case like s1.s2.x. s1 s2 are struct, and x is a field, then it is possible that
-            // s1 can be promoted, so that s2 can be promoted. The reason for that is if we don't allow s1 to be
-            // promoted, then this will affect the other optimizations which are depend on s1's struct promotion.
-            // TODO-CQ:
-            //  In future, we should optimize this case so that if there is a nested field like s1.s2.x and s1.s2.x's
-            //  address is used for initializing the vector, then s1 can be promoted but s2 can't.
-            if (varTypeIsSIMD(obj) && obj->OperIs(GT_LCL_VAR))
+        if (addr->OperIs(GT_ADDR))
+        {
+            GenTree* location = addr->AsUnOp()->GetOp(0);
+
+            // If this is the field of a local struct variable then set lvUsedInSIMDIntrinsic to prevent
+            // the local from being promoted. If it gets promoted then it will be dependent-promoted due
+            // to the indirection we're creating.
+
+            // TODO-MIKE-Cleanup: This is done only for SIMD locals but it really should be done for any
+            // struct local since the whole point is to block poor promotion.
+
+            if (varTypeIsSIMD(location->GetType()) && location->OperIs(GT_LCL_VAR))
             {
-                setLclRelatedToSIMDIntrinsic(obj);
+                compiler->setLclRelatedToSIMDIntrinsic(location);
             }
         }
 
-        byrefNode = gtCloneExpr(tree->AsField()->gtFldObj);
-        assert(byrefNode != nullptr);
-        offset = tree->AsField()->gtFldOffset;
+        // TODO-MIKE-Fix: This code replaces FIELD with and ADD(addr, offset) without adding
+        // a NULLCHECK when the field offset is large enough to require it. It's not worth
+        // fixing this until FIELD is replaced by FIELD_ADDR, otherwise we need to add ADDR
+        // on top of the existing FIELD and then use that as the address of the indir.
     }
-    else if (tree->OperGet() == GT_INDEX)
+    else if (GenTreeIndex* element = tree->IsIndex())
     {
+        GenTree* array = element->GetArray();
+        unsigned index = static_cast<unsigned>(element->GetIndex()->AsIntCon()->GetValue());
 
-        GenTree* index = tree->AsIndex()->GetIndex();
-        assert(index->OperGet() == GT_CNS_INT);
+        // Generate a bounds check for the array access. We access multiple array elements but for
+        // bounds checking purposes it's sufficient to check if the last element index is valid,
+        // then all the element indices before it will also be valid.
 
-        GenTree* checkIndexExpr = nullptr;
-        unsigned indexVal       = (unsigned)(index->AsIntCon()->gtIconVal);
-        offset                  = indexVal * genTypeSize(tree->TypeGet());
-        GenTree* arrayRef       = tree->AsIndex()->GetArray();
+        unsigned simdElementCount = varTypeSize(simdType) / varTypeSize(TYP_FLOAT);
 
-        // Generate the boundary check exception.
-        // The length for boundary check should be the maximum index number which should be
-        // (first argument's index number) + (how many array arguments we have) - 1
-        // = indexVal + arrayElementsCount - 1
-        unsigned arrayElementsCount  = varTypeSize(simdType) / varTypeSize(baseType);
-        checkIndexExpr               = new (this, GT_CNS_INT) GenTreeIntCon(TYP_INT, indexVal + arrayElementsCount - 1);
-        GenTreeArrLen*    arrLen     = gtNewArrLen(TYP_INT, arrayRef, (int)OFFSETOF__CORINFO_Array__length, compCurBB);
-        GenTreeBoundsChk* arrBndsChk = new (this, GT_ARR_BOUNDS_CHECK)
-            GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, checkIndexExpr, arrLen, SCK_RNGCHK_FAIL);
+        GenTree* lastIndex = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
+        GenTree* arrLen = compiler->gtNewArrLen(TYP_INT, compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length,
+                                                compiler->compCurBB);
+        GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL);
 
-        offset += OFFSETOF__CORINFO_Array__data;
-        byrefNode = gtNewOperNode(GT_COMMA, arrayRef->TypeGet(), arrBndsChk, gtCloneExpr(arrayRef));
+        addr   = compiler->gtNewOperNode(GT_COMMA, array->GetType(), arrBndsChk, array);
+        offset = OFFSETOF__CORINFO_Array__data + index * varTypeSize(TYP_FLOAT);
     }
     else
     {
         unreached();
     }
 
+    if (offset != 0)
+    {
+        addr = compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, compiler->gtNewIconNode(offset, TYP_I_IMPL));
+    }
+
     tree->ChangeOper(GT_IND);
     tree->SetType(simdType);
-    tree->AsIndir()->SetAddr(gtNewOperNode(GT_ADD, TYP_BYREF, byrefNode, gtNewIconNode(offset, TYP_I_IMPL)));
+    tree->AsIndir()->SetAddr(addr);
 }
 
 // Recognize a field of a SIMD local variable (Vector2/3/4 fields).
@@ -1743,7 +1743,7 @@ void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* bl
     }
 
     asg->SetType(simdType);
-    compiler->ChangeToSIMDMem(asg->GetOp(0), simdType);
+    ChangeToSIMDMem(compiler, asg->GetOp(0), simdType);
     asg->SetOp(1, getItem->GetOp(0)->AsLclVar());
 
 #ifdef DEBUG
@@ -1964,7 +1964,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
             if (areArgsContiguous)
             {
-                ChangeToSIMDMem(args[0], simdType);
+                SIMDCoalescingBuffer::ChangeToSIMDMem(this, args[0], simdType);
 
                 simdTree = args[0];
 
