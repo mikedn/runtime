@@ -4943,6 +4943,8 @@ private:
         {
         }
 
+        static bool AreContiguousMemoryLocations(GenTree* l1, GenTree* l2);
+
         void Mark(Compiler* compiler, Statement* stmt);
         bool Add(Compiler* compiler, Statement* stmt);
         void Coalesce(Compiler* compiler, BasicBlock* block);
@@ -7510,10 +7512,6 @@ private:
 #endif // defined(TARGET_XARCH)
 
     void setLclRelatedToSIMDIntrinsic(GenTree* tree);
-    bool areFieldsContiguous(GenTree* op1, GenTree* op2);
-    bool areLocalFieldsContiguous(GenTreeLclFld* first, GenTreeLclFld* second);
-    bool areArrayElementsContiguous(GenTree* op1, GenTree* op2);
-    bool areArgumentsContiguous(GenTree* op1, GenTree* op2);
     void ChangeToSIMDMem(GenTree* tree, var_types simdType);
 
     // check methodHnd to see if it is a SIMD method that is expanded as an intrinsic in the JIT.

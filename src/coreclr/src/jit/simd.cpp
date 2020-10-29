@@ -1361,176 +1361,89 @@ void Compiler::setLclRelatedToSIMDIntrinsic(GenTree* tree)
     lclVarDsc->lvUsedInSIMDIntrinsic = true;
 }
 
-//-------------------------------------------------------------
-// Check if two field nodes reference at the same memory location.
-// Notice that this check is just based on pattern matching.
-// Arguments:
-//      op1 - GenTree*.
-//      op2 - GenTree*.
-// Return Value:
-//    If op1's parents node and op2's parents node are at the same location, return true. Otherwise, return false
-
-bool areFieldsParentsLocatedSame(GenTree* op1, GenTree* op2)
+// Check whether two memory locations are contiguous.
+//
+// This recognizes trivial patterns such as FIELD(o, 4) & FIELD(o, 8) or INDEX(a, 1) & INDEX(a, 2).
+// Pointer arithmetic isn't recognized (and probably not very useful anyway) and in the case of
+// arrays only constant indices are recognized. Might be useful to also recognize i, i+1, i+2...
+// If the locations are determined to be adjacent this also implies that the trees are also free
+// of persistent side effects and they can be discarded. They may have exception side effects that
+// may need to be preserved - a[1] doesn't imply that a[2] is also a valid array element.
+//
+bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, GenTree* l2)
 {
-    assert(op1->OperGet() == GT_FIELD);
-    assert(op2->OperGet() == GT_FIELD);
-
-    GenTree* op1ObjRef = op1->AsField()->gtFldObj;
-    GenTree* op2ObjRef = op2->AsField()->gtFldObj;
-    while (op1ObjRef != nullptr && op2ObjRef != nullptr)
+    if ((l1->GetOper() != l2->GetOper()) || l1->TypeIs(TYP_STRUCT))
     {
+        return false;
+    }
 
-        if (op1ObjRef->OperGet() != op2ObjRef->OperGet())
+    auto AreValuesEqual = [](GenTree* v1, GenTree* v2) {
+        while ((v1 != nullptr) && (v2 != nullptr) && (v1->GetOper() == v2->GetOper()))
         {
+            if (v1->OperIs(GT_ADDR))
+            {
+                v1 = v1->AsUnOp()->GetOp(0);
+                v2 = v2->AsUnOp()->GetOp(0);
+
+                continue;
+            }
+
+            if (v1->OperIs(GT_FIELD))
+            {
+                if ((v1->AsField()->GetFieldHandle() == v2->AsField()->GetFieldHandle()) &&
+                    !v1->AsField()->IsVolatile() && !v2->AsField()->IsVolatile())
+                {
+                    v1 = v1->AsField()->GetAddr();
+                    v2 = v2->AsField()->GetAddr();
+
+                    continue;
+                }
+
+                return false;
+            }
+
+            if (v1->OperIs(GT_LCL_VAR))
+            {
+                return v1->AsLclVar()->GetLclNum() == v2->AsLclVar()->GetLclNum();
+            }
+
             break;
         }
-        else if (op1ObjRef->OperGet() == GT_ADDR)
-        {
-            op1ObjRef = op1ObjRef->AsOp()->gtOp1;
-            op2ObjRef = op2ObjRef->AsOp()->gtOp1;
-        }
 
-        if (op1ObjRef->OperIs(GT_LCL_VAR) && op2ObjRef->OperIsLocal(GT_LCL_VAR) &&
-            (op1ObjRef->AsLclVar()->GetLclNum() == op2ObjRef->AsLclVar()->GetLclNum()))
-        {
-            return true;
-        }
-        else if (op1ObjRef->OperGet() == GT_FIELD && op2ObjRef->OperGet() == GT_FIELD &&
-                 op1ObjRef->AsField()->gtFldHnd == op2ObjRef->AsField()->gtFldHnd)
-        {
-            op1ObjRef = op1ObjRef->AsField()->gtFldObj;
-            op2ObjRef = op2ObjRef->AsField()->gtFldObj;
-            continue;
-        }
-        else
-        {
-            break;
-        }
-    }
+        return false;
+    };
 
-    return false;
-}
+    auto AreConsecutiveConstants = [](GenTree* i1, GenTree* i2) {
+        return i1->OperIs(GT_CNS_INT) && i2->OperIs(GT_CNS_INT) &&
+               (i1->AsIntCon()->GetValue() + 1 == i2->AsIntCon()->GetValue());
+    };
 
-//----------------------------------------------------------------------
-// Check whether two field are contiguous
-// Arguments:
-//      first - GenTree*. The Type of the node should be TYP_FLOAT
-//      second - GenTree*. The Type of the node should be TYP_FLOAT
-// Return Value:
-//      if the first field is located before second field, and they are located contiguously,
-//      then return true. Otherwise, return false.
+    auto AreContiguosArrayElements = [&](GenTreeIndex* e1, GenTreeIndex* e2) {
+        return AreConsecutiveConstants(e1->GetIndex(), e2->GetIndex()) &&
+               AreValuesEqual(e1->GetArray(), e2->GetArray());
+    };
 
-bool Compiler::areFieldsContiguous(GenTree* first, GenTree* second)
-{
-    assert(first->OperGet() == GT_FIELD);
-    assert(second->OperGet() == GT_FIELD);
-    assert(first->gtType == TYP_FLOAT);
-    assert(second->gtType == TYP_FLOAT);
+    auto AreContiguosFields = [&](GenTreeField* f1, GenTreeField* f2) {
+        return (f1->GetOffset() + varTypeSize(f1->GetType()) == f2->GetOffset()) && !f1->IsVolatile() &&
+               !f2->IsVolatile() && AreValuesEqual(f1->GetAddr(), f2->GetAddr());
+    };
 
-    var_types firstFieldType  = first->gtType;
-    var_types secondFieldType = second->gtType;
+    auto AreContiguosLocalFields = [](GenTreeLclFld* f1, GenTreeLclFld* f2) {
+        return (f1->GetLclNum() == f2->GetLclNum()) &&
+               (f1->GetLclOffs() + varTypeSize(f1->GetType()) == f2->GetLclOffs());
+    };
 
-    unsigned firstFieldEndOffset = first->AsField()->gtFldOffset + genTypeSize(firstFieldType);
-    unsigned secondFieldOffset   = second->AsField()->gtFldOffset;
-    if (firstFieldEndOffset == secondFieldOffset && firstFieldType == secondFieldType &&
-        !first->AsField()->IsVolatile() && !second->AsField()->IsVolatile() &&
-        areFieldsParentsLocatedSame(first, second))
+    switch (l1->GetOper())
     {
-        return true;
+        case GT_INDEX:
+            return AreContiguosArrayElements(l1->AsIndex(), l2->AsIndex());
+        case GT_FIELD:
+            return AreContiguosFields(l1->AsField(), l2->AsField());
+        case GT_LCL_FLD:
+            return AreContiguosLocalFields(l1->AsLclFld(), l2->AsLclFld());
+        default:
+            return false;
     }
-
-    return false;
-}
-
-//----------------------------------------------------------------------
-// areLocalFieldsContiguous: Check whether two local field are contiguous
-//
-// Arguments:
-//    first - the first local field
-//    second - the second local field
-//
-// Return Value:
-//    If the first field is located before second field, and they are located contiguously,
-//    then return true. Otherwise, return false.
-//
-bool Compiler::areLocalFieldsContiguous(GenTreeLclFld* first, GenTreeLclFld* second)
-{
-    assert(first->TypeIs(TYP_FLOAT));
-    assert(second->TypeIs(TYP_FLOAT));
-
-    return (first->TypeGet() == second->TypeGet()) && (first->GetLclNum() == second->GetLclNum()) &&
-           (first->GetLclOffs() + genTypeSize(first->TypeGet()) == second->GetLclOffs());
-}
-
-//-------------------------------------------------------------------------------
-// Check whether two array element nodes are located contiguously or not.
-// Arguments:
-//      op1 - GenTree*.
-//      op2 - GenTree*.
-// Return Value:
-//      if the array element op1 is located before array element op2, and they are contiguous,
-//      then return true. Otherwise, return false.
-// TODO-CQ:
-//      Right this can only check array element with const number as index. In future,
-//      we should consider to allow this function to check the index using expression.
-
-bool Compiler::areArrayElementsContiguous(GenTree* op1, GenTree* op2)
-{
-    noway_assert(op1->gtOper == GT_INDEX);
-    noway_assert(op2->gtOper == GT_INDEX);
-    GenTreeIndex* op1Index = op1->AsIndex();
-    GenTreeIndex* op2Index = op2->AsIndex();
-
-    GenTree* op1ArrayRef = op1Index->GetArray();
-    GenTree* op2ArrayRef = op2Index->GetArray();
-
-    GenTree* op1IndexNode = op1Index->GetIndex();
-    GenTree* op2IndexNode = op2Index->GetIndex();
-    if ((op1IndexNode->OperGet() == GT_CNS_INT && op2IndexNode->OperGet() == GT_CNS_INT) &&
-        op1IndexNode->AsIntCon()->gtIconVal + 1 == op2IndexNode->AsIntCon()->gtIconVal)
-    {
-        if (op1ArrayRef->OperIs(GT_FIELD) && op2ArrayRef->OperIs(GT_FIELD) &&
-            (op1ArrayRef->AsField()->GetFieldHandle() == op2ArrayRef->AsField()->GetFieldHandle()) &&
-            areFieldsParentsLocatedSame(op1ArrayRef, op2ArrayRef))
-        {
-            return true;
-        }
-        else if (op1ArrayRef->OperIs(GT_LCL_VAR) && op2ArrayRef->OperIsLocal(GT_LCL_VAR) &&
-                 (op1ArrayRef->AsLclVar()->GetLclNum() == op2ArrayRef->AsLclVar()->GetLclNum()))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-//-------------------------------------------------------------------------------
-// Check whether two argument nodes are contiguous or not.
-// Arguments:
-//      op1 - GenTree*.
-//      op2 - GenTree*.
-// Return Value:
-//      if the argument node op1 is located before argument node op2, and they are located contiguously,
-//      then return true. Otherwise, return false.
-// TODO-CQ:
-//      Right now this can only check field and array. In future we should add more cases.
-//
-
-bool Compiler::areArgumentsContiguous(GenTree* op1, GenTree* op2)
-{
-    if (op1->OperGet() == GT_INDEX && op2->OperGet() == GT_INDEX)
-    {
-        return areArrayElementsContiguous(op1, op2);
-    }
-    else if (op1->OperGet() == GT_FIELD && op2->OperGet() == GT_FIELD)
-    {
-        return areFieldsContiguous(op1, op2);
-    }
-    else if (op1->OperIs(GT_LCL_FLD) && op2->OperIs(GT_LCL_FLD))
-    {
-        return areLocalFieldsContiguous(op1->AsLclFld(), op2->AsLclFld());
-    }
-    return false;
 }
 
 // Change a FIELD/INDEX/LCL_FLD node into a SIMD typed IND/LCL_FLD.
@@ -1716,7 +1629,7 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt, Ge
 
     GenTreeOp* lastAsg = m_lastStmt->GetRootNode()->AsOp();
 
-    if (!compiler->areArgumentsContiguous(lastAsg->GetOp(0), asg->AsOp()->GetOp(0)))
+    if (!AreContiguousMemoryLocations(lastAsg->GetOp(0), asg->AsOp()->GetOp(0)))
     {
         Clear();
         return false;
@@ -2041,7 +1954,8 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 if (areArgsContiguous && (i > 0))
                 {
                     // Recall that we are popping the args off the stack in reverse order.
-                    areArgsContiguous = areArgumentsContiguous(args[initCount - 1 - i], args[initCount - 1 - i + 1]);
+                    areArgsContiguous = SIMDCoalescingBuffer::AreContiguousMemoryLocations(args[initCount - 1 - i],
+                                                                                           args[initCount - 1 - i + 1]);
                 }
             }
 
