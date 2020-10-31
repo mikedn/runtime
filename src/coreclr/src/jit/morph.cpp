@@ -1944,7 +1944,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             var_types sigType = static_cast<var_types>(args->GetSigTypeNum());
 
-            assert((sigType == TYP_UNDEF) || (varActualType(sigType) == varActualType(argx->GetType())) ||
+            // The signature type should type should never be STRUCT, for struct params we should have
+            // a layout instead. If it is then it's likely that we have a helper call with struct params.
+            assert(sigType != TYP_STRUCT);
+
+            // We may get primitive args for struct params but never the other way around.
+            assert(!varTypeIsStruct(argx->GetType()));
+
+            assert((varActualType(sigType) == varActualType(argx->GetType())) ||
                    ((sigType == TYP_BYREF) && argx->TypeIs(TYP_I_IMPL)) ||
                    ((sigType == TYP_I_IMPL) && argx->TypeIs(TYP_BYREF)));
 

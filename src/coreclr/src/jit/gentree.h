@@ -3880,7 +3880,17 @@ struct GenTreeCall final : public GenTree
         unsigned m_sigTypeNum;
 
     public:
-        Use(GenTree* node, Use* next = nullptr) : m_node(node), m_next(next), m_sigTypeNum(0)
+        Use(GenTree* node, Use* next = nullptr)
+            : m_node(node)
+            , m_next(next)
+            // Always record the type of node at call arg's creation. impPopCallArgs will override this with
+            // the actual signature type but for helper calls there is no signature information so we'll just
+            // whatever we have. Helper calls usually don't have struct params so this should work most of the
+            // time. Hopefully helper calls also don't have small int params, otherwise this will get messy on
+            // osx-arm64. Use the actual type of the node as it's more likely to be correct (and consistently
+            // incorrect if it's an osx-arm64 small int param), since a small int typed node doesn't imply that
+            // the call param is also small int (e.g. we may have a BYTE indir and an INT param).
+            , m_sigTypeNum(static_cast<unsigned>(varActualType(node->GetType())))
         {
             assert(node != nullptr);
         }
@@ -3924,7 +3934,6 @@ struct GenTreeCall final : public GenTree
 
         void SetSigTypeNum(unsigned typeNum)
         {
-            assert(m_sigTypeNum == 0);
             m_sigTypeNum = typeNum;
         }
     };
