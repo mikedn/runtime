@@ -1936,6 +1936,40 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef TARGET_ARM
             argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(objClass), REGSIZE_BYTES) / REGSIZE_BYTES;
 #endif
+
+#if defined(TARGET_AMD64)
+#ifdef UNIX_AMD64_ABI
+            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+            eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
+#else
+            size = 1;
+#endif
+#elif defined(TARGET_ARM64)
+            if (isHfaArg)
+            {
+                // HFA structs are passed by value in multiple registers.
+                // The "size" in registers may differ the size in pointer-sized units.
+                size = hfaSlots;
+            }
+            else
+            {
+                // Structs are either passed in 1 or 2 (64-bit) slots.
+                // Structs that are the size of 2 pointers are passed by value in multiple registers,
+                // if sufficient registers are available.
+                // Structs that are larger than 2 pointers (except for HFAs) are passed by
+                // reference (to a copy)
+                size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+
+                if (size > 2)
+                {
+                    size = 1;
+                }
+            }
+#elif defined(TARGET_ARM) || defined(TARGET_X86)
+            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+#else
+#error Unsupported or unset target architecture
+#endif // TARGET_XXX
         }
         else
         {
@@ -1955,6 +1989,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef TARGET_ARM
             argAlign =
                 roundUp(static_cast<unsigned>(genTypeAlignments[argx->GetType()]), REGSIZE_BYTES) / REGSIZE_BYTES;
+#endif
+
+#ifdef TARGET_64BIT
+            // On 64 bit targets all primitive types are passed in a single reg/slot.
+            size = 1;
+#else
+            // On 32 bit targets LONG and DOUBLE are passed in 2 regs/slots.
+            size = genTypeStSz(argx->GetType());
 #endif
         }
 
@@ -2004,70 +2046,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         var_types structBaseType   = TYP_STRUCT;
         bool      passStructByRef  = false;
 
-        //
-        // Figure out the size of the argument. This is either in number of registers, or number of
-        // TARGET_POINTER_SIZE stack slots, or the sum of these if the argument is split between the registers and
-        // the stack.
-        //
-        CLANG_FORMAT_COMMENT_ANCHOR;
-#if defined(TARGET_AMD64)
-#ifdef UNIX_AMD64_ABI
-        if (!isStructArg)
-        {
-            size = 1; // On AMD64, all primitives fit in a single (64-bit) 'slot'
-        }
-        else
-        {
-            size = (unsigned)(roundUp(structSize, TARGET_POINTER_SIZE)) / TARGET_POINTER_SIZE;
-            eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
-        }
-#else  // !UNIX_AMD64_ABI
-        size = 1; // On AMD64 Windows, all args fit in a single (64-bit) 'slot'
-#endif // UNIX_AMD64_ABI
-#elif defined(TARGET_ARM64)
-        if (isStructArg)
-        {
-            if (isHfaArg)
-            {
-                // HFA structs are passed by value in multiple registers.
-                // The "size" in registers may differ the size in pointer-sized units.
-                size = hfaSlots;
-            }
-            else
-            {
-                // Structs are either passed in 1 or 2 (64-bit) slots.
-                // Structs that are the size of 2 pointers are passed by value in multiple registers,
-                // if sufficient registers are available.
-                // Structs that are larger than 2 pointers (except for HFAs) are passed by
-                // reference (to a copy)
-                size = (unsigned)(roundUp(structSize, TARGET_POINTER_SIZE)) / TARGET_POINTER_SIZE;
-
-                if (size > 2)
-                {
-                    size = 1;
-                }
-            }
-            // Note that there are some additional rules for multireg structs.
-            // (i.e they cannot be split between registers and the stack)
-        }
-        else
-        {
-            size = 1; // Otherwise, all primitive types fit in a single (64-bit) 'slot'
-        }
-#elif defined(TARGET_ARM) || defined(TARGET_X86)
-        if (isStructArg)
-        {
-            size = (unsigned)(roundUp(structSize, TARGET_POINTER_SIZE)) / TARGET_POINTER_SIZE;
-        }
-        else
-        {
-            // The typical case.
-            // Long/double type argument(s) will be modified as needed in Lowering.
-            size = genTypeStSz(argx->gtType);
-        }
-#else
-#error Unsupported or unset target architecture
-#endif // TARGET_XXX
         if (isStructArg)
         {
             assert(argx == args->GetNode());
