@@ -1874,8 +1874,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
     for (args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
-        argx                    = args->GetNode();
-        fgArgTabEntry* argEntry = nullptr;
+        argx = args->GetNode();
 
         // Change the node to TYP_I_IMPL so we don't report GC info
         // NOTE: We deferred this from the importer because of the inliner.
@@ -1893,15 +1892,13 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         var_types hfaType  = TYP_UNDEF;
         unsigned  hfaSlots = 0;
 
-        bool                 passUsingFloatRegs;
-        unsigned             argAlign      = 1;
-        unsigned             size          = 0;
-        CORINFO_CLASS_HANDLE copyBlkClass  = nullptr;
-        bool                 isRegArg      = false;
-        bool                 isNonStandard = false;
-        regNumber            nonStdRegNum  = REG_NA;
+        bool      passUsingFloatRegs;
+        unsigned  argAlign      = 1;
+        unsigned  size          = 0;
+        bool      isRegArg      = false;
+        bool      isNonStandard = false;
+        regNumber nonStdRegNum  = REG_NA;
 
-        GenTree*             actualArg   = argx->gtEffectiveVal(true /* Commas only */);
         bool                 isStructArg = typIsLayoutNum(args->GetSigTypeNum());
         CORINFO_CLASS_HANDLE objClass    = NO_CLASS_HANDLE;
         unsigned             structSize  = 0;
@@ -2073,9 +2070,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif // TARGET_XXX
         if (isStructArg)
         {
-            // We have an argument with a struct type, but it may be be a child of a GT_COMMA
-            GenTree* argObj = argx->gtEffectiveVal(true /*commaOnly*/);
-
             assert(argx == args->GetNode());
 
             unsigned originalSize = structSize;
