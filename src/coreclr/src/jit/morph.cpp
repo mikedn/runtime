@@ -1888,7 +1888,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(!argx->IsArgPlaceHolderNode());
 
         // Setup any HFA information about 'argx'
-        bool      isHfaArg = false;
         var_types hfaType  = TYP_UNDEF;
         unsigned  hfaSlots = 0;
 
@@ -1911,25 +1910,25 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             objClass   = layout->GetClassHandle();
 
 #ifdef FEATURE_HFA
-            hfaType  = GetHfaType(objClass);
-            isHfaArg = varTypeIsValidHfaType(hfaType);
-
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            // Make sure for vararg methods isHfaArg is not true.
-            isHfaArg = callIsVararg ? false : isHfaArg;
-#endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-
-            if (isHfaArg)
+            if (!callIsVararg)
+#endif
             {
-                isHfaArg = true;
-                hfaSlots = GetHfaCount(objClass);
+                hfaType = GetHfaType(objClass);
 
-                // If we have a HFA struct it's possible we transition from a method that originally
-                // only had integer types to now start having FP types.  We have to communicate this
-                // through this flag since LSRA later on will use this flag to determine whether
-                // or not to track the FP register set.
-                //
-                compFloatingPointUsed = true;
+                if (hfaType != TYP_UNDEF)
+                {
+                    assert(varTypeIsValidHfaType(hfaType));
+
+                    hfaSlots = GetHfaCount(objClass);
+
+                    // If we have a HFA struct it's possible we transition from a method that originally
+                    // only had integer types to now start having FP types.  We have to communicate this
+                    // through this flag since LSRA later on will use this flag to determine whether
+                    // or not to track the FP register set.
+                    //
+                    compFloatingPointUsed = true;
+                }
             }
 #endif // FEATURE_HFA
 
@@ -1945,7 +1944,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             size = 1;
 #endif
 #elif defined(TARGET_ARM64)
-            if (isHfaArg)
+            if (hfaType != TYP_UNDEF)
             {
                 // HFA structs are passed by value in multiple registers.
                 // The "size" in registers may differ the size in pointer-sized units.
@@ -2001,7 +2000,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
 
 #ifdef TARGET_ARM
-        passUsingFloatRegs    = !callIsVararg && (isHfaArg || varTypeUsesFloatReg(argx)) && !opts.compUseSoftFP;
+        passUsingFloatRegs    = ((hfaType != TYP_UNDEF) || varTypeUsesFloatReg(argx->GetType())) && !opts.compUseSoftFP;
         bool passUsingIntRegs = passUsingFloatRegs ? false : (intArgRegNum < MAX_REG_ARG);
 
         if (argAlign == 2)
@@ -2026,12 +2025,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
 #elif defined(TARGET_ARM64)
 
-        assert(!callIsVararg || !isHfaArg);
-        passUsingFloatRegs = !callIsVararg && (isHfaArg || varTypeUsesFloatReg(argx));
+        passUsingFloatRegs = (hfaType != TYP_UNDEF) || varTypeUsesFloatReg(argx->GetType());
 
 #elif defined(TARGET_AMD64)
 
-        passUsingFloatRegs = varTypeIsFloating(argx);
+        passUsingFloatRegs = varTypeIsFloating(argx->GetType());
 
 #elif defined(TARGET_X86)
 
@@ -2142,7 +2140,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 isRegArg = (nextFltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
 
                 // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
-                if (isHfaArg && !isRegArg)
+                if ((hfaType != TYP_UNDEF) && !isRegArg)
                 {
                     // recompute the 'size' so that it represent the number of stack slots rather than the number of
                     // registers
@@ -2402,7 +2400,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
             // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
 
-            if (isHfaArg)
+            if (hfaType != TYP_UNDEF)
             {
                 regCount = hfaSlots;
                 if (hfaType == TYP_DOUBLE)
@@ -2442,7 +2440,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 newArgEntry->SetRegType(0, argx->GetType());
             }
 #elif defined(FEATURE_HFA)
-            if (isHfaArg)
+            if (hfaType != TYP_UNDEF)
             {
                 newArgEntry->SetRegType(hfaType);
             }
