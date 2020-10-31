@@ -1942,26 +1942,29 @@ public:
                         addr = m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, offset);
                     }
 
+                    ClassLayout* layout = nullptr;
+
                     if (varTypeIsStruct(lclNode->GetType()))
                     {
-                        ClassLayout* layout = lclNode->OperIs(GT_LCL_VAR) ? lcl->GetImplicitByRefParamLayout()
-                                                                          : lclNode->AsLclFld()->GetLayout(m_compiler);
+                        layout = lclNode->OperIs(GT_LCL_VAR) ? lcl->GetImplicitByRefParamLayout()
+                                                             : lclNode->AsLclFld()->GetLayout(m_compiler);
+                    }
 
-                        // Change LCL_VAR|FLD<STRUCT>(arg) into OBJ<STRUCT>(LCL_VAR<BYREF>(arg))
+                    if (layout != nullptr)
+                    {
                         tree->ChangeOper(GT_OBJ);
                         tree->AsObj()->SetLayout(layout);
                         tree->AsObj()->SetAddr(addr);
                         tree->AsObj()->gtBlkOpGcUnsafe = false;
                         tree->AsObj()->gtBlkOpKind     = GenTreeBlk::BlkOpKindInvalid;
-                        tree->gtFlags                  = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                     }
                     else
                     {
-                        // Change LCL_FLD<>(arg) into IND<>(ADD(LCL_VAR<BYREF>(arg), lclOffs))
                         tree->ChangeOper(GT_IND);
-                        tree->AsIndir()->SetAddr(addr);
-                        tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                     }
+
+                    tree->AsIndir()->SetAddr(addr);
+                    tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                 }
             }
 
