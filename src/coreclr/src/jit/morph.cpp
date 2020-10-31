@@ -1902,6 +1902,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         CORINFO_CLASS_HANDLE objClass    = NO_CLASS_HANDLE;
         unsigned             structSize  = 0;
 
+        var_types structBaseType  = TYP_STRUCT;
+        bool      passStructByRef = false;
+
         if (isStructArg)
         {
             ClassLayout* layout = typGetLayoutByNum(args->GetSigTypeNum());
@@ -1969,6 +1972,49 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #else
 #error Unsupported or unset target architecture
 #endif // TARGET_XXX
+
+            assert(argx == args->GetNode());
+
+            unsigned originalSize = structSize;
+            originalSize          = (originalSize == 0 ? TARGET_POINTER_SIZE : originalSize);
+            unsigned roundupSize  = (unsigned)roundUp(originalSize, TARGET_POINTER_SIZE);
+
+            structSize = originalSize;
+
+            structPassingKind howToPassStruct;
+
+            structBaseType = getArgTypeForStruct(objClass, &howToPassStruct, callIsVararg, originalSize);
+
+            bool passedInRegisters = false;
+            passStructByRef        = (howToPassStruct == SPK_ByReference);
+
+            if (howToPassStruct == SPK_PrimitiveType)
+            {
+// For ARM64 or AMD64/UX we can pass non-power-of-2 structs in a register.
+// For ARM or AMD64/Windows only power-of-2 structs are passed in registers.
+#if !defined(TARGET_ARM64) && !defined(UNIX_AMD64_ABI)
+                if (!isPow2(originalSize))
+#endif //  !TARGET_ARM64 && !UNIX_AMD64_ABI
+                {
+                    passedInRegisters = true;
+                }
+#ifdef TARGET_ARM
+                // TODO-CQ: getArgTypeForStruct should *not* return TYP_DOUBLE for a double struct,
+                // or for a struct of two floats. This causes the struct to be address-taken.
+                if (structBaseType == TYP_DOUBLE)
+                {
+                    size = 2;
+                }
+                else
+#endif // TARGET_ARM
+                {
+                    size = 1;
+                }
+            }
+            else if (passStructByRef)
+            {
+                size = 1;
+            }
         }
         else
         {
@@ -2034,60 +2080,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #error Unsupported or unset target architecture
 #endif // TARGET*
 
-        bool      isBackFilled     = false;
-        unsigned  nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-        var_types structBaseType   = TYP_STRUCT;
-        bool      passStructByRef  = false;
-
-        if (isStructArg)
-        {
-            assert(argx == args->GetNode());
-
-            unsigned originalSize = structSize;
-            originalSize          = (originalSize == 0 ? TARGET_POINTER_SIZE : originalSize);
-            unsigned roundupSize  = (unsigned)roundUp(originalSize, TARGET_POINTER_SIZE);
-
-            structSize = originalSize;
-
-            structPassingKind howToPassStruct;
-
-            structBaseType = getArgTypeForStruct(objClass, &howToPassStruct, callIsVararg, originalSize);
-
-            bool passedInRegisters = false;
-            passStructByRef        = (howToPassStruct == SPK_ByReference);
-
-            if (howToPassStruct == SPK_PrimitiveType)
-            {
-// For ARM64 or AMD64/UX we can pass non-power-of-2 structs in a register.
-// For ARM or AMD64/Windows only power-of-2 structs are passed in registers.
-#if !defined(TARGET_ARM64) && !defined(UNIX_AMD64_ABI)
-                if (!isPow2(originalSize))
-#endif //  !TARGET_ARM64 && !UNIX_AMD64_ABI
-                {
-                    passedInRegisters = true;
-                }
-#ifdef TARGET_ARM
-                // TODO-CQ: getArgTypeForStruct should *not* return TYP_DOUBLE for a double struct,
-                // or for a struct of two floats. This causes the struct to be address-taken.
-                if (structBaseType == TYP_DOUBLE)
-                {
-                    size = 2;
-                }
-                else
-#endif // TARGET_ARM
-                {
-                    size = 1;
-                }
-            }
-            else if (passStructByRef)
-            {
-                size = 1;
-            }
-        }
-
-        // The 'size' value has now must have been set. (the original value of zero is an invalid value)
-        assert(size != 0);
-
+        bool     isBackFilled     = false;
+        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
         //
         // Figure out if the argument will be passed in a register.
         //
