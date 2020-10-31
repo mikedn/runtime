@@ -812,13 +812,15 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
             CorInfoType corType = strip(info.compCompHnd->getArgType(sig, argLst, &argClass));
 
+            assert(corType != CORINFO_TYPE_VAR);
+
             // insert implied casts (from float to double or double to float)
 
-            if ((corType == CORINFO_TYPE_DOUBLE) && (arg->GetNode()->TypeGet() == TYP_FLOAT))
+            if ((corType == CORINFO_TYPE_DOUBLE) && arg->GetNode()->TypeIs(TYP_FLOAT))
             {
                 arg->SetNode(gtNewCastNode(TYP_DOUBLE, arg->GetNode(), false, TYP_DOUBLE));
             }
-            else if ((corType == CORINFO_TYPE_FLOAT) && (arg->GetNode()->TypeGet() == TYP_DOUBLE))
+            else if ((corType == CORINFO_TYPE_FLOAT) && arg->GetNode()->TypeIs(TYP_DOUBLE))
             {
                 arg->SetNode(gtNewCastNode(TYP_FLOAT, arg->GetNode(), false, TYP_FLOAT));
             }
@@ -827,17 +829,17 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
             arg->SetNode(impImplicitIorI4Cast(arg->GetNode(), JITtype2varType(corType)));
 
-            if (corType != CORINFO_TYPE_CLASS && corType != CORINFO_TYPE_BYREF && corType != CORINFO_TYPE_PTR &&
-                corType != CORINFO_TYPE_VAR && (argRealClass = info.compCompHnd->getArgClass(sig, argLst)) != nullptr)
+            if ((corType != CORINFO_TYPE_CLASS) && (corType != CORINFO_TYPE_BYREF) && (corType != CORINFO_TYPE_PTR) &&
+                ((argRealClass = info.compCompHnd->getArgClass(sig, argLst)) != nullptr))
             {
                 // Everett MC++ could generate IL with a mismatched valuetypes. It used to work with Everett JIT,
                 // but it stopped working in Whidbey when we have started passing simple valuetypes as underlying
                 // primitive types.
                 // We will try to adjust for this case here to avoid breaking customers code (see VSW 485789 for
                 // details).
-                if (corType == CORINFO_TYPE_VALUECLASS && !varTypeIsStruct(arg->GetNode()->TypeGet()))
+                if ((corType == CORINFO_TYPE_VALUECLASS) && !varTypeIsStruct(arg->GetNode()->TypeGet()))
                 {
-                    arg->SetNode(impNormStructVal(arg->GetNode(), argRealClass, (unsigned)CHECK_SPILL_ALL, true));
+                    arg->SetNode(impNormStructVal(arg->GetNode(), argRealClass, CHECK_SPILL_ALL, true));
                 }
 
                 // Make sure that all valuetypes (including enums) that we push are loaded.
@@ -846,6 +848,16 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
                 // We need to be able to find the size of the valuetypes, but we cannot
                 // do a class-load from within GC.
                 info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(argRealClass);
+            }
+
+            if ((corType == CORINFO_TYPE_VALUECLASS) || (corType == CORINFO_TYPE_REFANY))
+            {
+                assert(argClass != NO_CLASS_HANDLE);
+                arg->SetSigTypeNum(typGetObjLayoutNum(argClass));
+            }
+            else
+            {
+                arg->SetSigTypeNum(static_cast<unsigned>(JITtype2varType(corType)));
             }
 
             argLst = info.compCompHnd->getArgNext(argLst);
@@ -13293,7 +13305,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
                 }
 
-                op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, gtNewCallArgs(op2, op1));
+                {
+                    GenTreeCall::Use* arg1 = gtNewCallArgs(op2);
+                    GenTreeCall::Use* arg2 = gtNewCallArgs(op1);
+                    arg2->SetSigTypeNum(typGetObjLayoutNum(impGetRefAnyClass()));
+                    arg1->SetNext(arg2);
+
+                    op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, arg1);
+                }
+
                 impPushOnStack(op1, typeInfo());
                 break;
 

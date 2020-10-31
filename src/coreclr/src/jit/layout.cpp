@@ -45,6 +45,11 @@ public:
         return GetLayoutIndex(layout) + FirstLayoutNum;
     }
 
+    static bool IsLayoutNum(unsigned layoutNum)
+    {
+        return layoutNum >= FirstLayoutNum;
+    }
+
     // Get the layout having the specified layout number (FirstLayoutNum-based)
     ClassLayout* GetLayoutByNum(unsigned num) const
     {
@@ -285,6 +290,11 @@ ClassLayoutTable* Compiler::typGetClassLayoutTable()
     }
 
     return m_classLayoutTable;
+}
+
+bool Compiler::typIsLayoutNum(unsigned layoutNum)
+{
+    return ClassLayoutTable::IsLayoutNum(layoutNum);
 }
 
 ClassLayout* Compiler::typGetLayoutByNum(unsigned layoutNum)

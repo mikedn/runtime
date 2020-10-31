@@ -1902,13 +1902,16 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         regNumber            nonStdRegNum  = REG_NA;
 
         GenTree*             actualArg   = argx->gtEffectiveVal(true /* Commas only */);
-        bool                 isStructArg = varTypeIsStruct(argx->GetType());
+        bool                 isStructArg = typIsLayoutNum(args->GetSigTypeNum());
         CORINFO_CLASS_HANDLE objClass    = NO_CLASS_HANDLE;
         unsigned             structSize  = 0;
 
         if (isStructArg)
         {
-            objClass = gtGetStructHandle(argx);
+            ClassLayout* layout = typGetLayoutByNum(args->GetSigTypeNum());
+
+            structSize = layout->GetSize();
+            objClass   = layout->GetClassHandle();
 
 #ifdef FEATURE_HFA
             hfaType  = GetHfaType(objClass);
@@ -1933,55 +1936,18 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
 #endif // FEATURE_HFA
 
-            if (argx->TypeGet() == TYP_STRUCT)
-            {
-                // For TYP_STRUCT arguments we must have an OBJ, LCL_VAR or MKREFANY
-                switch (actualArg->OperGet())
-                {
-                    case GT_OBJ:
-                        structSize = actualArg->AsObj()->GetLayout()->GetSize();
-                        assert(structSize == info.compCompHnd->getClassSize(objClass));
 #ifdef TARGET_ARM
-                        argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(objClass), REGSIZE_BYTES) /
-                                   REGSIZE_BYTES;
+            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(objClass), REGSIZE_BYTES) / REGSIZE_BYTES;
 #endif
-                        break;
-                    case GT_LCL_VAR:
-                        structSize = lvaGetDesc(actualArg->AsLclVar())->lvExactSize;
-#ifdef TARGET_ARM
-                        if (lvaGetDesc(actualArg->AsLclVar())->lvStructDoubleAlign)
-                        {
-                            argAlign = 2;
-                        }
-#endif
-                        break;
-                    case GT_LCL_FLD:
-                        structSize = actualArg->AsLclFld()->GetLayout(this)->GetSize();
-#ifdef TARGET_ARM
-                        argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(objClass), REGSIZE_BYTES) /
-                                   REGSIZE_BYTES;
-#endif
-                        break;
-                    case GT_MKREFANY:
-                        structSize = info.compCompHnd->getClassSize(objClass);
-                        break;
-                    default:
-                        BADCODE("illegal argument tree in fgInitArgInfo");
-                        break;
-                }
-            }
-            else
-            {
-#ifdef FEATURE_SIMD
-                structSize = genTypeSize(argx);
-                assert(structSize == info.compCompHnd->getClassSize(objClass));
-#else
-                unreached();
-#endif
-            }
         }
         else
         {
+            var_types sigType = static_cast<var_types>(args->GetSigTypeNum());
+
+            assert((sigType == TYP_UNDEF) || (varActualType(sigType) == varActualType(argx->GetType())) ||
+                   ((sigType == TYP_BYREF) && argx->TypeIs(TYP_I_IMPL)) ||
+                   ((sigType == TYP_I_IMPL) && argx->TypeIs(TYP_BYREF)));
+
 #ifdef TARGET_ARM
             argAlign =
                 roundUp(static_cast<unsigned>(genTypeAlignments[argx->GetType()]), REGSIZE_BYTES) / REGSIZE_BYTES;

@@ -3877,9 +3877,10 @@ struct GenTreeCall final : public GenTree
     {
         GenTree* m_node;
         Use*     m_next;
+        unsigned m_sigTypeNum;
 
     public:
-        Use(GenTree* node, Use* next = nullptr) : m_node(node), m_next(next)
+        Use(GenTree* node, Use* next = nullptr) : m_node(node), m_next(next), m_sigTypeNum(0)
         {
             assert(node != nullptr);
         }
@@ -3914,6 +3915,17 @@ struct GenTreeCall final : public GenTree
         void SetNext(Use* next)
         {
             m_next = next;
+        }
+
+        unsigned GetSigTypeNum() const
+        {
+            return m_sigTypeNum;
+        }
+
+        void SetSigTypeNum(unsigned typeNum)
+        {
+            assert(m_sigTypeNum == 0);
+            m_sigTypeNum = typeNum;
         }
     };
 

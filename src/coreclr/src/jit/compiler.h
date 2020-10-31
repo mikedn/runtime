@@ -8627,6 +8627,7 @@ private:
     class ClassLayoutTable* typGetClassLayoutTable();
 
 public:
+    bool typIsLayoutNum(unsigned layoutNum);
     // Get the layout having the specified layout number.
     ClassLayout* typGetLayoutByNum(unsigned layoutNum);
     // Get the layout number of the specified layout.
