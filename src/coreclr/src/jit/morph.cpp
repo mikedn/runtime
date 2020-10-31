@@ -1968,29 +1968,15 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #error Unsupported or unset target architecture
 #endif // TARGET_XXX
 
-            unsigned originalSize = structSize;
-            originalSize          = (originalSize == 0 ? TARGET_POINTER_SIZE : originalSize);
-            unsigned roundupSize  = (unsigned)roundUp(originalSize, TARGET_POINTER_SIZE);
-
-            structSize = originalSize;
+            // TODO-MIKE-Cleanup: Huh, there should be no 0 sized structs...
+            structSize = (structSize == 0) ? TARGET_POINTER_SIZE : structSize;
 
             structPassingKind howToPassStruct;
-
-            structBaseType = getArgTypeForStruct(objClass, &howToPassStruct, callIsVararg, originalSize);
-
-            bool passedInRegisters = false;
-            passStructByRef        = (howToPassStruct == SPK_ByReference);
+            structBaseType  = getArgTypeForStruct(objClass, &howToPassStruct, callIsVararg, structSize);
+            passStructByRef = (howToPassStruct == SPK_ByReference);
 
             if (howToPassStruct == SPK_PrimitiveType)
             {
-// For ARM64 or AMD64/UX we can pass non-power-of-2 structs in a register.
-// For ARM or AMD64/Windows only power-of-2 structs are passed in registers.
-#if !defined(TARGET_ARM64) && !defined(UNIX_AMD64_ABI)
-                if (!isPow2(originalSize))
-#endif //  !TARGET_ARM64 && !UNIX_AMD64_ABI
-                {
-                    passedInRegisters = true;
-                }
 #ifdef TARGET_ARM
                 // TODO-CQ: getArgTypeForStruct should *not* return TYP_DOUBLE for a double struct,
                 // or for a struct of two floats. This causes the struct to be address-taken.
@@ -2129,8 +2115,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     // recompute the 'size' so that it represent the number of stack slots rather than the number of
                     // registers
                     //
-                    unsigned roundupSize = (unsigned)roundUp(structSize, TARGET_POINTER_SIZE);
-                    size                 = roundupSize / TARGET_POINTER_SIZE;
+                    size = roundUp(structSize, TARGET_POINTER_SIZE) / TARGET_POINTER_SIZE;
 
                     // We also must update fltArgRegNum so that we no longer try to
                     // allocate any new floating point registers for args
