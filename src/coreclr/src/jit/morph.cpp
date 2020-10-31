@@ -1459,9 +1459,6 @@ GenTree* Compiler::fgInsertCommaFormTemp(GenTree** ppTree, CORINFO_CLASS_HANDLE 
 //
 void Compiler::fgInitArgInfo(GenTreeCall* call)
 {
-    GenTreeCall::Use* args;
-    GenTree*          argx;
-
     unsigned argIndex     = 0;
     unsigned intArgRegNum = 0;
     unsigned fltArgRegNum = 0;
@@ -1665,14 +1662,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     //
     if (hasFixedRetBuffReg() && call->HasRetBufArg())
     {
-        args = call->gtCallArgs;
+        GenTreeCall::Use* args = call->gtCallArgs;
         assert(args != nullptr);
-
-        argx = call->gtCallArgs->GetNode();
 
         // We don't increment numArgs here, since we already counted this argument above.
 
-        nonStandardArgs.Add(argx, theFixedRetBuffReg());
+        nonStandardArgs.Add(args->GetNode(), theFixedRetBuffReg());
     }
 
     // We are allowed to have a Fixed Return Buffer argument combined
@@ -1770,7 +1765,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     // Add the 'this' argument value, if present.
     if (call->gtCallThisArg != nullptr)
     {
-        argx = call->gtCallThisArg->GetNode();
+        GenTree* argx = call->gtCallThisArg->GetNode();
         assert(argIndex == 0);
         assert(call->gtCallType == CT_USER_FUNC || call->gtCallType == CT_INDIRECT);
         assert(varTypeIsGC(argx) || (argx->gtType == TYP_I_IMPL));
@@ -1872,9 +1867,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
 #endif // UNIX_AMD64_ABI
 
-    for (args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
+    for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
-        argx = args->GetNode();
+        GenTree* argx = args->GetNode();
+
+        // We should never have any ArgPlaceHolder nodes at this point.
+        assert(!argx->IsArgPlaceHolderNode());
 
         // Change the node to TYP_I_IMPL so we don't report GC info
         // NOTE: We deferred this from the importer because of the inliner.
@@ -1883,9 +1881,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             argx->gtType = TYP_I_IMPL;
         }
-
-        // We should never have any ArgPlaceHolder nodes at this point.
-        assert(!argx->IsArgPlaceHolderNode());
 
 #ifdef FEATURE_HFA
         var_types hfaType  = TYP_UNDEF;
@@ -1972,8 +1967,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #else
 #error Unsupported or unset target architecture
 #endif // TARGET_XXX
-
-            assert(argx == args->GetNode());
 
             unsigned originalSize = structSize;
             originalSize          = (originalSize == 0 ? TARGET_POINTER_SIZE : originalSize);
