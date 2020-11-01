@@ -2058,11 +2058,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         // Figure out if the argument will be passed in a register.
 
-        if (isRegParamType(argx->GetType())
-#ifdef UNIX_AMD64_ABI
-            && (!isStructArg || structDesc.passedInRegisters)
-#endif
-                )
+        if (isRegParamType(argx->GetType()))
         {
 #ifdef TARGET_ARM
 #ifndef ARM_SOFTFP
@@ -2151,22 +2147,26 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             // Now make sure there are actually enough registers to do so.
             if (isStructArg)
             {
-                unsigned int structFloatRegs = 0;
-                unsigned int structIntRegs   = 0;
-                for (unsigned int i = 0; i < structDesc.eightByteCount; i++)
+                if (structDesc.passedInRegisters)
                 {
-                    if (structDesc.IsIntegralSlot(i))
-                    {
-                        structIntRegs++;
-                    }
-                    else if (structDesc.IsSseSlot(i))
-                    {
-                        structFloatRegs++;
-                    }
-                }
+                    unsigned structFloatRegs = 0;
+                    unsigned structIntRegs   = 0;
 
-                isRegArg = ((nextFltArgRegNum + structFloatRegs) <= MAX_FLOAT_REG_ARG) &&
-                           ((intArgRegNum + structIntRegs) <= MAX_REG_ARG);
+                    for (unsigned i = 0; i < structDesc.eightByteCount; i++)
+                    {
+                        if (structDesc.IsIntegralSlot(i))
+                        {
+                            structIntRegs++;
+                        }
+                        else if (structDesc.IsSseSlot(i))
+                        {
+                            structFloatRegs++;
+                        }
+                    }
+
+                    isRegArg = ((nextFltArgRegNum + structFloatRegs) <= MAX_FLOAT_REG_ARG) &&
+                               ((intArgRegNum + structIntRegs) <= MAX_REG_ARG);
+                }
             }
             else
             {
