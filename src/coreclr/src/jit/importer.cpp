@@ -1635,7 +1635,7 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
     {
         if (makeTemp)
         {
-            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
+            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("norm struct val temp"));
 
             impAssignTempGen(tempLclNum, structVal, structHnd, curLevel);
 
@@ -1649,18 +1649,21 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
         }
     }
 
-    if (structLcl != nullptr)
+    if (structVal->IsBlk())
     {
-        // A OBJ on a ADDR(LCL_VAR) can never raise an exception so we don't set GTF_EXCEPT here.
-        if (!lvaIsImplicitByRefLocal(structLcl->GetLclNum()))
+        if (structLcl != nullptr)
         {
-            structVal->gtFlags &= ~GTF_GLOB_REF;
+            // A OBJ on a ADDR(LCL_VAR) can never raise an exception so we don't set GTF_EXCEPT here.
+            if (!lvaIsImplicitByRefLocal(structLcl->GetLclNum()))
+            {
+                structVal->gtFlags &= ~GTF_GLOB_REF;
+            }
         }
-    }
-    else if (structVal->IsBlk())
-    {
-        // In general a OBJ is an indirection and could raise an exception.
-        structVal->gtFlags |= GTF_EXCEPT;
+        else
+        {
+            // In general a OBJ is an indirection and could raise an exception.
+            structVal->gtFlags |= GTF_EXCEPT;
+        }
     }
 
     return structVal;
