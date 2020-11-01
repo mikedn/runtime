@@ -2058,7 +2058,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         // Figure out if the argument will be passed in a register.
 
-        if (isRegParamType(genActualType(argx->TypeGet()))
+        if (isRegParamType(argx->GetType())
 #ifdef UNIX_AMD64_ABI
             && (!isStructArg || structDesc.passedInRegisters)
 #endif
