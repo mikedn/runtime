@@ -2146,10 +2146,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     }
                 }
             }
-#else  // not TARGET_ARM or TARGET_ARM64
-
-#if defined(UNIX_AMD64_ABI)
-
+#elif defined(UNIX_AMD64_ABI)
             // Here a struct can be passed in register following the classifications of its members and size.
             // Now make sure there are actually enough registers to do so.
             if (isStructArg)
@@ -2185,7 +2182,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #else  // !defined(UNIX_AMD64_ABI)
             isRegArg = (intArgRegNum + (size - 1)) < maxRegArgs;
 #endif // !defined(UNIX_AMD64_ABI)
-#endif // TARGET_ARM
         }
 
         // If there are nonstandard args (outside the calling convention) they were inserted above
