@@ -9303,7 +9303,7 @@ public:
     unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);
     void abiFreeAllStructArgTemps();
 #if TARGET_64BIT
-    void abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
+    void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 #endif // !TARGET_X86
 

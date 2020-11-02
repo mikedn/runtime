@@ -2565,7 +2565,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         if (argInfo->IsImplicitByRef())
         {
             assert(argInfo->IsSingleRegOrSlot());
-            abiMorphImplicityByRefStructArg(call, argInfo);
+            abiMorphImplicitByRefStructArg(call, argInfo);
             argsSideEffects |= argUse->GetNode()->gtFlags;
             continue;
         }
@@ -2972,18 +2972,6 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
                 return;
             }
-        }
-        else if (arg->AsObj()->GetAddr()->OperIs(GT_ADDR) &&
-                 arg->AsObj()->GetAddr()->AsUnOp()->GetOp(0)->OperIsSimdOrHWintrinsic())
-        {
-            assert(varTypeIsSIMD(arg->GetType()));
-
-            // Convert the OBJ(ADDR(SIMD|HWINTRINSIC)) created by impNormStructVal back to SIMD|HWINTRINSIC.
-            // We've already decided how the argument is passed so no longer need the layout from the OBJ.
-            arg = arg->AsObj()->GetAddr()->AsUnOp()->GetOp(0);
-            argInfo->use->SetNode(arg);
-
-            assert(varTypeIsSIMD(arg->GetType()));
         }
 
         if (arg->OperIs(GT_OBJ))
@@ -3819,17 +3807,6 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                 lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(DNER_LocalField));
             }
         }
-        else if (arg->AsObj()->GetAddr()->OperIs(GT_ADDR) &&
-                 arg->AsObj()->GetAddr()->AsUnOp()->GetOp(0)->OperIsSimdOrHWintrinsic())
-        {
-            assert(varTypeIsSIMD(arg->GetType()));
-
-            // Convert the OBJ(ADDR(SIMD|HWINTRINSIC)) created by impNormStructVal back to SIMD|HWINTRINSIC.
-            // We've already decided how the argument is passed so no longer need the layout from the OBJ.
-            arg = arg->AsObj()->GetAddr()->AsUnOp()->GetOp(0);
-
-            assert(varTypeIsSIMD(arg->GetType()));
-        }
     }
 
     if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->AsLclVar()->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT) &&
@@ -3864,6 +3841,15 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 #endif
 
     assert(varTypeIsStruct(arg->GetType()));
+
+    // TODO-MIKE-CQ: It may make more sense to alway use abiMorphMultiRegSimdArg for
+    // SIMD args that are memory loads. abiMorphMultiRegObjArg will just generate
+    // multiple loads and those loads may have associated optimization issues in VN
+    // due to the lack of field sequences. Even if they do get CSEed the result may
+    // still be poor - SIMD typed loads from the same location would get a CSE temp
+    // and then those multi reg loads from the same location will get their own CSE
+    // temps. abiMorphMultiRegSimdArg would only generate one SIMD load and then
+    // extract the registers via register to register operations.
 
     if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
@@ -3906,7 +3892,22 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 #error Unknown target.
 #endif
 
-    unsigned tempLclNum = lvaNewTemp(gtGetStructHandle(arg), true DEBUGARG("multi-reg SIMD arg temp"));
+    CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
+
+    if (argClass == NO_CLASS_HANDLE)
+    {
+        // We may end up with an SIMD type IND node that doesn't have a class handle,
+        // use the call arg's signature type to get one.
+
+        // TODO-MIKE-Cleanup: It would probably make more sense to always use the sig
+        // type. Though if they're different (as in really different - the signature
+        // type being a non-SIMD type) things will get strange. But that should only
+        // happen if the IL is invalid.
+
+        argClass = typGetLayoutByNum(argInfo->use->GetSigTypeNum())->GetClassHandle();
+    }
+
+    unsigned tempLclNum = lvaNewTemp(argClass, true DEBUGARG("multi-reg SIMD arg temp"));
     GenTree* tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
@@ -4360,7 +4361,7 @@ void Compiler::abiFreeAllStructArgTemps()
 
 #if TARGET_64BIT
 
-void Compiler::abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo)
+void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
     GenTree* arg = argInfo->GetNode();
 
@@ -4416,7 +4417,23 @@ void Compiler::abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* a
 
     JITDUMP("making an outgoing copy for struct arg\n");
 
-    unsigned tempLclNum = abiAllocateStructArgTemp(gtGetStructHandle(arg));
+    CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
+
+    if (argClass == NO_CLASS_HANDLE)
+    {
+        // We may end up with an SIMD type IND node that doesn't have a class handle,
+        // use the call arg's signature type to get one.
+
+        // TODO-MIKE-Cleanup: It would probably make more sense to always use the sig
+        // type. If they're different (which shouldn't really happen unless the IL is
+        // invalid) we can leave it to fgMorphCopyBlock to sort it out.
+
+        assert(varTypeIsSIMD(arg->GetType()));
+
+        argClass = typGetLayoutByNum(argInfo->use->GetSigTypeNum())->GetClassHandle();
+    }
+
+    unsigned tempLclNum = abiAllocateStructArgTemp(argClass);
 
     // TYP_SIMD structs should not be enregistered, since ABI requires it to be
     // allocated on stack and address of it needs to be passed.
@@ -10269,8 +10286,9 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_ADDR:
+            assert(!op1->OperIsSimdOrHWintrinsic());
 
-            /* op1 of a GT_ADDR is an l-value. Only r-values can be CSEed */
+            // op1 of a GT_ADDR is an l-value. Only r-values can be CSEed
             op1->gtFlags |= GTF_DONT_CSE;
             break;
 

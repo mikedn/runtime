@@ -731,8 +731,7 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 {
     assert(sig == nullptr || count == sig->numArgs);
 
-    CORINFO_CLASS_HANDLE structType;
-    GenTreeCall::Use*    argList;
+    GenTreeCall::Use* argList;
 
     if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L)
     {
@@ -750,23 +749,8 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
         if (varTypeIsStruct(temp->GetType()))
         {
-            structType = se.seTypeInfo.GetClassHandleForValueClass();
+            CORINFO_CLASS_HANDLE structType = se.seTypeInfo.GetClassHandleForValueClass();
 
-            bool forceNormalization = false;
-            if (varTypeIsSIMD(temp))
-            {
-                // We need to ensure that fgMorphArgs will use the correct struct handle to ensure proper
-                // ABI handling of this argument.
-                // Note that this can happen, for example, if we have a SIMD intrinsic that returns a SIMD type
-                // with a different baseType than we've seen.
-                // We also need to ensure an OBJ node if we have a FIELD node that might be transformed to LCL_FLD
-                // or a plain GT_IND.
-                // TODO-Cleanup: Consider whether we can eliminate all of these cases.
-                if ((gtGetStructHandleIfPresent(temp) != structType) || temp->OperIs(GT_FIELD))
-                {
-                    forceNormalization = true;
-                }
-            }
 #ifdef DEBUG
             if (verbose)
             {
@@ -774,7 +758,7 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
                 gtDispTree(temp);
             }
 #endif
-            temp = impNormStructVal(temp, structType, CHECK_SPILL_ALL, forceNormalization);
+            temp = impNormStructVal(temp, structType, CHECK_SPILL_ALL);
 #ifdef DEBUG
             if (verbose)
             {
@@ -837,6 +821,21 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
                 // primitive types.
                 // We will try to adjust for this case here to avoid breaking customers code (see VSW 485789 for
                 // details).
+
+                // TODO-MIKE-Review: This can still force SIMD "normalization" but only due to invalid IL.
+                //
+                // For example, if a primitive typed SIMD intrinsic (e.g. Vector4.Dot) is used as an arg for
+                // a struct typed parameter. impNormStructVal asserts in this case but in release builds this
+                // tends to work fine - it wraps the SIMD intrinsic in OBJ(ADDR(...)) which is then removed
+                // by rationalization and, at least in the case of floating point types, generates reasonable
+                // code.
+                //
+                // Now rationalization no longer removes the ADDR and an InvalidProgramExeption is thrown.
+                //
+                // It doesn't make sense to support such invalid IL (and it's likely unrelated to whatever bug
+                // VSW 485789 was, since back then SIMD didn't exist) but this could be made to work by simply
+                // spilling the arg tree to a temp and then using LCL_FLD to load it with the appropiate type.
+
                 if ((corType == CORINFO_TYPE_VALUECLASS) && !varTypeIsStruct(arg->GetNode()->TypeGet()))
                 {
                     arg->SetNode(impNormStructVal(arg->GetNode(), argRealClass, CHECK_SPILL_ALL, true));
