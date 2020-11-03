@@ -6669,14 +6669,12 @@ protected:
 
 struct GenTreeRetExpr : public GenTree
 {
-    GenTree* gtInlineCandidate;
-
-    unsigned __int64 bbFlags;
-
+    GenTree*             gtInlineCandidate;
     CORINFO_CLASS_HANDLE gtRetClsHnd;
+    uint64_t             bbFlags;
 
-    GenTreeRetExpr(var_types type, GenTree* inlineCandidate)
-        : GenTree(GT_RET_EXPR, type), gtInlineCandidate(inlineCandidate)
+    GenTreeRetExpr(var_types type, GenTreeCall* call, uint64_t bbFlags)
+        : GenTree(GT_RET_EXPR, type), gtInlineCandidate(call), gtRetClsHnd(call->gtRetClsHnd), bbFlags(bbFlags)
     {
         // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
         // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.

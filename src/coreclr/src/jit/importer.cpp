@@ -7695,16 +7695,16 @@ DONE_CALL:
             {
                 // We should not have made any adjustments in impFixupCallStructReturn
                 // as we defer those until we know the fate of the call.
-                assert(call == origCall);
+                noway_assert(call == origCall);
 
                 assert(opts.OptEnabled(CLFLG_INLINING));
                 assert(!isFatPointerCandidate); // We should not try to inline calli.
 
                 // Make the call its own tree (spill the stack if needed).
-                impAppendTree(call, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+                impAppendTree(origCall, CHECK_SPILL_ALL, impCurStmtOffs);
 
                 // TODO: Still using the widened type.
-                GenTree* retExpr = gtNewInlineCandidateReturnExpr(call, genActualType(callRetTyp), compCurBB->bbFlags);
+                GenTree* retExpr = gtNewRetExpr(origCall, varActualType(callRetTyp), compCurBB);
 
                 // Link the retExpr to the call so if necessary we can manipulate it later.
                 origCall->gtInlineCandidateInfo->retExpr = retExpr;

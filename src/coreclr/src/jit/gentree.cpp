@@ -5810,18 +5810,9 @@ GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned
     return new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
 }
 
-GenTreeRetExpr* Compiler::gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type, uint64_t bbFlags)
+GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call, var_types type, BasicBlock* block)
 {
-    GenTreeRetExpr* node = new (this, GT_RET_EXPR) GenTreeRetExpr(type, inlineCandidate);
-
-    node->bbFlags = bbFlags;
-
-    if (varTypeIsStruct(inlineCandidate->GetType()) && !inlineCandidate->OperIsBlkOp())
-    {
-        node->gtRetClsHnd = gtGetStructHandle(inlineCandidate);
-    }
-
-    return node;
+    return new (this, GT_RET_EXPR) GenTreeRetExpr(type, call, block->bbFlags);
 }
 
 GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)

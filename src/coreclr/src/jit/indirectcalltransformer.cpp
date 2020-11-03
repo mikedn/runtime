@@ -648,12 +648,12 @@ private:
                 returnTemp = compiler->lvaGrabTemp(false DEBUGARG("guarded devirt return temp"));
                 JITDUMP("Reworking call(s) to return value via a new temp V%02u\n", returnTemp);
 
-                if (varTypeIsStruct(origCall))
+                if (varTypeIsStruct(origCall->GetType()))
                 {
                     compiler->lvaSetStruct(returnTemp, origCall->gtRetClsHnd, false);
                 }
 
-                GenTree* tempTree = compiler->gtNewLclvNode(returnTemp, origCall->TypeGet());
+                GenTree* tempTree = compiler->gtNewLclvNode(returnTemp, origCall->GetType());
 
                 JITDUMP("Updating GT_RET_EXPR [%06u] to refer to temp V%02u\n", compiler->dspTreeID(retExpr),
                         returnTemp);
@@ -711,7 +711,7 @@ private:
             unsigned               methodFlags            = inlineInfo->methAttr;
             CORINFO_CONTEXT_HANDLE context                = inlineInfo->exactContextHnd;
             const bool             isLateDevirtualization = true;
-            bool explicitTailCall = (call->AsCall()->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+            bool                   explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
             compiler->impDevirtualizeCall(call, &methodHnd, &methodFlags, &context, nullptr, isLateDevirtualization,
                                           explicitTailCall);
 
@@ -737,7 +737,7 @@ private:
             // we set all this up in FixupRetExpr().
             if (oldRetExpr != nullptr)
             {
-                GenTree* retExpr = compiler->gtNewInlineCandidateReturnExpr(call, call->TypeGet(), thenBlock->bbFlags);
+                GenTree* retExpr    = compiler->gtNewRetExpr(call, call->GetType(), thenBlock);
                 inlineInfo->retExpr = retExpr;
 
                 if (returnTemp != BAD_VAR_NUM)
