@@ -445,10 +445,8 @@ ClassLayout* ClassLayout::GetPPPQuirkLayout(CompAllocator alloc)
 bool ClassLayout::AreCompatible(const ClassLayout* layout1, const ClassLayout* layout2)
 {
     assert((layout1 != nullptr) && (layout2 != nullptr));
-    CORINFO_CLASS_HANDLE clsHnd1 = layout1->GetClassHandle();
-    CORINFO_CLASS_HANDLE clsHnd2 = layout2->GetClassHandle();
 
-    if ((clsHnd1 != NO_CLASS_HANDLE) && (clsHnd1 == clsHnd2))
+    if (layout1 == layout2)
     {
         return true;
     }
@@ -457,20 +455,6 @@ bool ClassLayout::AreCompatible(const ClassLayout* layout1, const ClassLayout* l
     {
         return false;
     }
-
-    if (layout1->HasGCPtr() != layout2->HasGCPtr())
-    {
-        return false;
-    }
-
-    if (!layout1->HasGCPtr() && !layout2->HasGCPtr())
-    {
-        return true;
-    }
-
-    assert(clsHnd1 != NO_CLASS_HANDLE);
-    assert(clsHnd2 != NO_CLASS_HANDLE);
-    assert(layout1->HasGCPtr() && layout2->HasGCPtr());
 
     if (layout1->GetGCPtrCount() != layout2->GetGCPtrCount())
     {
