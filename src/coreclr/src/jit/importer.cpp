@@ -731,8 +731,7 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 {
     assert(sig == nullptr || count == sig->numArgs);
 
-    CORINFO_CLASS_HANDLE structType;
-    GenTreeCall::Use*    argList;
+    GenTreeCall::Use* argList;
 
     if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L)
     {
@@ -750,23 +749,8 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
         if (varTypeIsStruct(temp->GetType()))
         {
-            structType = se.seTypeInfo.GetClassHandleForValueClass();
+            CORINFO_CLASS_HANDLE structType = se.seTypeInfo.GetClassHandleForValueClass();
 
-            bool forceNormalization = false;
-            if (varTypeIsSIMD(temp))
-            {
-                // We need to ensure that fgMorphArgs will use the correct struct handle to ensure proper
-                // ABI handling of this argument.
-                // Note that this can happen, for example, if we have a SIMD intrinsic that returns a SIMD type
-                // with a different baseType than we've seen.
-                // We also need to ensure an OBJ node if we have a FIELD node that might be transformed to LCL_FLD
-                // or a plain GT_IND.
-                // TODO-Cleanup: Consider whether we can eliminate all of these cases.
-                if ((gtGetStructHandleIfPresent(temp) != structType) || temp->OperIs(GT_FIELD))
-                {
-                    forceNormalization = true;
-                }
-            }
 #ifdef DEBUG
             if (verbose)
             {
@@ -774,7 +758,7 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
                 gtDispTree(temp);
             }
 #endif
-            temp = impNormStructVal(temp, structType, (unsigned)CHECK_SPILL_ALL, forceNormalization);
+            temp = impNormStructVal(temp, structType, CHECK_SPILL_ALL);
 #ifdef DEBUG
             if (verbose)
             {
@@ -812,13 +796,15 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
             CorInfoType corType = strip(info.compCompHnd->getArgType(sig, argLst, &argClass));
 
+            assert(corType != CORINFO_TYPE_VAR);
+
             // insert implied casts (from float to double or double to float)
 
-            if ((corType == CORINFO_TYPE_DOUBLE) && (arg->GetNode()->TypeGet() == TYP_FLOAT))
+            if ((corType == CORINFO_TYPE_DOUBLE) && arg->GetNode()->TypeIs(TYP_FLOAT))
             {
                 arg->SetNode(gtNewCastNode(TYP_DOUBLE, arg->GetNode(), false, TYP_DOUBLE));
             }
-            else if ((corType == CORINFO_TYPE_FLOAT) && (arg->GetNode()->TypeGet() == TYP_DOUBLE))
+            else if ((corType == CORINFO_TYPE_FLOAT) && arg->GetNode()->TypeIs(TYP_DOUBLE))
             {
                 arg->SetNode(gtNewCastNode(TYP_FLOAT, arg->GetNode(), false, TYP_FLOAT));
             }
@@ -827,17 +813,32 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
             arg->SetNode(impImplicitIorI4Cast(arg->GetNode(), JITtype2varType(corType)));
 
-            if (corType != CORINFO_TYPE_CLASS && corType != CORINFO_TYPE_BYREF && corType != CORINFO_TYPE_PTR &&
-                corType != CORINFO_TYPE_VAR && (argRealClass = info.compCompHnd->getArgClass(sig, argLst)) != nullptr)
+            if ((corType != CORINFO_TYPE_CLASS) && (corType != CORINFO_TYPE_BYREF) && (corType != CORINFO_TYPE_PTR) &&
+                ((argRealClass = info.compCompHnd->getArgClass(sig, argLst)) != nullptr))
             {
                 // Everett MC++ could generate IL with a mismatched valuetypes. It used to work with Everett JIT,
                 // but it stopped working in Whidbey when we have started passing simple valuetypes as underlying
                 // primitive types.
                 // We will try to adjust for this case here to avoid breaking customers code (see VSW 485789 for
                 // details).
-                if (corType == CORINFO_TYPE_VALUECLASS && !varTypeIsStruct(arg->GetNode()->TypeGet()))
+
+                // TODO-MIKE-Review: This can still force SIMD "normalization" but only due to invalid IL.
+                //
+                // For example, if a primitive typed SIMD intrinsic (e.g. Vector4.Dot) is used as an arg for
+                // a struct typed parameter. impNormStructVal asserts in this case but in release builds this
+                // tends to work fine - it wraps the SIMD intrinsic in OBJ(ADDR(...)) which is then removed
+                // by rationalization and, at least in the case of floating point types, generates reasonable
+                // code.
+                //
+                // Now rationalization no longer removes the ADDR and an InvalidProgramExeption is thrown.
+                //
+                // It doesn't make sense to support such invalid IL (and it's likely unrelated to whatever bug
+                // VSW 485789 was, since back then SIMD didn't exist) but this could be made to work by simply
+                // spilling the arg tree to a temp and then using LCL_FLD to load it with the appropiate type.
+
+                if ((corType == CORINFO_TYPE_VALUECLASS) && !varTypeIsStruct(arg->GetNode()->TypeGet()))
                 {
-                    arg->SetNode(impNormStructVal(arg->GetNode(), argRealClass, (unsigned)CHECK_SPILL_ALL, true));
+                    arg->SetNode(impNormStructVal(arg->GetNode(), argRealClass, CHECK_SPILL_ALL, true));
                 }
 
                 // Make sure that all valuetypes (including enums) that we push are loaded.
@@ -846,6 +847,16 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
                 // We need to be able to find the size of the valuetypes, but we cannot
                 // do a class-load from within GC.
                 info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(argRealClass);
+            }
+
+            if ((corType == CORINFO_TYPE_VALUECLASS) || (corType == CORINFO_TYPE_REFANY))
+            {
+                assert(argClass != NO_CLASS_HANDLE);
+                arg->SetSigTypeNum(typGetObjLayoutNum(argClass));
+            }
+            else
+            {
+                arg->SetSigTypeNum(static_cast<unsigned>(JITtype2varType(corType)));
             }
 
             argLst = info.compCompHnd->getArgNext(argLst);
@@ -1482,21 +1493,22 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
                                     unsigned             curLevel,
                                     bool                 forceNormalization /*=false*/)
 {
-    assert(forceNormalization || varTypeIsStruct(structVal));
+    assert(forceNormalization || varTypeIsStruct(structVal->GetType()));
     assert(structHnd != NO_CLASS_HANDLE);
-    var_types structType = structVal->TypeGet();
-    bool      makeTemp   = false;
+
+    var_types structType = structVal->GetType();
+
     if (structType == TYP_STRUCT)
     {
         structType = impNormStructType(structHnd);
     }
+
+    bool                 makeTemp          = false;
     bool                 alreadyNormalized = false;
     GenTreeLclVarCommon* structLcl         = nullptr;
 
-    genTreeOps oper = structVal->OperGet();
-    switch (oper)
+    switch (structVal->GetOper())
     {
-        // GT_MKREFANY does not capture the handle.
         case GT_MKREFANY:
             alreadyNormalized = true;
             break;
@@ -1512,15 +1524,14 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
             break;
 
         case GT_INDEX:
-            // This will be transformed to an OBJ later.
-            alreadyNormalized = true;
             structVal->AsIndex()->SetElemClassHandle(structHnd);
             structVal->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(structHnd));
+            alreadyNormalized = true;
             break;
 
         case GT_FIELD:
-            // Wrap it in a GT_OBJ, if needed.
-            structVal->gtType = structType;
+            structVal->SetType(structType);
+
             if ((structType == TYP_STRUCT) || forceNormalization)
             {
                 structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
@@ -1530,131 +1541,130 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
         case GT_LCL_VAR:
         case GT_LCL_FLD:
             structLcl = structVal->AsLclVarCommon();
-            // Wrap it in a GT_OBJ.
             structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
-            __fallthrough;
+            assert(structVal->GetType() == structType);
+            alreadyNormalized = true;
+            break;
 
         case GT_OBJ:
         case GT_BLK:
-            // These should already have the appropriate type.
-            assert(structVal->gtType == structType);
+            assert(structVal->GetType() == structType);
             alreadyNormalized = true;
             break;
 
         case GT_IND:
-            assert(structVal->gtType == structType);
-            structVal         = gtNewObjNode(structHnd, structVal->gtGetOp1());
+            assert(structVal->GetType() == structType);
+            structVal         = gtNewObjNode(structHnd, structVal->AsIndir()->GetAddr());
             alreadyNormalized = true;
             break;
 
+#if defined(FEATURE_SIMD) || defined(FEATURE_HW_INTRINSICS)
 #ifdef FEATURE_SIMD
         case GT_SIMD:
-            assert(varTypeIsSIMD(structVal) && (structVal->gtType == structType));
-            break;
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            assert(varTypeIsSIMD(structVal) && (structVal->gtType == structType));
+#endif
+            assert(varTypeIsSIMD(structVal->GetType()) && (structVal->GetType() == structType));
             break;
 #endif
 
         case GT_COMMA:
         {
-            // The second thing could either be a block node or a GT_FIELD or a GT_SIMD or a GT_COMMA node.
-            GenTree* blockNode = structVal->AsOp()->gtOp2;
-            assert(blockNode->gtType == structType);
+            GenTree* lastComma  = structVal;
+            GenTree* commaValue = structVal->AsOp()->GetOp(1);
 
-            // Is this GT_COMMA(op1, GT_COMMA())?
-            GenTree* parent = structVal;
-            if (blockNode->OperGet() == GT_COMMA)
+            while (commaValue->OperIs(GT_COMMA))
             {
-                // Find the last node in the comma chain.
-                do
-                {
-                    assert(blockNode->gtType == structType);
-                    parent    = blockNode;
-                    blockNode = blockNode->AsOp()->gtOp2;
-                } while (blockNode->OperGet() == GT_COMMA);
+                assert(commaValue->GetType() == structType);
+
+                lastComma  = commaValue;
+                commaValue = commaValue->AsOp()->GetOp(1);
             }
 
-            if (blockNode->OperGet() == GT_FIELD)
+            assert(commaValue->GetType() == structType);
+
+            if (commaValue->OperIs(GT_FIELD))
             {
-                // If we have a GT_FIELD then wrap it in a GT_OBJ.
-                blockNode = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, blockNode));
+                commaValue = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, commaValue));
             }
 
 #ifdef FEATURE_SIMD
-            if (blockNode->OperIsSimdOrHWintrinsic())
+            if (commaValue->OperIsSimdOrHWintrinsic())
             {
-                parent->AsOp()->gtOp2 = impNormStructVal(blockNode, structHnd, curLevel, forceNormalization);
-                alreadyNormalized     = true;
+                lastComma->AsOp()->SetOp(1, impNormStructVal(commaValue, structHnd, curLevel, forceNormalization));
             }
             else
 #endif
             {
-                noway_assert(blockNode->OperIsBlk());
+                noway_assert(commaValue->IsBlk());
 
-                // Sink the GT_COMMA below the blockNode addr.
-                // That is GT_COMMA(op1, op2=blockNode) is tranformed into
-                // blockNode(GT_COMMA(TYP_BYREF, op1, op2's op1)).
-                //
-                // In case of a chained GT_COMMA case, we sink the last
-                // GT_COMMA below the blockNode addr.
-                GenTree* blockNodeAddr = blockNode->AsOp()->gtOp1;
-                assert(blockNodeAddr->gtType == TYP_BYREF);
-                GenTree* commaNode       = parent;
-                commaNode->gtType        = TYP_BYREF;
-                commaNode->AsOp()->gtOp2 = blockNodeAddr;
-                blockNode->AsOp()->gtOp1 = commaNode;
-                if (parent == structVal)
+                // Hoist the block node above the COMMA so we don't have to deal with struct typed COMMAs:
+                //   COMMA(x, OBJ(addr)) => OBJ(COMMA(x, addr))
+
+                // TODO-MIKE-Fix: Huh, this doesn't handle multiple COMMAs even though the code above does.
+                // Though it looks like struct COMMAs are rare in the importer - only produced by static
+                // field access - and aren't nested. And the static field import code could probably be
+                // changed to produce OBJ(COMMA(...)) rather than COMMA(OBJ(...)).
+
+                GenTree* addr = commaValue->AsBlk()->GetAddr();
+
+                lastComma->SetType(addr->GetType());
+                lastComma->AsOp()->SetOp(1, addr);
+
+                commaValue->AsBlk()->SetAddr(lastComma);
+
+                if (lastComma == structVal)
                 {
-                    structVal = blockNode;
+                    structVal = commaValue;
                 }
-                alreadyNormalized = true;
             }
+
+            alreadyNormalized = true;
         }
         break;
 
         default:
-            noway_assert(!"Unexpected node in impNormStructVal()");
-            break;
+            unreached();
     }
-    structVal->gtType = structType;
+
+    structVal->SetType(structType);
 
     if (!alreadyNormalized || forceNormalization)
     {
         if (makeTemp)
         {
-            unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
+            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("norm struct val temp"));
 
-            impAssignTempGen(tmpNum, structVal, structHnd, curLevel);
+            impAssignTempGen(tempLclNum, structVal, structHnd, curLevel);
 
-            // The structVal is now the temp itself
-
-            structLcl = gtNewLclvNode(tmpNum, structType)->AsLclVarCommon();
+            structLcl = gtNewLclvNode(tempLclNum, structType);
             structVal = structLcl;
         }
-        if ((forceNormalization || (structType == TYP_STRUCT)) && !structVal->OperIsBlk())
+
+        if ((forceNormalization || (structType == TYP_STRUCT)) && !structVal->IsBlk())
         {
-            // Wrap it in a GT_OBJ
             structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
         }
     }
 
-    if (structLcl != nullptr)
+    if (structVal->IsBlk())
     {
-        // A OBJ on a ADDR(LCL_VAR) can never raise an exception
-        // so we don't set GTF_EXCEPT here.
-        if (!lvaIsImplicitByRefLocal(structLcl->GetLclNum()))
+        if (structLcl != nullptr)
         {
-            structVal->gtFlags &= ~GTF_GLOB_REF;
+            // A OBJ on a ADDR(LCL_VAR) can never raise an exception so we don't set GTF_EXCEPT here.
+            if (!lvaIsImplicitByRefLocal(structLcl->GetLclNum()))
+            {
+                structVal->gtFlags &= ~GTF_GLOB_REF;
+            }
+        }
+        else
+        {
+            // In general a OBJ is an indirection and could raise an exception.
+            structVal->gtFlags |= GTF_EXCEPT;
         }
     }
-    else if (structVal->OperIsBlk())
-    {
-        // In general a OBJ is an indirection and could raise an exception.
-        structVal->gtFlags |= GTF_EXCEPT;
-    }
+
     return structVal;
 }
 
@@ -7684,16 +7694,16 @@ DONE_CALL:
             {
                 // We should not have made any adjustments in impFixupCallStructReturn
                 // as we defer those until we know the fate of the call.
-                assert(call == origCall);
+                noway_assert(call == origCall);
 
                 assert(opts.OptEnabled(CLFLG_INLINING));
                 assert(!isFatPointerCandidate); // We should not try to inline calli.
 
                 // Make the call its own tree (spill the stack if needed).
-                impAppendTree(call, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+                impAppendTree(origCall, CHECK_SPILL_ALL, impCurStmtOffs);
 
                 // TODO: Still using the widened type.
-                GenTree* retExpr = gtNewInlineCandidateReturnExpr(call, genActualType(callRetTyp), compCurBB->bbFlags);
+                GenTree* retExpr = gtNewRetExpr(origCall, varActualType(callRetTyp), compCurBB);
 
                 // Link the retExpr to the call so if necessary we can manipulate it later.
                 origCall->gtInlineCandidateInfo->retExpr = retExpr;
@@ -13293,7 +13303,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
                 }
 
-                op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, gtNewCallArgs(op2, op1));
+                {
+                    GenTreeCall::Use* arg1 = gtNewCallArgs(op2);
+                    GenTreeCall::Use* arg2 = gtNewCallArgs(op1);
+                    arg2->SetSigTypeNum(typGetObjLayoutNum(impGetRefAnyClass()));
+                    arg1->SetNext(arg2);
+
+                    op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, arg1);
+                }
+
                 impPushOnStack(op1, typeInfo());
                 break;
 

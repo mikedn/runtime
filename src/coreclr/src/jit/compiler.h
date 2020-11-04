@@ -1041,7 +1041,6 @@ public:
     void SetLayout(ClassLayout* layout)
     {
         assert(varTypeIsStruct(lvType));
-        assert((m_layout == nullptr) || ClassLayout::AreCompatible(m_layout, layout));
         m_layout = layout;
     }
 
@@ -2164,7 +2163,7 @@ public:
     GenTree* gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
 
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
-    GenTreeRetExpr* gtNewInlineCandidateReturnExpr(GenTree* inlineCandidate, var_types type, uint64_t bbFlags);
+    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type, BasicBlock* block);
 
     GenTreeField* gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj = nullptr, DWORD offset = 0);
 
@@ -8627,6 +8626,7 @@ private:
     class ClassLayoutTable* typGetClassLayoutTable();
 
 public:
+    bool typIsLayoutNum(unsigned layoutNum);
     // Get the layout having the specified layout number.
     ClassLayout* typGetLayoutByNum(unsigned layoutNum);
     // Get the layout number of the specified layout.
@@ -9303,7 +9303,7 @@ public:
     unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);
     void abiFreeAllStructArgTemps();
 #if TARGET_64BIT
-    void abiMorphImplicityByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
+    void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 #endif // !TARGET_X86
 

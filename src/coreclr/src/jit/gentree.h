@@ -3877,9 +3877,20 @@ struct GenTreeCall final : public GenTree
     {
         GenTree* m_node;
         Use*     m_next;
+        unsigned m_sigTypeNum;
 
     public:
-        Use(GenTree* node, Use* next = nullptr) : m_node(node), m_next(next)
+        Use(GenTree* node, Use* next = nullptr)
+            : m_node(node)
+            , m_next(next)
+            // Always record the type of node at call arg's creation. impPopCallArgs will override this with
+            // the actual signature type but for helper calls there is no signature information so we'll just
+            // whatever we have. Helper calls usually don't have struct params so this should work most of the
+            // time. Hopefully helper calls also don't have small int params, otherwise this will get messy on
+            // osx-arm64. Use the actual type of the node as it's more likely to be correct (and consistently
+            // incorrect if it's an osx-arm64 small int param), since a small int typed node doesn't imply that
+            // the call param is also small int (e.g. we may have a BYTE indir and an INT param).
+            , m_sigTypeNum(static_cast<unsigned>(varActualType(node->GetType())))
         {
             assert(node != nullptr);
         }
@@ -3914,6 +3925,16 @@ struct GenTreeCall final : public GenTree
         void SetNext(Use* next)
         {
             m_next = next;
+        }
+
+        unsigned GetSigTypeNum() const
+        {
+            return m_sigTypeNum;
+        }
+
+        void SetSigTypeNum(unsigned typeNum)
+        {
+            m_sigTypeNum = typeNum;
         }
     };
 
@@ -6648,14 +6669,12 @@ protected:
 
 struct GenTreeRetExpr : public GenTree
 {
-    GenTree* gtInlineCandidate;
-
-    unsigned __int64 bbFlags;
-
+    GenTree*             gtInlineCandidate;
     CORINFO_CLASS_HANDLE gtRetClsHnd;
+    uint64_t             bbFlags;
 
-    GenTreeRetExpr(var_types type, GenTree* inlineCandidate)
-        : GenTree(GT_RET_EXPR, type), gtInlineCandidate(inlineCandidate)
+    GenTreeRetExpr(var_types type, GenTreeCall* call, uint64_t bbFlags)
+        : GenTree(GT_RET_EXPR, type), gtInlineCandidate(call), gtRetClsHnd(call->gtRetClsHnd), bbFlags(bbFlags)
     {
         // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
         // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
