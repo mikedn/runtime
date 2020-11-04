@@ -1250,16 +1250,24 @@ private:
             }
         }
 
-        if ((val.Offset() == 0) && ((indirLayout == varDsc->GetLayout()) ||
-                                    ((indirLayout == nullptr) && (varDsc->GetType() == indir->GetType()))))
+        // For SIMD locals/indirs we don't care about the layout, only that the types match.
+        // This could probably be relaxed to allow cases like Vector2 indir and Vector4 local
+        // since they all use the same registers. Might need to zero out the upper elements
+        // though.
+
+        // For STRUCT locals/indirs the layout has to match exactly. This restriction can
+        // likely be relaxed to "have the same size" or even less, since values used as
+        // call args no longer need to preserve their type.
+
+        if ((val.Offset() == 0) && (indir->GetType() == varDsc->GetType()) &&
+            (varTypeIsSIMD(indir->GetType()) || (indirLayout == varDsc->GetLayout())))
         {
             indir->ChangeOper(GT_LCL_VAR);
             indir->AsLclVar()->SetLclNum(val.LclNum());
         }
-        else if (varDsc->lvDoNotEnregister ||
-                 (!varTypeIsSIMD(varDsc->GetType()) &&
-                  (!varDsc->IsPromoted() || (val.Offset() != 0) || (indirLayout == nullptr) ||
-                   (indirLayout->GetSize() != varDsc->GetLayout()->GetSize()))))
+        else if (!varDsc->IsPromoted() && !varDsc->IsPromotedField() &&
+                 ((indirLayout == nullptr) || (val.Offset() != 0) ||
+                  (indirLayout->GetSize() != varDsc->GetLayout()->GetSize()) || varDsc->lvDoNotEnregister))
         {
             indir->ChangeOper(GT_LCL_FLD);
             indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1296,17 +1304,6 @@ private:
             // because we only have the list of field of the promoted local, for the layout
             // we get from the OBJ we'll need to query the VM to get its fields. Or just
             // cache the fields in the layout to avoid repeated VM queries...
-
-            // TODO-ADDR: Skip SIMD locals for now, they have a similar problem - we need
-            // to preserve the layout if a SIMD call arg is reinterpreted (e.g. AsVector4).
-            //
-            // They also have a problem of their own - some morph code needs to be updated
-            // to recognize LCL_FLDs instead of FIELDs (fgMorphFieldAssignToSIMDIntrinsicSet,
-            // fgMorphFieldToSIMDIntrinsicGet and fgMorphCombineSIMDFieldAssignments).
-            //
-            // Other than those cases, we can always turn OBJ(ADDR(LCL_VAR)) into LCL_VAR
-            // if the OBJ and the local have the same layout (and impPopSIMDStack has a
-            // habit of generating such trees).
 
             return;
         }
