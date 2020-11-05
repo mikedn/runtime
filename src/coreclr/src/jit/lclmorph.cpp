@@ -964,12 +964,11 @@ private:
         }
 
         LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
+        const bool isDef  = user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
 
         if (!varTypeIsStruct(varDsc->GetType()))
         {
             // TODO-MIKE-Cleanup: This likely makes a bunch of IND morphing code in fgMorphSmpOp redundant.
-
-            const bool isDef = user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
 
             const var_types indirType = indir->GetType();
             const var_types lclType   = varDsc->GetType();
@@ -1110,6 +1109,67 @@ private:
             return;
         }
 
+#ifdef FEATURE_SIMD
+        if (varTypeIsSIMD(varDsc->GetType()) && varDsc->lvIsUsedInSIMDIntrinsic() && indir->TypeIs(TYP_FLOAT) &&
+            (val.Offset() % 4 == 0) && (!isDef || !varDsc->IsImplicitByRefParam()) && !varDsc->lvDoNotEnregister)
+        {
+            // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
+            // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
+            // types don't have fields and the only way this would be useful is if someone uses unsafe code
+            // to access the vector elements. That's not very useful as the other vector types offer element
+            // access by other means - Vector's indexer and Vector64/128/256's GetElement.
+
+            // TODO-MIKE-CQ: Doing this here is a bit of a problem if the local variable ends up in memory,
+            // if it is DNER for whatever reasons (we haven't determined that exactly at this point) or if
+            // it is an implicit byref param. We could produce a LCL_FLD here, without DNERing the local and
+            // let morph convert it to GetItem/SetItem or leave it alone if the local was already DNERed for
+            // other reasons. But creating a LCL_FLD without DNERing the corresponding local seems somewhat
+            // risky at the moment.
+            //
+            // Implicit byref params are a bit more complicated. We could simply skip this transform if the
+            // local is an implicit byref param but that's not always a clear improvement because of CSE.
+            // If multiple vector elements are accessed then we can have a single SIMD load and multiple
+            // GetItem to extract the elements. Otherwise we need to do a separate FLOAT load for each.
+            // Having a single load may be faster but multiple loads can result in smaller code if loads
+            // end up as memory operands on other instructions (on x86/64).
+            //
+            // Ultimately the best option may be to keep doing this here and compensate for the memory case
+            // in lowering. This is already done for GetItem but doesn't work very well. And SetItem is a
+            // bit more cumbersome to handle, though perhaps it would fit into the existing RMW lowering.
+
+            // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
+            // struct promotion and this transform doesn't have anything to do with that. In fact using
+            // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
+            // their X/Y/Z/W fields will just result in DNER.
+
+            if (isDef)
+            {
+                indir->ChangeOper(GT_LCL_VAR);
+                indir->SetType(varDsc->GetType());
+                indir->AsLclVar()->SetLclNum(val.LclNum());
+                indir->gtFlags = GTF_VAR_DEF | GTF_DONT_CSE;
+
+                user->AsOp()->SetOp(1, NewSIMDNode(varDsc->GetType(),
+                                                   static_cast<SIMDIntrinsicID>(SIMDIntrinsicSetX + val.Offset() / 4),
+                                                   TYP_FLOAT, varTypeSize(varDsc->GetType()),
+                                                   NewLclVarNode(varDsc->GetType(), val.LclNum()),
+                                                   user->AsOp()->GetOp(1)));
+                user->SetType(varDsc->GetType());
+            }
+            else
+            {
+                indir->ChangeOper(GT_SIMD);
+                indir->AsSIMD()->SetIntrinsic(SIMDIntrinsicGetItem, TYP_FLOAT, varTypeSize(varDsc->GetType()), 2);
+                indir->AsSIMD()->SetOp(0, NewLclVarNode(varDsc->GetType(), val.LclNum()));
+                indir->AsSIMD()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
+            }
+
+            INDEBUG(m_stmtModified = true;)
+
+            return;
+        }
+#endif // FEATURE_SIMD
+
         ClassLayout*  indirLayout = nullptr;
         FieldSeqNode* fieldSeq    = val.FieldSeq();
 
@@ -1190,16 +1250,24 @@ private:
             }
         }
 
-        if ((val.Offset() == 0) && ((indirLayout == varDsc->GetLayout()) ||
-                                    ((indirLayout == nullptr) && (varDsc->GetType() == indir->GetType()))))
+        // For SIMD locals/indirs we don't care about the layout, only that the types match.
+        // This could probably be relaxed to allow cases like Vector2 indir and Vector4 local
+        // since they all use the same registers. Might need to zero out the upper elements
+        // though.
+
+        // For STRUCT locals/indirs the layout has to match exactly. This restriction can
+        // likely be relaxed to "have the same size" or even less, since values used as
+        // call args no longer need to preserve their type.
+
+        if ((val.Offset() == 0) && (indir->GetType() == varDsc->GetType()) &&
+            (varTypeIsSIMD(indir->GetType()) || (indirLayout == varDsc->GetLayout())))
         {
             indir->ChangeOper(GT_LCL_VAR);
             indir->AsLclVar()->SetLclNum(val.LclNum());
         }
-        else if (varDsc->lvDoNotEnregister ||
-                 (!varTypeIsSIMD(varDsc->GetType()) &&
-                  (!varDsc->IsPromoted() || (val.Offset() != 0) || (indirLayout == nullptr) ||
-                   (indirLayout->GetSize() != varDsc->GetLayout()->GetSize()))))
+        else if (!varDsc->IsPromoted() && !varDsc->IsPromotedField() &&
+                 ((indirLayout == nullptr) || (val.Offset() != 0) ||
+                  (indirLayout->GetSize() != varDsc->GetLayout()->GetSize()) || varDsc->lvDoNotEnregister))
         {
             indir->ChangeOper(GT_LCL_FLD);
             indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1236,17 +1304,6 @@ private:
             // because we only have the list of field of the promoted local, for the layout
             // we get from the OBJ we'll need to query the VM to get its fields. Or just
             // cache the fields in the layout to avoid repeated VM queries...
-
-            // TODO-ADDR: Skip SIMD locals for now, they have a similar problem - we need
-            // to preserve the layout if a SIMD call arg is reinterpreted (e.g. AsVector4).
-            //
-            // They also have a problem of their own - some morph code needs to be updated
-            // to recognize LCL_FLDs instead of FIELDs (fgMorphFieldAssignToSIMDIntrinsicSet,
-            // fgMorphFieldToSIMDIntrinsicGet and fgMorphCombineSIMDFieldAssignments).
-            //
-            // Other than those cases, we can always turn OBJ(ADDR(LCL_VAR)) into LCL_VAR
-            // if the OBJ and the local have the same layout (and impPopSIMDStack has a
-            // habit of generating such trees).
 
             return;
         }
@@ -1585,6 +1642,24 @@ private:
 
         return m_compiler->gtNewLclvNode(lclNum, type);
     }
+
+    GenTreeIntCon* NewIntConNode(var_types type, ssize_t value)
+    {
+        return m_compiler->gtNewIconNode(value, type);
+    }
+
+#ifdef FEATURE_SIMD
+    GenTreeSIMD* NewSIMDNode(var_types type, SIMDIntrinsicID intrinsic, var_types baseType, unsigned size, GenTree* op1)
+    {
+        return m_compiler->gtNewSIMDNode(type, intrinsic, baseType, size, op1);
+    }
+
+    GenTreeSIMD* NewSIMDNode(
+        var_types type, SIMDIntrinsicID intrinsic, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
+    {
+        return m_compiler->gtNewSIMDNode(type, intrinsic, baseType, size, op1, op2);
+    }
+#endif
 };
 
 //------------------------------------------------------------------------
@@ -1606,35 +1681,39 @@ void Compiler::fgMarkAddressExposedLocals()
 #endif // DEBUG
 
     LocalAddressVisitor visitor(this);
+#ifdef FEATURE_SIMD
+    SIMDCoalescingBuffer buffer;
+#endif
 
     for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
         // Make the current basic block address available globally
         compCurBB = block;
 
+#ifdef FEATURE_SIMD
+        buffer.Clear();
+#endif
+
         for (Statement* stmt : block->Statements())
         {
             visitor.VisitStmt(stmt);
+
+#ifdef FEATURE_SIMD
+            if (opts.OptimizationEnabled() && buffer.Add(this, stmt))
+            {
+                buffer.Coalesce(this, block);
+
+                // Since we generated a new address node which didn't exist before,
+                // we should expose this address manually here.
+                // TODO-ADDR: Remove this when LocalAddressVisitor transforms all
+                // local field access into LCL_FLDs, at that point we would be
+                // combining 2 existing LCL_FLDs or 2 FIELDs that do not reference
+                // a local and thus cannot result in a new address exposed local.
+                visitor.VisitStmt(stmt);
+            }
+#endif
         }
     }
-}
-
-//------------------------------------------------------------------------
-// fgMarkAddressExposedLocals: Traverses the specified statement and marks address
-//    exposed locals.
-//
-// Arguments:
-//    stmt - the statement to traverse
-//
-// Notes:
-//    Trees such as IND(ADDR(LCL_VAR)), that morph is expected to fold
-//    to just LCL_VAR, do not result in the involved local being marked
-//    address exposed.
-//
-void Compiler::fgMarkAddressExposedLocals(Statement* stmt)
-{
-    LocalAddressVisitor visitor(this);
-    visitor.VisitStmt(stmt);
 }
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
@@ -1860,26 +1939,29 @@ public:
                         addr = m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, offset);
                     }
 
+                    ClassLayout* layout = nullptr;
+
                     if (varTypeIsStruct(lclNode->GetType()))
                     {
-                        ClassLayout* layout = lclNode->OperIs(GT_LCL_VAR) ? lcl->GetImplicitByRefParamLayout()
-                                                                          : lclNode->AsLclFld()->GetLayout(m_compiler);
+                        layout = lclNode->OperIs(GT_LCL_VAR) ? lcl->GetImplicitByRefParamLayout()
+                                                             : lclNode->AsLclFld()->GetLayout(m_compiler);
+                    }
 
-                        // Change LCL_VAR|FLD<STRUCT>(arg) into OBJ<STRUCT>(LCL_VAR<BYREF>(arg))
+                    if (layout != nullptr)
+                    {
                         tree->ChangeOper(GT_OBJ);
                         tree->AsObj()->SetLayout(layout);
                         tree->AsObj()->SetAddr(addr);
                         tree->AsObj()->gtBlkOpGcUnsafe = false;
                         tree->AsObj()->gtBlkOpKind     = GenTreeBlk::BlkOpKindInvalid;
-                        tree->gtFlags                  = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                     }
                     else
                     {
-                        // Change LCL_FLD<>(arg) into IND<>(ADD(LCL_VAR<BYREF>(arg), lclOffs))
                         tree->ChangeOper(GT_IND);
-                        tree->AsIndir()->SetAddr(addr);
-                        tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                     }
+
+                    tree->AsIndir()->SetAddr(addr);
+                    tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
                 }
             }
 

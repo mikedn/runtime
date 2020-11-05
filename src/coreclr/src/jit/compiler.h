@@ -2171,6 +2171,7 @@ public:
     GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
 
     GenTreeArrLen* gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset, BasicBlock* block);
+    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
 
     GenTree* gtNewIndir(var_types typ, GenTree* addr);
 
@@ -4926,21 +4927,39 @@ private:
     static MorphAddrContext s_CopyBlockMAC;
 
 #ifdef FEATURE_SIMD
-    GenTree* getSIMDStructFromField(GenTree*   tree,
-                                    var_types* baseTypeOut,
-                                    unsigned*  indexOut,
-                                    unsigned*  simdSizeOut,
-                                    bool       ignoreUsedInSIMDIntrinsic = false);
-    GenTree* fgMorphFieldAssignToSIMDIntrinsicSet(GenTree* tree);
-    GenTree* fgMorphFieldToSIMDIntrinsicGet(GenTree* tree);
-    bool fgMorphCombineSIMDFieldAssignments(BasicBlock* block, Statement* stmt);
-    void impMarkContiguousSIMDFieldAssignments(Statement* stmt);
+    class SIMDCoalescingBuffer
+    {
+        Statement* m_firstStmt;
+        Statement* m_lastStmt;
+        unsigned   m_lclNum;
+        unsigned   m_index;
 
-    // fgPreviousCandidateSIMDFieldAsgStmt is only used for tracking previous simd field assignment
-    // in function: Complier::impMarkContiguousSIMDFieldAssignments.
-    Statement* fgPreviousCandidateSIMDFieldAsgStmt;
+        GenTreeLclVar* IsSIMDField(GenTree* node);
+        GenTreeLclVar* IsSIMDGetItem(GenTree* node);
 
+        bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, GenTreeLclVar* simdLclVar);
+
+    public:
+        SIMDCoalescingBuffer() : m_index(0)
+        {
+        }
+
+        static bool AreContiguousMemoryLocations(GenTree* l1, GenTree* l2);
+        static void ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType);
+
+        void Mark(Compiler* compiler, Statement* stmt);
+        bool Add(Compiler* compiler, Statement* stmt);
+        void Coalesce(Compiler* compiler, BasicBlock* block);
+
+        void Clear()
+        {
+            m_index = 0;
+        }
+    };
+
+    SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
 #endif // FEATURE_SIMD
+
     GenTree* fgMorphArrayIndex(GenTree* tree);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
@@ -5153,7 +5172,6 @@ private:
     void fgMarkDemotedImplicitByRefArgs();
 
     void fgMarkAddressExposedLocals();
-    void fgMarkAddressExposedLocals(Statement* stmt);
 
     static fgWalkPreFn  fgUpdateSideEffectsPre;
     static fgWalkPostFn fgUpdateSideEffectsPost;
@@ -7398,14 +7416,6 @@ private:
                 (structHandle != m_simdHandleCache->SIMDVector4Handle));
     }
 
-    // Returns true if the tree corresponds to a TYP_SIMD lcl var.
-    // Note that both SIMD vector args and locals are mared as lvSIMDType = true, but
-    // type of an arg node is TYP_BYREF and a local node is TYP_SIMD or TYP_STRUCT.
-    bool isSIMDTypeLocal(GenTree* tree)
-    {
-        return tree->OperIsLocal() && lvaTable[tree->AsLclVarCommon()->GetLclNum()].lvSIMDType;
-    }
-
     // Returns true if the lclVar is an opaque SIMD type.
     bool isOpaqueSIMDLclVar(const LclVarDsc* varDsc) const
     {
@@ -7415,18 +7425,6 @@ private:
     static bool isRelOpSIMDIntrinsic(SIMDIntrinsicID intrinsicId)
     {
         return (intrinsicId == SIMDIntrinsicEqual);
-    }
-
-    // Returns base type of a TYP_SIMD local.
-    // Returns TYP_UNKNOWN if the local is not TYP_SIMD.
-    var_types getBaseTypeOfSIMDLocal(GenTree* tree)
-    {
-        if (isSIMDTypeLocal(tree))
-        {
-            return lvaTable[tree->AsLclVarCommon()->GetLclNum()].lvBaseType;
-        }
-
-        return TYP_UNKNOWN;
     }
 
     bool isSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
@@ -7516,11 +7514,6 @@ private:
 #endif // defined(TARGET_XARCH)
 
     void setLclRelatedToSIMDIntrinsic(GenTree* tree);
-    bool areFieldsContiguous(GenTree* op1, GenTree* op2);
-    bool areLocalFieldsContiguous(GenTreeLclFld* first, GenTreeLclFld* second);
-    bool areArrayElementsContiguous(GenTree* op1, GenTree* op2);
-    bool areArgumentsContiguous(GenTree* op1, GenTree* op2);
-    GenTree* createAddressNodeForSIMDInit(GenTree* tree, unsigned simdSize);
 
     // check methodHnd to see if it is a SIMD method that is expanded as an intrinsic in the JIT.
     GenTree* impSIMDIntrinsic(OPCODE                opcode,

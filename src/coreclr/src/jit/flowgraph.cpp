@@ -169,9 +169,6 @@ void Compiler::fgInit()
     {
         m_promotedStructDeathVars = nullptr;
     }
-#ifdef FEATURE_SIMD
-    fgPreviousCandidateSIMDFieldAsgStmt = nullptr;
-#endif
 
     fgHasSwitch   = false;
     fgBlockCounts = nullptr;

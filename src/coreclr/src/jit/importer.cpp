@@ -487,7 +487,10 @@ inline void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
     impAppendStmt(stmt);
 
 #ifdef FEATURE_SIMD
-    impMarkContiguousSIMDFieldAssignments(stmt);
+    if (opts.OptimizationEnabled() && featureSIMD)
+    {
+        m_impSIMDCoalescingBuffer.Mark(this, stmt);
+    }
 #endif
 
     /* Once we set impCurStmtOffs in an appended tree, we are ready to
@@ -9559,6 +9562,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
     }
 
 #endif // FEATURE_ON_STACK_REPLACEMENT
+
+#ifdef FEATURE_SIMD
+    m_impSIMDCoalescingBuffer.Clear();
+#endif
 
     /* Walk the opcodes that comprise the basic block */
 
