@@ -4266,7 +4266,7 @@ struct GenTreeCall final : public GenTree
     //
     bool HasMultiRegRetVal() const
     {
-#ifdef FEATURE_MULTIREG_RET
+#if FEATURE_MULTIREG_RET
 #if defined(TARGET_X86) || defined(TARGET_ARM)
         if (varTypeIsLong(gtType))
         {
