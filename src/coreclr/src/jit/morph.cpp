@@ -15136,10 +15136,14 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
             noway_assert(lastStmt != nullptr);
             noway_assert(lastStmt->GetNextStmt() == nullptr);
 
-            // Must be a void GT_RETURN with null operand; delete it as this block branches to oneReturn
-            // block
-            noway_assert(ret->TypeGet() == TYP_VOID);
-            noway_assert(ret->gtGetOp1() == nullptr);
+            // If the return buffer address is being returned then we don't have a merged return
+            // temp because the address is just a LCL_VAR. Otherwise this has to be a VOID RETURN.
+
+            if (!compMethodReturnsRetBufAddr())
+            {
+                noway_assert(ret->TypeGet() == TYP_VOID);
+                noway_assert(ret->gtGetOp1() == nullptr);
+            }
 
             fgRemoveStmt(block, lastStmt);
         }

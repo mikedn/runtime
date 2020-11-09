@@ -8596,8 +8596,7 @@ public:
     // Returns true if the method being compiled returns a value
     bool compMethodHasRetVal()
     {
-        return compMethodReturnsNativeScalarType() || compMethodReturnsRetBufAddr() ||
-               compMethodReturnsMultiRegRetType();
+        return compMethodReturnsNativeScalarType() || compMethodReturnsMultiRegRetType();
     }
 
     // Returns true if the method requires a PInvoke prolog and epilog
