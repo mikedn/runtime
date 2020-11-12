@@ -3014,6 +3014,51 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
     var_types nativeReturnType = genActualType(comp->info.compRetNativeType);
     ret->SetType(nativeReturnType);
 
+    if (retVal->OperIs(GT_IND, GT_OBJ))
+    {
+        var_types            retRegType = comp->info.compRetNativeType;
+        CORINFO_CLASS_HANDLE retClass   = comp->info.compMethodInfo->args.retTypeClass;
+
+        unsigned retClassSize = comp->info.compCompHnd->getClassSize(retClass);
+
+        if (retClassSize == varTypeSize(retRegType))
+        {
+            if (varTypeIsSmall(retRegType))
+            {
+                retRegType = varTypeSignedToUnsigned(retRegType);
+            }
+
+            retVal->ChangeOper(GT_IND);
+            retVal->SetType(retRegType);
+            LowerIndir(retVal->AsIndir());
+        }
+        else
+        {
+#if defined(TARGET_X86) || defined(WINDOWS_AMD64_ABI)
+            unreached();
+#else
+            assert(retClassSize < varTypeSize(retRegType));
+
+            unsigned tempLclNum = comp->lvaNewTemp(retClass, true DEBUGARG("indir ret temp"));
+            comp->lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(Compiler::DNER_LocalField));
+
+            GenTree* retRegValue = comp->gtNewLclFldNode(tempLclNum, retRegType, 0);
+            ret->SetOp(0, retRegValue);
+            BlockRange().InsertBefore(ret, retRegValue);
+
+            GenTreeLclVar* tempStore = comp->gtNewLclvNode(tempLclNum, retVal->GetType());
+            tempStore->SetOper(GT_STORE_LCL_VAR);
+            tempStore->gtFlags |= GTF_ASG | GTF_VAR_DEF;
+            tempStore->AsLclVar()->SetOp(0, retVal);
+            BlockRange().InsertAfter(retVal, tempStore);
+
+            LowerStoreLocCommon(tempStore);
+#endif
+        }
+
+        return;
+    }
+
     switch (retVal->OperGet())
     {
         case GT_CALL:
@@ -3032,14 +3077,6 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
                 retVal->ChangeType(TYP_FLOAT);
                 retVal->AsDblCon()->gtDconVal = 0;
             }
-            break;
-
-        case GT_OBJ:
-            retVal->ChangeOper(GT_IND);
-            __fallthrough;
-        case GT_IND:
-            retVal->ChangeType(nativeReturnType);
-            LowerIndir(retVal->AsIndir());
             break;
 
         case GT_LCL_VAR:
