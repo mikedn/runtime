@@ -15118,15 +15118,12 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
             asg = fgMorphCopyBlock(asg->AsOp());
         }
 
-        if (newLastStmt == lastStmt)
-        {
-            lastStmt->SetRootNode(asg);
-        }
-        else
+        lastStmt->SetRootNode(asg);
+
+        if (newLastStmt != lastStmt)
         {
             fgRemoveStmt(block, lastStmt);
-            Statement* newStmt = gtNewStmt(asg, ilOffset);
-            fgInsertStmtAfter(block, newLastStmt, newStmt);
+            fgInsertStmtAfter(block, newLastStmt, lastStmt);
         }
     }
     else if ((ret != nullptr) && ret->OperIs(GT_RETURN))
