@@ -11140,19 +11140,22 @@ void CodeGen::genReturn(GenTree* treeNode)
     }
 #endif // DEBUG
 
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-    if (targetType == TYP_LONG)
+#ifndef WINDOWS_AMD64_ABI
+    if (varTypeIsStruct(targetType) && (compiler->info.compRetNativeType == TYP_STRUCT))
+    {
+        genStructReturn(treeNode);
+    }
+    else
+#endif
+#ifndef TARGET_64BIT
+        if (targetType == TYP_LONG)
     {
         genLongReturn(treeNode);
     }
     else
-#endif // TARGET_X86 || TARGET_ARM
+#endif
     {
-        if (isStructReturn(treeNode))
-        {
-            genStructReturn(treeNode);
-        }
-        else if (targetType != TYP_VOID)
+        if (targetType != TYP_VOID)
         {
             assert(op1 != nullptr);
             noway_assert(op1->GetRegNum() != REG_NA);
@@ -11287,28 +11290,6 @@ void CodeGen::genReturn(GenTree* treeNode)
         genStackPointerCheck(compiler->lvaReturnSpCheck);
     }
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
-}
-
-//------------------------------------------------------------------------
-// isStructReturn: Returns whether the 'treeNode' is returning a struct.
-//
-// Arguments:
-//    treeNode - The tree node to evaluate whether is a struct return.
-//
-// Return Value:
-//    Returns true if the 'treeNode" is a GT_RETURN node of type struct.
-//    Otherwise returns false.
-//
-bool CodeGen::isStructReturn(GenTree* treeNode)
-{
-    assert(treeNode->OperIs(GT_RETURN));
-
-#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
-    assert(!varTypeIsStruct(treeNode));
-    return false;
-#else
-    return varTypeIsStruct(treeNode) && (compiler->info.compRetNativeType == TYP_STRUCT);
-#endif
 }
 
 //------------------------------------------------------------------------

@@ -1289,16 +1289,14 @@ protected:
     void genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode);
     void genMultiRegStoreToLocal(GenTreeLclVar* lclNode);
 
-    // Codegen for multi-register struct returns.
-    bool isStructReturn(GenTree* treeNode);
 #ifdef FEATURE_SIMD
     void genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc);
 #endif
     void genStructReturn(GenTree* treeNode);
 
-#if defined(TARGET_X86) || defined(TARGET_ARM)
+#ifndef TARGET_64BIT
     void genLongReturn(GenTree* treeNode);
-#endif // TARGET_X86 ||  TARGET_ARM
+#endif
 
 #if defined(TARGET_X86)
     void genFloatReturn(GenTree* treeNode);
