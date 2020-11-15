@@ -98,7 +98,15 @@ void Compiler::lvaInitTypeRef()
     }
 #endif
 
-    const bool hasRetBuffArg = impMethodInfo_hasRetBuffArg(info.compMethodInfo);
+    bool hasRetBuffArg = false;
+
+    if ((info.compMethodInfo->args.retType == CORINFO_TYPE_VALUECLASS) ||
+        (info.compMethodInfo->args.retType == CORINFO_TYPE_REFANY))
+    {
+        structPassingKind howToReturnStruct = SPK_Unknown;
+        getReturnTypeForStruct(info.compMethodInfo->args.retTypeClass, &howToReturnStruct);
+        hasRetBuffArg = howToReturnStruct == SPK_ByReference;
+    }
 
     if (!hasRetBuffArg && varTypeIsStruct(info.compRetNativeType))
     {
