@@ -2062,31 +2062,7 @@ void CodeGen::genSimpleReturn(GenTree* treeNode)
 
     regNumber retReg = varTypeUsesFloatArgReg(treeNode) ? REG_FLOATRET : REG_INTRET;
 
-    bool movRequired = (op1->GetRegNum() != retReg);
-
-    if (!movRequired)
-    {
-        if (op1->OperGet() == GT_LCL_VAR)
-        {
-            GenTreeLclVarCommon* lcl            = op1->AsLclVarCommon();
-            bool                 isRegCandidate = compiler->lvaTable[lcl->GetLclNum()].lvIsRegCandidate();
-            if (isRegCandidate && ((op1->gtFlags & GTF_SPILLED) == 0))
-            {
-                // We may need to generate a zero-extending mov instruction to load the value from this GT_LCL_VAR
-
-                unsigned   lclNum  = lcl->GetLclNum();
-                LclVarDsc* varDsc  = &(compiler->lvaTable[lclNum]);
-                var_types  op1Type = genActualType(op1->TypeGet());
-                var_types  lclType = genActualType(varDsc->TypeGet());
-
-                if (genTypeSize(op1Type) < genTypeSize(lclType))
-                {
-                    movRequired = true;
-                }
-            }
-        }
-    }
-    if (movRequired)
+    if (op1->GetRegNum() != retReg)
     {
         emitAttr attr = emitActualTypeSize(targetType);
         GetEmitter()->emitIns_R_R(INS_mov, attr, retReg, op1->GetRegNum());
