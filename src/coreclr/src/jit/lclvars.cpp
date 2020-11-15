@@ -100,22 +100,12 @@ void Compiler::lvaInitTypeRef()
 
     bool hasRetBuffArg = false;
 
-    if ((info.compMethodInfo->args.retType == CORINFO_TYPE_VALUECLASS) ||
-        (info.compMethodInfo->args.retType == CORINFO_TYPE_REFANY))
-    {
-        structPassingKind howToReturnStruct = SPK_Unknown;
-        getReturnTypeForStruct(info.compMethodInfo->args.retTypeClass, &howToReturnStruct);
-        hasRetBuffArg = howToReturnStruct == SPK_ByReference;
-    }
-
-    if (!hasRetBuffArg && varTypeIsStruct(info.compRetNativeType))
+    if (varTypeIsStruct(info.compRetNativeType))
     {
         CORINFO_CLASS_HANDLE retClsHnd = info.compMethodInfo->args.retTypeClass;
+        structPassingKind    howToReturnStruct;
+        var_types            returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
 
-        structPassingKind howToReturnStruct;
-        var_types         returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-
-        // We can safely widen the return type for enclosed structs.
         if ((howToReturnStruct == SPK_PrimitiveType) || (howToReturnStruct == SPK_EnclosingType))
         {
             assert(returnType != TYP_UNKNOWN);
@@ -132,6 +122,10 @@ void Compiler::lvaInitTypeRef()
             {
                 compFloatingPointUsed = true;
             }
+        }
+        else if (howToReturnStruct == SPK_ByReference)
+        {
+            hasRetBuffArg = true;
         }
     }
 
