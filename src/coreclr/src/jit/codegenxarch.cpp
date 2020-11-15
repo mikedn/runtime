@@ -2247,7 +2247,10 @@ void CodeGen::genLclHeap(GenTree* tree)
     target_ssize_t lastTouchDelta = (target_ssize_t)-1;
 
 #ifdef DEBUG
-    genStackPointerCheck(compiler->opts.compStackCheckOnRet, compiler->lvaReturnSpCheck);
+    if (compiler->opts.compStackCheckOnRet)
+    {
+        genStackPointerCheck(compiler->lvaReturnSpCheck);
+    }
 #endif
 
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes

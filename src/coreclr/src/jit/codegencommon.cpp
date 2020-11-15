@@ -11278,7 +11278,10 @@ void CodeGen::genReturn(GenTree* treeNode)
     }
 #endif // !FEATURE_EH_FUNCLETS
 
-    genStackPointerCheck(doStackPointerCheck, compiler->lvaReturnSpCheck);
+    if (doStackPointerCheck)
+    {
+        genStackPointerCheck(compiler->lvaReturnSpCheck);
+    }
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
 }
 
@@ -11796,26 +11799,19 @@ regNumber CodeGen::genRegCopy(GenTree* treeNode, unsigned multiRegIndex)
 // This is a debug check.
 //
 // Arguments:
-//    doStackPointerCheck - If true, do the stack pointer check, otherwise do nothing.
 //    lvaStackPointerVar  - The local variable number that holds the value of the stack pointer
 //                          we are comparing against.
 //
-// Return Value:
-//    None
-//
-void CodeGen::genStackPointerCheck(bool doStackPointerCheck, unsigned lvaStackPointerVar)
+void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
 {
-    if (doStackPointerCheck)
-    {
-        noway_assert(lvaStackPointerVar != 0xCCCCCCCC && compiler->lvaTable[lvaStackPointerVar].lvDoNotEnregister &&
-                     compiler->lvaTable[lvaStackPointerVar].lvOnFrame);
-        GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, lvaStackPointerVar, 0);
+    noway_assert(lvaStackPointerVar != 0xCCCCCCCC && compiler->lvaTable[lvaStackPointerVar].lvDoNotEnregister &&
+                 compiler->lvaTable[lvaStackPointerVar].lvOnFrame);
+    GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, lvaStackPointerVar, 0);
 
-        BasicBlock* sp_check = genCreateTempLabel();
-        GetEmitter()->emitIns_J(INS_je, sp_check);
-        instGen(INS_BREAKPOINT);
-        genDefineTempLabel(sp_check);
-    }
+    BasicBlock* sp_check = genCreateTempLabel();
+    GetEmitter()->emitIns_J(INS_je, sp_check);
+    instGen(INS_BREAKPOINT);
+    genDefineTempLabel(sp_check);
 }
 
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
