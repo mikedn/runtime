@@ -11130,67 +11130,57 @@ void CodeGen::genReturn(GenTree* treeNode)
     assert(compiler->funCurrentFunc()->funKind == FUNC_ROOT);
 #endif
 
-    GenTree*  op1        = treeNode->gtGetOp1();
     var_types targetType = treeNode->TypeGet();
 
-#ifdef DEBUG
     if (targetType == TYP_VOID)
     {
-        assert(op1 == nullptr);
+        assert(treeNode->AsUnOp()->gtOp1 == nullptr);
     }
-#endif // DEBUG
-
 #ifndef WINDOWS_AMD64_ABI
-    if (varTypeIsStruct(targetType) && (compiler->info.compRetNativeType == TYP_STRUCT))
+    else if (varTypeIsStruct(targetType) && (compiler->info.compRetNativeType == TYP_STRUCT))
     {
         genStructReturn(treeNode);
     }
-    else
 #endif
 #ifndef TARGET_64BIT
-        if (targetType == TYP_LONG)
+    else if (targetType == TYP_LONG)
     {
         genLongReturn(treeNode);
     }
-    else
 #endif
 #ifdef TARGET_X86
-        if (varTypeIsFloating(targetType))
+    else if (varTypeIsFloating(targetType))
     {
         genFloatReturn(treeNode->AsUnOp());
     }
-    else
 #endif
 #ifdef TARGET_ARM
-        if (varTypeIsFloating(targetType) && (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
+    else if (varTypeIsFloating(targetType) && (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
     {
         genFloatReturn(treeNode->AsUnOp());
     }
+#endif
     else
-#endif // TARGET_ARM
     {
-        if (targetType != TYP_VOID)
+        assert(!varTypeIsSmall(targetType) && (targetType != TYP_STRUCT));
+
+        GenTree* op1 = treeNode->AsUnOp()->GetOp(0);
+        noway_assert(op1->GetRegNum() != REG_NA);
+
+        // !! NOTE !! genConsumeReg will clear op1 as GC ref after it has
+        // consumed a reg for the operand. This is because the variable
+        // is dead after return. But we are issuing more instructions
+        // like "profiler leave callback" after this consumption. So
+        // if you are issuing more instructions after this point,
+        // remember to keep the variable live up until the new method
+        // exit point where it is actually dead.
+        genConsumeReg(op1);
+
+        regNumber retReg = varTypeUsesFloatReg(targetType) ? REG_FLOATRET : REG_INTRET;
+        if (op1->GetRegNum() != retReg)
         {
-            assert(op1 != nullptr);
-            noway_assert(op1->GetRegNum() != REG_NA);
-
-            // !! NOTE !! genConsumeReg will clear op1 as GC ref after it has
-            // consumed a reg for the operand. This is because the variable
-            // is dead after return. But we are issuing more instructions
-            // like "profiler leave callback" after this consumption. So
-            // if you are issuing more instructions after this point,
-            // remember to keep the variable live up until the new method
-            // exit point where it is actually dead.
-            genConsumeReg(op1);
-
-            assert(!varTypeIsSmall(targetType));
-
-            regNumber retReg = varTypeUsesFloatReg(targetType) ? REG_FLOATRET : REG_INTRET;
-            if (op1->GetRegNum() != retReg)
-            {
-                emitAttr attr = emitActualTypeSize(targetType);
-                GetEmitter()->emitIns_R_R(ins_Copy(targetType), attr, retReg, op1->GetRegNum());
-            }
+            emitAttr attr = emitActualTypeSize(targetType);
+            GetEmitter()->emitIns_R_R(ins_Copy(targetType), attr, retReg, op1->GetRegNum());
         }
     }
 
