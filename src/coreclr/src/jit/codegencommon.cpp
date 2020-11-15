@@ -11052,6 +11052,29 @@ GenTreeIntCon CodeGen::intForm(var_types type, ssize_t value)
     return i;
 }
 
+void CodeGen::genRetFilt(GenTree* retfilt)
+{
+    assert(retfilt->OperIs(GT_RETFILT));
+
+    assert((compiler->compCurBB->bbJumpKind == BBJ_EHFILTERRET) ||
+           (compiler->compCurBB->bbJumpKind == BBJ_EHFINALLYRET));
+
+    if (retfilt->TypeIs(TYP_VOID))
+    {
+        return;
+    }
+
+    assert(retfilt->TypeIs(TYP_INT));
+
+    GenTree*  src    = retfilt->AsUnOp()->GetOp(0);
+    regNumber srcReg = genConsumeReg(src);
+
+    if (srcReg != REG_INTRET)
+    {
+        GetEmitter()->emitIns_R_R(INS_mov, EA_4BYTE, REG_INTRET, srcReg);
+    }
+}
+
 #if defined(TARGET_X86) || defined(TARGET_ARM)
 //------------------------------------------------------------------------
 // genLongReturn: Generates code for long return statement for x86 and arm.
@@ -11059,15 +11082,13 @@ GenTreeIntCon CodeGen::intForm(var_types type, ssize_t value)
 // Note: treeNode's and op1's registers are already consumed.
 //
 // Arguments:
-//    treeNode - The GT_RETURN or GT_RETFILT tree node with LONG return type.
-//
-// Return Value:
-//    None
+//    treeNode - The GT_RETURN node with LONG return type.
 //
 void CodeGen::genLongReturn(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_RETURN || treeNode->OperGet() == GT_RETFILT);
-    assert(treeNode->TypeGet() == TYP_LONG);
+    assert(treeNode->OperIs(GT_RETURN));
+    assert(treeNode->TypeIs(TYP_LONG));
+
     GenTree*  op1        = treeNode->gtGetOp1();
     var_types targetType = treeNode->TypeGet();
 
@@ -11095,21 +11116,22 @@ void CodeGen::genLongReturn(GenTree* treeNode)
 //            In case of struct return, delegates to the genStructReturn method.
 //
 // Arguments:
-//    treeNode - The GT_RETURN or GT_RETFILT tree node.
-//
-// Return Value:
-//    None
+//    treeNode - The GT_RETURN node.
 //
 void CodeGen::genReturn(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_RETURN || treeNode->OperGet() == GT_RETFILT);
+    assert(treeNode->OperIs(GT_RETURN));
+
+    // Normally RETURN nodes appears at the end of RETURN blocks but sometimes the frontend fails
+    // to properly cleanup after an unconditional throw and we end up with a THROW block having an
+    // unreachable RETURN node at the end.
+    assert((compiler->compCurBB->bbJumpKind == BBJ_RETURN) || (compiler->compCurBB->bbJumpKind == BBJ_THROW));
+#if defined(FEATURE_EH_FUNCLETS)
+    assert(compiler->funCurrentFunc()->funKind == FUNC_ROOT);
+#endif
+
     GenTree*  op1        = treeNode->gtGetOp1();
     var_types targetType = treeNode->TypeGet();
-
-    // A void GT_RETFILT is the end of a finally. For non-void filter returns we need to load the result in the return
-    // register, if it's not already there. The processing is the same as GT_RETURN. For filters, the IL spec says the
-    // result is type int32. Further, the only legal values are 0 or 1; the use of other values is "undefined".
-    assert(!treeNode->OperIs(GT_RETFILT) || (targetType == TYP_VOID) || (targetType == TYP_INT));
 
 #ifdef DEBUG
     if (targetType == TYP_VOID)
@@ -11261,24 +11283,7 @@ void CodeGen::genReturn(GenTree* treeNode)
 #endif // PROFILING_SUPPORTED
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    bool doStackPointerCheck = compiler->opts.compStackCheckOnRet;
-
-#if defined(FEATURE_EH_FUNCLETS)
-    // Don't do stack pointer check at the return from a funclet; only for the main function.
-    if (compiler->funCurrentFunc()->funKind != FUNC_ROOT)
-    {
-        doStackPointerCheck = false;
-    }
-#else  // !FEATURE_EH_FUNCLETS
-    // Don't generate stack checks for x86 finally/filter EH returns: these are not invoked
-    // with the same SP as the main function. See also CodeGen::genEHFinallyOrFilterRet().
-    if ((compiler->compCurBB->bbJumpKind == BBJ_EHFINALLYRET) || (compiler->compCurBB->bbJumpKind == BBJ_EHFILTERRET))
-    {
-        doStackPointerCheck = false;
-    }
-#endif // !FEATURE_EH_FUNCLETS
-
-    if (doStackPointerCheck)
+    if (compiler->opts.compStackCheckOnRet)
     {
         genStackPointerCheck(compiler->lvaReturnSpCheck);
     }
@@ -11297,13 +11302,7 @@ void CodeGen::genReturn(GenTree* treeNode)
 //
 bool CodeGen::isStructReturn(GenTree* treeNode)
 {
-    // This method could be called for 'treeNode' of GT_RET_FILT or GT_RETURN.
-    // For the GT_RET_FILT, the return is always a bool or a void, for the end of a finally block.
-    noway_assert(treeNode->OperGet() == GT_RETURN || treeNode->OperGet() == GT_RETFILT);
-    if (treeNode->OperGet() != GT_RETURN)
-    {
-        return false;
-    }
+    assert(treeNode->OperIs(GT_RETURN));
 
 #if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
     assert(!varTypeIsStruct(treeNode));
@@ -11319,15 +11318,13 @@ bool CodeGen::isStructReturn(GenTree* treeNode)
 // Arguments:
 //    treeNode - The GT_RETURN tree node.
 //
-// Return Value:
-//    None
-//
 // Assumption:
 //    op1 of GT_RETURN node is either GT_LCL_VAR or multi-reg GT_CALL
 //
 void CodeGen::genStructReturn(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_RETURN);
+    assert(treeNode->OperIs(GT_RETURN));
+
     GenTree* op1 = treeNode->gtGetOp1();
     genConsumeRegs(op1);
     GenTree* actualOp1 = op1;

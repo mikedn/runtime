@@ -1308,6 +1308,7 @@ protected:
     void genSimpleReturn(GenTree* treeNode);
 #endif // TARGET_ARM64
 
+    void genRetFilt(GenTree* retfilt);
     void genReturn(GenTree* treeNode);
 
 #ifdef TARGET_ARMARCH
