@@ -15070,87 +15070,86 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
     Statement* lastStmt = block->lastStmt();
     GenTree*   ret      = (lastStmt != nullptr) ? lastStmt->GetRootNode() : nullptr;
 
-    if ((ret != nullptr) && (ret->OperGet() == GT_RETURN) && ((ret->gtFlags & GTF_RET_MERGED) != 0))
+    if ((ret != nullptr) && ret->OperIs(GT_RETURN) && ((ret->gtFlags & GTF_RET_MERGED) != 0))
     {
         // This return was generated during epilog merging, so leave it alone
+
+        return;
+    }
+
+#ifndef TARGET_X86
+    if ((info.compFlags & CORINFO_FLG_SYNCH) != 0)
+    {
+        fgConvertSyncReturnToLeave(block);
     }
     else
-    {
-        // We'll jump to the genReturnBB.
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if !defined(TARGET_X86)
-        if (info.compFlags & CORINFO_FLG_SYNCH)
-        {
-            fgConvertSyncReturnToLeave(block);
-        }
-        else
-#endif // !TARGET_X86
-        {
-            block->bbJumpKind = BBJ_ALWAYS;
-            block->bbJumpDest = genReturnBB;
-            fgAddRefPred(genReturnBB, block);
-            fgReturnCount--;
-        }
-        if (genReturnLocal != BAD_VAR_NUM)
-        {
-            // replace the GT_RETURN node to be a GT_ASG that stores the return value into genReturnLocal.
-
-            // Method must be returning a value other than TYP_VOID.
-            noway_assert(compMethodHasRetVal());
-
-            // This block must be ending with a GT_RETURN
-            noway_assert(lastStmt != nullptr);
-            noway_assert(lastStmt->GetNextStmt() == nullptr);
-            noway_assert(ret != nullptr);
-
-            // GT_RETURN must have non-null operand as the method is returning the value assigned to
-            // genReturnLocal
-            noway_assert(ret->OperGet() == GT_RETURN);
-            noway_assert(ret->gtGetOp1() != nullptr);
-
-            Statement* pAfterStatement = lastStmt;
-            IL_OFFSETX offset          = lastStmt->GetILOffsetX();
-            GenTree*   tree = gtNewTempAssign(genReturnLocal, ret->gtGetOp1(), &pAfterStatement, offset, block);
-            if (tree->OperIsCopyBlkOp())
-            {
-                tree = fgMorphCopyBlock(tree->AsOp());
-            }
-
-            if (pAfterStatement == lastStmt)
-            {
-                lastStmt->SetRootNode(tree);
-            }
-            else
-            {
-                // gtNewTempAssign inserted additional statements after last
-                fgRemoveStmt(block, lastStmt);
-                Statement* newStmt = gtNewStmt(tree, offset);
-                fgInsertStmtAfter(block, pAfterStatement, newStmt);
-                lastStmt = newStmt;
-            }
-        }
-        else if (ret != nullptr && ret->OperGet() == GT_RETURN)
-        {
-            // This block ends with a GT_RETURN
-            noway_assert(lastStmt != nullptr);
-            noway_assert(lastStmt->GetNextStmt() == nullptr);
-
-            // Must be a void GT_RETURN with null operand; delete it as this block branches to oneReturn
-            // block
-            noway_assert(ret->TypeGet() == TYP_VOID);
-            noway_assert(ret->gtGetOp1() == nullptr);
-
-            fgRemoveStmt(block, lastStmt);
-        }
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("morph " FMT_BB " to point at onereturn.  New block is\n", block->bbNum);
-            fgTableDispBasicBlock(block);
-        }
 #endif
+    {
+        block->bbJumpKind = BBJ_ALWAYS;
+        block->bbJumpDest = genReturnBB;
+
+        fgAddRefPred(genReturnBB, block);
+        fgReturnCount--;
     }
+
+    if (genReturnLocal != BAD_VAR_NUM)
+    {
+        noway_assert(compMethodHasRetVal());
+
+        noway_assert(ret != nullptr);
+        noway_assert(ret->OperIs(GT_RETURN));
+        noway_assert(ret->AsUnOp()->gtOp1 != nullptr);
+
+        noway_assert(lastStmt->GetNextStmt() == nullptr);
+
+        // Replace the RETURN with an assignment to the merged return temp.
+        //
+        // The return tree may be a COMMA and then gtNewTempAssign will extract it
+        // to a separate statement, AFTER the assignment statment because we don't
+        // always have a previous statement to pass to gtNewTempAssign. Then we'll
+        // need to move the assignment statement at the end of the block.
+
+        Statement* newLastStmt = lastStmt;
+        IL_OFFSETX ilOffset    = lastStmt->GetILOffsetX();
+        GenTree*   asg = gtNewTempAssign(genReturnLocal, ret->AsUnOp()->GetOp(0), &newLastStmt, ilOffset, block);
+
+        if (asg->OperIsCopyBlkOp())
+        {
+            asg = fgMorphCopyBlock(asg->AsOp());
+        }
+
+        lastStmt->SetRootNode(asg);
+
+        if (newLastStmt != lastStmt)
+        {
+            fgRemoveStmt(block, lastStmt);
+            fgInsertStmtAfter(block, newLastStmt, lastStmt);
+        }
+    }
+    else if ((ret != nullptr) && ret->OperIs(GT_RETURN))
+    {
+        // If the return buffer address is being returned then we don't have a merged return
+        // temp because the address is just a LCL_VAR. Otherwise this has to be a VOID RETURN.
+
+        if (!compMethodReturnsRetBufAddr())
+        {
+            noway_assert(ret->TypeIs(TYP_VOID));
+            noway_assert(ret->AsUnOp()->gtOp1 == nullptr);
+        }
+
+        noway_assert(lastStmt->GetNextStmt() == nullptr);
+
+        fgRemoveStmt(block, lastStmt);
+    }
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Return block " FMT_BB " now jumps to merged return block " FMT_BB "\n", block->bbNum,
+               genReturnBB->bbNum);
+        fgTableDispBasicBlock(block);
+    }
+#endif
 }
 
 /*****************************************************************************

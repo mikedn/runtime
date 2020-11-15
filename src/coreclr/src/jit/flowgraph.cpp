@@ -8628,11 +8628,19 @@ private:
             returnExpr             = comp->gtNewOperNode(GT_RETURN, returnConst->gtType, returnConst);
             returnConstants[index] = returnConst->IntegralValue();
         }
+        else if (comp->compMethodReturnsRetBufAddr())
+        {
+            GenTree* retBuffAddr = comp->gtNewLclvNode(comp->info.compRetBuffArg, TYP_BYREF);
+            retBuffAddr->gtFlags |= GTF_DONT_CSE;
+            returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_BYREF, retBuffAddr);
+
+            comp->genReturnLocal = BAD_VAR_NUM;
+        }
         else if (comp->compMethodHasRetVal())
         {
             // There is a return value, so create a temp for it.  Real returns will store the value in there and
             // it'll be reloaded by the single return.
-            unsigned returnLocalNum   = comp->lvaGrabTemp(true DEBUGARG("Single return block return value"));
+            unsigned returnLocalNum   = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
             comp->genReturnLocal      = returnLocalNum;
             LclVarDsc& returnLocalDsc = comp->lvaTable[returnLocalNum];
 
@@ -8650,10 +8658,6 @@ private:
                 {
                     returnLocalDsc.lvType = genActualType(comp->info.compRetNativeType);
                 }
-            }
-            else if (comp->compMethodReturnsRetBufAddr())
-            {
-                returnLocalDsc.lvType = TYP_BYREF;
             }
             else if (comp->compMethodReturnsMultiRegRetType())
             {
