@@ -458,14 +458,10 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
 /*****************************************************************************/
 void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo)
 {
-    LclVarDsc* varDsc        = varDscInfo->varDsc;
-    bool       hasRetBuffArg = impMethodInfo_hasRetBuffArg(info.compMethodInfo);
-
-    // These two should always match
-    noway_assert(hasRetBuffArg == varDscInfo->hasRetBufArg);
-
-    if (hasRetBuffArg)
+    if (varDscInfo->hasRetBufArg)
     {
+        LclVarDsc* varDsc = varDscInfo->varDsc;
+
         info.compRetBuffArg = varDscInfo->varNum;
         varDsc->lvType      = TYP_BYREF;
         varDsc->lvIsParam   = 1;
