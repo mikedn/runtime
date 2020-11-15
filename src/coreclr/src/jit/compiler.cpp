@@ -5977,7 +5977,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         default:
             BADCODE("bad calling convention");
     }
-    info.compRetNativeType = info.compRetType = JITtype2varType(methodInfo->args.retType);
 
     info.compUnmanagedCallCountWithGCTransition = 0;
     info.compLvFrameListRoot                    = BAD_VAR_NUM;

@@ -88,6 +88,44 @@ void Compiler::lvaInit()
 
 void Compiler::lvaInitTypeRef()
 {
+    info.compRetType       = JITtype2varType(info.compMethodInfo->args.retType);
+    info.compRetNativeType = info.compRetType;
+
+#ifdef FEATURE_SIMD
+    if (info.compRetType == TYP_STRUCT)
+    {
+        info.compRetType = impNormStructType(info.compMethodInfo->args.retTypeClass);
+    }
+#endif
+
+    const bool hasRetBuffArg = impMethodInfo_hasRetBuffArg(info.compMethodInfo);
+
+    if (!hasRetBuffArg && varTypeIsStruct(info.compRetNativeType))
+    {
+        CORINFO_CLASS_HANDLE retClsHnd = info.compMethodInfo->args.retTypeClass;
+
+        structPassingKind howToReturnStruct;
+        var_types         returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
+
+        // We can safely widen the return type for enclosed structs.
+        if ((howToReturnStruct == SPK_PrimitiveType) || (howToReturnStruct == SPK_EnclosingType))
+        {
+            assert(returnType != TYP_UNKNOWN);
+            assert(returnType != TYP_STRUCT);
+
+            info.compRetNativeType = returnType;
+
+            // ToDo: Refactor this common code sequence into its own method as it is used 4+ times
+            if ((returnType == TYP_LONG) && (compLongUsed == false))
+            {
+                compLongUsed = true;
+            }
+            else if (((returnType == TYP_FLOAT) || (returnType == TYP_DOUBLE)) && (compFloatingPointUsed == false))
+            {
+                compFloatingPointUsed = true;
+            }
+        }
+    }
 
     /* x86 args look something like this:
         [this ptr] [hidden return buffer] [declared arguments]* [generic context] [var arg cookie]
@@ -121,50 +159,6 @@ void Compiler::lvaInitTypeRef()
     }
 
     info.compILargsCount = info.compArgsCount;
-
-#ifdef FEATURE_SIMD
-    if (supportSIMDTypes() && (info.compRetNativeType == TYP_STRUCT))
-    {
-        var_types structType = impNormStructType(info.compMethodInfo->args.retTypeClass);
-        info.compRetType     = structType;
-    }
-#endif // FEATURE_SIMD
-
-    // Are we returning a struct using a return buffer argument?
-    //
-    const bool hasRetBuffArg = impMethodInfo_hasRetBuffArg(info.compMethodInfo);
-
-    // Possibly change the compRetNativeType from TYP_STRUCT to a "primitive" type
-    // when we are returning a struct by value and it fits in one register
-    //
-    if (!hasRetBuffArg && varTypeIsStruct(info.compRetNativeType))
-    {
-        CORINFO_CLASS_HANDLE retClsHnd = info.compMethodInfo->args.retTypeClass;
-
-        Compiler::structPassingKind howToReturnStruct;
-        var_types                   returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-
-        // We can safely widen the return type for enclosed structs.
-        if ((howToReturnStruct == SPK_PrimitiveType) || (howToReturnStruct == SPK_EnclosingType))
-        {
-            assert(returnType != TYP_UNKNOWN);
-            assert(returnType != TYP_STRUCT);
-
-            info.compRetNativeType = returnType;
-
-            // ToDo: Refactor this common code sequence into its own method as it is used 4+ times
-            if ((returnType == TYP_LONG) && (compLongUsed == false))
-            {
-                compLongUsed = true;
-            }
-            else if (((returnType == TYP_FLOAT) || (returnType == TYP_DOUBLE)) && (compFloatingPointUsed == false))
-            {
-                compFloatingPointUsed = true;
-            }
-        }
-    }
-
-    // Do we have a RetBuffArg?
 
     if (hasRetBuffArg)
     {
