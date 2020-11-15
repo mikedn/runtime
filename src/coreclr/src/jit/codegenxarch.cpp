@@ -1174,15 +1174,12 @@ void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
 // Note: treeNode's and op1's registers are already consumed.
 //
 // Arguments:
-//    treeNode - The GT_RETURN or GT_RETFILT tree node with float type.
-//
-// Return Value:
-//    None
+//    treeNode - The RETURN tree node with float type.
 //
 void CodeGen::genFloatReturn(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_RETURN || treeNode->OperGet() == GT_RETFILT);
-    assert(varTypeIsFloating(treeNode));
+    assert(treeNode->OperIs(GT_RETURN));
+    assert(varTypeIsFloating(treeNode->GetType()));
 
     GenTree* op1 = treeNode->gtGetOp1();
     // Spill the return value register from an XMM register to the stack, then load it on the x87 stack.
@@ -1192,8 +1189,7 @@ void CodeGen::genFloatReturn(GenTree* treeNode)
         if (compiler->lvaGetDesc(op1->AsLclVar())->GetRegNum() != REG_STK)
         {
             op1->gtFlags |= GTF_SPILL;
-            inst_TT_RV(ins_Store(op1->gtType, compiler->isSIMDTypeLocalAligned(op1->AsLclVar()->GetLclNum())),
-                       emitTypeSize(op1->TypeGet()), op1, op1->GetRegNum());
+            inst_TT_RV(ins_Store(op1->GetType()), emitTypeSize(op1->TypeGet()), op1, op1->GetRegNum());
         }
         // Now, load it to the fp stack.
         GetEmitter()->emitIns_S(INS_fld, emitTypeSize(op1), op1->AsLclVar()->GetLclNum(), 0);

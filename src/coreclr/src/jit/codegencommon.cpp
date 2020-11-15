@@ -11148,13 +11148,14 @@ void CodeGen::genReturn(GenTree* treeNode)
             genSimpleReturn(treeNode);
 #else // !TARGET_ARM64
 #if defined(TARGET_X86)
-            if (varTypeUsesFloatReg(treeNode))
+            if (varTypeIsFloating(treeNode->GetType()))
             {
                 genFloatReturn(treeNode);
             }
             else
 #elif defined(TARGET_ARM)
-            if (varTypeUsesFloatReg(treeNode) && (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
+            if (varTypeIsFloating(treeNode->GetType()) &&
+                (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
             {
                 if (targetType == TYP_FLOAT)
                 {
