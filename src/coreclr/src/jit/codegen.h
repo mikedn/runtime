@@ -1304,10 +1304,6 @@ protected:
     void genFloatReturn(GenTree* treeNode);
 #endif // TARGET_X86
 
-#if defined(TARGET_ARM64)
-    void genSimpleReturn(GenTree* treeNode);
-#endif // TARGET_ARM64
-
     void genRetFilt(GenTree* retfilt);
     void genReturn(GenTree* treeNode);
 

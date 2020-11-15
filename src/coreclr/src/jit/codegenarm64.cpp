@@ -2040,33 +2040,6 @@ void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
     }
 }
 
-//------------------------------------------------------------------------
-// genSimpleReturn: Generates code for simple return statement for arm64.
-//
-// Note: treeNode's and op1's registers are already consumed.
-//
-// Arguments:
-//    treeNode - The GT_RETURN node with non-struct and non-void type
-//
-void CodeGen::genSimpleReturn(GenTree* treeNode)
-{
-    assert(treeNode->OperIs(GT_RETURN));
-
-    GenTree*  op1        = treeNode->gtGetOp1();
-    var_types targetType = treeNode->TypeGet();
-
-    assert(targetType != TYP_STRUCT);
-    assert(targetType != TYP_VOID);
-
-    regNumber retReg = varTypeUsesFloatArgReg(treeNode) ? REG_FLOATRET : REG_INTRET;
-
-    if (op1->GetRegNum() != retReg)
-    {
-        emitAttr attr = emitActualTypeSize(targetType);
-        GetEmitter()->emitIns_R_R(INS_mov, attr, retReg, op1->GetRegNum());
-    }
-}
-
 /***********************************************************************************************
  *  Generate code for localloc
  */
