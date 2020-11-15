@@ -11193,10 +11193,12 @@ void CodeGen::genReturn(GenTree* treeNode)
             else
 #endif // TARGET_ARM
             {
+                assert(!varTypeIsSmall(targetType));
+
                 regNumber retReg = varTypeUsesFloatReg(treeNode) ? REG_FLOATRET : REG_INTRET;
                 if (op1->GetRegNum() != retReg)
                 {
-                    inst_RV_RV(ins_Move_Extend(targetType, true), retReg, op1->GetRegNum(), targetType);
+                    inst_RV_RV(ins_Copy(targetType), retReg, op1->GetRegNum(), targetType);
                 }
             }
 #endif // !TARGET_ARM64
