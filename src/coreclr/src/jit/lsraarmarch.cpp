@@ -157,7 +157,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
         {
             // dst count = number of registers in which the value is returned by call
             retTypeDesc = call->GetReturnTypeDesc();
-            dstCount    = retTypeDesc->GetReturnRegCount();
+            dstCount    = retTypeDesc->GetRegCount();
         }
         else
         {

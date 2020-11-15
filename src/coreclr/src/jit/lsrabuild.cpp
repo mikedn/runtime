@@ -3467,10 +3467,9 @@ int LinearScan::BuildReturn(GenTree* tree)
                     ReturnTypeDesc retTypeDesc;
                     retTypeDesc.InitializeStructReturnType(compiler, varDsc->GetLayout()->GetClassHandle());
                     pRetTypeDesc = &retTypeDesc;
-                    assert(compiler->lvaGetDesc(op1->AsLclVar()->GetLclNum())->lvFieldCnt ==
-                           retTypeDesc.GetReturnRegCount());
+                    assert(compiler->lvaGetDesc(op1->AsLclVar()->GetLclNum())->lvFieldCnt == retTypeDesc.GetRegCount());
                 }
-                srcCount = pRetTypeDesc->GetReturnRegCount();
+                srcCount = pRetTypeDesc->GetRegCount();
                 // For any source that's coming from a different register file, we need to ensure that
                 // we reserve the specific ABI register we need.
                 bool hasMismatchedRegTypes = false;

@@ -1878,7 +1878,7 @@ void CodeGen::genProduceReg(GenTree* tree)
             {
                 GenTreeCall*          call        = tree->AsCall();
                 const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned        regCount    = retTypeDesc->GetReturnRegCount();
+                const unsigned        regCount    = retTypeDesc->GetRegCount();
 
                 for (unsigned i = 0; i < regCount; ++i)
                 {
@@ -1961,7 +1961,7 @@ void CodeGen::genProduceReg(GenTree* tree)
             {
                 const GenTreeCall*    call        = tree->AsCall();
                 const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned        regCount    = retTypeDesc->GetReturnRegCount();
+                const unsigned        regCount    = retTypeDesc->GetRegCount();
 
                 for (unsigned i = 0; i < regCount; ++i)
                 {
@@ -1981,7 +1981,7 @@ void CodeGen::genProduceReg(GenTree* tree)
                 const GenTreeCopyOrReload* copy        = tree->AsCopyOrReload();
                 const GenTreeCall*         call        = copy->gtGetOp1()->AsCall();
                 const ReturnTypeDesc*      retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned             regCount    = retTypeDesc->GetReturnRegCount();
+                const unsigned             regCount    = retTypeDesc->GetRegCount();
 
                 for (unsigned i = 0; i < regCount; ++i)
                 {

@@ -591,12 +591,11 @@ bool GenTree::gtHasReg() const
 
     if (IsMultiRegCall())
     {
-        const GenTreeCall* call     = AsCall();
-        const unsigned     regCount = call->GetReturnTypeDesc()->GetReturnRegCount();
+        const GenTreeCall* call = AsCall();
 
         // A Multi-reg call node is said to have regs, if it has
         // reg assigned to each of its result registers.
-        for (unsigned i = 0; i < regCount; ++i)
+        for (unsigned i = 0; i < call->GetReturnTypeDesc()->GetRegCount(); ++i)
         {
             hasReg = (call->GetRegNumByIdx(i) != REG_NA);
             if (!hasReg)
@@ -609,11 +608,10 @@ bool GenTree::gtHasReg() const
     {
         const GenTreeCopyOrReload* copyOrReload = AsCopyOrReload();
         const GenTreeCall*         call         = copyOrReload->gtGetOp1()->AsCall();
-        const unsigned             regCount     = call->GetReturnTypeDesc()->GetReturnRegCount();
 
         // A Multi-reg copy or reload node is said to have regs,
         // if it has valid regs in any of the positions.
-        for (unsigned i = 0; i < regCount; ++i)
+        for (unsigned i = 0; i < call->GetReturnTypeDesc()->GetRegCount(); ++i)
         {
             hasReg = (copyOrReload->GetRegNumByIdx(i) != REG_NA);
             if (hasReg)
@@ -653,7 +651,7 @@ int GenTree::GetRegisterDstCount(Compiler* compiler) const
     }
     else if (IsMultiRegCall())
     {
-        return AsCall()->GetReturnTypeDesc()->GetReturnRegCount();
+        return AsCall()->GetReturnTypeDesc()->GetRegCount();
     }
     else if (IsCopyOrReload())
     {
@@ -722,10 +720,9 @@ regMaskTP GenTree::gtGetRegMask() const
 
         const GenTreeCopyOrReload* copyOrReload = AsCopyOrReload();
         const GenTreeCall*         call         = copyOrReload->gtGetOp1()->AsCall();
-        const unsigned             regCount     = call->GetReturnTypeDesc()->GetReturnRegCount();
 
         resultMask = RBM_NONE;
-        for (unsigned i = 0; i < regCount; ++i)
+        for (unsigned i = 0; i < call->GetReturnTypeDesc()->GetRegCount(); ++i)
         {
             regNumber reg = copyOrReload->GetRegNumByIdx(i);
             if (reg != REG_NA)
@@ -9143,7 +9140,7 @@ unsigned Compiler::gtDispRegCount(GenTree* tree)
     }
     else if (tree->OperIs(GT_CALL))
     {
-        unsigned regCount = tree->AsCall()->GetReturnTypeDesc()->TryGetReturnRegCount();
+        unsigned regCount = tree->AsCall()->GetReturnTypeDesc()->GetRegCount();
         // If it hasn't yet been initialized, we'd still like to see the registers printed.
         if (regCount == 0)
         {
@@ -17626,7 +17623,7 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
 //
 void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HANDLE retClsHnd)
 {
-    assert(!m_inited);
+    assert(m_regCount == 0);
 
 #if FEATURE_MULTIREG_RET
 
@@ -17642,33 +17639,29 @@ void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HA
         case Compiler::SPK_PrimitiveType:
             assert(returnType != TYP_UNKNOWN);
             assert(returnType != TYP_STRUCT);
+
+            m_regCount   = 1;
             m_regType[0] = returnType;
             break;
 
         case Compiler::SPK_ByValueAsHfa:
         {
             assert(varTypeIsStruct(returnType));
-            var_types hfaType = comp->GetHfaType(retClsHnd);
-
-            // We should have an hfa struct type
-            assert(varTypeIsValidHfaType(hfaType));
+            var_types regType = comp->GetHfaType(retClsHnd);
+            assert(varTypeIsValidHfaType(regType));
 
             // Note that the retail build issues a warning about a potential divsion by zero without this Max function
-            unsigned elemSize = Max((unsigned)1, EA_SIZE_IN_BYTES(emitActualTypeSize(hfaType)));
+            unsigned elemSize = Max(1u, varTypeSize(regType));
 
-            // The size of this struct should be evenly divisible by elemSize
             assert((structSize % elemSize) == 0);
+            m_regCount = static_cast<uint8_t>(structSize / elemSize);
 
-            unsigned hfaCount = (structSize / elemSize);
-            for (unsigned i = 0; i < hfaCount; ++i)
+            for (unsigned i = 0; i < m_regCount; ++i)
             {
-                m_regType[i] = hfaType;
+                m_regType[i] = regType;
             }
 
-            if (comp->compFloatingPointUsed == false)
-            {
-                comp->compFloatingPointUsed = true;
-            }
+            comp->compFloatingPointUsed |= true;
             break;
         }
 
@@ -17677,58 +17670,48 @@ void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HA
             assert(varTypeIsStruct(returnType));
 
 #ifdef UNIX_AMD64_ABI
-
             SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
             comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retClsHnd, &structDesc);
 
             assert(structDesc.passedInRegisters);
-            for (int i = 0; i < structDesc.eightByteCount; i++)
+            assert(structDesc.eightByteCount <= MAX_RET_REG_COUNT);
+
+            m_regCount = structDesc.eightByteCount;
+
+            for (int i = 0; i < m_regCount; i++)
             {
-                assert(i < MAX_RET_REG_COUNT);
                 m_regType[i] = comp->GetEightByteType(structDesc, i);
             }
-
 #elif defined(TARGET_ARM64)
+            assert((structSize > REGSIZE_BYTES) && (structSize <= (2 * REGSIZE_BYTES)));
 
-            // a non-HFA struct returned using two registers
-            //
-            assert((structSize > TARGET_POINTER_SIZE) && (structSize <= (2 * TARGET_POINTER_SIZE)));
-
-            BYTE gcPtrs[2] = {TYPE_GC_NONE, TYPE_GC_NONE};
+            BYTE gcPtrs[2]{TYPE_GC_NONE, TYPE_GC_NONE};
             comp->info.compCompHnd->getClassGClayout(retClsHnd, &gcPtrs[0]);
+
+            m_regCount = 2;
+
             for (unsigned i = 0; i < 2; ++i)
             {
                 m_regType[i] = comp->getJitGCType(gcPtrs[i]);
             }
-
-#else //  TARGET_XXX
-
-            // This target needs support here!
-            //
+#else
             NYI("Unsupported TARGET returning a TYP_STRUCT in InitializeStructReturnType");
+#endif
 
-#endif // UNIX_AMD64_ABI
-
-            break; // for case SPK_ByValue
+            break;
         }
 
         case Compiler::SPK_ByReference:
-
             // We are returning using the return buffer argument
             // There are no return registers
+
+            m_regCount = 0;
             break;
 
         default:
-
-            unreached(); // By the contract of getReturnTypeForStruct we should never get here.
-
-    } // end of switch (howToReturnStruct)
-
+            unreached();
+    }
 #endif //  FEATURE_MULTIREG_RET
-
-#ifdef DEBUG
-    m_inited = true;
-#endif
 }
 
 //---------------------------------------------------------------------------------------
@@ -17737,22 +17720,17 @@ void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HA
 //
 void ReturnTypeDesc::InitializeLongReturnType()
 {
-    assert(!m_inited);
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-    // Setups up a ReturnTypeDesc for returning a long using two registers
-    //
+    assert(m_regCount == 0);
+
+#ifdef TARGET_64BIT
+    m_regCount   = 1;
+    m_regType[0] = TYP_LONG;
+#else
     assert(MAX_RET_REG_COUNT >= 2);
+
+    m_regCount   = 2;
     m_regType[0] = TYP_INT;
     m_regType[1] = TYP_INT;
-
-#else // not (TARGET_X86 or TARGET_ARM)
-
-    m_regType[0] = TYP_LONG;
-
-#endif // TARGET_X86 or TARGET_ARM
-
-#ifdef DEBUG
-    m_inited = true;
 #endif
 }
 
@@ -17772,8 +17750,7 @@ void ReturnTypeDesc::InitializeLongReturnType()
 //
 regNumber ReturnTypeDesc::GetABIReturnReg(unsigned idx) const
 {
-    unsigned count = GetReturnRegCount();
-    assert(idx < count);
+    assert(idx < m_regCount);
 
     regNumber resultReg = REG_NA;
 
@@ -17903,8 +17880,7 @@ regMaskTP ReturnTypeDesc::GetABIReturnRegs() const
 {
     regMaskTP resultMask = RBM_NONE;
 
-    unsigned count = GetReturnRegCount();
-    for (unsigned i = 0; i < count; ++i)
+    for (unsigned i = 0; i < m_regCount; ++i)
     {
         resultMask |= genRegMask(GetABIReturnReg(i));
     }

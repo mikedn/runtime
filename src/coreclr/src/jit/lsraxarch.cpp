@@ -477,7 +477,7 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildCall(tree->AsCall());
             if (tree->AsCall()->HasMultiRegRetVal())
             {
-                dstCount = tree->AsCall()->GetReturnTypeDesc()->GetReturnRegCount();
+                dstCount = tree->AsCall()->GetReturnTypeDesc()->GetRegCount();
             }
             break;
 
@@ -1028,7 +1028,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
         {
             // dst count = number of registers in which the value is returned by call
             retTypeDesc = call->GetReturnTypeDesc();
-            dstCount    = retTypeDesc->GetReturnRegCount();
+            dstCount    = retTypeDesc->GetRegCount();
         }
         else
         {

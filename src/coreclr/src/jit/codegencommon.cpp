@@ -11218,7 +11218,8 @@ void CodeGen::genReturn(GenTree* treeNode)
             {
                 retTypeDesc.InitializeStructReturnType(compiler, compiler->info.compMethodInfo->args.retTypeClass);
             }
-            regCount = retTypeDesc.GetReturnRegCount();
+
+            regCount = retTypeDesc.GetRegCount();
         }
 
         if (varTypeIsGC(compiler->info.compRetNativeType))
@@ -11305,7 +11306,7 @@ void CodeGen::genStructReturn(GenTree* treeNode)
         assert(actualOp1->OperIs(GT_CALL));
         retTypeDesc = *(actualOp1->AsCall()->GetReturnTypeDesc());
     }
-    unsigned regCount = retTypeDesc.GetReturnRegCount();
+    unsigned regCount = retTypeDesc.GetRegCount();
     assert(regCount <= MAX_RET_REG_COUNT);
 
 #if FEATURE_MULTIREG_RET

@@ -2557,12 +2557,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         if (call->HasMultiRegRetVal())
         {
             assert(pRetTypeDesc != nullptr);
-            unsigned regCount = pRetTypeDesc->GetReturnRegCount();
 
             // If regs allocated to call node are different from ABI return
             // regs in which the call has returned its result, move the result
             // to regs allocated to call node.
-            for (unsigned i = 0; i < regCount; ++i)
+            for (unsigned i = 0; i < pRetTypeDesc->GetRegCount(); ++i)
             {
                 var_types regType      = pRetTypeDesc->GetReturnRegType(i);
                 returnReg              = pRetTypeDesc->GetABIReturnReg(i);
@@ -3586,8 +3585,7 @@ void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
 
     // Treat src register as a homogenous vector with element size equal to the reg size
     // Insert pieces in order
-    unsigned regCount = retTypeDesc->GetReturnRegCount();
-    for (unsigned i = 0; i < regCount; ++i)
+    for (unsigned i = 0; i < retTypeDesc->GetRegCount(); ++i)
     {
         var_types type = retTypeDesc->GetReturnRegType(i);
         regNumber reg  = retTypeDesc->GetABIReturnReg(i);

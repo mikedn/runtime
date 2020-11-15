@@ -7943,7 +7943,7 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
     // Not allowed for FEATURE_CORCLR which is the only SKU available for System V OSs.
     assert(!call->IsVarargs() && "varargs not allowed for System V OSs.");
 
-    unsigned retRegCount = call->GetReturnTypeDesc()->GetReturnRegCount();
+    unsigned retRegCount = call->GetReturnTypeDesc()->GetRegCount();
 
     if (retRegCount == 1)
     {
@@ -7990,7 +7990,7 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
     }
 
 #if FEATURE_MULTIREG_RET
-    unsigned retRegCount = call->GetReturnTypeDesc()->GetReturnRegCount();
+    unsigned retRegCount = call->GetReturnTypeDesc()->GetRegCount();
 
     if (retRegCount == 1)
     {
@@ -14537,7 +14537,7 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
 #else  // defined(UNIX_AMD64_ABI)
                 ReturnTypeDesc retTypeDesc;
                 retTypeDesc.InitializeStructReturnType(this, retClsHnd);
-                unsigned retRegCount = retTypeDesc.GetReturnRegCount();
+                unsigned retRegCount = retTypeDesc.GetRegCount();
 
                 if (retRegCount != 0)
                 {
@@ -14571,7 +14571,7 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
 #elif defined(TARGET_ARM64)
                 ReturnTypeDesc retTypeDesc;
                 retTypeDesc.InitializeStructReturnType(this, retClsHnd);
-                unsigned retRegCount = retTypeDesc.GetReturnRegCount();
+                unsigned retRegCount = retTypeDesc.GetRegCount();
 
                 if (retRegCount != 0)
                 {

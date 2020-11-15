@@ -3670,16 +3670,12 @@ enum class InlineObservation;
 struct ReturnTypeDesc
 {
 private:
+    uint8_t   m_regCount;
     var_types m_regType[MAX_RET_REG_COUNT];
 
-#ifdef DEBUG
-    bool m_inited;
-#endif
-
 public:
-    ReturnTypeDesc()
+    ReturnTypeDesc() : m_regCount(0)
     {
-        Reset();
     }
 
     // Initialize the Return Type Descriptor for a method that returns a struct type
@@ -3689,104 +3685,20 @@ public:
     // Only needed for X86 and arm32.
     void InitializeLongReturnType();
 
-    // Reset type descriptor to defaults
     void Reset()
     {
-        for (unsigned i = 0; i < MAX_RET_REG_COUNT; ++i)
-        {
-            m_regType[i] = TYP_UNKNOWN;
-        }
-#ifdef DEBUG
-        m_inited = false;
-#endif
+        m_regCount = 0;
     }
 
-#ifdef DEBUG
-    // NOTE: we only use this function when writing out IR dumps. These dumps may take place before the ReturnTypeDesc
-    // has been initialized.
-    unsigned TryGetReturnRegCount() const
+    unsigned GetRegCount() const
     {
-        return m_inited ? GetReturnRegCount() : 0;
-    }
-#endif // DEBUG
-
-    //--------------------------------------------------------------------------------------------
-    // GetReturnRegCount:  Get the count of return registers in which the return value is returned.
-    //
-    // Arguments:
-    //    None
-    //
-    // Return Value:
-    //   Count of return registers.
-    //   Returns 0 if the return type is not returned in registers.
-    unsigned GetReturnRegCount() const
-    {
-        assert(m_inited);
-
-        int regCount = 0;
-        for (unsigned i = 0; i < MAX_RET_REG_COUNT; ++i)
-        {
-            if (m_regType[i] == TYP_UNKNOWN)
-            {
-                break;
-            }
-            // otherwise
-            regCount++;
-        }
-
-#ifdef DEBUG
-        // Any remaining elements in m_regTypes[] should also be TYP_UNKNOWN
-        for (unsigned i = regCount + 1; i < MAX_RET_REG_COUNT; ++i)
-        {
-            assert(m_regType[i] == TYP_UNKNOWN);
-        }
-#endif
-
-        return regCount;
+        return m_regCount;
     }
 
-    //-----------------------------------------------------------------------
-    // IsMultiRegRetType: check whether the type is returned in multiple
-    // return registers.
-    //
-    // Arguments:
-    //    None
-    //
-    // Return Value:
-    //    Returns true if the type is returned in multiple return registers.
-    //    False otherwise.
-    // Note that we only have to examine the first two values to determine this
-    //
-    bool IsMultiRegRetType() const
+    var_types GetReturnRegType(unsigned i) const
     {
-        if (MAX_RET_REG_COUNT < 2)
-        {
-            return false;
-        }
-        else
-        {
-            assert(m_inited);
-            return ((m_regType[0] != TYP_UNKNOWN) && (m_regType[1] != TYP_UNKNOWN));
-        }
-    }
-
-    //--------------------------------------------------------------------------
-    // GetReturnRegType:  Get var_type of the return register specified by index.
-    //
-    // Arguments:
-    //    index - Index of the return register.
-    //            First return register will have an index 0 and so on.
-    //
-    // Return Value:
-    //    var_type of the return register specified by its index.
-    //    asserts if the index does not have a valid register return type.
-
-    var_types GetReturnRegType(unsigned index) const
-    {
-        var_types result = m_regType[index];
-        assert(result != TYP_UNKNOWN);
-
-        return result;
+        assert(i < m_regCount);
+        return m_regType[i];
     }
 
     // Get ith ABI return register
@@ -4368,8 +4280,9 @@ struct GenTreeCall final : public GenTree
         {
             return false;
         }
+
         // Now it is a struct that is returned in registers.
-        return GetReturnTypeDesc()->IsMultiRegRetType();
+        return GetReturnTypeDesc()->GetRegCount() > 1;
 #else  // !FEATURE_MULTIREG_RET
         return false;
 #endif // !FEATURE_MULTIREG_RET
@@ -8203,7 +8116,7 @@ inline unsigned GenTree::GetMultiRegCount()
 #if FEATURE_MULTIREG_RET
     if (IsMultiRegCall())
     {
-        return AsCall()->GetReturnTypeDesc()->GetReturnRegCount();
+        return AsCall()->GetReturnTypeDesc()->GetRegCount();
     }
 
 #if FEATURE_ARG_SPLIT

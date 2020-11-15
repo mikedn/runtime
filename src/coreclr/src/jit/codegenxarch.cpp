@@ -143,13 +143,11 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
                 retTypeDesc.InitializeStructReturnType(compiler, compiler->info.compMethodInfo->args.retTypeClass);
             }
 
-            const unsigned regCount = retTypeDesc.GetReturnRegCount();
-
             // Only x86 and x64 Unix ABI allows multi-reg return and
             // number of result regs should be equal to MAX_RET_REG_COUNT.
-            assert(regCount == MAX_RET_REG_COUNT);
+            assert(retTypeDesc.GetRegCount() == MAX_RET_REG_COUNT);
 
-            for (unsigned i = 0; i < regCount; ++i)
+            for (unsigned i = 0; i < retTypeDesc.GetRegCount(); ++i)
             {
                 gcInfo.gcMarkRegPtrVal(retTypeDesc.GetABIReturnReg(i), retTypeDesc.GetReturnRegType(i));
             }
@@ -1864,7 +1862,7 @@ void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
     // This case is always a call (AsCall() will assert if it is not).
     GenTreeCall*          call        = actualOp1->AsCall();
     const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-    assert(retTypeDesc->GetReturnRegCount() == MAX_RET_REG_COUNT);
+    assert(retTypeDesc->GetRegCount() == MAX_RET_REG_COUNT);
 
     assert(regCount == 2);
     assert(varTypeIsFloating(retTypeDesc->GetReturnRegType(0)));
@@ -4887,12 +4885,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             if (call->HasMultiRegRetVal())
             {
                 assert(retTypeDesc != nullptr);
-                const unsigned regCount = retTypeDesc->GetReturnRegCount();
 
                 // If regs allocated to call node are different from ABI return
                 // regs in which the call has returned its result, move the result
                 // to regs allocated to call node.
-                for (unsigned i = 0; i < regCount; ++i)
+                for (unsigned i = 0; i < retTypeDesc->GetRegCount(); ++i)
                 {
                     var_types regType      = retTypeDesc->GetReturnRegType(i);
                     returnReg              = retTypeDesc->GetABIReturnReg(i);
