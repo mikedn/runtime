@@ -3695,17 +3695,15 @@ public:
         return m_regCount;
     }
 
-    var_types GetReturnRegType(unsigned i) const
+    var_types GetRegType(unsigned i) const
     {
         assert(i < m_regCount);
         return m_regType[i];
     }
 
-    // Get ith ABI return register
-    regNumber GetABIReturnReg(unsigned idx) const;
+    regNumber GetRegNum(unsigned i) const;
 
-    // Get reg mask of ABI return registers
-    regMaskTP GetABIReturnRegs() const;
+    regMaskTP GetRegMask() const;
 };
 
 class TailCallSiteInfo
@@ -8246,7 +8244,7 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
 #if FEATURE_MULTIREG_RET
     if (IsMultiRegCall())
     {
-        return AsCall()->AsCall()->GetReturnTypeDesc()->GetReturnRegType(regIndex);
+        return AsCall()->AsCall()->GetReturnTypeDesc()->GetRegType(regIndex);
     }
 
 #if FEATURE_ARG_SPLIT

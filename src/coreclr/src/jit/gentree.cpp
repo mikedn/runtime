@@ -17734,158 +17734,62 @@ void ReturnTypeDesc::InitializeLongReturnType()
 #endif
 }
 
-//-------------------------------------------------------------------
-// GetABIReturnReg:  Return ith return register as per target ABI
-//
-// Arguments:
-//     idx   -   Index of the return register.
-//               The first return register has an index of 0 and so on.
-//
-// Return Value:
-//     Returns ith return register as per target ABI.
-//
-// Notes:
-//     x86 and ARM return long in multiple registers.
-//     ARM and ARM64 return HFA struct in multiple registers.
-//
-regNumber ReturnTypeDesc::GetABIReturnReg(unsigned idx) const
+regNumber ReturnTypeDesc::GetRegNum(unsigned i) const
 {
-    assert(idx < m_regCount);
+    assert(i < m_regCount);
 
-    regNumber resultReg = REG_NA;
-
-#ifdef UNIX_AMD64_ABI
-    var_types regType0 = GetReturnRegType(0);
-
-    if (idx == 0)
+#if defined(TARGET_X86)
+    return i == 0 ? REG_EAX : REG_EDX;
+#elif defined(WINDOWS_AMD64_ABI)
+    return varTypeUsesFloatReg(m_regType[0]) ? REG_XMM0 : REG_RAX;
+#elif defined(UNIX_AMD64_ABI)
+    if (i == 0)
     {
-        if (varTypeIsIntegralOrI(regType0))
-        {
-            resultReg = REG_INTRET;
-        }
-        else
-        {
-            noway_assert(varTypeUsesFloatReg(regType0));
-            resultReg = REG_FLOATRET;
-        }
-    }
-    else if (idx == 1)
-    {
-        var_types regType1 = GetReturnRegType(1);
-
-        if (varTypeIsIntegralOrI(regType1))
-        {
-            if (varTypeIsIntegralOrI(regType0))
-            {
-                resultReg = REG_INTRET_1;
-            }
-            else
-            {
-                resultReg = REG_INTRET;
-            }
-        }
-        else
-        {
-            noway_assert(varTypeUsesFloatReg(regType1));
-
-            if (varTypeUsesFloatReg(regType0))
-            {
-                resultReg = REG_FLOATRET_1;
-            }
-            else
-            {
-                resultReg = REG_FLOATRET;
-            }
-        }
+        return varTypeUsesFloatReg(m_regType[0]) ? REG_XMM0 : REG_RAX;
     }
 
-#elif defined(TARGET_X86)
-
-    if (idx == 0)
+    if (varTypeUsesFloatReg(m_regType[1]))
     {
-        resultReg = REG_LNGRET_LO;
+        return varTypeUsesFloatReg(m_regType[0]) ? REG_XMM1 : REG_XMM0;
     }
-    else if (idx == 1)
+    else
     {
-        resultReg = REG_LNGRET_HI;
+        return varTypeUsesFloatReg(m_regType[0]) ? REG_RAX : REG_RDX;
     }
-
 #elif defined(TARGET_ARM)
+    regNumber firstReg = REG_R0;
 
-    var_types regType = GetReturnRegType(idx);
-    if (varTypeIsIntegralOrI(regType))
+    if (varTypeUsesFloatReg(m_regType[0]))
     {
-        // Ints are returned in one return register.
-        // Longs are returned in two return registers.
-        if (idx == 0)
+        firstReg = REG_F0;
+
+        if (m_regType[0] == TYP_DOUBLE)
         {
-            resultReg = REG_LNGRET_LO;
-        }
-        else if (idx == 1)
-        {
-            resultReg = REG_LNGRET_HI;
-        }
-    }
-    else
-    {
-        // Floats are returned in one return register (f0).
-        // Doubles are returned in one return register (d0).
-        // Structs are returned in four registers with HFAs.
-        assert(idx < MAX_RET_REG_COUNT); // Up to 4 return registers for HFA's
-        if (regType == TYP_DOUBLE)
-        {
-            resultReg = (regNumber)((unsigned)(REG_FLOATRET) + idx * 2); // d0, d1, d2 or d3
-        }
-        else
-        {
-            resultReg = (regNumber)((unsigned)(REG_FLOATRET) + idx); // f0, f1, f2 or f3
+            // A DOUBLE reg uses 2 consecutive FLOAT registers.
+            i *= 2;
         }
     }
 
+    return static_cast<regNumber>(firstReg + i);
 #elif defined(TARGET_ARM64)
+    regNumber firstReg = varTypeUsesFloatReg(m_regType[0]) ? REG_V0 : REG_R0;
 
-    var_types regType = GetReturnRegType(idx);
-    if (varTypeIsIntegralOrI(regType))
-    {
-        noway_assert(idx < 2);                              // Up to 2 return registers for 16-byte structs
-        resultReg = (idx == 0) ? REG_INTRET : REG_INTRET_1; // X0 or X1
-    }
-    else
-    {
-        noway_assert(idx < 4);                                   // Up to 4 return registers for HFA's
-        resultReg = (regNumber)((unsigned)(REG_FLOATRET) + idx); // V0, V1, V2 or V3
-    }
-
-#endif // TARGET_XXX
-
-    assert(resultReg != REG_NA);
-    return resultReg;
+    return static_cast<regNumber>(firstReg + i);
+#else
+    return REG_NA;
+#endif
 }
 
-//--------------------------------------------------------------------------------
-// GetABIReturnRegs: get the mask of return registers as per target arch ABI.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    reg mask of return registers in which the return type is returned.
-//
-// Note:
-//    This routine can be used when the caller is not particular about the order
-//    of return registers and wants to know the set of return registers.
-//
-// static
-regMaskTP ReturnTypeDesc::GetABIReturnRegs() const
+regMaskTP ReturnTypeDesc::GetRegMask() const
 {
-    regMaskTP resultMask = RBM_NONE;
+    regMaskTP regMask = RBM_NONE;
 
     for (unsigned i = 0; i < m_regCount; ++i)
     {
-        resultMask |= genRegMask(GetABIReturnReg(i));
+        regMask |= genRegMask(GetRegNum(i));
     }
 
-    return resultMask;
+    return regMask;
 }
 
 //------------------------------------------------------------------------

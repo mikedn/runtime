@@ -2780,7 +2780,7 @@ void LinearScan::BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates)
             // For all other cases of multi-reg definitions, the registers must be in sequential order.
             if (retTypeDesc != nullptr)
             {
-                thisDstCandidates = genRegMask(tree->AsCall()->GetReturnTypeDesc()->GetABIReturnReg(i));
+                thisDstCandidates = genRegMask(tree->AsCall()->GetReturnTypeDesc()->GetRegNum(i));
                 assert((dstCandidates & thisDstCandidates) != RBM_NONE);
             }
             else
@@ -3478,11 +3478,11 @@ int LinearScan::BuildReturn(GenTree* tree)
                     for (int i = 0; i < srcCount; i++)
                     {
                         RegisterType srcType = regType(op1->AsLclVar()->GetFieldTypeByIndex(compiler, i));
-                        RegisterType dstType = regType(pRetTypeDesc->GetReturnRegType(i));
+                        RegisterType dstType = regType(pRetTypeDesc->GetRegType(i));
                         if (srcType != dstType)
                         {
                             hasMismatchedRegTypes = true;
-                            regMaskTP dstRegMask  = genRegMask(pRetTypeDesc->GetABIReturnReg(i));
+                            regMaskTP dstRegMask  = genRegMask(pRetTypeDesc->GetRegNum(i));
                             if (varTypeUsesFloatReg(dstType))
                             {
                                 buildInternalFloatRegisterDefForNode(tree, dstRegMask);
@@ -3499,9 +3499,9 @@ int LinearScan::BuildReturn(GenTree* tree)
                     // We will build uses of the type of the operand registers/fields, and the codegen
                     // for return will move as needed.
                     if (!hasMismatchedRegTypes || (regType(op1->AsLclVar()->GetFieldTypeByIndex(compiler, i)) ==
-                                                   regType(pRetTypeDesc->GetReturnRegType(i))))
+                                                   regType(pRetTypeDesc->GetRegType(i))))
                     {
-                        BuildUse(op1, genRegMask(pRetTypeDesc->GetABIReturnReg(i)), i);
+                        BuildUse(op1, genRegMask(pRetTypeDesc->GetRegNum(i)), i);
                     }
                     else
                     {

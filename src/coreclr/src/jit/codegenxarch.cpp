@@ -149,7 +149,7 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
 
             for (unsigned i = 0; i < retTypeDesc.GetRegCount(); ++i)
             {
-                gcInfo.gcMarkRegPtrVal(retTypeDesc.GetABIReturnReg(i), retTypeDesc.GetReturnRegType(i));
+                gcInfo.gcMarkRegPtrVal(retTypeDesc.GetRegNum(i), retTypeDesc.GetRegType(i));
             }
         }
         else if (compiler->compMethodReturnsRetBufAddr())
@@ -1140,8 +1140,8 @@ void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
     assert(src->isUsedFromReg());
 
     regNumber srcReg  = src->GetRegNum();
-    regNumber retReg0 = retTypeDesc->GetABIReturnReg(0);
-    regNumber retReg1 = retTypeDesc->GetABIReturnReg(1);
+    regNumber retReg0 = retTypeDesc->GetRegNum(0);
+    regNumber retReg1 = retTypeDesc->GetRegNum(1);
 
     if (retReg0 != srcReg)
     {
@@ -1865,8 +1865,8 @@ void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
     assert(retTypeDesc->GetRegCount() == MAX_RET_REG_COUNT);
 
     assert(regCount == 2);
-    assert(varTypeIsFloating(retTypeDesc->GetReturnRegType(0)));
-    assert(varTypeIsFloating(retTypeDesc->GetReturnRegType(1)));
+    assert(varTypeIsFloating(retTypeDesc->GetRegType(0)));
+    assert(varTypeIsFloating(retTypeDesc->GetRegType(1)));
 
     // This is a case where the two 8-bytes that comprise the operand are in
     // two different xmm registers and need to be assembled into a single
@@ -4626,8 +4626,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
     if (call->HasMultiRegRetVal())
     {
-        retSize       = emitTypeSize(retTypeDesc->GetReturnRegType(0));
-        secondRetSize = emitTypeSize(retTypeDesc->GetReturnRegType(1));
+        retSize       = emitTypeSize(retTypeDesc->GetRegType(0));
+        secondRetSize = emitTypeSize(retTypeDesc->GetRegType(1));
     }
     else
     {
@@ -4891,8 +4891,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 // to regs allocated to call node.
                 for (unsigned i = 0; i < retTypeDesc->GetRegCount(); ++i)
                 {
-                    var_types regType      = retTypeDesc->GetReturnRegType(i);
-                    returnReg              = retTypeDesc->GetABIReturnReg(i);
+                    var_types regType      = retTypeDesc->GetRegType(i);
+                    returnReg              = retTypeDesc->GetRegNum(i);
                     regNumber allocatedReg = call->GetRegNumByIdx(i);
                     if (returnReg != allocatedReg)
                     {
@@ -4906,7 +4906,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 // the native compiler doesn't guarantee it.
                 if (returnType == TYP_SIMD12)
                 {
-                    returnReg = retTypeDesc->GetABIReturnReg(1);
+                    returnReg = retTypeDesc->GetRegNum(1);
                     // Clear the upper 32 bits by two shift instructions.
                     // retReg = retReg << 96
                     // retReg = retReg >> 96

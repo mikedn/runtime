@@ -2401,8 +2401,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
     if (call->HasMultiRegRetVal())
     {
-        retSize       = emitTypeSize(pRetTypeDesc->GetReturnRegType(0));
-        secondRetSize = emitTypeSize(pRetTypeDesc->GetReturnRegType(1));
+        retSize       = emitTypeSize(pRetTypeDesc->GetRegType(0));
+        secondRetSize = emitTypeSize(pRetTypeDesc->GetRegType(1));
     }
     else
     {
@@ -2563,8 +2563,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // to regs allocated to call node.
             for (unsigned i = 0; i < pRetTypeDesc->GetRegCount(); ++i)
             {
-                var_types regType      = pRetTypeDesc->GetReturnRegType(i);
-                returnReg              = pRetTypeDesc->GetABIReturnReg(i);
+                var_types regType      = pRetTypeDesc->GetRegType(i);
+                returnReg              = pRetTypeDesc->GetRegNum(i);
                 regNumber allocatedReg = call->GetRegNumByIdx(i);
                 if (returnReg != allocatedReg)
                 {
@@ -3587,8 +3587,8 @@ void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
     // Insert pieces in order
     for (unsigned i = 0; i < retTypeDesc->GetRegCount(); ++i)
     {
-        var_types type = retTypeDesc->GetReturnRegType(i);
-        regNumber reg  = retTypeDesc->GetABIReturnReg(i);
+        var_types type = retTypeDesc->GetRegType(i);
+        regNumber reg  = retTypeDesc->GetRegNum(i);
         if (varTypeIsFloating(type))
         {
             // If the register piece is to be passed in a floating point register

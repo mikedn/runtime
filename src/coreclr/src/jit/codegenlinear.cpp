@@ -1966,7 +1966,7 @@ void CodeGen::genProduceReg(GenTree* tree)
                 for (unsigned i = 0; i < regCount; ++i)
                 {
                     regNumber reg  = call->GetRegNumByIdx(i);
-                    var_types type = retTypeDesc->GetReturnRegType(i);
+                    var_types type = retTypeDesc->GetRegType(i);
                     gcInfo.gcMarkRegPtrVal(reg, type);
                 }
             }
@@ -1985,7 +1985,7 @@ void CodeGen::genProduceReg(GenTree* tree)
 
                 for (unsigned i = 0; i < regCount; ++i)
                 {
-                    var_types type  = retTypeDesc->GetReturnRegType(i);
+                    var_types type  = retTypeDesc->GetRegType(i);
                     regNumber toReg = copy->GetRegNumByIdx(i);
 
                     if (toReg != REG_NA)

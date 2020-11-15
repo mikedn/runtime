@@ -11230,9 +11230,9 @@ void CodeGen::genReturn(GenTree* treeNode)
         {
             for (unsigned i = 0; i < regCount; ++i)
             {
-                if (varTypeIsGC(retTypeDesc.GetReturnRegType(i)))
+                if (varTypeIsGC(retTypeDesc.GetRegType(i)))
                 {
-                    gcInfo.gcMarkRegPtrVal(retTypeDesc.GetABIReturnReg(i), retTypeDesc.GetReturnRegType(i));
+                    gcInfo.gcMarkRegPtrVal(retTypeDesc.GetRegNum(i), retTypeDesc.GetRegType(i));
                 }
             }
         }
@@ -11251,9 +11251,9 @@ void CodeGen::genReturn(GenTree* treeNode)
         {
             for (unsigned i = 0; i < regCount; ++i)
             {
-                if (varTypeIsGC(retTypeDesc.GetReturnRegType(i)))
+                if (varTypeIsGC(retTypeDesc.GetRegType(i)))
                 {
-                    gcInfo.gcMarkRegSetNpt(genRegMask(retTypeDesc.GetABIReturnReg(i)));
+                    gcInfo.gcMarkRegSetNpt(genRegMask(retTypeDesc.GetRegNum(i)));
                 }
             }
         }
@@ -11327,8 +11327,8 @@ void CodeGen::genStructReturn(GenTree* treeNode)
         int offset = 0;
         for (unsigned i = 0; i < regCount; ++i)
         {
-            var_types type  = retTypeDesc.GetReturnRegType(i);
-            regNumber toReg = retTypeDesc.GetABIReturnReg(i);
+            var_types type  = retTypeDesc.GetRegType(i);
+            regNumber toReg = retTypeDesc.GetRegNum(i);
             GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), toReg, lclNode->GetLclNum(), offset);
             offset += genTypeSize(type);
         }
@@ -11337,8 +11337,8 @@ void CodeGen::genStructReturn(GenTree* treeNode)
     {
         for (unsigned i = 0; i < regCount; ++i)
         {
-            var_types type    = retTypeDesc.GetReturnRegType(i);
-            regNumber toReg   = retTypeDesc.GetABIReturnReg(i);
+            var_types type    = retTypeDesc.GetRegType(i);
+            regNumber toReg   = retTypeDesc.GetRegNum(i);
             regNumber fromReg = op1->GetRegByIndex(i);
             if ((fromReg == REG_NA) && op1->OperIs(GT_COPY))
             {
