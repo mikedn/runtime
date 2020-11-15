@@ -762,9 +762,9 @@ private:
                 unsigned      fieldOffset = val.Offset() - fieldLcl->GetPromotedFieldOffset();
                 FieldSeqNode* fieldSeq    = val.FieldSeq();
 
-                if ((fieldSeq != nullptr) && (fieldSeq->m_fieldHnd == fieldLcl->GetPromotedFieldHandle()))
+                if ((fieldSeq != nullptr) && (fieldSeq->GetFieldHandle() == fieldLcl->GetPromotedFieldHandle()))
                 {
-                    fieldSeq = fieldSeq->m_next;
+                    fieldSeq = fieldSeq->GetNext();
                 }
                 else
                 {

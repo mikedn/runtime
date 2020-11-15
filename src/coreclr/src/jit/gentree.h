@@ -232,14 +232,18 @@ public:
 // all subsequent fields must be struct fields.
 struct FieldSeqNode
 {
+    friend class FieldSeqStore;
+
+private:
     CORINFO_FIELD_HANDLE m_fieldHnd;
     FieldSeqNode*        m_next;
 
+public:
     FieldSeqNode(CORINFO_FIELD_HANDLE fieldHnd, FieldSeqNode* next) : m_fieldHnd(fieldHnd), m_next(next)
     {
     }
 
-    bool IsBoxedValueField();
+    bool IsBoxedValueField() const;
 
     bool IsPseudoField() const;
 
@@ -247,6 +251,11 @@ struct FieldSeqNode
     {
         assert(!IsPseudoField() && (m_fieldHnd != nullptr));
         return m_fieldHnd;
+    }
+
+    FieldSeqNode* GetNext() const
+    {
+        return m_next;
     }
 
     FieldSeqNode* GetTail()
@@ -6867,17 +6876,11 @@ private:
     FieldSeqNode* m_fieldSeq;
 
 public:
-    GenTreeClsVar(var_types type, CORINFO_FIELD_HANDLE clsVarHnd, FieldSeqNode* fldSeq)
-        : GenTree(GT_CLS_VAR, type), gtClsVarHnd(clsVarHnd), m_fieldSeq(fldSeq)
+    GenTreeClsVar(genTreeOps oper, CORINFO_FIELD_HANDLE fieldHandle)
+        : GenTree(oper, TYP_I_IMPL), gtClsVarHnd(fieldHandle), m_fieldSeq(nullptr)
     {
-        gtFlags |= GTF_GLOB_REF;
-    }
-
-    GenTreeClsVar(genTreeOps oper, var_types type, CORINFO_FIELD_HANDLE clsVarHnd, FieldSeqNode* fldSeq)
-        : GenTree(oper, type), gtClsVarHnd(clsVarHnd), m_fieldSeq(fldSeq)
-    {
-        assert((oper == GT_CLS_VAR) || (oper == GT_CLS_VAR_ADDR));
-        gtFlags |= GTF_GLOB_REF;
+        // Currently this used only to create GT_CLS_VAR_ADDR nodes in LIR.
+        assert(oper == GT_CLS_VAR_ADDR);
     }
 
     GenTreeClsVar(const GenTreeClsVar* copyFrom)
@@ -6894,7 +6897,7 @@ public:
 
     FieldSeqNode* GetFieldSeq() const
     {
-        assert(m_fieldSeq->m_fieldHnd == gtClsVarHnd);
+        assert(m_fieldSeq->GetFieldHandle() == gtClsVarHnd);
         return m_fieldSeq;
     }
 
@@ -6906,8 +6909,8 @@ public:
         // field sequences.
 
         assert(fieldHandle != nullptr);
-        assert(fieldSeq->m_fieldHnd == fieldHandle);
-        assert(fieldSeq->m_next == nullptr);
+        assert(fieldSeq->GetFieldHandle() == fieldHandle);
+        assert(fieldSeq->GetNext() == nullptr);
 
         gtClsVarHnd = fieldHandle;
         m_fieldSeq  = fieldSeq;

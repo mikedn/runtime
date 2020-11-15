@@ -9558,7 +9558,7 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
     }
 
     printf(" Fseq[");
-    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->m_next)
+    for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
     {
         if (fieldSeq == FieldSeqStore::NotAField())
         {
@@ -9570,10 +9570,10 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
         }
         else
         {
-            printf("%s", eeGetFieldName(fieldSeq->m_fieldHnd));
+            printf("%s", eeGetFieldName(fieldSeq->GetFieldHandle()));
         }
 
-        if (fieldSeq->m_next != nullptr)
+        if (fieldSeq->GetNext() != nullptr)
         {
             printf(".");
         }
@@ -15405,7 +15405,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
         return false;
     }
 
-    if (!fieldSeq->IsPseudoField() && info.compCompHnd->isFieldStatic(fieldSeq->m_fieldHnd))
+    if (!fieldSeq->IsPseudoField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
     {
         *pObj    = nullptr;
         *pStatic = addr;
@@ -15450,7 +15450,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
 
         if ((icon != nullptr) && !icon->IsIconHandle(GTF_ICON_STR_HDL) && // String handles are a source of TYP_REFs.
             (icon->GetFieldSeq() != nullptr) && (icon->GetFieldSeq() != FieldSeqStore::NotAField()) &&
-            (icon->GetFieldSeq()->m_next == nullptr) && // A static field should be a singleton
+            (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
             // TODO-Review: A pseudoField here indicates an issue - this requires investigation
             // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
             !icon->GetFieldSeq()->IsPseudoField())
@@ -15465,7 +15465,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
             FieldSeqNode* zeroFieldSeq = nullptr;
 
             if (addr->OperIs(GT_CALL, GT_LCL_VAR) && GetZeroOffsetFieldMap()->Lookup(addr, &zeroFieldSeq) &&
-                (zeroFieldSeq->m_next == nullptr))
+                (zeroFieldSeq->GetNext() == nullptr))
             {
                 staticStructFldSeq = zeroFieldSeq;
             }
@@ -15512,9 +15512,10 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
         }
     }
 
-    assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->m_next == nullptr));
+    assert((staticStructFldSeq == nullptr) || (staticStructFldSeq->GetNext() == nullptr));
 
-    if ((staticStructFldSeq != nullptr) && gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->m_fieldHnd))
+    if ((staticStructFldSeq != nullptr) &&
+        gtIsStaticFieldPtrToBoxedStruct(TYP_REF, staticStructFldSeq->GetFieldHandle()))
     {
         *pObj    = nullptr;
         *pStatic = addr;
@@ -15886,13 +15887,11 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                         }
                         if (fieldSeq != nullptr)
                         {
-                            while (fieldSeq->m_next != nullptr)
-                            {
-                                fieldSeq = fieldSeq->m_next;
-                            }
+                            fieldSeq = fieldSeq->GetTail();
+
                             if ((fieldSeq != FieldSeqStore::NotAField()) && !fieldSeq->IsPseudoField())
                             {
-                                CORINFO_FIELD_HANDLE fieldHnd = fieldSeq->m_fieldHnd;
+                                CORINFO_FIELD_HANDLE fieldHnd = fieldSeq->GetFieldHandle();
                                 CorInfoType fieldCorType      = info.compCompHnd->getFieldType(fieldHnd, &structHnd);
                                 // With unsafe code and type casts
                                 // this can return a primitive type and have nullptr for structHnd
@@ -16157,16 +16156,13 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
                         if (fieldSeq != nullptr)
                         {
-                            while (fieldSeq->m_next != nullptr)
-                            {
-                                fieldSeq = fieldSeq->m_next;
-                            }
+                            fieldSeq = fieldSeq->GetTail();
 
                             assert(!fieldSeq->IsPseudoField());
 
                             // No benefit to calling gtGetFieldClassHandle here, as
                             // the exact field being accessed can vary.
-                            CORINFO_FIELD_HANDLE fieldHnd     = fieldSeq->m_fieldHnd;
+                            CORINFO_FIELD_HANDLE fieldHnd     = fieldSeq->GetFieldHandle();
                             CORINFO_CLASS_HANDLE fieldClass   = nullptr;
                             CorInfoType          fieldCorType = info.compCompHnd->getFieldType(fieldHnd, &fieldClass);
 
@@ -16526,7 +16522,7 @@ bool Compiler::optParseArrayAddress(
             return false;
         }
 
-        fldSeq = fldSeq->m_next;
+        fldSeq = fldSeq->GetNext();
     }
 
     // Otherwise...
@@ -16940,7 +16936,7 @@ int FieldSeqStore::BoxedValuePseudoFieldStruct;
 const CORINFO_FIELD_HANDLE FieldSeqStore::BoxedValuePseudoFieldHandle =
     reinterpret_cast<CORINFO_FIELD_HANDLE>(&FieldSeqStore::BoxedValuePseudoFieldStruct);
 
-bool FieldSeqNode::IsBoxedValueField()
+bool FieldSeqNode::IsBoxedValueField() const
 {
     return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
 }

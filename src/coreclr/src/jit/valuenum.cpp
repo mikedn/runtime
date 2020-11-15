@@ -3562,11 +3562,11 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
         // Skip any pseudo-fields
         if (fieldSeq->IsPseudoField())
         {
-            return VNApplySelectors(vnk, map, fieldSeq->m_next, wbFinalStructSize);
+            return VNApplySelectors(vnk, map, fieldSeq->GetNext(), wbFinalStructSize);
         }
 
         // Otherwise, is a real field handle.
-        CORINFO_FIELD_HANDLE fldHnd    = fieldSeq->m_fieldHnd;
+        CORINFO_FIELD_HANDLE fldHnd    = fieldSeq->GetFieldHandle();
         CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
         ValueNum             fldHndVN  = VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
         noway_assert(fldHnd != nullptr);
@@ -3604,10 +3604,10 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
         }
 #endif
 
-        if (fieldSeq->m_next != nullptr)
+        if (fieldSeq->GetNext() != nullptr)
         {
             ValueNum newMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
-            return VNApplySelectors(vnk, newMap, fieldSeq->m_next, wbFinalStructSize);
+            return VNApplySelectors(vnk, newMap, fieldSeq->GetNext(), wbFinalStructSize);
         }
         else // end of fieldSeq
         {
@@ -3729,18 +3729,18 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
         // These will occur, at least, in struct static expressions, for method table offsets.
         if (fieldSeq->IsPseudoField())
         {
-            return VNApplySelectorsAssign(vnk, map, fieldSeq->m_next, elem, indType, block);
+            return VNApplySelectorsAssign(vnk, map, fieldSeq->GetNext(), elem, indType, block);
         }
 
         // Otherwise, fldHnd is a real field handle.
-        CORINFO_FIELD_HANDLE fldHnd   = fieldSeq->m_fieldHnd;
+        CORINFO_FIELD_HANDLE fldHnd   = fieldSeq->GetFieldHandle();
         ValueNum             fldHndVN = VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
         noway_assert(fldHnd != nullptr);
         CorInfoType fieldCit  = m_pComp->info.compCompHnd->getFieldType(fldHnd);
         var_types   fieldType = JITtype2varType(fieldCit);
 
         ValueNum elemAfter;
-        if (fieldSeq->m_next)
+        if (fieldSeq->GetNext())
         {
 #ifdef DEBUG
             if (m_pComp->verbose)
@@ -3752,14 +3752,14 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
             }
 #endif
             ValueNum fseqMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
-            elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, fieldSeq->m_next, elem, indType, block);
+            elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, fieldSeq->GetNext(), elem, indType, block);
         }
         else
         {
 #ifdef DEBUG
             if (m_pComp->verbose)
             {
-                if (fieldSeq->m_next == nullptr)
+                if (fieldSeq->GetNext() == nullptr)
                 {
                     printf("  VNApplySelectorsAssign:\n");
                 }
@@ -3811,10 +3811,11 @@ ValueNum ValueNumStore::VNForFieldSeq(FieldSeqNode* fieldSeq)
     }
     else
     {
-        ssize_t  fieldHndVal = ssize_t(fieldSeq->m_fieldHnd);
-        ValueNum fieldHndVN  = VNForHandle(fieldHndVal, GTF_ICON_FIELD_HDL);
-        ValueNum seqNextVN   = VNForFieldSeq(fieldSeq->m_next);
-        ValueNum fieldSeqVN  = VNForFunc(TYP_REF, VNF_FieldSeq, fieldHndVN, seqNextVN);
+        ssize_t fieldHndVal = reinterpret_cast<ssize_t>(
+            fieldSeq->IsBoxedValueField() ? FieldSeqStore::BoxedValuePseudoFieldHandle : fieldSeq->GetFieldHandle());
+        ValueNum fieldHndVN = VNForHandle(fieldHndVal, GTF_ICON_FIELD_HDL);
+        ValueNum seqNextVN  = VNForFieldSeq(fieldSeq->GetNext());
+        ValueNum fieldSeqVN = VNForFunc(TYP_REF, VNF_FieldSeq, fieldHndVN, seqNextVN);
 
 #ifdef DEBUG
         if (m_pComp->verbose)
@@ -7105,7 +7106,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     // is a "ref" to the boxed struct -- treat it as the address of the static (we assume that a
                     // first element offset will be added to get to the actual struct...)
                     FieldSeqNode* fldSeq = tree->AsClsVar()->GetFieldSeq();
-                    if (gtIsStaticFieldPtrToBoxedStruct(tree->GetType(), fldSeq->m_fieldHnd))
+                    if (gtIsStaticFieldPtrToBoxedStruct(tree->GetType(), fldSeq->GetFieldHandle()))
                     {
                         clsVarVNPair.SetBoth(
                             vnStore->VNForFunc(TYP_BYREF, VNF_PtrToStatic, vnStore->VNForFieldSeq(fldSeq)));
@@ -7567,7 +7568,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         else if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
                             // Get a field sequence for just the first field in the sequence
-                            FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq->m_fieldHnd);
+                            FieldSeqNode* firstFieldOnly =
+                                GetFieldSeqStore()->CreateSingleton(fldSeq->GetFieldHandle());
 
                             // The final field in the sequence will need to match the 'indType'
                             var_types indType = lhs->TypeGet();
@@ -7606,11 +7608,13 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                     normVal   = vnStore->VNLiberalNormalValue(staticOffset->gtVNPair);
                                     valAtAddr = vnStore->VNForMapSelect(VNK_Liberal, firstFieldType, fldMapVN, normVal);
                                 }
+
                                 // Now get rid of any remaining struct field dereferences. (if they exist)
-                                if (fldSeq->m_next)
+                                if (fldSeq->GetNext() != nullptr)
                                 {
-                                    storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, valAtAddr, fldSeq->m_next,
-                                                                               storeVal, indType, compCurBB);
+                                    storeVal =
+                                        vnStore->VNApplySelectorsAssign(VNK_Liberal, valAtAddr, fldSeq->GetNext(),
+                                                                        storeVal, indType, compCurBB);
                                 }
 
                                 // From which we can construct the new ValueNumber for 'fldMap at normVal'
@@ -7622,9 +7626,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                 // plain static field
 
                                 // Now get rid of any remaining struct field dereferences. (if they exist)
-                                if (fldSeq->m_next)
+                                if (fldSeq->GetNext() != nullptr)
                                 {
-                                    storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, fldMapVN, fldSeq->m_next,
+                                    storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, fldMapVN, fldSeq->GetNext(),
                                                                                storeVal, indType, compCurBB);
                                 }
 
@@ -7963,7 +7967,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 else if (optIsFieldAddr(addr, &obj, &staticOffset, &fldSeq2))
                 {
                     // Get a field sequence for just the first field in the sequence
-                    FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq2->m_fieldHnd);
+                    FieldSeqNode* firstFieldOnly = GetFieldSeqStore()->CreateSingleton(fldSeq2->GetFieldHandle());
                     size_t        structSize     = 0;
                     ValueNum      fldMapVN =
                         vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap], firstFieldOnly, &structSize);
@@ -7990,9 +7994,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
 
                     // Now get rid of any remaining struct field dereferences.
-                    if (fldSeq2->m_next)
+                    if (fldSeq2->GetNext() != nullptr)
                     {
-                        valAtAddr = vnStore->VNApplySelectors(VNK_Liberal, valAtAddr, fldSeq2->m_next, &structSize);
+                        valAtAddr = vnStore->VNApplySelectors(VNK_Liberal, valAtAddr, fldSeq2->GetNext(), &structSize);
                     }
                     valAtAddr = vnStore->VNApplySelectorsTypeCheck(valAtAddr, indType, structSize);
 
