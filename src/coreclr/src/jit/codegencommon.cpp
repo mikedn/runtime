@@ -11154,6 +11154,20 @@ void CodeGen::genReturn(GenTree* treeNode)
     }
     else
 #endif
+#ifdef TARGET_X86
+        if (varTypeIsFloating(targetType))
+    {
+        genFloatReturn(treeNode->AsUnOp());
+    }
+    else
+#endif
+#ifdef TARGET_ARM
+        if (varTypeIsFloating(targetType) && (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
+    {
+        genFloatReturn(treeNode->AsUnOp());
+    }
+    else
+#endif // TARGET_ARM
     {
         if (targetType != TYP_VOID)
         {
@@ -11169,38 +11183,13 @@ void CodeGen::genReturn(GenTree* treeNode)
             // exit point where it is actually dead.
             genConsumeReg(op1);
 
-#if defined(TARGET_X86)
-            if (varTypeIsFloating(targetType))
-            {
-                genFloatReturn(treeNode);
-            }
-            else
-#elif defined(TARGET_ARM)
-            if (varTypeIsFloating(targetType)) &&
-                (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
-                {
-                    if (targetType == TYP_FLOAT)
-                    {
-                        GetEmitter()->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, REG_INTRET, op1->GetRegNum());
-                    }
-                    else
-                    {
-                        assert(targetType == TYP_DOUBLE);
-                        GetEmitter()->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, REG_INTRET, REG_NEXT(REG_INTRET),
-                                                    op1->GetRegNum());
-                    }
-                }
-            else
-#endif // TARGET_ARM
-            {
-                assert(!varTypeIsSmall(targetType));
+            assert(!varTypeIsSmall(targetType));
 
-                regNumber retReg = varTypeUsesFloatReg(targetType) ? REG_FLOATRET : REG_INTRET;
-                if (op1->GetRegNum() != retReg)
-                {
-                    emitAttr attr = emitActualTypeSize(targetType);
-                    GetEmitter()->emitIns_R_R(ins_Copy(targetType), attr, retReg, op1->GetRegNum());
-                }
+            regNumber retReg = varTypeUsesFloatReg(targetType) ? REG_FLOATRET : REG_INTRET;
+            if (op1->GetRegNum() != retReg)
+            {
+                emitAttr attr = emitActualTypeSize(targetType);
+                GetEmitter()->emitIns_R_R(ins_Copy(targetType), attr, retReg, op1->GetRegNum());
             }
         }
     }

@@ -1298,9 +1298,9 @@ protected:
     void genLongReturn(GenTree* treeNode);
 #endif
 
-#if defined(TARGET_X86)
-    void genFloatReturn(GenTree* treeNode);
-#endif // TARGET_X86
+#if defined(TARGET_X86) || defined(TARGET_ARM)
+    void genFloatReturn(GenTreeUnOp* treeNode);
+#endif
 
     void genRetFilt(GenTree* retfilt);
     void genReturn(GenTree* treeNode);

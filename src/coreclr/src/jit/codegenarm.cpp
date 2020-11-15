@@ -1464,6 +1464,25 @@ void CodeGen::genCodeForMulLong(GenTreeMultiRegOp* node)
     genProduceReg(node);
 }
 
+void CodeGen::genFloatReturn(GenTreeUnOp* ret)
+{
+    assert(ret->OperIs(GT_RETURN));
+    assert(compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs);
+
+    GenTree*  src    = ret->GetOp(0);
+    regNumber srcReg = genConsumeReg(src);
+
+    if (ret->TypeIs(TYP_FLOAT))
+    {
+        GetEmitter()->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, REG_R0, srcReg);
+    }
+    else
+    {
+        assert(ret->TypeIs(TYP_DOUBLE));
+        GetEmitter()->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, REG_R0, REG_R1, srcReg);
+    }
+}
+
 #ifdef PROFILING_SUPPORTED
 
 //-----------------------------------------------------------------------------------

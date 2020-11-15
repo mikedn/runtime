@@ -1168,20 +1168,13 @@ void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
 
 #if defined(TARGET_X86)
 
-//------------------------------------------------------------------------
-// genFloatReturn: Generates code for float return statement for x86.
-//
-// Note: treeNode's and op1's registers are already consumed.
-//
-// Arguments:
-//    treeNode - The RETURN tree node with float type.
-//
-void CodeGen::genFloatReturn(GenTree* treeNode)
+void CodeGen::genFloatReturn(GenTreeUnOp* ret)
 {
-    assert(treeNode->OperIs(GT_RETURN));
-    assert(varTypeIsFloating(treeNode->GetType()));
+    assert(ret->OperIs(GT_RETURN));
+    assert(varTypeIsFloating(ret->GetType()));
 
-    GenTree* op1 = treeNode->gtGetOp1();
+    GenTree* op1 = ret->GetOp(0);
+    genConsumeReg(op1);
     // Spill the return value register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
     if (genIsRegCandidateLclVar(op1) && compiler->lvaGetDesc(op1->AsLclVar())->lvOnFrame)
