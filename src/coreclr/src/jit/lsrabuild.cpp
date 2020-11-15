@@ -3454,35 +3454,34 @@ int LinearScan::BuildReturn(GenTree* tree)
             {
                 noway_assert(op1->IsMultiRegCall() || op1->IsMultiRegLclVar());
 
-                int                   srcCount;
-                const ReturnTypeDesc* pRetTypeDesc;
+                const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
                 if (op1->OperIs(GT_CALL))
                 {
-                    pRetTypeDesc = op1->AsCall()->GetReturnTypeDesc();
+                    assert(retDesc.GetRegCount() == op1->AsCall()->GetReturnTypeDesc()->GetRegCount());
                 }
                 else
                 {
                     assert(compiler->lvaEnregMultiRegVars);
-                    LclVarDsc*     varDsc = compiler->lvaGetDesc(op1->AsLclVar());
-                    ReturnTypeDesc retTypeDesc;
-                    retTypeDesc.InitializeStructReturnType(compiler, varDsc->GetLayout()->GetClassHandle());
-                    pRetTypeDesc = &retTypeDesc;
-                    assert(compiler->lvaGetDesc(op1->AsLclVar()->GetLclNum())->lvFieldCnt == retTypeDesc.GetRegCount());
+                    assert(compiler->lvaGetDesc(op1->AsLclVar()->GetLclNum())->lvFieldCnt == retDesc.GetRegCount());
                 }
-                srcCount = pRetTypeDesc->GetRegCount();
+
+                int srcCount = static_cast<int>(retDesc.GetRegCount());
+
                 // For any source that's coming from a different register file, we need to ensure that
                 // we reserve the specific ABI register we need.
                 bool hasMismatchedRegTypes = false;
+
                 if (op1->IsMultiRegLclVar())
                 {
                     for (int i = 0; i < srcCount; i++)
                     {
                         RegisterType srcType = regType(op1->AsLclVar()->GetFieldTypeByIndex(compiler, i));
-                        RegisterType dstType = regType(pRetTypeDesc->GetRegType(i));
+                        RegisterType dstType = regType(retDesc.GetRegType(i));
                         if (srcType != dstType)
                         {
                             hasMismatchedRegTypes = true;
-                            regMaskTP dstRegMask  = genRegMask(pRetTypeDesc->GetRegNum(i));
+                            regMaskTP dstRegMask  = genRegMask(retDesc.GetRegNum(i));
                             if (varTypeUsesFloatReg(dstType))
                             {
                                 buildInternalFloatRegisterDefForNode(tree, dstRegMask);
@@ -3494,24 +3493,27 @@ int LinearScan::BuildReturn(GenTree* tree)
                         }
                     }
                 }
+
                 for (int i = 0; i < srcCount; i++)
                 {
                     // We will build uses of the type of the operand registers/fields, and the codegen
                     // for return will move as needed.
-                    if (!hasMismatchedRegTypes || (regType(op1->AsLclVar()->GetFieldTypeByIndex(compiler, i)) ==
-                                                   regType(pRetTypeDesc->GetRegType(i))))
+                    if (!hasMismatchedRegTypes ||
+                        (regType(op1->AsLclVar()->GetFieldTypeByIndex(compiler, i)) == regType(retDesc.GetRegType(i))))
                     {
-                        BuildUse(op1, genRegMask(pRetTypeDesc->GetRegNum(i)), i);
+                        BuildUse(op1, genRegMask(retDesc.GetRegNum(i)), i);
                     }
                     else
                     {
                         BuildUse(op1, RBM_NONE, i);
                     }
                 }
+
                 if (hasMismatchedRegTypes)
                 {
                     buildInternalRegisterUses();
                 }
+
                 return srcCount;
             }
         }

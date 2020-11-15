@@ -88,44 +88,63 @@ void Compiler::lvaInit()
 
 void Compiler::lvaInitTypeRef()
 {
-    info.compRetType       = JITtype2varType(info.compMethodInfo->args.retType);
-    info.compRetNativeType = info.compRetType;
+    var_types retType       = JITtype2varType(info.compMethodInfo->args.retType);
+    bool      hasRetBuffArg = false;
 
-#ifdef FEATURE_SIMD
-    if (info.compRetType == TYP_STRUCT)
+    info.compRetType       = retType;
+    info.compRetNativeType = retType;
+
+    if (retType != TYP_STRUCT)
     {
-        info.compRetType = impNormStructType(info.compMethodInfo->args.retTypeClass);
+        info.retDesc.InitializePrimitive(retType);
     }
-#endif
-
-    bool hasRetBuffArg = false;
-
-    if (varTypeIsStruct(info.compRetNativeType))
+    else
     {
-        CORINFO_CLASS_HANDLE retClsHnd = info.compMethodInfo->args.retTypeClass;
-        structPassingKind    howToReturnStruct;
-        var_types            returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
+        CORINFO_CLASS_HANDLE retClass     = info.compMethodInfo->args.retTypeClass;
+        unsigned             retClassSize = info.compCompHnd->getClassSize(retClass);
+        structPassingKind    retKind      = SPK_Unknown;
+        var_types            retKindType  = getReturnTypeForStruct(retClass, &retKind, retClassSize);
 
-        if ((howToReturnStruct == SPK_PrimitiveType) || (howToReturnStruct == SPK_EnclosingType))
+        info.compRetType = impNormStructType(retClass);
+
+        if ((retKind == SPK_PrimitiveType) || (retKind == SPK_EnclosingType))
         {
-            assert(returnType != TYP_UNKNOWN);
-            assert(returnType != TYP_STRUCT);
+            assert(retKindType != TYP_UNKNOWN);
+            assert(retKindType != TYP_STRUCT);
 
-            info.compRetNativeType = returnType;
+            info.compRetNativeType = retKindType;
+            info.retDesc.InitializePrimitive(retKindType);
 
-            // ToDo: Refactor this common code sequence into its own method as it is used 4+ times
-            if ((returnType == TYP_LONG) && (compLongUsed == false))
+            if ((retKindType == TYP_LONG) && !compLongUsed)
             {
                 compLongUsed = true;
             }
-            else if (((returnType == TYP_FLOAT) || (returnType == TYP_DOUBLE)) && (compFloatingPointUsed == false))
+            else if (varTypeIsFloating(retKindType) && !compFloatingPointUsed)
             {
                 compFloatingPointUsed = true;
             }
         }
-        else if (howToReturnStruct == SPK_ByReference)
+#if FEATURE_MULTIREG_RET
+        else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
         {
+            info.retDesc.InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
+        }
+#endif
+        else
+        {
+            assert(retKind == SPK_ByReference);
+
             hasRetBuffArg = true;
+            retKindType   = TYP_VOID;
+
+#ifndef TARGET_AMD64
+            if (compIsProfilerHookNeeded())
+#endif
+            {
+                retKindType = TYP_BYREF;
+            }
+
+            info.retDesc.InitializePrimitive(retKindType);
         }
     }
 

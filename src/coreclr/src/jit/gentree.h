@@ -3652,15 +3652,30 @@ struct GenTreeColon : public GenTreeOp
 // gtCall   -- method call      (GT_CALL)
 enum class InlineObservation;
 
-// Return type descriptor of a GT_CALL node.
+enum structPassingKind
+{
+    SPK_Unknown,       // Invalid value, never returned
+    SPK_PrimitiveType, // The struct is passed/returned using a primitive type.
+    SPK_EnclosingType, // Like SPK_Primitive type, but used for return types that
+    //  require a primitive type temp that is larger than the struct size.
+    //  Currently used for structs of size 3, 5, 6, or 7 bytes.
+    SPK_ByValue, // The struct is passed/returned by value (using the ABI rules)
+    //  for ARM64 and UNIX_X64 in multiple registers. (when all of the
+    //   parameters registers are used, then the stack will be used)
+    //  for X86 passed on the stack, for ARM32 passed in registers
+    //   or the stack or split between registers and the stack.
+    SPK_ByValueAsHfa, // The struct is passed/returned as an HFA in multiple registers.
+    SPK_ByReference
+}; // The struct is passed/returned by reference to a copy/buffer.
+
+// Return type descriptor for the compiled method or a GT_CALL node.
+//
 // x64 Unix, Arm64, Arm32 and x86 allow a value to be returned in multiple
 // registers. For such calls this struct provides the following info
 // on their return type
 //    - type of value returned in each return register
 //    - ABI return register numbers in which the value is returned
 //    - count of return registers in which the value is returned
-//
-// TODO-ARM: Update this to meet the needs of Arm64 and Arm32
 //
 // TODO-AllArch: Right now it is used for describing multi-reg returned types.
 // Eventually we would want to use it for describing even single-reg
@@ -3678,12 +3693,17 @@ public:
     {
     }
 
-    // Initialize the Return Type Descriptor for a method that returns a struct type
-    void InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HANDLE retClsHnd);
+    void InitializeStruct(Compiler* comp, CORINFO_CLASS_HANDLE retClass);
 
-    // Initialize the Return Type Descriptor for a method that returns a TYP_LONG
-    // Only needed for X86 and arm32.
-    void InitializeLongReturnType();
+    void InitializeStruct(Compiler*            comp,
+                          CORINFO_CLASS_HANDLE retClass,
+                          unsigned             retClassSize,
+                          structPassingKind    retKind,
+                          var_types            retKindType);
+
+    void InitializePrimitive(var_types regType);
+
+    void InitializeLong();
 
     void Reset()
     {
@@ -3971,14 +3991,14 @@ struct GenTreeCall final : public GenTree
     void InitializeLongReturnType()
     {
 #if FEATURE_MULTIREG_RET
-        gtReturnTypeDesc.InitializeLongReturnType();
+        gtReturnTypeDesc.InitializeLong();
 #endif
     }
 
     void InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HANDLE retClsHnd)
     {
 #if FEATURE_MULTIREG_RET
-        gtReturnTypeDesc.InitializeStructReturnType(comp, retClsHnd);
+        gtReturnTypeDesc.InitializeStruct(comp, retClsHnd);
 #endif
     }
 

@@ -2721,12 +2721,9 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 #if FEATURE_MULTIREG_RET
         if (retVal->OperIs(GT_LCL_VAR) && varTypeIsStruct(retVal))
         {
-            LclVarDsc*     varDsc = comp->lvaGetDesc(retVal->AsLclVar());
-            ReturnTypeDesc retTypeDesc;
-            retTypeDesc.InitializeStructReturnType(comp, varDsc->GetLayout()->GetClassHandle());
-            if (retTypeDesc.GetRegCount() > 1)
+            if (comp->info.retDesc.GetRegCount() > 1)
             {
-                CheckMultiRegLclVar(retVal->AsLclVar(), &retTypeDesc);
+                CheckMultiRegLclVar(retVal->AsLclVar(), &comp->info.retDesc);
             }
         }
 #endif // FEATURE_MULTIREG_RET
@@ -3188,9 +3185,9 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
     }
 #endif // FEATURE_HFA
 
-    CORINFO_CLASS_HANDLE        retClsHnd = call->gtRetClsHnd;
-    Compiler::structPassingKind howToReturnStruct;
-    var_types                   returnType = comp->getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
+    CORINFO_CLASS_HANDLE retClsHnd = call->gtRetClsHnd;
+    structPassingKind    howToReturnStruct;
+    var_types            returnType = comp->getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
     assert(returnType != TYP_STRUCT && returnType != TYP_UNKNOWN);
     var_types origType = call->TypeGet();
     call->SetType(genActualType(returnType));

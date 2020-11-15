@@ -11167,13 +11167,6 @@ void CodeGen::genReturn(GenTree* treeNode)
         GenTree* op1 = treeNode->AsUnOp()->GetOp(0);
         noway_assert(op1->GetRegNum() != REG_NA);
 
-        // !! NOTE !! genConsumeReg will clear op1 as GC ref after it has
-        // consumed a reg for the operand. This is because the variable
-        // is dead after return. But we are issuing more instructions
-        // like "profiler leave callback" after this consumption. So
-        // if you are issuing more instructions after this point,
-        // remember to keep the variable live up until the new method
-        // exit point where it is actually dead.
         genConsumeReg(op1);
 
         regNumber retReg = varTypeUsesFloatReg(targetType) ? REG_FLOATRET : REG_INTRET;
@@ -11202,64 +11195,28 @@ void CodeGen::genReturn(GenTree* treeNode)
     // so we just look for that block to trigger insertion of the profile hook.
     if ((compiler->compCurBB == compiler->genReturnBB) && compiler->compIsProfilerHookNeeded())
     {
-        // !! NOTE !!
         // Since we are invalidating the assumption that we would slip into the epilog
         // right after the "return", we need to preserve the return reg's GC state
         // across the call until actual method return.
-        ReturnTypeDesc retTypeDesc;
-        unsigned       regCount = 0;
-        if (compiler->compMethodReturnsMultiRegRetType())
-        {
-            if (varTypeIsLong(compiler->info.compRetNativeType))
-            {
-                retTypeDesc.InitializeLongReturnType();
-            }
-            else // we must have a struct return type
-            {
-                retTypeDesc.InitializeStructReturnType(compiler, compiler->info.compMethodInfo->args.retTypeClass);
-            }
 
-            regCount = retTypeDesc.GetRegCount();
-        }
+        const ReturnTypeDesc& retDesc = compiler->info.retDesc;
 
-        if (varTypeIsGC(compiler->info.compRetNativeType))
+        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
         {
-            gcInfo.gcMarkRegPtrVal(REG_INTRET, compiler->info.compRetNativeType);
-        }
-        else if (compiler->compMethodReturnsMultiRegRetType())
-        {
-            for (unsigned i = 0; i < regCount; ++i)
+            if (varTypeIsGC(retDesc.GetRegType(i)))
             {
-                if (varTypeIsGC(retTypeDesc.GetRegType(i)))
-                {
-                    gcInfo.gcMarkRegPtrVal(retTypeDesc.GetRegNum(i), retTypeDesc.GetRegType(i));
-                }
+                gcInfo.gcMarkRegPtrVal(retDesc.GetRegNum(i), retDesc.GetRegType(i));
             }
-        }
-        else if (compiler->compMethodReturnsRetBufAddr())
-        {
-            gcInfo.gcMarkRegPtrVal(REG_INTRET, TYP_BYREF);
         }
 
         genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_LEAVE);
 
-        if (varTypeIsGC(compiler->info.compRetNativeType))
+        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
         {
-            gcInfo.gcMarkRegSetNpt(genRegMask(REG_INTRET));
-        }
-        else if (compiler->compMethodReturnsMultiRegRetType())
-        {
-            for (unsigned i = 0; i < regCount; ++i)
+            if (varTypeIsGC(retDesc.GetRegType(i)))
             {
-                if (varTypeIsGC(retTypeDesc.GetRegType(i)))
-                {
-                    gcInfo.gcMarkRegSetNpt(genRegMask(retTypeDesc.GetRegNum(i)));
-                }
+                gcInfo.gcMarkRegSetNpt(genRegMask(retDesc.GetRegNum(i)));
             }
-        }
-        else if (compiler->compMethodReturnsRetBufAddr())
-        {
-            gcInfo.gcMarkRegSetNpt(genRegMask(REG_INTRET));
         }
     }
 #endif // PROFILING_SUPPORTED
@@ -11293,18 +11250,17 @@ void CodeGen::genStructReturn(GenTree* treeNode)
         actualOp1 = op1->gtGetOp1();
     }
 
-    ReturnTypeDesc retTypeDesc;
-    LclVarDsc*     varDsc = nullptr;
+    ReturnTypeDesc& retTypeDesc = compiler->info.retDesc;
+    LclVarDsc*      varDsc      = nullptr;
     if (actualOp1->OperIs(GT_LCL_VAR))
     {
         varDsc = compiler->lvaGetDesc(actualOp1->AsLclVar()->GetLclNum());
-        retTypeDesc.InitializeStructReturnType(compiler, varDsc->GetLayout()->GetClassHandle());
         assert(varDsc->lvIsMultiRegRet);
     }
     else
     {
         assert(actualOp1->OperIs(GT_CALL));
-        retTypeDesc = *(actualOp1->AsCall()->GetReturnTypeDesc());
+        assert(retTypeDesc.GetRegCount() == actualOp1->AsCall()->GetReturnTypeDesc()->GetRegCount());
     }
     unsigned regCount = retTypeDesc.GetRegCount();
     assert(regCount <= MAX_RET_REG_COUNT);

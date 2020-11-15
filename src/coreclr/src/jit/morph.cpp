@@ -6707,8 +6707,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             var_types callType;
             if (varTypeIsStruct(origCallType))
             {
-                CORINFO_CLASS_HANDLE        retClsHnd = call->gtRetClsHnd;
-                Compiler::structPassingKind howToReturnStruct;
+                CORINFO_CLASS_HANDLE retClsHnd = call->gtRetClsHnd;
+                structPassingKind    howToReturnStruct;
                 callType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
                 assert((howToReturnStruct != SPK_Unknown) && (howToReturnStruct != SPK_ByReference));
                 if (howToReturnStruct == SPK_ByValue)

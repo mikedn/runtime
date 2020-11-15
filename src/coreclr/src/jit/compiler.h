@@ -4308,22 +4308,6 @@ public:
     // Convert a BYTE which represents the VM's CorInfoGCtype to the JIT's var_types
     var_types getJitGCType(BYTE gcType);
 
-    enum structPassingKind
-    {
-        SPK_Unknown,       // Invalid value, never returned
-        SPK_PrimitiveType, // The struct is passed/returned using a primitive type.
-        SPK_EnclosingType, // Like SPK_Primitive type, but used for return types that
-                           //  require a primitive type temp that is larger than the struct size.
-                           //  Currently used for structs of size 3, 5, 6, or 7 bytes.
-        SPK_ByValue,       // The struct is passed/returned by value (using the ABI rules)
-                           //  for ARM64 and UNIX_X64 in multiple registers. (when all of the
-                           //   parameters registers are used, then the stack will be used)
-                           //  for X86 passed on the stack, for ARM32 passed in registers
-                           //   or the stack or split between registers and the stack.
-        SPK_ByValueAsHfa,  // The struct is passed/returned as an HFA in multiple registers.
-        SPK_ByReference
-    }; // The struct is passed/returned by reference to a copy/buffer.
-
     // Get the "primitive" type that is is used when we are given a struct of size 'structSize'.
     // For pointer sized structs the 'clsHnd' is used to determine if the struct contains GC ref.
     // A "primitive" type is one of the scalar types: byte, short, int, long, ref, float, double
@@ -8474,10 +8458,12 @@ public:
         bool compPublishStubParam : 1;   // EAX captured in prolog will be available through an intrinsic
         bool compHasNextCallRetAddr : 1; // The NextCallReturnAddress intrinsic is used.
 
-        var_types compRetType;       // Return type of the method as declared in IL
-        var_types compRetNativeType; // Normalized return type as per target arch ABI
-        unsigned  compILargsCount;   // Number of arguments (incl. implicit but not hidden)
-        unsigned  compArgsCount;     // Number of arguments (incl. implicit and     hidden)
+        var_types      compRetType;       // Return type of the method as declared in IL
+        var_types      compRetNativeType; // Normalized return type as per target arch ABI
+        ReturnTypeDesc retDesc;
+
+        unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
+        unsigned compArgsCount;   // Number of arguments (incl. implicit and     hidden)
 
 #if FEATURE_FASTTAILCALL
         unsigned compArgStackSize; // Incoming argument stack size in bytes

@@ -14536,7 +14536,7 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
 // Same as !IsHfa but just don't bother with impAssignStructPtr.
 #else  // defined(UNIX_AMD64_ABI)
                 ReturnTypeDesc retTypeDesc;
-                retTypeDesc.InitializeStructReturnType(this, retClsHnd);
+                retTypeDesc.InitializeStruct(this, retClsHnd);
                 unsigned retRegCount = retTypeDesc.GetRegCount();
 
                 if (retRegCount != 0)
@@ -14570,7 +14570,7 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
                 else
 #elif defined(TARGET_ARM64)
                 ReturnTypeDesc retTypeDesc;
-                retTypeDesc.InitializeStructReturnType(this, retClsHnd);
+                retTypeDesc.InitializeStruct(this, retClsHnd);
                 unsigned retRegCount = retTypeDesc.GetRegCount();
 
                 if (retRegCount != 0)

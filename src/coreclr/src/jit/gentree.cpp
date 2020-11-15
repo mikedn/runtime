@@ -17610,51 +17610,51 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
     return node;
 }
 
-//---------------------------------------------------------------------------------------
-// InitializeStructReturnType:
-//    Initialize the Return Type Descriptor for a method that returns a struct type
-//
-// Arguments
-//    comp        -  Compiler Instance
-//    retClsHnd   -  VM handle to the struct type returned by the method
-//
-// Return Value
-//    None
-//
-void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HANDLE retClsHnd)
+void ReturnTypeDesc::InitializeStruct(Compiler* comp, CORINFO_CLASS_HANDLE retClass)
 {
     assert(m_regCount == 0);
 
 #if FEATURE_MULTIREG_RET
+    assert(retClass != NO_CLASS_HANDLE);
 
-    assert(retClsHnd != NO_CLASS_HANDLE);
-    unsigned structSize = comp->info.compCompHnd->getClassSize(retClsHnd);
+    unsigned          retClassSize = comp->info.compCompHnd->getClassSize(retClass);
+    structPassingKind retKind;
+    var_types         retKindType = comp->getReturnTypeForStruct(retClass, &retKind, retClassSize);
 
-    Compiler::structPassingKind howToReturnStruct;
-    var_types                   returnType = comp->getReturnTypeForStruct(retClsHnd, &howToReturnStruct, structSize);
+    InitializeStruct(comp, retClass, retClassSize, retKind, retKindType);
+#endif
+}
 
-    switch (howToReturnStruct)
+void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
+                                      CORINFO_CLASS_HANDLE retClass,
+                                      unsigned             retClassSize,
+                                      structPassingKind    retKind,
+                                      var_types            retKindType)
+{
+    switch (retKind)
     {
-        case Compiler::SPK_EnclosingType:
-        case Compiler::SPK_PrimitiveType:
-            assert(returnType != TYP_UNKNOWN);
-            assert(returnType != TYP_STRUCT);
+        case SPK_EnclosingType:
+        case SPK_PrimitiveType:
+            assert(retKindType != TYP_UNKNOWN);
+            assert(retKindType != TYP_STRUCT);
 
             m_regCount   = 1;
-            m_regType[0] = returnType;
+            m_regType[0] = retKindType;
             break;
 
-        case Compiler::SPK_ByValueAsHfa:
+#if FEATURE_MULTIREG_RET
+        case SPK_ByValueAsHfa:
         {
-            assert(varTypeIsStruct(returnType));
-            var_types regType = comp->GetHfaType(retClsHnd);
+            assert(varTypeIsStruct(retKindType));
+            var_types regType = comp->GetHfaType(retClass);
             assert(varTypeIsValidHfaType(regType));
 
             // Note that the retail build issues a warning about a potential divsion by zero without this Max function
             unsigned elemSize = Max(1u, varTypeSize(regType));
 
-            assert((structSize % elemSize) == 0);
-            m_regCount = static_cast<uint8_t>(structSize / elemSize);
+            assert((retClassSize % elemSize) == 0);
+            m_regCount = static_cast<uint8_t>(retClassSize / elemSize);
+            assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
 
             for (unsigned i = 0; i < m_regCount; ++i)
             {
@@ -17665,28 +17665,28 @@ void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HA
             break;
         }
 
-        case Compiler::SPK_ByValue:
+        case SPK_ByValue:
         {
-            assert(varTypeIsStruct(returnType));
+            assert(varTypeIsStruct(retKindType));
 
 #ifdef UNIX_AMD64_ABI
             SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retClsHnd, &structDesc);
+            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retClass, &structDesc);
 
             assert(structDesc.passedInRegisters);
-            assert(structDesc.eightByteCount <= MAX_RET_REG_COUNT);
+            assert(structDesc.eightByteCount == 2);
 
-            m_regCount = structDesc.eightByteCount;
+            m_regCount = 2;
 
-            for (int i = 0; i < m_regCount; i++)
+            for (int i = 0; i < 2; i++)
             {
                 m_regType[i] = comp->GetEightByteType(structDesc, i);
             }
 #elif defined(TARGET_ARM64)
-            assert((structSize > REGSIZE_BYTES) && (structSize <= (2 * REGSIZE_BYTES)));
+            assert((retClassSize > REGSIZE_BYTES) && (retClassSize <= (2 * REGSIZE_BYTES)));
 
             BYTE gcPtrs[2]{TYPE_GC_NONE, TYPE_GC_NONE};
-            comp->info.compCompHnd->getClassGClayout(retClsHnd, &gcPtrs[0]);
+            comp->info.compCompHnd->getClassGClayout(retClass, &gcPtrs[0]);
 
             m_regCount = 2;
 
@@ -17695,13 +17695,13 @@ void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HA
                 m_regType[i] = comp->getJitGCType(gcPtrs[i]);
             }
 #else
-            NYI("Unsupported TARGET returning a TYP_STRUCT in InitializeStructReturnType");
+            unreached();
 #endif
-
             break;
         }
+#endif //  FEATURE_MULTIREG_RET
 
-        case Compiler::SPK_ByReference:
+        case SPK_ByReference:
             // We are returning using the return buffer argument
             // There are no return registers
 
@@ -17711,17 +17711,27 @@ void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HA
         default:
             unreached();
     }
-#endif //  FEATURE_MULTIREG_RET
 }
 
-//---------------------------------------------------------------------------------------
-// InitializeLongReturnType:
-//    Initialize the Return Type Descriptor for a method that returns a TYP_LONG
-//
-void ReturnTypeDesc::InitializeLongReturnType()
+void ReturnTypeDesc::InitializePrimitive(var_types regType)
 {
-    assert(m_regCount == 0);
+    if (regType == TYP_VOID)
+    {
+        m_regCount = 0;
+    }
+    else if (varTypeIsLong(regType))
+    {
+        InitializeLong();
+    }
+    else
+    {
+        m_regCount   = 1;
+        m_regType[0] = regType;
+    }
+}
 
+void ReturnTypeDesc::InitializeLong()
+{
 #ifdef TARGET_64BIT
     m_regCount   = 1;
     m_regType[0] = TYP_LONG;
