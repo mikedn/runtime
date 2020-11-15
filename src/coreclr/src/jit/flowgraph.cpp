@@ -24033,15 +24033,6 @@ Compiler::fgWalkResult Compiler::fgChkLocAllocCB(GenTree** pTree, fgWalkData* da
     return Compiler::WALK_CONTINUE;
 }
 
-void Compiler::fgLclFldAssign(unsigned lclNum)
-{
-    assert(varTypeIsStruct(lvaTable[lclNum].lvType));
-    if (lvaTable[lclNum].lvPromoted && lvaTable[lclNum].lvFieldCnt > 1)
-    {
-        lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
-    }
-}
-
 //------------------------------------------------------------------------
 // fgRemoveEmptyFinally: Remove try/finallys where the finally is empty
 //

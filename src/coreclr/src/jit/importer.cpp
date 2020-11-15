@@ -1164,8 +1164,6 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         {
             // Case of call returning a struct in one or more registers.
 
-            var_types returnType = (var_types)src->AsCall()->gtReturnType;
-
             // First we try to change this to "LclVar/LclFld = call"
             //
             if ((destAddr->gtOper == GT_ADDR) && (destAddr->AsOp()->gtOp1->gtOper == GT_LCL_VAR))
@@ -1208,7 +1206,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             }
             else // we don't have a GT_ADDR of a GT_LCL_VAR
             {
-                asgType = returnType;
+                asgType = static_cast<var_types>(src->AsCall()->gtReturnType);
             }
         }
     }
@@ -7945,16 +7943,17 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
     // Not allowed for FEATURE_CORCLR which is the only SKU available for System V OSs.
     assert(!call->IsVarargs() && "varargs not allowed for System V OSs.");
 
-    const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-    const unsigned        retRegCount = retTypeDesc->GetReturnRegCount();
+    unsigned retRegCount = call->GetReturnTypeDesc()->GetReturnRegCount();
+
+    if (retRegCount == 1)
+    {
+        return call;
+    }
+
     if (retRegCount == 0)
     {
         // struct not returned in registers i.e returned via hiddden retbuf arg.
         call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
-    }
-    else if (retRegCount == 1)
-    {
-        return call;
     }
     else
     {
@@ -7986,70 +7985,65 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
     {
         assert(returnType == TYP_UNKNOWN);
         call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
+
+        return call;
+    }
+
+#if FEATURE_MULTIREG_RET
+    unsigned retRegCount = call->GetReturnTypeDesc()->GetReturnRegCount();
+
+    if (retRegCount == 1)
+    {
+        return call;
+    }
+
+    assert(retRegCount != 0);
+    assert(returnType != TYP_UNKNOWN);
+
+    // See if the struct size is smaller than the return
+    // type size...
+    if (howToReturnStruct == SPK_EnclosingType)
+    {
+        // If we know for sure this call will remain a call,
+        // retype and return value via a suitable temp.
+        if ((!call->CanTailCall()) && (!call->IsInlineCandidate()))
+        {
+            call->gtReturnType = returnType;
+            return impAssignSmallStructTypeToVar(call, retClsHnd);
+        }
     }
     else
     {
-
-#if FEATURE_MULTIREG_RET
-        const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-        const unsigned        retRegCount = retTypeDesc->GetReturnRegCount();
-        assert(retRegCount != 0);
-        if (retRegCount == 1)
-        {
-            return call;
-        }
-#else  // !FEATURE_MULTIREG_RET
-        return call;
-#endif // !FEATURE_MULTIREG_RET
-        assert(returnType != TYP_UNKNOWN);
-
-        // See if the struct size is smaller than the return
-        // type size...
-        if (howToReturnStruct == SPK_EnclosingType)
-        {
-            // If we know for sure this call will remain a call,
-            // retype and return value via a suitable temp.
-            if ((!call->CanTailCall()) && (!call->IsInlineCandidate()))
-            {
-                call->gtReturnType = returnType;
-                return impAssignSmallStructTypeToVar(call, retClsHnd);
-            }
-        }
-        else
-        {
-            // Return type is same size as struct, so we can
-            // simply retype the call.
-            call->gtReturnType = returnType;
-        }
-
-        // ToDo: Refactor this common code sequence into its own method as it is used 4+ times
-        if ((returnType == TYP_LONG) && (compLongUsed == false))
-        {
-            compLongUsed = true;
-        }
-        else if (((returnType == TYP_FLOAT) || (returnType == TYP_DOUBLE)) && (compFloatingPointUsed == false))
-        {
-            compFloatingPointUsed = true;
-        }
-
-#if FEATURE_MULTIREG_RET
-        if (retRegCount >= 2)
-        {
-            if ((!call->CanTailCall()) && (!call->IsInlineCandidate()))
-            {
-                // Force a call returning multi-reg struct to be always of the IR form
-                //   tmp = call
-                //
-                // No need to assign a multi-reg struct to a local var if:
-                //  - It is a tail call or
-                //  - The call is marked for in-lining later
-                return impAssignMultiRegTypeToVar(call, retClsHnd);
-            }
-        }
-#endif // FEATURE_MULTIREG_RET
+        // Return type is same size as struct, so we can
+        // simply retype the call.
+        call->gtReturnType = returnType;
     }
 
-#endif // not UNIX_AMD64_ABI
+    // ToDo: Refactor this common code sequence into its own method as it is used 4+ times
+    if ((returnType == TYP_LONG) && (compLongUsed == false))
+    {
+        compLongUsed = true;
+    }
+    else if (((returnType == TYP_FLOAT) || (returnType == TYP_DOUBLE)) && (compFloatingPointUsed == false))
+    {
+        compFloatingPointUsed = true;
+    }
+
+    if (retRegCount >= 2)
+    {
+        if ((!call->CanTailCall()) && (!call->IsInlineCandidate()))
+        {
+            // Force a call returning multi-reg struct to be always of the IR form
+            //   tmp = call
+            //
+            // No need to assign a multi-reg struct to a local var if:
+            //  - It is a tail call or
+            //  - The call is marked for in-lining later
+            return impAssignMultiRegTypeToVar(call, retClsHnd);
+        }
+    }
+#endif // FEATURE_MULTIREG_RET
+#endif // !UNIX_AMD64_ABI
 
     return call;
 }
@@ -8179,83 +8173,27 @@ GenTree* Compiler::impFixupStructReturnType(GenTree* op, CORINFO_CLASS_HANDLE re
 
 #endif //  FEATURE_MULTIREG_RET && FEATURE_HFA
 
-    if (!op->IsCall() || !op->AsCall()->TreatAsHasRetBufArg(this))
+    if (op->IsCall() && op->AsCall()->TreatAsHasRetBufArg(this))
     {
-        // Don't retype `struct` as a primitive type in `ret` instruction.
-        return op;
-    }
-
-REDO_RETURN_NODE:
-    // adjust the type away from struct to integral
-    // and no normalizing
-    if (op->gtOper == GT_LCL_VAR)
-    {
-        // It is possible that we now have a lclVar of scalar type.
-        // If so, don't transform it to GT_LCL_FLD.
-        LclVarDsc* varDsc = lvaGetDesc(op->AsLclVarCommon());
-        if (genActualType(varDsc->TypeGet()) != genActualType(info.compRetNativeType))
-        {
-            op->ChangeOper(GT_LCL_FLD);
-        }
-    }
-    else if (op->gtOper == GT_OBJ)
-    {
-        GenTree* op1 = op->AsObj()->Addr();
-
-        // We will fold away OBJ/ADDR, except for OBJ/ADDR/INDEX
+        // This must be one of those 'special' helpers that don't
+        // really have a return buffer, but instead use it as a way
+        // to keep the trees cleaner with fewer address-taken temps.
         //
-        // In the latter case the OBJ type may have a different type
-        // than the array element type, and we need to preserve the
-        // array element type for now.
+        // Well now we have to materialize the the return buffer as
+        // an address-taken temp. Then we can return the temp.
         //
-        if ((op1->gtOper == GT_ADDR) && (op1->AsOp()->gtOp1->gtOper != GT_INDEX))
-        {
-            // Change '*(&X)' to 'X' and see if we can do better
-            op = op1->AsOp()->gtOp1;
-            goto REDO_RETURN_NODE;
-        }
-        op->ChangeOperUnchecked(GT_IND);
+        // NOTE: this code assumes that since the call directly
+        // feeds the return, then the call must be returning the
+        // same structure/class/type.
+        //
+        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
+
+        // No need to spill anything as we're about to return.
+        impAssignTempGen(tmpNum, op, info.compMethodInfo->args.retTypeClass, CHECK_SPILL_NONE);
+        op = gtNewLclvNode(tmpNum, info.compRetType);
+
+        JITDUMP("\nimpFixupStructReturnType: created a pseudo-return buffer for a special helper\n");
     }
-    else if (op->gtOper == GT_CALL)
-    {
-        if (op->AsCall()->TreatAsHasRetBufArg(this))
-        {
-            // This must be one of those 'special' helpers that don't
-            // really have a return buffer, but instead use it as a way
-            // to keep the trees cleaner with fewer address-taken temps.
-            //
-            // Well now we have to materialize the the return buffer as
-            // an address-taken temp. Then we can return the temp.
-            //
-            // NOTE: this code assumes that since the call directly
-            // feeds the return, then the call must be returning the
-            // same structure/class/type.
-            //
-            unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
-
-            // No need to spill anything as we're about to return.
-            impAssignTempGen(tmpNum, op, info.compMethodInfo->args.retTypeClass, (unsigned)CHECK_SPILL_NONE);
-
-            op = gtNewLclvNode(tmpNum, info.compRetType);
-            JITDUMP("\nimpFixupStructReturnType: created a pseudo-return buffer for a special helper\n");
-            DISPTREE(op);
-            return op;
-        }
-        else
-        {
-            // Don't change the gtType of the call just yet, it will get changed later.
-            return op;
-        }
-    }
-    else if (op->gtOper == GT_COMMA)
-    {
-        op->AsOp()->gtOp2 = impFixupStructReturnType(op->AsOp()->gtOp2, retClsHnd);
-    }
-
-    op->gtType = info.compRetNativeType;
-
-    JITDUMP("\nimpFixupStructReturnType: result of retyping is\n");
-    DISPTREE(op);
 
     return op;
 }
@@ -14503,16 +14441,9 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
                         }
                     }                    
 
-                    impAssignTempGen(lvaInlineeReturnSpillTemp, op2, se.seTypeInfo.GetClassHandle(),
-                                     (unsigned)CHECK_SPILL_ALL);
+                    impAssignTempGen(lvaInlineeReturnSpillTemp, op2, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
+                    op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
 
-                    var_types  lclRetType = op2->TypeGet();
-                    LclVarDsc* varDsc     = lvaGetDesc(lvaInlineeReturnSpillTemp);
-                    lclRetType            = varDsc->lvType;
-
-                    GenTree* tmpOp2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lclRetType);
-
-                    op2 = tmpOp2;
 #ifdef DEBUG
                     if (impInlineInfo->retExpr)
                     {

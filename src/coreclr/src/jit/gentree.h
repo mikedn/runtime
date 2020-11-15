@@ -3671,7 +3671,6 @@ struct ReturnTypeDesc
 {
 private:
     var_types m_regType[MAX_RET_REG_COUNT];
-    bool      m_isEnclosingType;
 
 #ifdef DEBUG
     bool m_inited;
@@ -3697,7 +3696,6 @@ public:
         {
             m_regType[i] = TYP_UNKNOWN;
         }
-        m_isEnclosingType = false;
 #ifdef DEBUG
         m_inited = false;
 #endif
@@ -3789,13 +3787,6 @@ public:
         assert(result != TYP_UNKNOWN);
 
         return result;
-    }
-
-    // True if this value is returned in integer register
-    // that is larger than the type itself.
-    bool IsEnclosingType() const
-    {
-        return m_isEnclosingType;
     }
 
     // Get ith ABI return register

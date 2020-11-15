@@ -2707,31 +2707,16 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
     JITDUMP("============");
 
     GenTree* retVal = ret->gtGetOp1();
-    // There are two kinds of retyping:
-    // - A simple bitcast can be inserted when:
-    //   - We're returning a floating type as an integral type or vice-versa, or
-    //   - We're returning a struct as a primitive type and using the old form of retyping.
-    // - If we're returning a struct as a primitive type and *not* using old retying, we change the type of
-    //   'retval' in 'LowerRetStructLclVar()'
-    bool needBitcast =
-        (ret->TypeGet() != TYP_VOID) && (varTypeUsesFloatReg(ret) != varTypeUsesFloatReg(ret->gtGetOp1()));
-    bool doPrimitiveBitcast = false;
-    if (needBitcast)
-    {
-        doPrimitiveBitcast = (!varTypeIsStruct(ret) && !varTypeIsStruct(retVal));
-    }
 
-    if (doPrimitiveBitcast)
+    if (!ret->TypeIs(TYP_VOID) && (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(retVal->GetType())) &&
+        !varTypeIsStruct(ret->GetType()) && !varTypeIsStruct(retVal->GetType()))
     {
-        // Add a simple bitcast for an old retyping or when both types are not structs.
-        assert(!varTypeIsStruct(ret) && !varTypeIsStruct(retVal));
-
-        GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->TypeGet(), retVal);
-        ret->gtOp1           = bitcast;
+        GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), retVal);
+        ret->AsUnOp()->SetOp(0, bitcast);
         BlockRange().InsertBefore(ret, bitcast);
         LowerBitCast(bitcast);
     }
-    else if (ret->TypeGet() != TYP_VOID)
+    else if (!ret->TypeIs(TYP_VOID))
     {
 #if FEATURE_MULTIREG_RET
         if (retVal->OperIs(GT_LCL_VAR) && varTypeIsStruct(retVal))
