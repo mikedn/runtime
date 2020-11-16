@@ -10389,14 +10389,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_RET:
                 prefixFlags &= ~PREFIX_TAILCALL; // ret without call before it
             RET:
-                if (!impReturnInstruction(prefixFlags, opcode))
+                if (compIsForInlining())
                 {
-                    return; // abort
-                }
-                else
-                {
+                    if (!impInlineReturnInstruction())
+                    {
+                        return;
+                    }
+
                     break;
                 }
+
+                impReturnInstruction(prefixFlags, &opcode);
+                break;
 
             case CEE_JMP:
                 assert(!compIsForInlining());
@@ -14272,24 +14276,20 @@ GenTree* Compiler::impAssignMultiRegTypeToVar(GenTree* op, CORINFO_CLASS_HANDLE 
 #endif // FEATURE_MULTIREG_RET
 
 //------------------------------------------------------------------------
-// impReturnInstruction: import a return or an explicit tail call
-//
-// Arguments:
-//     prefixFlags -- active IL prefixes
-//     opcode -- [in, out] IL opcode
+// impInlineReturnInstruction: import a return during inlining
 //
 // Returns:
 //     True if import was successful (may fail for some inlinees)
 //
-bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
+bool Compiler::impInlineReturnInstruction()
 {
-    const bool isTailCall = (prefixFlags & PREFIX_TAILCALL) != 0;
+    assert(compIsForInlining());
 
 #ifdef DEBUG
     // If we are importing an inlinee and have GC ref locals we always
     // need to have a spill temp for the return value.  This temp
     // should have been set up in advance, over in fgFindBasicBlocks.
-    if (compIsForInlining() && impInlineInfo->HasGcRefLocals() && (info.compRetType != TYP_VOID))
+    if (impInlineInfo->HasGcRefLocals() && (info.compRetType != TYP_VOID))
     {
         assert(lvaInlineeReturnSpillTemp != BAD_VAR_NUM);
     }
@@ -14305,39 +14305,6 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
         retClsHnd     = se.seTypeInfo.GetClassHandle();
         op2           = se.val;
 
-        if (!compIsForInlining())
-        {
-            impBashVarAddrsToI(op2);
-            op2 = impImplicitIorI4Cast(op2, info.compRetType);
-            op2 = impImplicitR4orR8Cast(op2, info.compRetType);
-            assertImp((genActualType(op2->TypeGet()) == genActualType(info.compRetType)) ||
-                      ((op2->TypeGet() == TYP_I_IMPL) && (info.compRetType == TYP_BYREF)) ||
-                      ((op2->TypeGet() == TYP_BYREF) && (info.compRetType == TYP_I_IMPL)) ||
-                      (varTypeIsFloating(op2->gtType) && varTypeIsFloating(info.compRetType)) ||
-                      (varTypeIsStruct(op2) && varTypeIsStruct(info.compRetType)));
-
-#ifdef DEBUG
-            if (!isTailCall && opts.compGcChecks && (info.compRetType == TYP_REF))
-            {
-                // DDB 3483  : JIT Stress: early termination of GC ref's life time in exception code path
-                // VSW 440513: Incorrect gcinfo on the return value under COMPlus_JitGCChecks=1 for methods with
-                // one-return BB.
-
-                assert(op2->gtType == TYP_REF);
-
-                // confirm that the argument is a GC pointer (for debugging (GC stress))
-                GenTreeCall::Use* args = gtNewCallArgs(op2);
-                op2                    = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_REF, args);
-
-                if (verbose)
-                {
-                    printf("\ncompGcChecks tree:\n");
-                    gtDispTree(op2);
-                }
-            }
-#endif
-        }
-        else
         {
             // inlinee's stack should be empty now.
             assert(verCurrentState.esStackDepth == 0);
@@ -14621,9 +14588,56 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
         }
     }
 
-    if (compIsForInlining())
+    return true;
+}
+
+bool Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
+{
+    assert(!compIsForInlining());
+
+    const bool isTailCall = (prefixFlags & PREFIX_TAILCALL) != 0;
+
+    GenTree*             op2       = nullptr;
+    GenTree*             op1       = nullptr;
+    CORINFO_CLASS_HANDLE retClsHnd = nullptr;
+
+    if (info.compRetType != TYP_VOID)
     {
-        return true;
+        StackEntry se = impPopStack();
+        retClsHnd     = se.seTypeInfo.GetClassHandle();
+        op2           = se.val;
+
+        {
+            impBashVarAddrsToI(op2);
+            op2 = impImplicitIorI4Cast(op2, info.compRetType);
+            op2 = impImplicitR4orR8Cast(op2, info.compRetType);
+            assertImp((genActualType(op2->TypeGet()) == genActualType(info.compRetType)) ||
+                      ((op2->TypeGet() == TYP_I_IMPL) && (info.compRetType == TYP_BYREF)) ||
+                      ((op2->TypeGet() == TYP_BYREF) && (info.compRetType == TYP_I_IMPL)) ||
+                      (varTypeIsFloating(op2->gtType) && varTypeIsFloating(info.compRetType)) ||
+                      (varTypeIsStruct(op2) && varTypeIsStruct(info.compRetType)));
+
+#ifdef DEBUG
+            if (!isTailCall && opts.compGcChecks && (info.compRetType == TYP_REF))
+            {
+                // DDB 3483  : JIT Stress: early termination of GC ref's life time in exception code path
+                // VSW 440513: Incorrect gcinfo on the return value under COMPlus_JitGCChecks=1 for methods with
+                // one-return BB.
+
+                assert(op2->gtType == TYP_REF);
+
+                // confirm that the argument is a GC pointer (for debugging (GC stress))
+                GenTreeCall::Use* args = gtNewCallArgs(op2);
+                op2                    = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_REF, args);
+
+                if (verbose)
+                {
+                    printf("\ncompGcChecks tree:\n");
+                    gtDispTree(op2);
+                }
+            }
+#endif
+        }
     }
 
     if (info.compRetType == TYP_VOID)
@@ -14686,9 +14700,9 @@ bool Compiler::impReturnInstruction(int prefixFlags, OPCODE& opcode)
     // We must have imported a tailcall and jumped to RET
     if (isTailCall)
     {
-        assert(verCurrentState.esStackDepth == 0 && impOpcodeIsCallOpcode(opcode));
+        assert(verCurrentState.esStackDepth == 0 && impOpcodeIsCallOpcode(*opcode));
 
-        opcode = CEE_RET; // To prevent trying to spill if CALL_SITE_BOUNDARIES
+        *opcode = CEE_RET; // To prevent trying to spill if CALL_SITE_BOUNDARIES
 
         // impImportCall() would have already appended TYP_VOID calls
         if (info.compRetType == TYP_VOID)
