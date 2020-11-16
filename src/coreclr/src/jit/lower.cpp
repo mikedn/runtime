@@ -2926,7 +2926,7 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
         if (comp->info.compRetNativeType == TYP_STRUCT)
         {
             assert(varTypeIsSIMD(ret->gtGetOp1()));
-            assert(comp->compMethodReturnsMultiRegRegTypeAlternate());
+            assert(comp->info.retDesc.GetRegCount() > 1);
             ret->ChangeType(comp->info.compRetNativeType);
         }
         else
@@ -2943,7 +2943,7 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
     }
 #endif
 
-    if (comp->compMethodReturnsMultiRegRegTypeAlternate())
+    if (comp->info.retDesc.GetRegCount() > 1)
     {
         return;
     }
@@ -3095,8 +3095,9 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 //
 void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
 {
-    assert(!comp->compMethodReturnsMultiRegRegTypeAlternate());
+    assert(comp->info.retDesc.GetRegCount() == 1);
     assert(ret->OperIs(GT_RETURN));
+
     GenTreeLclVarCommon* lclVar = ret->gtGetOp1()->AsLclVar();
     assert(lclVar->OperIs(GT_LCL_VAR));
     unsigned   lclNum = lclVar->GetLclNum();

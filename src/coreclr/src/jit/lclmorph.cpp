@@ -541,14 +541,12 @@ public:
                         // be merged separatly.
                         GenTreeLclVar* lclVar = retVal->AsLclVar();
                         unsigned       lclNum = lclVar->GetLclNum();
-                        if (!m_compiler->compMethodReturnsMultiRegRegTypeAlternate() &&
-                            !m_compiler->lvaIsImplicitByRefLocal(lclVar->GetLclNum()))
+                        LclVarDsc*     lcl    = m_compiler->lvaGetDesc(lclNum);
+
+                        if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
+                            lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1))
                         {
-                            LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-                            if (varDsc->lvFieldCnt > 1)
-                            {
-                                m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
-                            }
+                            m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
                         }
                     }
 
