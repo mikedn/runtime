@@ -3449,6 +3449,7 @@ int LinearScan::BuildReturn(GenTree* tree)
             if ((op1->OperGet() == GT_LCL_VAR) && !op1->IsMultiRegLclVar())
             {
                 BuildUse(op1, useCandidates);
+                return 1;
             }
             else
             {
