@@ -8528,32 +8528,6 @@ public:
         return (info.compRetType != TYP_VOID) && !varTypeIsStruct(info.compRetNativeType);
     }
 
-    // Returns true if the method being compiled returns RetBuf addr as its return value
-    bool compMethodReturnsRetBufAddr()
-    {
-        // There are cases where implicit RetBuf argument should be explicitly returned in a register.
-        // In such cases the return type is changed to TYP_BYREF and appropriate IR is generated.
-        // These cases are:
-        // 1. Profiler Leave calllback expects the address of retbuf as return value for
-        //    methods with hidden RetBuf argument.  impReturnInstruction() when profiler
-        //    callbacks are needed creates GT_RETURN(TYP_BYREF, op1 = Addr of RetBuf) for
-        //    methods with hidden RetBufArg.
-        //
-        // 2. As per the System V ABI, the address of RetBuf needs to be returned by
-        //    methods with hidden RetBufArg in RAX. In such case GT_RETURN is of TYP_BYREF,
-        //    returning the address of RetBuf.
-        //
-        // 3. Windows 64-bit native calling convention also requires the address of RetBuff
-        //    to be returned in RAX.
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_AMD64
-        return (info.compRetBuffArg != BAD_VAR_NUM);
-#else  // !TARGET_AMD64
-        return (compIsProfilerHookNeeded()) && (info.compRetBuffArg != BAD_VAR_NUM);
-#endif // !TARGET_AMD64
-    }
-
     // Returns true if the method returns a value in more than one return register
     // TODO-ARM-Bug: Deal with multi-register genReturnLocaled structs?
     // TODO-ARM64: Does this apply for ARM64 too?

@@ -8634,7 +8634,7 @@ private:
             returnExpr             = comp->gtNewOperNode(GT_RETURN, returnConst->gtType, returnConst);
             returnConstants[index] = returnConst->IntegralValue();
         }
-        else if (comp->compMethodReturnsRetBufAddr())
+        else if ((comp->info.compRetBuffArg != BAD_VAR_NUM) && (comp->info.retDesc.GetRegCount() != 0))
         {
             GenTree* retBuffAddr = comp->gtNewLclvNode(comp->info.compRetBuffArg, TYP_BYREF);
             retBuffAddr->gtFlags |= GTF_DONT_CSE;

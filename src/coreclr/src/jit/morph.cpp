@@ -15234,7 +15234,7 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         // If the return buffer address is being returned then we don't have a merged return
         // temp because the address is just a LCL_VAR. Otherwise this has to be a VOID RETURN.
 
-        if (!compMethodReturnsRetBufAddr())
+        if (info.compRetBuffArg == BAD_VAR_NUM)
         {
             noway_assert(ret->TypeIs(TYP_VOID));
             noway_assert(ret->AsUnOp()->gtOp1 == nullptr);

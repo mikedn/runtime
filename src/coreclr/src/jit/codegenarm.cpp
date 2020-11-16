@@ -1599,7 +1599,7 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
         {
             attr = emitActualTypeSize(compiler->info.compRetNativeType);
         }
-        else if (compiler->compMethodReturnsRetBufAddr())
+        else if ((compiler->info.compRetBuffArg != BAD_VAR_NUM) && (compiler->info.retDesc.GetRegCount() != 0))
         {
             attr = EA_BYREF;
         }
