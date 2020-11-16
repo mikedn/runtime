@@ -3586,7 +3586,7 @@ private:
     void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
     void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
     bool impInlineReturnInstruction();
-    bool impReturnInstruction(int prefixFlags, OPCODE* opcode);
+    void impReturnInstruction(int prefixFlags, OPCODE* opcode);
 
 #ifdef TARGET_ARM
     void impMarkLclDstNotPromotable(unsigned tmpNum, GenTree* op, CORINFO_CLASS_HANDLE hClass);

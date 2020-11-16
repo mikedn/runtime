@@ -10388,7 +10388,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_RET:
                 prefixFlags &= ~PREFIX_TAILCALL; // ret without call before it
-            RET:
+
                 if (compIsForInlining())
                 {
                     if (!impInlineReturnInstruction())
@@ -12390,20 +12390,22 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 callTyp = impImportCall(opcode, &resolvedToken, constraintCall ? &constrainedResolvedToken : nullptr,
                                         newObjThisPtr, prefixFlags, &callInfo, opcodeOffs);
+
                 if (compDonotInline())
                 {
                     // We do not check fails after lvaGrabTemp. It is covered with CoreCLR_13272 issue.
                     assert((callTyp == TYP_UNDEF) ||
                            (compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
+
                     return;
                 }
 
-                if (explicitTailCall || newBBcreatedForTailcallStress) // If newBBcreatedForTailcallStress is true, we
-                                                                       // have created a new BB after the "call"
-                // instruction in fgMakeBasicBlocks(). So we need to jump to RET regardless.
+                if (explicitTailCall || newBBcreatedForTailcallStress)
                 {
-                    assert(!compIsForInlining());
-                    goto RET;
+                    // If newBBcreatedForTailcallStress is true, we have created a new BB after the "call"
+                    // instruction in fgMakeBasicBlocks(). So we need to jump to RET regardless.
+
+                    impReturnInstruction(prefixFlags, &opcode);
                 }
 
                 break;
@@ -14295,428 +14297,397 @@ bool Compiler::impInlineReturnInstruction()
     }
 #endif // DEBUG
 
-    GenTree*             op2       = nullptr;
-    GenTree*             op1       = nullptr;
-    CORINFO_CLASS_HANDLE retClsHnd = nullptr;
-
-    if (info.compRetType != TYP_VOID)
+    if (info.compRetType == TYP_VOID)
     {
-        StackEntry se = impPopStack();
-        retClsHnd     = se.seTypeInfo.GetClassHandle();
-        op2           = se.val;
+        return true;
+    }
 
+    StackEntry           se        = impPopStack();
+    CORINFO_CLASS_HANDLE retClsHnd = se.seTypeInfo.GetClassHandle();
+    GenTree*             op2       = se.val;
+
+    // inlinee's stack should be empty now.
+    assert(verCurrentState.esStackDepth == 0);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("\n\n    Inlinee Return expression (before normalization)  =>\n");
+        gtDispTree(op2);
+    }
+#endif
+
+    // Make sure the type matches the original call.
+
+    var_types returnType       = genActualType(op2->gtType);
+    var_types originalCallType = impInlineInfo->inlineCandidateInfo->fncRetType;
+    if ((returnType != originalCallType) && (originalCallType == TYP_STRUCT))
+    {
+        originalCallType = impNormStructType(impInlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass);
+    }
+
+    if (returnType != originalCallType)
+    {
+        // Allow TYP_BYREF to be returned as TYP_I_IMPL and vice versa
+        if (((returnType == TYP_BYREF) && (originalCallType == TYP_I_IMPL)) ||
+            ((returnType == TYP_I_IMPL) && (originalCallType == TYP_BYREF)))
         {
-            // inlinee's stack should be empty now.
-            assert(verCurrentState.esStackDepth == 0);
+            JITDUMP("Allowing return type mismatch: have %s, needed %s\n", varTypeName(returnType),
+                    varTypeName(originalCallType));
+        }
+        else
+        {
+            JITDUMP("Return type mismatch: have %s, needed %s\n", varTypeName(returnType),
+                    varTypeName(originalCallType));
+            compInlineResult->NoteFatal(InlineObservation::CALLSITE_RETURN_TYPE_MISMATCH);
+            return false;
+        }
+    }
+
+    // Below, we are going to set impInlineInfo->retExpr to the tree with the return
+    // expression. At this point, retExpr could already be set if there are multiple
+    // return blocks (meaning fgNeedReturnSpillTemp() == true) and one of
+    // the other blocks already set it. If there is only a single return block,
+    // retExpr shouldn't be set. However, this is not true if we reimport a block
+    // with a return. In that case, retExpr will be set, then the block will be
+    // reimported, but retExpr won't get cleared as part of setting the block to
+    // be reimported. The reimported retExpr value should be the same, so even if
+    // we don't unconditionally overwrite it, it shouldn't matter.
+    if (info.compRetNativeType != TYP_STRUCT)
+    {
+        // compRetNativeType is not TYP_STRUCT.
+        // This implies it could be either a scalar type or SIMD vector type or
+        // a struct type that can be normalized to a scalar type.
+
+        if (varTypeIsStruct(info.compRetType))
+        {
+            noway_assert(info.compRetBuffArg == BAD_VAR_NUM);
+            // adjust the type away from struct to integral
+            // and no normalizing
+            op2 = impFixupStructReturnType(op2, retClsHnd);
+        }
+        else
+        {
+            // Do we have to normalize?
+            var_types fncRealRetType = JITtype2varType(info.compMethodInfo->args.retType);
+            if ((varTypeIsSmall(op2->TypeGet()) || varTypeIsSmall(fncRealRetType)) && fgCastNeeded(op2, fncRealRetType))
+            {
+                // Small-typed return values are normalized by the callee
+                op2 = gtNewCastNode(TYP_INT, op2, false, fncRealRetType);
+            }
+        }
+
+        if (fgNeedReturnSpillTemp())
+        {
+            assert(info.compRetNativeType != TYP_VOID &&
+                   (fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals()));
+
+            // If this method returns a ref type, track the actual types seen
+            // in the returns.
+            if (info.compRetType == TYP_REF)
+            {
+                bool                 isExact      = false;
+                bool                 isNonNull    = false;
+                CORINFO_CLASS_HANDLE returnClsHnd = gtGetClassHandle(op2, &isExact, &isNonNull);
+
+                if (impInlineInfo->retExpr == nullptr)
+                {
+                    // This is the first return, so best known type is the type
+                    // of this return value.
+                    impInlineInfo->retExprClassHnd        = returnClsHnd;
+                    impInlineInfo->retExprClassHndIsExact = isExact;
+                }
+                else if (impInlineInfo->retExprClassHnd != returnClsHnd)
+                {
+                    // This return site type differs from earlier seen sites,
+                    // so reset the info and we'll fall back to using the method's
+                    // declared return type for the return spill temp.
+                    impInlineInfo->retExprClassHnd        = nullptr;
+                    impInlineInfo->retExprClassHndIsExact = false;
+                }
+            }
+
+            impAssignTempGen(lvaInlineeReturnSpillTemp, op2, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
+            op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
 
 #ifdef DEBUG
-            if (verbose)
+            if (impInlineInfo->retExpr)
             {
-                printf("\n\n    Inlinee Return expression (before normalization)  =>\n");
-                gtDispTree(op2);
+                // Some other block(s) have seen the CEE_RET first.
+                // Better they spilled to the same temp.
+                assert(impInlineInfo->retExpr->gtOper == GT_LCL_VAR);
+                assert(impInlineInfo->retExpr->AsLclVarCommon()->GetLclNum() == op2->AsLclVarCommon()->GetLclNum());
             }
 #endif
+        }
 
-            // Make sure the type matches the original call.
-
-            var_types returnType       = genActualType(op2->gtType);
-            var_types originalCallType = impInlineInfo->inlineCandidateInfo->fncRetType;
-            if ((returnType != originalCallType) && (originalCallType == TYP_STRUCT))
+        // If we are inlining a method that returns a struct byref, check whether we are "reinterpreting" the
+        // struct.
+        GenTree* effectiveRetVal = op2->gtEffectiveVal();
+        if ((returnType == TYP_BYREF) && (info.compRetType == TYP_BYREF) && (effectiveRetVal->OperGet() == GT_ADDR))
+        {
+            GenTree* addrChild = effectiveRetVal->gtGetOp1();
+            if (addrChild->OperGet() == GT_LCL_VAR)
             {
-                originalCallType = impNormStructType(impInlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass);
-            }
+                LclVarDsc* varDsc = lvaGetDesc(addrChild->AsLclVarCommon());
 
-            if (returnType != originalCallType)
-            {
-                // Allow TYP_BYREF to be returned as TYP_I_IMPL and vice versa
-                if (((returnType == TYP_BYREF) && (originalCallType == TYP_I_IMPL)) ||
-                    ((returnType == TYP_I_IMPL) && (originalCallType == TYP_BYREF)))
+                if (varTypeIsStruct(addrChild->TypeGet()) && !isOpaqueSIMDLclVar(varDsc))
                 {
-                    JITDUMP("Allowing return type mismatch: have %s, needed %s\n", varTypeName(returnType),
-                            varTypeName(originalCallType));
-                }
-                else
-                {
-                    JITDUMP("Return type mismatch: have %s, needed %s\n", varTypeName(returnType),
-                            varTypeName(originalCallType));
-                    compInlineResult->NoteFatal(InlineObservation::CALLSITE_RETURN_TYPE_MISMATCH);
-                    return false;
-                }
-            }
-
-            // Below, we are going to set impInlineInfo->retExpr to the tree with the return
-            // expression. At this point, retExpr could already be set if there are multiple
-            // return blocks (meaning fgNeedReturnSpillTemp() == true) and one of
-            // the other blocks already set it. If there is only a single return block,
-            // retExpr shouldn't be set. However, this is not true if we reimport a block
-            // with a return. In that case, retExpr will be set, then the block will be
-            // reimported, but retExpr won't get cleared as part of setting the block to
-            // be reimported. The reimported retExpr value should be the same, so even if
-            // we don't unconditionally overwrite it, it shouldn't matter.
-            if (info.compRetNativeType != TYP_STRUCT)
-            {
-                // compRetNativeType is not TYP_STRUCT.
-                // This implies it could be either a scalar type or SIMD vector type or
-                // a struct type that can be normalized to a scalar type.
-
-                if (varTypeIsStruct(info.compRetType))
-                {
-                    noway_assert(info.compRetBuffArg == BAD_VAR_NUM);
-                    // adjust the type away from struct to integral
-                    // and no normalizing
-                    op2 = impFixupStructReturnType(op2, retClsHnd);
-                }
-                else
-                {
-                    // Do we have to normalize?
-                    var_types fncRealRetType = JITtype2varType(info.compMethodInfo->args.retType);
-                    if ((varTypeIsSmall(op2->TypeGet()) || varTypeIsSmall(fncRealRetType)) &&
-                        fgCastNeeded(op2, fncRealRetType))
+                    CORINFO_CLASS_HANDLE referentClassHandle;
+                    CorInfoType          referentType =
+                        info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &referentClassHandle);
+                    if (varTypeIsStruct(JITtype2varType(referentType)) &&
+                        (varDsc->GetLayout()->GetClassHandle() != referentClassHandle))
                     {
-                        // Small-typed return values are normalized by the callee
-                        op2 = gtNewCastNode(TYP_INT, op2, false, fncRealRetType);
+                        // We are returning a byref to struct1; the method signature specifies return type as
+                        // byref
+                        // to struct2. struct1 and struct2 are different so we are "reinterpreting" the struct.
+                        // This may happen in, for example, System.Runtime.CompilerServices.Unsafe.As<TFrom,
+                        // TTo>.
+                        // We need to mark the source struct variable as having overlapping fields because its
+                        // fields may be accessed using field handles of a different type, which may confuse
+                        // optimizations, in particular, value numbering.
+
+                        JITDUMP("\nSetting lvOverlappingFields to true on V%02u because of struct "
+                                "reinterpretation\n",
+                                addrChild->AsLclVarCommon()->GetLclNum());
+
+                        varDsc->lvOverlappingFields = true;
                     }
                 }
-
-                if (fgNeedReturnSpillTemp())
-                {
-                    assert(info.compRetNativeType != TYP_VOID &&
-                           (fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals()));
-
-                    // If this method returns a ref type, track the actual types seen
-                    // in the returns.
-                    if (info.compRetType == TYP_REF)
-                    {
-                        bool                 isExact      = false;
-                        bool                 isNonNull    = false;
-                        CORINFO_CLASS_HANDLE returnClsHnd = gtGetClassHandle(op2, &isExact, &isNonNull);
-
-                        if (impInlineInfo->retExpr == nullptr)
-                        {
-                            // This is the first return, so best known type is the type
-                            // of this return value.
-                            impInlineInfo->retExprClassHnd        = returnClsHnd;
-                            impInlineInfo->retExprClassHndIsExact = isExact;
-                        }
-                        else if (impInlineInfo->retExprClassHnd != returnClsHnd)
-                        {
-                            // This return site type differs from earlier seen sites,
-                            // so reset the info and we'll fall back to using the method's
-                            // declared return type for the return spill temp.
-                            impInlineInfo->retExprClassHnd        = nullptr;
-                            impInlineInfo->retExprClassHndIsExact = false;
-                        }
-                    }                    
-
-                    impAssignTempGen(lvaInlineeReturnSpillTemp, op2, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
-                    op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
+            }
+        }
 
 #ifdef DEBUG
-                    if (impInlineInfo->retExpr)
-                    {
-                        // Some other block(s) have seen the CEE_RET first.
-                        // Better they spilled to the same temp.
-                        assert(impInlineInfo->retExpr->gtOper == GT_LCL_VAR);
-                        assert(impInlineInfo->retExpr->AsLclVarCommon()->GetLclNum() ==
-                               op2->AsLclVarCommon()->GetLclNum());
-                    }
-#endif
-                }
-
-                // If we are inlining a method that returns a struct byref, check whether we are "reinterpreting" the
-                // struct.
-                GenTree* effectiveRetVal = op2->gtEffectiveVal();
-                if ((returnType == TYP_BYREF) && (info.compRetType == TYP_BYREF) &&
-                    (effectiveRetVal->OperGet() == GT_ADDR))
-                {
-                    GenTree* addrChild = effectiveRetVal->gtGetOp1();
-                    if (addrChild->OperGet() == GT_LCL_VAR)
-                    {
-                        LclVarDsc* varDsc = lvaGetDesc(addrChild->AsLclVarCommon());
-
-                        if (varTypeIsStruct(addrChild->TypeGet()) && !isOpaqueSIMDLclVar(varDsc))
-                        {
-                            CORINFO_CLASS_HANDLE referentClassHandle;
-                            CorInfoType          referentType =
-                                info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass,
-                                                               &referentClassHandle);
-                            if (varTypeIsStruct(JITtype2varType(referentType)) &&
-                                (varDsc->GetLayout()->GetClassHandle() != referentClassHandle))
-                            {
-                                // We are returning a byref to struct1; the method signature specifies return type as
-                                // byref
-                                // to struct2. struct1 and struct2 are different so we are "reinterpreting" the struct.
-                                // This may happen in, for example, System.Runtime.CompilerServices.Unsafe.As<TFrom,
-                                // TTo>.
-                                // We need to mark the source struct variable as having overlapping fields because its
-                                // fields may be accessed using field handles of a different type, which may confuse
-                                // optimizations, in particular, value numbering.
-
-                                JITDUMP("\nSetting lvOverlappingFields to true on V%02u because of struct "
-                                        "reinterpretation\n",
-                                        addrChild->AsLclVarCommon()->GetLclNum());
-
-                                varDsc->lvOverlappingFields = true;
-                            }
-                        }
-                    }
-                }
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\n\n    Inlinee Return expression (after normalization) =>\n");
-                    gtDispTree(op2);
-                }
+        if (verbose)
+        {
+            printf("\n\n    Inlinee Return expression (after normalization) =>\n");
+            gtDispTree(op2);
+        }
 #endif
 
-                // Report the return expression
-                impInlineInfo->retExpr = op2;
-            }
-            else
-            {
-                // compRetNativeType is TYP_STRUCT.
-                // This implies that struct return via RetBuf arg or multi-reg struct return
+        // Report the return expression
+        impInlineInfo->retExpr = op2;
+    }
+    else
+    {
+        // compRetNativeType is TYP_STRUCT.
+        // This implies that struct return via RetBuf arg or multi-reg struct return
 
-                GenTreeCall* iciCall = impInlineInfo->iciCall->AsCall();
+        GenTreeCall* iciCall = impInlineInfo->iciCall->AsCall();
 
-                // Assign the inlinee return into a spill temp.
-                // spill temp only exists if there are multiple return points
-                if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
-                {
-                    // in this case we have to insert multiple struct copies to the temp
-                    // and the retexpr is just the temp.
-                    assert(info.compRetNativeType != TYP_VOID);
-                    assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
+        // Assign the inlinee return into a spill temp.
+        // spill temp only exists if there are multiple return points
+        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+        {
+            // in this case we have to insert multiple struct copies to the temp
+            // and the retexpr is just the temp.
+            assert(info.compRetNativeType != TYP_VOID);
+            assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
 
-                    impAssignTempGen(lvaInlineeReturnSpillTemp, op2, se.seTypeInfo.GetClassHandle(),
-                                     (unsigned)CHECK_SPILL_ALL);
-                }
+            impAssignTempGen(lvaInlineeReturnSpillTemp, op2, se.seTypeInfo.GetClassHandle(), (unsigned)CHECK_SPILL_ALL);
+        }
 
 #if defined(TARGET_ARM) || defined(UNIX_AMD64_ABI)
 #if defined(TARGET_ARM)
-                // TODO-ARM64-NYI: HFA
-                // TODO-AMD64-Unix and TODO-ARM once the ARM64 functionality is implemented the
-                // next ifdefs could be refactored in a single method with the ifdef inside.
-                if (IsHfa(retClsHnd))
-                {
+        // TODO-ARM64-NYI: HFA
+        // TODO-AMD64-Unix and TODO-ARM once the ARM64 functionality is implemented the
+        // next ifdefs could be refactored in a single method with the ifdef inside.
+        if (IsHfa(retClsHnd))
+        {
 // Same as !IsHfa but just don't bother with impAssignStructPtr.
 #else  // defined(UNIX_AMD64_ABI)
-                ReturnTypeDesc retTypeDesc;
-                retTypeDesc.InitializeStruct(this, retClsHnd);
-                unsigned retRegCount = retTypeDesc.GetRegCount();
+        ReturnTypeDesc retTypeDesc;
+        retTypeDesc.InitializeStruct(this, retClsHnd);
+        unsigned retRegCount = retTypeDesc.GetRegCount();
 
-                if (retRegCount != 0)
-                {
-                    // If single eightbyte, the return type would have been normalized and there won't be a temp var.
-                    // This code will be called only if the struct return has not been normalized (i.e. 2 eightbytes -
-                    // max allowed.)
-                    assert(retRegCount == MAX_RET_REG_COUNT);
-                    // Same as !structDesc.passedInRegisters but just don't bother with impAssignStructPtr.
-                    CLANG_FORMAT_COMMENT_ANCHOR;
+        if (retRegCount != 0)
+        {
+            // If single eightbyte, the return type would have been normalized and there won't be a temp var.
+            // This code will be called only if the struct return has not been normalized (i.e. 2 eightbytes -
+            // max allowed.)
+            assert(retRegCount == MAX_RET_REG_COUNT);
+            // Same as !structDesc.passedInRegisters but just don't bother with impAssignStructPtr.
+            CLANG_FORMAT_COMMENT_ANCHOR;
 #endif // defined(UNIX_AMD64_ABI)
 
-                    if (fgNeedReturnSpillTemp())
-                    {
-                        if (!impInlineInfo->retExpr)
-                        {
+            if (fgNeedReturnSpillTemp())
+            {
+                if (!impInlineInfo->retExpr)
+                {
 #if defined(TARGET_ARM)
-                            impInlineInfo->retExpr = gtNewLclvNode(lvaInlineeReturnSpillTemp, info.compRetType);
+                    impInlineInfo->retExpr = gtNewLclvNode(lvaInlineeReturnSpillTemp, info.compRetType);
 #else  // defined(UNIX_AMD64_ABI)
-                            // The inlinee compiler has figured out the type of the temp already. Use it here.
-                            impInlineInfo->retExpr =
-                                gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaTable[lvaInlineeReturnSpillTemp].lvType);
+                    // The inlinee compiler has figured out the type of the temp already. Use it here.
+                    impInlineInfo->retExpr =
+                        gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaTable[lvaInlineeReturnSpillTemp].lvType);
 #endif // defined(UNIX_AMD64_ABI)
-                        }
-                    }
-                    else
-                    {
-                        impInlineInfo->retExpr = op2;
-                    }
-                }
-                else
-#elif defined(TARGET_ARM64)
-                ReturnTypeDesc retTypeDesc;
-                retTypeDesc.InitializeStruct(this, retClsHnd);
-                unsigned retRegCount = retTypeDesc.GetRegCount();
-
-                if (retRegCount != 0)
-                {
-                    assert(!iciCall->HasRetBufArg());
-                    assert(retRegCount >= 2);
-                    if (fgNeedReturnSpillTemp())
-                    {
-                        if (!impInlineInfo->retExpr)
-                        {
-                            // The inlinee compiler has figured out the type of the temp already. Use it here.
-                            impInlineInfo->retExpr =
-                                gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaTable[lvaInlineeReturnSpillTemp].lvType);
-                        }
-                    }
-                    else
-                    {
-                        impInlineInfo->retExpr = op2;
-                    }
-                }
-                else
-#endif // defined(TARGET_ARM64)
-                {
-                    assert(iciCall->HasRetBufArg());
-                    GenTree* dest = gtCloneExpr(iciCall->gtCallArgs->GetNode());
-                    // spill temp only exists if there are multiple return points
-                    if (fgNeedReturnSpillTemp())
-                    {
-                        // if this is the first return we have seen set the retExpr
-                        if (!impInlineInfo->retExpr)
-                        {
-                            impInlineInfo->retExpr =
-                                impAssignStructPtr(dest, gtNewLclvNode(lvaInlineeReturnSpillTemp, info.compRetType),
-                                                   retClsHnd, (unsigned)CHECK_SPILL_ALL);
-                        }
-                    }
-                    else
-                    {
-                        impInlineInfo->retExpr = impAssignStructPtr(dest, op2, retClsHnd, (unsigned)CHECK_SPILL_ALL);
-                    }
                 }
             }
-
-            if (impInlineInfo->retExpr != nullptr)
+            else
             {
-                impInlineInfo->retBB = compCurBB;
+                impInlineInfo->retExpr = op2;
             }
         }
+        else
+#elif defined(TARGET_ARM64)
+        ReturnTypeDesc retTypeDesc;
+        retTypeDesc.InitializeStruct(this, retClsHnd);
+        unsigned retRegCount = retTypeDesc.GetRegCount();
+
+        if (retRegCount != 0)
+        {
+            assert(!iciCall->HasRetBufArg());
+            assert(retRegCount >= 2);
+            if (fgNeedReturnSpillTemp())
+            {
+                if (!impInlineInfo->retExpr)
+                {
+                    // The inlinee compiler has figured out the type of the temp already. Use it here.
+                    impInlineInfo->retExpr =
+                        gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaTable[lvaInlineeReturnSpillTemp].lvType);
+                }
+            }
+            else
+            {
+                impInlineInfo->retExpr = op2;
+            }
+        }
+        else
+#endif // defined(TARGET_ARM64)
+        {
+            assert(iciCall->HasRetBufArg());
+            GenTree* dest = gtCloneExpr(iciCall->gtCallArgs->GetNode());
+            // spill temp only exists if there are multiple return points
+            if (fgNeedReturnSpillTemp())
+            {
+                // if this is the first return we have seen set the retExpr
+                if (!impInlineInfo->retExpr)
+                {
+                    impInlineInfo->retExpr =
+                        impAssignStructPtr(dest, gtNewLclvNode(lvaInlineeReturnSpillTemp, info.compRetType), retClsHnd,
+                                           (unsigned)CHECK_SPILL_ALL);
+                }
+            }
+            else
+            {
+                impInlineInfo->retExpr = impAssignStructPtr(dest, op2, retClsHnd, (unsigned)CHECK_SPILL_ALL);
+            }
+        }
+    }
+
+    if (impInlineInfo->retExpr != nullptr)
+    {
+        impInlineInfo->retBB = compCurBB;
     }
 
     return true;
 }
 
-bool Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
+void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
 {
     assert(!compIsForInlining());
 
-    const bool isTailCall = (prefixFlags & PREFIX_TAILCALL) != 0;
-
-    GenTree*             op2       = nullptr;
-    GenTree*             op1       = nullptr;
-    CORINFO_CLASS_HANDLE retClsHnd = nullptr;
-
-    if (info.compRetType != TYP_VOID)
-    {
-        StackEntry se = impPopStack();
-        retClsHnd     = se.seTypeInfo.GetClassHandle();
-        op2           = se.val;
-
-        {
-            impBashVarAddrsToI(op2);
-            op2 = impImplicitIorI4Cast(op2, info.compRetType);
-            op2 = impImplicitR4orR8Cast(op2, info.compRetType);
-            assertImp((genActualType(op2->TypeGet()) == genActualType(info.compRetType)) ||
-                      ((op2->TypeGet() == TYP_I_IMPL) && (info.compRetType == TYP_BYREF)) ||
-                      ((op2->TypeGet() == TYP_BYREF) && (info.compRetType == TYP_I_IMPL)) ||
-                      (varTypeIsFloating(op2->gtType) && varTypeIsFloating(info.compRetType)) ||
-                      (varTypeIsStruct(op2) && varTypeIsStruct(info.compRetType)));
-
-#ifdef DEBUG
-            if (!isTailCall && opts.compGcChecks && (info.compRetType == TYP_REF))
-            {
-                // DDB 3483  : JIT Stress: early termination of GC ref's life time in exception code path
-                // VSW 440513: Incorrect gcinfo on the return value under COMPlus_JitGCChecks=1 for methods with
-                // one-return BB.
-
-                assert(op2->gtType == TYP_REF);
-
-                // confirm that the argument is a GC pointer (for debugging (GC stress))
-                GenTreeCall::Use* args = gtNewCallArgs(op2);
-                op2                    = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_REF, args);
-
-                if (verbose)
-                {
-                    printf("\ncompGcChecks tree:\n");
-                    gtDispTree(op2);
-                }
-            }
-#endif
-        }
-    }
+    GenTree* ret;
 
     if (info.compRetType == TYP_VOID)
     {
-        // return void
-        op1 = new (this, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
-    }
-    else if (info.compRetBuffArg != BAD_VAR_NUM)
-    {
-        // Assign value to return buff (first param)
-        GenTree* retBuffAddr = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
+        assert(info.retDesc.GetRegCount() == 0);
 
-        op2 = impAssignStructPtr(retBuffAddr, op2, retClsHnd, (unsigned)CHECK_SPILL_ALL);
-        impAppendTree(op2, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
-
-        // There are cases where the address of the implicit RetBuf should be returned explicitly (in RAX).
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if defined(TARGET_AMD64)
-
-        // x64 (System V and Win64) calling convention requires to
-        // return the implicit return buffer explicitly (in RAX).
-        // Change the return type to be BYREF.
-        op1 = gtNewOperNode(GT_RETURN, TYP_BYREF, gtNewLclvNode(info.compRetBuffArg, TYP_BYREF));
-#else  // !defined(TARGET_AMD64)
-        // In case of non-AMD64 targets the profiler hook requires to return the implicit RetBuf explicitly (in RAX).
-        // In such case the return value of the function is changed to BYREF.
-        // If profiler hook is not needed the return type of the function is TYP_VOID.
-        if (compIsProfilerHookNeeded())
-        {
-            op1 = gtNewOperNode(GT_RETURN, TYP_BYREF, gtNewLclvNode(info.compRetBuffArg, TYP_BYREF));
-        }
-        else
-        {
-            // return void
-            op1 = new (this, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
-        }
-#endif // !defined(TARGET_AMD64)
-    }
-    else if (varTypeIsStruct(info.compRetType))
-    {
-#if !FEATURE_MULTIREG_RET
-        // For both ARM architectures the HFA native types are maintained as structs.
-        // Also on System V AMD64 the multireg structs returns are also left as structs.
-        noway_assert(info.compRetNativeType != TYP_STRUCT);
-#endif
-        op2 = impFixupStructReturnType(op2, retClsHnd);
-        // return op2
-        var_types returnType;
-        returnType = info.compRetType;
-
-        op1 = gtNewOperNode(GT_RETURN, genActualType(returnType), op2);
+        ret = new (this, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
     }
     else
     {
-        // return op2
-        op1 = gtNewOperNode(GT_RETURN, genActualType(info.compRetType), op2);
+        StackEntry se    = impPopStack();
+        GenTree*   value = se.val;
+
+        impBashVarAddrsToI(value);
+        value = impImplicitIorI4Cast(value, info.compRetType);
+        value = impImplicitR4orR8Cast(value, info.compRetType);
+
+#ifdef DEBUG
+        {
+            GenTree*  op1     = value;
+            GenTree*  op2     = nullptr;
+            var_types retType = info.compRetType;
+            var_types valType = value->GetType();
+            assertImp((varActualType(valType) == varActualType(retType)) ||
+                      ((valType == TYP_I_IMPL) && (retType == TYP_BYREF)) ||
+                      ((valType == TYP_BYREF) && (retType == TYP_I_IMPL)) ||
+                      (varTypeIsFloating(valType) && varTypeIsFloating(retType)) ||
+                      (varTypeIsStruct(valType) && varTypeIsStruct(retType)));
+        }
+
+        if (((prefixFlags & PREFIX_TAILCALL) == 0) && opts.compGcChecks && (info.compRetType == TYP_REF))
+        {
+            // DDB 3483  : JIT Stress: early termination of GC ref's life time in exception code path
+            // VSW 440513: Incorrect gcinfo on the return value under COMPlus_JitGCChecks=1 for methods with
+            // one-return BB.
+
+            assert(value->TypeIs(TYP_REF));
+
+            // confirm that the argument is a GC pointer (for debugging (GC stress))
+            value = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_REF, gtNewCallArgs(value));
+
+            if (verbose)
+            {
+                printf("\ncompGcChecks tree:\n");
+                gtDispTree(value);
+            }
+        }
+#endif
+
+        if (info.compRetBuffArg != BAD_VAR_NUM)
+        {
+            GenTree* retBuffAddr = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
+            value = impAssignStructPtr(retBuffAddr, value, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
+            impAppendTree(value, CHECK_SPILL_NONE, impCurStmtOffs);
+
+            if (info.retDesc.GetRegCount() == 0)
+            {
+                ret = new (this, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+            }
+            else
+            {
+                // There are cases where the address of the implicit RetBuf should be returned explicitly.
+
+                assert(info.retDesc.GetRegCount() == 1);
+                assert(info.retDesc.GetRegType(0) == TYP_BYREF);
+
+                ret = gtNewOperNode(GT_RETURN, TYP_BYREF, gtNewLclvNode(info.compRetBuffArg, TYP_BYREF));
+            }
+        }
+        else
+        {
+            assert(info.retDesc.GetRegCount() >= 1);
+
+            if (varTypeIsStruct(info.compRetType))
+            {
+                value = impFixupStructReturnType(value, se.seTypeInfo.GetClassHandle());
+            }
+
+            ret = gtNewOperNode(GT_RETURN, varActualType(info.compRetType), value);
+        }
     }
 
     // We must have imported a tailcall and jumped to RET
-    if (isTailCall)
+    if ((prefixFlags & PREFIX_TAILCALL) != 0)
     {
-        assert(verCurrentState.esStackDepth == 0 && impOpcodeIsCallOpcode(*opcode));
+        assert((verCurrentState.esStackDepth == 0) && impOpcodeIsCallOpcode(*opcode));
 
         *opcode = CEE_RET; // To prevent trying to spill if CALL_SITE_BOUNDARIES
 
         // impImportCall() would have already appended TYP_VOID calls
         if (info.compRetType == TYP_VOID)
         {
-            return true;
+            return;
         }
     }
 
-    impAppendTree(op1, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
-#ifdef DEBUG
-    // Remember at which BC offset the tree was finished
-    impNoteLastILoffs();
-#endif
-    return true;
+    impAppendTree(ret, CHECK_SPILL_NONE, impCurStmtOffs);
+
+    // Remember at which IL offset the tree was finished
+    INDEBUG(impNoteLastILoffs();)
 }
 
 void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
