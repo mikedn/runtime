@@ -8048,132 +8048,74 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
     return call;
 }
 
-/*****************************************************************************
-   For struct return values, re-type the operand in the case where the ABI
-   does not use a struct return buffer
-   Note that this method is only call for !TARGET_X86
- */
-
-GenTree* Compiler::impFixupStructReturnType(GenTree* op, CORINFO_CLASS_HANDLE retClsHnd)
+GenTree* Compiler::impFixupStructReturnType(GenTree* value, CORINFO_CLASS_HANDLE retClass)
 {
     assert(varTypeIsStruct(info.compRetType));
     assert(info.compRetBuffArg == BAD_VAR_NUM);
 
-    JITDUMP("\nimpFixupStructReturnType: retyping\n");
-    DISPTREE(op);
+    JITDUMPTREE(value, "\nimpFixupStructReturnType: retyping\n");
 
-#if defined(TARGET_XARCH)
-
-#ifdef UNIX_AMD64_ABI
-    // No VarArgs for CoreCLR on x64 Unix
-    assert(!info.compIsVarArgs);
-
-    // Is method returning a multi-reg struct?
-    if (varTypeIsStruct(info.compRetNativeType) && IsMultiRegReturnedType(retClsHnd))
+    if (info.retDesc.GetRegCount() > 1)
     {
+#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARMARCH)
+        unreached();
+#else
         // In case of multi-reg struct return, we force IR to be one of the following:
-        // GT_RETURN(lclvar) or GT_RETURN(call).  If op is anything other than a
-        // lclvar or call, it is assigned to a temp to create: temp = op and GT_RETURN(tmp).
+        // RETURN(LCL_VAR) or RETURN(CALL). If op is anything other than a LCL_VAR or
+        // a CALL, it is assigned to a temp that is then returned.
 
-        if (op->gtOper == GT_LCL_VAR)
+        if (GenTreeCall* call = value->IsCall())
         {
-            // Make sure that this struct stays in memory and doesn't get promoted.
-            unsigned lclNum                  = op->AsLclVarCommon()->GetLclNum();
-            lvaTable[lclNum].lvIsMultiRegRet = true;
-
-            // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-            op->gtFlags |= GTF_DONT_CSE;
-
-            return op;
-        }
-
-        if (op->gtOper == GT_CALL)
-        {
-            return op;
-        }
-
-        return impAssignMultiRegTypeToVar(op, retClsHnd);
-    }
-#else  // !UNIX_AMD64_ABI
-    assert(info.compRetNativeType != TYP_STRUCT);
-#endif // !UNIX_AMD64_ABI
-
-#elif FEATURE_MULTIREG_RET && defined(TARGET_ARM)
-
-    if (varTypeIsStruct(info.compRetNativeType) && !info.compIsVarArgs && IsHfa(retClsHnd))
-    {
-        if (op->gtOper == GT_LCL_VAR)
-        {
-            // This LCL_VAR is an HFA return value, it stays as a TYP_STRUCT
-            unsigned lclNum = op->AsLclVarCommon()->GetLclNum();
-            // Make sure this struct type stays as struct so that we can return it as an HFA
-            lvaTable[lclNum].lvIsMultiRegRet = true;
-
-            // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-            op->gtFlags |= GTF_DONT_CSE;
-
-            return op;
-        }
-
-        if (op->gtOper == GT_CALL)
-        {
-            if (op->AsCall()->IsVarargs())
+#ifndef TARGET_ARMARCH
+            return value;
+#else
+            if (!call->IsVarargs())
             {
-                // We cannot tail call because control needs to return to fixup the calling
-                // convention for result return.
-                op->AsCall()->gtCallMoreFlags &= ~GTF_CALL_M_TAILCALL;
-                op->AsCall()->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
+                return value;
             }
-            else
+
+            // We cannot tail call because control needs to return to fixup the calling
+            // convention for result return.
+            call->gtCallMoreFlags &= ~GTF_CALL_M_TAILCALL;
+            call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
+#endif
+        }
+
+        LclVarDsc* lcl = nullptr;
+
+        if (value->OperIs(GT_LCL_VAR))
+        {
+            lcl = lvaGetDesc(value->AsLclVar());
+
+            if (lcl->IsImplicitByRefParam())
             {
-                return op;
+                // Implicit byref params will be transformed into indirs so
+                // we need a temp even if now they're LCL_VARs.
+
+                lcl = nullptr;
             }
         }
-        return impAssignMultiRegTypeToVar(op, retClsHnd);
+
+        if (lcl == nullptr)
+        {
+            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
+            impAssignTempGen(tempLclNum, value, retClass, CHECK_SPILL_ALL);
+            lcl = lvaGetDesc(tempLclNum);
+
+            value = gtNewLclvNode(tempLclNum, lcl->GetType());
+        }
+
+        // Make sure that this struct stays in memory and doesn't get promoted.
+        lcl->lvIsMultiRegRet = true;
+
+        // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
+        value->gtFlags |= GTF_DONT_CSE;
+
+        return value;
+#endif
     }
 
-#elif FEATURE_MULTIREG_RET && defined(TARGET_ARM64)
-
-    // Is method returning a multi-reg struct?
-    if (IsMultiRegReturnedType(retClsHnd))
-    {
-        if (op->gtOper == GT_LCL_VAR)
-        {
-            // This LCL_VAR stays as a TYP_STRUCT
-            unsigned lclNum = op->AsLclVarCommon()->GetLclNum();
-
-            if (!lvaIsImplicitByRefLocal(lclNum))
-            {
-                // Make sure this struct type is not struct promoted
-                lvaTable[lclNum].lvIsMultiRegRet = true;
-
-                // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-                op->gtFlags |= GTF_DONT_CSE;
-
-                return op;
-            }
-        }
-
-        if (op->gtOper == GT_CALL)
-        {
-            if (op->AsCall()->IsVarargs())
-            {
-                // We cannot tail call because control needs to return to fixup the calling
-                // convention for result return.
-                op->AsCall()->gtCallMoreFlags &= ~GTF_CALL_M_TAILCALL;
-                op->AsCall()->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
-            }
-            else
-            {
-                return op;
-            }
-        }
-        return impAssignMultiRegTypeToVar(op, retClsHnd);
-    }
-
-#endif //  FEATURE_MULTIREG_RET && FEATURE_HFA
-
-    if (op->IsCall() && op->AsCall()->TreatAsHasRetBufArg(this))
+    if (value->IsCall() && value->AsCall()->TreatAsHasRetBufArg(this))
     {
         // This must be one of those 'special' helpers that don't
         // really have a return buffer, but instead use it as a way
@@ -8185,17 +8127,17 @@ GenTree* Compiler::impFixupStructReturnType(GenTree* op, CORINFO_CLASS_HANDLE re
         // NOTE: this code assumes that since the call directly
         // feeds the return, then the call must be returning the
         // same structure/class/type.
-        //
+
         unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
 
         // No need to spill anything as we're about to return.
-        impAssignTempGen(tmpNum, op, info.compMethodInfo->args.retTypeClass, CHECK_SPILL_NONE);
-        op = gtNewLclvNode(tmpNum, info.compRetType);
+        impAssignTempGen(tmpNum, value, info.compMethodInfo->args.retTypeClass, CHECK_SPILL_NONE);
+        value = gtNewLclvNode(tmpNum, info.compRetType);
 
         JITDUMP("\nimpFixupStructReturnType: created a pseudo-return buffer for a special helper\n");
     }
 
-    return op;
+    return value;
 }
 
 /*****************************************************************************
