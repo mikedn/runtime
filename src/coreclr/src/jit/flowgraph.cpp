@@ -8629,70 +8629,58 @@ private:
 
         GenTree* returnExpr;
 
-        if (returnConst != nullptr)
+        if (comp->info.retDesc.GetRegCount() == 0)
         {
-            returnExpr             = comp->gtNewOperNode(GT_RETURN, returnConst->gtType, returnConst);
+            noway_assert((comp->info.compRetType == TYP_VOID) || varTypeIsStruct(comp->info.compRetType));
+
+            returnExpr = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+
+            comp->genReturnLocal = BAD_VAR_NUM;
+        }
+        else if (returnConst != nullptr)
+        {
+            returnExpr = comp->gtNewOperNode(GT_RETURN, returnConst->GetType(), returnConst);
+
             returnConstants[index] = returnConst->IntegralValue();
         }
-        else if ((comp->info.compRetBuffArg != BAD_VAR_NUM) && (comp->info.retDesc.GetRegCount() != 0))
+        else if (comp->info.compRetBuffArg != BAD_VAR_NUM)
         {
+            assert(comp->info.retDesc.GetRegCount() == 1);
+
             GenTree* retBuffAddr = comp->gtNewLclvNode(comp->info.compRetBuffArg, TYP_BYREF);
             retBuffAddr->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_BYREF, retBuffAddr);
 
             comp->genReturnLocal = BAD_VAR_NUM;
         }
-        else if (comp->compMethodHasRetVal())
+        else
         {
             // There is a return value, so create a temp for it.  Real returns will store the value in there and
             // it'll be reloaded by the single return.
-            unsigned returnLocalNum   = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
-            comp->genReturnLocal      = returnLocalNum;
-            LclVarDsc& returnLocalDsc = comp->lvaTable[returnLocalNum];
+            unsigned   lclNum = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
+            LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
-            if (comp->compMethodReturnsNativeScalarType())
+            if (varTypeIsStruct(comp->info.compRetType))
             {
-                returnLocalDsc.lvType = genActualType(comp->info.compRetType);
-                if (varTypeIsStruct(returnLocalDsc.lvType))
-                {
-                    comp->lvaSetStruct(returnLocalNum, comp->info.compMethodInfo->args.retTypeClass, false);
-                }
-            }
-            else if (comp->compMethodReturnsMultiRegRetType())
-            {
-                returnLocalDsc.lvType = TYP_STRUCT;
-                comp->lvaSetStruct(returnLocalNum, comp->info.compMethodInfo->args.retTypeClass, true);
-                returnLocalDsc.lvIsMultiRegRet = true;
+                comp->lvaSetStruct(lclNum, comp->info.compMethodInfo->args.retTypeClass, false);
+                lcl->lvIsMultiRegRet = (comp->info.retDesc.GetRegCount() > 1);
             }
             else
             {
-                assert(!"unreached");
+                lcl->SetType(varActualType(comp->info.compRetType));
+                comp->compFloatingPointUsed |= varTypeIsFloating(comp->info.compRetType);
             }
 
-            if (varTypeIsFloating(returnLocalDsc.lvType))
-            {
-                comp->compFloatingPointUsed = true;
-            }
-
-#ifdef DEBUG
             // This temporary should not be converted to a double in stress mode,
             // because we introduce assigns to it after the stress conversion
-            returnLocalDsc.lvKeepType = 1;
-#endif
+            INDEBUG(lcl->lvKeepType = 1;)
 
-            GenTree* retTemp = comp->gtNewLclvNode(returnLocalNum, returnLocalDsc.TypeGet());
-
+            GenTree* retTemp = comp->gtNewLclvNode(lclNum, lcl->GetType());
             // make sure copy prop ignores this node (make sure it always does a reload from the temp).
             retTemp->gtFlags |= GTF_DONT_CSE;
-            returnExpr = comp->gtNewOperNode(GT_RETURN, retTemp->gtType, retTemp);
-        }
-        else
-        {
-            // return void
-            noway_assert(comp->info.compRetType == TYP_VOID || varTypeIsStruct(comp->info.compRetType));
-            comp->genReturnLocal = BAD_VAR_NUM;
+            returnExpr = comp->gtNewOperNode(GT_RETURN, lcl->GetType(), retTemp);
 
-            returnExpr = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+            comp->genReturnLocal = lclNum;
         }
 
         // Add 'return' expression to the return block

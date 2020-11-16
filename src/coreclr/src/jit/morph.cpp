@@ -15197,7 +15197,7 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 
     if (genReturnLocal != BAD_VAR_NUM)
     {
-        noway_assert(compMethodHasRetVal());
+        noway_assert(info.retDesc.GetRegCount() != 0);
 
         noway_assert(ret != nullptr);
         noway_assert(ret->OperIs(GT_RETURN));
