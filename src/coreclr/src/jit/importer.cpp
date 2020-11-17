@@ -7779,10 +7779,10 @@ DONE_CALL:
             const bool isInlineCandidate                  = origCall->IsInlineCandidate();
             const bool isGuardedDevirtualizationCandidate = origCall->IsGuardedDevirtualizationCandidate();
 
-            if (varTypeIsStruct(callRetTyp))
+            if (varTypeIsStruct(callRetTyp) && varTypeIsStruct(origCall->GetType()))
             {
                 // Need to treat all "split tree" cases here, not just inline candidates
-                call = impFixupCallStructReturn(call->AsCall(), sig->retTypeClass);
+                call = impFixupCallStructReturn(origCall, sig->retTypeClass);
             }
 
             // TODO: consider handling fatcalli cases this way too...?
@@ -7913,137 +7913,51 @@ bool Compiler::impMethodInfo_hasRetBuffArg(CORINFO_METHOD_INFO* methInfo)
     return false;
 }
 
-//-----------------------------------------------------------------------------------
-//  impFixupCallStructReturn: For a call node that returns a struct type either
-//  adjust the return type to an enregisterable type, or set the flag to indicate
-//  struct return via retbuf arg.
-//
-//  Arguments:
-//    call       -  GT_CALL GenTree node
-//    retClsHnd  -  Class handle of return type of the call
-//
-//  Return Value:
-//    Returns new GenTree node after fixing struct return of call node
-//
-GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HANDLE retClsHnd)
+GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass)
 {
-    if (!varTypeIsStruct(call))
+    assert(varTypeIsStruct(call->GetType()));
+
+    call->gtRetClsHnd = retClass;
+
+#if !FEATURE_MULTIREG_RET
+    structPassingKind retKind;
+    getReturnTypeForStruct(retClass, &retKind);
+
+    if (retKind == SPK_ByReference)
     {
-        return call;
+        call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
     }
-
-    call->gtRetClsHnd = retClsHnd;
-
-#if FEATURE_MULTIREG_RET
-    call->InitializeStructReturnType(this, retClsHnd);
-#endif // FEATURE_MULTIREG_RET
-
-#ifdef UNIX_AMD64_ABI
-
-    // Not allowed for FEATURE_CORCLR which is the only SKU available for System V OSs.
-    assert(!call->IsVarargs() && "varargs not allowed for System V OSs.");
+#else  // FEATURE_MULTIREG_RET
+    call->InitializeStructReturnType(this, retClass);
 
     unsigned retRegCount = call->GetReturnTypeDesc()->GetRegCount();
 
-    if (retRegCount == 1)
+    if ((retRegCount > 1) && !call->CanTailCall() && !call->IsInlineCandidate())
     {
-        return call;
+        // Multireg return calls have limited support in IR - basically they can only
+        // be assigned to locals or "returned" if they're tail calls.
+        // For inline candidate calls this transform is deferred to the inliner.
+
+        unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
+        impAssignTempGen(tempLclNum, call, retClass, CHECK_SPILL_ALL);
+        LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
+
+        GenTree* temp = gtNewLclvNode(tempLclNum, tempLcl->GetType());
+
+        // Make sure that this struct stays in memory and doesn't get promoted.
+        tempLcl->lvIsMultiRegRet = true;
+
+        // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
+        temp->gtFlags |= GTF_DONT_CSE;
+
+        return temp;
     }
 
     if (retRegCount == 0)
     {
-        // struct not returned in registers i.e returned via hiddden retbuf arg.
         call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
-    }
-    else
-    {
-        // must be a struct returned in two registers
-        assert(retRegCount == 2);
-
-        if ((!call->CanTailCall()) && (!call->IsInlineCandidate()))
-        {
-            // Force a call returning multi-reg struct to be always of the IR form
-            //   tmp = call
-            //
-            // No need to assign a multi-reg struct to a local var if:
-            //  - It is a tail call or
-            //  - The call is marked for in-lining later
-            return impAssignMultiRegTypeToVar(call, retClsHnd);
-        }
-    }
-
-#else // not UNIX_AMD64_ABI
-
-    // Check for TYP_STRUCT type that wraps a primitive type
-    // Such structs are returned using a single register
-    // and we change the return type on those calls here.
-    //
-    structPassingKind howToReturnStruct;
-    var_types         returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-
-    if (howToReturnStruct == SPK_ByReference)
-    {
-        assert(returnType == TYP_UNKNOWN);
-        call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
-
-        return call;
-    }
-
-#if FEATURE_MULTIREG_RET
-    unsigned retRegCount = call->GetReturnTypeDesc()->GetRegCount();
-
-    if (retRegCount == 1)
-    {
-        return call;
-    }
-
-    assert(retRegCount != 0);
-    assert(returnType != TYP_UNKNOWN);
-
-    // See if the struct size is smaller than the return
-    // type size...
-    if (howToReturnStruct == SPK_EnclosingType)
-    {
-        // If we know for sure this call will remain a call,
-        // retype and return value via a suitable temp.
-        if ((!call->CanTailCall()) && (!call->IsInlineCandidate()))
-        {
-            call->gtReturnType = returnType;
-            return impAssignSmallStructTypeToVar(call, retClsHnd);
-        }
-    }
-    else
-    {
-        // Return type is same size as struct, so we can
-        // simply retype the call.
-        call->gtReturnType = returnType;
-    }
-
-    // ToDo: Refactor this common code sequence into its own method as it is used 4+ times
-    if ((returnType == TYP_LONG) && (compLongUsed == false))
-    {
-        compLongUsed = true;
-    }
-    else if (((returnType == TYP_FLOAT) || (returnType == TYP_DOUBLE)) && (compFloatingPointUsed == false))
-    {
-        compFloatingPointUsed = true;
-    }
-
-    if (retRegCount >= 2)
-    {
-        if ((!call->CanTailCall()) && (!call->IsInlineCandidate()))
-        {
-            // Force a call returning multi-reg struct to be always of the IR form
-            //   tmp = call
-            //
-            // No need to assign a multi-reg struct to a local var if:
-            //  - It is a tail call or
-            //  - The call is marked for in-lining later
-            return impAssignMultiRegTypeToVar(call, retClsHnd);
-        }
     }
 #endif // FEATURE_MULTIREG_RET
-#endif // !UNIX_AMD64_ABI
 
     return call;
 }
@@ -14165,59 +14079,6 @@ void Compiler::impMarkLclDstNotPromotable(unsigned tmpNum, GenTree* src, CORINFO
     }
 }
 #endif // TARGET_ARM
-
-//------------------------------------------------------------------------
-// impAssignSmallStructTypeToVar: ensure calls that return small structs whose
-//    sizes are not supported integral type sizes return values to temps.
-//
-// Arguments:
-//     op -- call returning a small struct in a register
-//     hClass -- class handle for struct
-//
-// Returns:
-//     Tree with reference to struct local to use as call return value.
-//
-// Remarks:
-//     The call will be spilled into a preceding statement.
-//     Currently handles struct returns for 3, 5, 6, and 7 byte structs.
-
-GenTree* Compiler::impAssignSmallStructTypeToVar(GenTree* op, CORINFO_CLASS_HANDLE hClass)
-{
-    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("Return value temp for small struct return"));
-    impAssignTempGen(tmpNum, op, hClass, (unsigned)CHECK_SPILL_ALL);
-    GenTree* ret = gtNewLclvNode(tmpNum, lvaTable[tmpNum].lvType);
-    return ret;
-}
-
-#if FEATURE_MULTIREG_RET
-//------------------------------------------------------------------------
-// impAssignMultiRegTypeToVar: ensure calls that return structs in multiple
-//    registers return values to suitable temps.
-//
-// Arguments:
-//     op -- call returning a struct in registers
-//     hClass -- class handle for struct
-//
-// Returns:
-//     Tree with reference to struct local to use as call return value.
-
-GenTree* Compiler::impAssignMultiRegTypeToVar(GenTree* op, CORINFO_CLASS_HANDLE hClass)
-{
-    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("Return value temp for multireg return"));
-    impAssignTempGen(tmpNum, op, hClass, (unsigned)CHECK_SPILL_ALL);
-    GenTree* ret = gtNewLclvNode(tmpNum, lvaTable[tmpNum].lvType);
-
-    // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-    ret->gtFlags |= GTF_DONT_CSE;
-
-    assert(IsMultiRegReturnedType(hClass));
-
-    // Mark the var so that fields are not promoted and stay together.
-    lvaTable[tmpNum].lvIsMultiRegRet = true;
-
-    return ret;
-}
-#endif // FEATURE_MULTIREG_RET
 
 //------------------------------------------------------------------------
 // impInlineReturnInstruction: import a return during inlining
