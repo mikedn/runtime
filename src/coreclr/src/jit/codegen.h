@@ -1290,20 +1290,22 @@ protected:
     void genMultiRegStoreToLocal(GenTreeLclVar* lclNode);
 
 #ifdef FEATURE_SIMD
-    void genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc);
+    void genMultiRegSIMDReturn(GenTree* src);
 #endif
-    void genStructReturn(GenTree* treeNode);
+#ifndef WINDOWS_AMD64_ABI
+    void genStructReturn(GenTree* src);
+#endif
 
 #ifndef TARGET_64BIT
-    void genLongReturn(GenTree* treeNode);
+    void genLongReturn(GenTree* src);
 #endif
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
-    void genFloatReturn(GenTreeUnOp* treeNode);
+    void genFloatReturn(GenTree* src);
 #endif
 
     void genRetFilt(GenTree* retfilt);
-    void genReturn(GenTree* treeNode);
+    void genReturn(GenTree* ret);
 
 #ifdef TARGET_ARMARCH
     void genStackPointerConstantAdjustment(ssize_t spDelta);
@@ -1392,8 +1394,6 @@ public:
 
     void inst_SA_RV(instruction ins, unsigned ofs, regNumber reg, var_types type);
     void inst_SA_IV(instruction ins, unsigned ofs, int val, var_types type);
-
-    void inst_FS_ST(instruction ins, emitAttr size, TempDsc* tmp, unsigned ofs);
 
     void inst_TT(instruction ins, GenTree* tree, unsigned offs = 0, int shfv = 0, emitAttr size = EA_UNKNOWN);
 

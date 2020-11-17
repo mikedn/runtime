@@ -1331,12 +1331,6 @@ void CodeGen::inst_mov_RV_ST(regNumber reg, GenTree* tree)
         inst_RV_TT(loadIns, reg, tree);
     }
 }
-#ifdef TARGET_XARCH
-void CodeGen::inst_FS_ST(instruction ins, emitAttr size, TempDsc* tmp, unsigned ofs)
-{
-    GetEmitter()->emitIns_S(ins, size, tmp->tdTempNum(), ofs);
-}
-#endif
 
 #ifdef TARGET_ARM
 bool CodeGenInterface::validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags)

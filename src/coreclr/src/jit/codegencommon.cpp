@@ -11075,52 +11075,33 @@ void CodeGen::genRetFilt(GenTree* retfilt)
     }
 }
 
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-//------------------------------------------------------------------------
-// genLongReturn: Generates code for long return statement for x86 and arm.
-//
-// Note: treeNode's and op1's registers are already consumed.
-//
-// Arguments:
-//    treeNode - The GT_RETURN node with LONG return type.
-//
-void CodeGen::genLongReturn(GenTree* treeNode)
+#ifndef TARGET_64BIT
+
+void CodeGen::genLongReturn(GenTree* src)
 {
-    assert(treeNode->OperIs(GT_RETURN));
-    assert(treeNode->TypeIs(TYP_LONG));
+    assert(src->OperIs(GT_LONG));
 
-    GenTree*  op1        = treeNode->gtGetOp1();
-    var_types targetType = treeNode->TypeGet();
+    regNumber srcReg0 = genConsumeReg(src->AsOp()->GetOp(0));
+    regNumber srcReg1 = genConsumeReg(src->AsOp()->GetOp(1));
 
-    assert(op1 != nullptr);
-    assert(op1->OperGet() == GT_LONG);
-    GenTree* loRetVal = op1->gtGetOp1();
-    GenTree* hiRetVal = op1->gtGetOp2();
-    assert((loRetVal->GetRegNum() != REG_NA) && (hiRetVal->GetRegNum() != REG_NA));
+    assert((srcReg0 != REG_NA) && (srcReg1 != REG_NA));
 
-    genConsumeReg(loRetVal);
-    genConsumeReg(hiRetVal);
-    if (loRetVal->GetRegNum() != REG_LNGRET_LO)
+    if (srcReg0 != REG_LNGRET_LO)
     {
-        inst_RV_RV(ins_Copy(targetType), REG_LNGRET_LO, loRetVal->GetRegNum(), TYP_INT);
+        GetEmitter()->emitIns_R_R(INS_mov, EA_4BYTE, REG_LNGRET_LO, srcReg0);
     }
-    if (hiRetVal->GetRegNum() != REG_LNGRET_HI)
+
+    if (srcReg1 != REG_LNGRET_HI)
     {
-        inst_RV_RV(ins_Copy(targetType), REG_LNGRET_HI, hiRetVal->GetRegNum(), TYP_INT);
+        GetEmitter()->emitIns_R_R(INS_mov, EA_4BYTE, REG_LNGRET_HI, srcReg1);
     }
 }
-#endif // TARGET_X86 || TARGET_ARM
 
-//------------------------------------------------------------------------
-// genReturn: Generates code for return statement.
-//            In case of struct return, delegates to the genStructReturn method.
-//
-// Arguments:
-//    treeNode - The GT_RETURN node.
-//
-void CodeGen::genReturn(GenTree* treeNode)
+#endif // !TARGET_64BIT
+
+void CodeGen::genReturn(GenTree* ret)
 {
-    assert(treeNode->OperIs(GT_RETURN));
+    assert(ret->OperIs(GT_RETURN));
 
     // Normally RETURN nodes appears at the end of RETURN blocks but sometimes the frontend fails
     // to properly cleanup after an unconditional throw and we end up with a THROW block having an
@@ -11130,50 +11111,50 @@ void CodeGen::genReturn(GenTree* treeNode)
     assert(compiler->funCurrentFunc()->funKind == FUNC_ROOT);
 #endif
 
-    var_types targetType = treeNode->TypeGet();
+    var_types retType = ret->GetType();
 
-    if (targetType == TYP_VOID)
+    if (retType == TYP_VOID)
     {
-        assert(treeNode->AsUnOp()->gtOp1 == nullptr);
+        assert(ret->AsUnOp()->gtOp1 == nullptr);
     }
 #ifndef WINDOWS_AMD64_ABI
-    else if (varTypeIsStruct(targetType) && (compiler->info.compRetNativeType == TYP_STRUCT))
+    else if (varTypeIsStruct(retType) && (compiler->info.compRetNativeType == TYP_STRUCT))
     {
-        genStructReturn(treeNode);
+        genStructReturn(ret->AsUnOp()->GetOp(0));
     }
 #endif
 #ifndef TARGET_64BIT
-    else if (targetType == TYP_LONG)
+    else if (retType == TYP_LONG)
     {
-        genLongReturn(treeNode);
+        genLongReturn(ret->AsUnOp()->GetOp(0));
     }
 #endif
 #ifdef TARGET_X86
-    else if (varTypeIsFloating(targetType))
+    else if (varTypeIsFloating(retType))
     {
-        genFloatReturn(treeNode->AsUnOp());
+        genFloatReturn(ret->AsUnOp()->GetOp(0));
     }
 #endif
 #ifdef TARGET_ARM
-    else if (varTypeIsFloating(targetType) && (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
+    else if (varTypeIsFloating(retType) && (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
     {
-        genFloatReturn(treeNode->AsUnOp());
+        genFloatReturn(ret->AsUnOp()->GetOp(0));
     }
 #endif
     else
     {
-        assert(!varTypeIsSmall(targetType) && (targetType != TYP_STRUCT));
+        assert(!varTypeIsSmall(retType) && (retType != TYP_STRUCT));
 
-        GenTree* op1 = treeNode->AsUnOp()->GetOp(0);
-        noway_assert(op1->GetRegNum() != REG_NA);
+        GenTree* src = ret->AsUnOp()->GetOp(0);
 
-        genConsumeReg(op1);
+        regNumber srcReg = genConsumeReg(src);
+        noway_assert(srcReg != REG_NA);
 
-        regNumber retReg = varTypeUsesFloatReg(targetType) ? REG_FLOATRET : REG_INTRET;
-        if (op1->GetRegNum() != retReg)
+        regNumber retReg = varTypeUsesFloatReg(retType) ? REG_FLOATRET : REG_INTRET;
+
+        if (srcReg != retReg)
         {
-            emitAttr attr = emitActualTypeSize(targetType);
-            GetEmitter()->emitIns_R_R(ins_Copy(targetType), attr, retReg, op1->GetRegNum());
+            GetEmitter()->emitIns_R_R(ins_Copy(retType), emitTypeSize(retType), retReg, srcReg);
         }
     }
 
@@ -11229,105 +11210,100 @@ void CodeGen::genReturn(GenTree* treeNode)
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
 }
 
-//------------------------------------------------------------------------
-// genStructReturn: Generates code for returning a struct.
-//
-// Arguments:
-//    treeNode - The GT_RETURN tree node.
-//
-// Assumption:
-//    op1 of GT_RETURN node is either GT_LCL_VAR or multi-reg GT_CALL
-//
-void CodeGen::genStructReturn(GenTree* treeNode)
+#ifndef WINDOWS_AMD64_ABI
+
+void CodeGen::genStructReturn(GenTree* src)
 {
-    assert(treeNode->OperIs(GT_RETURN));
+    genConsumeRegs(src);
 
-    GenTree* op1 = treeNode->gtGetOp1();
-    genConsumeRegs(op1);
-    GenTree* actualOp1 = op1;
-    if (op1->IsCopyOrReload())
-    {
-        actualOp1 = op1->gtGetOp1();
-    }
+    GenTree* actualSrc = !src->IsCopyOrReload() ? src : src->AsUnOp()->GetOp(0);
 
-    ReturnTypeDesc& retTypeDesc = compiler->info.retDesc;
-    LclVarDsc*      varDsc      = nullptr;
-    if (actualOp1->OperIs(GT_LCL_VAR))
-    {
-        varDsc = compiler->lvaGetDesc(actualOp1->AsLclVar()->GetLclNum());
-        assert(varDsc->lvIsMultiRegRet);
-    }
-    else
-    {
-        assert(actualOp1->OperIs(GT_CALL));
-        assert(retTypeDesc.GetRegCount() == actualOp1->AsCall()->GetReturnTypeDesc()->GetRegCount());
-    }
-    unsigned regCount = retTypeDesc.GetRegCount();
-    assert(regCount <= MAX_RET_REG_COUNT);
-
-#if FEATURE_MULTIREG_RET
-    if (genIsRegCandidateLclVar(actualOp1))
+    if (genIsRegCandidateLclVar(actualSrc))
     {
         // Right now the only enregisterable structs supported are SIMD vector types.
-        assert(varTypeIsSIMD(op1));
-        assert(!actualOp1->AsLclVar()->IsMultiReg());
+        assert(varTypeIsSIMD(src->GetType()));
+        assert(!actualSrc->AsLclVar()->IsMultiReg());
+
 #ifdef FEATURE_SIMD
-        genSIMDSplitReturn(op1, &retTypeDesc);
-#endif // FEATURE_SIMD
+        genMultiRegSIMDReturn(src);
+#endif
+
+        return;
     }
-    else if (actualOp1->OperIs(GT_LCL_VAR) && !actualOp1->AsLclVar()->IsMultiReg())
+
+    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+    if (actualSrc->OperIs(GT_LCL_VAR) && !actualSrc->AsLclVar()->IsMultiReg())
     {
-        GenTreeLclVar* lclNode = actualOp1->AsLclVar();
-        LclVarDsc*     varDsc  = compiler->lvaGetDesc(lclNode->GetLclNum());
-        assert(varDsc->lvIsMultiRegRet);
-        int offset = 0;
-        for (unsigned i = 0; i < regCount; ++i)
+        unsigned lclNum = actualSrc->AsLclVar()->GetLclNum();
+
+        assert(compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet);
+
+        for (unsigned i = 0, offset = 0; i < retDesc.GetRegCount(); ++i)
         {
-            var_types type  = retTypeDesc.GetRegType(i);
-            regNumber toReg = retTypeDesc.GetRegNum(i);
-            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), toReg, lclNode->GetLclNum(), offset);
-            offset += genTypeSize(type);
+            var_types retType = retDesc.GetRegType(i);
+            regNumber retReg  = retDesc.GetRegNum(i);
+
+            GetEmitter()->emitIns_R_S(ins_Load(retType), emitTypeSize(retType), retReg, lclNum, offset);
+
+            offset += varTypeSize(retType);
         }
+
+        return;
+    }
+
+    LclVarDsc* lcl = nullptr;
+
+    if (actualSrc->OperIs(GT_LCL_VAR))
+    {
+        lcl = compiler->lvaGetDesc(actualSrc->AsLclVar()->GetLclNum());
+        assert(lcl->lvIsMultiRegRet);
     }
     else
     {
-        for (unsigned i = 0; i < regCount; ++i)
+        assert(actualSrc->AsCall()->GetReturnTypeDesc()->GetRegCount() == retDesc.GetRegCount());
+    }
+
+    for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
+    {
+        var_types retType = retDesc.GetRegType(i);
+        regNumber retReg  = retDesc.GetRegNum(i);
+
+        regNumber srcReg = src->GetRegByIndex(i);
+
+        if ((srcReg == REG_NA) && src->OperIs(GT_COPY))
         {
-            var_types type    = retTypeDesc.GetRegType(i);
-            regNumber toReg   = retTypeDesc.GetRegNum(i);
-            regNumber fromReg = op1->GetRegByIndex(i);
-            if ((fromReg == REG_NA) && op1->OperIs(GT_COPY))
-            {
-                // A copy that doesn't copy this field will have REG_NA.
-                // TODO-Cleanup: It would probably be better to always have a valid reg
-                // on a GT_COPY, unless the operand is actually spilled. Then we wouldn't have
-                // to check for this case (though we'd have to check in the genRegCopy that the
-                // reg is valid).
-                fromReg = actualOp1->GetRegByIndex(i);
-            }
-            if (fromReg == REG_NA)
-            {
-                // This is a spilled field of a multi-reg lclVar.
-                // We currently only mark a lclVar operand as RegOptional, since we don't have a way
-                // to mark a multi-reg tree node as used from spill (GTF_NOREG_AT_USE) on a per-reg basis.
-                assert(varDsc != nullptr);
-                assert(varDsc->lvPromoted);
-                unsigned fieldVarNum = varDsc->lvFieldLclStart + i;
-                assert(compiler->lvaGetDesc(fieldVarNum)->lvOnFrame);
-                GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), toReg, fieldVarNum, 0);
-            }
-            else if (fromReg != toReg)
-            {
-                // Note that ins_Copy(fromReg, type) will return the appropriate register to copy
-                // between register files if needed.
-                inst_RV_RV(ins_Copy(fromReg, type), toReg, fromReg, type);
-            }
+            // A copy that doesn't copy this field will have REG_NA.
+
+            // TODO-Cleanup: It would probably be better to always have a valid reg
+            // on a GT_COPY, unless the operand is actually spilled. Then we wouldn't have
+            // to check for this case (though we'd have to check in the genRegCopy that the
+            // reg is valid).
+
+            srcReg = actualSrc->GetRegByIndex(i);
+        }
+
+        if (srcReg == REG_NA)
+        {
+            // This is a spilled field of a multi-reg lclVar.
+            // We currently only mark a lclVar operand as RegOptional, since we don't have a way
+            // to mark a multi-reg tree node as used from spill (GTF_NOREG_AT_USE) on a per-reg basis.
+
+            unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
+            assert(compiler->lvaGetDesc(fieldLclNum)->lvOnFrame);
+
+            GetEmitter()->emitIns_R_S(ins_Load(retType), emitTypeSize(retType), retReg, fieldLclNum, 0);
+        }
+        else if (srcReg != retReg)
+        {
+            // Note that ins_Copy(fromReg, type) will return the appropriate register to copy
+            // between register files if needed.
+            GetEmitter()->emitIns_R_R(ins_Copy(srcReg, retType), emitActualTypeSize(retType), retReg, srcReg);
         }
     }
-#else // !FEATURE_MULTIREG_RET
-    unreached();
-#endif
 }
+
+#endif // !WINDOWS_AMD64_ABI
 
 //----------------------------------------------------------------------------------
 // genMultiRegStoreToLocal: store multi-reg value to a local

@@ -1081,22 +1081,15 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
 }
 
 #ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// genSIMDSplitReturn: Generates code for returning a fixed-size SIMD type that lives
-//                     in a single register, but is returned in multiple registers.
-//
-// Arguments:
-//    src         - The source of the return
-//    retTypeDesc - The return type descriptor.
-//
-void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
+
+void CodeGen::genMultiRegSIMDReturn(GenTree* src)
 {
-    assert(varTypeIsSIMD(src));
+    assert(varTypeIsSIMD(src->GetType()));
     assert(src->isUsedFromReg());
 
     regNumber srcReg  = src->GetRegNum();
-    regNumber retReg0 = retTypeDesc->GetRegNum(0);
-    regNumber retReg1 = retTypeDesc->GetRegNum(1);
+    regNumber retReg0 = compiler->info.retDesc.GetRegNum(0);
+    regNumber retReg1 = compiler->info.retDesc.GetRegNum(1);
 
     if (retReg0 != srcReg)
     {
@@ -1117,44 +1110,49 @@ void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
         GetEmitter()->emitIns_R_R(INS_unpckhpd, EA_16BYTE, retReg1, retReg1);
     }
 }
+
 #endif // FEATURE_SIMD
 
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
 
-void CodeGen::genFloatReturn(GenTreeUnOp* ret)
+void CodeGen::genFloatReturn(GenTree* src)
 {
-    assert(ret->OperIs(GT_RETURN));
-    assert(varTypeIsFloating(ret->GetType()));
+    assert(varTypeIsFloating(src->GetType()));
 
-    GenTree* op1 = ret->GetOp(0);
-    genConsumeReg(op1);
+    var_types srcType = src->GetType();
+    emitAttr  srcSize = emitTypeSize(srcType);
+    regNumber srcReg  = genConsumeReg(src);
+
     // Spill the return value register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
-    if (genIsRegCandidateLclVar(op1) && compiler->lvaGetDesc(op1->AsLclVar())->lvOnFrame)
+
+    if (genIsRegCandidateLclVar(src) && compiler->lvaGetDesc(src->AsLclVar())->lvOnFrame)
     {
-        if (compiler->lvaGetDesc(op1->AsLclVar())->GetRegNum() != REG_STK)
+        if (compiler->lvaGetDesc(src->AsLclVar())->GetRegNum() != REG_STK)
         {
-            op1->gtFlags |= GTF_SPILL;
-            inst_TT_RV(ins_Store(op1->GetType()), emitTypeSize(op1->TypeGet()), op1, op1->GetRegNum());
+            src->gtFlags |= GTF_SPILL;
+            GetEmitter()->emitIns_S_R(ins_Store(srcType), srcSize, srcReg, src->AsLclVar()->GetLclNum(), 0);
         }
-        // Now, load it to the fp stack.
-        GetEmitter()->emitIns_S(INS_fld, emitTypeSize(op1), op1->AsLclVar()->GetLclNum(), 0);
+
+        GetEmitter()->emitIns_S(INS_fld, srcSize, src->AsLclVar()->GetLclNum(), 0);
     }
     else
     {
         // Spill the value, which should be in a register, then load it to the fp stack.
         // TODO-X86-CQ: Deal with things that are already in memory (don't call genConsumeReg yet).
-        op1->gtFlags |= GTF_SPILL;
-        regSet.rsSpillTree(op1->GetRegNum(), op1);
-        op1->gtFlags |= GTF_SPILLED;
-        op1->gtFlags &= ~GTF_SPILL;
 
-        TempDsc* t = regSet.rsUnspillInPlace(op1, op1->GetRegNum());
-        inst_FS_ST(INS_fld, emitActualTypeSize(op1->gtType), t, 0);
-        op1->gtFlags &= ~GTF_SPILLED;
-        regSet.tmpRlsTemp(t);
+        src->gtFlags |= GTF_SPILL;
+        regSet.rsSpillTree(srcReg, src);
+        src->gtFlags |= GTF_SPILLED;
+        src->gtFlags &= ~GTF_SPILL;
+
+        TempDsc* temp = regSet.rsUnspillInPlace(src, srcReg);
+        GetEmitter()->emitIns_S(INS_fld, srcSize, temp->tdTempNum(), 0);
+        src->gtFlags &= ~GTF_SPILLED;
+        regSet.tmpRlsTemp(temp);
     }
 }
+
 #endif // TARGET_X86
 
 //------------------------------------------------------------------------

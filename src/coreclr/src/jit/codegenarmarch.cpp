@@ -3569,47 +3569,32 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
 }
 
 #ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// genSIMDSplitReturn: Generates code for returning a fixed-size SIMD type that lives
-//                     in a single register, but is returned in multiple registers.
-//
-// Arguments:
-//    src         - The source of the return
-//    retTypeDesc - The return type descriptor.
-//
-void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
+
+void CodeGen::genMultiRegSIMDReturn(GenTree* src)
 {
-    assert(varTypeIsSIMD(src));
+    assert(varTypeIsSIMD(src->GetType()));
     assert(src->isUsedFromReg());
+
     regNumber srcReg = src->GetRegNum();
 
-    // Treat src register as a homogenous vector with element size equal to the reg size
-    // Insert pieces in order
-    for (unsigned i = 0; i < retTypeDesc->GetRegCount(); ++i)
+    for (unsigned i = 0; i < compiler->info.retDesc.GetRegCount(); ++i)
     {
-        var_types type = retTypeDesc->GetRegType(i);
-        regNumber reg  = retTypeDesc->GetRegNum(i);
-        if (varTypeIsFloating(type))
+        var_types retType = compiler->info.retDesc.GetRegType(i);
+        regNumber retReg  = compiler->info.retDesc.GetRegNum(i);
+
+        if (varTypeIsFloating(retType))
         {
-            // If the register piece is to be passed in a floating point register
-            // Use a vector mov element instruction
-            // reg is not a vector, so it is in the first element reg[0]
             // mov reg[0], src[i]
-            // This effectively moves from `src[i]` to `reg[0]`, upper bits of reg remain unchanged
-            // For the case where src == reg, since we are only writing reg[0], as long as we iterate
-            // so that src[0] is consumed before writing reg[0], we do not need a temporary.
-            GetEmitter()->emitIns_R_R_I_I(INS_mov, emitTypeSize(type), reg, srcReg, 0, i);
+            GetEmitter()->emitIns_R_R_I_I(INS_mov, emitTypeSize(retType), retReg, srcReg, 0, i);
         }
         else
         {
-            // If the register piece is to be passed in an integer register
-            // Use a vector mov to general purpose register instruction
             // mov reg, src[i]
-            // This effectively moves from `src[i]` to `reg`
-            GetEmitter()->emitIns_R_R_I(INS_mov, emitTypeSize(type), reg, srcReg, i);
+            GetEmitter()->emitIns_R_R_I(INS_mov, emitTypeSize(retType), retReg, srcReg, i);
         }
     }
 }
+
 #endif // FEATURE_SIMD
 
 #endif // TARGET_ARMARCH
