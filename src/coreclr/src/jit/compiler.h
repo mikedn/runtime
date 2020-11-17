@@ -5035,7 +5035,7 @@ private:
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
-    GenTree* fgMorphRetInd(GenTreeUnOp* tree);
+    GenTree* fgMorphRetInd(GenTreeUnOp* ret);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
 

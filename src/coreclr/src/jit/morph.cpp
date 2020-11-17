@@ -10567,59 +10567,60 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             return fgMorphIntoHelperCall(tree, helper, gtNewCallArgs(op1, op2));
 
         case GT_RETURN:
-            // normalize small integer return values
-            if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && (op1 != nullptr) && (op1->TypeGet() != TYP_VOID) &&
-                fgCastNeeded(op1, info.compRetType))
+            if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && fgCastNeeded(op1, info.compRetType))
             {
-                // Small-typed return values are normalized by the callee
+                // Small-typed return values are extended by the callee.
+
                 op1 = gtNewCastNode(TYP_INT, op1, false, info.compRetType);
-
-                // Propagate GTF_COLON_COND
                 op1->gtFlags |= (tree->gtFlags & GTF_COLON_COND);
+                op1 = fgMorphCast(op1->AsCast());
 
-                tree->AsOp()->gtOp1 = fgMorphCast(op1->AsCast());
-
-                // Propagate side effect flags
+                tree->AsUnOp()->SetOp(0, op1);
                 tree->gtFlags &= ~GTF_ALL_EFFECT;
-                tree->gtFlags |= (tree->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
+                tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
 
                 return tree;
             }
+
             if (!tree->TypeIs(TYP_VOID))
             {
                 if (op1->OperIs(GT_OBJ, GT_IND))
                 {
                     op1 = fgMorphRetInd(tree->AsUnOp());
                 }
+
                 if (op1->OperIs(GT_LCL_VAR))
                 {
-                    // With a `genReturnBB` this `RETURN(src)` tree will be replaced by a `ASG(genReturnLocal, src)`
-                    // and `ASG` will be tranformed into field by field copy without parent local referencing if
-                    // possible.
+                    // With merged returns, RETURN trees are replaced by assignments to the merged return temp.
+                    // Such assignments may be promoted to prevent dependent promotion of involved locals.
+
                     GenTreeLclVar* lclVar = op1->AsLclVar();
                     unsigned       lclNum = lclVar->GetLclNum();
+
                     if ((genReturnLocal == BAD_VAR_NUM) || (genReturnLocal == lclNum))
                     {
-                        LclVarDsc* varDsc = lvaGetDesc(lclVar);
-                        if (varDsc->CanBeReplacedWithItsField(this))
+                        LclVarDsc* lcl = lvaGetDesc(lclVar);
+
+                        if (lcl->CanBeReplacedWithItsField(this))
                         {
                             // We can replace the struct with its only field and allow copy propogation to replace
                             // return value that was written as a field.
-                            unsigned   fieldLclNum = varDsc->lvFieldLclStart;
-                            LclVarDsc* fieldDsc    = lvaGetDesc(fieldLclNum);
+                            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+                            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
 
-                            if (!varTypeIsSmallInt(fieldDsc->lvType))
+                            if (!varTypeIsSmallInt(fieldLcl->GetType()))
                             {
                                 // TODO-CQ: support that substitution for small types without creating `CAST` node.
                                 // When a small struct is returned in a register higher bits could be left in undefined
                                 // state.
+
                                 JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
                                         "V%02u for "
                                         "the return [%06u]\n",
-                                        lclVar->GetLclNum(), fieldLclNum, dspTreeID(tree));
+                                        lclNum, fieldLclNum, dspTreeID(tree));
+
                                 lclVar->SetLclNum(fieldLclNum);
-                                var_types fieldType = fieldDsc->lvType;
-                                lclVar->ChangeType(fieldDsc->lvType);
+                                lclVar->SetType(fieldLcl->GetType());
                             }
                         }
                     }
@@ -12949,71 +12950,80 @@ DONE_MORPHING_CHILDREN:
 GenTree* Compiler::fgMorphRetInd(GenTreeUnOp* ret)
 {
     assert(ret->OperIs(GT_RETURN));
-    assert(ret->gtGetOp1()->OperIs(GT_IND, GT_OBJ));
-    GenTreeIndir* ind  = ret->gtGetOp1()->AsIndir();
-    GenTree*      addr = ind->Addr();
+    assert(ret->GetOp(0)->OperIs(GT_IND, GT_OBJ));
 
-    if (addr->OperIs(GT_ADDR) && addr->gtGetOp1()->OperIs(GT_LCL_VAR))
+    GenTreeIndir* indir = ret->GetOp(0)->AsIndir();
+    GenTree*      addr  = indir->GetAddr();
+
+    if (!addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
     {
-        // If `return` retypes LCL_VAR as a smaller struct it should not set `doNotEnregister` on that
-        // LclVar.
-        // Example: in `Vector128:AsVector2` we have RETURN SIMD8(OBJ SIMD8(ADDR byref(LCL_VAR SIMD16))).
-        GenTreeLclVar* lclVar = addr->gtGetOp1()->AsLclVar();
-        if (!lvaIsImplicitByRefLocal(lclVar->GetLclNum()))
-        {
-            assert(!gtIsActiveCSE_Candidate(addr) && !gtIsActiveCSE_Candidate(ind));
-            unsigned indSize;
-            if (ind->OperIs(GT_IND))
-            {
-                indSize = genTypeSize(ind);
-            }
-            else
-            {
-                indSize = ind->AsBlk()->GetLayout()->GetSize();
-            }
-
-            LclVarDsc* varDsc = lvaGetDesc(lclVar);
-
-            unsigned lclVarSize;
-            if (!lclVar->TypeIs(TYP_STRUCT))
-
-            {
-                lclVarSize = genTypeSize(varDsc->TypeGet());
-            }
-            else
-            {
-                lclVarSize = varDsc->lvExactSize;
-            }
-            // TODO: change conditions in `canFold` to `indSize <= lclVarSize`, but currently do not support `BITCAST
-            // int<-SIMD16` etc.
-            assert((indSize <= lclVarSize) || varDsc->lvDoNotEnregister);
-
-#if defined(TARGET_64BIT)
-            bool canFold = (indSize == lclVarSize);
-#else // !TARGET_64BIT
-            // TODO: improve 32 bit targets handling for LONG returns if necessary, nowadays we do not support `BITCAST
-            // long<->double` there.
-            bool canFold = (indSize == lclVarSize) && (lclVarSize <= REGSIZE_BYTES);
-#endif
-            // TODO: support `genReturnBB != nullptr`, it requires #11413 to avoid `Incompatible types for
-            // gtNewTempAssign`.
-            if (canFold && (genReturnBB == nullptr))
-            {
-                // Fold (TYPE1)*(&(TYPE2)x) even if types do not match, lowering will handle it.
-                // Getting rid of this IND(ADDR()) pair allows to keep lclVar as not address taken
-                // and enregister it.
-                DEBUG_DESTROY_NODE(ind);
-                DEBUG_DESTROY_NODE(addr);
-                ret->gtOp1 = lclVar;
-                return ret->gtGetOp1();
-            }
-            else if (!varDsc->lvDoNotEnregister)
-            {
-                lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
-            }
-        }
+        return indir;
     }
-    return ind;
+
+    assert(!gtIsActiveCSE_Candidate(addr) && !gtIsActiveCSE_Candidate(indir));
+
+    unsigned indirSize;
+
+    if (indir->OperIs(GT_IND))
+    {
+        indirSize = varTypeSize(indir->GetType());
+    }
+    else
+    {
+        indirSize = indir->AsBlk()->GetLayout()->GetSize();
+    }
+
+    GenTreeLclVar* lclVar = addr->AsUnOp()->GetOp(0)->AsLclVar();
+    LclVarDsc*     lcl    = lvaGetDesc(lclVar);
+
+    assert(!lcl->IsImplicitByRefParam());
+
+    unsigned lclSize;
+
+    if (lcl->GetType() != TYP_STRUCT)
+    {
+        lclSize = varTypeSize(lcl->GetType());
+    }
+    else
+    {
+        lclSize = lcl->lvExactSize;
+    }
+
+    // If `return` retypes LCL_VAR as a smaller struct it should not set `doNotEnregister` on that LclVar.
+    // Example: in `Vector128:AsVector2` we have RETURN SIMD8(OBJ SIMD8(ADDR byref(LCL_VAR SIMD16))).
+
+    // TODO: change conditions in `canFold` to `indSize <= lclVarSize`, but currently do not support `BITCAST
+    // int<-SIMD16` etc.
+    assert((indirSize <= lclSize) || lcl->lvDoNotEnregister);
+
+#ifdef TARGET_64BIT
+    bool canFold = (indirSize == lclSize);
+#else
+    // TODO: improve 32 bit targets handling for LONG returns if necessary, nowadays we do not support `BITCAST
+    // long<->double` there.
+    bool canFold = (indirSize == lclSize) && (lclSize <= REGSIZE_BYTES);
+#endif
+
+    // TODO: support `genReturnBB != nullptr`, it requires #11413 to avoid `Incompatible types for
+    // gtNewTempAssign`.
+
+    if (canFold && (genReturnBB == nullptr))
+    {
+        // Fold (TYPE1)*(&(TYPE2)x) even if types do not match, lowering will handle it.
+        // Getting rid of this IND(ADDR()) pair allows to keep lclVar as not address taken
+        // and enregister it.
+
+        ret->SetOp(0, lclVar);
+
+        return lclVar;
+    }
+
+    if (!lcl->lvDoNotEnregister)
+    {
+        lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(DNER_BlockOp));
+    }
+
+    return indir;
 }
 
 #ifdef _PREFAST_
