@@ -1564,9 +1564,9 @@ private:
 #endif
     RefPosition* BuildDef(GenTree* tree, regMaskTP dstCandidates = RBM_NONE, int multiRegIdx = 0);
     void BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates = RBM_NONE);
-    void BuildDefsWithKills(GenTree* tree, int dstCount, regMaskTP dstCandidates, regMaskTP killMask);
+    void BuildKills(GenTree* tree, regMaskTP killMask);
 
-    int BuildReturn(GenTree* tree);
+    int BuildReturn(GenTreeUnOp* ret);
 #ifdef TARGET_XARCH
     // This method, unlike the others, returns the number of sources, since it may be called when
     // 'tree' is contained.

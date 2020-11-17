@@ -357,10 +357,9 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
 
     buildInternalRegisterUses();
+    BuildKills(call, getKillSetForCall(call));
+    BuildDefs(call, dstCount, dstCandidates);
 
-    // Now generate defs and kills.
-    regMaskTP killMask = getKillSetForCall(call);
-    BuildDefsWithKills(call, dstCount, dstCandidates, killMask);
     return srcCount;
 }
 
@@ -613,8 +612,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     }
 
     BuildInternalUses();
-    regMaskTP killMask = getKillSetForStructStore(store);
-    BuildDefsWithKills(store, 0, RBM_NONE, killMask);
+    BuildKills(store, getKillSetForStructStore(store));
 
     return useCount;
 }

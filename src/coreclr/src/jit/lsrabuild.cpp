@@ -1183,8 +1183,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 
     if (compiler->killGCRefs(tree))
     {
-        RefPosition* pos =
-            newRefPosition((Interval*)nullptr, currentLoc, RefTypeKillGCRefs, tree, (allRegs(TYP_REF) & ~RBM_ARG_REGS));
+        newRefPosition(nullptr, currentLoc, RefTypeKillGCRefs, tree, (allRegs(TYP_REF) & ~RBM_ARG_REGS));
         insertedKills = true;
     }
 
@@ -1437,7 +1436,7 @@ Interval* LinearScan::getUpperVectorInterval(unsigned varIndex)
 //    currentLoc - The location of the current node
 //    fpCalleeKillSet - The set of registers killed by this node.
 //
-// Notes: This is called by BuildDefsWithKills for any node that kills registers in the
+// Notes: This is called by BuildKills for any node that kills registers in the
 //        RBM_FLT_CALLEE_TRASH set. We actually need to find any calls that kill the upper-half
 //        of the callee-save vector registers.
 //        But we will use as a proxy any node that kills floating point registers.
@@ -2797,22 +2796,7 @@ void LinearScan::BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates)
     }
 }
 
-//------------------------------------------------------------------------
-// BuildDef: Build one or more RefTypeDef RefPositions for the given node,
-//           as well as kills as specified by the given mask.
-//
-// Arguments:
-//    tree          - The node that defines a register
-//    dstCount      - The number of registers defined by the node
-//    dstCandidates - The candidate registers for the definition
-//    killMask      - The mask of registers killed by this node
-//
-// Notes:
-//    Adds the RefInfo for the definitions to the defList.
-//    The def and kill functionality is folded into a single method so that the
-//    save and restores of upper vector registers can be bracketed around the def.
-//
-void LinearScan::BuildDefsWithKills(GenTree* tree, int dstCount, regMaskTP dstCandidates, regMaskTP killMask)
+void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
 {
     assert(killMask == getKillSetForNode(tree));
 
@@ -2839,9 +2823,6 @@ void LinearScan::BuildDefsWithKills(GenTree* tree, int dstCount, regMaskTP dstCa
         }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     }
-
-    // Now, create the Def(s)
-    BuildDefs(tree, dstCount, dstCandidates);
 }
 
 //------------------------------------------------------------------------
@@ -3399,155 +3380,157 @@ int LinearScan::BuildSimple(GenTree* tree)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildReturn: Set the NodeInfo for a GT_RETURN.
-//
-// Arguments:
-//    tree - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildReturn(GenTree* tree)
+int LinearScan::BuildReturn(GenTreeUnOp* ret)
 {
-    GenTree* op1 = tree->gtGetOp1();
-
-#if !defined(TARGET_64BIT)
-    if (tree->TypeGet() == TYP_LONG)
+    if (ret->TypeIs(TYP_VOID))
     {
-        assert((op1->OperGet() == GT_LONG) && op1->isContained());
-        GenTree* loVal = op1->gtGetOp1();
-        GenTree* hiVal = op1->gtGetOp2();
-        BuildUse(loVal, RBM_LNGRET_LO);
-        BuildUse(hiVal, RBM_LNGRET_HI);
+        return 0;
+    }
+
+    GenTree* src = ret->GetOp(0);
+
+#ifndef TARGET_64BIT
+    if (ret->TypeIs(TYP_LONG))
+    {
+        assert(src->OperIs(GT_LONG) && src->isContained());
+
+        BuildUse(src->AsOp()->GetOp(0), RBM_LNGRET_LO);
+        BuildUse(src->AsOp()->GetOp(1), RBM_LNGRET_HI);
+
         return 2;
     }
-    else
-#endif // !defined(TARGET_64BIT)
-        if ((tree->TypeGet() != TYP_VOID) && !op1->isContained())
+#endif
+
+    if (src->isContained())
     {
-        regMaskTP useCandidates = RBM_NONE;
+        return 0;
+    }
+
+#ifdef TARGET_ARM64
+    if (varTypeIsSIMD(ret->GetType()) && !src->IsMultiRegLclVar())
+    {
+        regMaskTP useCandidates = allSIMDRegs();
+
+        if (src->OperIs(GT_LCL_VAR))
+        {
+            assert(!src->TypeIs(TYP_SIMD32));
+            useCandidates = RBM_V0;
+        }
+
+        BuildUse(src, useCandidates);
+
+        return 1;
+    }
+#endif
 
 #if FEATURE_MULTIREG_RET
-#ifdef TARGET_ARM64
-        if (varTypeIsSIMD(tree) && !op1->IsMultiRegLclVar())
+    if (varTypeIsStruct(ret->GetType()))
+    {
+        if (src->OperIs(GT_LCL_VAR) && !src->IsMultiRegLclVar())
         {
-            useCandidates = allSIMDRegs();
-            if (op1->OperGet() == GT_LCL_VAR)
-            {
-                assert(op1->TypeGet() != TYP_SIMD32);
-                useCandidates = RBM_DOUBLERET;
-            }
-            BuildUse(op1, useCandidates);
+            BuildUse(src);
+
             return 1;
         }
-#endif // TARGET_ARM64
 
-        if (varTypeIsStruct(tree))
+        const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+        if (GenTreeCall* call = src->IsCall())
         {
-            // op1 has to be either a lclvar or a multi-reg returning call
-            if ((op1->OperGet() == GT_LCL_VAR) && !op1->IsMultiRegLclVar())
+            noway_assert(call->IsMultiRegCall());
+
+            const ReturnTypeDesc* callRetDesc = call->GetReturnTypeDesc();
+            assert(retDesc.GetRegCount() == callRetDesc->GetRegCount());
+
+            for (unsigned i = 0; i < retDesc.GetRegCount(); i++)
             {
-                BuildUse(op1, useCandidates);
-                return 1;
-            }
-            else
-            {
-                noway_assert(op1->IsMultiRegCall() || op1->IsMultiRegLclVar());
+                assert(varTypeUsesFloatReg(retDesc.GetRegType(i)) == varTypeUsesFloatReg(callRetDesc->GetRegType(i)));
 
-                const ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-                if (op1->OperIs(GT_CALL))
-                {
-                    assert(retDesc.GetRegCount() == op1->AsCall()->GetReturnTypeDesc()->GetRegCount());
-                }
-                else
-                {
-                    assert(compiler->lvaEnregMultiRegVars);
-                    assert(compiler->lvaGetDesc(op1->AsLclVar()->GetLclNum())->lvFieldCnt == retDesc.GetRegCount());
-                }
-
-                int srcCount = static_cast<int>(retDesc.GetRegCount());
-
-                // For any source that's coming from a different register file, we need to ensure that
-                // we reserve the specific ABI register we need.
-                bool hasMismatchedRegTypes = false;
-
-                if (op1->IsMultiRegLclVar())
-                {
-                    for (int i = 0; i < srcCount; i++)
-                    {
-                        RegisterType srcType = regType(op1->AsLclVar()->GetFieldTypeByIndex(compiler, i));
-                        RegisterType dstType = regType(retDesc.GetRegType(i));
-                        if (srcType != dstType)
-                        {
-                            hasMismatchedRegTypes = true;
-                            regMaskTP dstRegMask  = genRegMask(retDesc.GetRegNum(i));
-                            if (varTypeUsesFloatReg(dstType))
-                            {
-                                buildInternalFloatRegisterDefForNode(tree, dstRegMask);
-                            }
-                            else
-                            {
-                                buildInternalIntRegisterDefForNode(tree, dstRegMask);
-                            }
-                        }
-                    }
-                }
-
-                for (int i = 0; i < srcCount; i++)
-                {
-                    // We will build uses of the type of the operand registers/fields, and the codegen
-                    // for return will move as needed.
-                    if (!hasMismatchedRegTypes ||
-                        (regType(op1->AsLclVar()->GetFieldTypeByIndex(compiler, i)) == regType(retDesc.GetRegType(i))))
-                    {
-                        BuildUse(op1, genRegMask(retDesc.GetRegNum(i)), i);
-                    }
-                    else
-                    {
-                        BuildUse(op1, RBM_NONE, i);
-                    }
-                }
-
-                if (hasMismatchedRegTypes)
-                {
-                    buildInternalRegisterUses();
-                }
-
-                return srcCount;
+                BuildUse(src, genRegMask(retDesc.GetRegNum(i)), i);
             }
         }
         else
-#endif // FEATURE_MULTIREG_RET
         {
-            // Non-struct type return - determine useCandidates
-            switch (tree->TypeGet())
+            noway_assert(src->IsMultiRegLclVar());
+
+            GenTreeLclVar* lclVar = src->AsLclVar();
+
+            assert(compiler->lvaEnregMultiRegVars);
+            assert(compiler->lvaGetDesc(lclVar)->GetPromotedFieldCount() == retDesc.GetRegCount());
+
+            // For any source that's coming from a different register file, we need to ensure that
+            // we reserve the specific ABI register we need.
+            bool hasMismatchedRegTypes = false;
+
+            for (unsigned i = 0; i < retDesc.GetRegCount(); i++)
             {
-                case TYP_VOID:
-                    useCandidates = RBM_NONE;
-                    break;
-                case TYP_FLOAT:
-                    useCandidates = RBM_FLOATRET;
-                    break;
-                case TYP_DOUBLE:
-                    // We ONLY want the valid double register in the RBM_DOUBLERET mask.
-                    useCandidates = (RBM_DOUBLERET & RBM_ALLDOUBLE);
-                    break;
-                case TYP_LONG:
-                    useCandidates = RBM_LNGRET;
-                    break;
-                default:
-                    useCandidates = RBM_INTRET;
-                    break;
+                var_types srcType = lclVar->GetFieldTypeByIndex(compiler, i);
+                var_types retType = retDesc.GetRegType(i);
+
+                if (varTypeUsesFloatReg(srcType) != varTypeUsesFloatReg(retType))
+                {
+                    hasMismatchedRegTypes = true;
+                    regMaskTP retRegMask  = genRegMask(retDesc.GetRegNum(i));
+
+                    if (varTypeUsesFloatReg(retType))
+                    {
+                        buildInternalFloatRegisterDefForNode(ret, retRegMask);
+                    }
+                    else
+                    {
+                        buildInternalIntRegisterDefForNode(ret, retRegMask);
+                    }
+                }
             }
-            BuildUse(op1, useCandidates);
-            return 1;
+
+            for (unsigned i = 0; i < retDesc.GetRegCount(); i++)
+            {
+                // We will build uses of the type of the operand registers/fields, and the codegen
+                // for return will move as needed.
+
+                if (!hasMismatchedRegTypes || (varTypeUsesFloatReg(lclVar->GetFieldTypeByIndex(compiler, i)) ==
+                                               varTypeUsesFloatReg(retDesc.GetRegType(i))))
+                {
+                    BuildUse(lclVar, genRegMask(retDesc.GetRegNum(i)), i);
+                }
+                else
+                {
+                    BuildUse(lclVar, RBM_NONE, i);
+                }
+            }
+
+            if (hasMismatchedRegTypes)
+            {
+                buildInternalRegisterUses();
+            }
         }
+
+        return static_cast<int>(retDesc.GetRegCount());
+    }
+#endif // FEATURE_MULTIREG_RET
+
+    regMaskTP useCandidates;
+
+    switch (ret->GetType())
+    {
+        case TYP_FLOAT:
+            useCandidates = RBM_FLOATRET;
+            break;
+        case TYP_DOUBLE:
+            // We ONLY want the valid double register in the RBM_DOUBLERET mask.
+            useCandidates = (RBM_DOUBLERET & RBM_ALLDOUBLE);
+            break;
+        case TYP_LONG:
+            useCandidates = RBM_LNGRET;
+            break;
+        default:
+            useCandidates = RBM_INTRET;
+            break;
     }
 
-    // No kills or defs.
-    return 0;
+    BuildUse(src, useCandidates);
+
+    return 1;
 }
 
 //------------------------------------------------------------------------

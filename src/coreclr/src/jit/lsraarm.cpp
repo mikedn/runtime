@@ -192,11 +192,9 @@ int LinearScan::BuildShiftLongCarry(GenTree* tree)
 int LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
-    int       srcCount;
-    int       dstCount      = 0;
-    regMaskTP dstCandidates = RBM_NONE;
-    regMaskTP killMask      = RBM_NONE;
-    bool      isLocalDefUse = false;
+    int  srcCount;
+    int  dstCount      = 0;
+    bool isLocalDefUse = false;
 
     // Reset the build-related members of LinearScan.
     clearBuildState();
@@ -393,8 +391,7 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = 1;
             assert(dstCount == 0);
             BuildUse(tree->gtGetOp1());
-            killMask = compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
+            BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
         case GT_MUL:
@@ -444,7 +441,7 @@ int LinearScan::BuildNode(GenTree* tree)
             // This kills GC refs in callee save regs
             srcCount = 0;
             assert(dstCount == 0);
-            BuildDefsWithKills(tree, 0, RBM_NONE, RBM_NONE);
+            BuildKills(tree, RBM_NONE);
             break;
 
         case GT_LONG:
@@ -489,9 +486,8 @@ int LinearScan::BuildNode(GenTree* tree)
         break;
 
         case GT_RETURN:
-            srcCount = BuildReturn(tree);
-            killMask = getKillSetForReturn();
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
+            srcCount = BuildReturn(tree->AsUnOp());
+            BuildKills(tree, getKillSetForReturn());
             break;
 
         case GT_RETFILT:

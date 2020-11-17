@@ -48,8 +48,6 @@ int LinearScan::BuildNode(GenTree* tree)
     Interval* prefSrcInterval = nullptr;
     int       srcCount;
     int       dstCount      = 0;
-    regMaskTP dstCandidates = RBM_NONE;
-    regMaskTP killMask      = RBM_NONE;
     bool      isLocalDefUse = false;
 
     // Reset the build-related members of LinearScan.
@@ -137,14 +135,13 @@ int LinearScan::BuildNode(GenTree* tree)
             // This kills GC refs in callee save regs
             srcCount = 0;
             assert(dstCount == 0);
-            BuildDefsWithKills(tree, 0, RBM_NONE, RBM_NONE);
+            BuildKills(tree, RBM_NONE);
             break;
 
         case GT_PROF_HOOK:
             srcCount = 0;
             assert(dstCount == 0);
-            killMask = getKillSetForProfilerHook();
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
+            BuildKills(tree, getKillSetForProfilerHook());
             break;
 
         case GT_CNS_INT:
@@ -184,9 +181,8 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_RETURN:
-            srcCount = BuildReturn(tree);
-            killMask = getKillSetForReturn();
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
+            srcCount = BuildReturn(tree->AsUnOp());
+            BuildKills(tree, getKillSetForReturn());
             break;
 
         case GT_RETFILT:
@@ -302,15 +298,12 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_RETURNTRAP:
-        {
             // This just turns into a compare of its child with an int + a conditional call.
-            RefPosition* internalDef = buildInternalIntRegisterDefForNode(tree);
-            srcCount                 = BuildOperandUses(tree->gtGetOp1());
+            buildInternalIntRegisterDefForNode(tree);
+            srcCount = BuildOperandUses(tree->gtGetOp1());
             buildInternalRegisterUses();
-            killMask = compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
-        }
-        break;
+            BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
+            break;
 
         case GT_MOD:
         case GT_DIV:
@@ -1221,10 +1214,9 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
 
     buildInternalRegisterUses();
+    BuildKills(call, getKillSetForCall(call));
+    BuildDefs(call, dstCount, dstCandidates);
 
-    // Now generate defs and kills.
-    regMaskTP killMask = getKillSetForCall(call);
-    BuildDefsWithKills(call, dstCount, dstCandidates, killMask);
     return srcCount;
 }
 
@@ -1430,8 +1422,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 #endif
 
     BuildInternalUses();
-    regMaskTP killMask = getKillSetForStructStore(store);
-    BuildDefsWithKills(store, 0, RBM_NONE, killMask);
+    BuildKills(store, getKillSetForStructStore(store));
 
     return useCount;
 }
@@ -1787,9 +1778,9 @@ int LinearScan::BuildModDiv(GenTree* tree)
     srcCount += BuildDelayFreeUses(op2, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
 
     buildInternalRegisterUses();
+    BuildKills(tree, getKillSetForModDiv(tree->AsOp()));
+    BuildDef(tree, dstCandidates);
 
-    regMaskTP killMask = getKillSetForModDiv(tree->AsOp());
-    BuildDefsWithKills(tree, 1, dstCandidates, killMask);
     return srcCount;
 }
 
@@ -2967,8 +2958,10 @@ int LinearScan::BuildMul(GenTree* tree)
     {
         containedMemOp = op2;
     }
-    regMaskTP killMask = getKillSetForMul(tree->AsOp());
-    BuildDefsWithKills(tree, dstCount, dstCandidates, killMask);
+
+    BuildKills(tree, getKillSetForMul(tree->AsOp()));
+    BuildDefs(tree, dstCount, dstCandidates);
+
     return srcCount;
 }
 
