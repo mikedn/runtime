@@ -23,83 +23,56 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfotypes.h"
 #include "patchpointinfo.h"
 
-ReturnKind GCTypeToReturnKind(CorInfoGCType gcType)
+ReturnKind varTypeToReturnKind(var_types type)
 {
-    switch (gcType)
-    {
-        case TYPE_GC_NONE:
-            return RT_Scalar;
-        case TYPE_GC_REF:
-            return RT_Object;
-        case TYPE_GC_BYREF:
-            return RT_ByRef;
-        default:
-            _ASSERTE(!"TYP_GC_OTHER is unexpected");
-            return RT_Illegal;
-    }
-}
-
-ReturnKind GCInfo::getReturnKind()
-{
-    switch (compiler->info.compRetType)
+    switch (type)
     {
         case TYP_REF:
             return RT_Object;
         case TYP_BYREF:
             return RT_ByRef;
-        case TYP_STRUCT:
-        {
-            CORINFO_CLASS_HANDLE structType = compiler->info.compMethodInfo->args.retTypeClass;
-            var_types            retType    = compiler->getReturnTypeForStruct(structType);
-
-            switch (retType)
-            {
-                case TYP_REF:
-                    return RT_Object;
-
-                case TYP_BYREF:
-                    return RT_ByRef;
-
-                case TYP_STRUCT:
-                    if (compiler->IsHfa(structType))
-                    {
-#ifdef TARGET_X86
-                        _ASSERTE(false && "HFAs not expected for X86");
-#endif // TARGET_X86
-
-                        return RT_Scalar;
-                    }
-                    else
-                    {
-                        // Multi-reg return
-                        BYTE gcPtrs[2] = {TYPE_GC_NONE, TYPE_GC_NONE};
-                        compiler->info.compCompHnd->getClassGClayout(structType, gcPtrs);
-
-                        ReturnKind first  = GCTypeToReturnKind((CorInfoGCType)gcPtrs[0]);
-                        ReturnKind second = GCTypeToReturnKind((CorInfoGCType)gcPtrs[1]);
-
-                        return GetStructReturnKind(first, second);
-                    }
-
-#ifdef TARGET_X86
-                case TYP_FLOAT:
-                case TYP_DOUBLE:
-                    return RT_Float;
-#endif // TARGET_X86
-                default:
-                    return RT_Scalar;
-            }
-        }
-
-#ifdef TARGET_X86
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            return RT_Float;
-#endif // TARGET_X86
-
         default:
             return RT_Scalar;
     }
+}
+
+ReturnKind GCInfo::getReturnKind()
+{
+#ifdef TARGET_X86
+    if (varTypeIsFloating(compiler->info.compRetType))
+    {
+        return RT_Float;
+    }
+#endif
+
+    if (compiler->info.compRetBuffArg == BAD_VAR_NUM)
+    {
+        // The ABI may require to return the buffer address (a BYREF)
+        // but the JIT doesn't use it.
+        return RT_Scalar;
+    }
+
+    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+    if (retDesc.GetRegCount() == 1)
+    {
+        return varTypeToReturnKind(compiler->info.retDesc.GetRegType(0));
+    }
+
+    if (retDesc.GetRegCount() == 2)
+    {
+        ReturnKind r0 = varTypeToReturnKind(retDesc.GetRegType(0));
+        ReturnKind r1 = varTypeToReturnKind(retDesc.GetRegType(1));
+
+        return GetStructReturnKind(r0, r1);
+    }
+
+    for (unsigned i = 0; i < retDesc.GetRegCount(); i++)
+    {
+        assert(!varTypeIsGC(retDesc.GetRegType(i)));
+    }
+
+    return RT_Scalar;
 }
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
