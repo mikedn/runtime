@@ -2734,9 +2734,9 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 #ifdef DEBUG
                 if (!varTypeIsStruct(src->GetType()))
                 {
-                    assert(comp->info.compRetNativeType != TYP_STRUCT);
+                    assert(comp->info.retDesc.GetRegCount() == 1);
 
-                    var_types retActualType = varActualType(comp->info.compRetNativeType);
+                    var_types retActualType = varActualType(comp->info.retDesc.GetRegType(0));
                     var_types srcActualType = varActualType(src->GetType());
 
                     bool constStructInit                  = src->IsConstInitVal();
@@ -2927,16 +2927,15 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 #ifdef TARGET_ARM64
     if (varTypeIsSIMD(ret->GetType()))
     {
-        if (comp->info.compRetNativeType == TYP_STRUCT)
+        if (comp->info.retDesc.GetRegCount() > 1)
         {
             assert(varTypeIsSIMD(src->GetType()));
-            assert(comp->info.retDesc.GetRegCount() > 1);
 
             ret->SetType(TYP_STRUCT);
         }
         else
         {
-            assert(comp->info.compRetNativeType == ret->GetType());
+            assert(comp->info.retDesc.GetRegType(0) == ret->GetType());
 
             if (src->GetType() != ret->GetType())
             {
@@ -2957,7 +2956,7 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 
     if (src->OperIs(GT_IND, GT_OBJ))
     {
-        var_types            retRegType = comp->info.compRetNativeType;
+        var_types            retRegType = comp->info.retDesc.GetRegType(0);
         CORINFO_CLASS_HANDLE retClass   = comp->info.compMethodInfo->args.retTypeClass;
 
         unsigned retClassSize = comp->info.compCompHnd->getClassSize(retClass);
@@ -3005,7 +3004,7 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
         return;
     }
 
-    var_types retRegType = varActualType(comp->info.compRetNativeType);
+    var_types retRegType = varActualType(comp->info.retDesc.GetRegType(0));
     ret->SetType(retRegType);
 
     switch (src->GetOper())

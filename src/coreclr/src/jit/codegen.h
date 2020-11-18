@@ -1293,7 +1293,7 @@ protected:
     void genMultiRegSIMDReturn(GenTree* src);
 #endif
 #ifndef WINDOWS_AMD64_ABI
-    void genStructReturn(GenTree* src);
+    void genMultiRegStructReturn(GenTree* src);
 #endif
 
 #ifndef TARGET_64BIT

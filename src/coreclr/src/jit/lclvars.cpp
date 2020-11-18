@@ -91,12 +91,10 @@ void Compiler::lvaInitTypeRef()
     var_types retType       = JITtype2varType(info.compMethodInfo->args.retType);
     bool      hasRetBuffArg = false;
 
-    info.compRetType       = retType;
-    info.compRetNativeType = retType;
-
     if (retType != TYP_STRUCT)
     {
         info.retDesc.InitializePrimitive(retType);
+        info.compRetType = retType;
     }
     else
     {
@@ -112,7 +110,6 @@ void Compiler::lvaInitTypeRef()
             assert(retKindType != TYP_UNKNOWN);
             assert(retKindType != TYP_STRUCT);
 
-            info.compRetNativeType = retKindType;
             info.retDesc.InitializePrimitive(retKindType);
 
             if ((retKindType == TYP_LONG) && !compLongUsed)
@@ -137,9 +134,11 @@ void Compiler::lvaInitTypeRef()
             hasRetBuffArg = true;
             retKindType   = TYP_VOID;
 
+            if (!compIsForInlining()
 #ifndef TARGET_AMD64
-            if (compIsProfilerHookNeeded())
+                && compIsProfilerHookNeeded()
 #endif
+                    )
             {
                 retKindType = TYP_BYREF;
             }

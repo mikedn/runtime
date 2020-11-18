@@ -5883,18 +5883,12 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
 bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 {
 #if FEATURE_FASTTAILCALL
-
     // To reach here means that the return types of the caller and callee are tail call compatible.
-    // In the case of structs that can be returned in a register, compRetNativeType is set to the actual return type.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
     if (callee->IsTailPrefixedCall())
     {
         assert(impTailCallRetTypeCompatible(info.compRetType, info.compMethodInfo->args.retTypeClass,
                                             (var_types)callee->gtReturnType, callee->gtRetClsHnd));
     }
-#endif
 
     assert(!callee->AreArgsComplete());
 

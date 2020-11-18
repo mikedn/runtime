@@ -11091,12 +11091,6 @@ void CodeGen::genReturn(GenTree* ret)
     {
         assert(ret->AsUnOp()->gtOp1 == nullptr);
     }
-#ifndef WINDOWS_AMD64_ABI
-    else if (varTypeIsStruct(retType) && (compiler->info.compRetNativeType == TYP_STRUCT))
-    {
-        genStructReturn(ret->AsUnOp()->GetOp(0));
-    }
-#endif
 #ifndef TARGET_64BIT
     else if (retType == TYP_LONG)
     {
@@ -11115,6 +11109,12 @@ void CodeGen::genReturn(GenTree* ret)
         genFloatReturn(ret->AsUnOp()->GetOp(0));
     }
 #endif
+#ifndef WINDOWS_AMD64_ABI
+    else if (compiler->info.retDesc.GetRegCount() > 1)
+    {
+        genMultiRegStructReturn(ret->AsUnOp()->GetOp(0));
+    }
+#endif
     else
     {
         assert(!varTypeIsSmall(retType) && (retType != TYP_STRUCT));
@@ -11124,7 +11124,7 @@ void CodeGen::genReturn(GenTree* ret)
         regNumber srcReg = genConsumeReg(src);
         noway_assert(srcReg != REG_NA);
 
-        regNumber retReg = varTypeUsesFloatReg(retType) ? REG_FLOATRET : REG_INTRET;
+        regNumber retReg = compiler->info.retDesc.GetRegNum(0);
 
         if (srcReg != retReg)
         {
@@ -11186,7 +11186,7 @@ void CodeGen::genReturn(GenTree* ret)
 
 #ifndef WINDOWS_AMD64_ABI
 
-void CodeGen::genStructReturn(GenTree* src)
+void CodeGen::genMultiRegStructReturn(GenTree* src)
 {
     genConsumeRegs(src);
 

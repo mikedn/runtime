@@ -8453,8 +8453,7 @@ public:
         bool compPublishStubParam : 1;   // EAX captured in prolog will be available through an intrinsic
         bool compHasNextCallRetAddr : 1; // The NextCallReturnAddress intrinsic is used.
 
-        var_types      compRetType;       // Return type of the method as declared in IL
-        var_types      compRetNativeType; // Normalized return type as per target arch ABI
+        var_types      compRetType; // Return type of the method as declared in IL
         ReturnTypeDesc retDesc;
 
         unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)

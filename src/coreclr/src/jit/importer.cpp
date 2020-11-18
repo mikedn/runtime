@@ -14156,11 +14156,9 @@ bool Compiler::impInlineReturnInstruction()
     // reimported, but retExpr won't get cleared as part of setting the block to
     // be reimported. The reimported retExpr value should be the same, so even if
     // we don't unconditionally overwrite it, it shouldn't matter.
-    if (info.compRetNativeType != TYP_STRUCT)
+    if (info.retDesc.GetRegCount() == 1)
     {
-        // compRetNativeType is not TYP_STRUCT.
-        // This implies it could be either a scalar type or SIMD vector type or
-        // a struct type that can be normalized to a scalar type.
+        // This is a scalar or single-reg struct return.
 
         if (varTypeIsStruct(info.compRetType))
         {
@@ -14182,8 +14180,7 @@ bool Compiler::impInlineReturnInstruction()
 
         if (fgNeedReturnSpillTemp())
         {
-            assert(info.compRetNativeType != TYP_VOID &&
-                   (fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals()));
+            assert((info.compRetType != TYP_VOID) && (fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals()));
 
             // If this method returns a ref type, track the actual types seen
             // in the returns.
@@ -14274,8 +14271,7 @@ bool Compiler::impInlineReturnInstruction()
     }
     else
     {
-        // compRetNativeType is TYP_STRUCT.
-        // This implies that struct return via RetBuf arg or multi-reg struct return
+        // This is a multi-reg or byref struct return.
 
         GenTreeCall* iciCall = impInlineInfo->iciCall->AsCall();
 
@@ -14285,7 +14281,7 @@ bool Compiler::impInlineReturnInstruction()
         {
             // in this case we have to insert multiple struct copies to the temp
             // and the retexpr is just the temp.
-            assert(info.compRetNativeType != TYP_VOID);
+            assert(info.compRetType != TYP_VOID);
             assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
 
             impAssignTempGen(lvaInlineeReturnSpillTemp, op2, se.seTypeInfo.GetClassHandle(), (unsigned)CHECK_SPILL_ALL);
@@ -16336,7 +16332,7 @@ unsigned Compiler::impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reas
             // Since there are gc locals we should have seen them earlier
             // and if there was a return value, set up the spill temp.
             assert(impInlineInfo->HasGcRefLocals());
-            assert((info.compRetNativeType == TYP_VOID) || fgNeedReturnSpillTemp());
+            assert((info.compRetType == TYP_VOID) || fgNeedReturnSpillTemp());
         }
         else
         {

@@ -1593,9 +1593,9 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
 
     if (r0InUse)
     {
-        if (varTypeIsGC(compiler->info.compRetNativeType))
+        if (varTypeIsGC(compiler->info.retDesc.GetRegType(0)))
         {
-            attr = emitActualTypeSize(compiler->info.compRetNativeType);
+            attr = emitActualTypeSize(compiler->info.retDesc.GetRegType(0));
         }
         else if ((compiler->info.compRetBuffArg != BAD_VAR_NUM) && (compiler->info.retDesc.GetRegCount() != 0))
         {
