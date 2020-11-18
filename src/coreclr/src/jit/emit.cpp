@@ -1582,6 +1582,11 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType,
         emitOutputPreEpilogNOP();
 #endif // TARGET_AMD64
 
+        // GC sets are ignored on epilogs.
+        assert(GCvars == VarSetOps::UninitVal());
+        assert(gcrefRegs == RBM_NONE);
+        assert(byrefRegs == RBM_NONE);
+
         extend = true;
     }
 
