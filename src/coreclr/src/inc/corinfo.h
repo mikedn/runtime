@@ -472,7 +472,7 @@ enum CorInfoHelpFunc
     /* Accessing fields */
 
     // For COM object support (using COM get/set routines to update object)
-    // and EnC and cross-context support
+    // and cross-context support. NOT used.
     CORINFO_HELP_GETFIELD8,
     CORINFO_HELP_SETFIELD8,
     CORINFO_HELP_GETFIELD16,
@@ -490,6 +490,7 @@ enum CorInfoHelpFunc
     CORINFO_HELP_GETFIELDDOUBLE,
     CORINFO_HELP_SETFIELDDOUBLE,
 
+    // For EnC field access
     CORINFO_HELP_GETFIELDADDR,
 
     CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT,    // Helper for context-static fields
@@ -1618,7 +1619,7 @@ enum CORINFO_FIELD_ACCESSOR
 {
     CORINFO_FIELD_INSTANCE,                 // regular instance field at given offset from this-ptr
     CORINFO_FIELD_INSTANCE_WITH_BASE,       // instance field with base offset (used by Ready-to-Run)
-    CORINFO_FIELD_INSTANCE_HELPER,          // instance field accessed using helper (arguments are this, FieldDesc * and the value)
+    CORINFO_FIELD_INSTANCE_HELPER,          // instance field accessed using helper (arguments are this, FieldDesc * and the value). NOT used.
     CORINFO_FIELD_INSTANCE_ADDR_HELPER,     // instance field accessed using address-of helper (arguments are this and FieldDesc *)
 
     CORINFO_FIELD_STATIC_ADDRESS,           // field at given address

@@ -966,19 +966,11 @@ bool GenTreeCall::TreatAsHasRetBufArg(Compiler* compiler) const
     {
         // If we see a Jit helper call that returns a TYP_STRUCT we will
         // transform it as if it has a Return Buffer Argument
-        //
         if (IsHelperCall() && (gtReturnType == TYP_STRUCT))
         {
-            // There are two possible helper calls that use this path:
-            //  CORINFO_HELP_GETFIELDSTRUCT and CORINFO_HELP_UNBOX_NULLABLE
-            //
             CorInfoHelpFunc helpFunc = compiler->eeGetHelperNum(gtCallMethHnd);
 
-            if (helpFunc == CORINFO_HELP_GETFIELDSTRUCT)
-            {
-                return true;
-            }
-            else if (helpFunc == CORINFO_HELP_UNBOX_NULLABLE)
+            if (helpFunc == CORINFO_HELP_UNBOX_NULLABLE)
             {
                 return true;
             }
@@ -14079,55 +14071,11 @@ GenTree* Compiler::gtNewRefCOMfield(GenTree*                objPtr,
                                     CORINFO_CLASS_HANDLE    structType,
                                     GenTree*                assg)
 {
-    assert(pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_HELPER ||
-           pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER ||
-           pFieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER);
-
-    /* If we can't access it directly, we need to call a helper function */
-    GenTreeCall::Use* args       = nullptr;
-    var_types         helperType = TYP_BYREF;
-
-    if (pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_HELPER)
-    {
-        if (access & CORINFO_ACCESS_SET)
-        {
-            assert(assg != nullptr);
-            // helper needs pointer to struct, not struct itself
-            if (pFieldInfo->helper == CORINFO_HELP_SETFIELDSTRUCT)
-            {
-                assert(structType != nullptr);
-                assg = impGetStructAddr(assg, structType, (unsigned)CHECK_SPILL_ALL, true);
-            }
-            else if (lclTyp == TYP_DOUBLE && assg->TypeGet() == TYP_FLOAT)
-            {
-                assg = gtNewCastNode(TYP_DOUBLE, assg, false, TYP_DOUBLE);
-            }
-            else if (lclTyp == TYP_FLOAT && assg->TypeGet() == TYP_DOUBLE)
-            {
-                assg = gtNewCastNode(TYP_FLOAT, assg, false, TYP_FLOAT);
-            }
-
-            args       = gtNewCallArgs(assg);
-            helperType = TYP_VOID;
-        }
-        else if (access & CORINFO_ACCESS_GET)
-        {
-            helperType = lclTyp;
-
-            // The calling convention for the helper does not take into
-            // account optimization of primitive structs.
-            if ((pFieldInfo->helper == CORINFO_HELP_GETFIELDSTRUCT) && !varTypeIsStruct(lclTyp))
-            {
-                helperType = TYP_STRUCT;
-            }
-        }
-    }
-
-    if (pFieldInfo->helper == CORINFO_HELP_GETFIELDSTRUCT || pFieldInfo->helper == CORINFO_HELP_SETFIELDSTRUCT)
-    {
-        assert(pFieldInfo->structType != nullptr);
-        args = gtPrependNewCallArg(gtNewIconEmbClsHndNode(pFieldInfo->structType), args);
-    }
+    assert(((pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER) &&
+            (pFieldInfo->helper == CORINFO_HELP_GETFIELDADDR)) ||
+           ((pFieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) &&
+            (pFieldInfo->helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS)));
+    assert((pFieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) == (objPtr == nullptr));
 
     GenTree* fieldHnd = impTokenToHandle(pResolvedToken);
     if (fieldHnd == nullptr)
@@ -14135,75 +14083,38 @@ GenTree* Compiler::gtNewRefCOMfield(GenTree*                objPtr,
         return nullptr;
     }
 
-    args = gtPrependNewCallArg(fieldHnd, args);
-
-    // If it's a static field, we shouldn't have an object node
-    // If it's an instance field, we have an object node
-    assert((pFieldInfo->fieldAccessor != CORINFO_FIELD_STATIC_ADDR_HELPER) ^ (objPtr == nullptr));
+    GenTreeCall::Use* args = gtNewCallArgs(fieldHnd);
 
     if (objPtr != nullptr)
     {
         args = gtPrependNewCallArg(objPtr, args);
     }
 
-    GenTreeCall* call = gtNewHelperCallNode(pFieldInfo->helper, genActualType(helperType), args);
+    GenTree* result = gtNewHelperCallNode(pFieldInfo->helper, TYP_BYREF, args);
 
-#if FEATURE_MULTIREG_RET
-    if (varTypeIsStruct(call))
+    if (access & CORINFO_ACCESS_GET)
     {
-        call->InitializeStructReturnType(this, structType);
-    }
-#endif // FEATURE_MULTIREG_RET
-
-    GenTree* result = call;
-
-    if (pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_HELPER)
-    {
-        if (access & CORINFO_ACCESS_GET)
+        if (varTypeIsStruct(lclTyp))
         {
-            if (pFieldInfo->helper == CORINFO_HELP_GETFIELDSTRUCT)
-            {
-                if (!varTypeIsStruct(lclTyp))
-                {
-                    // get the result as primitive type
-                    result = impGetStructAddr(result, structType, (unsigned)CHECK_SPILL_ALL, true);
-                    result = gtNewOperNode(GT_IND, lclTyp, result);
-                }
-            }
-            else if (varTypeIsIntegral(lclTyp) && genTypeSize(lclTyp) < genTypeSize(TYP_INT))
-            {
-                // The helper does not extend the small return types.
-                result = gtNewCastNode(genActualType(lclTyp), result, false, lclTyp);
-            }
+            result = gtNewObjNode(structType, result);
         }
-    }
-    else
-    {
-        // OK, now do the indirection
-        if (access & CORINFO_ACCESS_GET)
+        else
         {
-            if (varTypeIsStruct(lclTyp))
-            {
-                result = gtNewObjNode(structType, result);
-            }
-            else
-            {
-                result = gtNewOperNode(GT_IND, lclTyp, result);
-            }
-            result->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF);
+            result = gtNewOperNode(GT_IND, lclTyp, result);
         }
-        else if (access & CORINFO_ACCESS_SET)
+        result->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF);
+    }
+    else if (access & CORINFO_ACCESS_SET)
+    {
+        if (varTypeIsStruct(lclTyp))
         {
-            if (varTypeIsStruct(lclTyp))
-            {
-                result = impAssignStructPtr(result, assg, structType, (unsigned)CHECK_SPILL_ALL);
-            }
-            else
-            {
-                result = gtNewOperNode(GT_IND, lclTyp, result);
-                result->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-                result = gtNewAssignNode(result, assg);
-            }
+            result = impAssignStructPtr(result, assg, structType, CHECK_SPILL_ALL);
+        }
+        else
+        {
+            result = gtNewOperNode(GT_IND, lclTyp, result);
+            result->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+            result = gtNewAssignNode(result, assg);
         }
     }
 

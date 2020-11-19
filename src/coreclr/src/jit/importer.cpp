@@ -12442,7 +12442,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #endif
 
                     case CORINFO_FIELD_STATIC_ADDR_HELPER:
-                    case CORINFO_FIELD_INSTANCE_HELPER:
                     case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
                         op1 = gtNewRefCOMfield(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo, lclTyp,
                                                fieldInfo.structType, nullptr);
@@ -12733,7 +12732,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #endif
 
                     case CORINFO_FIELD_STATIC_ADDR_HELPER:
-                    case CORINFO_FIELD_INSTANCE_HELPER:
                     case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
                         op1 = gtNewRefCOMfield(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo, lclTyp,
                                                clsHnd, op2);
