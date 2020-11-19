@@ -4265,7 +4265,7 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
             // Update type of return spill temp if we have gathered
             // better info when importing the inlinee, and the return
             // spill temp is single def.
-            if (fgNeedReturnSpillTemp())
+            if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
             {
                 CORINFO_CLASS_HANDLE retExprClassHnd = impInlineInfo->retExprClassHnd;
                 if (retExprClassHnd != nullptr)

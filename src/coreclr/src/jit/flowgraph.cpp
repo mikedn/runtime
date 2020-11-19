@@ -25838,18 +25838,6 @@ void Compiler::fgCompDominatedByExceptionalEntryBlocks()
 }
 
 //------------------------------------------------------------------------
-// fgNeedReturnSpillTemp: Answers does the inlinee need to spill all returns
-//  as a temp.
-//
-// Return Value:
-//    true if the inlinee has to spill return exprs.
-bool Compiler::fgNeedReturnSpillTemp()
-{
-    assert(compIsForInlining());
-    return (lvaInlineeReturnSpillTemp != BAD_VAR_NUM);
-}
-
-//------------------------------------------------------------------------
 // fgUseThrowHelperBlocks: Determinate does compiler use throw helper blocks.
 //
 // Note:
