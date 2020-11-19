@@ -1147,7 +1147,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
     if (src->gtOper == GT_CALL)
     {
-        if (src->AsCall()->TreatAsHasRetBufArg(this))
+        if (src->AsCall()->TreatAsHasRetBufArg())
         {
             // Case of call returning a struct via hidden retbuf arg
 
@@ -8029,7 +8029,7 @@ GenTree* Compiler::impFixupStructReturnType(GenTree* value, CORINFO_CLASS_HANDLE
 #endif
     }
 
-    if (value->IsCall() && value->AsCall()->TreatAsHasRetBufArg(this))
+    if (value->IsCall() && value->AsCall()->TreatAsHasRetBufArg())
     {
         // This must be one of those 'special' helpers that don't
         // really have a return buffer, but instead use it as a way

@@ -4273,7 +4273,7 @@ struct GenTreeCall final : public GenTree
     //     will make HasRetBufArg() return true, but will also force the
     //     use of register x8 to pass the RetBuf argument.
     //
-    bool TreatAsHasRetBufArg(Compiler* compiler) const;
+    bool TreatAsHasRetBufArg() const;
 
     //-----------------------------------------------------------------------------------------
     // HasMultiRegRetVal: whether the call node returns its value in multiple return registers.

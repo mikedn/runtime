@@ -938,9 +938,6 @@ int GenTreeCall::GetNonStandardAddedArgCount(Compiler* compiler) const
 //-------------------------------------------------------------------------
 // TreatAsHasRetBufArg:
 //
-// Arguments:
-//     compiler, the compiler instance so that we can call eeGetHelperNum
-//
 // Return Value:
 //     Returns true if we treat the call as if it has a retBuf argument
 //     This method may actually have a retBuf argument
@@ -952,34 +949,31 @@ int GenTreeCall::GetNonStandardAddedArgCount(Compiler* compiler) const
 //     will make HasRetBufArg() return true, but will also force the
 //     use of register x8 to pass the RetBuf argument.
 //
-//     These two Jit Helpers that we handle here by returning true
-//     aren't actually defined to return a struct, so they don't expect
-//     their RetBuf to be passed in x8, instead they  expect it in x0.
+//     These Jit Helpers that we handle here by returning true aren't
+//     actually defined to return a struct, so they don't expect their
+//     RetBuf to be passed in x8, instead they  expect it in x0.
 //
-bool GenTreeCall::TreatAsHasRetBufArg(Compiler* compiler) const
+bool GenTreeCall::TreatAsHasRetBufArg() const
 {
     if (HasRetBufArg())
     {
         return true;
     }
-    else
-    {
-        // If we see a Jit helper call that returns a TYP_STRUCT we will
-        // transform it as if it has a Return Buffer Argument
-        if (IsHelperCall() && (gtReturnType == TYP_STRUCT))
-        {
-            CorInfoHelpFunc helpFunc = compiler->eeGetHelperNum(gtCallMethHnd);
 
-            if (helpFunc == CORINFO_HELP_UNBOX_NULLABLE)
-            {
-                return true;
-            }
-            else
-            {
-                assert(!"Unexpected JIT helper in TreatAsHasRetBufArg");
-            }
+    // If we see a Jit helper call that returns a TYP_STRUCT we will
+    // transform it as if it has a Return Buffer Argument
+    if (IsHelperCall() && (gtReturnType == TYP_STRUCT))
+    {
+        CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(gtCallMethHnd);
+
+        if (helpFunc == CORINFO_HELP_UNBOX_NULLABLE)
+        {
+            return true;
         }
+
+        assert(!"Unexpected JIT helper in TreatAsHasRetBufArg");
     }
+
     return false;
 }
 
