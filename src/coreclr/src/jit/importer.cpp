@@ -14165,15 +14165,10 @@ bool Compiler::impInlineReturnInstruction()
             // and no normalizing
             op2 = impFixupStructReturnType(op2, retClsHnd);
         }
-        else
+        else if (varTypeIsSmall(info.compRetType) && fgCastNeeded(op2, info.compRetType))
         {
-            // Do we have to normalize?
-            var_types fncRealRetType = JITtype2varType(info.compMethodInfo->args.retType);
-            if ((varTypeIsSmall(op2->TypeGet()) || varTypeIsSmall(fncRealRetType)) && fgCastNeeded(op2, fncRealRetType))
-            {
-                // Small-typed return values are normalized by the callee
-                op2 = gtNewCastNode(TYP_INT, op2, false, fncRealRetType);
-            }
+            // Small-typed return values are normalized by the callee
+            op2 = gtNewCastNode(TYP_INT, op2, false, info.compRetType);
         }
 
         if (fgNeedReturnSpillTemp())
