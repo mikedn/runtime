@@ -77,7 +77,7 @@ namespace System.Runtime.Serialization
             {
                 if (s_dictionaryEnumeratorCtor == null)
                 {
-                    s_dictionaryEnumeratorCtor = Globals.TypeOfDictionaryEnumerator.GetConstructor(Globals.ScanAllMembers, new Type[] { Globals.TypeOfIDictionaryEnumerator });
+                    s_dictionaryEnumeratorCtor = typeof(CollectionDataContract.DictionaryEnumerator).GetConstructor(Globals.ScanAllMembers, new Type[] { Globals.TypeOfIDictionaryEnumerator });
                     Debug.Assert(s_dictionaryEnumeratorCtor != null);
                 }
                 return s_dictionaryEnumeratorCtor;
@@ -199,7 +199,7 @@ namespace System.Runtime.Serialization
         private static ConstructorInfo? s_extensionDataObjectCtor;
         internal static ConstructorInfo ExtensionDataObjectCtor => s_extensionDataObjectCtor ??
                                                                    (s_extensionDataObjectCtor =
-                                                                       typeof(ExtensionDataObject).GetConstructor(Globals.ScanAllMembers, null, Array.Empty<Type>(), null)!);
+                                                                       typeof(ExtensionDataObject).GetConstructor(Globals.ScanAllMembers, Array.Empty<Type>())!);
 
         private static ConstructorInfo? s_hashtableCtor;
         internal static ConstructorInfo HashtableCtor

@@ -430,7 +430,7 @@ namespace System.Runtime.Serialization.Json
 
             private void ReadISerializable(ClassDataContract classContract)
             {
-                ConstructorInfo? ctor = classContract.UnderlyingType.GetConstructor(Globals.ScanAllMembers, null, JsonFormatGeneratorStatics.SerInfoCtorArgs, null);
+                ConstructorInfo? ctor = classContract.UnderlyingType.GetConstructor(Globals.ScanAllMembers, JsonFormatGeneratorStatics.SerInfoCtorArgs);
                 if (ctor == null)
                     throw System.Runtime.Serialization.DiagnosticUtility.ExceptionUtility.ThrowHelperError(XmlObjectSerializer.CreateSerializationException(SR.Format(SR.SerializationInfo_ConstructorNotFound, DataContract.GetClrTypeFullName(classContract.UnderlyingType))));
                 _ilg.LoadAddress(_objectLocal);

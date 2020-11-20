@@ -1134,7 +1134,7 @@ namespace System.Runtime.Serialization
                                 }
                             }
 
-                            getEnumeratorMethod = Globals.TypeOfIEnumerable.GetMethod(Globals.GetEnumeratorMethodName)!;
+                            getEnumeratorMethod = typeof(IEnumerable).GetMethod(Globals.GetEnumeratorMethodName)!;
                         }
                         if (tryCreate)
                             dataContract = new CollectionDataContract(type, (CollectionKind)(i + 1), itemType, getEnumeratorMethod, addMethod, null/*defaultCtor*/);
@@ -1145,7 +1145,7 @@ namespace System.Runtime.Serialization
             ConstructorInfo? defaultCtor = null;
             if (!type.IsValueType)
             {
-                defaultCtor = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Array.Empty<Type>(), null);
+                defaultCtor = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, Array.Empty<Type>());
                 if (defaultCtor == null && constructorRequired)
                 {
                     // All collection types could be considered read-only collections except collection types that are marked [Serializable].
@@ -1331,7 +1331,7 @@ namespace System.Runtime.Serialization
 
             if (addMethodOnInterface)
             {
-                addMethod = type.GetMethod(Globals.AddMethodName, BindingFlags.Instance | BindingFlags.Public, null, addMethodTypeArray, null);
+                addMethod = type.GetMethod(Globals.AddMethodName, BindingFlags.Instance | BindingFlags.Public, addMethodTypeArray);
                 if (addMethod == null || addMethod.GetParameters()[0].ParameterType != addMethodTypeArray[0])
                 {
                     FindCollectionMethodsOnInterface(type, interfaceType, ref addMethod, ref getEnumeratorMethod);
@@ -1359,7 +1359,7 @@ namespace System.Runtime.Serialization
             else
             {
                 // GetMethod returns Add() method with parameter closest matching T in assignability/inheritance chain
-                addMethod = type.GetMethod(Globals.AddMethodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, addMethodTypeArray, null);
+                addMethod = type.GetMethod(Globals.AddMethodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, addMethodTypeArray);
             }
 
             if (getEnumeratorMethod == null)
