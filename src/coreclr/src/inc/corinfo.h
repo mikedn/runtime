@@ -208,11 +208,11 @@ TODO: Talk about initializing strutures before use
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-constexpr GUID JITEEVersionIdentifier = { /* a5eec3a4-4176-43a7-8c2b-a05b551d4f49 */
-    0xa5eec3a4,
-    0x4176,
-    0x43a7,
-    {0x8c, 0x2b, 0xa0, 0x5b, 0x55, 0x1d, 0x4f, 0x49}
+constexpr GUID JITEEVersionIdentifier = { /* 8031aa05-4568-40fc-a0d2-d971d8edba16 */
+    0x8031aa05,
+    0x4568,
+    0x40fc,
+    {0xa0, 0xd2, 0xd9, 0x71, 0xd8, 0xed, 0xba, 0x16}
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -431,9 +431,7 @@ enum CorInfoHelpFunc
     CORINFO_HELP_THROWDIVZERO,      // throw a divide by zero exception
     CORINFO_HELP_THROWNULLREF,      // throw a null reference exception
 
-    CORINFO_HELP_INTERNALTHROW,     // Support for really fast jit
     CORINFO_HELP_VERIFICATION,      // Throw a VerificationException
-    CORINFO_HELP_SEC_UNMGDCODE_EXCPT, // throw a security unmanaged code exception
     CORINFO_HELP_FAIL_FAST,         // Kill the process avoiding any exceptions or stack and data dependencies (use for GuardStack unsafe buffer checks)
 
     CORINFO_HELP_METHOD_ACCESS_EXCEPTION,//Throw an access exception due to a failed member/class access check.
@@ -918,8 +916,6 @@ enum CorInfoIntrinsics
     CORINFO_INTRINSIC_InterlockedCmpXchg64,
     CORINFO_INTRINSIC_MemoryBarrier,
     CORINFO_INTRINSIC_MemoryBarrierLoad,
-    CORINFO_INTRINSIC_GetCurrentManagedThread,
-    CORINFO_INTRINSIC_GetManagedThreadId,
     CORINFO_INTRINSIC_ByReference_Ctor,
     CORINFO_INTRINSIC_ByReference_Value,
     CORINFO_INTRINSIC_Span_GetItem,
@@ -1458,7 +1454,7 @@ struct CORINFO_HELPER_DESC
 //  CORINFO_DEREF_THIS        --> Deref the byref to get an object reference
 //
 // In addition, the "kind" field will be set as follows for constraint calls:
-
+//
 //    CORINFO_CALL              --> the call was resolved at compile time, and
 //                                  can be compiled like a normal call.
 //    CORINFO_CALL_CODE_POINTER --> the call was resolved, but the target address will be

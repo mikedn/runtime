@@ -1470,7 +1470,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 #ifdef TARGET_X86
             assert(!treeNode->IsIconHandle(GTF_ICON_TLS_HDL));
 #endif // TARGET_X86
-            __fallthrough;
+            FALLTHROUGH;
 
         case GT_CNS_DBL:
             genSetRegToConst(targetReg, targetType, treeNode);
@@ -1493,7 +1493,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
                 genCodeForBinary(treeNode->AsOp());
                 break;
             }
-            __fallthrough;
+            FALLTHROUGH;
         case GT_MOD:
         case GT_UMOD:
         case GT_UDIV:
@@ -1505,7 +1505,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_AND:
             assert(varTypeIsIntegralOrI(treeNode));
 
-            __fallthrough;
+            FALLTHROUGH;
 
 #if !defined(TARGET_64BIT)
         case GT_ADD_LO:
@@ -1950,43 +1950,32 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
         return;
     }
 
-    const target_size_t pageSize       = compiler->eeGetPageSize();
-    target_size_t       lastTouchDelta = 0; // What offset from the final SP was the last probe?
+    const target_size_t pageSize = compiler->eeGetPageSize();
 
     if (frameSize == REGSIZE_BYTES)
     {
         // Frame size is the same as register size.
-        inst_RV(INS_push, REG_EAX, TYP_I_IMPL);
+        GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_EAX);
+        compiler->unwindAllocStack(frameSize);
     }
     else if (frameSize < pageSize)
     {
-        // Frame size is (0x0008..0x1000)
-        inst_RV_IV(INS_sub, REG_SPBASE, frameSize, EA_PTRSIZE);
-        lastTouchDelta = frameSize;
-    }
-    else if (frameSize < compiler->getVeryLargeFrameSize())
-    {
-        lastTouchDelta = frameSize;
+        GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, frameSize);
+        compiler->unwindAllocStack(frameSize);
 
-        // Frame size is (0x1000..0x3000)
+        const unsigned lastProbedLocToFinalSp = frameSize;
 
-        GetEmitter()->emitIns_AR_R(INS_test, EA_PTRSIZE, REG_EAX, REG_SPBASE, -(int)pageSize);
-        lastTouchDelta -= pageSize;
-
-        if (frameSize >= 0x2000)
+        if (lastProbedLocToFinalSp + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES > pageSize)
         {
-            GetEmitter()->emitIns_AR_R(INS_test, EA_PTRSIZE, REG_EAX, REG_SPBASE, -2 * (int)pageSize);
-            lastTouchDelta -= pageSize;
+            // We haven't probed almost a complete page. If the next action on the stack might subtract from SP
+            // first, before touching the current SP, then we need to probe at the very bottom. This can
+            // happen on x86, for example, when we copy an argument to the stack using a "SUB ESP; REP MOV"
+            // strategy.
+            GetEmitter()->emitIns_R_AR(INS_test, EA_4BYTE, REG_EAX, REG_SPBASE, 0);
         }
-
-        inst_RV_IV(INS_sub, REG_SPBASE, frameSize, EA_PTRSIZE);
-        assert(lastTouchDelta == frameSize % pageSize);
     }
     else
     {
-        // Frame size >= 0x3000
-        assert(frameSize >= compiler->getVeryLargeFrameSize());
-
 #ifdef TARGET_X86
         int spOffset = -(int)frameSize;
 
@@ -2033,23 +2022,13 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
         GetEmitter()->emitIns_R_R(INS_mov, EA_PTRSIZE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG);
 #endif // !TARGET_X86
 
+        compiler->unwindAllocStack(frameSize);
+
         if (initReg == REG_STACK_PROBE_HELPER_ARG)
         {
             *pInitRegZeroed = false;
         }
     }
-
-    if (lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES > pageSize)
-    {
-        // We haven't probed almost a complete page. If the next action on the stack might subtract from SP
-        // first, before touching the current SP, then we do one more probe at the very bottom. This can
-        // happen on x86, for example, when we copy an argument to the stack using a "SUB ESP; REP MOV"
-        // strategy.
-
-        GetEmitter()->emitIns_AR_R(INS_test, EA_PTRSIZE, REG_EAX, REG_SPBASE, 0);
-    }
-
-    compiler->unwindAllocStack(frameSize);
 
 #ifdef USING_SCOPE_INFO
     if (!doubleAlignOrFramePointerUsed())
@@ -6415,105 +6394,47 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 void CodeGen::genSSE2BitwiseOp(GenTree* treeNode)
 {
     regNumber targetReg  = treeNode->GetRegNum();
-    var_types targetType = treeNode->TypeGet();
-    assert(varTypeIsFloating(targetType));
+    regNumber operandReg = genConsumeReg(treeNode->gtGetOp1());
+    emitAttr  size       = emitTypeSize(treeNode);
 
-    float                 f;
-    double                d;
-    CORINFO_FIELD_HANDLE* bitMask  = nullptr;
-    instruction           ins      = INS_invalid;
-    void*                 cnsAddr  = nullptr;
-    bool                  dblAlign = false;
+    assert(varTypeIsFloating(treeNode->TypeGet()));
+    assert(treeNode->gtGetOp1()->isUsedFromReg());
 
-    switch (treeNode->OperGet())
+    CORINFO_FIELD_HANDLE* maskFld = nullptr;
+    UINT64                mask    = 0;
+    instruction           ins     = INS_invalid;
+
+    if (treeNode->OperIs(GT_NEG))
     {
-        case GT_NEG:
-            // Neg(x) = flip the sign bit.
-            // Neg(f) = f ^ 0x80000000
-            // Neg(d) = d ^ 0x8000000000000000
-            ins = INS_xorps;
-            if (targetType == TYP_FLOAT)
-            {
-                bitMask = &negBitmaskFlt;
-
-                static_assert_no_msg(sizeof(float) == sizeof(int));
-                *((int*)&f) = 0x80000000;
-                cnsAddr     = &f;
-            }
-            else
-            {
-                bitMask = &negBitmaskDbl;
-
-                static_assert_no_msg(sizeof(double) == sizeof(__int64));
-                *((__int64*)&d) = 0x8000000000000000LL;
-                cnsAddr         = &d;
-                dblAlign        = true;
-            }
-            break;
-
-        case GT_INTRINSIC:
-            assert(treeNode->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Abs);
-
-            // Abs(x) = set sign-bit to zero
-            // Abs(f) = f & 0x7fffffff
-            // Abs(d) = d & 0x7fffffffffffffff
-            ins = INS_andps;
-            if (targetType == TYP_FLOAT)
-            {
-                bitMask = &absBitmaskFlt;
-
-                static_assert_no_msg(sizeof(float) == sizeof(int));
-                *((int*)&f) = 0x7fffffff;
-                cnsAddr     = &f;
-            }
-            else
-            {
-                bitMask = &absBitmaskDbl;
-
-                static_assert_no_msg(sizeof(double) == sizeof(__int64));
-                *((__int64*)&d) = 0x7fffffffffffffffLL;
-                cnsAddr         = &d;
-                dblAlign        = true;
-            }
-            break;
-
-        default:
-            assert(!"genSSE2: unsupported oper");
-            unreached();
-            break;
+        // Neg(x) = flip the sign bit.
+        // Neg(f) = f ^ 0x80000000 x4 (packed)
+        // Neg(d) = d ^ 0x8000000000000000 x2 (packed)
+        ins     = INS_xorps;
+        mask    = treeNode->TypeIs(TYP_FLOAT) ? 0x8000000080000000UL : 0x8000000000000000UL;
+        maskFld = treeNode->TypeIs(TYP_FLOAT) ? &negBitmaskFlt : &negBitmaskDbl;
+    }
+    else if (treeNode->OperIs(GT_INTRINSIC))
+    {
+        assert(treeNode->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Abs);
+        // Abs(x) = set sign-bit to zero
+        // Abs(f) = f & 0x7fffffff x4 (packed)
+        // Abs(d) = d & 0x7fffffffffffffff x2 (packed)
+        ins     = INS_andps;
+        mask    = treeNode->TypeIs(TYP_FLOAT) ? 0x7fffffff7fffffffUL : 0x7fffffffffffffffUL;
+        maskFld = treeNode->TypeIs(TYP_FLOAT) ? &absBitmaskFlt : &absBitmaskDbl;
+    }
+    else
+    {
+        assert(!"genSSE2BitwiseOp: unsupported oper");
     }
 
-    if (*bitMask == nullptr)
+    if (*maskFld == nullptr)
     {
-        assert(cnsAddr != nullptr);
-
-        UNATIVE_OFFSET cnsSize  = genTypeSize(targetType);
-        UNATIVE_OFFSET cnsAlign = (compiler->compCodeOpt() != Compiler::SMALL_CODE) ? cnsSize : 1;
-
-        *bitMask = GetEmitter()->emitAnyConst(cnsAddr, cnsSize, cnsAlign);
+        UINT64 maskPack[] = {mask, mask};
+        *maskFld          = GetEmitter()->emitBlkConst(&maskPack, 16, 16, treeNode->TypeGet());
     }
 
-    // We need an additional register for bitmask.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    // Move operand into targetReg only if the reg reserved for
-    // internal purpose is not the same as targetReg.
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
-    assert(op1->isUsedFromReg());
-    regNumber operandReg = genConsumeReg(op1);
-    if (tmpReg != targetReg)
-    {
-        if (operandReg != targetReg)
-        {
-            inst_RV_RV(ins_Copy(targetType), targetReg, operandReg, targetType);
-        }
-
-        operandReg = tmpReg;
-    }
-
-    GetEmitter()->emitIns_R_C(ins_Load(targetType, false), emitTypeSize(targetType), tmpReg, *bitMask, 0);
-    assert(ins != INS_invalid);
-    inst_RV_RV(ins, targetReg, operandReg, targetType);
+    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, operandReg, *maskFld, 0);
 }
 
 //-----------------------------------------------------------------------------------------
@@ -7985,7 +7906,7 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
         unsigned reversePInvokeFrameVarNumber = compiler->lvaReversePInvokeFrameVar;
         assert(reversePInvokeFrameVarNumber != BAD_VAR_NUM && reversePInvokeFrameVarNumber < compiler->lvaRefCount);
         LclVarDsc& reversePInvokeFrameVar = compiler->lvaTable[reversePInvokeFrameVarNumber];
-        gcInfoEncoder->SetReversePInvokeFrameSlot(reversePInvokeFrameVar.lvStkOffs);
+        gcInfoEncoder->SetReversePInvokeFrameSlot(reversePInvokeFrameVar.GetStackOffset());
     }
 
     gcInfoEncoder->Build();
@@ -8261,7 +8182,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
                       EA_UNKNOWN); // retSize
 
     // Check that we have place for the push.
-    assert(compiler->fgPtrArgCntMax >= 1);
+    assert(compiler->fgGetPtrArgCntMax() >= 1);
 
 #if defined(UNIX_X86_ABI)
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
@@ -8342,7 +8263,7 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
     genEmitHelperCall(helper, argSize, EA_UNKNOWN /* retSize */);
 
     // Check that we have place for the push.
-    assert(compiler->fgPtrArgCntMax >= 1);
+    assert(compiler->fgGetPtrArgCntMax() >= 1);
 
 #if defined(UNIX_X86_ABI)
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall

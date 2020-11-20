@@ -646,7 +646,7 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
                     canLclVarEscapeViaParentStack = false;
                     break;
                 }
-                __fallthrough;
+                FALLTHROUGH;
             case GT_COLON:
             case GT_QMARK:
             case GT_ADD:
@@ -751,7 +751,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
                     // Left child of GT_COMMA, it will be discarded
                     break;
                 }
-                __fallthrough;
+                FALLTHROUGH;
             case GT_COLON:
             case GT_QMARK:
             case GT_ADD:

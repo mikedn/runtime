@@ -551,7 +551,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                 break;
             }
 
-            __fallthrough;
+            FALLTHROUGH;
         }
 
         case NI_Vector128_As:
@@ -954,7 +954,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                 // Using software fallback if JIT/hardware don't support AVX instructions and YMM registers
                 return nullptr;
             }
-            __fallthrough;
+            FALLTHROUGH;
         }
 
         case NI_Vector128_WithElement:
@@ -1121,7 +1121,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                         valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16,
                                                            valueOp);
                         immNode->AsIntCon()->SetIconValue(imm8 * 16);
-                        __fallthrough;
+                        FALLTHROUGH;
                     }
                 }
 
@@ -1177,7 +1177,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                 // Using software fallback if JIT/hardware don't support AVX instructions and YMM registers
                 return nullptr;
             }
-            __fallthrough;
+            FALLTHROUGH;
         }
 
         case NI_Vector128_GetElement:
@@ -1315,7 +1315,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
                                                             clonedVectorOp, immNode);
                         return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_ToScalar, TYP_FLOAT, 16, vectorOp);
                     }
-                    __fallthrough;
+                    FALLTHROUGH;
                 }
 
                 case TYP_UBYTE:

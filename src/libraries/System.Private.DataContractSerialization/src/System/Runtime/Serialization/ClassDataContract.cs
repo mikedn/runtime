@@ -1408,7 +1408,7 @@ namespace System.Runtime.Serialization
                 if (!IsISerializable)
                     return null;
 
-                ConstructorInfo? ctor = UnderlyingType.GetConstructor(Globals.ScanAllMembers, null, SerInfoCtorArgs, null);
+                ConstructorInfo? ctor = UnderlyingType.GetConstructor(Globals.ScanAllMembers, SerInfoCtorArgs);
                 if (ctor == null)
                     throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(XmlObjectSerializer.CreateSerializationException(SR.Format(SR.SerializationInfo_ConstructorNotFound, DataContract.GetClrTypeFullName(UnderlyingType))));
 
