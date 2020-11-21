@@ -3052,6 +3052,8 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
             tempStore->AsLclVar()->SetOp(0, retVal);
             BlockRange().InsertAfter(retVal, tempStore);
 
+            retVal->ChangeOper(GT_IND);
+
             LowerStoreLocCommon(tempStore);
 #endif
         }

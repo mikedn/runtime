@@ -1700,7 +1700,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         *insertionPoint = gtNewCallArgs(arg);
 #else  // !defined(TARGET_X86)
         // All other architectures pass the cookie in a register.
-        call->gtCallArgs       = gtPrependNewCallArg(arg, call->gtCallArgs);
+        call->gtCallArgs = gtPrependNewCallArg(arg, call->gtCallArgs);
 #endif // defined(TARGET_X86)
 
         nonStandardArgs.Add(arg, REG_PINVOKE_COOKIE_PARAM);
@@ -9589,6 +9589,22 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 src = gtNewIndir(dest->GetType(), gtNewOperNode(GT_ADDR, TYP_I_IMPL, srcLclNode));
                 src->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
             }
+            else if (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR) &&
+                     (srcLclVar->GetLayout()->GetSize() != destSize))
+            {
+                // IND morphing blindly simplifies IND.STRUCT(ADDR(LCL_VAR)) to LCL_VAR so we can
+                // end up with the source having a different size than the destination. The backend
+                // doesn't like it because source and destination layouts have different register
+                // types.
+                //
+                // This probably doesn't cover all cases but it's enough to get things going until
+                // LocalAddressVisitor takes over and all this nightmare code can be removed.
+
+                src->ChangeOper(GT_LCL_FLD);
+                src->AsLclFld()->SetLayout(srcLclVar->GetLayout(), this);
+
+                lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_LocalField));
+            }
         }
         else if (src->OperIsIndir())
         {
@@ -10016,7 +10032,7 @@ GenTree* Compiler::fgMorphCommutative(GenTreeOp* tree)
 
     // op1 can be GT_COMMA, in this case we're going to fold
     // "(op (COMMA(... (op X C1))) C2)" to "(COMMA(... (op X C3)))"
-    GenTree* op1 = tree->gtGetOp1()->gtEffectiveVal(true);
+    GenTree*   op1  = tree->gtGetOp1()->gtEffectiveVal(true);
     genTreeOps oper = tree->OperGet();
 
     if (!op1->OperIs(oper) || !tree->gtGetOp2()->IsCnsIntOrI() || !op1->gtGetOp2()->IsCnsIntOrI() ||
@@ -10059,7 +10075,6 @@ GenTree* Compiler::fgMorphCommutative(GenTreeOp* tree)
     INDEBUG(newTree->gtOp2->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
     return newTree;
 }
-
 
 /*****************************************************************************
  *

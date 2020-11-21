@@ -4175,7 +4175,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 if (impStackTop().val->IsIntegralConst())
                 {
                     CORINFO_CLASS_HANDLE argClass;
-                    CorInfoType corArgType = strip(info.compCompHnd->getArgType(sig, sig->args, &argClass));
+                    CorInfoType          corArgType = strip(info.compCompHnd->getArgType(sig, sig->args, &argClass));
 
                     var_types argType = JITtype2varType(corArgType);
                     ssize_t   cns     = impPopStack().val->AsIntConCommon()->IconValue();

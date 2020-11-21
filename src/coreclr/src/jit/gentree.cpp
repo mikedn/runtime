@@ -9966,7 +9966,7 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
 #endif // !defined(TARGET_64BIT)
                         {
                             CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
-                            CORINFO_FIELD_HANDLE fldHnd = 
+                            CORINFO_FIELD_HANDLE fldHnd =
                                 info.compCompHnd->getFieldInClass(typeHnd, fieldVarDsc->lvFldOrdinal);
                             fieldName = eeGetFieldName(fldHnd);
                         }
