@@ -9290,6 +9290,38 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         JITDUMP(" (srcPromote=true)");
     }
+    else if (destPromote && varTypeIsSIMD(destLclVar->GetType()) && src->IsSIMDZero())
+    {
+        GenTree* asgFieldCommaTree = nullptr;
+
+        for (unsigned i = 0; i < destLclVar->GetPromotedFieldCount(); i++)
+        {
+            unsigned fieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
+
+            // Only Vector2/3/4 SIMD types get promoted.
+            assert(lvaGetDesc(fieldLclNum)->GetType() == TYP_FLOAT);
+
+            GenTree* fieldLclVar = gtNewLclvNode(fieldLclNum, TYP_FLOAT);
+            GenTree* asgField    = gtNewAssignNode(fieldLclVar, gtNewZeroConNode(TYP_FLOAT));
+
+            if (asgFieldCommaTree == nullptr)
+            {
+                asgFieldCommaTree = asgField;
+            }
+            else
+            {
+                asgFieldCommaTree = gtNewOperNode(GT_COMMA, TYP_VOID, asgFieldCommaTree, asgField);
+            }
+        }
+
+        asgFieldCommaTree->gtFlags |= (asg->gtFlags & GTF_LATE_ARG);
+
+        INDEBUG(asgFieldCommaTree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
+        JITDUMPTREE(asgFieldCommaTree, "fgMorphCopyBlock (after zero SIMD promotion):\n\n");
+
+        return asgFieldCommaTree;
+    }
     else
     {
         JITDUMP(" with mismatched src offset/size");
