@@ -2575,6 +2575,9 @@ void CodeGen::genCodeForDivMod(GenTreeOp* tree)
 // str tempReg, [R14, #8]
 void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
 {
+    assert(cpObjNode->OperIsCopyBlkOp());
+    assert(cpObjNode->GetLayout()->HasGCPtr());
+
     GenTree*  dstAddr       = cpObjNode->Addr();
     GenTree*  source        = cpObjNode->Data();
     var_types srcAddrType   = TYP_BYREF;

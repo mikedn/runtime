@@ -6550,41 +6550,22 @@ public:
         BlkOpKindUnroll,
     } gtBlkOpKind;
 
-#ifndef JIT32_GCENCODER
-    bool gtBlkOpGcUnsafe;
-#endif
-
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, ClassLayout* layout)
-        : GenTreeIndir(oper, type, addr, nullptr)
-        , m_layout(layout)
-        , gtBlkOpKind(BlkOpKindInvalid)
-#ifndef JIT32_GCENCODER
-        , gtBlkOpGcUnsafe(false)
-#endif
+        : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), gtBlkOpKind(BlkOpKindInvalid)
     {
         assert(OperIsBlk(oper));
         assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
     }
 
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* data, ClassLayout* layout)
-        : GenTreeIndir(oper, type, addr, data)
-        , m_layout(layout)
-        , gtBlkOpKind(BlkOpKindInvalid)
-#ifndef JIT32_GCENCODER
-        , gtBlkOpGcUnsafe(false)
-#endif
+        : GenTreeIndir(oper, type, addr, data), m_layout(layout), gtBlkOpKind(BlkOpKindInvalid)
     {
         assert(OperIsBlk(oper));
         assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
     }
 
     GenTreeBlk(GenTreeBlk* copyFrom)
-        : GenTreeIndir(copyFrom)
-        , m_layout(copyFrom->m_layout)
-        , gtBlkOpKind(copyFrom->gtBlkOpKind)
-#ifndef JIT32_GCENCODER
-        , gtBlkOpGcUnsafe(copyFrom->gtBlkOpGcUnsafe)
-#endif
+        : GenTreeIndir(copyFrom), m_layout(copyFrom->m_layout), gtBlkOpKind(copyFrom->gtBlkOpKind)
     {
     }
 

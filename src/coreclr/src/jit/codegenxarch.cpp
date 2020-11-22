@@ -2528,11 +2528,6 @@ void CodeGen::genCodeForStoreBlk(GenTreeBlk* storeBlkNode)
 
     if (storeBlkNode->OperIs(GT_STORE_OBJ))
     {
-#ifndef JIT32_GCENCODER
-        assert(!storeBlkNode->gtBlkOpGcUnsafe);
-#endif
-        assert(storeBlkNode->OperIsCopyBlkOp());
-        assert(storeBlkNode->AsObj()->GetLayout()->HasGCPtr());
         genCodeForCpObj(storeBlkNode->AsObj());
         return;
     }
@@ -2543,7 +2538,6 @@ void CodeGen::genCodeForStoreBlk(GenTreeBlk* storeBlkNode)
     {
 #ifdef TARGET_AMD64
         case GenTreeBlk::BlkOpKindHelper:
-            assert(!storeBlkNode->gtBlkOpGcUnsafe);
             if (isCopyBlk)
             {
                 genCodeForCpBlkHelper(storeBlkNode);
@@ -2553,11 +2547,9 @@ void CodeGen::genCodeForStoreBlk(GenTreeBlk* storeBlkNode)
                 genCodeForInitBlkHelper(storeBlkNode);
             }
             break;
-#endif // TARGET_AMD64
-        case GenTreeBlk::BlkOpKindRepInstr:
-#ifndef JIT32_GCENCODER
-            assert(!storeBlkNode->gtBlkOpGcUnsafe);
 #endif
+
+        case GenTreeBlk::BlkOpKindRepInstr:
             if (isCopyBlk)
             {
                 genCodeForCpBlkRepMovs(storeBlkNode);
@@ -2567,31 +2559,18 @@ void CodeGen::genCodeForStoreBlk(GenTreeBlk* storeBlkNode)
                 genCodeForInitBlkRepStos(storeBlkNode);
             }
             break;
+
         case GenTreeBlk::BlkOpKindUnroll:
             if (isCopyBlk)
             {
-#ifndef JIT32_GCENCODER
-                if (storeBlkNode->gtBlkOpGcUnsafe)
-                {
-                    GetEmitter()->emitDisableGC();
-                }
-#endif
                 genCodeForCpBlkUnroll(storeBlkNode);
-#ifndef JIT32_GCENCODER
-                if (storeBlkNode->gtBlkOpGcUnsafe)
-                {
-                    GetEmitter()->emitEnableGC();
-                }
-#endif
             }
             else
             {
-#ifndef JIT32_GCENCODER
-                assert(!storeBlkNode->gtBlkOpGcUnsafe);
-#endif
                 genCodeForInitBlkUnroll(storeBlkNode);
             }
             break;
+
         default:
             unreached();
     }
@@ -2773,6 +2752,15 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
 {
     assert(node->OperIs(GT_STORE_BLK));
 
+    if (node->GetLayout()->HasGCPtr())
+    {
+#ifndef JIT32_GCENCODER
+        GetEmitter()->emitDisableGC();
+#else
+        unreached();
+#endif
+    }
+
     unsigned  dstLclNum         = BAD_VAR_NUM;
     regNumber dstAddrBaseReg    = REG_NA;
     regNumber dstAddrIndexReg   = REG_NA;
@@ -2930,6 +2918,15 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
             }
         }
     }
+
+    if (node->GetLayout()->HasGCPtr())
+    {
+#ifndef JIT32_GCENCODER
+        GetEmitter()->emitEnableGC();
+#else
+        unreached();
+#endif
+    }
 }
 
 //----------------------------------------------------------------------------------
@@ -2944,6 +2941,8 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
 //
 void CodeGen::genCodeForCpBlkRepMovs(GenTreeBlk* cpBlkNode)
 {
+    assert(!cpBlkNode->GetLayout()->HasGCPtr());
+
     // Destination address goes in RDI, source address goes in RSE, and size goes in RCX.
     // genConsumeBlockOp takes care of this for us.
     genConsumeBlockOp(cpBlkNode, REG_RDI, REG_RSI, REG_RCX);
@@ -3019,6 +3018,8 @@ void CodeGen::genClearStackVec3ArgUpperBits()
 //
 void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
 {
+    assert(cpObjNode->OperIsCopyBlkOp());
+
     // Make sure we got the arguments of the cpobj operation in the right registers
     GenTree*  dstAddr     = cpObjNode->Addr();
     GenTree*  source      = cpObjNode->Data();
@@ -3165,6 +3166,8 @@ void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
 //
 void CodeGen::genCodeForCpBlkHelper(GenTreeBlk* cpBlkNode)
 {
+    assert(!cpBlkNode->GetLayout()->HasGCPtr());
+
     // Destination address goes in arg0, source address goes in arg1, and size goes in arg2.
     // genConsumeBlockOp takes care of this for us.
     genConsumeBlockOp(cpBlkNode, REG_ARG_0, REG_ARG_1, REG_ARG_2);
@@ -4252,7 +4255,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
             // The VM doesn't allow such large array elements but let's be sure.
             noway_assert(scale <= INT32_MAX);
 #else  // !TARGET_64BIT
-            tmpReg              = node->GetSingleTempReg();
+            tmpReg = node->GetSingleTempReg();
 #endif // !TARGET_64BIT
 
             GetEmitter()->emitIns_R_I(emitter::inst3opImulForReg(tmpReg), EA_PTRSIZE, indexReg,

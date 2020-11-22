@@ -4865,9 +4865,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
             tree->ChangeOper(GT_OBJ);
             tree->AsObj()->SetLayout(typGetObjLayout(elemStructType));
             tree->AsObj()->gtBlkOpKind = GenTreeBlk::BlkOpKindInvalid;
-#ifndef JIT32_GCENCODER
-            tree->AsObj()->gtBlkOpGcUnsafe = false;
-#endif
         }
         else
         {

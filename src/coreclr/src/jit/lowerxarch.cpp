@@ -295,12 +295,12 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
 #ifndef JIT32_GCENCODER
             else if (dstAddr->OperIsLocalAddr() && (size <= CPBLK_UNROLL_LIMIT))
             {
-                // If the size is small enough to unroll then we need to mark the block as non-interruptible
-                // to actually allow unrolling. The generated code does not report GC references loaded in the
-                // temporary register(s) used for copying.
-                // This is not supported for the JIT32_GCENCODER.
+                // Even if the struct contains GC pointers we can still unroll if the destination is
+                // a local variable, then GC write barriers aren't needed. Still, the generated code
+                // doesn't report GC references loaded in the temporary register(s) so the region has
+                // to be GC non-interruptible. This is not supported by the JIT32_GCENCODER.
+
                 blkNode->SetOper(GT_STORE_BLK);
-                blkNode->gtBlkOpGcUnsafe = true;
             }
 #endif
         }

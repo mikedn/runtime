@@ -1740,6 +1740,8 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
 //
 void CodeGen::genCodeForCpBlkHelper(GenTreeBlk* cpBlkNode)
 {
+    assert(!cpBlkNode->GetLayout()->HasGCPtr());
+
     // Destination address goes in arg0, source address goes in arg1, and size goes in arg2.
     // genConsumeBlockOp takes care of this for us.
     genConsumeBlockOp(cpBlkNode, REG_ARG_0, REG_ARG_1, REG_ARG_2);
@@ -1891,6 +1893,11 @@ void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
 void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
 {
     assert(node->OperIs(GT_STORE_BLK));
+
+    if (node->GetLayout()->HasGCPtr())
+    {
+        GetEmitter()->emitDisableGC();
+    }
 
     unsigned  dstLclNum      = BAD_VAR_NUM;
     regNumber dstAddrBaseReg = REG_NA;
@@ -2060,6 +2067,11 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     {
         // issue a load barrier after a volatile CpBlk operation
         instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
+    }
+
+    if (node->GetLayout()->HasGCPtr())
+    {
+        GetEmitter()->emitEnableGC();
     }
 }
 
@@ -3279,9 +3291,6 @@ void CodeGen::genCodeForStoreBlk(GenTreeBlk* blkOp)
 
     if (blkOp->OperIs(GT_STORE_OBJ))
     {
-        assert(!blkOp->gtBlkOpGcUnsafe);
-        assert(blkOp->OperIsCopyBlkOp());
-        assert(blkOp->AsObj()->GetLayout()->HasGCPtr());
         genCodeForCpObj(blkOp->AsObj());
         return;
     }
@@ -3291,7 +3300,6 @@ void CodeGen::genCodeForStoreBlk(GenTreeBlk* blkOp)
     switch (blkOp->gtBlkOpKind)
     {
         case GenTreeBlk::BlkOpKindHelper:
-            assert(!blkOp->gtBlkOpGcUnsafe);
             if (isCopyBlk)
             {
                 genCodeForCpBlkHelper(blkOp);
@@ -3305,19 +3313,10 @@ void CodeGen::genCodeForStoreBlk(GenTreeBlk* blkOp)
         case GenTreeBlk::BlkOpKindUnroll:
             if (isCopyBlk)
             {
-                if (blkOp->gtBlkOpGcUnsafe)
-                {
-                    GetEmitter()->emitDisableGC();
-                }
                 genCodeForCpBlkUnroll(blkOp);
-                if (blkOp->gtBlkOpGcUnsafe)
-                {
-                    GetEmitter()->emitEnableGC();
-                }
             }
             else
             {
-                assert(!blkOp->gtBlkOpGcUnsafe);
                 genCodeForInitBlkUnroll(blkOp);
             }
             break;
