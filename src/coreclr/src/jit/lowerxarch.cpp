@@ -133,36 +133,30 @@ void Lowering::LowerStoreIndir(GenTreeIndir* node)
     ContainCheckStoreIndir(node);
 }
 
-//------------------------------------------------------------------------
-// LowerBlockStore: Lower a block store node
-//
-// Arguments:
-//    blkNode - The block store node to lower
-//
-void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
+void Lowering::LowerStructStore(GenTreeBlk* store)
 {
-    TryCreateAddrMode(blkNode->GetAddr(), false);
+    GenTree* dstAddr = store->GetAddr();
+    GenTree* src     = store->GetValue();
+    unsigned size    = store->Size();
 
-    GenTree* dstAddr = blkNode->GetAddr();
-    GenTree* src     = blkNode->GetValue();
-    unsigned size    = blkNode->Size();
+    TryCreateAddrMode(dstAddr, false);
 
-    if (blkNode->OperIsInitBlkOp())
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
-        switch (blkNode->GetOper())
+        switch (store->GetOper())
         {
             case GT_STORE_OBJ:
-                assert(!blkNode->GetLayout()->IsBlockLayout());
-                assert(varTypeIsStruct(blkNode->GetType()));
+                assert(!store->GetLayout()->IsBlockLayout());
+                assert(varTypeIsStruct(store->GetType()));
                 assert(src->IsIntegralConst(0));
                 break;
             case GT_STORE_BLK:
-                assert(blkNode->GetLayout()->IsBlockLayout());
-                assert(blkNode->TypeIs(TYP_STRUCT));
+                assert(store->GetLayout()->IsBlockLayout());
+                assert(store->TypeIs(TYP_STRUCT));
                 assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
                 break;
             case GT_STORE_DYN_BLK:
-                assert(blkNode->GetLayout() == nullptr);
+                assert(store->GetLayout() == nullptr);
                 assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
                 break;
             default:
@@ -172,80 +166,77 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
         if (src->OperIs(GT_INIT_VAL))
         {
             src->SetContained();
-            src = src->AsUnOp()->gtGetOp1();
+            src = src->AsUnOp()->GetOp(0);
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        if (store->OperIs(GT_STORE_OBJ))
         {
-            blkNode->SetOper(GT_STORE_BLK);
+            store->SetOper(GT_STORE_BLK);
         }
 
-        if (!blkNode->OperIs(GT_STORE_DYN_BLK) && (size <= INITBLK_UNROLL_LIMIT))
+        if (store->OperIs(GT_STORE_DYN_BLK) || (size > INITBLK_UNROLL_LIMIT))
         {
-            if (!src->OperIs(GT_CNS_INT))
-            {
-                // TODO-CQ: We could unroll even when the initialization value is not a constant
-                // by inserting a MUL init, 0x01010101 instruction. We need to determine if the
-                // extra latency that MUL introduces isn't worse that rep stosb. Likely not.
-                blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
-            }
-            else
-            {
-                blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
-
-                // The fill value of an initblk is interpreted to hold a
-                // value of (unsigned int8) however a constant of any size
-                // may practically reside on the evaluation stack. So extract
-                // the lower byte out of the initVal constant and replicate
-                // it to a larger constant whose size is sufficient to support
-                // the largest width store of the desired inline expansion.
-
-                ssize_t fill = src->AsIntCon()->IconValue() & 0xFF;
-
-                if (fill == 0)
-                {
-                    // If the size is multiple of XMM register size there's no need to load 0 in a GPR,
-                    // codegen will use xorps to generate 0 directly in the temporary XMM register.
-                    if ((size % XMM_REGSIZE_BYTES) == 0)
-                    {
-                        src->SetContained();
-                    }
-                }
 #ifdef TARGET_AMD64
-                else if (size >= REGSIZE_BYTES)
-                {
-                    fill *= 0x0101010101010101LL;
-                    src->gtType = TYP_LONG;
-                }
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
+#else
+            // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
 #endif
-                else
-                {
-                    fill *= 0x01010101;
-                }
-
-                src->AsIntCon()->SetIconValue(fill);
-
-                ContainBlockStoreAddress(blkNode, size, dstAddr);
-            }
+        }
+        else if (!src->OperIs(GT_CNS_INT))
+        {
+            // TODO-CQ: We could unroll even when the initialization value is not a constant
+            // by inserting a MUL init, 0x01010101 instruction. We need to determine if the
+            // extra latency that MUL introduces isn't worse that rep stosb. Likely not.
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
         }
         else
         {
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
+
+            // The fill value of an initblk is interpreted to hold a
+            // value of (unsigned int8) however a constant of any size
+            // may practically reside on the evaluation stack. So extract
+            // the lower byte out of the initVal constant and replicate
+            // it to a larger constant whose size is sufficient to support
+            // the largest width store of the desired inline expansion.
+
+            ssize_t fill = src->AsIntCon()->GetUInt8Value();
+
+            if (fill == 0)
+            {
+                // If the size is multiple of XMM register size there's no need to load 0 in a GPR,
+                // codegen will use xorps to generate 0 directly in the temporary XMM register.
+                if ((size % XMM_REGSIZE_BYTES) == 0)
+                {
+                    src->SetContained();
+                }
+            }
 #ifdef TARGET_AMD64
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
-#else
-            // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
+            else if (size >= REGSIZE_BYTES)
+            {
+                fill *= 0x0101010101010101LL;
+                src->SetType(TYP_LONG);
+            }
 #endif
+            else
+            {
+                fill *= 0x01010101;
+            }
+
+            src->AsIntCon()->SetValue(fill);
+
+            ContainBlockStoreAddress(store, size, dstAddr);
         }
     }
     else
     {
-        switch (blkNode->GetOper())
+        switch (store->GetOper())
         {
             case GT_STORE_OBJ:
-                assert(!blkNode->GetLayout()->IsBlockLayout());
-                assert(varTypeIsStruct(blkNode->GetType()));
-                assert(blkNode->GetType() == src->GetType());
+                assert(!store->GetLayout()->IsBlockLayout());
+                assert(varTypeIsStruct(store->GetType()));
+                assert(store->GetType() == src->GetType());
                 if (src->OperIs(GT_OBJ))
                 {
                     // assert(blkNode->GetLayout() == src->AsObj()->GetLayout());
@@ -260,14 +251,14 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
                 }
                 break;
             case GT_STORE_BLK:
-                assert(blkNode->GetLayout()->IsBlockLayout());
-                assert(blkNode->TypeIs(TYP_STRUCT));
+                assert(store->GetLayout()->IsBlockLayout());
+                assert(store->TypeIs(TYP_STRUCT));
                 assert(src->OperIs(GT_BLK));
                 assert(src->TypeIs(TYP_STRUCT));
-                assert(blkNode->GetLayout() == src->AsBlk()->GetLayout());
+                assert(store->GetLayout() == src->AsBlk()->GetLayout());
                 break;
             case GT_STORE_DYN_BLK:
-                assert(blkNode->GetLayout() == nullptr);
+                assert(store->GetLayout() == nullptr);
                 assert(src->OperIs(GT_IND));
                 assert(src->TypeIs(TYP_STRUCT));
                 break;
@@ -286,11 +277,11 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             src->AsIndir()->GetAddr()->ClearContained();
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        if (store->OperIs(GT_STORE_OBJ))
         {
-            if (!blkNode->AsObj()->GetLayout()->HasGCPtr())
+            if (!store->AsObj()->GetLayout()->HasGCPtr())
             {
-                blkNode->SetOper(GT_STORE_BLK);
+                store->SetOper(GT_STORE_BLK);
             }
 #ifndef JIT32_GCENCODER
             else if (dstAddr->OperIsLocalAddr() && (size <= CPBLK_UNROLL_LIMIT))
@@ -300,12 +291,12 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
                 // doesn't report GC references loaded in the temporary register(s) so the region has
                 // to be GC non-interruptible. This is not supported by the JIT32_GCENCODER.
 
-                blkNode->SetOper(GT_STORE_BLK);
+                store->SetOper(GT_STORE_BLK);
             }
 #endif
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        if (store->OperIs(GT_STORE_OBJ))
         {
             assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
@@ -313,30 +304,30 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             // we can use REP MOVSD/Q instead of a sequence of MOVSD/Q instructions. According to the
             // Intel Manual, the sweet spot for small structs is between 4 to 12 slots of size where
             // the entire operation takes 20 cycles and encodes in 5 bytes (loading RCX and REP MOVSD/Q).
-            unsigned nonGCSlots = 0;
+            unsigned nonWBSequenceLength = 0;
 
             if (dstAddr->OperIsLocalAddr())
             {
                 // If the destination is on the stack then no write barriers are needed.
-                nonGCSlots = blkNode->GetLayout()->GetSlotCount();
+                nonWBSequenceLength = store->GetLayout()->GetSlotCount();
             }
             else
             {
                 // Otherwise a write barrier is needed for every GC pointer in the layout
                 // so we need to check if there's a long enough sequence of non-GC slots.
-                ClassLayout* layout = blkNode->GetLayout();
+                ClassLayout* layout = store->GetLayout();
                 unsigned     slots  = layout->GetSlotCount();
                 for (unsigned i = 0; i < slots; i++)
                 {
                     if (layout->IsGCPtr(i))
                     {
-                        nonGCSlots = 0;
+                        nonWBSequenceLength = 0;
                     }
                     else
                     {
-                        nonGCSlots++;
+                        nonWBSequenceLength++;
 
-                        if (nonGCSlots >= CPOBJ_NONGC_SLOTS_LIMIT)
+                        if (nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT)
                         {
                             break;
                         }
@@ -344,13 +335,13 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
                 }
             }
 
-            if (nonGCSlots >= CPOBJ_NONGC_SLOTS_LIMIT)
+            if (nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT)
             {
-                blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
+                store->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
             }
             else
             {
-                blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
+                store->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
             }
 
             if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
@@ -358,26 +349,26 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
                 TryCreateAddrMode(src->AsIndir()->GetAddr(), false);
             }
         }
-        else if (blkNode->OperIs(GT_STORE_BLK) && (size <= CPBLK_UNROLL_LIMIT))
+        else if (store->OperIs(GT_STORE_BLK) && (size <= CPBLK_UNROLL_LIMIT))
         {
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
 
             if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
-                ContainBlockStoreAddress(blkNode, size, src->AsIndir()->GetAddr());
+                ContainBlockStoreAddress(store, size, src->AsIndir()->GetAddr());
             }
 
-            ContainBlockStoreAddress(blkNode, size, dstAddr);
+            ContainBlockStoreAddress(store, size, dstAddr);
         }
         else
         {
-            assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_DYN_BLK));
+            assert(store->OperIs(GT_STORE_BLK, GT_STORE_DYN_BLK));
 
 #ifdef TARGET_AMD64
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
 #else
             // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindRepInstr;
 #endif
 
             if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))

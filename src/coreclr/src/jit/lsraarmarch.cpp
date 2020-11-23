@@ -490,20 +490,11 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 }
 #endif // FEATURE_ARG_SPLIT
 
-//------------------------------------------------------------------------
-// BuildBlockStore: Build the RefPositions for a block store node.
-//
-// Arguments:
-//    blkNode - The block store node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
+int LinearScan::BuildStructStore(GenTreeBlk* store)
 {
-    GenTree* dstAddr = blkNode->Addr();
-    GenTree* src     = blkNode->Data();
-    unsigned size    = blkNode->Size();
+    GenTree* dstAddr = store->GetAddr();
+    GenTree* src     = store->GetValue();
+    unsigned size    = store->Size();
 
     GenTree* srcAddrOrFill = nullptr;
 
@@ -511,17 +502,17 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
     regMaskTP srcRegMask     = RBM_NONE;
     regMaskTP sizeRegMask    = RBM_NONE;
 
-    if (blkNode->OperIsInitBlkOp())
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         if (src->OperIs(GT_INIT_VAL))
         {
             assert(src->isContained());
-            src = src->AsUnOp()->gtGetOp1();
+            src = src->AsUnOp()->GetOp(0);
         }
 
         srcAddrOrFill = src;
 
-        switch (blkNode->gtBlkOpKind)
+        switch (store->gtBlkOpKind)
         {
             case GenTreeBlk::BlkOpKindUnroll:
                 break;
@@ -545,28 +536,27 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
             srcAddrOrFill = src->AsIndir()->GetAddr();
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        if (store->OperIs(GT_STORE_OBJ))
         {
-            // We don't need to materialize the struct size but we still need
-            // a temporary register to perform the sequence of loads and stores.
-            // We can't use the special Write Barrier registers, so exclude them from the mask
-            regMaskTP internalIntCandidates =
-                allRegs(TYP_INT) & ~(RBM_WRITE_BARRIER_DST_BYREF | RBM_WRITE_BARRIER_SRC_BYREF);
-            buildInternalIntRegisterDefForNode(blkNode, internalIntCandidates);
-
+            regMaskTP internalIntCandidates = allRegs(TYP_INT);
+            internalIntCandidates &= ~(RBM_WRITE_BARRIER_DST_BYREF | RBM_WRITE_BARRIER_SRC_BYREF);
+            buildInternalIntRegisterDefForNode(store, internalIntCandidates);
+#ifdef TARGET_ARM64
             if (size >= 2 * REGSIZE_BYTES)
             {
-                // We will use ldp/stp to reduce code size and improve performance
-                // so we need to reserve an extra internal register
-                buildInternalIntRegisterDefForNode(blkNode, internalIntCandidates);
+                // Reserve an additional temp register for LDP/STP.
+                buildInternalIntRegisterDefForNode(store, internalIntCandidates);
             }
+#endif
 
-            // If we have a dest address we want it in RBM_WRITE_BARRIER_DST_BYREF.
             dstAddrRegMask = RBM_WRITE_BARRIER_DST_BYREF;
 
             // If we have a source address we want it in REG_WRITE_BARRIER_SRC_BYREF.
             // Otherwise, if it is a local, codegen will put its address in REG_WRITE_BARRIER_SRC_BYREF,
-            // which is killed by a StoreObj (and thus needn't be reserved).
+            // which is killed and thus needn't be reserved as an internal register.
+
+            // TODO-MIKE-Review: XARCH lowering does reserve an internal register for a local source.
+
             if (srcAddrOrFill != nullptr)
             {
                 assert(!srcAddrOrFill->isContained());
@@ -575,28 +565,23 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
         }
         else
         {
-            switch (blkNode->gtBlkOpKind)
+            switch (store->gtBlkOpKind)
             {
                 case GenTreeBlk::BlkOpKindUnroll:
-                    buildInternalIntRegisterDefForNode(blkNode);
+                    buildInternalIntRegisterDefForNode(store);
 #ifdef TARGET_ARM64
                     if (size >= 2 * REGSIZE_BYTES)
                     {
-                        // We will use ldp/stp to reduce code size and improve performance
-                        // so we need to reserve an extra internal register
-                        buildInternalIntRegisterDefForNode(blkNode);
+                        // Reserve an additional temp register for LDP/STP.
+                        buildInternalIntRegisterDefForNode(store);
                     }
 #endif
                     break;
 
                 case GenTreeBlk::BlkOpKindHelper:
                     dstAddrRegMask = RBM_ARG_0;
-                    if (srcAddrOrFill != nullptr)
-                    {
-                        assert(!srcAddrOrFill->isContained());
-                        srcRegMask = RBM_ARG_1;
-                    }
-                    sizeRegMask = RBM_ARG_2;
+                    srcRegMask     = RBM_ARG_1;
+                    sizeRegMask    = RBM_ARG_2;
                     break;
 
                 default:
@@ -605,10 +590,10 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
         }
     }
 
-    if (!blkNode->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
+    if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
     {
         // Reserve a temp register for the block size argument.
-        buildInternalIntRegisterDefForNode(blkNode, sizeRegMask);
+        buildInternalIntRegisterDefForNode(store, sizeRegMask);
     }
 
     int useCount = 0;
@@ -618,7 +603,7 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
         useCount++;
         BuildUse(dstAddr, dstAddrRegMask);
     }
-    else if (dstAddr->OperIsAddrMode())
+    else if (dstAddr->IsAddrMode())
     {
         useCount += BuildAddrUses(dstAddr->AsAddrMode()->Base());
     }
@@ -630,21 +615,22 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
             useCount++;
             BuildUse(srcAddrOrFill, srcRegMask);
         }
-        else if (srcAddrOrFill->OperIsAddrMode())
+        else if (srcAddrOrFill->IsAddrMode())
         {
             useCount += BuildAddrUses(srcAddrOrFill->AsAddrMode()->Base());
         }
     }
 
-    if (blkNode->OperIs(GT_STORE_DYN_BLK))
+    if (store->OperIs(GT_STORE_DYN_BLK))
     {
         useCount++;
-        BuildUse(blkNode->AsDynBlk()->gtDynamicSize, sizeRegMask);
+        BuildUse(store->AsDynBlk()->GetSize(), sizeRegMask);
     }
 
     buildInternalRegisterUses();
-    regMaskTP killMask = getKillSetForBlockStore(blkNode);
-    BuildDefsWithKills(blkNode, 0, RBM_NONE, killMask);
+    regMaskTP killMask = getKillSetForStructStore(store);
+    BuildDefsWithKills(store, 0, RBM_NONE, killMask);
+
     return useCount;
 }
 

@@ -1792,7 +1792,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_STORE_OBJ:
         case GT_STORE_DYN_BLK:
         case GT_STORE_BLK:
-            genCodeForStoreBlk(treeNode->AsBlk());
+            genStructStore(treeNode->AsBlk());
             break;
 
         case GT_JMPTABLE:
@@ -2522,52 +2522,52 @@ BAILOUT:
     genProduceReg(tree);
 }
 
-void CodeGen::genCodeForStoreBlk(GenTreeBlk* storeBlkNode)
+void CodeGen::genStructStore(GenTreeBlk* store)
 {
-    assert(storeBlkNode->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK));
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK));
 
-    if (storeBlkNode->OperIs(GT_STORE_OBJ))
+    if (store->OperIs(GT_STORE_OBJ))
     {
-        genCodeForCpObj(storeBlkNode->AsObj());
+        genStructStoreUnrollCopyWB(store->AsObj());
         return;
     }
 
-    bool isCopyBlk = storeBlkNode->OperIsCopyBlkOp();
+    bool isCopy = store->OperIsCopyBlkOp();
 
-    switch (storeBlkNode->gtBlkOpKind)
+    switch (store->gtBlkOpKind)
     {
 #ifdef TARGET_AMD64
         case GenTreeBlk::BlkOpKindHelper:
-            if (isCopyBlk)
+            if (isCopy)
             {
-                genCodeForCpBlkHelper(storeBlkNode);
+                genStructStoreMemCpy(store);
             }
             else
             {
-                genCodeForInitBlkHelper(storeBlkNode);
+                genStructStoreMemSet(store);
             }
             break;
 #endif
 
         case GenTreeBlk::BlkOpKindRepInstr:
-            if (isCopyBlk)
+            if (isCopy)
             {
-                genCodeForCpBlkRepMovs(storeBlkNode);
+                genStructStoreRepMovs(store);
             }
             else
             {
-                genCodeForInitBlkRepStos(storeBlkNode);
+                genStructStoreRepStos(store);
             }
             break;
 
         case GenTreeBlk::BlkOpKindUnroll:
-            if (isCopyBlk)
+            if (isCopy)
             {
-                genCodeForCpBlkUnroll(storeBlkNode);
+                genStructStoreUnrollCopy(store);
             }
             else
             {
-                genCodeForInitBlkUnroll(storeBlkNode);
+                genStructStoreUnrollInit(store);
             }
             break;
 
@@ -2576,71 +2576,83 @@ void CodeGen::genCodeForStoreBlk(GenTreeBlk* storeBlkNode)
     }
 }
 
-//
-//------------------------------------------------------------------------
-// genCodeForInitBlkRepStos: Generate code for InitBlk using rep stos.
-//
-// Arguments:
-//    initBlkNode - The Block store for which we are generating code.
-//
-void CodeGen::genCodeForInitBlkRepStos(GenTreeBlk* initBlkNode)
+#ifdef TARGET_AMD64
+
+void CodeGen::genStructStoreMemSet(GenTreeBlk* store)
 {
-    genConsumeBlockOp(initBlkNode, REG_RDI, REG_RAX, REG_RCX);
+    genConsumeStructStore(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+    genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+}
+
+void CodeGen::genStructStoreMemCpy(GenTreeBlk* store)
+{
+    assert((store->GetLayout() == nullptr) || !store->GetLayout()->HasGCPtr());
+
+    genConsumeStructStore(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+    genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
+}
+
+#endif // TARGET_AMD64
+
+void CodeGen::genStructStoreRepStos(GenTreeBlk* store)
+{
+    genConsumeStructStore(store, REG_RDI, REG_RAX, REG_RCX);
     instGen(INS_r_stosb);
 }
 
-//----------------------------------------------------------------------------------
-// genCodeForInitBlkUnroll: Generate unrolled block initialization code.
-//
-// Arguments:
-//    node - the GT_STORE_BLK node to generate code for
-//
-void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
+void CodeGen::genStructStoreRepMovs(GenTreeBlk* store)
 {
-    assert(node->OperIs(GT_STORE_BLK));
+    assert((store->GetLayout() == nullptr) || !store->GetLayout()->HasGCPtr());
+
+    genConsumeStructStore(store, REG_RDI, REG_RSI, REG_RCX);
+    instGen(INS_r_movsb);
+}
+
+void CodeGen::genStructStoreUnrollInit(GenTreeBlk* store)
+{
+    assert(store->OperIs(GT_STORE_BLK));
 
     unsigned  dstLclNum         = BAD_VAR_NUM;
     regNumber dstAddrBaseReg    = REG_NA;
     regNumber dstAddrIndexReg   = REG_NA;
     unsigned  dstAddrIndexScale = 1;
     int       dstOffset         = 0;
-    GenTree*  dstAddr           = node->Addr();
+    GenTree*  dstAddr           = store->GetAddr();
 
     if (!dstAddr->isContained())
     {
         dstAddrBaseReg = genConsumeReg(dstAddr);
     }
-    else if (dstAddr->OperIsAddrMode())
+    else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
     {
-        GenTreeAddrMode* addrMode = dstAddr->AsAddrMode();
-
         if (addrMode->HasBase())
         {
-            dstAddrBaseReg = genConsumeReg(addrMode->Base());
+            dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
         }
 
         if (addrMode->HasIndex())
         {
-            dstAddrIndexReg   = genConsumeReg(addrMode->Index());
+            dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
             dstAddrIndexScale = addrMode->GetScale();
         }
 
-        dstOffset = addrMode->Offset();
+        dstOffset = addrMode->GetOffset();
     }
     else
     {
         assert(dstAddr->OperIsLocalAddr());
+
         dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
         dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
     }
 
     regNumber srcIntReg = REG_NA;
-    GenTree*  src       = node->Data();
+    GenTree*  src       = store->GetValue();
 
     if (src->OperIs(GT_INIT_VAL))
     {
         assert(src->isContained());
-        src = src->AsUnOp()->gtGetOp1();
+        src = src->AsUnOp()->GetOp(0);
     }
 
     if (!src->isContained())
@@ -2652,11 +2664,11 @@ void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
         // If src is contained then it must be 0 and the size must be a multiple
         // of XMM_REGSIZE_BYTES so initialization can use only SSE2 instructions.
         assert(src->IsIntegralConst(0));
-        assert((node->GetLayout()->GetSize() % XMM_REGSIZE_BYTES) == 0);
+        assert((store->GetLayout()->GetSize() % XMM_REGSIZE_BYTES) == 0);
     }
 
     emitter* emit = GetEmitter();
-    unsigned size = node->GetLayout()->GetSize();
+    unsigned size = store->GetLayout()->GetSize();
 
     assert(size <= INT32_MAX);
     assert(dstOffset < (INT32_MAX - static_cast<int>(size)));
@@ -2664,7 +2676,7 @@ void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
     // Fill as much as possible using SSE2 stores.
     if (size >= XMM_REGSIZE_BYTES)
     {
-        regNumber srcXmmReg = node->GetSingleTempReg(RBM_ALLFLOAT);
+        regNumber srcXmmReg = store->GetSingleTempReg(RBM_ALLFLOAT);
 
         if (src->gtSkipReloadOrCopy()->IsIntegralConst(0))
         {
@@ -2721,38 +2733,11 @@ void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
     }
 }
 
-#ifdef TARGET_AMD64
-//------------------------------------------------------------------------
-// genCodeForInitBlkHelper - Generate code for an InitBlk node by the means of the VM memcpy helper call
-//
-// Arguments:
-//    initBlkNode - the GT_STORE_[BLK|OBJ|DYN_BLK]
-//
-// Preconditions:
-//   The register assignments have been set appropriately.
-//   This is validated by genConsumeBlockOp().
-//
-void CodeGen::genCodeForInitBlkHelper(GenTreeBlk* initBlkNode)
+void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
 {
-    // Destination address goes in arg0, source address goes in arg1, and size goes in arg2.
-    // genConsumeBlockOp takes care of this for us.
-    genConsumeBlockOp(initBlkNode, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+    assert(store->OperIs(GT_STORE_BLK));
 
-    genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
-}
-#endif // TARGET_AMD64
-
-//----------------------------------------------------------------------------------
-// genCodeForCpBlkUnroll - Generate unrolled block copy code.
-//
-// Arguments:
-//    node - the GT_STORE_BLK node to generate code for
-//
-void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
-{
-    assert(node->OperIs(GT_STORE_BLK));
-
-    if (node->GetLayout()->HasGCPtr())
+    if (store->GetLayout()->HasGCPtr())
     {
 #ifndef JIT32_GCENCODER
         GetEmitter()->emitDisableGC();
@@ -2766,35 +2751,33 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     regNumber dstAddrIndexReg   = REG_NA;
     unsigned  dstAddrIndexScale = 1;
     int       dstOffset         = 0;
-    GenTree*  dstAddr           = node->Addr();
+    GenTree*  dstAddr           = store->GetAddr();
 
     if (!dstAddr->isContained())
     {
         dstAddrBaseReg = genConsumeReg(dstAddr);
     }
-    else if (dstAddr->OperIsAddrMode())
+    else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
     {
-        GenTreeAddrMode* addrMode = dstAddr->AsAddrMode();
-
         if (addrMode->HasBase())
         {
-            dstAddrBaseReg = genConsumeReg(addrMode->Base());
+            dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
         }
 
         if (addrMode->HasIndex())
         {
-            dstAddrIndexReg   = genConsumeReg(addrMode->Index());
+            dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
             dstAddrIndexScale = addrMode->GetScale();
         }
 
-        dstOffset = addrMode->Offset();
+        dstOffset = addrMode->GetOffset();
     }
     else
     {
         assert(dstAddr->OperIsLocalAddr());
-        const GenTreeLclVarCommon* lclVar = dstAddr->AsLclVarCommon();
-        dstLclNum                         = lclVar->GetLclNum();
-        dstOffset                         = lclVar->GetLclOffs();
+
+        dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
+        dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
     }
 
     unsigned  srcLclNum         = BAD_VAR_NUM;
@@ -2802,7 +2785,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     regNumber srcAddrIndexReg   = REG_NA;
     unsigned  srcAddrIndexScale = 1;
     int       srcOffset         = 0;
-    GenTree*  src               = node->Data();
+    GenTree*  src               = store->GetValue();
 
     assert(src->isContained());
 
@@ -2814,39 +2797,39 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     else
     {
         assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+
         GenTree* srcAddr = src->AsIndir()->GetAddr();
 
         if (!srcAddr->isContained())
         {
             srcAddrBaseReg = genConsumeReg(srcAddr);
         }
-        else if (srcAddr->OperIsAddrMode())
+        else if (GenTreeAddrMode* addrMode = srcAddr->IsAddrMode())
         {
-            GenTreeAddrMode* addrMode = srcAddr->AsAddrMode();
-
             if (addrMode->HasBase())
             {
-                srcAddrBaseReg = genConsumeReg(addrMode->Base());
+                srcAddrBaseReg = genConsumeReg(addrMode->GetBase());
             }
 
             if (addrMode->HasIndex())
             {
-                srcAddrIndexReg   = genConsumeReg(addrMode->Index());
+                srcAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
                 srcAddrIndexScale = addrMode->GetScale();
             }
 
-            srcOffset = addrMode->Offset();
+            srcOffset = addrMode->GetOffset();
         }
         else
         {
             assert(srcAddr->OperIsLocalAddr());
+
             srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
             srcOffset = srcAddr->AsLclVarCommon()->GetLclOffs();
         }
     }
 
     emitter* emit = GetEmitter();
-    unsigned size = node->GetLayout()->GetSize();
+    unsigned size = store->GetLayout()->GetSize();
 
     assert(size <= INT32_MAX);
     assert(srcOffset < (INT32_MAX - static_cast<int>(size)));
@@ -2854,7 +2837,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
 
     if (size >= XMM_REGSIZE_BYTES)
     {
-        regNumber tempReg = node->GetSingleTempReg(RBM_ALLFLOAT);
+        regNumber tempReg = store->GetSingleTempReg(RBM_ALLFLOAT);
 
         instruction simdMov = simdUnalignedMovIns();
         for (unsigned regSize = XMM_REGSIZE_BYTES; size >= regSize;
@@ -2888,7 +2871,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
 
     if (size > 0)
     {
-        regNumber tempReg = node->GetSingleTempReg(RBM_ALLINT);
+        regNumber tempReg = store->GetSingleTempReg(RBM_ALLINT);
 
         for (unsigned regSize = REGSIZE_BYTES; size > 0; size -= regSize, srcOffset += regSize, dstOffset += regSize)
         {
@@ -2919,7 +2902,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
         }
     }
 
-    if (node->GetLayout()->HasGCPtr())
+    if (store->GetLayout()->HasGCPtr())
     {
 #ifndef JIT32_GCENCODER
         GetEmitter()->emitEnableGC();
@@ -2929,24 +2912,100 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     }
 }
 
-//----------------------------------------------------------------------------------
-// genCodeForCpBlkRepMovs - Generate code for CpBlk by using rep movs
+// Generate code for a struct store that contains GC pointers.
+// This will generate a sequence of (REP) MOVS instructions for
+// non-GC slots and calls to the BY_REF_ASSIGN helper otherwise.
 //
-// Arguments:
-//    cpBlkNode - the GT_STORE_[BLK|OBJ|DYN_BLK]
-//
-// Preconditions:
-//   The register assignments have been set appropriately.
-//   This is validated by genConsumeBlockOp().
-//
-void CodeGen::genCodeForCpBlkRepMovs(GenTreeBlk* cpBlkNode)
+void CodeGen::genStructStoreUnrollCopyWB(GenTreeObj* store)
 {
-    assert(!cpBlkNode->GetLayout()->HasGCPtr());
+    assert(store->GetLayout()->HasGCPtr());
 
-    // Destination address goes in RDI, source address goes in RSE, and size goes in RCX.
-    // genConsumeBlockOp takes care of this for us.
-    genConsumeBlockOp(cpBlkNode, REG_RDI, REG_RSI, REG_RCX);
-    instGen(INS_r_movsb);
+    genConsumeStructStore(store, REG_RDI, REG_RSI, REG_NA);
+
+    GenTree*  dstAddr     = store->GetAddr();
+    bool      dstOnStack  = dstAddr->gtSkipReloadOrCopy()->OperIsLocalAddr();
+    var_types dstAddrType = dstAddr->GetType();
+
+    GenTree*  src = store->GetValue();
+    var_types srcAddrType;
+
+    if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        srcAddrType = TYP_I_IMPL;
+    }
+    else
+    {
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+
+        srcAddrType = src->AsIndir()->GetAddr()->GetType();
+    }
+
+    gcInfo.gcMarkRegPtrVal(REG_RSI, srcAddrType);
+    gcInfo.gcMarkRegPtrVal(REG_RDI, dstAddrType);
+
+    ClassLayout* layout    = store->GetLayout();
+    unsigned     slotCount = layout->GetSlotCount();
+
+    if (dstOnStack)
+    {
+        // Stack stores do not require write barriers.
+
+        if (slotCount < CPOBJ_NONGC_SLOTS_LIMIT)
+        {
+            for (unsigned i = 0; i < slotCount; i++)
+            {
+                instGen(INS_movsp);
+            }
+        }
+        else
+        {
+            assert(store->HasTempReg(REG_RCX));
+
+            GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, slotCount);
+            instGen(INS_r_movsp);
+        }
+    }
+    else
+    {
+        for (unsigned i = 0; i < slotCount; i++)
+        {
+            if (layout->IsGCPtr(i))
+            {
+                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, 0, EA_PTRSIZE);
+            }
+            else
+            {
+                unsigned nonWBSequenceLength = 1;
+
+                while ((i + 1 < slotCount) && !layout->IsGCPtr(i + 1))
+                {
+                    nonWBSequenceLength++;
+                    i++;
+                }
+
+                if (nonWBSequenceLength < CPOBJ_NONGC_SLOTS_LIMIT)
+                {
+                    for (unsigned j = 0; j < nonWBSequenceLength; j++)
+                    {
+                        instGen(INS_movsp);
+                    }
+                }
+                else
+                {
+                    assert(store->HasTempReg(REG_RCX));
+
+                    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, nonWBSequenceLength);
+                    instGen(INS_r_movsp);
+                }
+            }
+        }
+    }
+
+    // Clear the gcInfo for RSI and RDI.
+    // While we normally update GC info prior to the last instruction that uses them,
+    // these actually live into the helper call.
+    gcInfo.gcMarkRegSetNpt(RBM_RSI);
+    gcInfo.gcMarkRegSetNpt(RBM_RDI);
 }
 
 //------------------------------------------------------------------------
@@ -2999,182 +3058,6 @@ void CodeGen::genClearStackVec3ArgUpperBits()
     }
 }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
-
-//
-// genCodeForCpObj - Generate code for CpObj nodes to copy structs that have interleaved
-//                   GC pointers.
-//
-// Arguments:
-//    cpObjNode - the GT_STORE_OBJ
-//
-// Notes:
-//    This will generate a sequence of movsp instructions for the cases of non-gc members.
-//    Note that movsp is an alias for movsd on x86 and movsq on x64.
-//    and calls to the BY_REF_ASSIGN helper otherwise.
-//
-// Preconditions:
-//    The register assignments have been set appropriately.
-//    This is validated by genConsumeBlockOp().
-//
-void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
-{
-    assert(cpObjNode->OperIsCopyBlkOp());
-
-    // Make sure we got the arguments of the cpobj operation in the right registers
-    GenTree*  dstAddr     = cpObjNode->Addr();
-    GenTree*  source      = cpObjNode->Data();
-    GenTree*  srcAddr     = nullptr;
-    var_types srcAddrType = TYP_BYREF;
-    bool      dstOnStack  = dstAddr->gtSkipReloadOrCopy()->OperIsLocalAddr();
-
-#ifdef DEBUG
-    // If the GenTree node has data about GC pointers, this means we're dealing
-    // with CpObj, so this requires special logic.
-    assert(cpObjNode->GetLayout()->HasGCPtr());
-
-    // MovSp (alias for movsq on x64 and movsd on x86) instruction is used for copying non-gcref fields
-    // and it needs src = RSI and dst = RDI.
-    // Either these registers must not contain lclVars, or they must be dying or marked for spill.
-    // This is because these registers are incremented as we go through the struct.
-    if (!source->IsLocal())
-    {
-        assert(source->OperIs(GT_IND, GT_OBJ, GT_BLK));
-        srcAddr                   = source->AsIndir()->GetAddr();
-        GenTree* actualSrcAddr    = srcAddr->gtSkipReloadOrCopy();
-        GenTree* actualDstAddr    = dstAddr->gtSkipReloadOrCopy();
-        unsigned srcLclVarNum     = BAD_VAR_NUM;
-        unsigned dstLclVarNum     = BAD_VAR_NUM;
-        bool     isSrcAddrLiveOut = false;
-        bool     isDstAddrLiveOut = false;
-        if (genIsRegCandidateLclVar(actualSrcAddr))
-        {
-            srcLclVarNum     = actualSrcAddr->AsLclVar()->GetLclNum();
-            isSrcAddrLiveOut = ((actualSrcAddr->gtFlags & (GTF_VAR_DEATH | GTF_SPILL)) == 0);
-        }
-        if (genIsRegCandidateLclVar(actualDstAddr))
-        {
-            dstLclVarNum     = actualDstAddr->AsLclVar()->GetLclNum();
-            isDstAddrLiveOut = ((actualDstAddr->gtFlags & (GTF_VAR_DEATH | GTF_SPILL)) == 0);
-        }
-        assert((actualSrcAddr->GetRegNum() != REG_RSI) || !isSrcAddrLiveOut ||
-               ((srcLclVarNum == dstLclVarNum) && !isDstAddrLiveOut));
-        assert((actualDstAddr->GetRegNum() != REG_RDI) || !isDstAddrLiveOut ||
-               ((srcLclVarNum == dstLclVarNum) && !isSrcAddrLiveOut));
-        srcAddrType = srcAddr->TypeGet();
-    }
-#endif // DEBUG
-
-    // Consume the operands and get them into the right registers.
-    // They may now contain gc pointers (depending on their type; gcMarkRegPtrVal will "do the right thing").
-    genConsumeBlockOp(cpObjNode, REG_RDI, REG_RSI, REG_NA);
-    gcInfo.gcMarkRegPtrVal(REG_RSI, srcAddrType);
-    gcInfo.gcMarkRegPtrVal(REG_RDI, dstAddr->TypeGet());
-
-    unsigned slots = cpObjNode->GetLayout()->GetSlotCount();
-
-    // If we can prove it's on the stack we don't need to use the write barrier.
-    if (dstOnStack)
-    {
-        if (slots >= CPOBJ_NONGC_SLOTS_LIMIT)
-        {
-            // If the destination of the CpObj is on the stack, make sure we allocated
-            // RCX to emit the movsp (alias for movsd or movsq for 32 and 64 bits respectively).
-            assert((cpObjNode->gtRsvdRegs & RBM_RCX) != 0);
-
-            GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, slots);
-            instGen(INS_r_movsp);
-        }
-        else
-        {
-            // For small structs, it's better to emit a sequence of movsp than to
-            // emit a rep movsp instruction.
-            while (slots > 0)
-            {
-                instGen(INS_movsp);
-                slots--;
-            }
-        }
-    }
-    else
-    {
-        ClassLayout* layout     = cpObjNode->GetLayout();
-        unsigned     gcPtrCount = layout->GetGCPtrCount();
-
-        unsigned i = 0;
-        while (i < slots)
-        {
-            if (!layout->IsGCPtr(i))
-            {
-                // Let's see if we can use rep movsp instead of a sequence of movsp instructions
-                // to save cycles and code size.
-                unsigned nonGcSlotCount = 0;
-
-                do
-                {
-                    nonGcSlotCount++;
-                    i++;
-                } while ((i < slots) && !layout->IsGCPtr(i));
-
-                // If we have a very small contiguous non-gc region, it's better just to
-                // emit a sequence of movsp instructions
-                if (nonGcSlotCount < CPOBJ_NONGC_SLOTS_LIMIT)
-                {
-                    while (nonGcSlotCount > 0)
-                    {
-                        instGen(INS_movsp);
-                        nonGcSlotCount--;
-                    }
-                }
-                else
-                {
-                    // Otherwise, we can save code-size and improve CQ by emitting
-                    // rep movsp (alias for movsd/movsq for x86/x64)
-                    assert((cpObjNode->gtRsvdRegs & RBM_RCX) != 0);
-
-                    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, nonGcSlotCount);
-                    instGen(INS_r_movsp);
-                }
-            }
-            else
-            {
-                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, 0, EA_PTRSIZE);
-                gcPtrCount--;
-                i++;
-            }
-        }
-
-        assert(gcPtrCount == 0);
-    }
-
-    // Clear the gcInfo for RSI and RDI.
-    // While we normally update GC info prior to the last instruction that uses them,
-    // these actually live into the helper call.
-    gcInfo.gcMarkRegSetNpt(RBM_RSI);
-    gcInfo.gcMarkRegSetNpt(RBM_RDI);
-}
-
-#ifdef TARGET_AMD64
-//----------------------------------------------------------------------------------
-// genCodeForCpBlkHelper - Generate code for a CpBlk node by the means of the VM memcpy helper call
-//
-// Arguments:
-//    cpBlkNode - the GT_STORE_[BLK|OBJ|DYN_BLK]
-//
-// Preconditions:
-//   The register assignments have been set appropriately.
-//   This is validated by genConsumeBlockOp().
-//
-void CodeGen::genCodeForCpBlkHelper(GenTreeBlk* cpBlkNode)
-{
-    assert(!cpBlkNode->GetLayout()->HasGCPtr());
-
-    // Destination address goes in arg0, source address goes in arg1, and size goes in arg2.
-    // genConsumeBlockOp takes care of this for us.
-    genConsumeBlockOp(cpBlkNode, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-
-    genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
-}
-#endif // TARGET_AMD64
 
 // generate code do a switch statement based on a table of ip-relative offsets
 void CodeGen::genTableBasedSwitch(GenTree* treeNode)

@@ -671,6 +671,7 @@ public:
     unsigned AvailableTempRegCount(regMaskTP mask = (regMaskTP)-1) const;
     regNumber GetSingleTempReg(regMaskTP mask = (regMaskTP)-1);
     regNumber ExtractTempReg(regMaskTP mask = (regMaskTP)-1);
+    bool HasTempReg(regNumber reg) const;
 
     void SetVNsFromNode(GenTree* tree)
     {
@@ -2990,6 +2991,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     ssize_t GetValue() const
     {
         return gtIconVal;
+    }
+
+    uint8_t GetUInt8Value() const
+    {
+        return static_cast<uint8_t>(gtIconVal & 0xFF);
     }
 
     void SetValue(ssize_t value)

@@ -1705,113 +1705,10 @@ void CodeGen::genPutArgStkFieldList(GenTreeFieldList* fieldList,
 }
 #endif // !TARGET_X86
 
-//------------------------------------------------------------------------
-// genSetBlockSize: Ensure that the block size is in the given register
-//
-// Arguments:
-//    blkNode - The block node
-//    sizeReg - The register into which the block's size should go
-//
-
-void CodeGen::genSetBlockSize(GenTreeBlk* blkNode, regNumber sizeReg)
+void CodeGen::genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
 {
-    if (sizeReg != REG_NA)
-    {
-        unsigned blockSize = blkNode->Size();
-        if (!blkNode->OperIs(GT_STORE_DYN_BLK))
-        {
-            assert((blkNode->gtRsvdRegs & genRegMask(sizeReg)) != 0);
-            genSetRegToIcon(sizeReg, blockSize);
-        }
-        else
-        {
-            GenTree* sizeNode = blkNode->AsDynBlk()->gtDynamicSize;
-            if (sizeNode->GetRegNum() != sizeReg)
-            {
-                inst_RV_RV(INS_mov, sizeReg, sizeNode->GetRegNum(), sizeNode->TypeGet());
-            }
-        }
-    }
-}
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
 
-//------------------------------------------------------------------------
-// genConsumeBlockSrc: Consume the source address register of a block node, if any.
-//
-// Arguments:
-//    blkNode - The block node
-
-void CodeGen::genConsumeBlockSrc(GenTreeBlk* blkNode)
-{
-    GenTree* src = blkNode->GetValue();
-
-    if (blkNode->OperIsCopyBlkOp())
-    {
-        assert(src->isContained());
-
-        if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            return;
-        }
-
-        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
-        src = src->AsIndir()->GetAddr();
-    }
-    else
-    {
-        if (src->OperIsInitVal())
-        {
-            src = src->gtGetOp1();
-        }
-    }
-
-    genConsumeReg(src);
-}
-
-//------------------------------------------------------------------------
-// genSetBlockSrc: Ensure that the block source is in its allocated register.
-//
-// Arguments:
-//    blkNode - The block node
-//    srcReg  - The register in which to set the source (address or init val).
-//
-void CodeGen::genSetBlockSrc(GenTreeBlk* blkNode, regNumber srcReg)
-{
-    GenTree* src = blkNode->GetValue();
-
-    if (blkNode->OperIsCopyBlkOp())
-    {
-        if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-        {
-            inst_RV_TT(INS_lea, srcReg, src, 0, EA_BYREF);
-            return;
-        }
-
-        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
-        src = src->AsIndir()->GetAddr();
-    }
-    else
-    {
-        if (src->OperIsInitVal())
-        {
-            src = src->gtGetOp1();
-        }
-    }
-
-    genCopyRegIfNeeded(src, srcReg);
-}
-
-//------------------------------------------------------------------------
-// genConsumeBlockOp: Ensure that the block's operands are enregistered
-//                    as needed.
-// Arguments:
-//    blkNode - The block node
-//
-// Notes:
-//    This ensures that the operands are consumed in the proper order to
-//    obey liveness modeling.
-
-void CodeGen::genConsumeBlockOp(GenTreeBlk* blkNode, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
-{
     // We have to consume the registers, and perform any copies, in the actual execution order: dst, src, size.
     //
     // Note that the register allocator ensures that the registers ON THE NODES will not interfere
@@ -1820,26 +1717,71 @@ void CodeGen::genConsumeBlockOp(GenTreeBlk* blkNode, regNumber dstReg, regNumber
     // to the REQUIRED register (if a fixed register requirement) in execution order.  This requires,
     // then, that we first consume all the operands, then do any necessary moves.
 
-    GenTree* const dstAddr = blkNode->Addr();
+    GenTree* dstAddr = store->GetAddr();
 
-    // First, consume all the sources in order, and verify that registers have been allocated appropriately,
-    // based on the 'gtBlkOpKind'.
-
-    // The destination is always in a register; 'genConsumeReg' asserts that.
     genConsumeReg(dstAddr);
-    // The source may be a local or in a register; 'genConsumeBlockSrc' will check that.
-    genConsumeBlockSrc(blkNode);
-    // 'genSetBlockSize' (called below) will ensure that a register has been reserved as needed
-    // in the case where the size is a constant (i.e. it is not GT_STORE_DYN_BLK).
-    if (blkNode->OperGet() == GT_STORE_DYN_BLK)
+
+    GenTree* src = store->GetValue();
+
+    if (src->OperIs(GT_INIT_VAL))
     {
-        genConsumeReg(blkNode->AsDynBlk()->gtDynamicSize);
+        assert(src->isContained());
+
+        src = src->AsUnOp()->GetOp(0);
+    }
+    else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    {
+        assert(src->isContained());
+
+        src = src->AsIndir()->GetAddr();
+    }
+    else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        assert(src->isContained());
+    }
+    else
+    {
+        assert(src->OperIs(GT_CNS_INT));
     }
 
-    // Next, perform any necessary moves.
+    if (!src->isContained())
+    {
+        genConsumeReg(src);
+    }
+
+    if (store->OperIs(GT_STORE_DYN_BLK))
+    {
+        genConsumeReg(store->AsDynBlk()->GetSize());
+    }
+
+    // Copy registers as needed
+
     genCopyRegIfNeeded(dstAddr, dstReg);
-    genSetBlockSrc(blkNode, srcReg);
-    genSetBlockSize(blkNode, sizeReg);
+
+    if (!src->isContained())
+    {
+        genCopyRegIfNeeded(src, srcReg);
+    }
+    else
+    {
+        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+
+        unsigned lclNum  = src->AsLclVarCommon()->GetLclNum();
+        unsigned lclOffs = src->AsLclVarCommon()->GetLclOffs();
+
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, lclNum, lclOffs);
+    }
+
+    if (store->OperIs(GT_STORE_DYN_BLK))
+    {
+        genCopyRegIfNeeded(store->AsDynBlk()->GetSize(), sizeReg);
+    }
+    else if (sizeReg != REG_NA)
+    {
+        assert(store->HasTempReg(sizeReg));
+
+        genSetRegToIcon(sizeReg, store->Size());
+    }
 }
 
 //-------------------------------------------------------------------------

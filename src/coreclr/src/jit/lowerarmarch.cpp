@@ -221,34 +221,32 @@ void Lowering::LowerStoreIndir(GenTreeIndir* node)
     ContainCheckStoreIndir(node);
 }
 
-//------------------------------------------------------------------------
-// LowerBlockStore: Lower a block store node
-//
-// Arguments:
-//    blkNode - The block store node to lower
-//
-void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
+void Lowering::LowerStructStore(GenTreeBlk* store)
 {
-    GenTree* dstAddr = blkNode->Addr();
-    GenTree* src     = blkNode->Data();
-    unsigned size    = blkNode->Size();
+    GenTree* dstAddr = store->GetAddr();
+    GenTree* src     = store->GetValue();
+    unsigned size    = store->Size();
 
-    if (blkNode->OperIsInitBlkOp())
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         if (src->OperIs(GT_INIT_VAL))
         {
             src->SetContained();
-            src = src->AsUnOp()->gtGetOp1();
+            src = src->AsUnOp()->GetOp(0);
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        if (store->OperIs(GT_STORE_OBJ))
         {
-            blkNode->SetOper(GT_STORE_BLK);
+            store->SetOper(GT_STORE_BLK);
         }
 
-        if (!blkNode->OperIs(GT_STORE_DYN_BLK) && (size <= INITBLK_UNROLL_LIMIT) && src->OperIs(GT_CNS_INT))
+        if (store->OperIs(GT_STORE_DYN_BLK) || (size > INITBLK_UNROLL_LIMIT) || !src->OperIs(GT_CNS_INT))
         {
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
+        }
+        else
+        {
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
 
             // The fill value of an initblk is interpreted to hold a
             // value of (unsigned int8) however a constant of any size
@@ -257,7 +255,7 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             // it to a larger constant whose size is sufficient to support
             // the largest width store of the desired inline expansion.
 
-            ssize_t fill = src->AsIntCon()->IconValue() & 0xFF;
+            ssize_t fill = src->AsIntCon()->GetUInt8Value();
 
             if (fill == 0)
             {
@@ -271,7 +269,7 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             else if (size >= REGSIZE_BYTES)
             {
                 fill *= 0x0101010101010101LL;
-                src->gtType = TYP_LONG;
+                src->SetType(TYP_LONG);
             }
 #endif
             else
@@ -279,13 +277,9 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
                 fill *= 0x01010101;
             }
 
-            src->AsIntCon()->SetIconValue(fill);
+            src->AsIntCon()->SetValue(fill);
 
-            ContainBlockStoreAddress(blkNode, size, dstAddr);
-        }
-        else
-        {
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
+            ContainBlockStoreAddress(store, size, dstAddr);
         }
     }
     else
@@ -301,11 +295,11 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             src->AsIndir()->GetAddr()->ClearContained();
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        if (store->OperIs(GT_STORE_OBJ))
         {
-            if (!blkNode->AsObj()->GetLayout()->HasGCPtr())
+            if (!store->AsObj()->GetLayout()->HasGCPtr())
             {
-                blkNode->SetOper(GT_STORE_BLK);
+                store->SetOper(GT_STORE_BLK);
             }
             else if (dstAddr->OperIsLocalAddr() && (size <= CPBLK_UNROLL_LIMIT))
             {
@@ -314,32 +308,32 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
                 // doesn't report GC references loaded in the temporary register(s) so the region has
                 // to be GC non-interruptible.
 
-                blkNode->SetOper(GT_STORE_BLK);
+                store->SetOper(GT_STORE_BLK);
             }
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        if (store->OperIs(GT_STORE_OBJ))
         {
-            assert((dstAddr->TypeGet() == TYP_BYREF) || (dstAddr->TypeGet() == TYP_I_IMPL));
+            assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
         }
-        else if (blkNode->OperIs(GT_STORE_BLK) && (size <= CPBLK_UNROLL_LIMIT))
+        else if (store->OperIs(GT_STORE_BLK) && (size <= CPBLK_UNROLL_LIMIT))
         {
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
 
             if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
-                ContainBlockStoreAddress(blkNode, size, src->AsIndir()->GetAddr());
+                ContainBlockStoreAddress(store, size, src->AsIndir()->GetAddr());
             }
 
-            ContainBlockStoreAddress(blkNode, size, dstAddr);
+            ContainBlockStoreAddress(store, size, dstAddr);
         }
         else
         {
-            assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_DYN_BLK));
+            assert(store->OperIs(GT_STORE_BLK, GT_STORE_DYN_BLK));
 
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
+            store->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
         }
     }
 }

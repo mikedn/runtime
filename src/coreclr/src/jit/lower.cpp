@@ -368,7 +368,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
                 }
                 else
                 {
-                    LowerBlockStore(store);
+                    LowerStructStore(store);
                 }
                 break;
             }
@@ -6553,7 +6553,7 @@ void Lowering::LowerBlockStoreCommon(GenTreeBlk* blkNode)
         return;
     }
 
-    LowerBlockStore(blkNode);
+    LowerStructStore(blkNode);
 }
 
 //------------------------------------------------------------------------

@@ -1147,10 +1147,7 @@ protected:
     void genTransferRegGCState(regNumber dst, regNumber src);
     void genConsumeAddress(GenTree* addr);
     void genConsumeAddrMode(GenTreeAddrMode* mode);
-    void genSetBlockSize(GenTreeBlk* blkNode, regNumber sizeReg);
-    void genConsumeBlockSrc(GenTreeBlk* blkNode);
-    void genSetBlockSrc(GenTreeBlk* blkNode, regNumber srcReg);
-    void genConsumeBlockOp(GenTreeBlk* blkNode, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
+    void genConsumeStructStore(GenTreeBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
 
 #if FEATURE_ARG_SPLIT
     void genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode);
@@ -1189,12 +1186,6 @@ protected:
     void genCodeForSetcc(GenTreeCC* setcc);
     void genCodeForStoreInd(GenTreeStoreInd* tree);
     void genCodeForSwap(GenTreeOp* tree);
-    void genCodeForCpObj(GenTreeObj* cpObjNode);
-    void genCodeForCpBlkRepMovs(GenTreeBlk* cpBlkNode);
-    void genCodeForCpBlkUnroll(GenTreeBlk* cpBlkNode);
-#ifndef TARGET_X86
-    void genCodeForCpBlkHelper(GenTreeBlk* cpBlkNode);
-#endif
     void genCodeForPhysReg(GenTreePhysReg* tree);
     void genCodeForNullCheck(GenTreeIndir* tree);
     void genCodeForCmpXchg(GenTreeCmpXchg* tree);
@@ -1262,12 +1253,19 @@ protected:
 #endif
                             );
 
-    void genCodeForStoreBlk(GenTreeBlk* storeBlkNode);
+    void genStructStore(GenTreeBlk* store);
+    void genStructStoreUnrollCopyWB(GenTreeObj* store);
 #ifndef TARGET_X86
-    void genCodeForInitBlkHelper(GenTreeBlk* initBlkNode);
+    void genStructStoreMemSet(GenTreeBlk* store);
+    void genStructStoreMemCpy(GenTreeBlk* store);
 #endif
-    void genCodeForInitBlkRepStos(GenTreeBlk* initBlkNode);
-    void genCodeForInitBlkUnroll(GenTreeBlk* initBlkNode);
+#ifdef TARGET_XARCH
+    void genStructStoreRepStos(GenTreeBlk* store);
+    void genStructStoreRepMovs(GenTreeBlk* store);
+#endif
+    void genStructStoreUnrollInit(GenTreeBlk* store);
+    void genStructStoreUnrollCopy(GenTreeBlk* store);
+
     void genJumpTable(GenTree* tree);
     void genTableBasedSwitch(GenTree* tree);
     void genCodeForArrIndex(GenTreeArrIndex* treeNode);

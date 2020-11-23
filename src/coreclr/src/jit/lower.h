@@ -288,7 +288,7 @@ private:
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
-    void LowerBlockStore(GenTreeBlk* blkNode);
+    void LowerStructStore(GenTreeBlk* store);
     void LowerBlockStoreCommon(GenTreeBlk* blkNode);
     void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);

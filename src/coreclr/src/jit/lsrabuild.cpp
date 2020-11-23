@@ -888,65 +888,32 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
     return killMask;
 }
 
-//------------------------------------------------------------------------
-// getKillSetForBlockStore: Determine the liveness kill set for a block store node.
-//
-// Arguments:
-//    tree - the block store node as a GenTreeBlk
-//
-// Return Value:    a register mask of the registers killed
-//
-regMaskTP LinearScan::getKillSetForBlockStore(GenTreeBlk* blkNode)
+regMaskTP LinearScan::getKillSetForStructStore(GenTreeBlk* store)
 {
-    assert(blkNode->OperIsStore());
-    regMaskTP killMask = RBM_NONE;
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
 
-    if ((blkNode->OperGet() == GT_STORE_OBJ) && blkNode->OperIsCopyBlkOp())
+    bool isCopyBlk = !store->GetValue()->OperIs(GT_CNS_INT, GT_INIT_VAL);
+
+    if (store->OperIs(GT_STORE_OBJ) && isCopyBlk)
     {
-        assert(blkNode->AsObj()->GetLayout()->HasGCPtr());
-        killMask = compiler->compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
+        return compiler->compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
     }
-    else
+
+    switch (store->gtBlkOpKind)
     {
-        bool isCopyBlk = varTypeIsStruct(blkNode->Data());
-        switch (blkNode->gtBlkOpKind)
-        {
 #ifndef TARGET_X86
-            case GenTreeBlk::BlkOpKindHelper:
-                if (isCopyBlk)
-                {
-                    killMask = compiler->compHelperCallKillSet(CORINFO_HELP_MEMCPY);
-                }
-                else
-                {
-                    killMask = compiler->compHelperCallKillSet(CORINFO_HELP_MEMSET);
-                }
-                break;
+        case GenTreeBlk::BlkOpKindHelper:
+            return compiler->compHelperCallKillSet(isCopyBlk ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET);
 #endif
+
 #ifdef TARGET_XARCH
-            case GenTreeBlk::BlkOpKindRepInstr:
-                if (isCopyBlk)
-                {
-                    // rep movs kills RCX, RDI and RSI
-                    killMask = RBM_RCX | RBM_RDI | RBM_RSI;
-                }
-                else
-                {
-                    // rep stos kills RCX and RDI.
-                    // (Note that the Data() node, if not constant, will be assigned to
-                    // RCX, but it's find that this kills it, as the value is not available
-                    // after this node in any case.)
-                    killMask = RBM_RDI | RBM_RCX;
-                }
-                break;
+        case GenTreeBlk::BlkOpKindRepInstr:
+            return isCopyBlk ? (RBM_RCX | RBM_RDI | RBM_RSI) : (RBM_RDI | RBM_RCX);
 #endif
-            case GenTreeBlk::BlkOpKindUnroll:
-            case GenTreeBlk::BlkOpKindInvalid:
-                // for these 'gtBlkOpKind' kinds, we leave 'killMask' = RBM_NONE
-                break;
-        }
+
+        default:
+            return RBM_NONE;
     }
-    return killMask;
 }
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -1059,7 +1026,7 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
-            killMask = getKillSetForBlockStore(tree->AsBlk());
+            killMask = getKillSetForStructStore(tree->AsBlk());
             break;
 
         case GT_RETURNTRAP:
