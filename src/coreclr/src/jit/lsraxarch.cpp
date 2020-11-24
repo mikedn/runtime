@@ -1277,9 +1277,9 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
         srcAddrOrFill = src;
 
-        switch (store->gtBlkOpKind)
+        switch (store->GetKind())
         {
-            case GenTreeBlk::BlkOpKindUnroll:
+            case StructStoreKind::Unroll:
                 if (size >= XMM_REGSIZE_BYTES)
                 {
                     buildInternalFloatRegisterDefForNode(store, internalFloatRegCandidates());
@@ -1295,7 +1295,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 #endif
                 break;
 
-            case GenTreeBlk::BlkOpKindRepInstr:
+            case StructStoreKind::RepInstr:
                 assert(!src->isContained());
                 dstAddrRegMask = RBM_RDI;
                 srcRegMask     = RBM_RAX;
@@ -1303,7 +1303,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
                 break;
 
 #ifdef TARGET_AMD64
-            case GenTreeBlk::BlkOpKindHelper:
+            case StructStoreKind::Helper:
                 assert(!src->isContained());
                 dstAddrRegMask = RBM_ARG_0;
                 srcRegMask     = RBM_ARG_1;
@@ -1325,7 +1325,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
         if (store->OperIs(GT_STORE_OBJ))
         {
-            if (store->gtBlkOpKind == GenTreeBlk::BlkOpKindRepInstr)
+            if (store->GetKind() == StructStoreKind::RepInstr)
             {
                 sizeRegMask = RBM_RCX;
             }
@@ -1335,9 +1335,9 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         }
         else
         {
-            switch (store->gtBlkOpKind)
+            switch (store->GetKind())
             {
-                case GenTreeBlk::BlkOpKindUnroll:
+                case StructStoreKind::Unroll:
 #ifdef TARGET_X86
                     if ((size & 1) != 0)
                     {
@@ -1358,14 +1358,14 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
                     }
                     break;
 
-                case GenTreeBlk::BlkOpKindRepInstr:
+                case StructStoreKind::RepInstr:
                     dstAddrRegMask = RBM_RDI;
                     srcRegMask     = RBM_RSI;
                     sizeRegMask    = RBM_RCX;
                     break;
 
 #ifdef TARGET_AMD64
-                case GenTreeBlk::BlkOpKindHelper:
+                case StructStoreKind::Helper:
                     dstAddrRegMask = RBM_ARG_0;
                     srcRegMask     = RBM_ARG_1;
                     sizeRegMask    = RBM_ARG_2;

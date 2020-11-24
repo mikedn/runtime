@@ -4864,7 +4864,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         {
             tree->ChangeOper(GT_OBJ);
             tree->AsObj()->SetLayout(typGetObjLayout(elemStructType));
-            tree->AsObj()->gtBlkOpKind = GenTreeBlk::BlkOpKindInvalid;
+            tree->AsObj()->SetKind(StructStoreKind::Invalid);
         }
         else
         {

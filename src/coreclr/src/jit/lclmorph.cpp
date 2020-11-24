@@ -1977,7 +1977,7 @@ public:
                         tree->ChangeOper(GT_OBJ);
                         tree->AsObj()->SetLayout(layout);
                         tree->AsObj()->SetAddr(addr);
-                        tree->AsObj()->gtBlkOpKind = GenTreeBlk::BlkOpKindInvalid;
+                        tree->AsObj()->SetKind(StructStoreKind::Invalid);
                     }
                     else
                     {

@@ -2534,10 +2534,10 @@ void CodeGen::genStructStore(GenTreeBlk* store)
 
     bool isCopy = store->OperIsCopyBlkOp();
 
-    switch (store->gtBlkOpKind)
+    switch (store->GetKind())
     {
 #ifdef TARGET_AMD64
-        case GenTreeBlk::BlkOpKindHelper:
+        case StructStoreKind::Helper:
             if (isCopy)
             {
                 genStructStoreMemCpy(store);
@@ -2549,7 +2549,7 @@ void CodeGen::genStructStore(GenTreeBlk* store)
             break;
 #endif
 
-        case GenTreeBlk::BlkOpKindRepInstr:
+        case StructStoreKind::RepInstr:
             if (isCopy)
             {
                 genStructStoreRepMovs(store);
@@ -2560,7 +2560,7 @@ void CodeGen::genStructStore(GenTreeBlk* store)
             }
             break;
 
-        case GenTreeBlk::BlkOpKindUnroll:
+        case StructStoreKind::Unroll:
             if (isCopy)
             {
                 genStructStoreUnrollCopy(store);

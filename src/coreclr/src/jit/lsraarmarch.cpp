@@ -512,12 +512,12 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
         srcAddrOrFill = src;
 
-        switch (store->gtBlkOpKind)
+        switch (store->GetKind())
         {
-            case GenTreeBlk::BlkOpKindUnroll:
+            case StructStoreKind::Unroll:
                 break;
 
-            case GenTreeBlk::BlkOpKindHelper:
+            case StructStoreKind::Helper:
                 assert(!src->isContained());
                 dstAddrRegMask = RBM_ARG_0;
                 srcRegMask     = RBM_ARG_1;
@@ -565,9 +565,9 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         }
         else
         {
-            switch (store->gtBlkOpKind)
+            switch (store->GetKind())
             {
-                case GenTreeBlk::BlkOpKindUnroll:
+                case StructStoreKind::Unroll:
                     buildInternalIntRegisterDefForNode(store);
 #ifdef TARGET_ARM64
                     if (size >= 2 * REGSIZE_BYTES)
@@ -578,7 +578,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 #endif
                     break;
 
-                case GenTreeBlk::BlkOpKindHelper:
+                case StructStoreKind::Helper:
                     dstAddrRegMask = RBM_ARG_0;
                     srcRegMask     = RBM_ARG_1;
                     sizeRegMask    = RBM_ARG_2;

@@ -355,9 +355,9 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
                 node->ChangeOper(layout->IsBlockLayout() ? GT_STORE_BLK : GT_STORE_OBJ);
 
-                GenTreeBlk* store  = node->AsBlk();
-                store->gtFlags     = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-                store->gtBlkOpKind = GenTreeObj::BlkOpKindInvalid;
+                GenTreeBlk* store = node->AsBlk();
+                store->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+                store->SetKind(StructStoreKind::Invalid);
                 store->SetLayout(layout);
                 store->SetAddr(addr);
                 store->SetData(src);
@@ -2952,7 +2952,7 @@ void Lowering::LowerStoreLocCommon(GenTreeLclVarCommon* lclStore)
             // Only the GTF_LATE_ARG flag (if present) is preserved.
             objStore->gtFlags &= GTF_LATE_ARG;
             objStore->gtFlags |= GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-            objStore->gtBlkOpKind = GenTreeObj::BlkOpKindInvalid;
+            objStore->SetKind(StructStoreKind::Invalid);
             objStore->SetLayout(varDsc->GetLayout());
             objStore->SetAddr(addr);
             objStore->SetData(src);

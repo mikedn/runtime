@@ -6504,6 +6504,18 @@ protected:
 #endif
 };
 
+enum class StructStoreKind : uint8_t
+{
+    Invalid,
+#ifndef TARGET_X86
+    Helper,
+#endif
+#ifdef TARGET_XARCH
+    RepInstr,
+#endif
+    Unroll,
+};
+
 // This is the base type for all of the nodes that represent block or struct values.
 // Since it can be a store, it includes gtBlkOpKind to specify the type of code
 // generation that will be used for the block operation.
@@ -6511,7 +6523,8 @@ protected:
 struct GenTreeBlk : public GenTreeIndir
 {
 private:
-    ClassLayout* m_layout;
+    ClassLayout*    m_layout;
+    StructStoreKind m_kind;
 
 public:
     ClassLayout* GetLayout() const
@@ -6542,37 +6555,33 @@ public:
         return (m_layout != nullptr) ? m_layout->GetSize() : 0;
     }
 
-    // Instruction selection: during codegen time, what code sequence we will be using
-    // to encode this operation.
-    enum
-    {
-        BlkOpKindInvalid,
-#ifndef TARGET_X86
-        BlkOpKindHelper,
-#endif
-#ifdef TARGET_XARCH
-        BlkOpKindRepInstr,
-#endif
-        BlkOpKindUnroll,
-    } gtBlkOpKind;
-
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, ClassLayout* layout)
-        : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), gtBlkOpKind(BlkOpKindInvalid)
+        : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert(OperIsBlk(oper));
         assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
     }
 
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* data, ClassLayout* layout)
-        : GenTreeIndir(oper, type, addr, data), m_layout(layout), gtBlkOpKind(BlkOpKindInvalid)
+        : GenTreeIndir(oper, type, addr, data), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert(OperIsBlk(oper));
         assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
     }
 
     GenTreeBlk(GenTreeBlk* copyFrom)
-        : GenTreeIndir(copyFrom), m_layout(copyFrom->m_layout), gtBlkOpKind(copyFrom->gtBlkOpKind)
+        : GenTreeIndir(copyFrom), m_layout(copyFrom->m_layout), m_kind(StructStoreKind::Invalid)
     {
+    }
+
+    StructStoreKind GetKind() const
+    {
+        return m_kind;
+    }
+
+    void SetKind(StructStoreKind kind)
+    {
+        m_kind = kind;
     }
 
 #if DEBUGGABLE_GENTREE

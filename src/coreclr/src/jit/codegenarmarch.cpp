@@ -1740,9 +1740,9 @@ void CodeGen::genStructStore(GenTreeBlk* store)
 
     bool isCopy = store->OperIsCopyBlkOp();
 
-    switch (store->gtBlkOpKind)
+    switch (store->GetKind())
     {
-        case GenTreeBlk::BlkOpKindHelper:
+        case StructStoreKind::Helper:
             if (isCopy)
             {
                 genStructStoreMemCpy(store);
@@ -1753,7 +1753,7 @@ void CodeGen::genStructStore(GenTreeBlk* store)
             }
             break;
 
-        case GenTreeBlk::BlkOpKindUnroll:
+        case StructStoreKind::Unroll:
             if (isCopy)
             {
                 genStructStoreUnrollCopy(store);

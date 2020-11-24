@@ -899,15 +899,15 @@ regMaskTP LinearScan::getKillSetForStructStore(GenTreeBlk* store)
         return compiler->compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
     }
 
-    switch (store->gtBlkOpKind)
+    switch (store->GetKind())
     {
 #ifndef TARGET_X86
-        case GenTreeBlk::BlkOpKindHelper:
+        case StructStoreKind::Helper:
             return compiler->compHelperCallKillSet(isCopyBlk ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET);
 #endif
 
 #ifdef TARGET_XARCH
-        case GenTreeBlk::BlkOpKindRepInstr:
+        case StructStoreKind::RepInstr:
             return isCopyBlk ? (RBM_RCX | RBM_RDI | RBM_RSI) : (RBM_RDI | RBM_RCX);
 #endif
 
