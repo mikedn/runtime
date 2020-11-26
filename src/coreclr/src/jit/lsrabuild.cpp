@@ -892,27 +892,32 @@ regMaskTP LinearScan::getKillSetForStructStore(GenTreeBlk* store)
 {
     assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
 
-    bool isCopyBlk = !store->GetValue()->OperIs(GT_CNS_INT, GT_INIT_VAL);
-
-    if (store->OperIs(GT_STORE_OBJ) && isCopyBlk)
-    {
-        return compiler->compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
-    }
+    bool isCopy = !store->GetValue()->OperIs(GT_CNS_INT, GT_INIT_VAL);
 
     switch (store->GetKind())
     {
+        case StructStoreKind::UnrollWB:
+#ifdef TARGET_XARCH
+        case StructStoreKind::UnrollWBRepMovs:
+#endif
+            assert(isCopy);
+            return compiler->compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
+
+        case StructStoreKind::Unroll:
+            return RBM_NONE;
+
 #ifndef TARGET_X86
         case StructStoreKind::Helper:
-            return compiler->compHelperCallKillSet(isCopyBlk ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET);
+            return compiler->compHelperCallKillSet(isCopy ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET);
 #endif
 
 #ifdef TARGET_XARCH
         case StructStoreKind::RepInstr:
-            return isCopyBlk ? (RBM_RCX | RBM_RDI | RBM_RSI) : (RBM_RDI | RBM_RCX);
+            return isCopy ? (RBM_RCX | RBM_RDI | RBM_RSI) : (RBM_RDI | RBM_RCX);
 #endif
 
         default:
-            return RBM_NONE;
+            unreached();
     }
 }
 

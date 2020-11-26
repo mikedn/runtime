@@ -492,9 +492,10 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
 int LinearScan::BuildStructStore(GenTreeBlk* store)
 {
-    GenTree* dstAddr = store->GetAddr();
-    GenTree* src     = store->GetValue();
-    unsigned size    = store->Size();
+    GenTree*     dstAddr = store->GetAddr();
+    GenTree*     src     = store->GetValue();
+    ClassLayout* layout  = store->GetLayout();
+    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
 
     GenTree* srcAddrOrFill = nullptr;
 
@@ -536,57 +537,46 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
             srcAddrOrFill = src->AsIndir()->GetAddr();
         }
 
-        if (store->OperIs(GT_STORE_OBJ))
+        regMaskTP internalIntCandidates = allRegs(TYP_INT);
+
+        switch (store->GetKind())
         {
-            regMaskTP internalIntCandidates = allRegs(TYP_INT);
-            internalIntCandidates &= ~(RBM_WRITE_BARRIER_DST_BYREF | RBM_WRITE_BARRIER_SRC_BYREF);
-            buildInternalIntRegisterDefForNode(store, internalIntCandidates);
-#ifdef TARGET_ARM64
-            if (size >= 2 * REGSIZE_BYTES)
-            {
-                // Reserve an additional temp register for LDP/STP.
+            case StructStoreKind::UnrollWB:
+                dstAddrRegMask = RBM_WRITE_BARRIER_DST_BYREF;
+
+                // If we have a source address we want it in REG_WRITE_BARRIER_SRC_BYREF.
+                // Otherwise, if it is a local, codegen will put its address in REG_WRITE_BARRIER_SRC_BYREF,
+                // which is killed and thus needn't be reserved as an internal register.
+
+                // TODO-MIKE-Review: XARCH lowering does reserve an internal register for a local source.
+
+                if (srcAddrOrFill != nullptr)
+                {
+                    assert(!srcAddrOrFill->isContained());
+                    srcRegMask = RBM_WRITE_BARRIER_SRC_BYREF;
+                }
+
+                internalIntCandidates &= ~(dstAddrRegMask | RBM_WRITE_BARRIER_SRC_BYREF);
+                FALLTHROUGH;
+            case StructStoreKind::Unroll:
                 buildInternalIntRegisterDefForNode(store, internalIntCandidates);
-            }
-#endif
-
-            dstAddrRegMask = RBM_WRITE_BARRIER_DST_BYREF;
-
-            // If we have a source address we want it in REG_WRITE_BARRIER_SRC_BYREF.
-            // Otherwise, if it is a local, codegen will put its address in REG_WRITE_BARRIER_SRC_BYREF,
-            // which is killed and thus needn't be reserved as an internal register.
-
-            // TODO-MIKE-Review: XARCH lowering does reserve an internal register for a local source.
-
-            if (srcAddrOrFill != nullptr)
-            {
-                assert(!srcAddrOrFill->isContained());
-                srcRegMask = RBM_WRITE_BARRIER_SRC_BYREF;
-            }
-        }
-        else
-        {
-            switch (store->GetKind())
-            {
-                case StructStoreKind::Unroll:
-                    buildInternalIntRegisterDefForNode(store);
 #ifdef TARGET_ARM64
-                    if (size >= 2 * REGSIZE_BYTES)
-                    {
-                        // Reserve an additional temp register for LDP/STP.
-                        buildInternalIntRegisterDefForNode(store);
-                    }
+                if (size >= 2 * REGSIZE_BYTES)
+                {
+                    // Reserve an additional temp register for LDP/STP.
+                    buildInternalIntRegisterDefForNode(store, internalIntCandidates);
+                }
 #endif
-                    break;
+                break;
 
-                case StructStoreKind::Helper:
-                    dstAddrRegMask = RBM_ARG_0;
-                    srcRegMask     = RBM_ARG_1;
-                    sizeRegMask    = RBM_ARG_2;
-                    break;
+            case StructStoreKind::Helper:
+                dstAddrRegMask = RBM_ARG_0;
+                srcRegMask     = RBM_ARG_1;
+                sizeRegMask    = RBM_ARG_2;
+                break;
 
-                default:
-                    unreached();
-            }
+            default:
+                unreached();
         }
     }
 

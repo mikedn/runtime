@@ -6514,6 +6514,10 @@ enum class StructStoreKind : uint8_t
     RepInstr,
 #endif
     Unroll,
+    UnrollWB,
+#ifdef TARGET_XARCH
+    UnrollWBRepMovs
+#endif
 };
 
 // This is the base type for all of the nodes that represent block or struct values.

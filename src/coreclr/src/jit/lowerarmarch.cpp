@@ -223,9 +223,10 @@ void Lowering::LowerStoreIndir(GenTreeIndir* node)
 
 void Lowering::LowerStructStore(GenTreeBlk* store)
 {
-    GenTree* dstAddr = store->GetAddr();
-    GenTree* src     = store->GetValue();
-    unsigned size    = store->Size();
+    GenTree*     dstAddr = store->GetAddr();
+    GenTree*     src     = store->GetValue();
+    ClassLayout* layout  = store->GetLayout();
+    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
 
     if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
@@ -235,12 +236,7 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
             src = src->AsUnOp()->GetOp(0);
         }
 
-        if (store->OperIs(GT_STORE_OBJ))
-        {
-            store->SetOper(GT_STORE_BLK);
-        }
-
-        if (store->OperIs(GT_STORE_DYN_BLK) || (size > INITBLK_UNROLL_LIMIT) || !src->OperIs(GT_CNS_INT))
+        if ((size > INITBLK_UNROLL_LIMIT) || !src->OperIs(GT_CNS_INT))
         {
             store->SetKind(StructStoreKind::Helper);
         }
@@ -295,30 +291,17 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
             src->AsIndir()->GetAddr()->ClearContained();
         }
 
-        if (store->OperIs(GT_STORE_OBJ))
-        {
-            if (!store->AsObj()->GetLayout()->HasGCPtr())
-            {
-                store->SetOper(GT_STORE_BLK);
-            }
-            else if (dstAddr->OperIsLocalAddr() && (size <= CPBLK_UNROLL_LIMIT))
-            {
-                // Even if the struct contains GC pointers we can still unroll if the destination is
-                // a local variable, then GC write barriers aren't needed. Still, the generated code
-                // doesn't report GC references loaded in the temporary register(s) so the region has
-                // to be GC non-interruptible.
+        // If the struct contains GC pointers we need to generate GC write barriers, unless
+        // the destination is a local variable. Even if the destination is a local we're still
+        // going to use UnrollWB if the size is too large for normal unrolling.
 
-                store->SetOper(GT_STORE_BLK);
-            }
-        }
-
-        if (store->OperIs(GT_STORE_OBJ))
+        if ((layout != nullptr) && layout->HasGCPtr() && (!dstAddr->OperIsLocalAddr() || (size > CPBLK_UNROLL_LIMIT)))
         {
             assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-            store->SetKind(StructStoreKind::Unroll);
+            store->SetKind(StructStoreKind::UnrollWB);
         }
-        else if (store->OperIs(GT_STORE_BLK) && (size <= CPBLK_UNROLL_LIMIT))
+        else if (size <= CPBLK_UNROLL_LIMIT)
         {
             store->SetKind(StructStoreKind::Unroll);
 
@@ -331,8 +314,6 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
         }
         else
         {
-            assert(store->OperIs(GT_STORE_BLK, GT_STORE_DYN_BLK));
-
             store->SetKind(StructStoreKind::Helper);
         }
     }
@@ -418,7 +399,7 @@ bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool 
 //
 void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert((store->OperIs(GT_STORE_BLK) && (store->AsBlk()->GetKind() == StructStoreKind::Unroll)) ||
+    assert((store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && (store->AsBlk()->GetKind() == StructStoreKind::Unroll)) ||
            store->OperIsPutArgStkOrSplit());
 
     if (addr->OperIsLocalAddr())

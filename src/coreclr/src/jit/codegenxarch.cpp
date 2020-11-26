@@ -2526,48 +2526,48 @@ void CodeGen::genStructStore(GenTreeBlk* store)
 {
     assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK));
 
-    if (store->OperIs(GT_STORE_OBJ))
-    {
-        genStructStoreUnrollCopyWB(store->AsObj());
-        return;
-    }
-
-    bool isCopy = store->OperIsCopyBlkOp();
+    bool isInit = store->GetValue()->gtSkipReloadOrCopy()->OperIs(GT_INIT_VAL, GT_CNS_INT);
 
     switch (store->GetKind())
     {
+        case StructStoreKind::UnrollWB:
+        case StructStoreKind::UnrollWBRepMovs:
+            assert(!isInit);
+            genStructStoreUnrollCopyWB(store->AsObj());
+            break;
+
 #ifdef TARGET_AMD64
         case StructStoreKind::Helper:
-            if (isCopy)
+            if (isInit)
             {
-                genStructStoreMemCpy(store);
+                genStructStoreMemSet(store);
             }
             else
             {
-                genStructStoreMemSet(store);
+                genStructStoreMemCpy(store);
             }
             break;
 #endif
 
         case StructStoreKind::RepInstr:
-            if (isCopy)
+            if (isInit)
             {
-                genStructStoreRepMovs(store);
+                genStructStoreRepStos(store);
             }
             else
             {
-                genStructStoreRepStos(store);
+                genStructStoreRepMovs(store);
             }
             break;
 
         case StructStoreKind::Unroll:
-            if (isCopy)
+            if (isInit)
             {
-                genStructStoreUnrollCopy(store);
+                genStructStoreUnrollInit(store);
             }
             else
             {
-                genStructStoreUnrollInit(store);
+                genStructStoreUnrollCopy(store);
             }
             break;
 
@@ -2610,7 +2610,7 @@ void CodeGen::genStructStoreRepMovs(GenTreeBlk* store)
 
 void CodeGen::genStructStoreUnrollInit(GenTreeBlk* store)
 {
-    assert(store->OperIs(GT_STORE_BLK));
+    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
 
     unsigned  dstLclNum         = BAD_VAR_NUM;
     regNumber dstAddrBaseReg    = REG_NA;
@@ -2735,7 +2735,7 @@ void CodeGen::genStructStoreUnrollInit(GenTreeBlk* store)
 
 void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
 {
-    assert(store->OperIs(GT_STORE_BLK));
+    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
 
     if (store->GetLayout()->HasGCPtr())
     {

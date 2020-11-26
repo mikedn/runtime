@@ -10055,25 +10055,34 @@ void Compiler::gtDispTree(GenTree*     tree,
                 printf(" (init)");
             }
 
-            if (tree->OperIsStoreBlk() && (tree->AsBlk()->GetKind() != StructStoreKind::Invalid))
+            if (tree->OperIsStoreBlk())
             {
                 switch (tree->AsBlk()->GetKind())
                 {
+                    case StructStoreKind::Invalid:
+                        break;
+                    case StructStoreKind::Unroll:
+                        printf(" (Unroll)");
+                        break;
+                    case StructStoreKind::UnrollWB:
+                        printf(" (Unroll WB)");
+                        break;
 #ifdef TARGET_XARCH
+                    case StructStoreKind::UnrollWBRepMovs:
+                        printf(" (Unroll WB REP MOVS)");
+                        break;
                     case StructStoreKind::RepInstr:
                         printf(" (RepInstr)");
                         break;
 #endif
-                    case StructStoreKind::Unroll:
-                        printf(" (Unroll)");
-                        break;
 #ifndef TARGET_X86
                     case StructStoreKind::Helper:
                         printf(" (Helper)");
                         break;
 #endif
                     default:
-                        unreached();
+                        printf(" (???)");
+                        break;
                 }
             }
         }

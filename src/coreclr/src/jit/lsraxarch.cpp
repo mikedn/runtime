@@ -1253,9 +1253,10 @@ bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
 
 int LinearScan::BuildStructStore(GenTreeBlk* store)
 {
-    GenTree* dstAddr = store->GetAddr();
-    GenTree* src     = store->GetValue();
-    unsigned size    = store->Size();
+    GenTree*     dstAddr = store->GetAddr();
+    GenTree*     src     = store->GetValue();
+    ClassLayout* layout  = store->GetLayout();
+    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
 
     GenTree* srcAddrOrFill = nullptr;
 
@@ -1323,58 +1324,53 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
             srcAddrOrFill = src->AsIndir()->GetAddr();
         }
 
-        if (store->OperIs(GT_STORE_OBJ))
+        switch (store->GetKind())
         {
-            if (store->GetKind() == StructStoreKind::RepInstr)
-            {
+            case StructStoreKind::UnrollWBRepMovs:
                 sizeRegMask = RBM_RCX;
-            }
+                FALLTHROUGH;
+            case StructStoreKind::UnrollWB:
+                dstAddrRegMask = RBM_RDI;
+                srcRegMask     = RBM_RSI;
+                break;
 
-            dstAddrRegMask = RBM_RDI;
-            srcRegMask     = RBM_RSI;
-        }
-        else
-        {
-            switch (store->GetKind())
-            {
-                case StructStoreKind::Unroll:
+            case StructStoreKind::Unroll:
 #ifdef TARGET_X86
-                    if ((size & 1) != 0)
-                    {
-                        // We'll need to store a byte so a byte register is needed on x86.
-                        internalByteDef = buildInternalIntRegisterDefForNode(store, allByteRegs());
-                    }
-                    else
+                if ((size & 1) != 0)
+                {
+                    // We'll need to store a byte so a byte register is needed on x86.
+                    internalByteDef = buildInternalIntRegisterDefForNode(store, allByteRegs());
+                }
+                else
 #endif
-                        if ((size % XMM_REGSIZE_BYTES) != 0)
-                    {
-                        buildInternalIntRegisterDefForNode(store);
-                    }
+                    if ((size % XMM_REGSIZE_BYTES) != 0)
+                {
+                    buildInternalIntRegisterDefForNode(store);
+                }
 
-                    if (size >= XMM_REGSIZE_BYTES)
-                    {
-                        buildInternalFloatRegisterDefForNode(store, internalFloatRegCandidates());
-                        SetContainsAVXFlags();
-                    }
-                    break;
+                if (size >= XMM_REGSIZE_BYTES)
+                {
+                    buildInternalFloatRegisterDefForNode(store, internalFloatRegCandidates());
+                    SetContainsAVXFlags();
+                }
+                break;
 
-                case StructStoreKind::RepInstr:
-                    dstAddrRegMask = RBM_RDI;
-                    srcRegMask     = RBM_RSI;
-                    sizeRegMask    = RBM_RCX;
-                    break;
+            case StructStoreKind::RepInstr:
+                dstAddrRegMask = RBM_RDI;
+                srcRegMask     = RBM_RSI;
+                sizeRegMask    = RBM_RCX;
+                break;
 
 #ifdef TARGET_AMD64
-                case StructStoreKind::Helper:
-                    dstAddrRegMask = RBM_ARG_0;
-                    srcRegMask     = RBM_ARG_1;
-                    sizeRegMask    = RBM_ARG_2;
-                    break;
+            case StructStoreKind::Helper:
+                dstAddrRegMask = RBM_ARG_0;
+                srcRegMask     = RBM_ARG_1;
+                sizeRegMask    = RBM_ARG_2;
+                break;
 #endif
 
-                default:
-                    unreached();
-            }
+            default:
+                unreached();
         }
 
         if ((srcAddrOrFill == nullptr) && (srcRegMask != RBM_NONE))
