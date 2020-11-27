@@ -173,10 +173,10 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
         if (size > INITBLK_UNROLL_LIMIT)
         {
 #ifdef TARGET_AMD64
-            store->SetKind(StructStoreKind::Helper);
+            store->SetKind(StructStoreKind::MemSet);
 #else
             // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-            store->SetKind(StructStoreKind::RepInstr);
+            store->SetKind(StructStoreKind::RepStos);
 #endif
         }
         else if (!src->OperIs(GT_CNS_INT))
@@ -184,11 +184,11 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
             // TODO-CQ: We could unroll even when the initialization value is not a constant
             // by inserting a MUL init, 0x01010101 instruction. We need to determine if the
             // extra latency that MUL introduces isn't worse that rep stosb. Likely not.
-            store->SetKind(StructStoreKind::RepInstr);
+            store->SetKind(StructStoreKind::RepStos);
         }
         else
         {
-            store->SetKind(StructStoreKind::Unroll);
+            store->SetKind(StructStoreKind::UnrollInit);
 
             // The fill value of an initblk is interpreted to hold a
             // value of (unsigned int8) however a constant of any size
@@ -322,11 +322,11 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
 
             if (nonWBSequenceLength >= CPOBJ_NONGC_SLOTS_LIMIT)
             {
-                store->SetKind(StructStoreKind::UnrollWBRepMovs);
+                store->SetKind(StructStoreKind::UnrollCopyWBRepMovs);
             }
             else
             {
-                store->SetKind(StructStoreKind::UnrollWB);
+                store->SetKind(StructStoreKind::UnrollCopyWB);
             }
 
             if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
@@ -336,7 +336,7 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
         }
         else if (size <= CPBLK_UNROLL_LIMIT)
         {
-            store->SetKind(StructStoreKind::Unroll);
+            store->SetKind(StructStoreKind::UnrollCopy);
 
             if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
@@ -348,10 +348,10 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
         else
         {
 #ifdef TARGET_AMD64
-            store->SetKind(StructStoreKind::Helper);
+            store->SetKind(StructStoreKind::MemCpy);
 #else
             // TODO-X86-CQ: Investigate whether a helper call would be beneficial on x86
-            store->SetKind(StructStoreKind::RepInstr);
+            store->SetKind(StructStoreKind::RepMovs);
 #endif
 
             if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
@@ -372,8 +372,10 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
 //
 void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert((store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && (store->AsBlk()->GetKind() == StructStoreKind::Unroll)) ||
-           store->OperIs(GT_PUTARG_STK));
+    assert(
+        (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
+                                                       (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))) ||
+        store->OperIs(GT_PUTARG_STK));
 
     assert(size < INT32_MAX);
 

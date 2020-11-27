@@ -2526,51 +2526,32 @@ void CodeGen::genStructStore(GenTreeBlk* store)
 {
     assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK));
 
-    bool isInit = store->GetValue()->gtSkipReloadOrCopy()->OperIs(GT_INIT_VAL, GT_CNS_INT);
-
     switch (store->GetKind())
     {
-        case StructStoreKind::UnrollWB:
-        case StructStoreKind::UnrollWBRepMovs:
-            assert(!isInit);
-            genStructStoreUnrollCopyWB(store->AsObj());
-            break;
-
 #ifdef TARGET_AMD64
-        case StructStoreKind::Helper:
-            if (isInit)
-            {
-                genStructStoreMemSet(store);
-            }
-            else
-            {
-                genStructStoreMemCpy(store);
-            }
+        case StructStoreKind::MemSet:
+            genStructStoreMemSet(store);
+            break;
+        case StructStoreKind::MemCpy:
+            genStructStoreMemCpy(store);
             break;
 #endif
-
-        case StructStoreKind::RepInstr:
-            if (isInit)
-            {
-                genStructStoreRepStos(store);
-            }
-            else
-            {
-                genStructStoreRepMovs(store);
-            }
+        case StructStoreKind::RepStos:
+            genStructStoreRepStos(store);
             break;
-
-        case StructStoreKind::Unroll:
-            if (isInit)
-            {
-                genStructStoreUnrollInit(store);
-            }
-            else
-            {
-                genStructStoreUnrollCopy(store);
-            }
+        case StructStoreKind::RepMovs:
+            genStructStoreRepMovs(store);
             break;
-
+        case StructStoreKind::UnrollInit:
+            genStructStoreUnrollInit(store);
+            break;
+        case StructStoreKind::UnrollCopy:
+            genStructStoreUnrollCopy(store);
+            break;
+        case StructStoreKind::UnrollCopyWB:
+        case StructStoreKind::UnrollCopyWBRepMovs:
+            genStructStoreUnrollCopyWB(store->AsObj());
+            break;
         default:
             unreached();
     }

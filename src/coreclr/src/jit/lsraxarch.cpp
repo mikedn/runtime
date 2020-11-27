@@ -1260,14 +1260,6 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
     GenTree* srcAddrOrFill = nullptr;
 
-    regMaskTP dstAddrRegMask = RBM_NONE;
-    regMaskTP srcRegMask     = RBM_NONE;
-    regMaskTP sizeRegMask    = RBM_NONE;
-
-#ifdef TARGET_X86
-    RefPosition* internalByteDef = nullptr;
-#endif
-
     if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         if (src->OperIs(GT_INIT_VAL))
@@ -1277,114 +1269,111 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         }
 
         srcAddrOrFill = src;
-
-        switch (store->GetKind())
-        {
-            case StructStoreKind::Unroll:
-                if (size >= XMM_REGSIZE_BYTES)
-                {
-                    buildInternalFloatRegisterDefForNode(store, internalFloatRegCandidates());
-                    SetContainsAVXFlags();
-                }
-
-#ifdef TARGET_X86
-                if ((size & 1) != 0)
-                {
-                    // We'll need to store a byte so a byte register is needed on x86.
-                    srcRegMask = allByteRegs();
-                }
-#endif
-                break;
-
-            case StructStoreKind::RepInstr:
-                assert(!src->isContained());
-                dstAddrRegMask = RBM_RDI;
-                srcRegMask     = RBM_RAX;
-                sizeRegMask    = RBM_RCX;
-                break;
-
-#ifdef TARGET_AMD64
-            case StructStoreKind::Helper:
-                assert(!src->isContained());
-                dstAddrRegMask = RBM_ARG_0;
-                srcRegMask     = RBM_ARG_1;
-                sizeRegMask    = RBM_ARG_2;
-                break;
-#endif
-
-            default:
-                unreached();
-        }
+    }
+    else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    {
+        assert(src->isContained());
+        srcAddrOrFill = src->AsIndir()->GetAddr();
     }
     else
     {
-        if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
-        {
-            assert(src->isContained());
-            srcAddrOrFill = src->AsIndir()->GetAddr();
-        }
+        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->isContained());
+    }
 
-        switch (store->GetKind())
-        {
-            case StructStoreKind::UnrollWBRepMovs:
-                sizeRegMask = RBM_RCX;
-                FALLTHROUGH;
-            case StructStoreKind::UnrollWB:
-                dstAddrRegMask = RBM_RDI;
-                srcRegMask     = RBM_RSI;
-                break;
-
-            case StructStoreKind::Unroll:
+    regMaskTP dstAddrRegMask = RBM_NONE;
+    regMaskTP srcRegMask     = RBM_NONE;
+    regMaskTP sizeRegMask    = RBM_NONE;
 #ifdef TARGET_X86
-                if ((size & 1) != 0)
-                {
-                    // We'll need to store a byte so a byte register is needed on x86.
-                    internalByteDef = buildInternalIntRegisterDefForNode(store, allByteRegs());
-                }
-                else
+    RefPosition* internalByteDef = nullptr;
 #endif
-                    if ((size % XMM_REGSIZE_BYTES) != 0)
-                {
-                    buildInternalIntRegisterDefForNode(store);
-                }
 
-                if (size >= XMM_REGSIZE_BYTES)
-                {
-                    buildInternalFloatRegisterDefForNode(store, internalFloatRegCandidates());
-                    SetContainsAVXFlags();
-                }
-                break;
+    switch (store->GetKind())
+    {
+        case StructStoreKind::UnrollInit:
+            if (size >= XMM_REGSIZE_BYTES)
+            {
+                BuildInternalFloatDef(store, internalFloatRegCandidates());
+                SetContainsAVXFlags();
+            }
 
-            case StructStoreKind::RepInstr:
-                dstAddrRegMask = RBM_RDI;
-                srcRegMask     = RBM_RSI;
-                sizeRegMask    = RBM_RCX;
-                break;
+#ifdef TARGET_X86
+            if ((size & 1) != 0)
+            {
+                // We'll need to store a byte so a byte register is needed on x86.
+                srcRegMask = allByteRegs();
+            }
+#endif
+            break;
+
+        case StructStoreKind::UnrollCopy:
+            if (size >= XMM_REGSIZE_BYTES)
+            {
+                BuildInternalFloatDef(store, internalFloatRegCandidates());
+                SetContainsAVXFlags();
+            }
+
+#ifdef TARGET_X86
+            if ((size & 1) != 0)
+            {
+                // We'll need to store a byte so a byte register is needed on x86.
+                internalByteDef = BuildInternalIntDef(store, allByteRegs());
+            }
+            else
+#endif
+                if ((size % XMM_REGSIZE_BYTES) != 0)
+            {
+                BuildInternalIntDef(store);
+            }
+            break;
+
+        case StructStoreKind::UnrollCopyWBRepMovs:
+            sizeRegMask = RBM_RCX;
+            FALLTHROUGH;
+        case StructStoreKind::UnrollCopyWB:
+            dstAddrRegMask = RBM_RDI;
+            srcRegMask     = RBM_RSI;
+            break;
+
+        case StructStoreKind::RepStos:
+            assert(!src->isContained());
+            dstAddrRegMask = RBM_RDI;
+            srcRegMask     = RBM_RAX;
+            sizeRegMask    = RBM_RCX;
+            break;
+
+        case StructStoreKind::RepMovs:
+            dstAddrRegMask = RBM_RDI;
+            srcRegMask     = RBM_RSI;
+            sizeRegMask    = RBM_RCX;
+            break;
 
 #ifdef TARGET_AMD64
-            case StructStoreKind::Helper:
-                dstAddrRegMask = RBM_ARG_0;
-                srcRegMask     = RBM_ARG_1;
-                sizeRegMask    = RBM_ARG_2;
-                break;
+        case StructStoreKind::MemSet:
+            assert(!src->isContained());
+            FALLTHROUGH;
+        case StructStoreKind::MemCpy:
+            dstAddrRegMask = RBM_ARG_0;
+            srcRegMask     = RBM_ARG_1;
+            sizeRegMask    = RBM_ARG_2;
+            break;
 #endif
 
-            default:
-                unreached();
-        }
+        default:
+            unreached();
+    }
 
-        if ((srcAddrOrFill == nullptr) && (srcRegMask != RBM_NONE))
-        {
-            // This is a local source; we'll use a temp register for its address.
-            assert(src->isContained() && src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-            buildInternalIntRegisterDefForNode(store, srcRegMask);
-        }
+    if ((srcAddrOrFill == nullptr) && (srcRegMask != RBM_NONE))
+    {
+        // This is a local source; we'll use a temp register for its address.
+        assert(src->isContained() && src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        BuildInternalIntDef(store, srcRegMask);
     }
 
     if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
     {
         // Reserve a temp register for the block size argument.
-        buildInternalIntRegisterDefForNode(store, sizeRegMask);
+        BuildInternalIntDef(store, sizeRegMask);
     }
 
     int useCount = 0;
@@ -1420,24 +1409,27 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
 #ifdef TARGET_X86
     // If we require a byte register on x86, we may run into an over-constrained situation
-    // if we have BYTE_REG_COUNT or more uses (currently, it can be at most 4, if both the
-    // source and destination have base+index addressing).
+    // if we have BYTE_REG_COUNT or more uses.
     // This is because the byteable register requirement doesn't "reserve" a specific register,
     // and it would be possible for the incoming sources to all be occupying the byteable
     // registers, leaving none free for the internal register.
-    // In this scenario, we will require rax to ensure that it is reserved and available.
+    // In this scenario, we will require EAX to ensure that it is reserved and available.
     // We need to make that modification prior to building the uses for the internal register,
     // so that when we create the use we will also create the RefTypeFixedRef on the RegRecord.
-    // We don't expect a useCount of more than 3 for the initBlk case, so we haven't set
-    // internalIsByte in that case above.
-    assert((useCount < BYTE_REG_COUNT) || !store->OperIsInitBlkOp());
-    if ((internalByteDef != nullptr) && (useCount >= BYTE_REG_COUNT))
+    if (useCount >= BYTE_REG_COUNT)
     {
-        internalByteDef->registerAssignment = RBM_RAX;
+        // Only unrolled copies may reach the limit, when both source and destination are
+        // base + index address modes.
+        assert(store->GetKind() == StructStoreKind::UnrollCopy);
+
+        if (internalByteDef != nullptr)
+        {
+            internalByteDef->registerAssignment = RBM_EAX;
+        }
     }
 #endif
 
-    buildInternalRegisterUses();
+    BuildInternalUses();
     regMaskTP killMask = getKillSetForStructStore(store);
     BuildDefsWithKills(store, 0, RBM_NONE, killMask);
 

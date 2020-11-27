@@ -6508,15 +6508,18 @@ enum class StructStoreKind : uint8_t
 {
     Invalid,
 #ifndef TARGET_X86
-    Helper,
+    MemSet,
+    MemCpy,
 #endif
 #ifdef TARGET_XARCH
-    RepInstr,
+    RepStos,
+    RepMovs,
 #endif
-    Unroll,
-    UnrollWB,
+    UnrollInit,
+    UnrollCopy,
+    UnrollCopyWB,
 #ifdef TARGET_XARCH
-    UnrollWBRepMovs
+    UnrollCopyWBRepMovs
 #endif
 };
 

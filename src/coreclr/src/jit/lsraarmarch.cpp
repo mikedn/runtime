@@ -499,10 +499,6 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 
     GenTree* srcAddrOrFill = nullptr;
 
-    regMaskTP dstAddrRegMask = RBM_NONE;
-    regMaskTP srcRegMask     = RBM_NONE;
-    regMaskTP sizeRegMask    = RBM_NONE;
-
     if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         if (src->OperIs(GT_INIT_VAL))
@@ -512,78 +508,77 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         }
 
         srcAddrOrFill = src;
-
-        switch (store->GetKind())
-        {
-            case StructStoreKind::Unroll:
-                break;
-
-            case StructStoreKind::Helper:
-                assert(!src->isContained());
-                dstAddrRegMask = RBM_ARG_0;
-                srcRegMask     = RBM_ARG_1;
-                sizeRegMask    = RBM_ARG_2;
-                break;
-
-            default:
-                unreached();
-        }
+    }
+    else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    {
+        assert(src->isContained());
+        srcAddrOrFill = src->AsIndir()->GetAddr();
     }
     else
     {
-        if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
-        {
-            assert(src->isContained());
-            srcAddrOrFill = src->AsIndir()->GetAddr();
-        }
+        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->isContained());
+    }
 
-        regMaskTP internalIntCandidates = allRegs(TYP_INT);
+    regMaskTP dstAddrRegMask     = RBM_NONE;
+    regMaskTP srcRegMask         = RBM_NONE;
+    regMaskTP sizeRegMask        = RBM_NONE;
+    regMaskTP internalIntRegMask = allRegs(TYP_INT);
 
-        switch (store->GetKind())
-        {
-            case StructStoreKind::UnrollWB:
-                dstAddrRegMask = RBM_WRITE_BARRIER_DST_BYREF;
+    switch (store->GetKind())
+    {
+        case StructStoreKind::UnrollInit:
+            break;
 
-                // If we have a source address we want it in REG_WRITE_BARRIER_SRC_BYREF.
-                // Otherwise, if it is a local, codegen will put its address in REG_WRITE_BARRIER_SRC_BYREF,
-                // which is killed and thus needn't be reserved as an internal register.
+        case StructStoreKind::UnrollCopyWB:
+            dstAddrRegMask = RBM_WRITE_BARRIER_DST_BYREF;
 
-                // TODO-MIKE-Review: XARCH lowering does reserve an internal register for a local source.
+            // If we have a source address we want it in REG_WRITE_BARRIER_SRC_BYREF.
+            // Otherwise, if it is a local, codegen will put its address in REG_WRITE_BARRIER_SRC_BYREF,
+            // which is killed and thus needn't be reserved as an internal register.
 
-                if (srcAddrOrFill != nullptr)
-                {
-                    assert(!srcAddrOrFill->isContained());
-                    srcRegMask = RBM_WRITE_BARRIER_SRC_BYREF;
-                }
+            // TODO-MIKE-Review: XARCH lowering does reserve an internal register for a local source.
 
-                internalIntCandidates &= ~(dstAddrRegMask | RBM_WRITE_BARRIER_SRC_BYREF);
-                FALLTHROUGH;
-            case StructStoreKind::Unroll:
-                buildInternalIntRegisterDefForNode(store, internalIntCandidates);
+            if (srcAddrOrFill != nullptr)
+            {
+                assert(!srcAddrOrFill->isContained());
+                srcRegMask = RBM_WRITE_BARRIER_SRC_BYREF;
+            }
+
+            internalIntRegMask &= ~(dstAddrRegMask | RBM_WRITE_BARRIER_SRC_BYREF);
+            FALLTHROUGH;
+        case StructStoreKind::UnrollCopy:
+            BuildInternalIntDef(store, internalIntRegMask);
 #ifdef TARGET_ARM64
-                if (size >= 2 * REGSIZE_BYTES)
-                {
-                    // Reserve an additional temp register for LDP/STP.
-                    buildInternalIntRegisterDefForNode(store, internalIntCandidates);
-                }
+            if (size >= 2 * REGSIZE_BYTES)
+            {
+                // Reserve an additional temp register for LDP/STP.
+                BuildInternalIntDef(store, internalIntRegMask);
+            }
 #endif
-                break;
+            break;
 
-            case StructStoreKind::Helper:
-                dstAddrRegMask = RBM_ARG_0;
-                srcRegMask     = RBM_ARG_1;
-                sizeRegMask    = RBM_ARG_2;
-                break;
+        case StructStoreKind::MemSet:
+            assert(!src->isContained());
+            dstAddrRegMask = RBM_ARG_0;
+            srcRegMask     = RBM_ARG_1;
+            sizeRegMask    = RBM_ARG_2;
+            break;
 
-            default:
-                unreached();
-        }
+        case StructStoreKind::MemCpy:
+            dstAddrRegMask = RBM_ARG_0;
+            srcRegMask     = RBM_ARG_1;
+            sizeRegMask    = RBM_ARG_2;
+            break;
+
+        default:
+            unreached();
     }
 
     if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
     {
         // Reserve a temp register for the block size argument.
-        buildInternalIntRegisterDefForNode(store, sizeRegMask);
+        BuildInternalIntDef(store, sizeRegMask);
     }
 
     int useCount = 0;
@@ -617,7 +612,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
         BuildUse(store->AsDynBlk()->GetSize(), sizeRegMask);
     }
 
-    buildInternalRegisterUses();
+    BuildInternalUses();
     regMaskTP killMask = getKillSetForStructStore(store);
     BuildDefsWithKills(store, 0, RBM_NONE, killMask);
 

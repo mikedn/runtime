@@ -1732,37 +1732,23 @@ void CodeGen::genStructStore(GenTreeBlk* store)
 {
     assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK));
 
-    bool isInit = store->GetValue()->gtSkipReloadOrCopy()->OperIs(GT_INIT_VAL, GT_CNS_INT);
-
     switch (store->GetKind())
     {
-        case StructStoreKind::UnrollWB:
-            assert(!isInit);
+        case StructStoreKind::MemSet:
+            genStructStoreMemSet(store);
+            break;
+        case StructStoreKind::MemCpy:
+            genStructStoreMemCpy(store);
+            break;
+        case StructStoreKind::UnrollInit:
+            genStructStoreUnrollInit(store);
+            break;
+        case StructStoreKind::UnrollCopy:
+            genStructStoreUnrollCopy(store);
+            break;
+        case StructStoreKind::UnrollCopyWB:
             genStructStoreUnrollCopyWB(store->AsObj());
             break;
-
-        case StructStoreKind::Helper:
-            if (isInit)
-            {
-                genStructStoreMemSet(store);
-            }
-            else
-            {
-                genStructStoreMemCpy(store);
-            }
-            break;
-
-        case StructStoreKind::Unroll:
-            if (isInit)
-            {
-                genStructStoreUnrollInit(store);
-            }
-            else
-            {
-                genStructStoreUnrollCopy(store);
-            }
-            break;
-
         default:
             unreached();
     }

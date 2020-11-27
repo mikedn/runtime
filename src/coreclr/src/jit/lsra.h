@@ -1075,6 +1075,21 @@ private:
     RefPosition* buildInternalFloatRegisterDefForNode(GenTree* tree, regMaskTP internalCands = RBM_NONE);
     void buildInternalRegisterUses();
 
+    RefPosition* BuildInternalIntDef(GenTree* node, regMaskTP candidates = RBM_NONE)
+    {
+        return buildInternalIntRegisterDefForNode(node, candidates);
+    }
+
+    RefPosition* BuildInternalFloatDef(GenTree* node, regMaskTP candidates = RBM_NONE)
+    {
+        return buildInternalFloatRegisterDefForNode(node, candidates);
+    }
+
+    void BuildInternalUses()
+    {
+        buildInternalRegisterUses();
+    }
+
     void writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumber reg);
     void resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, RefPosition* currentRefPosition);
 

@@ -10061,23 +10061,32 @@ void Compiler::gtDispTree(GenTree*     tree,
                 {
                     case StructStoreKind::Invalid:
                         break;
-                    case StructStoreKind::Unroll:
-                        printf(" (Unroll)");
+                    case StructStoreKind::UnrollInit:
+                        printf(" (UnrollInit)");
                         break;
-                    case StructStoreKind::UnrollWB:
-                        printf(" (Unroll WB)");
+                    case StructStoreKind::UnrollCopy:
+                        printf(" (UnrollCopy)");
+                        break;
+                    case StructStoreKind::UnrollCopyWB:
+                        printf(" (UnrollCopyWB)");
                         break;
 #ifdef TARGET_XARCH
-                    case StructStoreKind::UnrollWBRepMovs:
-                        printf(" (Unroll WB REP MOVS)");
+                    case StructStoreKind::UnrollCopyWBRepMovs:
+                        printf(" (UnrollCopyWBRepMovs)");
                         break;
-                    case StructStoreKind::RepInstr:
-                        printf(" (RepInstr)");
+                    case StructStoreKind::RepStos:
+                        printf(" (RepStos)");
+                        break;
+                    case StructStoreKind::RepMovs:
+                        printf(" (RepMovs)");
                         break;
 #endif
 #ifndef TARGET_X86
-                    case StructStoreKind::Helper:
-                        printf(" (Helper)");
+                    case StructStoreKind::MemSet:
+                        printf(" (MemSet)");
+                        break;
+                    case StructStoreKind::MemCpy:
+                        printf(" (MemCpy)");
                         break;
 #endif
                     default:

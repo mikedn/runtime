@@ -238,11 +238,11 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
 
         if ((size > INITBLK_UNROLL_LIMIT) || !src->OperIs(GT_CNS_INT))
         {
-            store->SetKind(StructStoreKind::Helper);
+            store->SetKind(StructStoreKind::MemSet);
         }
         else
         {
-            store->SetKind(StructStoreKind::Unroll);
+            store->SetKind(StructStoreKind::UnrollInit);
 
             // The fill value of an initblk is interpreted to hold a
             // value of (unsigned int8) however a constant of any size
@@ -299,11 +299,11 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
         {
             assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-            store->SetKind(StructStoreKind::UnrollWB);
+            store->SetKind(StructStoreKind::UnrollCopyWB);
         }
         else if (size <= CPBLK_UNROLL_LIMIT)
         {
-            store->SetKind(StructStoreKind::Unroll);
+            store->SetKind(StructStoreKind::UnrollCopy);
 
             if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
@@ -314,7 +314,7 @@ void Lowering::LowerStructStore(GenTreeBlk* store)
         }
         else
         {
-            store->SetKind(StructStoreKind::Helper);
+            store->SetKind(StructStoreKind::MemCpy);
         }
     }
 }
@@ -399,8 +399,10 @@ bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool 
 //
 void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert((store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && (store->AsBlk()->GetKind() == StructStoreKind::Unroll)) ||
-           store->OperIsPutArgStkOrSplit());
+    assert(
+        (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
+                                                       (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit))) ||
+        store->OperIsPutArgStkOrSplit());
 
     if (addr->OperIsLocalAddr())
     {
