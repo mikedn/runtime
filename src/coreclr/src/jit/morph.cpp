@@ -9300,8 +9300,9 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         return nop;
     }
 
-    if ((destLclVar != nullptr) && destLclVar->lvPromoted && (destLclOffs == 0) &&
-        (destLclVar->lvExactSize == destSize) && !destLclVar->lvDoNotEnregister)
+    if ((destLclVar != nullptr) && destLclVar->IsPromoted() && (destLclOffs == 0) &&
+        (destLclVar->lvExactSize == destSize) &&
+        (!destLclVar->lvDoNotEnregister || (destLclVar->GetPromotedFieldCount() == 1)))
     {
         assert(varTypeIsStruct(destLclVar->GetType()));
         assert(destHasSize);
@@ -9316,8 +9317,9 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         JITDUMP(" with mismatched dest offset/size");
     }
 
-    if ((srcLclVar != nullptr) && srcLclVar->lvPromoted && (srcLclOffs == 0) && (srcLclVar->lvExactSize == destSize) &&
-        !srcLclVar->lvDoNotEnregister)
+    if ((srcLclVar != nullptr) && srcLclVar->IsPromoted() && (srcLclOffs == 0) &&
+        (srcLclVar->lvExactSize == destSize) &&
+        (!srcLclVar->lvDoNotEnregister || (srcLclVar->GetPromotedFieldCount() == 1)))
     {
         assert(varTypeIsStruct(srcLclVar->GetType()));
         assert(destHasSize);
