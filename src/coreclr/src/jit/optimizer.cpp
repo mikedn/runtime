@@ -9368,6 +9368,19 @@ void Compiler::optRemoveRedundantZeroInits()
                                 // the prolog and this explicit intialization. Therefore, it doesn't
                                 // require zero initialization in the prolog.
                                 lclDsc->lvHasExplicitInit = 1;
+
+                                // If the local is the only field of a promoted struct local then the
+                                // promoted struct local also doesn't require zero initialization in
+                                // the prolog.
+                                if (lclDsc->IsPromotedField())
+                                {
+                                    LclVarDsc* parentLcl = lvaGetDesc(lclDsc->GetPromotedFieldParentLclNum());
+
+                                    if (parentLcl->GetLayout()->GetSize() == varTypeSize(lclDsc->GetType()))
+                                    {
+                                        parentLcl->lvHasExplicitInit = 1;
+                                    }
+                                }
                             }
                         }
                         break;
