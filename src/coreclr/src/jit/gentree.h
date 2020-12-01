@@ -1198,7 +1198,6 @@ public:
     bool OperIsBlkOp();
     bool OperIsCopyBlkOp();
     bool OperIsInitBlkOp();
-    bool OperIsDynBlkOp();
 
     static bool OperIsBlk(genTreeOps gtOper)
     {
@@ -7885,11 +7884,6 @@ inline bool GenTree::OperIsBlkOp()
 {
     return (OperIs(GT_ASG) && varTypeIsStruct(AsOp()->GetOp(0)->GetType())) ||
            OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK);
-}
-
-inline bool GenTree::OperIsDynBlkOp()
-{
-    return (OperIs(GT_ASG) && AsOp()->GetOp(0)->OperIs(GT_DYN_BLK)) || OperIs(GT_STORE_DYN_BLK);
 }
 
 inline bool GenTree::OperIsInitBlkOp()

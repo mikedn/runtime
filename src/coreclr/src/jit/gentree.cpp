@@ -10858,31 +10858,31 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
                 displayOperand(operand, buf, operandArc, indentStack, prefixIndent);
             }
         }
-        else if (node->OperIsDynBlkOp())
+        else if (node->OperIs(GT_STORE_DYN_BLK))
         {
-            if (operand == node->AsBlk()->Addr())
+            if (operand == node->AsDynBlk()->GetAddr())
             {
-                displayOperand(operand, "lhs", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, "addr", operandArc, indentStack, prefixIndent);
             }
-            else if (operand == node->AsBlk()->Data())
+            else if (operand == node->AsDynBlk()->GetValue())
             {
-                displayOperand(operand, "rhs", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, "value", operandArc, indentStack, prefixIndent);
             }
             else
             {
-                assert(operand == node->AsDynBlk()->gtDynamicSize);
+                assert(operand == node->AsDynBlk()->GetSize());
                 displayOperand(operand, "size", operandArc, indentStack, prefixIndent);
             }
         }
-        else if (node->OperGet() == GT_DYN_BLK)
+        else if (node->OperIs(GT_DYN_BLK))
         {
-            if (operand == node->AsBlk()->Addr())
+            if (operand == node->AsDynBlk()->GetAddr())
             {
-                displayOperand(operand, "lhs", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, "addr", operandArc, indentStack, prefixIndent);
             }
             else
             {
-                assert(operand == node->AsDynBlk()->gtDynamicSize);
+                assert(operand == node->AsDynBlk()->GetSize());
                 displayOperand(operand, "size", operandArc, indentStack, prefixIndent);
             }
         }
