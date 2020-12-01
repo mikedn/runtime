@@ -8741,15 +8741,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 }
                 goto DASH;
 
-            case GT_ASG:
-                if (tree->OperIsInitBlkOp())
-                {
-                    printf("I");
-                    --msgLength;
-                    break;
-                }
-                goto DASH;
-
             case GT_CALL:
                 if (tree->AsCall()->IsInlineCandidate())
                 {
@@ -10043,56 +10034,43 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             printf(" (%s to %s)", varTypeName(fromType), varTypeName(toType));
         }
-
-        if (tree->OperIsBlkOp())
+        else if (tree->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK))
         {
-            if (tree->OperIsCopyBlkOp())
+            switch (tree->AsBlk()->GetKind())
             {
-                printf(" (copy)");
-            }
-            else if (tree->OperIsInitBlkOp())
-            {
-                printf(" (init)");
-            }
-
-            if (tree->OperIsStoreBlk())
-            {
-                switch (tree->AsBlk()->GetKind())
-                {
-                    case StructStoreKind::Invalid:
-                        break;
-                    case StructStoreKind::UnrollInit:
-                        printf(" (UnrollInit)");
-                        break;
-                    case StructStoreKind::UnrollCopy:
-                        printf(" (UnrollCopy)");
-                        break;
-                    case StructStoreKind::UnrollCopyWB:
-                        printf(" (UnrollCopyWB)");
-                        break;
+                case StructStoreKind::Invalid:
+                    break;
+                case StructStoreKind::UnrollInit:
+                    printf(" (UnrollInit)");
+                    break;
+                case StructStoreKind::UnrollCopy:
+                    printf(" (UnrollCopy)");
+                    break;
+                case StructStoreKind::UnrollCopyWB:
+                    printf(" (UnrollCopyWB)");
+                    break;
 #ifdef TARGET_XARCH
-                    case StructStoreKind::UnrollCopyWBRepMovs:
-                        printf(" (UnrollCopyWBRepMovs)");
-                        break;
-                    case StructStoreKind::RepStos:
-                        printf(" (RepStos)");
-                        break;
-                    case StructStoreKind::RepMovs:
-                        printf(" (RepMovs)");
-                        break;
+                case StructStoreKind::UnrollCopyWBRepMovs:
+                    printf(" (UnrollCopyWBRepMovs)");
+                    break;
+                case StructStoreKind::RepStos:
+                    printf(" (RepStos)");
+                    break;
+                case StructStoreKind::RepMovs:
+                    printf(" (RepMovs)");
+                    break;
 #endif
 #ifndef TARGET_X86
-                    case StructStoreKind::MemSet:
-                        printf(" (MemSet)");
-                        break;
-                    case StructStoreKind::MemCpy:
-                        printf(" (MemCpy)");
-                        break;
+                case StructStoreKind::MemSet:
+                    printf(" (MemSet)");
+                    break;
+                case StructStoreKind::MemCpy:
+                    printf(" (MemCpy)");
+                    break;
 #endif
-                    default:
-                        printf(" (???)");
-                        break;
-                }
+                default:
+                    printf(" (???)");
+                    break;
             }
         }
         else if (tree->OperGet() == GT_PUTARG_STK)
@@ -10524,14 +10502,6 @@ void Compiler::gtDispTree(GenTree*     tree,
 
         case GT_STORE_DYN_BLK:
         case GT_DYN_BLK:
-            if (tree->OperIsCopyBlkOp())
-            {
-                printf(" (copy)");
-            }
-            else if (tree->OperIsInitBlkOp())
-            {
-                printf(" (init)");
-            }
             gtDispCommonEndLine(tree);
 
             if (!topOnly)

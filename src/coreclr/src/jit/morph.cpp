@@ -9415,7 +9415,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         // Such trees are unlikely to be generated from valid IL. Instead, they appear as the result
         // of (or rather lack of) recursive struct promotion morphing trees like:
         //
-        //  [000265] -A--G-------  *  ASG       struct (copy)
+        //  [000265] -A--G-------  *  ASG       struct
         //  [000263] D-----------  +--*  LCL_VAR   struct<System.DateTime, 8>(P) V04 loc1
         //                         +--*    long   V04._dateData (offs=0x00) -> V47 tmp39
         //  [000262] ----G-------  \--*  FIELD     struct End
@@ -9427,7 +9427,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         //
         // fgMorphCopyBlock input:
         //
-        //  [000265] -A--G-------  *  ASG       struct (copy)
+        //  [000265] -A--G-------  *  ASG       struct
         //  [000263] D-----------  +--*  LCL_VAR   struct<System.DateTime, 8>(P) V04 loc1
         //                         +--*    long   V04._dateData (offs=0x00) -> V47 tmp39
         //  [000262] -------N----  \--*  LCL_VAR   long   V45 tmp37
@@ -9446,7 +9446,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         // Check for the symmetric case (which happens for the _pointer field of promoted spans):
         //
-        // [000261] -A----------  *  ASG       struct (copy)
+        // [000261] -A----------  *  ASG       struct
         // [000260] n----+------  +--*  OBJ       struct<System.ByReference`1[Char], 8>
         // [000259] -----+------  |  \--*  ADDR      byref
         // [000258] D----+-N----  |     \--*  LCL_VAR   byref  V129 tmp116
@@ -9455,7 +9455,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         //
         // fgMorphCopyBlock input:
         //
-        // [000261] -A----------  *  ASG       struct (copy)
+        // [000261] -A----------  *  ASG       struct
         // [000260] ------------  +--*  OBJ       struct<System.ByReference`1[Char], 8>
         // [000259] ------------  |  \--*  ADDR      byref
         // [000258] ------------  |     \--*  FIELD     struct _pointer
