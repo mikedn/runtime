@@ -221,34 +221,28 @@ void Lowering::LowerStoreIndir(GenTreeIndir* node)
     ContainCheckStoreIndir(node);
 }
 
-//------------------------------------------------------------------------
-// LowerBlockStore: Lower a block store node
-//
-// Arguments:
-//    blkNode - The block store node to lower
-//
-void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
+void Lowering::LowerStructStore(GenTreeBlk* store)
 {
-    GenTree* dstAddr = blkNode->Addr();
-    GenTree* src     = blkNode->Data();
-    unsigned size    = blkNode->Size();
+    GenTree*     dstAddr = store->GetAddr();
+    GenTree*     src     = store->GetValue();
+    ClassLayout* layout  = store->GetLayout();
+    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
 
-    if (blkNode->OperIsInitBlkOp())
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         if (src->OperIs(GT_INIT_VAL))
         {
             src->SetContained();
-            src = src->AsUnOp()->gtGetOp1();
+            src = src->AsUnOp()->GetOp(0);
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        if ((size > INITBLK_UNROLL_LIMIT) || !src->OperIs(GT_CNS_INT))
         {
-            blkNode->SetOper(GT_STORE_BLK);
+            store->SetKind(StructStoreKind::MemSet);
         }
-
-        if (!blkNode->OperIs(GT_STORE_DYN_BLK) && (size <= INITBLK_UNROLL_LIMIT) && src->OperIs(GT_CNS_INT))
+        else
         {
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
+            store->SetKind(StructStoreKind::UnrollInit);
 
             // The fill value of an initblk is interpreted to hold a
             // value of (unsigned int8) however a constant of any size
@@ -257,7 +251,7 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             // it to a larger constant whose size is sufficient to support
             // the largest width store of the desired inline expansion.
 
-            ssize_t fill = src->AsIntCon()->IconValue() & 0xFF;
+            ssize_t fill = src->AsIntCon()->GetUInt8Value();
 
             if (fill == 0)
             {
@@ -271,7 +265,7 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
             else if (size >= REGSIZE_BYTES)
             {
                 fill *= 0x0101010101010101LL;
-                src->gtType = TYP_LONG;
+                src->SetType(TYP_LONG);
             }
 #endif
             else
@@ -279,66 +273,48 @@ void Lowering::LowerBlockStore(GenTreeBlk* blkNode)
                 fill *= 0x01010101;
             }
 
-            src->AsIntCon()->SetIconValue(fill);
+            src->AsIntCon()->SetValue(fill);
 
-            ContainBlockStoreAddress(blkNode, size, dstAddr);
-        }
-        else
-        {
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
+            ContainBlockStoreAddress(store, size, dstAddr);
         }
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_LCL_VAR, GT_LCL_FLD));
         src->SetContained();
 
-        if (src->OperIs(GT_IND))
+        if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
         {
             // TODO-Cleanup: Make sure that GT_IND lowering didn't mark the source address as contained.
             // Sometimes the GT_IND type is a non-struct type and then GT_IND lowering may contain the
             // address, not knowing that GT_IND is part of a block op that has containment restrictions.
-            src->AsIndir()->Addr()->ClearContained();
+            src->AsIndir()->GetAddr()->ClearContained();
         }
 
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        // If the struct contains GC pointers we need to generate GC write barriers, unless
+        // the destination is a local variable. Even if the destination is a local we're still
+        // going to use UnrollWB if the size is too large for normal unrolling.
+
+        if ((layout != nullptr) && layout->HasGCPtr() && (!dstAddr->OperIsLocalAddr() || (size > CPBLK_UNROLL_LIMIT)))
         {
-            if (!blkNode->AsObj()->GetLayout()->HasGCPtr())
-            {
-                blkNode->SetOper(GT_STORE_BLK);
-            }
-            else if (dstAddr->OperIsLocalAddr() && (size <= CPBLK_UNROLL_LIMIT))
-            {
-                // If the size is small enough to unroll then we need to mark the block as non-interruptible
-                // to actually allow unrolling. The generated code does not report GC references loaded in the
-                // temporary register(s) used for copying.
-                blkNode->SetOper(GT_STORE_BLK);
-                blkNode->gtBlkOpGcUnsafe = true;
-            }
+            assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+            store->SetKind(StructStoreKind::UnrollCopyWB);
         }
-
-        if (blkNode->OperIs(GT_STORE_OBJ))
+        else if (size <= CPBLK_UNROLL_LIMIT)
         {
-            assert((dstAddr->TypeGet() == TYP_BYREF) || (dstAddr->TypeGet() == TYP_I_IMPL));
+            store->SetKind(StructStoreKind::UnrollCopy);
 
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
-        }
-        else if (blkNode->OperIs(GT_STORE_BLK) && (size <= CPBLK_UNROLL_LIMIT))
-        {
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindUnroll;
-
-            if (src->OperIs(GT_IND))
+            if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
             {
-                ContainBlockStoreAddress(blkNode, size, src->AsIndir()->Addr());
+                ContainBlockStoreAddress(store, size, src->AsIndir()->GetAddr());
             }
 
-            ContainBlockStoreAddress(blkNode, size, dstAddr);
+            ContainBlockStoreAddress(store, size, dstAddr);
         }
         else
         {
-            assert(blkNode->OperIs(GT_STORE_BLK, GT_STORE_DYN_BLK));
-
-            blkNode->gtBlkOpKind = GenTreeBlk::BlkOpKindHelper;
+            store->SetKind(StructStoreKind::MemCpy);
         }
     }
 }
@@ -423,8 +399,10 @@ bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool 
 //
 void Lowering::ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert((store->OperIs(GT_STORE_BLK) && (store->AsBlk()->gtBlkOpKind == GenTreeBlk::BlkOpKindUnroll)) ||
-           store->OperIsPutArgStkOrSplit());
+    assert(
+        (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
+                                                       (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit))) ||
+        store->OperIsPutArgStkOrSplit());
 
     if (addr->OperIsLocalAddr())
     {

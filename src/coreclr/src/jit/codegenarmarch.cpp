@@ -488,7 +488,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_STORE_OBJ:
         case GT_STORE_DYN_BLK:
         case GT_STORE_BLK:
-            genCodeForStoreBlk(treeNode->AsBlk());
+            genStructStore(treeNode->AsBlk());
             break;
 
         case GT_JMPTABLE:
@@ -1728,77 +1728,98 @@ void CodeGen::genCodeForIndir(GenTreeIndir* tree)
     genProduceReg(tree);
 }
 
-//----------------------------------------------------------------------------------
-// genCodeForCpBlkHelper - Generate code for a CpBlk node by the means of the VM memcpy helper call
-//
-// Arguments:
-//    cpBlkNode - the GT_STORE_[BLK|OBJ|DYN_BLK]
-//
-// Preconditions:
-//   The register assignments have been set appropriately.
-//   This is validated by genConsumeBlockOp().
-//
-void CodeGen::genCodeForCpBlkHelper(GenTreeBlk* cpBlkNode)
+void CodeGen::genStructStore(GenTreeBlk* store)
 {
-    // Destination address goes in arg0, source address goes in arg1, and size goes in arg2.
-    // genConsumeBlockOp takes care of this for us.
-    genConsumeBlockOp(cpBlkNode, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK));
 
-    if (cpBlkNode->gtFlags & GTF_BLK_VOLATILE)
+    switch (store->GetKind())
     {
-        // issue a full memory barrier before a volatile CpBlk operation
+        case StructStoreKind::MemSet:
+            genStructStoreMemSet(store);
+            break;
+        case StructStoreKind::MemCpy:
+            genStructStoreMemCpy(store);
+            break;
+        case StructStoreKind::UnrollInit:
+            genStructStoreUnrollInit(store);
+            break;
+        case StructStoreKind::UnrollCopy:
+            genStructStoreUnrollCopy(store);
+            break;
+        case StructStoreKind::UnrollCopyWB:
+            genStructStoreUnrollCopyWB(store->AsObj());
+            break;
+        default:
+            unreached();
+    }
+}
+
+void CodeGen::genStructStoreMemSet(GenTreeBlk* store)
+{
+    genConsumeStructStore(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+
+    if (store->IsVolatile())
+    {
+        instGen_MemoryBarrier();
+    }
+
+    genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+}
+
+void CodeGen::genStructStoreMemCpy(GenTreeBlk* store)
+{
+    assert((store->GetLayout() == nullptr) || !store->GetLayout()->HasGCPtr());
+
+    genConsumeStructStore(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+
+    if (store->IsVolatile())
+    {
         instGen_MemoryBarrier();
     }
 
     genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
 
-    if (cpBlkNode->gtFlags & GTF_BLK_VOLATILE)
+    if (store->IsVolatile())
     {
-        // issue a load barrier after a volatile CpBlk operation
         instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
     }
 }
 
-//----------------------------------------------------------------------------------
-// genCodeForInitBlkUnroll: Generate unrolled block initialization code.
-//
-// Arguments:
-//    node - the GT_STORE_BLK node to generate code for
-//
-void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
+void CodeGen::genStructStoreUnrollInit(GenTreeBlk* store)
 {
-    assert(node->OperIs(GT_STORE_BLK));
+    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
 
     unsigned  dstLclNum      = BAD_VAR_NUM;
     regNumber dstAddrBaseReg = REG_NA;
     int       dstOffset      = 0;
-    GenTree*  dstAddr        = node->Addr();
+    GenTree*  dstAddr        = store->GetAddr();
 
     if (!dstAddr->isContained())
     {
         dstAddrBaseReg = genConsumeReg(dstAddr);
     }
-    else if (dstAddr->OperIsAddrMode())
+    else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
     {
-        assert(!dstAddr->AsAddrMode()->HasIndex());
+        assert(!addrMode->HasIndex());
 
-        dstAddrBaseReg = genConsumeReg(dstAddr->AsAddrMode()->Base());
-        dstOffset      = dstAddr->AsAddrMode()->Offset();
+        dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+        dstOffset      = dstAddr->AsAddrMode()->GetOffset();
     }
     else
     {
         assert(dstAddr->OperIsLocalAddr());
+
         dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
         dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
     }
 
     regNumber srcReg;
-    GenTree*  src = node->Data();
+    GenTree*  src = store->GetValue();
 
     if (src->OperIs(GT_INIT_VAL))
     {
         assert(src->isContained());
-        src = src->gtGetOp1();
+        src = src->AsUnOp()->GetOp(0);
     }
 
     if (!src->isContained())
@@ -1815,13 +1836,13 @@ void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
 #endif
     }
 
-    if (node->IsVolatile())
+    if (store->IsVolatile())
     {
         instGen_MemoryBarrier();
     }
 
     emitter* emit = GetEmitter();
-    unsigned size = node->GetLayout()->GetSize();
+    unsigned size = store->GetLayout()->GetSize();
 
     assert(size <= INT32_MAX);
     assert(dstOffset < INT32_MAX - static_cast<int>(size));
@@ -1882,31 +1903,30 @@ void CodeGen::genCodeForInitBlkUnroll(GenTreeBlk* node)
     }
 }
 
-//----------------------------------------------------------------------------------
-// genCodeForCpBlkUnroll: Generate unrolled block copy code.
-//
-// Arguments:
-//    node - the GT_STORE_BLK node to generate code for
-//
-void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
+void CodeGen::genStructStoreUnrollCopy(GenTreeBlk* store)
 {
-    assert(node->OperIs(GT_STORE_BLK));
+    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ));
+
+    if (store->GetLayout()->HasGCPtr())
+    {
+        GetEmitter()->emitDisableGC();
+    }
 
     unsigned  dstLclNum      = BAD_VAR_NUM;
     regNumber dstAddrBaseReg = REG_NA;
     int       dstOffset      = 0;
-    GenTree*  dstAddr        = node->Addr();
+    GenTree*  dstAddr        = store->GetAddr();
 
     if (!dstAddr->isContained())
     {
         dstAddrBaseReg = genConsumeReg(dstAddr);
     }
-    else if (dstAddr->OperIsAddrMode())
+    else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
     {
-        assert(!dstAddr->AsAddrMode()->HasIndex());
+        assert(!addrMode->HasIndex());
 
-        dstAddrBaseReg = genConsumeReg(dstAddr->AsAddrMode()->Base());
-        dstOffset      = dstAddr->AsAddrMode()->Offset();
+        dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+        dstOffset      = dstAddr->AsAddrMode()->GetOffset();
     }
     else
     {
@@ -1920,6 +1940,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
         // The same issue also occurs in source address case below and in genCodeForInitBlkUnroll.
 
         assert(dstAddr->OperIsLocalAddr());
+
         dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
         dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
     }
@@ -1927,7 +1948,7 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     unsigned  srcLclNum      = BAD_VAR_NUM;
     regNumber srcAddrBaseReg = REG_NA;
     int       srcOffset      = 0;
-    GenTree*  src            = node->Data();
+    GenTree*  src            = store->GetValue();
 
     assert(src->isContained());
 
@@ -1938,45 +1959,46 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
     }
     else
     {
-        assert(src->OperIs(GT_IND));
-        GenTree* srcAddr = src->AsIndir()->Addr();
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+
+        GenTree* srcAddr = src->AsIndir()->GetAddr();
 
         if (!srcAddr->isContained())
         {
             srcAddrBaseReg = genConsumeReg(srcAddr);
         }
-        else if (srcAddr->OperIsAddrMode())
+        else if (GenTreeAddrMode* addrMode = srcAddr->IsAddrMode())
         {
-            srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->Base());
-            srcOffset      = srcAddr->AsAddrMode()->Offset();
+            srcAddrBaseReg = genConsumeReg(addrMode->GetBase());
+            srcOffset      = srcAddr->AsAddrMode()->GetOffset();
         }
         else
         {
             assert(srcAddr->OperIsLocalAddr());
+
             srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
             srcOffset = srcAddr->AsLclVarCommon()->GetLclOffs();
         }
     }
 
-    if (node->IsVolatile())
+    if (store->IsVolatile())
     {
-        // issue a full memory barrier before a volatile CpBlk operation
         instGen_MemoryBarrier();
     }
 
     emitter* emit = GetEmitter();
-    unsigned size = node->GetLayout()->GetSize();
+    unsigned size = store->GetLayout()->GetSize();
 
     assert(size <= INT32_MAX);
     assert(srcOffset < INT32_MAX - static_cast<int>(size));
     assert(dstOffset < INT32_MAX - static_cast<int>(size));
 
-    regNumber tempReg = node->ExtractTempReg(RBM_ALLINT);
+    regNumber tempReg = store->ExtractTempReg(RBM_ALLINT);
 
 #ifdef TARGET_ARM64
     if (size >= 2 * REGSIZE_BYTES)
     {
-        regNumber tempReg2 = node->ExtractTempReg(RBM_ALLINT);
+        regNumber tempReg2 = store->ExtractTempReg(RBM_ALLINT);
 
         for (unsigned regSize = 2 * REGSIZE_BYTES; size >= regSize;
              size -= regSize, srcOffset += regSize, dstOffset += regSize)
@@ -2056,36 +2078,167 @@ void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* node)
         }
     }
 
-    if (node->IsVolatile())
+    if (store->IsVolatile())
     {
-        // issue a load barrier after a volatile CpBlk operation
         instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
+    }
+
+    if (store->GetLayout()->HasGCPtr())
+    {
+        GetEmitter()->emitEnableGC();
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForInitBlkHelper - Generate code for an InitBlk node by the means of the VM memcpy helper call
+// Generate code for a struct store that contains GC pointers.
+// This will generate a sequence of LDR/STR/LDP/STP instructions for
+// non-GC slots and calls to to the BY_REF_ASSIGN helper otherwise:
 //
-// Arguments:
-//    initBlkNode - the GT_STORE_[BLK|OBJ|DYN_BLK]
+// ldr tempReg, [X13, #8]
+// str tempReg, [X14, #8]
+// bl CORINFO_HELP_ASSIGN_BYREF
+// ldp tempReg, tmpReg2, [X13, #8]
+// stp tempReg, tmpReg2, [X14, #8]
+// bl CORINFO_HELP_ASSIGN_BYREF
+// ldr tempReg, [X13, #8]
+// str tempReg, [X14, #8]
 //
-// Preconditions:
-//   The register assignments have been set appropriately.
-//   This is validated by genConsumeBlockOp().
-//
-void CodeGen::genCodeForInitBlkHelper(GenTreeBlk* initBlkNode)
+void CodeGen::genStructStoreUnrollCopyWB(GenTreeObj* store)
 {
-    // Size goes in arg2, source address goes in arg1, and size goes in arg2.
-    // genConsumeBlockOp takes care of this for us.
-    genConsumeBlockOp(initBlkNode, REG_ARG_0, REG_ARG_1, REG_ARG_2);
+    assert(store->GetLayout()->HasGCPtr());
 
-    if (initBlkNode->gtFlags & GTF_BLK_VOLATILE)
+    genConsumeStructStore(store, REG_WRITE_BARRIER_DST_BYREF, REG_WRITE_BARRIER_SRC_BYREF, REG_NA);
+
+    GenTree*  dstAddr     = store->GetAddr();
+    bool      dstOnStack  = dstAddr->gtSkipReloadOrCopy()->OperIsLocalAddr();
+    var_types dstAddrType = dstAddr->GetType();
+
+    GenTree*  src = store->GetValue();
+    var_types srcAddrType;
+
+    if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        // issue a full memory barrier before a volatile initBlock Operation
+        srcAddrType = TYP_I_IMPL;
+    }
+    else
+    {
+        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+
+        srcAddrType = src->AsIndir()->GetAddr()->GetType();
+    }
+
+    gcInfo.gcMarkRegPtrVal(REG_WRITE_BARRIER_SRC_BYREF, srcAddrType);
+    gcInfo.gcMarkRegPtrVal(REG_WRITE_BARRIER_DST_BYREF, dstAddrType);
+
+    if (store->IsVolatile())
+    {
         instGen_MemoryBarrier();
     }
 
-    genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+    emitter*     emit      = GetEmitter();
+    ClassLayout* layout    = store->GetLayout();
+    unsigned     slotCount = layout->GetSlotCount();
+
+    regNumber tmpReg = store->ExtractTempReg();
+
+    assert(genIsValidIntReg(tmpReg));
+    assert(tmpReg != REG_WRITE_BARRIER_SRC_BYREF);
+    assert(tmpReg != REG_WRITE_BARRIER_DST_BYREF);
+
+#ifdef TARGET_ARM64
+    regNumber tmpReg2 = REG_NA;
+
+    if (slotCount > 1)
+    {
+        tmpReg2 = store->GetSingleTempReg();
+
+        assert(genIsValidIntReg(tmpReg2));
+        assert(tmpReg2 != tmpReg);
+        assert(tmpReg2 != REG_WRITE_BARRIER_DST_BYREF);
+        assert(tmpReg2 != REG_WRITE_BARRIER_SRC_BYREF);
+    }
+#endif
+
+    if (dstOnStack)
+    {
+        unsigned i = 0;
+
+#ifdef TARGET_ARM64
+        for (; i + 1 < slotCount; i += 2)
+        {
+            emitAttr attr0 = emitTypeSize(layout->GetGCPtrType(i + 0));
+            emitAttr attr1 = emitTypeSize(layout->GetGCPtrType(i + 1));
+
+            emit->emitIns_R_R_R_I(INS_ldp, attr0, tmpReg, tmpReg2, REG_WRITE_BARRIER_SRC_BYREF, 2 * REGSIZE_BYTES,
+                                  INS_OPTS_POST_INDEX, attr1);
+            emit->emitIns_R_R_R_I(INS_stp, attr0, tmpReg, tmpReg2, REG_WRITE_BARRIER_DST_BYREF, 2 * REGSIZE_BYTES,
+                                  INS_OPTS_POST_INDEX, attr1);
+        }
+#endif
+
+        for (; i < slotCount; i++)
+        {
+            emitAttr attr = emitTypeSize(layout->GetGCPtrType(i));
+
+            emit->emitIns_R_R_I(INS_ldr, attr, tmpReg, REG_WRITE_BARRIER_SRC_BYREF, REGSIZE_BYTES,
+#ifdef TARGET_ARM64
+                                INS_OPTS_POST_INDEX);
+#else
+                                INS_FLAGS_DONT_CARE, INS_OPTS_LDST_POST_INC);
+#endif
+            emit->emitIns_R_R_I(INS_str, attr, tmpReg, REG_WRITE_BARRIER_DST_BYREF, REGSIZE_BYTES,
+#ifdef TARGET_ARM64
+                                INS_OPTS_POST_INDEX);
+#else
+                                INS_FLAGS_DONT_CARE, INS_OPTS_LDST_POST_INC);
+#endif
+        }
+    }
+    else
+    {
+        for (unsigned i = 0; i < slotCount; i++)
+        {
+            if (layout->IsGCPtr(i))
+            {
+                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, 0, EA_PTRSIZE);
+            }
+#ifdef TARGET_ARM64
+            else if ((i + 1 < slotCount) && !layout->IsGCPtr(i + 1))
+            {
+                emit->emitIns_R_R_R_I(INS_ldp, EA_PTRSIZE, tmpReg, tmpReg2, REG_WRITE_BARRIER_SRC_BYREF,
+                                      2 * REGSIZE_BYTES, INS_OPTS_POST_INDEX);
+                emit->emitIns_R_R_R_I(INS_stp, EA_PTRSIZE, tmpReg, tmpReg2, REG_WRITE_BARRIER_DST_BYREF,
+                                      2 * REGSIZE_BYTES, INS_OPTS_POST_INDEX);
+
+                i++;
+            }
+#endif
+            else
+            {
+                emit->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, tmpReg, REG_WRITE_BARRIER_SRC_BYREF, REGSIZE_BYTES,
+#ifdef TARGET_ARM64
+                                    INS_OPTS_POST_INDEX);
+#else
+                                    INS_FLAGS_DONT_CARE, INS_OPTS_LDST_POST_INC);
+#endif
+                emit->emitIns_R_R_I(INS_str, EA_PTRSIZE, tmpReg, REG_WRITE_BARRIER_DST_BYREF, REGSIZE_BYTES,
+#ifdef TARGET_ARM64
+                                    INS_OPTS_POST_INDEX);
+#else
+                                    INS_FLAGS_DONT_CARE, INS_OPTS_LDST_POST_INC);
+#endif
+            }
+        }
+    }
+
+    if (store->IsVolatile())
+    {
+        instGen_MemoryBarrier(BARRIER_LOAD_ONLY);
+    }
+
+    // Clear the gcInfo for REG_WRITE_BARRIER_SRC_BYREF and REG_WRITE_BARRIER_DST_BYREF.
+    // While we normally update GC info prior to the last instruction that uses them,
+    // these actually live into the helper call.
+    gcInfo.gcMarkRegSetNpt(RBM_WRITE_BARRIER_SRC_BYREF | RBM_WRITE_BARRIER_DST_BYREF);
 }
 
 //------------------------------------------------------------------------
@@ -3265,66 +3418,6 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), dstReg, 1);
     genDefineTempLabel(labelNext);
 #endif
-}
-
-//------------------------------------------------------------------------
-// genCodeForStoreBlk: Produce code for a GT_STORE_OBJ/GT_STORE_DYN_BLK/GT_STORE_BLK node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForStoreBlk(GenTreeBlk* blkOp)
-{
-    assert(blkOp->OperIs(GT_STORE_OBJ, GT_STORE_DYN_BLK, GT_STORE_BLK));
-
-    if (blkOp->OperIs(GT_STORE_OBJ))
-    {
-        assert(!blkOp->gtBlkOpGcUnsafe);
-        assert(blkOp->OperIsCopyBlkOp());
-        assert(blkOp->AsObj()->GetLayout()->HasGCPtr());
-        genCodeForCpObj(blkOp->AsObj());
-        return;
-    }
-
-    bool isCopyBlk = blkOp->OperIsCopyBlkOp();
-
-    switch (blkOp->gtBlkOpKind)
-    {
-        case GenTreeBlk::BlkOpKindHelper:
-            assert(!blkOp->gtBlkOpGcUnsafe);
-            if (isCopyBlk)
-            {
-                genCodeForCpBlkHelper(blkOp);
-            }
-            else
-            {
-                genCodeForInitBlkHelper(blkOp);
-            }
-            break;
-
-        case GenTreeBlk::BlkOpKindUnroll:
-            if (isCopyBlk)
-            {
-                if (blkOp->gtBlkOpGcUnsafe)
-                {
-                    GetEmitter()->emitDisableGC();
-                }
-                genCodeForCpBlkUnroll(blkOp);
-                if (blkOp->gtBlkOpGcUnsafe)
-                {
-                    GetEmitter()->emitEnableGC();
-                }
-            }
-            else
-            {
-                assert(!blkOp->gtBlkOpGcUnsafe);
-                genCodeForInitBlkUnroll(blkOp);
-            }
-            break;
-
-        default:
-            unreached();
-    }
 }
 
 //------------------------------------------------------------------------

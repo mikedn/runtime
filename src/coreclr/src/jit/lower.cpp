@@ -274,15 +274,14 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerShift(node->AsOp());
             break;
 
-        case GT_STORE_BLK:
         case GT_STORE_OBJ:
-            if (node->AsBlk()->Data()->IsCall())
+            if (node->AsObj()->GetValue()->IsCall())
             {
-                assert(!comp->compDoOldStructRetyping());
-                LowerStoreSingleRegCallStruct(node->AsBlk());
+                LowerStoreSingleRegCallStruct(node->AsObj());
                 break;
             }
             FALLTHROUGH;
+        case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
             LowerBlockStoreCommon(node->AsBlk());
             break;
@@ -354,25 +353,22 @@ GenTree* Lowering::LowerNode(GenTree* node)
                 ClassLayout* layout = node->AsLclFld()->GetLayout(comp);
                 GenTree*     src    = node->AsLclFld()->GetOp(0);
 
-                node->ChangeOper(GT_STORE_OBJ);
+                node->ChangeOper(layout->IsBlockLayout() ? GT_STORE_BLK : GT_STORE_OBJ);
 
-                GenTreeObj* store = node->AsObj();
+                GenTreeBlk* store = node->AsBlk();
                 store->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-#ifndef JIT32_GCENCODER
-                store->gtBlkOpGcUnsafe = false;
-#endif
-                store->gtBlkOpKind = GenTreeObj::BlkOpKindInvalid;
+                store->SetKind(StructStoreKind::Invalid);
                 store->SetLayout(layout);
                 store->SetAddr(addr);
                 store->SetData(src);
 
                 if (src->IsCall())
                 {
-                    LowerStoreSingleRegCallStruct(store);
+                    LowerStoreSingleRegCallStruct(store->AsObj());
                 }
                 else
                 {
-                    LowerBlockStore(store);
+                    LowerStructStore(store);
                 }
                 break;
             }
@@ -1840,7 +1836,7 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
         // Create tmp and use it in place of callerArgDsc
         if (tmpLclNum == BAD_VAR_NUM)
         {
-            tmpLclNum = comp->lvaGrabTemp(true DEBUGARG("Fast tail call lowering is creating a new local variable"));
+            tmpLclNum = comp->lvaGrabTemp(true DEBUGARG("fast tail call arg temp"));
 
             LclVarDsc* callerArgDsc                     = comp->lvaGetDesc(lclNum);
             var_types  tmpTyp                           = genActualType(callerArgDsc->TypeGet());
@@ -1851,14 +1847,30 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
             // TODO-1stClassStructs: This can be simplified with 1st class structs work.
             if (tmpTyp == TYP_STRUCT)
             {
+                // TODO-MIKE-CQ: This code was previously using GT_STORE_BLK with a block layout.
+                //
+                // It's best to avoid using block layout when the struct layout is available (and
+                // BLK/STORE_BLK) but doing so has a somewhat unfortunate side-effect: this copy
+                // is done in a no-GC region but GT_STORE_OBJ doesn't know that and it will do
+                // it's normal GC copy thing. For unrolled copies it doesn't really matter, as
+                // the same code is being generated in both cases, the only difference is that
+                // for large copies we get "rep movsq" instead of a helper call.
+                //
+                // Perhaps there should be a way to tell GT_STORE_OBJ to ignore GC info in such
+                // cases. But then there's no real need to put this copy in the no-GC region so
+                // maybe it's best to leave GT_STORE_OBJ as is and insert the copy before the
+                // no-GC region.
+
+                // TODO-MIKE-Review: This code doesn't set GTF_VAR_DEF, probably the only
+                // reason why this doesn't cause problems is that this a struct and post
+                // lowering liveness is used by LSRA for reg candidates.
+
                 comp->lvaSetStruct(tmpLclNum, callerArgDsc->GetLayout()->GetClassHandle(), false);
-                GenTree* loc = new (comp, GT_LCL_VAR_ADDR) GenTreeLclVar(GT_LCL_VAR_ADDR, TYP_STRUCT, tmpLclNum);
-                loc->gtType  = TYP_BYREF;
-                GenTreeBlk* storeBlk = new (comp, GT_STORE_BLK)
-                    GenTreeBlk(GT_STORE_BLK, TYP_STRUCT, loc, value, comp->typGetBlkLayout(callerArgDsc->lvExactSize));
-                storeBlk->gtFlags |= GTF_ASG;
-                BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, storeBlk));
-                LowerNode(storeBlk);
+                GenTree*    addr = comp->gtNewLclVarAddrNode(tmpLclNum);
+                GenTreeObj* store =
+                    new (comp, GT_STORE_OBJ) GenTreeObj(TYP_STRUCT, addr, value, callerArgDsc->GetLayout());
+                BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, store));
+                LowerNode(store);
             }
             else
             {
@@ -2940,10 +2952,7 @@ void Lowering::LowerStoreLocCommon(GenTreeLclVarCommon* lclStore)
             // Only the GTF_LATE_ARG flag (if present) is preserved.
             objStore->gtFlags &= GTF_LATE_ARG;
             objStore->gtFlags |= GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-#ifndef JIT32_GCENCODER
-            objStore->gtBlkOpGcUnsafe = false;
-#endif
-            objStore->gtBlkOpKind = GenTreeObj::BlkOpKindInvalid;
+            objStore->SetKind(StructStoreKind::Invalid);
             objStore->SetLayout(varDsc->GetLayout());
             objStore->SetAddr(addr);
             objStore->SetData(src);
@@ -3298,43 +3307,34 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
 //    - the function is only for calls that return one register;
 //    - it spills the call's result if it can be retyped as a primitive type;
 //
-void Lowering::LowerStoreSingleRegCallStruct(GenTreeBlk* store)
+void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
 {
     assert(!comp->compDoOldStructRetyping());
-    assert(varTypeIsStruct(store));
-    assert(store->Data()->IsCall());
-    GenTreeCall* call = store->Data()->AsCall();
+    assert(varTypeIsStruct(store->GetType()));
+
+    GenTreeCall* call = store->GetValue()->AsCall();
     assert(!call->HasMultiRegRetVal());
 
-    const ClassLayout* layout  = store->GetLayout();
-    const var_types    regType = layout->GetRegisterType();
+    ClassLayout* layout  = store->GetLayout();
+    var_types    regType = layout->GetRegisterType();
 
-    unsigned storeSize = store->GetLayout()->GetSize();
     if (regType != TYP_UNDEF)
     {
-        store->ChangeType(regType);
+        store->SetType(regType);
         store->SetOper(GT_STOREIND);
         LowerStoreIndirCommon(store->AsStoreInd());
+
         return;
     }
-    else
-    {
-#if defined(WINDOWS_AMD64_ABI)
-        // All ABI except Windows x64 supports passing 3 byte structs in registers.
-        // Other 64 bites ABI-s support passing 5, 6, 7 byte structs.
-        unreached();
-#else  // !WINDOWS_AMD64_ABI
-        if (store->OperIs(GT_STORE_OBJ))
-        {
-            store->SetOper(GT_STORE_BLK);
-        }
-        store->gtBlkOpKind = GenTreeObj::BlkOpKindUnroll;
 
-        GenTreeLclVar* spilledCall = SpillStructCallResult(call);
-        store->SetData(spilledCall);
-        LowerBlockStoreCommon(store);
-#endif // WINDOWS_AMD64_ABI
-    }
+#if defined(WINDOWS_AMD64_ABI)
+    // All ABI except Windows x64 supports passing 3 byte structs in registers.
+    // Other 64 bites ABI-s support passing 5, 6, 7 byte structs.
+    unreached();
+#else
+    store->SetValue(SpillStructCallResult(call));
+    LowerBlockStoreCommon(store);
+#endif
 }
 
 #if !defined(WINDOWS_AMD64_ABI)
@@ -5745,8 +5745,7 @@ void Lowering::CheckCallArg(GenTree* arg)
 {
     if (!arg->IsValue() && !arg->OperIsPutArgStk())
     {
-        assert((arg->OperIsStore() && !arg->IsValue()) || arg->IsArgPlaceHolderNode() || arg->IsNothingNode() ||
-               arg->OperIsCopyBlkOp());
+        assert(arg->OperIsStore() || arg->IsArgPlaceHolderNode() || arg->IsNothingNode());
         return;
     }
 
@@ -6488,13 +6487,6 @@ void Lowering::LowerIndir(GenTreeIndir* ind)
             TransformUnusedIndirection(ind, comp, m_block);
         }
     }
-    else
-    {
-        // If the `ADDR` node under `STORE_OBJ(dstAddr, IND(struct(ADDR))`
-        // is a complex one it could benefit from an `LEA` that is not contained.
-        const bool isContainable = false;
-        TryCreateAddrMode(ind->Addr(), isContainable);
-    }
 }
 
 //------------------------------------------------------------------------
@@ -6560,7 +6552,7 @@ void Lowering::LowerBlockStoreCommon(GenTreeBlk* blkNode)
         return;
     }
 
-    LowerBlockStore(blkNode);
+    LowerStructStore(blkNode);
 }
 
 //------------------------------------------------------------------------
@@ -6615,7 +6607,7 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
     }
 
     GenTree* src = blkNode->Data();
-    if (src->OperIsInitVal() && !src->IsConstInitVal())
+    if (src->OperIs(GT_INIT_VAL) && !src->IsConstInitVal())
     {
         return false;
     }
@@ -6632,7 +6624,7 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
     blkNode->ChangeOper(GT_STOREIND);
     blkNode->ChangeType(regType);
 
-    if (src->OperIsInitVal())
+    if (src->OperIs(GT_INIT_VAL))
     {
         GenTreeUnOp* initVal = src->AsUnOp();
         src                  = src->gtGetOp1();
@@ -6641,9 +6633,14 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
         BlockRange().Remove(initVal);
     }
 
-    if (varTypeIsStruct(src))
+    if (varTypeIsStruct(src->GetType()))
     {
-        src->ChangeType(regType);
+        if (src->OperIs(GT_OBJ, GT_BLK))
+        {
+            src->ChangeOper(GT_IND);
+        }
+
+        src->SetType(regType);
         LowerNode(blkNode->Data());
     }
     else if (GenTreeIntCon* intCon = src->IsIntCon())

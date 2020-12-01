@@ -138,7 +138,7 @@ private:
     void LowerRetStruct(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerCallStruct(GenTreeCall* call);
-    void LowerStoreSingleRegCallStruct(GenTreeBlk* store);
+    void LowerStoreSingleRegCallStruct(GenTreeObj* store);
 #if !defined(WINDOWS_AMD64_ABI)
     GenTreeLclVar* SpillStructCallResult(GenTreeCall* call);
 #endif // WINDOWS_AMD64_ABI
@@ -288,7 +288,7 @@ private:
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
-    void LowerBlockStore(GenTreeBlk* blkNode);
+    void LowerStructStore(GenTreeBlk* store);
     void LowerBlockStoreCommon(GenTreeBlk* blkNode);
     void ContainBlockStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);

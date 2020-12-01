@@ -888,65 +888,39 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
     return killMask;
 }
 
-//------------------------------------------------------------------------
-// getKillSetForBlockStore: Determine the liveness kill set for a block store node.
-//
-// Arguments:
-//    tree - the block store node as a GenTreeBlk
-//
-// Return Value:    a register mask of the registers killed
-//
-regMaskTP LinearScan::getKillSetForBlockStore(GenTreeBlk* blkNode)
+regMaskTP LinearScan::getKillSetForStructStore(GenTreeBlk* store)
 {
-    assert(blkNode->OperIsStore());
-    regMaskTP killMask = RBM_NONE;
+    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK));
 
-    if ((blkNode->OperGet() == GT_STORE_OBJ) && blkNode->OperIsCopyBlkOp())
+    switch (store->GetKind())
     {
-        assert(blkNode->AsObj()->GetLayout()->HasGCPtr());
-        killMask = compiler->compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
-    }
-    else
-    {
-        bool isCopyBlk = varTypeIsStruct(blkNode->Data());
-        switch (blkNode->gtBlkOpKind)
-        {
-#ifndef TARGET_X86
-            case GenTreeBlk::BlkOpKindHelper:
-                if (isCopyBlk)
-                {
-                    killMask = compiler->compHelperCallKillSet(CORINFO_HELP_MEMCPY);
-                }
-                else
-                {
-                    killMask = compiler->compHelperCallKillSet(CORINFO_HELP_MEMSET);
-                }
-                break;
-#endif
+        case StructStoreKind::UnrollCopyWB:
 #ifdef TARGET_XARCH
-            case GenTreeBlk::BlkOpKindRepInstr:
-                if (isCopyBlk)
-                {
-                    // rep movs kills RCX, RDI and RSI
-                    killMask = RBM_RCX | RBM_RDI | RBM_RSI;
-                }
-                else
-                {
-                    // rep stos kills RCX and RDI.
-                    // (Note that the Data() node, if not constant, will be assigned to
-                    // RCX, but it's find that this kills it, as the value is not available
-                    // after this node in any case.)
-                    killMask = RBM_RDI | RBM_RCX;
-                }
-                break;
+        case StructStoreKind::UnrollCopyWBRepMovs:
 #endif
-            case GenTreeBlk::BlkOpKindUnroll:
-            case GenTreeBlk::BlkOpKindInvalid:
-                // for these 'gtBlkOpKind' kinds, we leave 'killMask' = RBM_NONE
-                break;
-        }
+            return compiler->compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
+
+        case StructStoreKind::UnrollInit:
+        case StructStoreKind::UnrollCopy:
+            return RBM_NONE;
+
+#ifndef TARGET_X86
+        case StructStoreKind::MemSet:
+            return compiler->compHelperCallKillSet(CORINFO_HELP_MEMSET);
+        case StructStoreKind::MemCpy:
+            return compiler->compHelperCallKillSet(CORINFO_HELP_MEMCPY);
+#endif
+
+#ifdef TARGET_XARCH
+        case StructStoreKind::RepStos:
+            return RBM_RCX | RBM_RDI;
+        case StructStoreKind::RepMovs:
+            return RBM_RCX | RBM_RDI | RBM_RSI;
+#endif
+
+        default:
+            unreached();
     }
-    return killMask;
 }
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -1059,7 +1033,7 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
         case GT_STORE_OBJ:
         case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
-            killMask = getKillSetForBlockStore(tree->AsBlk());
+            killMask = getKillSetForStructStore(tree->AsBlk());
             break;
 
         case GT_RETURNTRAP:
@@ -1599,8 +1573,8 @@ int LinearScan::ComputeOperandDstCount(GenTree* operand)
         // This must be one of the operand types that are neither contained nor produce a value.
         // Stores and void-typed operands may be encountered when processing call nodes, which contain
         // pointers to argument setup stores.
-        assert(operand->OperIsStore() || operand->OperIsBlkOp() || operand->OperIsPutArgStk() ||
-               operand->OperIsCompare() || operand->OperIs(GT_CMP) || operand->TypeGet() == TYP_VOID);
+        assert(operand->OperIsStore() || operand->OperIsPutArgStk() || operand->OperIsCompare() ||
+               operand->OperIs(GT_CMP) || operand->TypeGet() == TYP_VOID);
         return 0;
     }
 }

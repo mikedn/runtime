@@ -14555,7 +14555,7 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNu
     {
         count++;
         GenTree* const tree = stmt->GetRootNode();
-        if (tree->OperIs(GT_ASG) && !tree->OperIsBlkOp())
+        if (tree->OperIs(GT_ASG) && !varTypeIsStruct(tree->AsOp()->GetOp(0)))
         {
             GenTree* const op1 = tree->AsOp()->gtOp1;
 
@@ -22059,6 +22059,11 @@ PhaseStatus Compiler::fgInline()
     }
 
 #ifdef DEBUG
+    if (verbose)
+    {
+        fgDispBasicBlocks(true);
+    }
+
     fgPrintInlinedMethods = JitConfig.JitPrintInlinedMethods().contains(info.compMethodName, info.compClassName,
                                                                         &info.compMethodInfo->args);
 #endif // DEBUG
@@ -22276,138 +22281,187 @@ void Compiler::fgNoteNonInlineCandidate(Statement* stmt, GenTreeCall* call)
 
 #if FEATURE_MULTIREG_RET
 
-/*********************************************************************************
- *
- * tree - The node which needs to be converted to a struct pointer.
- *
- *  Return the pointer by either __replacing__ the tree node with a suitable pointer
- *  type or __without replacing__ and just returning a subtree or by __modifying__
- *  a subtree.
- */
-GenTree* Compiler::fgGetStructAsStructPtr(GenTree* tree)
+GenTree* Compiler::inlGetStructAddress(GenTree* tree)
 {
-    noway_assert(tree->OperIs(GT_LCL_VAR, GT_FIELD, GT_IND, GT_BLK, GT_OBJ, GT_COMMA) || tree->OperIsSIMD() ||
-                 tree->OperIsHWIntrinsic());
-    // GT_CALL,     cannot get address of call.
-    // GT_MKREFANY, inlining should've been aborted due to mkrefany opcode.
-    // GT_RET_EXPR, cannot happen after fgUpdateInlineReturnExpressionPlaceHolder
-
-    switch (tree->OperGet())
+    switch (tree->GetOper())
     {
         case GT_BLK:
         case GT_OBJ:
         case GT_IND:
-            return tree->AsOp()->gtOp1;
+            return tree->AsIndir()->GetAddr();
 
         case GT_COMMA:
-            tree->AsOp()->gtOp2 = fgGetStructAsStructPtr(tree->AsOp()->gtOp2);
-            tree->gtType        = TYP_BYREF;
+            tree->AsOp()->SetOp(1, inlGetStructAddress(tree->AsOp()->GetOp(1)));
+            tree->SetType(TYP_BYREF);
             return tree;
 
-        default:
+        case GT_LCL_VAR:
+        case GT_FIELD:
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+#endif
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+#endif
+            // TODO-MIKE-Cleanup: Bleah, more ADDR(SIMD|HWINTRINSIC) nonsense...
             return gtNewOperNode(GT_ADDR, TYP_BYREF, tree);
+
+        default:
+            unreached();
     }
 }
 
-/***************************************************************************************************
- * child     - The inlinee of the retExpr node.
- * retClsHnd - The struct class handle of the type of the inlinee.
- *
- * Assign the inlinee to a tmp, if it is a call, just assign it to a lclVar, else we can
- * use a copyblock to do the assignment.
- */
-GenTree* Compiler::fgAssignStructInlineeToVar(GenTree* child, CORINFO_CLASS_HANDLE retClsHnd)
+GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, CORINFO_CLASS_HANDLE structHandle)
 {
-    assert(child->gtOper != GT_RET_EXPR && child->gtOper != GT_MKREFANY);
+    if (dst->OperIs(GT_LCL_VAR))
+    {
+        LclVarDsc* lcl = lvaGetDesc(dst->AsLclVar());
 
-    unsigned tmpNum = lvaGrabTemp(false DEBUGARG("RetBuf for struct inline return candidates."));
-    lvaSetStruct(tmpNum, retClsHnd, false);
-    var_types structType = lvaTable[tmpNum].lvType;
+        if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
+            (lcl->GetLayout()->GetClassHandle() == structHandle))
+        {
+            dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
+            return dst;
+        }
 
-    GenTree* dst = gtNewLclvNode(tmpNum, structType);
+        return gtNewObjNode(structHandle, gtNewOperNode(GT_ADDR, TYP_I_IMPL, dst));
+    }
+
+    GenTree* dstAddr = inlGetStructAddress(dst);
+
+    if (dstAddr->OperIs(GT_ADDR))
+    {
+        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR))
+        {
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
+                (lcl->GetLayout()->GetClassHandle() == structHandle))
+            {
+                dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
+                return location;
+            }
+        }
+    }
+
+    GenTree* obj = gtNewObjNode(structHandle, dstAddr);
+    obj->gtFlags |= GTF_DONT_CSE;
+    return obj;
+}
+
+GenTree* Compiler::inlGetStructAsgSrc(GenTree* src, CORINFO_CLASS_HANDLE structHandle)
+{
+    if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsSimdOrHWintrinsic())
+    {
+        GenTree* srcAddr = inlGetStructAddress(src);
+
+        if (srcAddr->OperIs(GT_ADDR))
+        {
+            src = srcAddr->AsUnOp()->GetOp(0);
+        }
+        else
+        {
+            src = gtNewObjNode(structHandle, srcAddr);
+        }
+    }
+
+    // TODO-MIKE-CQ: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. And it
+    // probably blocks SIMD tree CSEing.
+    src->gtFlags |= GTF_DONT_CSE;
+
+    return src;
+}
+
+GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HANDLE structHandle)
+{
+    assert(!src->OperIs(GT_RET_EXPR, GT_MKREFANY));
+
+    unsigned tempLclNum = lvaGrabTemp(false DEBUGARG("RetBuf for struct inline return candidates."));
+    lvaSetStruct(tempLclNum, structHandle, false);
+    LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
+    GenTree*   dst     = gtNewLclvNode(tempLclNum, tempLcl->GetType());
 
     // If we have a call, we'd like it to be: V00 = call(), but first check if
     // we have a ", , , call()" -- this is very defensive as we may never get
     // an inlinee that is made of commas. If the inlinee is not a call, then
     // we use a copy block to do the assignment.
-    GenTree* src       = child;
-    GenTree* lastComma = nullptr;
-    while (src->gtOper == GT_COMMA)
+    GenTree*   actualSrc = src;
+    GenTreeOp* lastComma = nullptr;
+
+    while (actualSrc->OperIs(GT_COMMA))
     {
-        lastComma = src;
-        src       = src->AsOp()->gtOp2;
+        lastComma = actualSrc->AsOp();
+        actualSrc = lastComma->GetOp(1);
     }
 
-    GenTree* newInlinee = nullptr;
-    if (src->gtOper == GT_CALL)
-    {
-        // If inlinee was just a call, new inlinee is v05 = call()
-        newInlinee = gtNewAssignNode(dst, src);
+    GenTree* newAsg = nullptr;
 
+    if (actualSrc->IsCall())
+    {
         // When returning a multi-register value in a local var, make sure the variable is
         // marked as lvIsMultiRegRet, so it does not get promoted.
-        if (src->AsCall()->HasMultiRegRetVal())
+        if (actualSrc->AsCall()->HasMultiRegRetVal())
         {
-            lvaTable[tmpNum].lvIsMultiRegRet = true;
+            tempLcl->lvIsMultiRegRet = true;
         }
 
-        // If inlinee was comma, but a deeper call, new inlinee is (, , , v05 = call())
-        if (child->gtOper == GT_COMMA)
+        // If inlinee was just a call, newAsg is v05 = call()
+        newAsg = gtNewAssignNode(dst, actualSrc);
+
+        // If inlinee was comma, but a deeper call, newAsg is (, , , v05 = call())
+        if (lastComma != nullptr)
         {
-            lastComma->AsOp()->gtOp2 = newInlinee;
-            newInlinee               = child;
+            lastComma->SetOp(1, newAsg);
+            newAsg = src;
         }
     }
     else
     {
         // Inlinee is not a call, so just create a copy block to the tmp.
-        src              = child;
-        GenTree* dstAddr = fgGetStructAsStructPtr(dst);
-        GenTree* srcAddr = fgGetStructAsStructPtr(src);
-        newInlinee       = gtNewCpObjNode(dstAddr, srcAddr, retClsHnd, false);
+
+        src = inlGetStructAsgSrc(src, structHandle);
+
+        newAsg = gtNewAssignNode(dst, src);
+        gtInitStructCopyAsg(newAsg->AsOp());
     }
 
-    GenTree* production = gtNewLclvNode(tmpNum, structType);
-    return gtNewOperNode(GT_COMMA, structType, newInlinee, production);
+    return gtNewOperNode(GT_COMMA, dst->GetType(), newAsg, gtNewLclvNode(tempLclNum, dst->GetType()));
 }
 
-/***************************************************************************************************
- * tree      - The tree pointer that has one of its child nodes as retExpr.
- * child     - The inlinee child.
- * retClsHnd - The struct class handle of the type of the inlinee.
- *
- * V04 = call() assignments are okay as we codegen it. Everything else needs to be a copy block or
- * would need a temp. For example, a cast(ldobj) will then be, cast(v05 = ldobj, v05); But it is
- * a very rare (or impossible) scenario that we'd have a retExpr transform into a ldobj other than
- * a lclVar/call. So it is not worthwhile to do pattern matching optimizations like addr(ldobj(op1))
- * can just be op1.
- */
-void Compiler::fgAttachStructInlineeToAsg(GenTree* tree, GenTree* child, CORINFO_CLASS_HANDLE retClsHnd)
+void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO_CLASS_HANDLE structHandle)
 {
-    // We are okay to have:
-    // 1. V02 = call();
-    // 2. copyBlk(dstAddr, srcAddr);
-    assert(tree->gtOper == GT_ASG);
+    assert(asg->OperIs(GT_ASG));
 
-    // We have an assignment, we codegen only V05 = call().
-    if (child->gtOper == GT_CALL && tree->AsOp()->gtOp1->gtOper == GT_LCL_VAR)
+    GenTree* dst = asg->GetOp(0);
+
+    if (src->IsCall())
     {
-        // If it is a multireg return on x64/ux, the local variable should be marked as lvIsMultiRegRet
-        if (child->AsCall()->HasMultiRegRetVal())
+        if (dst->OperIs(GT_LCL_VAR))
         {
-            unsigned lclNum                  = tree->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-            lvaTable[lclNum].lvIsMultiRegRet = true;
+            // If it is a multireg return on x64/ux, the local variable should be marked as lvIsMultiRegRet
+            if (src->AsCall()->HasMultiRegRetVal())
+            {
+                lvaGetDesc(dst->AsLclVar())->lvIsMultiRegRet = true;
+            }
+
+            return;
         }
-        return;
+
+        // Struct calls can only be assigned to locals, in all other cases we need to introduce a temp.
+        src = inlAssignStructInlineeToTemp(src, structHandle);
     }
 
-    GenTree* dstAddr = fgGetStructAsStructPtr(tree->AsOp()->gtOp1);
-    GenTree* srcAddr = fgGetStructAsStructPtr(
-        (child->gtOper == GT_CALL)
-            ? fgAssignStructInlineeToVar(child, retClsHnd) // Assign to a variable if it is a call.
-            : child);                                      // Just get the address, if not a call.
+    dst = inlGetStructAsgDst(dst, structHandle);
+    src = inlGetStructAsgSrc(src, structHandle);
 
-    tree->ReplaceWith(gtNewCpObjNode(dstAddr, srcAddr, retClsHnd, false), this);
+    asg->SetOp(0, dst);
+    asg->SetOp(1, src);
+    asg->gtFlags = (GTF_ASG | src->gtFlags | dst->gtFlags) & GTF_ALL_EFFECT;
+
+    gtInitStructCopyAsg(asg);
 }
 
 #endif // FEATURE_MULTIREG_RET
@@ -22549,15 +22603,15 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
             case SPK_ByValueAsHfa:
             {
                 // See assert below, we only look one level above for an asg parent.
-                if (parent->gtOper == GT_ASG)
+                if (parent->OperIs(GT_ASG))
                 {
                     // Either lhs is a call V05 = call(); or lhs is addr, and asg becomes a copyBlk.
-                    comp->fgAttachStructInlineeToAsg(parent, tree, retClsHnd);
+                    comp->inlAttachStructInlineeToAsg(parent->AsOp(), tree, retClsHnd);
                 }
                 else
                 {
                     // Just assign the inlinee to a variable to keep it simple.
-                    tree = *pTree = comp->fgAssignStructInlineeToVar(tree, retClsHnd);
+                    tree = *pTree = comp->inlAssignStructInlineeToTemp(tree, retClsHnd);
                 }
             }
             break;
@@ -22636,7 +22690,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     // do not check if there is a series of COMMAs. See above.
     // Importer and FlowGraph will not generate such a tree, so just
     // leaving an assert in here. This can be fixed by looking ahead
-    // when we visit GT_ASG similar to fgAttachStructInlineeToAsg.
+    // when we visit GT_ASG similar to inlAttachStructInlineeToAsg.
     //
     if (tree->OperGet() == GT_ASG)
     {
@@ -23459,8 +23513,6 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
     InlArgInfo*    inlArgInfo = inlineInfo->inlArgInfo;
     InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
 
-    GenTree* tree;
-
     // Create the null check statement (but not appending it to the statement list yet) for the 'this' pointer if
     // necessary.
     // The NULL check should be done after "argument setup statements".
@@ -23737,8 +23789,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
     {
         CORINFO_CLASS_HANDLE exactClass = eeGetClassFromContext(inlineInfo->inlineCandidateInfo->exactContextHnd);
 
-        tree    = fgGetSharedCCtor(exactClass);
-        newStmt = gtNewStmt(tree, callILOffset);
+        GenTree* tree = fgGetSharedCCtor(exactClass);
+        newStmt       = gtNewStmt(tree, callILOffset);
         fgInsertStmtAfter(block, afterStmt, newStmt);
         afterStmt = newStmt;
     }
@@ -23803,12 +23855,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                 }
                 else
                 {
-                    tree = gtNewBlkOpNode(gtNewLclvNode(tmpNum, lclTyp), // Dest
-                                          gtNewIconNode(0),              // Value
-                                          false,                         // isVolatile
-                                          false);                        // not copyBlock
-
-                    newStmt = gtNewStmt(tree, callILOffset);
+                    GenTree* init = gtNewAssignNode(gtNewLclvNode(tmpNum, lclTyp), gtNewIconNode(0));
+                    newStmt       = gtNewStmt(init, callILOffset);
                     fgInsertStmtAfter(block, afterStmt, newStmt);
                     afterStmt = newStmt;
                 }

@@ -1024,7 +1024,7 @@ private:
     regMaskTP getKillSetForMul(GenTreeOp* tree);
     regMaskTP getKillSetForCall(GenTreeCall* call);
     regMaskTP getKillSetForModDiv(GenTreeOp* tree);
-    regMaskTP getKillSetForBlockStore(GenTreeBlk* blkNode);
+    regMaskTP getKillSetForStructStore(GenTreeBlk* store);
     regMaskTP getKillSetForReturn();
     regMaskTP getKillSetForProfilerHook();
 #ifdef FEATURE_HW_INTRINSICS
@@ -1074,6 +1074,21 @@ private:
     RefPosition* buildInternalIntRegisterDefForNode(GenTree* tree, regMaskTP internalCands = RBM_NONE);
     RefPosition* buildInternalFloatRegisterDefForNode(GenTree* tree, regMaskTP internalCands = RBM_NONE);
     void buildInternalRegisterUses();
+
+    RefPosition* BuildInternalIntDef(GenTree* node, regMaskTP candidates = RBM_NONE)
+    {
+        return buildInternalIntRegisterDefForNode(node, candidates);
+    }
+
+    RefPosition* BuildInternalFloatDef(GenTree* node, regMaskTP candidates = RBM_NONE)
+    {
+        return buildInternalFloatRegisterDefForNode(node, candidates);
+    }
+
+    void BuildInternalUses()
+    {
+        buildInternalRegisterUses();
+    }
 
     void writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumber reg);
     void resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, RefPosition* currentRefPosition);
@@ -1563,7 +1578,7 @@ private:
     int BuildPutArgReg(GenTreeUnOp* node);
     int BuildCall(GenTreeCall* call);
     int BuildCmp(GenTree* tree);
-    int BuildBlockStore(GenTreeBlk* blkNode);
+    int BuildStructStore(GenTreeBlk* store);
     int BuildModDiv(GenTree* tree);
     int BuildIntrinsic(GenTree* tree);
     void BuildStoreLocDef(GenTreeLclVarCommon* storeLoc, LclVarDsc* varDsc, RefPosition* singleUseRef, int index);

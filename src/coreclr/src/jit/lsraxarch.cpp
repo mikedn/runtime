@@ -506,7 +506,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
         case GT_STORE_DYN_BLK:
-            srcCount = BuildBlockStore(tree->AsBlk());
+            srcCount = BuildStructStore(tree->AsBlk());
             break;
 
         case GT_INIT_VAL:
@@ -1251,156 +1251,129 @@ bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
 }
 #endif
 
-//------------------------------------------------------------------------
-// BuildBlockStore: Build the RefPositions for a block store node.
-//
-// Arguments:
-//    blkNode - The block store node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
+int LinearScan::BuildStructStore(GenTreeBlk* store)
 {
-    GenTree* dstAddr = blkNode->Addr();
-    GenTree* src     = blkNode->Data();
-    unsigned size    = blkNode->Size();
+    GenTree*     dstAddr = store->GetAddr();
+    GenTree*     src     = store->GetValue();
+    ClassLayout* layout  = store->GetLayout();
+    unsigned     size    = layout != nullptr ? layout->GetSize() : UINT32_MAX;
 
     GenTree* srcAddrOrFill = nullptr;
 
-    regMaskTP dstAddrRegMask = RBM_NONE;
-    regMaskTP srcRegMask     = RBM_NONE;
-    regMaskTP sizeRegMask    = RBM_NONE;
-
-    RefPosition* internalIntDef = nullptr;
-#ifdef TARGET_X86
-    bool internalIsByte = false;
-#endif
-
-    if (blkNode->OperIsInitBlkOp())
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         if (src->OperIs(GT_INIT_VAL))
         {
             assert(src->isContained());
-            src = src->AsUnOp()->gtGetOp1();
+            src = src->AsUnOp()->GetOp(0);
         }
 
         srcAddrOrFill = src;
-
-        switch (blkNode->gtBlkOpKind)
-        {
-            case GenTreeBlk::BlkOpKindUnroll:
-                if (size >= XMM_REGSIZE_BYTES)
-                {
-                    buildInternalFloatRegisterDefForNode(blkNode, internalFloatRegCandidates());
-                    SetContainsAVXFlags();
-                }
-
-#ifdef TARGET_X86
-                if ((size & 1) != 0)
-                {
-                    // We'll need to store a byte so a byte register is needed on x86.
-                    srcRegMask = allByteRegs();
-                }
-#endif
-                break;
-
-            case GenTreeBlk::BlkOpKindRepInstr:
-                dstAddrRegMask = RBM_RDI;
-                srcRegMask     = RBM_RAX;
-                sizeRegMask    = RBM_RCX;
-                break;
-
-#ifdef TARGET_AMD64
-            case GenTreeBlk::BlkOpKindHelper:
-                dstAddrRegMask = RBM_ARG_0;
-                srcRegMask     = RBM_ARG_1;
-                sizeRegMask    = RBM_ARG_2;
-                break;
-#endif
-
-            default:
-                unreached();
-        }
+    }
+    else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    {
+        assert(src->isContained());
+        srcAddrOrFill = src->AsIndir()->GetAddr();
     }
     else
     {
-        if (src->OperIs(GT_IND))
-        {
-            assert(src->isContained());
-            srcAddrOrFill = src->AsIndir()->Addr();
-        }
-
-        if (blkNode->OperIs(GT_STORE_OBJ))
-        {
-            if (blkNode->gtBlkOpKind == GenTreeBlk::BlkOpKindRepInstr)
-            {
-                // We need the size of the contiguous Non-GC-region to be in RCX to call rep movsq.
-                sizeRegMask = RBM_RCX;
-            }
-
-            // The srcAddr must be in a register.  If it was under a GT_IND, we need to subsume all of its
-            // sources.
-            dstAddrRegMask = RBM_RDI;
-            srcRegMask     = RBM_RSI;
-        }
-        else
-        {
-            switch (blkNode->gtBlkOpKind)
-            {
-                case GenTreeBlk::BlkOpKindUnroll:
-                    if ((size % XMM_REGSIZE_BYTES) != 0)
-                    {
-                        regMaskTP regMask = allRegs(TYP_INT);
-#ifdef TARGET_X86
-                        if ((size & 1) != 0)
-                        {
-                            // We'll need to store a byte so a byte register is needed on x86.
-                            regMask        = allByteRegs();
-                            internalIsByte = true;
-                        }
-#endif
-                        internalIntDef = buildInternalIntRegisterDefForNode(blkNode, regMask);
-                    }
-
-                    if (size >= XMM_REGSIZE_BYTES)
-                    {
-                        buildInternalFloatRegisterDefForNode(blkNode, internalFloatRegCandidates());
-                        SetContainsAVXFlags();
-                    }
-                    break;
-
-                case GenTreeBlk::BlkOpKindRepInstr:
-                    dstAddrRegMask = RBM_RDI;
-                    srcRegMask     = RBM_RSI;
-                    sizeRegMask    = RBM_RCX;
-                    break;
-
-#ifdef TARGET_AMD64
-                case GenTreeBlk::BlkOpKindHelper:
-                    dstAddrRegMask = RBM_ARG_0;
-                    srcRegMask     = RBM_ARG_1;
-                    sizeRegMask    = RBM_ARG_2;
-                    break;
-#endif
-
-                default:
-                    unreached();
-            }
-        }
-
-        if ((srcAddrOrFill == nullptr) && (srcRegMask != RBM_NONE))
-        {
-            // This is a local source; we'll use a temp register for its address.
-            assert(src->isContained() && src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
-            buildInternalIntRegisterDefForNode(blkNode, srcRegMask);
-        }
+        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->isContained());
     }
 
-    if (!blkNode->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
+    regMaskTP dstAddrRegMask = RBM_NONE;
+    regMaskTP srcRegMask     = RBM_NONE;
+    regMaskTP sizeRegMask    = RBM_NONE;
+#ifdef TARGET_X86
+    RefPosition* internalByteDef = nullptr;
+#endif
+
+    switch (store->GetKind())
+    {
+        case StructStoreKind::UnrollInit:
+            if (size >= XMM_REGSIZE_BYTES)
+            {
+                BuildInternalFloatDef(store, internalFloatRegCandidates());
+                SetContainsAVXFlags();
+            }
+
+#ifdef TARGET_X86
+            if ((size & 1) != 0)
+            {
+                // We'll need to store a byte so a byte register is needed on x86.
+                srcRegMask = allByteRegs();
+            }
+#endif
+            break;
+
+        case StructStoreKind::UnrollCopy:
+            if (size >= XMM_REGSIZE_BYTES)
+            {
+                BuildInternalFloatDef(store, internalFloatRegCandidates());
+                SetContainsAVXFlags();
+            }
+
+#ifdef TARGET_X86
+            if ((size & 1) != 0)
+            {
+                // We'll need to store a byte so a byte register is needed on x86.
+                internalByteDef = BuildInternalIntDef(store, allByteRegs());
+            }
+            else
+#endif
+                if ((size % XMM_REGSIZE_BYTES) != 0)
+            {
+                BuildInternalIntDef(store);
+            }
+            break;
+
+        case StructStoreKind::UnrollCopyWBRepMovs:
+            sizeRegMask = RBM_RCX;
+            FALLTHROUGH;
+        case StructStoreKind::UnrollCopyWB:
+            dstAddrRegMask = RBM_RDI;
+            srcRegMask     = RBM_RSI;
+            break;
+
+        case StructStoreKind::RepStos:
+            assert(!src->isContained());
+            dstAddrRegMask = RBM_RDI;
+            srcRegMask     = RBM_RAX;
+            sizeRegMask    = RBM_RCX;
+            break;
+
+        case StructStoreKind::RepMovs:
+            dstAddrRegMask = RBM_RDI;
+            srcRegMask     = RBM_RSI;
+            sizeRegMask    = RBM_RCX;
+            break;
+
+#ifdef TARGET_AMD64
+        case StructStoreKind::MemSet:
+            assert(!src->isContained());
+            FALLTHROUGH;
+        case StructStoreKind::MemCpy:
+            dstAddrRegMask = RBM_ARG_0;
+            srcRegMask     = RBM_ARG_1;
+            sizeRegMask    = RBM_ARG_2;
+            break;
+#endif
+
+        default:
+            unreached();
+    }
+
+    if ((srcAddrOrFill == nullptr) && (srcRegMask != RBM_NONE))
+    {
+        // This is a local source; we'll use a temp register for its address.
+        assert(src->isContained() && src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        BuildInternalIntDef(store, srcRegMask);
+    }
+
+    if (!store->OperIs(GT_STORE_DYN_BLK) && (sizeRegMask != RBM_NONE))
     {
         // Reserve a temp register for the block size argument.
-        buildInternalIntRegisterDefForNode(blkNode, sizeRegMask);
+        BuildInternalIntDef(store, sizeRegMask);
     }
 
     int useCount = 0;
@@ -1410,7 +1383,7 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
         useCount++;
         BuildUse(dstAddr, dstAddrRegMask);
     }
-    else if (dstAddr->OperIsAddrMode())
+    else if (dstAddr->IsAddrMode())
     {
         useCount += BuildAddrUses(dstAddr);
     }
@@ -1422,41 +1395,43 @@ int LinearScan::BuildBlockStore(GenTreeBlk* blkNode)
             useCount++;
             BuildUse(srcAddrOrFill, srcRegMask);
         }
-        else if (srcAddrOrFill->OperIsAddrMode())
+        else if (srcAddrOrFill->IsAddrMode())
         {
             useCount += BuildAddrUses(srcAddrOrFill);
         }
     }
 
-    if (blkNode->OperIs(GT_STORE_DYN_BLK))
+    if (store->OperIs(GT_STORE_DYN_BLK))
     {
         useCount++;
-        BuildUse(blkNode->AsDynBlk()->gtDynamicSize, sizeRegMask);
+        BuildUse(store->AsDynBlk()->GetSize(), sizeRegMask);
     }
 
 #ifdef TARGET_X86
     // If we require a byte register on x86, we may run into an over-constrained situation
-    // if we have BYTE_REG_COUNT or more uses (currently, it can be at most 4, if both the
-    // source and destination have base+index addressing).
+    // if we have BYTE_REG_COUNT or more uses.
     // This is because the byteable register requirement doesn't "reserve" a specific register,
     // and it would be possible for the incoming sources to all be occupying the byteable
     // registers, leaving none free for the internal register.
-    // In this scenario, we will require rax to ensure that it is reserved and available.
+    // In this scenario, we will require EAX to ensure that it is reserved and available.
     // We need to make that modification prior to building the uses for the internal register,
     // so that when we create the use we will also create the RefTypeFixedRef on the RegRecord.
-    // We don't expect a useCount of more than 3 for the initBlk case, so we haven't set
-    // internalIsByte in that case above.
-    assert((useCount < BYTE_REG_COUNT) || !blkNode->OperIsInitBlkOp());
-    if (internalIsByte && (useCount >= BYTE_REG_COUNT))
+    if (useCount >= BYTE_REG_COUNT)
     {
-        noway_assert(internalIntDef != nullptr);
-        internalIntDef->registerAssignment = RBM_RAX;
+        // Only unrolled copies may reach the limit, when both source and destination are
+        // base + index address modes.
+        assert(store->GetKind() == StructStoreKind::UnrollCopy);
+
+        if (internalByteDef != nullptr)
+        {
+            internalByteDef->registerAssignment = RBM_EAX;
+        }
     }
 #endif
 
-    buildInternalRegisterUses();
-    regMaskTP killMask = getKillSetForBlockStore(blkNode);
-    BuildDefsWithKills(blkNode, 0, RBM_NONE, killMask);
+    BuildInternalUses();
+    regMaskTP killMask = getKillSetForStructStore(store);
+    BuildDefsWithKills(store, 0, RBM_NONE, killMask);
 
     return useCount;
 }
@@ -1645,7 +1620,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         // There are only 4 (BYTE_REG_COUNT) byteable registers on x86. If we require a byteable internal register,
         // we must have less than BYTE_REG_COUNT sources.
         // If we have BYTE_REG_COUNT or more sources, and require a byteable internal register, we need to reserve
-        // one explicitly (see BuildBlockStore()).
+        // one explicitly (see BuildStructStore()).
         assert(srcCount < BYTE_REG_COUNT);
 #endif
         return srcCount;
@@ -2901,7 +2876,7 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
     // There are only BYTE_REG_COUNT byteable registers on x86. If we have a source that requires
     // such a register, we must have no more than BYTE_REG_COUNT sources.
     // If we have more than BYTE_REG_COUNT sources, and require a byteable register, we need to reserve
-    // one explicitly (see BuildBlockStore()).
+    // one explicitly (see BuildStructStore()).
     // (Note that the assert below doesn't count internal registers because we only have
     // floating point internal registers, if any).
     assert(srcCount <= BYTE_REG_COUNT);

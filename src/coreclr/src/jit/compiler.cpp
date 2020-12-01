@@ -8871,10 +8871,9 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
             case GT_DYN_BLK:
             case GT_STORE_BLK:
             case GT_STORE_DYN_BLK:
-
-                if (tree->gtFlags & GTF_BLK_VOLATILE)
+                if (tree->AsIndir()->IsVolatile())
                 {
-                    chars += printf("[BLK_VOLATILE]");
+                    chars += printf("[IND_VOLATILE]");
                 }
                 if (tree->AsBlk()->IsUnaligned())
                 {
@@ -9221,7 +9220,7 @@ bool Compiler::lvaIsOSRLocal(unsigned varNum)
 //
 void Compiler::gtChangeOperToNullCheck(GenTree* tree, BasicBlock* block)
 {
-    assert(tree->OperIs(GT_FIELD, GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK));
+    assert(tree->OperIs(GT_FIELD, GT_IND, GT_OBJ, GT_BLK));
     tree->ChangeOper(GT_NULLCHECK);
     tree->ChangeType(TYP_INT);
     block->bbFlags |= BBF_HAS_NULLCHECK;

@@ -1353,6 +1353,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         // It should already have the appropriate type.
         assert(asgType == impNormStructType(structHnd));
     }
+
     if ((dest == nullptr) && (destAddr->OperGet() == GT_ADDR))
     {
         GenTree* destNode = destAddr->gtGetOp1();
@@ -1378,6 +1379,10 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                 }
             }
         }
+        else if (varTypeIsSIMD(asgType) && destNode->OperIs(GT_FIELD) && (destNode->GetType() == asgType))
+        {
+            dest = destNode;
+        }
     }
 
     if (dest == nullptr)
@@ -1385,12 +1390,6 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         if (asgType == TYP_STRUCT)
         {
             dest = gtNewObjNode(structHnd, destAddr);
-            gtSetObjGcInfo(dest->AsObj());
-            // Although an obj as a call argument was always assumed to be a globRef
-            // (which is itself overly conservative), that is not true of the operands
-            // of a block assignment.
-            dest->gtFlags &= ~GTF_GLOB_REF;
-            dest->gtFlags |= (destAddr->gtFlags & GTF_GLOB_REF);
         }
         else
         {
@@ -1401,6 +1400,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     {
         dest->gtType = asgType;
     }
+
     if (dest->OperIs(GT_LCL_VAR) &&
         (src->IsMultiRegNode() ||
          (src->OperIs(GT_RET_EXPR) && src->AsRetExpr()->gtInlineCandidate->AsCall()->HasMultiRegRetVal())))
@@ -1416,18 +1416,9 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     }
 
     dest->gtFlags |= destFlags;
-    destFlags = dest->gtFlags;
 
-    // return an assignment node, to be appended
-    GenTree* asgNode = gtNewAssignNode(dest, src);
-    gtBlockOpInit(asgNode, dest, src, false);
-
-    // TODO-1stClassStructs: Clean up the settings of GTF_DONT_CSE on the lhs
-    // of assignments.
-    if ((destFlags & GTF_DONT_CSE) == 0)
-    {
-        dest->gtFlags &= ~(GTF_DONT_CSE);
-    }
+    GenTreeOp* asgNode = gtNewAssignNode(dest, src);
+    gtInitStructCopyAsg(asgNode);
     return asgNode;
 }
 
@@ -2853,23 +2844,21 @@ CORINFO_CLASS_HANDLE Compiler::impGetObjectClass()
     return objectClass;
 }
 
-/*****************************************************************************
- *  "&var" can be used either as TYP_BYREF or TYP_I_IMPL, but we
- *  set its type to TYP_BYREF when we create it. We know if it can be
- *  changed to TYP_I_IMPL only at the point where we use it
- */
-
 /* static */
-void Compiler::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2)
+void Compiler::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 /* = nullptr */)
 {
-    if (tree1->IsLocalAddrExpr() != nullptr)
+    // "&local" can be used either as TYP_BYREF or TYP_I_IMPL, but we
+    // set its type to TYP_BYREF when we create it. We know if it can
+    // be changed to TYP_I_IMPL only at the point where we use it.
+
+    if (tree1->TypeIs(TYP_BYREF) && (tree1->IsLocalAddrExpr() != nullptr))
     {
-        tree1->gtType = TYP_I_IMPL;
+        tree1->SetType(TYP_I_IMPL);
     }
 
-    if (tree2 && (tree2->IsLocalAddrExpr() != nullptr))
+    if ((tree2 != nullptr) && tree2->TypeIs(TYP_BYREF) && (tree2->IsLocalAddrExpr() != nullptr))
     {
-        tree2->gtType = TYP_I_IMPL;
+        tree2->SetType(TYP_I_IMPL);
     }
 }
 
@@ -3261,7 +3250,7 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     }
 
     void* initData = info.compCompHnd->getArrayInitializationData(fieldToken, size.Value());
-    if (!initData)
+    if (initData == nullptr)
     {
         return nullptr;
     }
@@ -3287,18 +3276,17 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         dataOffset = eeGetArrayDataOffset(elementType);
     }
 
-    GenTree* dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
-    GenTree* dst     = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, typGetBlkLayout(blkSize));
-    GenTree* src     = gtNewIndOfIconHandleNode(TYP_STRUCT, (size_t)initData, GTF_ICON_CONST_PTR, true);
+    GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
+    GenTreeBlk* dst     = new (this, GT_BLK) GenTreeBlk(dstAddr, typGetBlkLayout(blkSize));
+    GenTree*    srcAddr = gtNewIconHandleNode(reinterpret_cast<size_t>(initData), GTF_ICON_CONST_PTR);
+    GenTreeBlk* src     = new (this, GT_BLK) GenTreeBlk(srcAddr, dst->GetLayout());
 
-#ifdef DEBUG
-    src->gtGetOp1()->AsIntCon()->gtTargetHandle = THT_IntializeArrayIntrinsics;
-#endif
+    dst->gtFlags |= GTF_IND_NONFAULTING;
+    src->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
-    return gtNewBlkOpNode(dst,   // dst
-                          src,   // src
-                          false, // volatile
-                          true); // copyBlock
+    INDEBUG(srcAddr->AsIntCon()->gtTargetHandle = THT_IntializeArrayIntrinsics;)
+
+    return gtNewAssignNode(dst, src);
 }
 
 //------------------------------------------------------------------------
@@ -9969,7 +9957,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             GenTree*   op3;
             genTreeOps oper;
-            unsigned   size;
 
             int val;
 
@@ -11797,7 +11784,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val; // address to store to
 
                 // you can indirect off of a TYP_I_IMPL (if we are in C) or a BYREF
-                assertImp(genActualType(op1->gtType) == TYP_I_IMPL || op1->gtType == TYP_BYREF);
+                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
                 impBashVarAddrsToI(op1, op2);
 
@@ -11826,11 +11813,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 #endif // TARGET_64BIT
 
-                if (opcode == CEE_STIND_REF)
+                if ((lclTyp == TYP_REF) && !op2->TypeIs(TYP_REF))
                 {
-                    // STIND_REF can be used to store TYP_INT, TYP_I_IMPL, TYP_REF, or TYP_BYREF
-                    assertImp(varTypeIsIntOrI(op2->gtType) || varTypeIsGC(op2->gtType));
-                    lclTyp = genActualType(op2->TypeGet());
+                    // STIND_REF can be used to store TYP_INT, TYP_I_IMPL, TYP_REF, or TYP_BYREF.
+                    assertImp(op2->TypeIs(TYP_INT, TYP_I_IMPL, TYP_BYREF));
+                    lclTyp = op2->GetType();
                 }
 
 // Check target type.
@@ -11854,19 +11841,20 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 #endif
 
+            // For CPOBJ op2 always has type lclType so we can skip all the type
+            // compatibility checks above.
+            STIND_CPOBJ:
                 op1 = gtNewOperNode(GT_IND, lclTyp, op1);
 
-                if (prefixFlags & PREFIX_VOLATILE)
+                if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
-                    assert(op1->OperGet() == GT_IND);
                     op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
                     op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
                     op1->gtFlags |= GTF_IND_VOLATILE;
                 }
 
-                if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp))
+                if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp))
                 {
-                    assert(op1->OperGet() == GT_IND);
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
@@ -12311,23 +12299,17 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         bool bbInALoop  = impBlockIsInALoop(block);
                         bool bbIsReturn = (block->bbJumpKind == BBJ_RETURN) &&
                                           (!compIsForInlining() || (impInlineInfo->iciBlock->bbJumpKind == BBJ_RETURN));
-                        LclVarDsc* const lclDsc = lvaGetDesc(lclNum);
+                        LclVarDsc* const lcl = lvaGetDesc(lclNum);
                         if (fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
                         {
-                            // Append a tree to zero-out the temp
-                            newObjThisPtr = gtNewLclvNode(lclNum, lclDsc->TypeGet());
-
-                            newObjThisPtr = gtNewBlkOpNode(newObjThisPtr,    // Dest
-                                                           gtNewIconNode(0), // Value
-                                                           false,            // isVolatile
-                                                           false);           // not copyBlock
-                            impAppendTree(newObjThisPtr, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+                            GenTree* init = gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0));
+                            impAppendTree(init, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
                         }
                         else
                         {
                             JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
-                            lclDsc->lvSuppressedZeroInit = 1;
-                            compSuppressedZeroInit       = true;
+                            lcl->lvSuppressedZeroInit = 1;
+                            compSuppressedZeroInit    = true;
                         }
 
                         // Obtain the address of the temp
@@ -13955,35 +13937,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 goto EVAL_APPEND;
 
-            case CEE_INITOBJ:
-                assertImp(sz == sizeof(unsigned));
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
-                JITDUMP(" %08X", resolvedToken.token);
-
-                size = info.compCompHnd->getClassSize(resolvedToken.hClass); // Size
-                op2  = gtNewIconNode(0);                                     // Value
-                op1  = impPopStack().val;                                    // Dest
-                op1  = gtNewBlockVal(op1, size);
-                op1  = gtNewBlkOpNode(op1, op2, (prefixFlags & PREFIX_VOLATILE) != 0, false);
-                goto SPILL_APPEND;
-
             case CEE_INITBLK:
                 op3 = impPopStack().val; // Size
                 op2 = impPopStack().val; // Value
                 op1 = impPopStack().val; // Dest
 
-                if (op3->IsCnsIntOrI())
-                {
-                    size = (unsigned)op3->AsIntConCommon()->IconValue();
-                    op1  = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, op1, typGetBlkLayout(size));
-                }
-                else
-                {
-                    op1  = new (this, GT_DYN_BLK) GenTreeDynBlk(op1, op3);
-                    size = 0;
-                }
-                op1 = gtNewBlkOpNode(op1, op2, (prefixFlags & PREFIX_VOLATILE) != 0, false);
-
+                op1 = impImportInitBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
                 goto SPILL_APPEND;
 
             case CEE_CPBLK:
@@ -13991,26 +13950,37 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val; // Src
                 op1 = impPopStack().val; // Dest
 
-                if (op3->IsCnsIntOrI())
+                op1 = impImportCpBlk(op1, op2, op3, (prefixFlags & PREFIX_VOLATILE) != 0);
+                goto SPILL_APPEND;
+
+            case CEE_INITOBJ:
+                assertImp(sz == sizeof(unsigned));
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                JITDUMP(" %08X", resolvedToken.token);
+
+                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    size = (unsigned)op3->AsIntConCommon()->IconValue();
-                    op1  = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, op1, typGetBlkLayout(size));
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
-                    op1  = new (this, GT_DYN_BLK) GenTreeDynBlk(op1, op3);
-                    size = 0;
-                }
-                if (op2->OperGet() == GT_ADDR)
-                {
-                    op2 = op2->AsOp()->gtOp1;
-                }
-                else
-                {
-                    op2 = gtNewOperNode(GT_IND, TYP_STRUCT, op2);
+                    lclTyp = TYP_REF;
                 }
 
-                op1 = gtNewBlkOpNode(op1, op2, (prefixFlags & PREFIX_VOLATILE) != 0, true);
+                op1 = impPopStack().val; // Destination address
+
+                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
+                impBashVarAddrsToI(op1);
+
+                if (lclTyp != TYP_STRUCT)
+                {
+                    op2 = gtNewZeroConNode(varActualType(lclTyp));
+
+                    goto STIND_CPOBJ;
+                }
+
+                op1 = impImportInitObj(op1, resolvedToken.hClass);
                 goto SPILL_APPEND;
 
             case CEE_CPOBJ:
@@ -14018,53 +13988,50 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                if (!eeIsValueClass(resolvedToken.hClass))
+                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    op1 = impPopStack().val; // address to load from
-
-                    impBashVarAddrsToI(op1);
-
-                    assertImp(genActualType(op1->gtType) == TYP_I_IMPL || op1->gtType == TYP_BYREF);
-
-                    op1 = gtNewOperNode(GT_IND, TYP_REF, op1);
-                    op1->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-
-                    impPushOnStack(op1, typeInfo());
-                    opcode = CEE_STIND_REF;
-                    lclTyp = TYP_REF;
-                    goto STIND;
-                }
-
-                op2 = impPopStack().val; // Src
-                op1 = impPopStack().val; // Dest
-                op1 = gtNewCpObjNode(op1, op2, resolvedToken.hClass, ((prefixFlags & PREFIX_VOLATILE) != 0));
-                goto SPILL_APPEND;
-
-            case CEE_STOBJ:
-            {
-                assertImp(sz == sizeof(unsigned));
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
-                JITDUMP(" %08X", resolvedToken.token);
-
-                if (eeIsValueClass(resolvedToken.hClass))
-                {
-                    lclTyp = TYP_STRUCT;
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
                     lclTyp = TYP_REF;
                 }
 
-                if (lclTyp == TYP_REF)
+                op2 = impPopStack().val; // Source address
+                op1 = impPopStack().val; // Destination address
+
+                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
+                assertImp(op2->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
+                impBashVarAddrsToI(op1, op2);
+
+                if (lclTyp != TYP_STRUCT)
                 {
-                    opcode = CEE_STIND_REF;
-                    goto STIND;
+                    op2 = gtNewOperNode(GT_IND, lclTyp, op2);
+                    op2->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+
+                    goto STIND_CPOBJ;
                 }
 
-                CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
-                if (impIsPrimitive(jitTyp))
+                op1 = impImportCpObj(op1, op2, resolvedToken.hClass);
+                goto SPILL_APPEND;
+
+            case CEE_STOBJ:
+                assertImp(sz == sizeof(unsigned));
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                JITDUMP(" %08X", resolvedToken.token);
+
+                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = JITtype2varType(jitTyp);
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                }
+                else
+                {
+                    lclTyp = TYP_REF;
+                }
+
+                if (lclTyp != TYP_STRUCT)
+                {
                     goto STIND;
                 }
 
@@ -14073,14 +14040,33 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assertImp(varTypeIsStruct(op2));
 
-                op1 = impAssignStructPtr(op1, op2, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
+                op1 = impAssignStructPtr(op1, op2, resolvedToken.hClass, CHECK_SPILL_ALL);
 
-                if (op1->OperIsBlkOp() && (prefixFlags & PREFIX_UNALIGNED))
+                if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
-                    op1->gtFlags |= GTF_BLK_UNALIGNED;
+                    if (op1->OperIs(GT_ASG))
+                    {
+                        // If the store value is MKREFANY impAssignStructPtr will append another indir,
+                        // we don't set unaligned on that. It isn't necessary since the JIT doesn't do
+                        // anything special with unaligned if the indir type is integral.
+
+                        if (GenTreeIndir* indir = op1->AsOp()->GetOp(0)->IsIndir())
+                        {
+                            indir->SetUnaligned();
+                        }
+                    }
+                    else
+                    {
+                        // It's possible that impAssignStructPtr returned a CALL node (struct returned
+                        // via return buffer). We're ignoring the unaligned prefix in this case.
+
+                        // TODO-MIKE-Consider: We should probably introduce a temp, pass that as
+                        // return buffer and then assign the temp to the actual STOBJ destination.
+
+                        assert(op1->OperIs(GT_CALL) && op1->TypeIs(TYP_VOID));
+                    }
                 }
                 goto SPILL_APPEND;
-            }
 
             case CEE_MKREFANY:
                 assert(!compIsForInlining());
@@ -18461,4 +18447,175 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     }
 
     return false;
+}
+
+GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle)
+{
+    ClassLayout* layout       = typGetObjLayout(classHandle);
+    var_types    type         = TYP_UNDEF;
+    var_types    simdBaseType = TYP_UNDEF;
+    GenTree*     dst          = nullptr;
+
+    if (dstAddr->OperIs(GT_ADDR))
+    {
+        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR) && varTypeIsStruct(location->GetType()))
+        {
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (layout->GetSize() >= lcl->GetLayout()->GetSize())
+            {
+                type         = lcl->GetType();
+                simdBaseType = lcl->GetSIMDBaseType();
+                dst          = location;
+            }
+        }
+    }
+
+    if (dst == nullptr)
+    {
+        type = impNormStructType(classHandle, &simdBaseType);
+        dst  = gtNewObjNode(type, layout, dstAddr);
+    }
+
+    GenTree* initValue;
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(type))
+    {
+        initValue = gtNewSIMDVectorZero(type, simdBaseType, varTypeSize(type));
+    }
+    else
+#endif
+    {
+        initValue = gtNewIconNode(0);
+    }
+
+    return gtNewAssignNode(dst, initValue);
+}
+
+GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle)
+{
+    GenTree* dst = nullptr;
+
+    if (dstAddr->OperIs(GT_ADDR))
+    {
+        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+        if (location->OperIs(GT_LCL_VAR))
+        {
+            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
+                (lcl->GetLayout()->GetClassHandle() == classHandle))
+            {
+                dst = location;
+            }
+        }
+    }
+
+    if (dst == nullptr)
+    {
+        dst = gtNewObjNode(classHandle, dstAddr);
+    }
+
+    GenTree* src = nullptr;
+
+    if (srcAddr->OperIs(GT_ADDR))
+    {
+        src = srcAddr->AsUnOp()->GetOp(0);
+    }
+    else
+    {
+        src = gtNewObjNode(classHandle, srcAddr);
+    }
+
+    // TODO-MIKE-CQ: This should probably be removed, it's here only because
+    // a previous implementation (gtNewBlkOpNode) was setting it. And it
+    // probably blocks SIMD tree CSEing.
+    src->gtFlags |= GTF_DONT_CSE;
+
+    GenTreeOp* asg = gtNewAssignNode(dst, src);
+    gtInitStructCopyAsg(asg);
+    return asg;
+}
+
+GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)
+{
+    ClassLayout*  layout = nullptr;
+    GenTreeIndir* dst;
+
+    if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
+    {
+        layout = typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue()));
+        dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
+    }
+    else
+    {
+        dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
+    }
+
+    if (isVolatile)
+    {
+        dst->SetVolatile();
+    }
+
+    // TODO-MIKE-Review: Currently INITBLK ignores the unaligned prefix.
+
+    if (!initValue->IsIntegralConst(0))
+    {
+        initValue = gtNewOperNode(GT_INIT_VAL, TYP_INT, initValue);
+    }
+
+    return gtNewAssignNode(dst, initValue);
+}
+
+GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile)
+{
+    ClassLayout* layout = nullptr;
+    GenTreeBlk*  dst;
+
+    if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
+    {
+        layout = typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue()));
+        dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
+    }
+    else
+    {
+        dst = new (this, GT_DYN_BLK) GenTreeDynBlk(dstAddr, size);
+    }
+
+    if (isVolatile)
+    {
+        dst->SetVolatile();
+    }
+
+    // TODO-MIKE-Review: Currently CPBLK ignores the unaligned prefix.
+
+    GenTreeIndir* src;
+
+    if (layout != nullptr)
+    {
+        src = new (this, GT_BLK) GenTreeBlk(srcAddr, layout);
+    }
+    else
+    {
+        // STRUCT typed IND aren't normally used, we'll use it here as a special case, to denote
+        // a "load" of unknown size. Maybe using DYN_BLK as source would make more sense.
+        // We'd need to spill the size tree so it can have multiple uses but such copies are
+        // rare so getting an extra local shouldn't be a problem.
+
+        // TODO-MIKE-Consider: Replace GT_DYN_BLK with GT_COPY_BLK. Using load/store semantics
+        // for untyped, arbitrary sized copies is kind of nonsense.
+
+        src = new (this, GT_IND) GenTreeIndir(GT_IND, TYP_STRUCT, srcAddr);
+    }
+
+    if (isVolatile)
+    {
+        src->SetVolatile();
+    }
+
+    return gtNewAssignNode(dst, src);
 }

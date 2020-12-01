@@ -5959,151 +5959,34 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 //
 GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)
 {
-    var_types nodeType = impNormStructType(structHnd);
-    assert(varTypeIsStruct(nodeType));
+    return gtNewObjNode(typGetObjLayout(structHnd), addr);
+}
 
-    GenTreeObj* objNode = new (this, GT_OBJ) GenTreeObj(nodeType, addr, typGetObjLayout(structHnd));
+GenTreeObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
+{
+    return gtNewObjNode(impNormStructType(layout->GetClassHandle()), layout, addr);
+}
 
-    // An Obj is not a global reference, if it is known to be a local struct.
-    if ((addr->gtFlags & GTF_GLOB_REF) == 0)
+GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
+{
+    assert(varTypeIsStruct(type));
+
+    GenTreeObj* objNode = new (this, GT_OBJ) GenTreeObj(type, addr, layout);
+
+    GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();
+
+    if (lclNode != nullptr)
     {
-        GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();
-        if (lclNode != nullptr)
+        objNode->gtFlags |= GTF_IND_NONFAULTING;
+
+        // An Obj is not a global reference, if it is known to be a local struct.
+        if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
         {
-            objNode->gtFlags |= GTF_IND_NONFAULTING;
-            if (!lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
-            {
-                objNode->gtFlags &= ~GTF_GLOB_REF;
-            }
+            objNode->gtFlags &= ~GTF_GLOB_REF;
         }
     }
+
     return objNode;
-}
-
-//------------------------------------------------------------------------
-// gtSetObjGcInfo: Set the GC info on an object node
-//
-// Arguments:
-//    objNode - The object node of interest
-
-void Compiler::gtSetObjGcInfo(GenTreeObj* objNode)
-{
-    assert(varTypeIsStruct(objNode->TypeGet()));
-    assert(objNode->TypeGet() == impNormStructType(objNode->GetLayout()->GetClassHandle()));
-
-    if (!objNode->GetLayout()->HasGCPtr())
-    {
-        objNode->SetOper(objNode->OperIs(GT_OBJ) ? GT_BLK : GT_STORE_BLK);
-    }
-}
-
-//------------------------------------------------------------------------
-// gtNewStructVal: Return a node that represents a struct value
-//
-// Arguments:
-//    structHnd - The class for the struct
-//    addr      - The address of the struct
-//
-// Return Value:
-//    A block, object or local node that represents the struct value pointed to by 'addr'.
-
-GenTree* Compiler::gtNewStructVal(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)
-{
-    if (addr->gtOper == GT_ADDR)
-    {
-        GenTree* val = addr->gtGetOp1();
-        if (val->OperGet() == GT_LCL_VAR)
-        {
-            unsigned   lclNum = addr->gtGetOp1()->AsLclVarCommon()->GetLclNum();
-            LclVarDsc* varDsc = &(lvaTable[lclNum]);
-            if (varTypeIsStruct(varDsc->GetType()) && (varDsc->GetLayout()->GetClassHandle() == structHnd) &&
-                !lvaIsImplicitByRefLocal(lclNum))
-            {
-                return addr->gtGetOp1();
-            }
-        }
-    }
-    return gtNewObjNode(structHnd, addr);
-}
-
-//------------------------------------------------------------------------
-// gtNewBlockVal: Return a node that represents a possibly untyped block value
-//
-// Arguments:
-//    addr      - The address of the block
-//    size      - The size of the block
-//
-// Return Value:
-//    A block, object or local node that represents the block value pointed to by 'addr'.
-
-GenTree* Compiler::gtNewBlockVal(GenTree* addr, unsigned size)
-{
-    // By default we treat this as an opaque struct type with known size.
-    var_types blkType = TYP_STRUCT;
-    if (addr->gtOper == GT_ADDR)
-    {
-        GenTree* val = addr->gtGetOp1();
-#if FEATURE_SIMD
-        if (varTypeIsSIMD(val) && (genTypeSize(val) == size))
-        {
-            blkType = val->TypeGet();
-        }
-#endif // FEATURE_SIMD
-        if (varTypeIsStruct(val) && val->OperIs(GT_LCL_VAR))
-        {
-            LclVarDsc* varDsc  = lvaGetDesc(val->AsLclVarCommon());
-            unsigned   varSize = varTypeIsStruct(varDsc) ? varDsc->lvExactSize : genTypeSize(varDsc);
-            if (varSize == size)
-            {
-                return val;
-            }
-        }
-    }
-    return new (this, GT_BLK) GenTreeBlk(GT_BLK, blkType, addr, typGetBlkLayout(size));
-}
-
-// Creates a new assignment node for a CpObj.
-// Parameters (exactly the same as MSIL CpObj):
-//
-//  dstAddr    - The target to copy the struct to
-//  srcAddr    - The source to copy the struct from
-//  structHnd  - A class token that represents the type of object being copied. May be null
-//               if FEATURE_SIMD is enabled and the source has a SIMD type.
-//  isVolatile - Is this marked as volatile memory?
-
-GenTree* Compiler::gtNewCpObjNode(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE structHnd, bool isVolatile)
-{
-    GenTree* lhs = gtNewStructVal(structHnd, dstAddr);
-    GenTree* src = nullptr;
-
-    if (lhs->OperIs(GT_OBJ))
-    {
-        GenTreeObj* lhsObj = lhs->AsObj();
-#if DEBUG
-        // Codegen for CpObj assumes that we cannot have a struct with GC pointers whose size is not a multiple
-        // of the register size. The EE currently does not allow this to ensure that GC pointers are aligned
-        // if the struct is stored in an array. Note that this restriction doesn't apply to stack-allocated objects:
-        // they are never stored in arrays. We should never get to this method with stack-allocated objects since they
-        // are never copied so we don't need to exclude them from the assert below.
-        // Let's assert it just to be safe.
-        ClassLayout* layout = lhsObj->GetLayout();
-        unsigned     size   = layout->GetSize();
-        assert((layout->GetGCPtrCount() == 0) || (roundUp(size, REGSIZE_BYTES) == size));
-#endif
-        gtSetObjGcInfo(lhsObj);
-    }
-
-    if (srcAddr->OperGet() == GT_ADDR)
-    {
-        src = srcAddr->AsOp()->gtOp1;
-    }
-    else
-    {
-        src = gtNewOperNode(GT_IND, lhs->TypeGet(), srcAddr);
-    }
-
-    GenTree* result = gtNewBlkOpNode(lhs, src, isVolatile, true);
-    return result;
 }
 
 //------------------------------------------------------------------------
@@ -6319,161 +6202,74 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
     }
 }
 
-//
 //------------------------------------------------------------------------
-// gtBlockOpInit: Initializes a BlkOp GenTree
+// gtInitStructCopyAsg: Initializes a struct copy assignment.
 //
 // Arguments:
-//    result     - an assignment node that is to be initialized.
-//    dst        - the target (destination) we want to either initialize or copy to.
-//    src        - the init value for InitBlk or the source struct for CpBlk/CpObj.
-//    isVolatile - specifies whether this node is a volatile memory operation.
+//    asg - an assignment node that is to be initialized.
 //
-// Assumptions:
-//    'result' is an assignment that is newly constructed.
-//    If 'dst' is TYP_STRUCT, then it must be a block node or lclVar.
-//
-// Notes:
-//    This procedure centralizes all the logic to both enforce proper structure and
-//    to properly construct any InitBlk/CpBlk node.
-
-void Compiler::gtBlockOpInit(GenTree* result, GenTree* dst, GenTree* srcOrFillVal, bool isVolatile)
+void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
 {
-    if (!result->OperIsBlkOp())
+    assert(asg->OperIs(GT_ASG));
+
+    GenTree* dst = asg->GetOp(0);
+    GenTree* src = asg->GetOp(1);
+
+    if (!varTypeIsStruct(dst->GetType()))
     {
-        assert(dst->TypeGet() != TYP_STRUCT);
         return;
     }
 
-    /* In the case of CpBlk, we want to avoid generating
-    * nodes where the source and destination are the same
-    * because of two reasons, first, is useless, second
-    * it introduces issues in liveness and also copying
-    * memory from an overlapping memory location is
-    * undefined both as per the ECMA standard and also
-    * the memcpy semantics specify that.
-    *
-    * NOTE: In this case we'll only detect the case for addr of a local
-    * and a local itself, any other complex expressions won't be
-    * caught.
-    *
-    * TODO-Cleanup: though having this logic is goodness (i.e. avoids self-assignment
-    * of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
-    * isn't handling self-assignment of struct variables correctly.  This issue may not
-    * surface if struct promotion is ON (which is the case on x86/arm).  But still the
-    * fundamental issue exists that needs to be addressed.
-    */
-    if (result->OperIsCopyBlkOp())
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
-        GenTree* currSrc = srcOrFillVal;
-        GenTree* currDst = dst;
-
-        if (currSrc->OperIsBlk() && (currSrc->AsBlk()->Addr()->OperGet() == GT_ADDR))
-        {
-            currSrc = currSrc->AsBlk()->Addr()->gtGetOp1();
-        }
-        if (currDst->OperIsBlk() && (currDst->AsBlk()->Addr()->OperGet() == GT_ADDR))
-        {
-            currDst = currDst->AsBlk()->Addr()->gtGetOp1();
-        }
-
-        if (currSrc->OperGet() == GT_LCL_VAR && currDst->OperGet() == GT_LCL_VAR &&
-            currSrc->AsLclVarCommon()->GetLclNum() == currDst->AsLclVarCommon()->GetLclNum())
-        {
-            // Make this a NOP
-            // TODO-Cleanup: probably doesn't matter, but could do this earlier and avoid creating a GT_ASG
-            result->gtBashToNOP();
-            return;
-        }
+        return;
     }
 
-    // Propagate all effect flags from children
-    result->gtFlags |= dst->gtFlags & GTF_ALL_EFFECT;
-    result->gtFlags |= result->AsOp()->gtOp2->gtFlags & GTF_ALL_EFFECT;
+    // In the case of a block copy, we want to avoid generating nodes where the source
+    // and destination are the same because of two reasons, first, is useless, second
+    // it introduces issues in liveness and also copying memory from an overlapping
+    // memory location is undefined both as per the ECMA standard and also the memcpy
+    // semantics specify that.
+    //
+    // NOTE: In this case we'll only detect the case for addr of a local and a local
+    // itself, any other complex expressions won't be caught.
+    //
+    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-assignment
+    // of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
+    // isn't handling self-assignment of struct variables correctly. This issue may not
+    // surface if struct promotion is ON (which is the case on x86/arm). But still the
+    // fundamental issue exists that needs to be addressed.
 
-    result->gtFlags |= (dst->gtFlags & GTF_EXCEPT) | (srcOrFillVal->gtFlags & GTF_EXCEPT);
-
-    if (isVolatile)
+    if (src->OperIsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_ADDR))
     {
-        result->gtFlags |= GTF_BLK_VOLATILE;
+        src = src->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
+    }
+
+    if (dst->OperIsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_ADDR))
+    {
+        dst = dst->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
+    }
+
+    if (src->OperIs(GT_LCL_VAR) && dst->OperIs(GT_LCL_VAR) &&
+        (src->AsLclVar()->GetLclNum() == dst->AsLclVar()->GetLclNum()))
+    {
+        // Make this a NOP
+        // TODO-Cleanup: probably doesn't matter, but could do this earlier and avoid creating a GT_ASG
+        asg->gtBashToNOP();
+        return;
     }
 
 #ifdef FEATURE_SIMD
-    if (result->OperIsCopyBlkOp() && varTypeIsSIMD(srcOrFillVal))
+    // If the source is a SIMD typed intrinsic and the destination is a local we need to
+    // prevent the local from getting promoted, fgMorphCopyBlock doesn't handle this case
+    // and the local would end up being dependent promoted.
+
+    if (src->OperIsSimdOrHWintrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
+        varTypeIsSIMD(dst->GetType()))
     {
-        // If the source is a GT_SIMD node of SIMD type, then the dst lclvar struct
-        // should be labeled as simd intrinsic related struct.
-        // This is done so that the morpher can transform any field accesses into
-        // intrinsics, thus avoiding conflicting access methods (fields vs. whole-register).
-
-        GenTree* src = srcOrFillVal;
-        if (src->OperIsIndir() && (src->AsIndir()->Addr()->OperGet() == GT_ADDR))
-        {
-            src = src->AsIndir()->Addr()->gtGetOp1();
-        }
-#ifdef FEATURE_HW_INTRINSICS
-        if ((src->OperGet() == GT_SIMD) || (src->OperGet() == GT_HWINTRINSIC))
-#else
-        if (src->OperGet() == GT_SIMD)
-#endif // FEATURE_HW_INTRINSICS
-        {
-            if (dst->OperIsBlk() && (dst->AsIndir()->Addr()->OperGet() == GT_ADDR))
-            {
-                dst = dst->AsIndir()->Addr()->gtGetOp1();
-            }
-
-            if (dst->OperIsLocal() && varTypeIsStruct(dst))
-            {
-                setLclRelatedToSIMDIntrinsic(dst);
-            }
-        }
+        setLclRelatedToSIMDIntrinsic(dst);
     }
-#endif // FEATURE_SIMD
-}
-
-//------------------------------------------------------------------------
-// gtNewBlkOpNode: Creates a GenTree for a block (struct) assignment.
-//
-// Arguments:
-//    dst           - Destination or target to copy to / initialize the buffer.
-//    srcOrFillVall - the size of the buffer to copy/initialize or zero, in the case of CpObj.
-//    isVolatile    - Whether this is a volatile memory operation or not.
-//    isCopyBlock   - True if this is a block copy (rather than a block init).
-//
-// Return Value:
-//    Returns the newly constructed and initialized block operation.
-//
-// Notes:
-//    If size is zero, the dst must be a GT_OBJ with the class handle.
-//    'dst' must be a block node or lclVar.
-//
-GenTree* Compiler::gtNewBlkOpNode(GenTree* dst, GenTree* srcOrFillVal, bool isVolatile, bool isCopyBlock)
-{
-    assert(dst->OperIsBlk() || dst->OperIsLocal());
-    if (isCopyBlock)
-    {
-        srcOrFillVal->gtFlags |= GTF_DONT_CSE;
-        if (srcOrFillVal->OperIsIndir() && (srcOrFillVal->gtGetOp1()->gtOper == GT_ADDR))
-        {
-            srcOrFillVal = srcOrFillVal->gtGetOp1()->gtGetOp1();
-        }
-    }
-    else
-    {
-        // InitBlk
-        assert(varTypeIsIntegral(srcOrFillVal));
-        if (varTypeIsStruct(dst))
-        {
-            if (!srcOrFillVal->IsIntegralConst(0))
-            {
-                srcOrFillVal = gtNewOperNode(GT_INIT_VAL, TYP_INT, srcOrFillVal);
-            }
-        }
-    }
-
-    GenTree* result = gtNewAssignNode(dst, srcOrFillVal);
-    gtBlockOpInit(result, dst, srcOrFillVal, isVolatile);
-    return result;
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -6953,17 +6749,19 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_OBJ:
-                copy =
-                    new (this, GT_OBJ) GenTreeObj(tree->TypeGet(), tree->AsObj()->Addr(), tree->AsObj()->GetLayout());
+                copy = new (this, GT_OBJ) GenTreeObj(tree->AsObj());
+                break;
+
+            case GT_STORE_OBJ:
+                copy = new (this, GT_STORE_OBJ) GenTreeObj(tree->AsObj());
                 break;
 
             case GT_BLK:
-                copy = new (this, GT_BLK)
-                    GenTreeBlk(GT_BLK, tree->TypeGet(), tree->AsBlk()->Addr(), tree->AsBlk()->GetLayout());
+                copy = new (this, GT_BLK) GenTreeBlk(tree->AsBlk());
                 break;
 
-            case GT_DYN_BLK:
-                copy = new (this, GT_DYN_BLK) GenTreeDynBlk(tree->AsOp()->gtGetOp1(), tree->AsDynBlk()->gtDynamicSize);
+            case GT_STORE_BLK:
+                copy = new (this, GT_STORE_BLK) GenTreeBlk(tree->AsBlk());
                 break;
 
             case GT_BOX:
@@ -7219,11 +7017,17 @@ GenTree* Compiler::gtCloneExpr(
             copy->AsBoundsChk()->gtIndRngFailBB = tree->AsBoundsChk()->gtIndRngFailBB;
             break;
 
-        case GT_STORE_DYN_BLK:
         case GT_DYN_BLK:
-            copy = new (this, oper)
-                GenTreeDynBlk(gtCloneExpr(tree->AsDynBlk()->Addr(), addFlags, deepVarNum, deepVarVal),
-                              gtCloneExpr(tree->AsDynBlk()->gtDynamicSize, addFlags, deepVarNum, deepVarVal));
+        case GT_STORE_DYN_BLK:
+            copy = new (this, oper) GenTreeDynBlk(tree->AsDynBlk());
+
+            copy->AsDynBlk()->SetAddr(gtCloneExpr(copy->AsDynBlk()->GetAddr(), addFlags, deepVarNum, deepVarVal));
+            copy->AsDynBlk()->SetSize(gtCloneExpr(copy->AsDynBlk()->GetSize(), addFlags, deepVarNum, deepVarVal));
+
+            if (oper == GT_STORE_DYN_BLK)
+            {
+                copy->AsDynBlk()->SetValue(gtCloneExpr(copy->AsDynBlk()->GetValue(), addFlags, deepVarNum, deepVarVal));
+            }
             break;
 
         default:
@@ -8937,15 +8741,6 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                 }
                 goto DASH;
 
-            case GT_ASG:
-                if (tree->OperIsInitBlkOp())
-                {
-                    printf("I");
-                    --msgLength;
-                    break;
-                }
-                goto DASH;
-
             case GT_CALL:
                 if (tree->AsCall()->IsInlineCandidate())
                 {
@@ -10205,29 +10000,23 @@ void Compiler::gtDispTree(GenTree*     tree,
         }
     }
 
-    /* Is it a 'simple' unary/binary operator? */
-
-    const char* childMsg = nullptr;
-
-    if (tree->OperIsSimple())
+    if (myArc != IINone)
     {
-        // Now, get the right type of arc for this node
-        if (myArc != IINone)
-        {
-            indentStack->Pop();
-            indentStack->Push(myArc);
-        }
+        indentStack->Pop();
+        indentStack->Push(myArc);
+    }
 
-        gtDispNode(tree, indentStack, msg, isLIR);
+    gtDispNode(tree, indentStack, msg, isLIR);
 
-        // Propagate lowerArc to the lower children.
-        if (indentStack->Depth() > 0)
-        {
-            (void)indentStack->Pop();
-            indentStack->Push(lowerArc);
-        }
+    if (indentStack->Depth() > 0)
+    {
+        (void)indentStack->Pop();
+        indentStack->Push(lowerArc);
+    }
 
-        if (tree->OperIs(GT_CAST))
+    switch (tree->GetOper())
+    {
+        case GT_CAST:
         {
             var_types fromType = genActualType(tree->AsUnOp()->GetOp(0)->GetType());
             var_types toType   = tree->AsCast()->GetCastType();
@@ -10239,42 +10028,11 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             printf(" (%s to %s)", varTypeName(fromType), varTypeName(toType));
         }
+        break;
 
-        if (tree->OperIsBlkOp())
+        case GT_PUTARG_STK:
         {
-            if (tree->OperIsCopyBlkOp())
-            {
-                printf(" (copy)");
-            }
-            else if (tree->OperIsInitBlkOp())
-            {
-                printf(" (init)");
-            }
-            if (tree->OperIsStoreBlk() && (tree->AsBlk()->gtBlkOpKind != GenTreeBlk::BlkOpKindInvalid))
-            {
-                switch (tree->AsBlk()->gtBlkOpKind)
-                {
-#ifdef TARGET_XARCH
-                    case GenTreeBlk::BlkOpKindRepInstr:
-                        printf(" (RepInstr)");
-                        break;
-#endif
-                    case GenTreeBlk::BlkOpKindUnroll:
-                        printf(" (Unroll)");
-                        break;
-#ifndef TARGET_X86
-                    case GenTreeBlk::BlkOpKindHelper:
-                        printf(" (Helper)");
-                        break;
-#endif
-                    default:
-                        unreached();
-                }
-            }
-        }
-        else if (tree->OperGet() == GT_PUTARG_STK)
-        {
-            printf(" (%d slots)", tree->AsPutArgStk()->GetSlotCount());
+            printf(" (%d slots", tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
             const char* kindName;
             switch (tree->AsPutArgStk()->gtPutArgStkKind)
@@ -10306,11 +10064,14 @@ void Compiler::gtDispTree(GenTree*     tree,
                     kindName = "???";
                     break;
             }
-            printf(" (%s)", kindName);
+            printf(", %s)", kindName);
+#else
+            printf(")");
 #endif
         }
+        break;
 
-        if (tree->gtOper == GT_INTRINSIC)
+        case GT_INTRINSIC:
         {
             GenTreeIntrinsic* intrinsic = tree->AsIntrinsic();
 
@@ -10406,63 +10167,8 @@ void Compiler::gtDispTree(GenTree*     tree,
                 }
             }
         }
+        break;
 
-        gtDispCommonEndLine(tree);
-
-        if (!topOnly)
-        {
-            if (tree->AsOp()->gtOp1 != nullptr)
-            {
-                // Label the child of the GT_COLON operator
-                // op1 is the else part
-
-                if (tree->gtOper == GT_COLON)
-                {
-                    childMsg = "else";
-                }
-                else if (tree->gtOper == GT_QMARK)
-                {
-                    childMsg = "   if";
-                }
-                gtDispChild(tree->AsOp()->gtOp1, indentStack,
-                            (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc, childMsg, topOnly);
-            }
-
-            if (tree->gtGetOp2IfPresent())
-            {
-                // Label the childMsgs of the GT_COLON operator
-                // op2 is the then part
-
-                if (tree->gtOper == GT_COLON)
-                {
-                    childMsg = "then";
-                }
-                gtDispChild(tree->AsOp()->gtOp2, indentStack, IIArcBottom, childMsg, topOnly);
-            }
-        }
-
-        return;
-    }
-
-    // Now, get the right type of arc for this node
-    if (myArc != IINone)
-    {
-        indentStack->Pop();
-        indentStack->Push(myArc);
-    }
-    gtDispNode(tree, indentStack, msg, isLIR);
-
-    // Propagate lowerArc to the lower children.
-    if (indentStack->Depth() > 0)
-    {
-        (void)indentStack->Pop();
-        indentStack->Push(lowerArc);
-    }
-
-    // See what kind of a special operator we have here, and handle its special children.
-
-    switch (tree->gtOper)
-    {
         case GT_FIELD_LIST:
             gtDispCommonEndLine(tree);
 
@@ -10699,33 +10405,117 @@ void Compiler::gtDispTree(GenTree*     tree,
             }
             break;
 
+        case GT_STORE_OBJ:
+        case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
-        case GT_DYN_BLK:
-            if (tree->OperIsCopyBlkOp())
+            switch (tree->AsBlk()->GetKind())
             {
-                printf(" (copy)");
+                case StructStoreKind::Invalid:
+                    break;
+                case StructStoreKind::UnrollInit:
+                    printf(" (UnrollInit)");
+                    break;
+                case StructStoreKind::UnrollCopy:
+                    printf(" (UnrollCopy)");
+                    break;
+                case StructStoreKind::UnrollCopyWB:
+                    printf(" (UnrollCopyWB)");
+                    break;
+#ifdef TARGET_XARCH
+                case StructStoreKind::UnrollCopyWBRepMovs:
+                    printf(" (UnrollCopyWBRepMovs)");
+                    break;
+                case StructStoreKind::RepStos:
+                    printf(" (RepStos)");
+                    break;
+                case StructStoreKind::RepMovs:
+                    printf(" (RepMovs)");
+                    break;
+#endif
+#ifndef TARGET_X86
+                case StructStoreKind::MemSet:
+                    printf(" (MemSet)");
+                    break;
+                case StructStoreKind::MemCpy:
+                    printf(" (MemCpy)");
+                    break;
+#endif
+                default:
+                    printf(" (\?\?\?)");
+                    break;
             }
-            else if (tree->OperIsInitBlkOp())
-            {
-                printf(" (init)");
-            }
+
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
             {
-                if (tree->AsDynBlk()->Data() != nullptr)
+                gtDispChild(tree->AsBlk()->GetValue(), indentStack, IIArc);
+                gtDispChild(tree->AsBlk()->GetAddr(), indentStack, IIArc);
+                if (tree->OperIs(GT_STORE_DYN_BLK))
                 {
-                    gtDispChild(tree->AsDynBlk()->Data(), indentStack, IIArc, nullptr, topOnly);
+                    gtDispChild(tree->AsDynBlk()->GetSize(), indentStack, IIArcBottom);
                 }
-                gtDispChild(tree->AsDynBlk()->Addr(), indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsDynBlk()->gtDynamicSize, indentStack, IIArcBottom, nullptr, topOnly);
+            }
+            return;
+
+        case GT_DYN_BLK:
+            gtDispCommonEndLine(tree);
+
+            if (!topOnly)
+            {
+                gtDispChild(tree->AsDynBlk()->GetAddr(), indentStack, IIArc);
+                gtDispChild(tree->AsDynBlk()->GetSize(), indentStack, IIArcBottom);
             }
             break;
 
         default:
-            printf("<DON'T KNOW HOW TO DISPLAY THIS NODE> :");
-            printf(""); // null string means flush
+            if (!tree->OperIsSimple())
+            {
+                printf("<DON'T KNOW HOW TO DISPLAY THIS NODE> :");
+                printf(""); // null string means flush
+            }
             break;
+    }
+
+    if (tree->OperIsSimple())
+    {
+        gtDispCommonEndLine(tree);
+
+        if (!topOnly)
+        {
+            if (tree->AsOp()->gtOp1 != nullptr)
+            {
+                const char* childMsg = nullptr;
+
+                // Label the child of the GT_COLON operator
+                // op1 is the else part
+
+                if (tree->gtOper == GT_COLON)
+                {
+                    childMsg = "else";
+                }
+                else if (tree->gtOper == GT_QMARK)
+                {
+                    childMsg = "   if";
+                }
+                gtDispChild(tree->AsOp()->gtOp1, indentStack,
+                            (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc, childMsg);
+            }
+
+            if (tree->gtGetOp2IfPresent())
+            {
+                const char* childMsg = nullptr;
+
+                // Label the childMsgs of the GT_COLON operator
+                // op2 is the then part
+
+                if (tree->gtOper == GT_COLON)
+                {
+                    childMsg = "then";
+                }
+                gtDispChild(tree->AsOp()->gtOp2, indentStack, IIArcBottom, childMsg);
+            }
+        }
     }
 }
 
@@ -11035,31 +10825,31 @@ void Compiler::gtDispLIRNode(GenTree* node, const char* prefixMsg /* = nullptr *
                 displayOperand(operand, buf, operandArc, indentStack, prefixIndent);
             }
         }
-        else if (node->OperIsDynBlkOp())
+        else if (node->OperIs(GT_STORE_DYN_BLK))
         {
-            if (operand == node->AsBlk()->Addr())
+            if (operand == node->AsDynBlk()->GetAddr())
             {
-                displayOperand(operand, "lhs", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, "addr", operandArc, indentStack, prefixIndent);
             }
-            else if (operand == node->AsBlk()->Data())
+            else if (operand == node->AsDynBlk()->GetValue())
             {
-                displayOperand(operand, "rhs", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, "value", operandArc, indentStack, prefixIndent);
             }
             else
             {
-                assert(operand == node->AsDynBlk()->gtDynamicSize);
+                assert(operand == node->AsDynBlk()->GetSize());
                 displayOperand(operand, "size", operandArc, indentStack, prefixIndent);
             }
         }
-        else if (node->OperGet() == GT_DYN_BLK)
+        else if (node->OperIs(GT_DYN_BLK))
         {
-            if (operand == node->AsBlk()->Addr())
+            if (operand == node->AsDynBlk()->GetAddr())
             {
-                displayOperand(operand, "lhs", operandArc, indentStack, prefixIndent);
+                displayOperand(operand, "addr", operandArc, indentStack, prefixIndent);
             }
             else
             {
-                assert(operand == node->AsDynBlk()->gtDynamicSize);
+                assert(operand == node->AsDynBlk()->GetSize());
                 displayOperand(operand, "size", operandArc, indentStack, prefixIndent);
             }
         }
@@ -14661,7 +14451,7 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
                 if (m_compiler->gtNodeHasSideEffects(node, m_flags))
                 {
                     m_sideEffects.Push(node);
-                    if (node->OperIsBlk() && !node->OperIsStoreBlk())
+                    if (node->OperIs(GT_OBJ, GT_BLK))
                     {
                         JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", dspTreeID(node));
                         m_compiler->gtChangeOperToNullCheck(node, m_compiler->compCurBB);
@@ -16266,9 +16056,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 break;
             case GT_OBJ:
                 structHnd = tree->AsObj()->GetLayout()->GetClassHandle();
-                break;
-            case GT_BLK:
-                structHnd = tree->AsBlk()->GetLayout()->GetClassHandle();
                 break;
             case GT_CALL:
                 structHnd = tree->AsCall()->gtRetClsHnd;
@@ -18192,6 +17979,11 @@ regNumber GenTree::ExtractTempReg(regMaskTP mask /* = (regMaskTP)-1 */)
     regMaskTP tempRegMask = genFindLowestBit(availableSet);
     gtRsvdRegs &= ~tempRegMask;
     return genRegNumFromMask(tempRegMask);
+}
+
+bool GenTree::HasTempReg(regNumber reg) const
+{
+    return (gtRsvdRegs & genRegMask(reg)) != 0;
 }
 
 //------------------------------------------------------------------------

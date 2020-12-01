@@ -517,32 +517,19 @@ unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* a
     comp->lvaSetStruct(lclNum, allocObj->gtAllocObjClsHnd, unsafeValueClsCheck);
 
     // Initialize the object memory if necessary.
-    bool             bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
-    bool             bbIsReturn = block->bbJumpKind == BBJ_RETURN;
-    LclVarDsc* const lclDsc     = comp->lvaGetDesc(lclNum);
+    bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
+    bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
     if (comp->fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
     {
-        //------------------------------------------------------------------------
-        // STMTx (IL 0x... ???)
-        //   *  ASG       struct (init)
-        //   +--*  LCL_VAR   struct
-        //   \--*  CNS_INT   int    0
-        //------------------------------------------------------------------------
-
-        GenTree*   tree        = comp->gtNewLclvNode(lclNum, TYP_STRUCT);
-        const bool isVolatile  = false;
-        const bool isCopyBlock = false;
-        tree                   = comp->gtNewBlkOpNode(tree, comp->gtNewIconNode(0), isVolatile, isCopyBlock);
-
-        Statement* newStmt = comp->gtNewStmt(tree);
-
+        GenTree*   init    = comp->gtNewAssignNode(comp->gtNewLclvNode(lclNum, TYP_STRUCT), comp->gtNewIconNode(0));
+        Statement* newStmt = comp->gtNewStmt(init);
         comp->fgInsertStmtBefore(block, stmt, newStmt);
     }
     else
     {
         JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
-        lclDsc->lvSuppressedZeroInit = 1;
-        comp->compSuppressedZeroInit = true;
+        comp->lvaGetDesc(lclNum)->lvSuppressedZeroInit = 1;
+        comp->compSuppressedZeroInit                   = true;
     }
 
     GenTreeOp* methodTableAssignment =

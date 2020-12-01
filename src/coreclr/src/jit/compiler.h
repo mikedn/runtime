@@ -2021,20 +2021,15 @@ public:
     GenTree* gtNewSIMDVectorZero(var_types simdType, var_types baseType, unsigned size);
 #endif
 
-    GenTree* gtNewBlkOpNode(GenTree* dst, GenTree* srcOrFillVal, bool isVolatile, bool isCopyBlock);
-
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
 protected:
-    void gtBlockOpInit(GenTree* result, GenTree* dst, GenTree* srcOrFillVal, bool isVolatile);
+    void gtInitStructCopyAsg(GenTreeOp* asg);
 
 public:
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
-    void gtSetObjGcInfo(GenTreeObj* objNode);
-    GenTree* gtNewStructVal(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
-    GenTree* gtNewBlockVal(GenTree* addr, unsigned size);
-
-    GenTree* gtNewCpObjNode(GenTree* dst, GenTree* src, CORINFO_CLASS_HANDLE structHnd, bool isVolatile);
+    GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
+    GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
 
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
@@ -3688,6 +3683,11 @@ private:
 
     CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
 
+    GenTree* impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle);
+    GenTree* impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle);
+    GenTree* impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile);
+    GenTree* impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile);
+
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -5053,6 +5053,7 @@ private:
                                       bool           extendToActualType,
                                       var_types      simdBaseType);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
+    GenTree* fgMorphStructAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
@@ -5167,9 +5168,11 @@ private:
     void fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
 
 #if FEATURE_MULTIREG_RET
-    GenTree* fgGetStructAsStructPtr(GenTree* tree);
-    GenTree* fgAssignStructInlineeToVar(GenTree* child, CORINFO_CLASS_HANDLE retClsHnd);
-    void fgAttachStructInlineeToAsg(GenTree* tree, GenTree* child, CORINFO_CLASS_HANDLE retClsHnd);
+    GenTree* inlGetStructAddress(GenTree* tree);
+    GenTree* inlGetStructAsgDst(GenTree* dst, CORINFO_CLASS_HANDLE structHandle);
+    GenTree* inlGetStructAsgSrc(GenTree* src, CORINFO_CLASS_HANDLE structHandle);
+    GenTree* inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HANDLE structHandle);
+    void inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO_CLASS_HANDLE structHandle);
 #endif // FEATURE_MULTIREG_RET
 
     static fgWalkPreFn  fgUpdateInlineReturnExpressionPlaceHolder;

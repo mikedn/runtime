@@ -94,7 +94,11 @@ void Rationalizer::RewriteIndir(LIR::Use& use)
     }
     else if (indir->OperIs(GT_OBJ))
     {
-        assert((indir->TypeGet() == TYP_STRUCT) || !use.User()->OperIsInitBlkOp());
+        assert(varTypeIsStruct(indir->GetType()));
+
+        // TODO-MIKE-Cleanup: This shouldn't be needed, SIMD typed OBJ should
+        // either not be generated or be converted to IND earlier.
+
         if (varTypeIsSIMD(indir->TypeGet()))
         {
             indir->SetOper(GT_IND);
@@ -104,8 +108,7 @@ void Rationalizer::RewriteIndir(LIR::Use& use)
     else
     {
         assert(indir->OperIs(GT_BLK));
-        // We should only see GT_BLK for TYP_STRUCT or for InitBlocks.
-        assert((indir->TypeGet() == TYP_STRUCT) || use.User()->OperIsInitBlkOp());
+        assert(indir->TypeIs(TYP_STRUCT));
     }
 }
 
@@ -443,8 +446,7 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
                     GenTree::OpName(storeOper));
             storeBlk->SetOperRaw(storeOper);
             storeBlk->gtFlags &= ~GTF_DONT_CSE;
-            storeBlk->gtFlags |=
-                (assignment->gtFlags & (GTF_ALL_EFFECT | GTF_BLK_VOLATILE | GTF_BLK_UNALIGNED | GTF_DONT_CSE));
+            storeBlk->gtFlags |= (assignment->gtFlags & (GTF_ALL_EFFECT | GTF_DONT_CSE));
             storeBlk->AsBlk()->Data() = value;
 
             // Remove the block node from its current position and replace the assignment node with it
