@@ -8922,15 +8922,13 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         //   before: [3] comma struct <- [2] comma struct <- [1] LCL_VAR struct
         //   after: [3] comma byref <- [2] comma byref <- [4] addr byref <- [1] LCL_VAR struct
 
-        GenTree* effectiveVal = tree->gtEffectiveVal();
-
         ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
         for (GenTree* comma = tree; (comma != nullptr) && comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
         {
             commas.Push(comma->AsOp());
         }
 
-        noway_assert(commas.Top()->GetOp(1) == effectiveVal);
+        GenTree* effectiveVal = commas.Top()->GetOp(1);
 
         // TODO-MIKE-Review: Weird, effectiveVal could be a LCL_VAR node so we end up taking
         // the address of a local without DNERing/address exposing it. Some code below tried
@@ -8955,9 +8953,9 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 
         while (!commas.Empty())
         {
-            GenTree* comma = commas.Pop();
+            GenTreeOp* comma = commas.Pop();
             comma->SetType(TYP_BYREF);
-            gtUpdateNodeSideEffects(comma);
+            comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
         }
 
         GenTree* addr = tree;

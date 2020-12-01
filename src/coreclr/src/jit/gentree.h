@@ -740,6 +740,17 @@ public:
 #define GTF_GLOB_EFFECT             (GTF_SIDE_EFFECT | GTF_GLOB_REF)
 #define GTF_ALL_EFFECT              (GTF_GLOB_EFFECT | GTF_ORDER_SIDEEFF)
 
+    unsigned GetSideEffects() const
+    {
+        return gtFlags & GTF_ALL_EFFECT;
+    }
+
+    void SetSideEffects(unsigned sideEffects)
+    {
+        assert((sideEffects & !GTF_ALL_EFFECT) == 0);
+        gtFlags = (gtFlags & !GTF_ALL_EFFECT) | sideEffects;
+    }
+
 // The extra flag GTF_IS_IN_CSE is used to tell the consumer of these flags
 // that we are calling in the context of performing a CSE, thus we
 // should allow the run-once side effects of running a class constructor.
