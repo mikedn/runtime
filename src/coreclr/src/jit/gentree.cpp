@@ -10000,29 +10000,23 @@ void Compiler::gtDispTree(GenTree*     tree,
         }
     }
 
-    /* Is it a 'simple' unary/binary operator? */
-
-    const char* childMsg = nullptr;
-
-    if (tree->OperIsSimple())
+    if (myArc != IINone)
     {
-        // Now, get the right type of arc for this node
-        if (myArc != IINone)
-        {
-            indentStack->Pop();
-            indentStack->Push(myArc);
-        }
+        indentStack->Pop();
+        indentStack->Push(myArc);
+    }
 
-        gtDispNode(tree, indentStack, msg, isLIR);
+    gtDispNode(tree, indentStack, msg, isLIR);
 
-        // Propagate lowerArc to the lower children.
-        if (indentStack->Depth() > 0)
-        {
-            (void)indentStack->Pop();
-            indentStack->Push(lowerArc);
-        }
+    if (indentStack->Depth() > 0)
+    {
+        (void)indentStack->Pop();
+        indentStack->Push(lowerArc);
+    }
 
-        if (tree->OperIs(GT_CAST))
+    switch (tree->GetOper())
+    {
+        case GT_CAST:
         {
             var_types fromType = genActualType(tree->AsUnOp()->GetOp(0)->GetType());
             var_types toType   = tree->AsCast()->GetCastType();
@@ -10034,48 +10028,11 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             printf(" (%s to %s)", varTypeName(fromType), varTypeName(toType));
         }
-        else if (tree->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK))
+        break;
+
+        case GT_PUTARG_STK:
         {
-            switch (tree->AsBlk()->GetKind())
-            {
-                case StructStoreKind::Invalid:
-                    break;
-                case StructStoreKind::UnrollInit:
-                    printf(" (UnrollInit)");
-                    break;
-                case StructStoreKind::UnrollCopy:
-                    printf(" (UnrollCopy)");
-                    break;
-                case StructStoreKind::UnrollCopyWB:
-                    printf(" (UnrollCopyWB)");
-                    break;
-#ifdef TARGET_XARCH
-                case StructStoreKind::UnrollCopyWBRepMovs:
-                    printf(" (UnrollCopyWBRepMovs)");
-                    break;
-                case StructStoreKind::RepStos:
-                    printf(" (RepStos)");
-                    break;
-                case StructStoreKind::RepMovs:
-                    printf(" (RepMovs)");
-                    break;
-#endif
-#ifndef TARGET_X86
-                case StructStoreKind::MemSet:
-                    printf(" (MemSet)");
-                    break;
-                case StructStoreKind::MemCpy:
-                    printf(" (MemCpy)");
-                    break;
-#endif
-                default:
-                    printf(" (???)");
-                    break;
-            }
-        }
-        else if (tree->OperGet() == GT_PUTARG_STK)
-        {
-            printf(" (%d slots)", tree->AsPutArgStk()->GetSlotCount());
+            printf(" (%d slots", tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
             const char* kindName;
             switch (tree->AsPutArgStk()->gtPutArgStkKind)
@@ -10107,11 +10064,14 @@ void Compiler::gtDispTree(GenTree*     tree,
                     kindName = "???";
                     break;
             }
-            printf(" (%s)", kindName);
+            printf(", %s)", kindName);
+#else
+            printf(")");
 #endif
         }
+        break;
 
-        if (tree->gtOper == GT_INTRINSIC)
+        case GT_INTRINSIC:
         {
             GenTreeIntrinsic* intrinsic = tree->AsIntrinsic();
 
@@ -10207,63 +10167,8 @@ void Compiler::gtDispTree(GenTree*     tree,
                 }
             }
         }
+        break;
 
-        gtDispCommonEndLine(tree);
-
-        if (!topOnly)
-        {
-            if (tree->AsOp()->gtOp1 != nullptr)
-            {
-                // Label the child of the GT_COLON operator
-                // op1 is the else part
-
-                if (tree->gtOper == GT_COLON)
-                {
-                    childMsg = "else";
-                }
-                else if (tree->gtOper == GT_QMARK)
-                {
-                    childMsg = "   if";
-                }
-                gtDispChild(tree->AsOp()->gtOp1, indentStack,
-                            (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc, childMsg, topOnly);
-            }
-
-            if (tree->gtGetOp2IfPresent())
-            {
-                // Label the childMsgs of the GT_COLON operator
-                // op2 is the then part
-
-                if (tree->gtOper == GT_COLON)
-                {
-                    childMsg = "then";
-                }
-                gtDispChild(tree->AsOp()->gtOp2, indentStack, IIArcBottom, childMsg, topOnly);
-            }
-        }
-
-        return;
-    }
-
-    // Now, get the right type of arc for this node
-    if (myArc != IINone)
-    {
-        indentStack->Pop();
-        indentStack->Push(myArc);
-    }
-    gtDispNode(tree, indentStack, msg, isLIR);
-
-    // Propagate lowerArc to the lower children.
-    if (indentStack->Depth() > 0)
-    {
-        (void)indentStack->Pop();
-        indentStack->Push(lowerArc);
-    }
-
-    // See what kind of a special operator we have here, and handle its special children.
-
-    switch (tree->gtOper)
-    {
         case GT_FIELD_LIST:
             gtDispCommonEndLine(tree);
 
@@ -10500,25 +10405,117 @@ void Compiler::gtDispTree(GenTree*     tree,
             }
             break;
 
+        case GT_STORE_OBJ:
+        case GT_STORE_BLK:
         case GT_STORE_DYN_BLK:
+            switch (tree->AsBlk()->GetKind())
+            {
+                case StructStoreKind::Invalid:
+                    break;
+                case StructStoreKind::UnrollInit:
+                    printf(" (UnrollInit)");
+                    break;
+                case StructStoreKind::UnrollCopy:
+                    printf(" (UnrollCopy)");
+                    break;
+                case StructStoreKind::UnrollCopyWB:
+                    printf(" (UnrollCopyWB)");
+                    break;
+#ifdef TARGET_XARCH
+                case StructStoreKind::UnrollCopyWBRepMovs:
+                    printf(" (UnrollCopyWBRepMovs)");
+                    break;
+                case StructStoreKind::RepStos:
+                    printf(" (RepStos)");
+                    break;
+                case StructStoreKind::RepMovs:
+                    printf(" (RepMovs)");
+                    break;
+#endif
+#ifndef TARGET_X86
+                case StructStoreKind::MemSet:
+                    printf(" (MemSet)");
+                    break;
+                case StructStoreKind::MemCpy:
+                    printf(" (MemCpy)");
+                    break;
+#endif
+                default:
+                    printf(" (\?\?\?)");
+                    break;
+            }
+
+            gtDispCommonEndLine(tree);
+
+            if (!topOnly)
+            {
+                gtDispChild(tree->AsBlk()->GetValue(), indentStack, IIArc);
+                gtDispChild(tree->AsBlk()->GetAddr(), indentStack, IIArc);
+                if (tree->OperIs(GT_STORE_DYN_BLK))
+                {
+                    gtDispChild(tree->AsDynBlk()->GetSize(), indentStack, IIArcBottom);
+                }
+            }
+            return;
+
         case GT_DYN_BLK:
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
             {
-                if (tree->AsDynBlk()->Data() != nullptr)
-                {
-                    gtDispChild(tree->AsDynBlk()->Data(), indentStack, IIArc, nullptr, topOnly);
-                }
-                gtDispChild(tree->AsDynBlk()->Addr(), indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsDynBlk()->gtDynamicSize, indentStack, IIArcBottom, nullptr, topOnly);
+                gtDispChild(tree->AsDynBlk()->GetAddr(), indentStack, IIArc);
+                gtDispChild(tree->AsDynBlk()->GetSize(), indentStack, IIArcBottom);
             }
             break;
 
         default:
-            printf("<DON'T KNOW HOW TO DISPLAY THIS NODE> :");
-            printf(""); // null string means flush
+            if (!tree->OperIsSimple())
+            {
+                printf("<DON'T KNOW HOW TO DISPLAY THIS NODE> :");
+                printf(""); // null string means flush
+            }
             break;
+    }
+
+    if (tree->OperIsSimple())
+    {
+        gtDispCommonEndLine(tree);
+
+        if (!topOnly)
+        {
+            if (tree->AsOp()->gtOp1 != nullptr)
+            {
+                const char* childMsg = nullptr;
+
+                // Label the child of the GT_COLON operator
+                // op1 is the else part
+
+                if (tree->gtOper == GT_COLON)
+                {
+                    childMsg = "else";
+                }
+                else if (tree->gtOper == GT_QMARK)
+                {
+                    childMsg = "   if";
+                }
+                gtDispChild(tree->AsOp()->gtOp1, indentStack,
+                            (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc, childMsg);
+            }
+
+            if (tree->gtGetOp2IfPresent())
+            {
+                const char* childMsg = nullptr;
+
+                // Label the childMsgs of the GT_COLON operator
+                // op2 is the then part
+
+                if (tree->gtOper == GT_COLON)
+                {
+                    childMsg = "then";
+                }
+                gtDispChild(tree->AsOp()->gtOp2, indentStack, IIArcBottom, childMsg);
+            }
+        }
     }
 }
 
