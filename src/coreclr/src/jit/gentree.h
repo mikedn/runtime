@@ -1195,10 +1195,6 @@ public:
         return (gtOper == GT_CNS_INT) || (OperIsInitVal() && (gtGetOp1()->gtOper == GT_CNS_INT));
     }
 
-    bool OperIsBlkOp();
-    bool OperIsCopyBlkOp();
-    bool OperIsInitBlkOp();
-
     static bool OperIsBlk(genTreeOps gtOper)
     {
         return ((gtOper == GT_BLK) || (gtOper == GT_OBJ) || (gtOper == GT_DYN_BLK) || (gtOper == GT_STORE_BLK) ||
@@ -7874,33 +7870,6 @@ struct GenTreeCC final : public GenTree
     }
 #endif // DEBUGGABLE_GENTREE
 };
-
-//------------------------------------------------------------------------
-// Deferred inline functions of GenTree -- these need the subtypes above to
-// be defined already.
-//------------------------------------------------------------------------
-
-inline bool GenTree::OperIsBlkOp()
-{
-    return (OperIs(GT_ASG) && varTypeIsStruct(AsOp()->GetOp(0)->GetType())) ||
-           OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK);
-}
-
-inline bool GenTree::OperIsInitBlkOp()
-{
-    if (!OperIsBlkOp())
-    {
-        return false;
-    }
-
-    GenTree* src = OperIs(GT_ASG) ? AsOp()->GetOp(1) : AsBlk()->GetValue()->gtSkipReloadOrCopy();
-    return src->OperIs(GT_INIT_VAL, GT_CNS_INT);
-}
-
-inline bool GenTree::OperIsCopyBlkOp()
-{
-    return OperIsBlkOp() && !OperIsInitBlkOp();
-}
 
 //------------------------------------------------------------------------
 // IsDblConPositiveZero: Checks whether this is a floating point constant with value +0.0

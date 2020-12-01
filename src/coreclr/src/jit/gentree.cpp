@@ -6215,9 +6215,13 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     GenTree* dst = asg->GetOp(0);
     GenTree* src = asg->GetOp(1);
 
-    if (!asg->OperIsBlkOp())
+    if (!varTypeIsStruct(dst->GetType()))
     {
-        assert(dst->GetType() != TYP_STRUCT);
+        return;
+    }
+
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    {
         return;
     }
 
@@ -6236,40 +6240,36 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     // surface if struct promotion is ON (which is the case on x86/arm). But still the
     // fundamental issue exists that needs to be addressed.
 
-    if (asg->OperIsCopyBlkOp())
+    if (src->OperIsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_ADDR))
     {
-        if (src->OperIsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_ADDR))
-        {
-            src = src->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
-        }
+        src = src->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
+    }
 
-        if (dst->OperIsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_ADDR))
-        {
-            dst = dst->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
-        }
+    if (dst->OperIsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_ADDR))
+    {
+        dst = dst->AsIndir()->GetAddr()->AsUnOp()->GetOp(0);
+    }
 
-        if (src->OperIs(GT_LCL_VAR) && dst->OperIs(GT_LCL_VAR) &&
-            (src->AsLclVar()->GetLclNum() == dst->AsLclVar()->GetLclNum()))
-        {
-            // Make this a NOP
-            // TODO-Cleanup: probably doesn't matter, but could do this earlier and avoid creating a GT_ASG
-            asg->gtBashToNOP();
-            return;
-        }
+    if (src->OperIs(GT_LCL_VAR) && dst->OperIs(GT_LCL_VAR) &&
+        (src->AsLclVar()->GetLclNum() == dst->AsLclVar()->GetLclNum()))
+    {
+        // Make this a NOP
+        // TODO-Cleanup: probably doesn't matter, but could do this earlier and avoid creating a GT_ASG
+        asg->gtBashToNOP();
+        return;
+    }
 
 #ifdef FEATURE_SIMD
-        // If the source is a GT_SIMD node of SIMD type, then the dst lclvar struct
-        // should be labeled as simd intrinsic related struct.
-        // This is done so that the morpher can transform any field accesses into
-        // intrinsics, thus avoiding conflicting access methods (fields vs. whole-register).
+    // If the source is a SIMD typed intrinsic and the destination is a local we need to
+    // prevent the local from getting promoted, fgMorphCopyBlock doesn't handle this case
+    // and the local would end up being dependent promoted.
 
-        if (src->OperIsSimdOrHWintrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
-            varTypeIsSIMD(dst->GetType()))
-        {
-            setLclRelatedToSIMDIntrinsic(dst);
-        }
-#endif // FEATURE_SIMD
+    if (src->OperIsSimdOrHWintrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
+        varTypeIsSIMD(dst->GetType()))
+    {
+        setLclRelatedToSIMDIntrinsic(dst);
     }
+#endif
 }
 
 //------------------------------------------------------------------------

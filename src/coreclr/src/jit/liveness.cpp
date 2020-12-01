@@ -374,9 +374,8 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         }
 
         default:
-
             // Determine what memory locations it defines.
-            if (tree->OperIs(GT_ASG) || tree->OperIsBlkOp())
+            if (tree->OperIs(GT_ASG, GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_DYN_BLK))
             {
                 GenTreeLclVarCommon* dummyLclVarTree = nullptr;
                 if (tree->DefinesLocal(this, &dummyLclVarTree))

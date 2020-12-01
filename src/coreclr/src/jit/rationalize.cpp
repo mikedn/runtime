@@ -94,7 +94,11 @@ void Rationalizer::RewriteIndir(LIR::Use& use)
     }
     else if (indir->OperIs(GT_OBJ))
     {
-        assert((indir->TypeGet() == TYP_STRUCT) || !use.User()->OperIsInitBlkOp());
+        assert(varTypeIsStruct(indir->GetType()));
+
+        // TODO-MIKE-Cleanup: This shouldn't be needed, SIMD typed OBJ should
+        // either not be generated or be converted to IND earlier.
+
         if (varTypeIsSIMD(indir->TypeGet()))
         {
             indir->SetOper(GT_IND);

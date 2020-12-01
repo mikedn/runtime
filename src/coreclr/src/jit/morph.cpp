@@ -1330,9 +1330,9 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
             {
                 setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
 
-                if (setupArg->OperIsCopyBlkOp())
+                if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))
                 {
-                    setupArg = compiler->fgMorphCopyBlock(setupArg->AsOp());
+                    setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
                 }
             }
 
@@ -2338,7 +2338,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                         if ((intArgRegNum + size) > MAX_REG_ARG)
                         {
                             // This indicates a partial enregistration of a struct type
-                            assert((isStructArg) || argx->OperIs(GT_FIELD_LIST) || argx->OperIsCopyBlkOp() ||
+                            assert((isStructArg) || argx->OperIs(GT_FIELD_LIST) ||
+                                   (argx->OperIs(GT_ASG) && varTypeIsStruct(argx->AsOp()->GetOp(0)->GetType())) ||
                                    (argx->gtOper == GT_COMMA && (argx->gtFlags & GTF_ASG)));
 
                             regCount  = MAX_REG_ARG - intArgRegNum;
@@ -3979,7 +3980,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
         lcl                 = lvaGetDesc(tempLclNum);
 
         tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, lcl->GetType()), arg);
-        tempAssign = fgMorphCopyBlock(tempAssign->AsOp());
+        tempAssign = fgMorphStructAssignment(tempAssign->AsOp());
 
         arg->SetLclNum(tempLclNum);
     }
@@ -4454,7 +4455,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     GenTree* dest = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
     GenTree* asg  = gtNewAssignNode(dest, arg);
-    asg           = fgMorphCopyBlock(asg->AsOp());
+    asg           = fgMorphStructAssignment(asg->AsOp());
 
     argInfo->SetNode(asg);
     argInfo->SetTempLclNum(tempLclNum);
@@ -8399,10 +8400,13 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 {
     JITDUMPTREE(asg, "\nfgMorphInitBlock (before):\n");
 
-    noway_assert(asg->OperIs(GT_ASG) && asg->OperIsInitBlkOp());
+    assert(asg->OperIs(GT_ASG));
 
     GenTree* dest = asg->GetOp(0);
     GenTree* src  = asg->GetOp(1);
+
+    assert(varTypeIsStruct(dest->GetType()));
+    assert(src->OperIs(GT_INIT_VAL, GT_CNS_INT));
 
     dest = fgMorphBlkNode(dest, true);
     asg->SetOp(0, dest);
@@ -9045,6 +9049,21 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
     return tree;
 }
 
+GenTree* Compiler::fgMorphStructAssignment(GenTreeOp* asg)
+{
+    assert(asg->OperIs(GT_ASG));
+    assert(varTypeIsStruct(asg->GetOp(0)->GetType()));
+
+    if (asg->GetOp(1)->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    {
+        return fgMorphInitBlock(asg);
+    }
+    else
+    {
+        return fgMorphCopyBlock(asg);
+    }
+}
+
 //------------------------------------------------------------------------
 // fgMorphCopyBlock: Morph a block copy.
 //
@@ -9070,10 +9089,13 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 {
     JITDUMPTREE(asg, "\nfgMorphCopyBlock: (before)\n");
 
-    noway_assert(asg->OperIsCopyBlkOp());
+    assert(asg->OperIs(GT_ASG));
 
     GenTree* dest = asg->GetOp(0);
     GenTree* src  = asg->GetOp(1);
+
+    assert(varTypeIsStruct(dest->GetType()));
+    assert(!src->OperIs(GT_INIT_VAL, GT_CNS_INT));
 
 #if FEATURE_MULTIREG_RET
     // If this is a multi-reg return, we will not do any morphing of this node.
@@ -9476,7 +9498,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         JITDUMP(" this requires a CopyBlock.\n");
 
         // At this point, we know that the destination is TYP_STRUCT or one of the SIMD types (otherwise
-        // the OperIsCopyBlkOp assert would have failed at the start of fgMorphCopyBlock). However, the
+        // the dest struct type assert would have failed at the start of fgMorphCopyBlock). However, the
         // source can have any type, usually due to pseudo-recursive struct promotion.
         //
         // It is also possible that the destination is an indirect access to a local variable of the same
@@ -11264,14 +11286,7 @@ DONE_MORPHING_CHILDREN:
 
             if (varTypeIsStruct(typ) && !op2->OperIs(GT_PHI))
             {
-                if (tree->OperIsCopyBlkOp())
-                {
-                    return fgMorphCopyBlock(tree->AsOp());
-                }
-                else
-                {
-                    return fgMorphInitBlock(tree->AsOp());
-                }
+                return fgMorphStructAssignment(tree->AsOp());
             }
 
             break;
@@ -15285,9 +15300,9 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         IL_OFFSETX ilOffset    = lastStmt->GetILOffsetX();
         GenTree*   asg = gtNewTempAssign(genReturnLocal, ret->AsUnOp()->GetOp(0), &newLastStmt, ilOffset, block);
 
-        if (asg->OperIsCopyBlkOp())
+        if (asg->OperIs(GT_ASG) && varTypeIsStruct(asg->AsOp()->GetOp(0)->GetType()))
         {
-            asg = fgMorphCopyBlock(asg->AsOp());
+            asg = fgMorphStructAssignment(asg->AsOp());
         }
 
         lastStmt->SetRootNode(asg);

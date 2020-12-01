@@ -14555,7 +14555,7 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNu
     {
         count++;
         GenTree* const tree = stmt->GetRootNode();
-        if (tree->OperIs(GT_ASG) && !tree->OperIsBlkOp())
+        if (tree->OperIs(GT_ASG) && !varTypeIsStruct(tree->AsOp()->GetOp(0)))
         {
             GenTree* const op1 = tree->AsOp()->gtOp1;
 

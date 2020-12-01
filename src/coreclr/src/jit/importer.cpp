@@ -14040,11 +14040,31 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assertImp(varTypeIsStruct(op2));
 
-                op1 = impAssignStructPtr(op1, op2, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
+                op1 = impAssignStructPtr(op1, op2, resolvedToken.hClass, CHECK_SPILL_ALL);
 
-                if (op1->OperIsBlkOp() && ((prefixFlags & PREFIX_UNALIGNED) != 0) && op1->AsOp()->GetOp(0)->IsIndir())
+                if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
-                    op1->AsOp()->GetOp(0)->AsIndir()->SetUnaligned();
+                    if (op1->OperIs(GT_ASG))
+                    {
+                        // If the store value is MKREFANY impAssignStructPtr will append another indir,
+                        // we don't set unaligned on that. It isn't necessary since the JIT doesn't do
+                        // anything special with unaligned if the indir type is integral.
+
+                        if (GenTreeIndir* indir = op1->AsOp()->GetOp(0)->IsIndir())
+                        {
+                            indir->SetUnaligned();
+                        }
+                    }
+                    else
+                    {
+                        // It's possible that impAssignStructPtr returned a CALL node (struct returned
+                        // via return buffer). We're ignoring the unaligned prefix in this case.
+
+                        // TODO-MIKE-Consider: We should probably introduce a temp, pass that as
+                        // return buffer and then assign the temp to the actual STOBJ destination.
+
+                        assert(op1->OperIs(GT_CALL) && op1->TypeIs(TYP_VOID));
+                    }
                 }
                 goto SPILL_APPEND;
 

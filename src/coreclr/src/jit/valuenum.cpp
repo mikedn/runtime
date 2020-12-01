@@ -6509,10 +6509,14 @@ void Compiler::fgValueNumberTreeConst(GenTree* tree)
 
 void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
 {
+    assert(tree->OperIs(GT_ASG));
+
     GenTree* lhs = tree->gtGetOp1();
     GenTree* rhs = tree->gtGetOp2();
 
-    if (tree->OperIsInitBlkOp())
+    assert(varTypeIsStruct(lhs->GetType()));
+
+    if (rhs->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         GenTreeLclVarCommon* lclVarTree;
         bool                 isEntire;
@@ -6579,7 +6583,8 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
     }
     else
     {
-        assert(tree->OperIsCopyBlkOp());
+        assert(varTypeIsStruct(rhs->GetType()));
+
         // TODO-Cleanup: We should factor things so that we uniformly rely on "PtrTo" VN's, and
         // the memory cases can be shared with assignments.
         GenTreeLclVarCommon* lclVarTree = nullptr;

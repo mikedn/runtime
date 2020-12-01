@@ -5053,6 +5053,7 @@ private:
                                       bool           extendToActualType,
                                       var_types      simdBaseType);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
+    GenTree* fgMorphStructAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
