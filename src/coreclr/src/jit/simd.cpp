@@ -2216,9 +2216,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             GenTree* dstAddrHi = impPopStackCoerceArg(TYP_BYREF);
             GenTree* dstAddrLo = impPopStackCoerceArg(TYP_BYREF);
             op1                = impSIMDPopStack(simdType);
-            // op1 must have a valid class handle; the following method will assert it.
-            CORINFO_CLASS_HANDLE op1Handle = gtGetStructHandle(op1);
-            GenTree*             dupOp1    = fgInsertCommaFormTemp(&op1, op1Handle);
+            GenTree* dupOp1    = fgInsertCommaFormTemp(&op1, clsHnd);
 
             GenTree* wideLo = gtNewSIMDNode(simdType, SIMDIntrinsicWidenLo, baseType, size, op1);
             GenTree* asgLo  = impAssignSIMDAddr(dstAddrLo, wideLo);
