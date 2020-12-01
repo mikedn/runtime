@@ -1180,19 +1180,9 @@ public:
         return (gtOper == GT_LEA);
     }
 
-    static bool OperIsInitVal(genTreeOps gtOper)
-    {
-        return (gtOper == GT_INIT_VAL);
-    }
-
-    bool OperIsInitVal() const
-    {
-        return OperIsInitVal(OperGet());
-    }
-
     bool IsConstInitVal()
     {
-        return (gtOper == GT_CNS_INT) || (OperIsInitVal() && (gtGetOp1()->gtOper == GT_CNS_INT));
+        return OperIs(GT_CNS_INT) || (OperIs(GT_INIT_VAL) && gtGetOp1()->OperIs(GT_CNS_INT));
     }
 
     static bool OperIsBlk(genTreeOps gtOper)

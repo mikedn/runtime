@@ -6607,7 +6607,7 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
     }
 
     GenTree* src = blkNode->Data();
-    if (src->OperIsInitVal() && !src->IsConstInitVal())
+    if (src->OperIs(GT_INIT_VAL) && !src->IsConstInitVal())
     {
         return false;
     }
@@ -6624,7 +6624,7 @@ bool Lowering::TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode)
     blkNode->ChangeOper(GT_STOREIND);
     blkNode->ChangeType(regType);
 
-    if (src->OperIsInitVal())
+    if (src->OperIs(GT_INIT_VAL))
     {
         GenTreeUnOp* initVal = src->AsUnOp();
         src                  = src->gtGetOp1();
