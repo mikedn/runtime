@@ -6533,7 +6533,33 @@ private:
     ClassLayout*    m_layout;
     StructStoreKind m_kind;
 
+protected:
+    GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, ClassLayout* layout)
+        : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
+    {
+        assert(OperIsBlk(oper));
+        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
+    }
+
+    GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
+        : GenTreeIndir(oper, type, addr, value), m_layout(layout), m_kind(StructStoreKind::Invalid)
+    {
+        assert(OperIsBlk(oper));
+        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
+    }
+
 public:
+    GenTreeBlk(GenTree* addr, ClassLayout* layout)
+        : GenTreeIndir(GT_BLK, TYP_STRUCT, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
+    {
+        assert((layout != nullptr) && layout->IsBlockLayout());
+    }
+
+    GenTreeBlk(GenTreeBlk* copyFrom)
+        : GenTreeIndir(copyFrom), m_layout(copyFrom->m_layout), m_kind(StructStoreKind::Invalid)
+    {
+    }
+
     ClassLayout* GetLayout() const
     {
         return m_layout;
@@ -6550,6 +6576,7 @@ public:
     {
         return gtOp2;
     }
+
     void SetData(GenTree* dataNode)
     {
         gtOp2 = dataNode;
@@ -6560,25 +6587,6 @@ public:
     {
         assert((m_layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
         return (m_layout != nullptr) ? m_layout->GetSize() : 0;
-    }
-
-    GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, ClassLayout* layout)
-        : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
-    {
-        assert(OperIsBlk(oper));
-        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
-    }
-
-    GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* data, ClassLayout* layout)
-        : GenTreeIndir(oper, type, addr, data), m_layout(layout), m_kind(StructStoreKind::Invalid)
-    {
-        assert(OperIsBlk(oper));
-        assert((layout != nullptr) || OperIs(GT_DYN_BLK, GT_STORE_DYN_BLK));
-    }
-
-    GenTreeBlk(GenTreeBlk* copyFrom)
-        : GenTreeIndir(copyFrom), m_layout(copyFrom->m_layout), m_kind(StructStoreKind::Invalid)
-    {
     }
 
     StructStoreKind GetKind() const
@@ -6592,12 +6600,10 @@ public:
     }
 
 #if DEBUGGABLE_GENTREE
-protected:
-    friend GenTree;
     GenTreeBlk() : GenTreeIndir()
     {
     }
-#endif // DEBUGGABLE_GENTREE
+#endif
 };
 
 struct GenTreeObj : public GenTreeBlk

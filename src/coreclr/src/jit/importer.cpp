@@ -3277,9 +3277,9 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     }
 
     GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
-    GenTreeBlk* dst     = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, typGetBlkLayout(blkSize));
+    GenTreeBlk* dst     = new (this, GT_BLK) GenTreeBlk(dstAddr, typGetBlkLayout(blkSize));
     GenTree*    srcAddr = gtNewIconHandleNode(reinterpret_cast<size_t>(initData), GTF_ICON_CONST_PTR);
-    GenTreeBlk* src     = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, srcAddr, dst->GetLayout());
+    GenTreeBlk* src     = new (this, GT_BLK) GenTreeBlk(srcAddr, dst->GetLayout());
 
     dst->gtFlags |= GTF_IND_NONFAULTING;
     src->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
@@ -18523,12 +18523,13 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
 
 GenTree* Compiler::impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile)
 {
+    ClassLayout*  layout = nullptr;
     GenTreeIndir* dst;
 
     if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
     {
-        dst = new (this, GT_BLK)
-            GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue())));
+        layout = typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue()));
+        dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
     }
     else
     {
@@ -18558,7 +18559,7 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
     if (GenTreeIntCon* sizeIntCon = size->IsIntCon())
     {
         layout = typGetBlkLayout(static_cast<unsigned>(sizeIntCon->GetValue()));
-        dst    = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, dstAddr, layout);
+        dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
     }
     else
     {
@@ -18576,7 +18577,7 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
 
     if (layout != nullptr)
     {
-        src = new (this, GT_BLK) GenTreeBlk(GT_BLK, TYP_STRUCT, srcAddr, layout);
+        src = new (this, GT_BLK) GenTreeBlk(srcAddr, layout);
     }
     else
     {
