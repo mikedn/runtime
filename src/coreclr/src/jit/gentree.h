@@ -1196,16 +1196,6 @@ public:
         return OperIsBlk(OperGet());
     }
 
-    static bool OperIsStoreBlk(genTreeOps gtOper)
-    {
-        return ((gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ) || (gtOper == GT_STORE_DYN_BLK));
-    }
-
-    bool OperIsStoreBlk() const
-    {
-        return OperIsStoreBlk(OperGet());
-    }
-
     bool OperIsPutArgSplit() const
     {
 #if FEATURE_ARG_SPLIT
@@ -1516,10 +1506,10 @@ public:
         return OperIsStore(gtOper);
     }
 
-    static bool OperIsStore(genTreeOps gtOper)
+    static bool OperIsStore(genTreeOps oper)
     {
-        return (gtOper == GT_STOREIND || gtOper == GT_STORE_LCL_VAR || gtOper == GT_STORE_LCL_FLD ||
-                OperIsStoreBlk(gtOper) || OperIsAtomicOp(gtOper));
+        return (oper == GT_STOREIND) || (oper == GT_STORE_LCL_VAR) || (oper == GT_STORE_LCL_FLD) ||
+               (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK) || (oper == GT_STORE_DYN_BLK) || OperIsAtomicOp(oper);
     }
 
     // This is here for cleaner FEATURE_SIMD #ifdefs.
