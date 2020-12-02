@@ -5714,14 +5714,12 @@ GenTreeCall* Compiler::gtNewCallNode(
     // Initialize spill flags of gtOtherRegs
     node->ClearOtherRegFlags();
 
-#if !defined(TARGET_64BIT)
-    if (varTypeIsLong(node))
+#ifndef TARGET_64BIT
+    if (varTypeIsLong(type))
     {
-        assert(node->gtReturnType == node->gtType);
-        // Initialize Return type descriptor of call node
-        node->InitializeLongReturnType();
+        node->GetReturnTypeDesc()->InitializeLong();
     }
-#endif // !defined(TARGET_64BIT)
+#endif
 
     return node;
 }
@@ -17510,21 +17508,6 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
         return gtNewOperNode(GT_COMMA, type, node, dummyNode);
     }
     return node;
-}
-
-void ReturnTypeDesc::InitializeStruct(Compiler* comp, CORINFO_CLASS_HANDLE retClass)
-{
-    assert(m_regCount == 0);
-
-#if FEATURE_MULTIREG_RET
-    assert(retClass != NO_CLASS_HANDLE);
-
-    unsigned          retClassSize = comp->info.compCompHnd->getClassSize(retClass);
-    structPassingKind retKind;
-    var_types         retKindType = comp->getReturnTypeForStruct(retClass, &retKind, retClassSize);
-
-    InitializeStruct(comp, retClass, retClassSize, retKind, retKindType);
-#endif
 }
 
 void ReturnTypeDesc::InitializeStruct(Compiler*            comp,

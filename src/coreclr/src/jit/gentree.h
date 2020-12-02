@@ -3693,8 +3693,6 @@ public:
     {
     }
 
-    void InitializeStruct(Compiler* comp, CORINFO_CLASS_HANDLE retClass);
-
     void InitializeStruct(Compiler*            comp,
                           CORINFO_CLASS_HANDLE retClass,
                           unsigned             retClassSize,
@@ -3969,18 +3967,10 @@ struct GenTreeCall final : public GenTree
 
 #endif // FEATURE_MULTIREG_RET
 
-    //-----------------------------------------------------------------------
-    // GetReturnTypeDesc: get the type descriptor of return value of the call
-    //
-    // Arguments:
-    //    None
-    //
-    // Returns
-    //    Type descriptor of the value returned by call
-    //
-    // TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
     const ReturnTypeDesc* GetReturnTypeDesc() const
     {
+// TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
+
 #if FEATURE_MULTIREG_RET
         return &gtReturnTypeDesc;
 #else
@@ -3988,24 +3978,12 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    void InitializeLongReturnType()
+    ReturnTypeDesc* GetReturnTypeDesc()
     {
 #if FEATURE_MULTIREG_RET
-        gtReturnTypeDesc.InitializeLong();
-#endif
-    }
-
-    void InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HANDLE retClsHnd)
-    {
-#if FEATURE_MULTIREG_RET
-        gtReturnTypeDesc.InitializeStruct(comp, retClsHnd);
-#endif
-    }
-
-    void ResetReturnType()
-    {
-#if FEATURE_MULTIREG_RET
-        gtReturnTypeDesc.Reset();
+        return &gtReturnTypeDesc;
+#else
+        return nullptr;
 #endif
     }
 

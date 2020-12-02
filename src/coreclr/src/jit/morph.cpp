@@ -98,15 +98,15 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
 #endif
 
 #if FEATURE_MULTIREG_RET
-    call->ResetReturnType();
+    call->GetReturnTypeDesc()->Reset();
     call->ClearOtherRegs();
     call->ClearOtherRegFlags();
 #ifndef TARGET_64BIT
-    if (varTypeIsLong(tree))
+    if (varTypeIsLong(tree->GetType()))
     {
-        call->InitializeLongReturnType();
+        call->GetReturnTypeDesc()->InitializeLong();
     }
-#endif // !TARGET_64BIT
+#endif
 #endif // FEATURE_MULTIREG_RET
 
     if (tree->OperMayThrow(this))
