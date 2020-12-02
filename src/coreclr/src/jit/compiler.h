@@ -2183,11 +2183,7 @@ public:
 
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
 
-    GenTree* gtNewTempAssign(unsigned    tmp,
-                             GenTree*    val,
-                             Statement** pAfterStmt = nullptr,
-                             IL_OFFSETX  ilOffset   = BAD_IL_OFFSET,
-                             BasicBlock* block      = nullptr);
+    GenTree* gtNewTempAssign(unsigned tmp, GenTree* val);
 
     GenTree* gtNewNothingNode();
 
