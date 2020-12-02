@@ -13896,7 +13896,7 @@ GenTree* Compiler::gtNewTempAssign(
     unsigned tmp, GenTree* val, Statement** pAfterStmt, IL_OFFSETX ilOffset, BasicBlock* block)
 {
     // Self-assignment is a nop.
-    if (val->OperGet() == GT_LCL_VAR && val->AsLclVarCommon()->GetLclNum() == tmp)
+    if (val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == tmp))
     {
         return gtNewNothingNode();
     }
@@ -14026,9 +14026,12 @@ GenTree* Compiler::gtNewTempAssign(
         {
             assert(valx->gtOper != GT_OBJ);
         }
+
         dest->gtFlags |= GTF_DONT_CSE;
         valx->gtFlags |= GTF_DONT_CSE;
-        asg = impAssignStruct(dest, val, valStructHnd, (unsigned)CHECK_SPILL_NONE, pAfterStmt, ilOffset, block);
+
+        GenTree* destAddr = destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
+        asg = impAssignStructPtr(destAddr, val, valStructHnd, CHECK_SPILL_NONE, pAfterStmt, ilOffset, block);
     }
     else
     {

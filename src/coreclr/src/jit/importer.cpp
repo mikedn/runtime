@@ -1083,8 +1083,8 @@ GenTree* Compiler::impAssignStruct(GenTree*             dest,
            dest->gtOper == GT_IND || dest->gtOper == GT_OBJ || dest->gtOper == GT_INDEX);
 
     // Return a NOP if this is a self-assignment.
-    if (dest->OperGet() == GT_LCL_VAR && src->OperGet() == GT_LCL_VAR &&
-        src->AsLclVarCommon()->GetLclNum() == dest->AsLclVarCommon()->GetLclNum())
+    if (dest->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
+        (src->AsLclVar()->GetLclNum() == dest->AsLclVar()->GetLclNum()))
     {
         return gtNewNothingNode();
     }
@@ -1102,7 +1102,7 @@ GenTree* Compiler::impAssignStruct(GenTree*             dest,
         destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
     }
 
-    return (impAssignStructPtr(destAddr, src, structHnd, curLevel, pAfterStmt, ilOffset, block));
+    return impAssignStructPtr(destAddr, src, structHnd, curLevel, pAfterStmt, ilOffset, block);
 }
 
 //------------------------------------------------------------------------
