@@ -6084,6 +6084,64 @@ GenTree* Compiler::impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp)
     return op1;
 }
 
+GenTree* Compiler::impImportFieldAccess(GenTree*                objPtr,
+                                        CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                        CORINFO_ACCESS_FLAGS    access,
+                                        CORINFO_FIELD_INFO*     pFieldInfo,
+                                        var_types               lclTyp,
+                                        CORINFO_CLASS_HANDLE    structType,
+                                        GenTree*                assg)
+{
+    assert(((pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER) &&
+            (pFieldInfo->helper == CORINFO_HELP_GETFIELDADDR)) ||
+           ((pFieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) &&
+            (pFieldInfo->helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS)));
+    assert((pFieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) == (objPtr == nullptr));
+
+    GenTree* fieldHnd = impTokenToHandle(pResolvedToken);
+    if (fieldHnd == nullptr)
+    { // compDonotInline()
+        return nullptr;
+    }
+
+    GenTreeCall::Use* args = gtNewCallArgs(fieldHnd);
+
+    if (objPtr != nullptr)
+    {
+        args = gtPrependNewCallArg(objPtr, args);
+    }
+
+    GenTree* result = gtNewHelperCallNode(pFieldInfo->helper, TYP_BYREF, args);
+
+    if (access & CORINFO_ACCESS_GET)
+    {
+        if (varTypeIsStruct(lclTyp))
+        {
+            result = gtNewObjNode(structType, result);
+        }
+        else
+        {
+            result = gtNewOperNode(GT_IND, lclTyp, result);
+        }
+        result->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF);
+    }
+    else if (access & CORINFO_ACCESS_SET)
+    {
+        if (varTypeIsStruct(lclTyp))
+        {
+            result = impAssignStructPtr(result, assg, structType, CHECK_SPILL_ALL);
+        }
+        else
+        {
+            result = gtNewOperNode(GT_IND, lclTyp, result);
+            result->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+            result = gtNewAssignNode(result, assg);
+        }
+    }
+
+    return result;
+}
+
 GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                               CORINFO_ACCESS_FLAGS    access,
                                               CORINFO_FIELD_INFO*     pFieldInfo,
@@ -12436,8 +12494,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     case CORINFO_FIELD_STATIC_ADDR_HELPER:
                     case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = gtNewRefCOMfield(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo, lclTyp,
-                                               fieldInfo.structType, nullptr);
+                        op1 = impImportFieldAccess(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo,
+                                                   lclTyp, fieldInfo.structType, nullptr);
                         usesHelper = true;
                         break;
 
@@ -12726,8 +12784,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     case CORINFO_FIELD_STATIC_ADDR_HELPER:
                     case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = gtNewRefCOMfield(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo, lclTyp,
-                                               clsHnd, op2);
+                        op1 = impImportFieldAccess(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo,
+                                                   lclTyp, clsHnd, op2);
                         goto SPILL_APPEND;
 
                     case CORINFO_FIELD_STATIC_ADDRESS:

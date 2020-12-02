@@ -2189,14 +2189,6 @@ public:
                              IL_OFFSETX  ilOffset   = BAD_IL_OFFSET,
                              BasicBlock* block      = nullptr);
 
-    GenTree* gtNewRefCOMfield(GenTree*                objPtr,
-                              CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                              CORINFO_ACCESS_FLAGS    access,
-                              CORINFO_FIELD_INFO*     pFieldInfo,
-                              var_types               lclTyp,
-                              CORINFO_CLASS_HANDLE    structType,
-                              GenTree*                assg);
-
     GenTree* gtNewNothingNode();
 
     GenTree* gtUnusedValNode(GenTree* expr);
@@ -3188,6 +3180,14 @@ protected:
     GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
     GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
+
+    GenTree* impImportFieldAccess(GenTree*                objPtr,
+                                  CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                  CORINFO_ACCESS_FLAGS    access,
+                                  CORINFO_FIELD_INFO*     pFieldInfo,
+                                  var_types               lclTyp,
+                                  CORINFO_CLASS_HANDLE    structType,
+                                  GenTree*                assg);
 
     GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                         CORINFO_ACCESS_FLAGS    access,
