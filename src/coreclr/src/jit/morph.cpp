@@ -15209,16 +15209,32 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 
         noway_assert(lastStmt->GetNextStmt() == nullptr);
 
-        // Replace the RETURN with an assignment to the merged return temp.
-        //
-        // The return tree may be a COMMA and then gtNewTempAssign will extract it
-        // to a separate statement, AFTER the assignment statment because we don't
-        // always have a previous statement to pass to gtNewTempAssign. Then we'll
-        // need to move the assignment statement at the end of the block.
+        // Replace the RETURN with an assignment to the merged return temp. If the return value is
+        // a COMMA then extract its side effects to a new statement, otherwise impAssignStructPtr
+        // will add new statements AFTER the last statement.
 
-        Statement* newLastStmt = lastStmt;
-        IL_OFFSETX ilOffset    = lastStmt->GetILOffsetX();
-        GenTree*   asg = gtNewTempAssign(genReturnLocal, ret->AsUnOp()->GetOp(0), &newLastStmt, ilOffset, block);
+        GenTree* value = ret->AsUnOp()->GetOp(0);
+
+        // TODO-MIKE-Cleanup: Is this really needed? fgMorphCopyBlock already handles COMMAs
+        // but the approach taken here is perhaps preferable. It eliminates the COMMA by
+        // extracting its side effect into a separate statement. fgMorphCopyBlock keeps the
+        // COMMA but transforms it into an address and adds an OBJ. For locals this is bad
+        // because it makes them address exposed. Fortunately it seems that struct locals
+        // never appear under COMMAs. Known sources of struct COMMAs are static struct fields,
+        // struct array elements and struct returns in synchronized methods.
+
+        while (value->OperIs(GT_COMMA) && varTypeIsStruct(value->GetType()))
+        {
+            Statement* newStmt = gtNewStmt(value->AsOp()->GetOp(0), lastStmt->GetILOffsetX());
+            fgInsertStmtBefore(block, lastStmt, newStmt);
+            value = value->AsOp()->GetOp(1);
+        }
+
+        // MKREFANY too requires a separate statement since it really generates 2 assignments.
+        // TypedReference is not a valid return type so don't bother with it.
+        noway_assert(!value->OperIs(GT_MKREFANY));
+
+        GenTree* asg = gtNewTempAssign(genReturnLocal, value);
 
         if (asg->OperIs(GT_ASG) && varTypeIsStruct(asg->AsOp()->GetOp(0)->GetType()))
         {
@@ -15226,12 +15242,6 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         }
 
         lastStmt->SetRootNode(asg);
-
-        if (newLastStmt != lastStmt)
-        {
-            fgRemoveStmt(block, lastStmt);
-            fgInsertStmtAfter(block, newLastStmt, lastStmt);
-        }
     }
     else if ((ret != nullptr) && ret->OperIs(GT_RETURN))
     {
