@@ -5551,69 +5551,36 @@ GenTree* Compiler::gtNewSconNode(int CPX, CORINFO_MODULE_HANDLE scpHandle)
 
 GenTree* Compiler::gtNewZeroConNode(var_types type)
 {
-    GenTree* zero;
-    switch (type)
+    switch (varActualType(type))
     {
         case TYP_INT:
-            zero = gtNewIconNode(0);
-            break;
-
         case TYP_BYREF:
-            FALLTHROUGH;
-
         case TYP_REF:
-            zero         = gtNewIconNode(0);
-            zero->gtType = type;
-            break;
-
+            return gtNewIconNode(0, type);
         case TYP_LONG:
-            zero = gtNewLconNode(0);
-            break;
-
+            return gtNewLconNode(0);
         case TYP_FLOAT:
-            zero         = gtNewDconNode(0.0);
-            zero->gtType = type;
-            break;
-
         case TYP_DOUBLE:
-            zero = gtNewDconNode(0.0);
-            break;
-
+            return gtNewDconNode(0.0, type);
         default:
-            noway_assert(!"Bad type in gtNewZeroConNode");
-            zero = nullptr;
-            break;
+            unreached();
     }
-    return zero;
 }
 
 GenTree* Compiler::gtNewOneConNode(var_types type)
 {
-    GenTree* one;
-    switch (type)
+    switch (varActualType(type))
     {
         case TYP_INT:
-        case TYP_UINT:
-            one = gtNewIconNode(1);
-            break;
-
+            return gtNewIconNode(1);
         case TYP_LONG:
-        case TYP_ULONG:
-            one = gtNewLconNode(1);
-            break;
-
+            return gtNewLconNode(1);
         case TYP_FLOAT:
         case TYP_DOUBLE:
-            one         = gtNewDconNode(1.0);
-            one->gtType = type;
-            break;
-
+            return gtNewDconNode(1.0, type);
         default:
-            noway_assert(!"Bad type in gtNewOneConNode");
-            one = nullptr;
-            break;
+            unreached();
     }
-    return one;
 }
 
 #ifdef FEATURE_SIMD

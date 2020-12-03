@@ -23497,6 +23497,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
 
                     // Create the temp assignment for this argument
 
+                    GenTree* asg;
+
                     if (varTypeIsStruct(argType))
                     {
                         CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(argNode);
@@ -23528,7 +23530,30 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                             restoreLayout = true;
                         }
 
-                        impAssignTempGen(tmpNum, argNode, structHnd, CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
+                        assert(!argNode->TypeIs(TYP_STRUCT) || (structHnd != NO_CLASS_HANDLE));
+
+                        if (varTypeIsStruct(argNode->GetType()) && (structHnd != NO_CLASS_HANDLE))
+                        {
+                            lvaSetStruct(tmpNum, structHnd, false);
+
+                            // The argument cannot be a COMMA, impNormStructVal should have changed
+                            // it to OBJ(COMMA(...)).
+                            // It also cannot be MKREFANY because TypedReference parameters block
+                            // inlining. That's probably an unnecessary limitation but who cares
+                            // about TypedReference?
+                            // This means that impAssignStructPtr won't have to add new statements,
+                            // it cannot do that since we're not actually importing IL.
+
+                            assert(!argNode->OperIs(GT_COMMA, GT_MKREFANY));
+
+                            GenTree* dst     = gtNewLclvNode(tmpNum, tmpLcl->GetType());
+                            GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
+                            asg = impAssignStructPtr(dstAddr, argNode, structHnd, CHECK_SPILL_NONE);
+                        }
+                        else
+                        {
+                            asg = gtNewTempAssign(tmpNum, argNode);
+                        }
 
                         if (restoreLayout)
                         {
@@ -23537,8 +23562,12 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     }
                     else
                     {
-                        impAssignTempGen(tmpNum, argNode, CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
+                        asg = gtNewTempAssign(tmpNum, argNode);
                     }
+
+                    Statement* stmt = gtNewStmt(asg, callILOffset);
+                    fgInsertStmtAfter(block, afterStmt, stmt);
+                    afterStmt = stmt;
 
                     // We used to refine the temp type here based on
                     // the actual arg, but we now do this up front, when
@@ -23752,30 +23781,14 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     continue;
                 }
 
-                var_types lclTyp = (var_types)lvaTable[tmpNum].lvType;
+                var_types lclTyp = tmpDsc->GetType();
                 noway_assert(lclTyp == lclVarInfo[lclNum + inlineInfo->argCnt].lclType);
 
-                if (!varTypeIsStruct(lclTyp))
-                {
-                    // Unsafe value cls check is not needed here since in-linee compiler instance would have
-                    // iterated over locals and marked accordingly.
-                    impAssignTempGen(tmpNum, gtNewZeroConNode(genActualType(lclTyp)), CHECK_SPILL_NONE, &afterStmt,
-                                     callILOffset, block);
-                }
-                else
-                {
-                    GenTree* init = gtNewAssignNode(gtNewLclvNode(tmpNum, lclTyp), gtNewIconNode(0));
-                    newStmt       = gtNewStmt(init, callILOffset);
-                    fgInsertStmtAfter(block, afterStmt, newStmt);
-                    afterStmt = newStmt;
-                }
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    gtDispStmt(afterStmt);
-                }
-#endif // DEBUG
+                GenTree*   zero = varTypeIsStruct(lclTyp) ? gtNewIconNode(0) : gtNewZeroConNode(lclTyp);
+                GenTreeOp* asg  = gtNewAssignNode(gtNewLclvNode(tmpNum, lclTyp), zero);
+                Statement* stmt = gtNewStmt(asg, callILOffset);
+                fgInsertStmtAfter(block, afterStmt, stmt);
+                afterStmt = stmt;
             }
         }
     }
