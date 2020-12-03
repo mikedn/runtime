@@ -23548,7 +23548,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
 
                             GenTree* dst     = gtNewLclvNode(tmpNum, tmpLcl->GetType());
                             GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
-                            asg = impAssignStructPtr(dstAddr, argNode, structHnd, CHECK_SPILL_NONE);
+                            asg              = impAssignStructPtr(dstAddr, argNode, structHnd, CHECK_SPILL_NONE);
                         }
                         else
                         {

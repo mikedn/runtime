@@ -3325,40 +3325,15 @@ public:
     void impInsertStmtBefore(Statement* stmt, Statement* stmtBefore);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
     void impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* stmtBefore);
-    void impAssignTempGen(unsigned    tmp,
-                          GenTree*    val,
-                          unsigned    curLevel,
-                          Statement** pAfterStmt = nullptr,
-                          IL_OFFSETX  ilOffset   = BAD_IL_OFFSET,
-                          BasicBlock* block      = nullptr);
-    void impAssignTempGen(unsigned             tmpNum,
-                          GenTree*             val,
-                          CORINFO_CLASS_HANDLE structHnd,
-                          unsigned             curLevel,
-                          Statement**          pAfterStmt = nullptr,
-                          IL_OFFSETX           ilOffset   = BAD_IL_OFFSET,
-                          BasicBlock*          block      = nullptr);
-
+    void impAssignTempGen(unsigned tmp, GenTree* val, unsigned curLevel);
+    void impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
     Statement* impExtractLastStmt();
     GenTree* impCloneExpr(GenTree*             tree,
                           GenTree**            clone,
                           CORINFO_CLASS_HANDLE structHnd,
-                          unsigned             curLevel,
-                          Statement** pAfterStmt DEBUGARG(const char* reason));
-    GenTree* impAssignStruct(GenTree*             dest,
-                             GenTree*             src,
-                             CORINFO_CLASS_HANDLE structHnd,
-                             unsigned             curLevel,
-                             Statement**          pAfterStmt = nullptr,
-                             IL_OFFSETX           ilOffset   = BAD_IL_OFFSET,
-                             BasicBlock*          block      = nullptr);
-    GenTree* impAssignStructPtr(GenTree*             dest,
-                                GenTree*             src,
-                                CORINFO_CLASS_HANDLE structHnd,
-                                unsigned             curLevel,
-                                Statement**          pAfterStmt = nullptr,
-                                IL_OFFSETX           ilOffset   = BAD_IL_OFFSET,
-                                BasicBlock*          block      = nullptr);
+                          unsigned curLevel DEBUGARG(const char* reason));
+    GenTree* impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    GenTree* impAssignStructPtr(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
