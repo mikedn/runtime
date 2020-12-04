@@ -3554,7 +3554,7 @@ private:
     void impReturnInstruction(int prefixFlags, OPCODE* opcode);
 
 #ifdef TARGET_ARM
-    void impMarkLclDstNotPromotable(unsigned tmpNum, GenTree* op, CORINFO_CLASS_HANDLE hClass);
+    void impMarkLclDstNotPromotable(unsigned tmpNum, GenTreeCall* call, CORINFO_CLASS_HANDLE hClass);
 #endif
 
     // A free list of linked list nodes used to represent to-do stacks of basic blocks.
