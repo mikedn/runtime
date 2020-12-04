@@ -1107,7 +1107,6 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                     //  which currently makes it non promotable.
                     // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
                     // handle multireg returns.
-                    lcl->gtFlags |= GTF_DONT_CSE;
                     varDsc->lvIsMultiRegRet = true;
                 }
 
@@ -1117,7 +1116,6 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                 // TODO-Cleanup: This should have been taken care of in the above HasMultiRegRetVal() case,
                 // but that method has not been updadted to include ARM.
                 impMarkLclDstNotPromotable(lclNum, src, structHnd);
-                lcl->gtFlags |= GTF_DONT_CSE;
 #elif defined(UNIX_AMD64_ABI)
                 // Not allowed for FEATURE_CORCLR which is the only SKU available for System V OSs.
                 assert(!src->AsCall()->IsVarargs() && "varargs not allowed for System V OSs.");
@@ -1125,9 +1123,6 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                 // Make the struct non promotable. The eightbytes could contain multiple fields.
                 // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
                 // handle multireg returns.
-                // TODO-Cleanup: Why is this needed here? This seems that it will set this even for
-                // non-multireg returns.
-                lcl->gtFlags |= GTF_DONT_CSE;
                 varDsc->lvIsMultiRegRet = true;
 #endif
             }
