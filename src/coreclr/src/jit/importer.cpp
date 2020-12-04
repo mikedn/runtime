@@ -1064,8 +1064,8 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                                       CORINFO_CLASS_HANDLE structHnd,
                                       unsigned             curLevel)
 {
-    GenTree*   dest      = nullptr;
-    unsigned   destFlags = 0;
+    GenTree* dest      = nullptr;
+    unsigned destFlags = 0;
 
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
            (!src->TypeIs(TYP_STRUCT) && src->OperIsSimdOrHWintrinsic()));
@@ -1162,14 +1162,11 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             asgType = src->gtType;
         }
     }
-    else if (src->OperIsBlk())
+    else if (src->OperIs(GT_OBJ))
     {
         asgType = impNormStructType(structHnd);
-        if (src->OperIs(GT_OBJ))
-        {
-            assert((src->AsObj()->GetLayout()->GetClassHandle() == structHnd) ||
-                   (varTypeIsSIMD(asgType) && (src->GetType() == asgType)));
-        }
+        assert((src->AsObj()->GetLayout()->GetClassHandle() == structHnd) ||
+               (varTypeIsSIMD(asgType) && (src->GetType() == asgType)));
     }
     else if (src->OperIs(GT_INDEX))
     {
@@ -1248,7 +1245,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         GenTree* destNode = destAddr->gtGetOp1();
         // If the actual destination is a local, a GT_INDEX or a block node, or is a node that
         // will be morphed, don't insert an OBJ(ADDR) if it already has the right type.
-        if (destNode->OperIs(GT_LCL_VAR, GT_INDEX) || destNode->OperIsBlk())
+        if (destNode->OperIs(GT_LCL_VAR, GT_INDEX, GT_OBJ))
         {
             var_types destType = destNode->TypeGet();
             // If one or both types are TYP_STRUCT (one may not yet be normalized), they are compatible
@@ -1513,7 +1510,6 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
             break;
 
         case GT_OBJ:
-        case GT_BLK:
             assert(structVal->GetType() == structType);
             alreadyNormalized = true;
             break;
@@ -1563,7 +1559,7 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
             else
 #endif
             {
-                noway_assert(commaValue->IsBlk());
+                noway_assert(commaValue->OperIs(GT_OBJ));
 
                 // Hoist the block node above the COMMA so we don't have to deal with struct typed COMMAs:
                 //   COMMA(x, OBJ(addr)) => OBJ(COMMA(x, addr))
@@ -1573,12 +1569,12 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
                 // field access - and aren't nested. And the static field import code could probably be
                 // changed to produce OBJ(COMMA(...)) rather than COMMA(OBJ(...)).
 
-                GenTree* addr = commaValue->AsBlk()->GetAddr();
+                GenTree* addr = commaValue->AsObj()->GetAddr();
 
                 lastComma->SetType(addr->GetType());
                 lastComma->AsOp()->SetOp(1, addr);
 
-                commaValue->AsBlk()->SetAddr(lastComma);
+                commaValue->AsObj()->SetAddr(lastComma);
 
                 if (lastComma == structVal)
                 {
@@ -1608,13 +1604,13 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
             structVal = structLcl;
         }
 
-        if ((forceNormalization || (structType == TYP_STRUCT)) && !structVal->IsBlk())
+        if ((forceNormalization || (structType == TYP_STRUCT)) && !structVal->OperIs(GT_OBJ))
         {
             structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
         }
     }
 
-    if (structVal->IsBlk())
+    if (structVal->OperIs(GT_OBJ))
     {
         if (structLcl != nullptr)
         {
@@ -4980,8 +4976,7 @@ int Compiler::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const B
                 if ((treeToBox->gtFlags & GTF_SIDE_EFFECT) != 0)
                 {
                     // Is this a side effect we can replicate cheaply?
-                    if (((treeToBox->gtFlags & GTF_SIDE_EFFECT) == GTF_EXCEPT) &&
-                        treeToBox->OperIs(GT_OBJ, GT_BLK, GT_IND))
+                    if (((treeToBox->gtFlags & GTF_SIDE_EFFECT) == GTF_EXCEPT) && treeToBox->OperIs(GT_OBJ, GT_IND))
                     {
                         // Yes, we just need to perform a null check if needed.
                         GenTree* const addr = treeToBox->AsOp()->gtGetOp1();
@@ -9682,7 +9677,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         // Check if LHS address is within some struct local, to catch
                         // cases where we're updating the struct by something other than a stfld
-                        GenTree* addr = lhs->AsBlk()->Addr();
+                        GenTree* addr = lhs->AsBlk()->GetAddr();
 
                         // Catches ADDR(LCL_VAR), or ADD(ADDR(LCL_VAR),CNS_INT))
                         lclVar = addr->IsLocalAddrExpr();
