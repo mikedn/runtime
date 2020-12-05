@@ -1166,35 +1166,14 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
     if (src->OperIs(GT_CALL))
     {
-        if (!destAddr->OperIs(GT_ADDR) || !destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+        if (destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            srcType = static_cast<var_types>(src->AsCall()->gtReturnType);
+            dest    = destAddr->AsUnOp()->GetOp(0)->AsLclVar();
+            srcType = TYP_UNDEF; // We don't care about srcType if we set dest.
         }
         else
         {
-            // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
-            // on the destination local variable.
-
-            // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
-            // handle multireg returns.
-
-            GenTreeLclVar* lclVar = destAddr->AsUnOp()->GetOp(0)->AsLclVar();
-            unsigned       lclNum = lclVar->GetLclNum();
-            LclVarDsc*     lcl    = lvaGetDesc(lclNum);
-
-            if (src->AsCall()->HasMultiRegRetVal())
-            {
-                lcl->lvIsMultiRegRet = true;
-            }
-
-#ifdef UNIX_AMD64_ABI
-            // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally?!
-            // And below there's code that sets lvIsMultiRegRet again...
-            lcl->lvIsMultiRegRet = true;
-#endif
-
-            dest    = lclVar;
-            srcType = src->GetType();
+            srcType = static_cast<var_types>(src->AsCall()->gtReturnType);
         }
     }
     else if (src->OperIs(GT_RET_EXPR))
@@ -1210,10 +1189,10 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     }
     else if (src->OperIs(GT_INDEX))
     {
-        // Currently INDEX type isn't normalized.
         assert(src->TypeIs(TYP_STRUCT));
         assert(src->AsIndex()->GetElemClassHandle() == structHnd);
 
+        // Currently INDEX type isn't normalized so we have to do it here.
         srcType = impNormStructType(structHnd);
     }
     else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
@@ -1230,15 +1209,14 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
     if ((dest == nullptr) && destAddr->OperIs(GT_ADDR))
     {
-        GenTree* destLocation = destAddr->AsUnOp()->GetOp(0);
+        GenTree*  destLocation = destAddr->AsUnOp()->GetOp(0);
+        var_types destType     = destLocation->GetType();
 
         // If the actual destination is a local, a GT_INDEX or a block node, or is a node that
         // will be morphed, don't insert an OBJ(ADDR) if it already has the right type.
 
         if (destLocation->OperIs(GT_LCL_VAR, GT_INDEX, GT_OBJ))
         {
-            var_types destType = destLocation->GetType();
-
             // If one or both types are TYP_STRUCT (one may not yet be normalized), they are compatible
             // iff their handles are the same.
             // Otherwise, they are compatible if their types are the same.
@@ -1259,8 +1237,11 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                 }
             }
         }
-        else if (destLocation->OperIs(GT_FIELD) && varTypeIsSIMD(srcType) && (destLocation->GetType() == srcType))
+        else if (destLocation->OperIs(GT_FIELD) && (destType == srcType) && varTypeIsSIMD(srcType))
         {
+            // SIMD typed FIELDs can be used directly, STRUCT typed fields need to be wrapped into
+            // an OBJ to avoid the sruct type getting lost due to single field struct promotion.
+
             dest = destLocation;
         }
     }
@@ -1278,6 +1259,34 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     }
     else if (dest->OperIs(GT_LCL_VAR))
     {
+        LclVarDsc* lcl = lvaGetDesc(dest->AsLclVar());
+
+#ifdef UNIX_AMD64_ABI
+        if (src->OperIs(GT_CALL))
+        {
+            // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
+            // on the destination local variable.
+
+            // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
+            // handle multireg returns.
+
+            // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally?!
+            // Well, because MultiRegRet doesn't really have much to do with
+            // multiple registers. The problem is that returning a struct in
+            // one or multiple registers results in dependent promotion if
+            // registers and promoted fields do not match. So it makes sense
+            // to block promotion if the struct is returned in a single reg
+            // but it has more than one field.
+            // At the same time, this shouldn't be needed if the struct is
+            // returned in a single register and has a single field.
+            // And of course, this isn't really specific to unix-x64.
+            // And there's more code below that again sets lvIsMultiRegRet.
+            // Oh well, the usual mess.
+
+            lcl->lvIsMultiRegRet = true;
+        }
+#endif
+
         if (src->IsMultiRegNode() ||
             (src->OperIs(GT_RET_EXPR) && src->AsRetExpr()->gtInlineCandidate->AsCall()->HasMultiRegRetVal()))
         {
@@ -1288,7 +1297,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
             if (src->OperIs(GT_CALL))
             {
-                lvaGetDesc(dest->AsLclVar())->lvIsMultiRegRet = true;
+                lcl->lvIsMultiRegRet = true;
             }
         }
     }
@@ -13440,6 +13449,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assert(op1->TypeIs(TYP_STRUCT));
 
 #if FEATURE_MULTIREG_RET
+                // TODO-MIKE-Cleanup: This has nothing to do with multireg returns.
+                // No matter what the struct type is the helper returns the struct value
+                // via an "out" parameter, there's no way return it in registers because
+                // the same helper is used for all struct types.
+                // Doing this here is bad for CQ when the destination is a memory location
+                // because we introduce a temp instead of just passing in the address of
+                // that location. impAssignStructPtr (TreatAsHasRetBufArg) already handles
+                // this case so there's no real need for this to be done here.
+                // Adding a temp when the destination is a promotable struct local might
+                // be useful because it avoid dependent promotion. But's probably something
+                // that impAssignStructPtr could handle as well.
+
                 if (IsMultiRegReturnedType(resolvedToken.hClass))
                 {
                     // Unbox nullable helper returns a TYP_STRUCT.
@@ -13451,7 +13472,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     lvaSetStruct(tmp, resolvedToken.hClass, true /* unsafe value cls check */);
 
                     op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                    op1 = impAssignStruct(op2, op1, resolvedToken.hClass, (unsigned)CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
                     assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
 
                     op2 = gtNewLclvNode(tmp, TYP_STRUCT);
