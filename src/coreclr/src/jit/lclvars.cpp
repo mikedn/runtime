@@ -1727,10 +1727,19 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
         return false;
     }
 
-    if (!compiler->lvaEnregMultiRegVars && varDsc->lvIsMultiRegArgOrRet())
+    if (!compiler->lvaEnregMultiRegVars)
     {
-        JITDUMP("  struct promotion of V%02u is disabled because lvIsMultiRegArgOrRet()\n", lclNum);
-        return false;
+        if (varDsc->lvIsMultiRegArg)
+        {
+            JITDUMP("  struct promotion of V%02u is disabled because it is a multi-reg arg\n", lclNum);
+            return false;
+        }
+
+        if (varDsc->lvIsMultiRegRet)
+        {
+            JITDUMP("  struct promotion of V%02u is disabled because it is a multi-reg return\n", lclNum);
+            return false;
+        }
     }
 
     // TODO-CQ: enable promotion for OSR locals
@@ -1741,10 +1750,9 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
     }
 
     CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
-    assert(typeHnd != nullptr);
 
     bool canPromote = CanPromoteStructType(typeHnd);
-    if (canPromote && varDsc->lvIsMultiRegArgOrRet())
+    if (canPromote && (varDsc->lvIsMultiRegArg || varDsc->lvIsMultiRegRet))
     {
         unsigned fieldCnt = structPromotionInfo.fieldCnt;
         if (fieldCnt > MAX_MULTIREG_COUNT)
@@ -2249,7 +2257,7 @@ void Compiler::lvaPromoteLongVars()
             continue;
         }
 
-        assert(!varDsc->lvIsMultiRegArgOrRet());
+        assert(!varDsc->lvIsMultiRegArg && !varDsc->lvIsMultiRegRet);
         varDsc->lvFieldCnt      = 2;
         varDsc->lvFieldLclStart = lvaCount;
         varDsc->lvPromoted      = true;

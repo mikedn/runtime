@@ -690,14 +690,6 @@ public:
         return slots;
     }
 
-    // lvIsMultiRegArgOrRet()
-    //     returns true if this is a multireg LclVar struct used in an argument context
-    //               or if this is a multireg LclVar struct assigned from a multireg call
-    bool lvIsMultiRegArgOrRet()
-    {
-        return lvIsMultiRegArg || lvIsMultiRegRet;
-    }
-
 private:
     regNumberSmall _lvRegNum; // Used to store the register this variable is in (or, the low register of a
                               // register pair). It is set during codegen any time the
