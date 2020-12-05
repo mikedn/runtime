@@ -14082,74 +14082,50 @@ bool Compiler::impInlineReturnInstruction()
         }
     }
 
-    // Below, we are going to set impInlineInfo->retExpr to the tree with the return
-    // expression. At this point, retExpr could already be set if there are multiple
-    // return blocks (meaning lvaInlineeReturnSpillTemp != BAD_VAR_NUM) and one of
-    // the other blocks already set it. If there is only a single return block,
-    // retExpr shouldn't be set. However, this is not true if we reimport a block
-    // with a return. In that case, retExpr will be set, then the block will be
-    // reimported, but retExpr won't get cleared as part of setting the block to
-    // be reimported. The reimported retExpr value should be the same, so even if
-    // we don't unconditionally overwrite it, it shouldn't matter.
-
-    if (info.retDesc.GetRegCount() == 1)
+    if (varTypeIsSmall(info.compRetType))
     {
-        // This is a scalar or single-reg struct return.
+        // Small-typed return values are normalized by the callee
 
-        if (varTypeIsStruct(info.compRetType))
+        if (fgCastNeeded(op2, info.compRetType))
         {
-            op2 = impFixupStructReturnType(op2, retClsHnd);
-        }
-        else if (varTypeIsSmall(info.compRetType) && fgCastNeeded(op2, info.compRetType))
-        {
-            // Small-typed return values are normalized by the callee
             op2 = gtNewCastNode(TYP_INT, op2, false, info.compRetType);
         }
-
+    }
+    else if (info.compRetType == TYP_REF)
+    {
         if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
         {
-            assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
+            // If this method returns a REF type and we have a spill temp, track the actual types
+            // seen in the returns so we can update the spill temp class when inlining is done.
 
-            // If this method returns a ref type, track the actual types seen
-            // in the returns.
-            if (info.compRetType == TYP_REF)
+            bool                 isExact      = false;
+            bool                 isNonNull    = false;
+            CORINFO_CLASS_HANDLE returnClsHnd = gtGetClassHandle(op2, &isExact, &isNonNull);
+
+            if (impInlineInfo->retExpr == nullptr)
             {
-                bool                 isExact      = false;
-                bool                 isNonNull    = false;
-                CORINFO_CLASS_HANDLE returnClsHnd = gtGetClassHandle(op2, &isExact, &isNonNull);
-
-                if (impInlineInfo->retExpr == nullptr)
-                {
-                    // This is the first return, so best known type is the type
-                    // of this return value.
-                    impInlineInfo->retExprClassHnd        = returnClsHnd;
-                    impInlineInfo->retExprClassHndIsExact = isExact;
-                }
-                else if (impInlineInfo->retExprClassHnd != returnClsHnd)
-                {
-                    // This return site type differs from earlier seen sites,
-                    // so reset the info and we'll fall back to using the method's
-                    // declared return type for the return spill temp.
-                    impInlineInfo->retExprClassHnd        = nullptr;
-                    impInlineInfo->retExprClassHndIsExact = false;
-                }
+                // This is the first return, so best known type is the type
+                // of this return value.
+                impInlineInfo->retExprClassHnd        = returnClsHnd;
+                impInlineInfo->retExprClassHndIsExact = isExact;
             }
-
-            impAssignTempGen(lvaInlineeReturnSpillTemp, op2, retClsHnd, CHECK_SPILL_ALL);
-            op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
-
-            if (impInlineInfo->retExpr != nullptr)
+            else if (impInlineInfo->retExprClassHnd != returnClsHnd)
             {
-                // Some other block(s) have seen the CEE_RET first.
-                // Better they spilled to the same temp.
-                assert(impInlineInfo->retExpr->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum());
+                // This return site type differs from earlier seen sites,
+                // so reset the info and we'll fall back to using the method's
+                // declared return type for the return spill temp.
+                impInlineInfo->retExprClassHnd        = nullptr;
+                impInlineInfo->retExprClassHndIsExact = false;
             }
         }
-
+    }
+    else if (info.compRetType == TYP_BYREF)
+    {
         // If we are inlining a method that returns a struct byref, check whether we are "reinterpreting" the
         // struct.
+
         GenTree* effectiveRetVal = op2->gtEffectiveVal();
-        if ((returnType == TYP_BYREF) && (info.compRetType == TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
+        if ((returnType == TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
         {
             GenTree* location = effectiveRetVal->AsUnOp()->GetOp(0);
             if (location->OperIs(GT_LCL_VAR))
@@ -14183,6 +14159,41 @@ bool Compiler::impInlineReturnInstruction()
                 }
             }
         }
+    }
+
+    // Below, we are going to set impInlineInfo->retExpr to the tree with the return
+    // expression. At this point, retExpr could already be set if there are multiple
+    // return blocks (meaning lvaInlineeReturnSpillTemp != BAD_VAR_NUM) and one of
+    // the other blocks already set it. If there is only a single return block,
+    // retExpr shouldn't be set. However, this is not true if we reimport a block
+    // with a return. In that case, retExpr will be set, then the block will be
+    // reimported, but retExpr won't get cleared as part of setting the block to
+    // be reimported. The reimported retExpr value should be the same, so even if
+    // we don't unconditionally overwrite it, it shouldn't matter.
+
+    if (info.retDesc.GetRegCount() == 1)
+    {
+        // This is a scalar or single-reg struct return.
+
+        if (varTypeIsStruct(info.compRetType))
+        {
+            op2 = impFixupStructReturnType(op2, retClsHnd);
+        }
+
+        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+        {
+            assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
+
+            impAssignTempGen(lvaInlineeReturnSpillTemp, op2, retClsHnd, CHECK_SPILL_ALL);
+            op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
+
+            if (impInlineInfo->retExpr != nullptr)
+            {
+                // Some other block(s) have seen the CEE_RET first.
+                // Better they spilled to the same temp.
+                assert(impInlineInfo->retExpr->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum());
+            }
+        }
 
         JITDUMPTREE(op2, "\n\n    Inlinee Return expression (after normalization) =>\n");
 
@@ -14191,8 +14202,6 @@ bool Compiler::impInlineReturnInstruction()
     else
     {
         // This is a multi-reg or byref struct return.
-
-        GenTreeCall* iciCall = impInlineInfo->iciCall->AsCall();
 
         if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
         {
@@ -14215,12 +14224,16 @@ bool Compiler::impInlineReturnInstruction()
         if (op2 != nullptr)
         {
 #if FEATURE_MULTIREG_RET
-            if (iciCall->HasRetBufArg())
+            if (impInlineInfo->iciCall->HasRetBufArg())
 #else
-            assert(iciCall->HasRetBufArg());
+            assert(impInlineInfo->iciCall->HasRetBufArg());
 #endif
             {
-                GenTree* retBuffAddr = gtCloneExpr(iciCall->gtCallArgs->GetNode());
+                // TODO-MIKE-CQ: Why do we have an inlinee return spill temp when we also
+                // have a return buffer? We first spill to the temp and then copy the temp
+                // to the return buffer, that seems like an unnecessary copy.
+
+                GenTree* retBuffAddr = gtCloneExpr(impInlineInfo->iciCall->gtCallArgs->GetNode());
 
                 op2 = impAssignStructPtr(retBuffAddr, op2, retClsHnd, CHECK_SPILL_ALL);
             }
