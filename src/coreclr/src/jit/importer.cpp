@@ -1187,14 +1187,10 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                 lcl->lvIsMultiRegRet = true;
             }
 
-#if defined(TARGET_ARM)
-            // TODO-Cleanup: This should have been taken care of in the above HasMultiRegRetVal() case,
-            // but that method has not been updated to include ARM.
-            impMarkLclDstNotPromotable(lclNum, src->AsCall(), structHnd);
-#elif defined(UNIX_AMD64_ABI)
+#ifdef UNIX_AMD64_ABI
             // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally?!
             // And below there's code that sets lvIsMultiRegRet again...
-            lcl->lvIsMultiRegRet   = true;
+            lcl->lvIsMultiRegRet = true;
 #endif
 
             dest    = lclVar;
@@ -14008,45 +14004,6 @@ void Compiler::impLoadLoc(unsigned ilLclNum, IL_OFFSET offset)
         impLoadVar(lclNum, offset);
     }
 }
-
-#ifdef TARGET_ARM
-/**************************************************************************************
- *
- *  When assigning a vararg call src to a HFA lcl dest, mark that we cannot promote the
- *  dst struct, because struct promotion will turn it into a float/double variable while
- *  the rhs will be an int/long variable. We don't code generate assignment of int into
- *  a float, but there is nothing that might prevent us from doing so. The tree however
- *  would like: (=, (typ_float, typ_int)) or (GT_TRANSFER, (typ_float, typ_int))
- *
- *  tmpNum - the lcl dst variable num that is a struct.
- *  src    - the src tree assigned to the dest that is a struct/int (when varargs call.)
- *  hClass - the type handle for the struct variable.
- *
- *  TODO-ARM-CQ: [301608] This is a rare scenario with varargs and struct promotion coming into play,
- *        however, we could do a codegen of transferring from int to float registers
- *        (transfer, not a cast.)
- *
- */
-void Compiler::impMarkLclDstNotPromotable(unsigned tmpNum, GenTreeCall* call, CORINFO_CLASS_HANDLE hClass)
-{
-    if (call->IsVarargs() && IsHfa(hClass))
-    {
-        int       hfaSlots = GetHfaCount(hClass);
-        var_types hfaType  = GetHfaType(hClass);
-
-        // If we have varargs we morph the method's return type to be "int" irrespective of its original
-        // type: struct/float at importer because the ABI calls out return in integer registers.
-        // We don't want struct promotion to replace an expression like this:
-        //   lclFld_int = callvar_int() into lclFld_float = callvar_int();
-        // This means an int is getting assigned to a float without a cast. Prevent the promotion.
-        if (((hfaType == TYP_DOUBLE) && (hfaSlots == 2)) || ((hfaType == TYP_FLOAT) && (hfaSlots == 1)))
-        {
-            // Make sure this struct type stays as struct so we can receive the call in a struct.
-            lvaTable[tmpNum].lvIsMultiRegRet = true;
-        }
-    }
-}
-#endif // TARGET_ARM
 
 //------------------------------------------------------------------------
 // impInlineReturnInstruction: import a return during inlining
