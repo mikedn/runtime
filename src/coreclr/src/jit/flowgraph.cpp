@@ -22513,11 +22513,16 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         {
             printf("\nReplacing the return expression placeholder ");
             printTreeID(tree);
-            printf(" with ");
-            printTreeID(inlineCandidate);
-            printf("\n");
-            // Dump out the old return expression placeholder it will be overwritten by the ReplaceWith below
-            comp->gtDispTree(tree);
+
+            if (data->parent == nullptr)
+            {
+                comp->gtDispTree(tree);
+            }
+            else
+            {
+                printf(" in\n");
+                comp->gtDispTree(data->parent);
+            }
         }
 #endif // DEBUG
 
@@ -22527,7 +22532,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
 #ifdef DEBUG
         if (comp->verbose)
         {
-            printf("\nInserting the inline return expression\n");
+            printf("with inline return expression\n");
             comp->gtDispTree(tree);
             printf("\n");
         }
@@ -22581,7 +22586,6 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
                 break;
 #endif // FEATURE_MULTIREG_RET
 
-            case SPK_EnclosingType:
             case SPK_PrimitiveType:
             case SPK_ByReference:
                 break;

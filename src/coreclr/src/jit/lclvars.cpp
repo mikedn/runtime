@@ -105,7 +105,7 @@ void Compiler::lvaInitTypeRef()
 
         info.compRetType = impNormStructType(retClass);
 
-        if ((retKind == SPK_PrimitiveType) || (retKind == SPK_EnclosingType))
+        if (retKind == SPK_PrimitiveType)
         {
             assert(retKindType != TYP_UNKNOWN);
             assert(retKindType != TYP_STRUCT);

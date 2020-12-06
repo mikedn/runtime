@@ -17420,7 +17420,6 @@ void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
 {
     switch (retKind)
     {
-        case SPK_EnclosingType:
         case SPK_PrimitiveType:
             assert(retKindType != TYP_UNKNOWN);
             assert(retKindType != TYP_STRUCT);

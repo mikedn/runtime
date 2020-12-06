@@ -893,17 +893,8 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
 
         if (useType != TYP_UNKNOWN)
         {
-            if (structSize == genTypeSize(useType))
-            {
-                // Currently: 1, 2, 4, or 8 byte structs
-                howToReturnStruct = SPK_PrimitiveType;
-            }
-            else
-            {
-                // Currently: 3, 5, 6, or 7 byte structs
-                assert(structSize < genTypeSize(useType));
-                howToReturnStruct = SPK_EnclosingType;
-            }
+            assert(structSize <= varTypeSize(useType));
+            howToReturnStruct = SPK_PrimitiveType;
         }
     }
 
