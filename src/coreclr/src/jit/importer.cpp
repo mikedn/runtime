@@ -7996,29 +7996,29 @@ GenTree* Compiler::impFixupStructReturnType(GenTree* value, CORINFO_CLASS_HANDLE
 #endif
     }
 
-    if (value->IsCall() && value->AsCall()->TreatAsHasRetBufArg())
-    {
-        // This must be one of those 'special' helpers that don't
-        // really have a return buffer, but instead use it as a way
-        // to keep the trees cleaner with fewer address-taken temps.
-        //
-        // Well now we have to materialize the the return buffer as
-        // an address-taken temp. Then we can return the temp.
-        //
-        // NOTE: this code assumes that since the call directly
-        // feeds the return, then the call must be returning the
-        // same structure/class/type.
-
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
-
-        // No need to spill anything as we're about to return.
-        impAssignTempGen(tmpNum, value, info.compMethodInfo->args.retTypeClass, CHECK_SPILL_NONE);
-        value = gtNewLclvNode(tmpNum, info.compRetType);
-
-        JITDUMP("\nimpFixupStructReturnType: created a pseudo-return buffer for a special helper\n");
-    }
-
     return value;
+}
+
+GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass)
+{
+    assert(value->IsCall() && value->AsCall()->TreatAsHasRetBufArg());
+
+    // This must be one of those 'special' helpers that don't
+    // really have a return buffer, but instead use it as a way
+    // to keep the trees cleaner with fewer address-taken temps.
+    //
+    // Well now we have to materialize the the return buffer as
+    // an address-taken temp. Then we can return the temp.
+    //
+    // NOTE: this code assumes that since the call directly
+    // feeds the return, then the call must be returning the
+    // same structure/class/type.
+
+    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
+
+    // No need to spill anything as we're about to return.
+    impAssignTempGen(tmpNum, value, retClass, CHECK_SPILL_NONE);
+    return gtNewLclvNode(tmpNum, info.compRetType);
 }
 
 /*****************************************************************************
@@ -14161,6 +14161,22 @@ bool Compiler::impInlineReturnInstruction()
         }
     }
 
+    if (op2->IsCall() && op2->AsCall()->TreatAsHasRetBufArg() && (info.retDesc.GetRegCount() > 1))
+    {
+        // The multi reg case is currently handled during unbox import.
+        assert(info.retDesc.GetRegCount() == 1);
+
+        // TODO-MIKE-CQ: If there's an inlinee spill temp we could use that as pseudo
+        // return buffer instead of creating another temp. But that would leave the
+        // inlinee spill temp address exposed so it's perhaps not such a good idea to
+        // do it unconditionally. The inlinee spill temp should probably be used only
+        // if the struct is large, when copying is likely to be more costly than the
+        // lack of optimizations caused by address exposed.
+        // No FX diffs if done so it's probably very rare so not worth the trouble now.
+
+        op2 = impSpillPseudoReturnBufferCall(op2, retClsHnd);
+    }
+
     // Below, we are going to set impInlineInfo->retExpr to the tree with the return
     // expression. At this point, retExpr could already be set if there are multiple
     // return blocks (meaning lvaInlineeReturnSpillTemp != BAD_VAR_NUM) and one of
@@ -14174,11 +14190,6 @@ bool Compiler::impInlineReturnInstruction()
     if (info.retDesc.GetRegCount() == 1)
     {
         // This is a scalar or single-reg struct return.
-
-        if (varTypeIsStruct(info.compRetType))
-        {
-            op2 = impFixupStructReturnType(op2, retClsHnd);
-        }
 
         if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
         {
@@ -14329,7 +14340,12 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
         {
             assert(info.retDesc.GetRegCount() >= 1);
 
-            if (varTypeIsStruct(info.compRetType))
+            if (value->IsCall() && value->AsCall()->TreatAsHasRetBufArg())
+            {
+                value = impSpillPseudoReturnBufferCall(value, se.seTypeInfo.GetClassHandle());
+            }
+
+            if (varTypeIsStruct(info.compRetType) && (info.retDesc.GetRegCount() > 1))
             {
                 value = impFixupStructReturnType(value, se.seTypeInfo.GetClassHandle());
             }

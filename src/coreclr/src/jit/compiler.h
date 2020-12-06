@@ -3164,6 +3164,7 @@ protected:
     GenTree* impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
 
     GenTree* impFixupStructReturnType(GenTree* value, CORINFO_CLASS_HANDLE retClass);
+    GenTree* impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 
     GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
