@@ -14053,7 +14053,7 @@ bool Compiler::impInlineReturnInstruction()
     // inlinee's stack should be empty now.
     assert(verCurrentState.esStackDepth == 0);
 
-    JITDUMPTREE(op2, "\n\n    Inlinee Return expression (before normalization)  =>\n");
+    JITDUMPTREE(op2, "\nInlinee RETURN expression:\n");
 
     // Make sure the type matches the original call.
 
@@ -14177,86 +14177,56 @@ bool Compiler::impInlineReturnInstruction()
         op2 = impSpillPseudoReturnBufferCall(op2, retClsHnd);
     }
 
-    // Below, we are going to set impInlineInfo->retExpr to the tree with the return
-    // expression. At this point, retExpr could already be set if there are multiple
-    // return blocks (meaning lvaInlineeReturnSpillTemp != BAD_VAR_NUM) and one of
-    // the other blocks already set it. If there is only a single return block,
-    // retExpr shouldn't be set. However, this is not true if we reimport a block
-    // with a return. In that case, retExpr will be set, then the block will be
-    // reimported, but retExpr won't get cleared as part of setting the block to
-    // be reimported. The reimported retExpr value should be the same, so even if
-    // we don't unconditionally overwrite it, it shouldn't matter.
-
-    if (info.retDesc.GetRegCount() == 1)
+    if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
     {
-        // This is a scalar or single-reg struct return.
+        assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
 
-        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+        impAssignTempGen(lvaInlineeReturnSpillTemp, op2, retClsHnd, CHECK_SPILL_NONE);
+
+        if (impInlineInfo->retExpr == nullptr)
         {
-            assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
-
-            impAssignTempGen(lvaInlineeReturnSpillTemp, op2, retClsHnd, CHECK_SPILL_ALL);
             op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
-
-            if (impInlineInfo->retExpr != nullptr)
-            {
-                // Some other block(s) have seen the CEE_RET first.
-                // Better they spilled to the same temp.
-                assert(impInlineInfo->retExpr->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum());
-            }
         }
-
-        JITDUMPTREE(op2, "\n\n    Inlinee Return expression (after normalization) =>\n");
-
-        impInlineInfo->retExpr = op2;
-    }
-    else
-    {
-        // This is a multi-reg or byref struct return.
-
-        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+        else
         {
-            assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
+            // Some other block(s) have seen the CEE_RET first. They should have spilled to the same temp.
 
-            impAssignTempGen(lvaInlineeReturnSpillTemp, op2, retClsHnd, CHECK_SPILL_ALL);
-
-            if (impInlineInfo->retExpr == nullptr)
+            if (impInlineInfo->iciCall->HasRetBufArg())
             {
-                // If this is the first return we encounter we also need
-                // to build the return expression for the inliner.
-                op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, varActualType(info.compRetType));
+                // If the inlined call has a return buffer then the return expression is really
+                // an assignment that stores into the buffer.
+                assert(impInlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLclNum() == lvaInlineeReturnSpillTemp);
             }
             else
             {
-                op2 = nullptr;
+                assert(impInlineInfo->retExpr->AsLclVar()->GetLclNum() == lvaInlineeReturnSpillTemp);
             }
         }
+    }
 
-        if (op2 != nullptr)
+    if (impInlineInfo->retExpr == nullptr)
+    {
+        if (impInlineInfo->iciCall->HasRetBufArg())
         {
-#if FEATURE_MULTIREG_RET
-            if (impInlineInfo->iciCall->HasRetBufArg())
-#else
-            assert(impInlineInfo->iciCall->HasRetBufArg());
-#endif
-            {
-                // TODO-MIKE-CQ: Why do we have an inlinee return spill temp when we also
-                // have a return buffer? We first spill to the temp and then copy the temp
-                // to the return buffer, that seems like an unnecessary copy.
+            // TODO-MIKE-CQ: Why do we have an inlinee return spill temp when we also
+            // have a return buffer? We first spill to the temp and then copy the temp
+            // to the return buffer, that seems like an unnecessary copy.
 
-                GenTree* retBuffAddr = gtCloneExpr(impInlineInfo->iciCall->gtCallArgs->GetNode());
+            GenTree* retBufAddr = gtCloneExpr(impInlineInfo->iciCall->gtCallArgs->GetNode());
 
-                op2 = impAssignStructPtr(retBuffAddr, op2, retClsHnd, CHECK_SPILL_ALL);
-            }
-
-            JITDUMPTREE(op2, "\n\n    Inlinee Return expression (after normalization) =>\n");
-
-            impInlineInfo->retExpr = op2;
+            op2 = impAssignStructPtr(retBufAddr, op2, retClsHnd, CHECK_SPILL_ALL);
         }
+
+        JITDUMPTREE(op2, "Inline return expression:\n");
+
+        impInlineInfo->retExpr = op2;
     }
 
     if (impInlineInfo->retExpr != nullptr)
     {
+        // TODO-MIKE-Review: retBB is used to get the flags so we're basically keeping
+        // only the flags of the last inlinee basic block. Is that correct?
+
         impInlineInfo->retBB = compCurBB;
     }
 
