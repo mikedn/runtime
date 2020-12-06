@@ -6991,10 +6991,9 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     // void DispatchTailCalls(void* callersRetAddrSlot, void* callTarget, void* retValue)
 
     // Add return value arg.
-    GenTree*     retValArg;
-    GenTree*     retVal           = nullptr;
-    unsigned int newRetLcl        = BAD_VAR_NUM;
-    GenTree*     copyToRetBufNode = nullptr;
+    GenTree* retValArg;
+    GenTree* retVal           = nullptr;
+    GenTree* copyToRetBufNode = nullptr;
 
     if (origCall->HasRetBufArg())
     {
@@ -7035,7 +7034,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     else if (origCall->gtType != TYP_VOID)
     {
         JITDUMP("Creating a new temp for the return value\n");
-        newRetLcl = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
+        unsigned newRetLcl = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
         if (varTypeIsStruct(origCall->gtType))
         {
             lvaSetStruct(newRetLcl, origCall->gtRetClsHnd, false);
@@ -7054,9 +7053,10 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
             gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(newRetLcl, genActualType(lvaTable[newRetLcl].lvType)));
         retVal = gtNewLclvNode(newRetLcl, genActualType(lvaTable[newRetLcl].lvType));
 
-        if (varTypeIsStruct(origCall->gtType))
+        if (varTypeIsStruct(origCall->GetType()) && (info.retDesc.GetRegCount() > 1))
         {
-            retVal = impFixupStructReturnType(retVal, origCall->gtRetClsHnd);
+            lvaGetDesc(newRetLcl)->lvIsMultiRegRet = true;
+            retVal->gtFlags |= GTF_DONT_CSE;
         }
     }
     else

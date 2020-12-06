@@ -1685,7 +1685,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     {
         printf("\nlvaGrabTemp returning %d (", tempNum);
         gtDispLclVar(tempNum, false);
-        printf(")%s called for %s.\n", shortLifetime ? "" : " (a long lifetime temp)", reason);
+        printf(")%s called for \"%s\".\n", shortLifetime ? "" : " (a long lifetime temp)", reason);
     }
 #endif // DEBUG
 

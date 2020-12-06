@@ -7929,74 +7929,68 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
     return call;
 }
 
-GenTree* Compiler::impFixupStructReturnType(GenTree* value, CORINFO_CLASS_HANDLE retClass)
+GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass)
 {
     assert(varTypeIsStruct(info.compRetType));
     assert(info.compRetBuffArg == BAD_VAR_NUM);
+    assert(info.retDesc.GetRegCount() > 1);
 
-    JITDUMPTREE(value, "\nimpFixupStructReturnType: retyping\n");
-
-    if (info.retDesc.GetRegCount() > 1)
-    {
 #if !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARMARCH)
-        unreached();
+    unreached();
 #else
-        // In case of multi-reg struct return, we force IR to be one of the following:
-        // RETURN(LCL_VAR) or RETURN(CALL). If op is anything other than a LCL_VAR or
-        // a CALL, it is assigned to a temp that is then returned.
+    // In case of multi-reg struct return, we force IR to be one of the following:
+    // RETURN(LCL_VAR) or RETURN(CALL). If op is anything other than a LCL_VAR or
+    // a CALL, it is assigned to a temp that is then returned.
 
-        if (GenTreeCall* call = value->IsCall())
-        {
+    if (GenTreeCall* call = value->IsCall())
+    {
 #ifndef TARGET_ARMARCH
-            return value;
-#else
-            if (!call->IsVarargs())
-            {
-                return value;
-            }
-
-            // We cannot tail call because control needs to return to fixup the calling
-            // convention for result return.
-            call->gtCallMoreFlags &= ~GTF_CALL_M_TAILCALL;
-            call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
-#endif
-        }
-
-        LclVarDsc* lcl = nullptr;
-
-        if (value->OperIs(GT_LCL_VAR))
-        {
-            lcl = lvaGetDesc(value->AsLclVar());
-
-            if (lcl->IsImplicitByRefParam())
-            {
-                // Implicit byref params will be transformed into indirs so
-                // we need a temp even if now they're LCL_VARs.
-
-                lcl = nullptr;
-            }
-        }
-
-        if (lcl == nullptr)
-        {
-            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
-            impAssignTempGen(tempLclNum, value, retClass, CHECK_SPILL_ALL);
-            lcl = lvaGetDesc(tempLclNum);
-
-            value = gtNewLclvNode(tempLclNum, lcl->GetType());
-        }
-
-        // Make sure that this struct stays in memory and doesn't get promoted.
-        lcl->lvIsMultiRegRet = true;
-
-        // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-        value->gtFlags |= GTF_DONT_CSE;
-
         return value;
+#else
+        if (!call->IsVarargs())
+        {
+            return value;
+        }
+
+        // We cannot tail call because control needs to return to fixup the calling
+        // convention for result return.
+        call->gtCallMoreFlags &= ~GTF_CALL_M_TAILCALL;
+        call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
 #endif
     }
 
+    LclVarDsc* lcl = nullptr;
+
+    if (value->OperIs(GT_LCL_VAR))
+    {
+        lcl = lvaGetDesc(value->AsLclVar());
+
+        if (lcl->IsImplicitByRefParam())
+        {
+            // Implicit byref params will be transformed into indirs so
+            // we need a temp even if now they're LCL_VARs.
+
+            lcl = nullptr;
+        }
+    }
+
+    if (lcl == nullptr)
+    {
+        unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
+        impAssignTempGen(tempLclNum, value, retClass, CHECK_SPILL_ALL);
+        lcl = lvaGetDesc(tempLclNum);
+
+        value = gtNewLclvNode(tempLclNum, lcl->GetType());
+    }
+
+    // Make sure that this struct stays in memory and doesn't get promoted.
+    lcl->lvIsMultiRegRet = true;
+
+    // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
+    value->gtFlags |= GTF_DONT_CSE;
+
     return value;
+#endif
 }
 
 GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass)
@@ -14317,7 +14311,7 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
 
             if (varTypeIsStruct(info.compRetType) && (info.retDesc.GetRegCount() > 1))
             {
-                value = impFixupStructReturnType(value, se.seTypeInfo.GetClassHandle());
+                value = impCanonicalizeMultiRegReturnValue(value, se.seTypeInfo.GetClassHandle());
             }
 
             ret = gtNewOperNode(GT_RETURN, varActualType(info.compRetType), value);
