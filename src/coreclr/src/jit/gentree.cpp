@@ -14704,15 +14704,13 @@ bool Compiler::gtComplexityExceeds(GenTree** tree, unsigned limit)
 
 bool GenTree::IsPhiNode()
 {
-    return (OperGet() == GT_PHI_ARG) || (OperGet() == GT_PHI) || IsPhiDefn();
+    return OperIs(GT_PHI_ARG, GT_PHI) || IsPhiDefn();
 }
 
 bool GenTree::IsPhiDefn()
 {
-    bool res = ((OperGet() == GT_ASG) && (AsOp()->gtOp2 != nullptr) && (AsOp()->gtOp2->OperGet() == GT_PHI)) ||
-               ((OperGet() == GT_STORE_LCL_VAR) && (AsOp()->gtOp1 != nullptr) && (AsOp()->gtOp1->OperGet() == GT_PHI));
-    assert(!res || OperGet() == GT_STORE_LCL_VAR || AsOp()->gtOp1->OperGet() == GT_LCL_VAR);
-    return res;
+    return (OperIs(GT_ASG) && AsOp()->GetOp(1)->OperIs(GT_PHI)) ||
+           (OperIs(GT_STORE_LCL_VAR) && AsLclVar()->GetOp(0)->OperIs(GT_PHI));
 }
 
 // IsPartialLclFld: Check for a GT_LCL_FLD whose type is a different size than the lclVar.

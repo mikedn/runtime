@@ -2748,6 +2748,7 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(!store->GetOp(0)->OperIs(GT_PHI));
 
     JITDUMP("Lowering STORE_LCL_VAR (before):\n");
     DISPTREERANGE(BlockRange(), store);
@@ -2782,8 +2783,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
         }
     }
 
-    if (!src->TypeIs(TYP_STRUCT) && (varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(src->GetType())) &&
-        !store->IsPhiDefn())
+    if (!src->TypeIs(TYP_STRUCT) && (varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(src->GetType())))
     {
         if (m_lsra->isRegCandidate(lcl))
         {
@@ -2812,7 +2812,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
         CheckMultiRegLclVar(store, retTypeDesc);
     }
 
-    if (store->TypeIs(TYP_STRUCT) && !srcIsMultiReg && (src->OperGet() != GT_PHI))
+    if (store->TypeIs(TYP_STRUCT) && !srcIsMultiReg)
     {
         if (GenTreeCall* call = src->IsCall())
         {
@@ -5777,13 +5777,12 @@ bool Lowering::CheckBlock(Compiler* compiler, BasicBlock* block)
 {
     assert(block->isEmpty() || block->IsLIR());
 
-    LIR::Range& blockRange = LIR::AsRange(block);
-    for (GenTree* node : blockRange)
+    for (GenTree* node : LIR::AsRange(block).NonPhiNodes())
     {
         CheckNode(compiler, node);
     }
 
-    assert(blockRange.CheckLIR(compiler, true));
+    assert(LIR::AsRange(block).CheckLIR(compiler, true));
     return true;
 }
 #endif
@@ -5808,7 +5807,7 @@ void Lowering::LowerBlock(BasicBlock* block)
     // Lowering::CheckBlock() runs some extra checks on call arguments in
     // order to help catch unlowered nodes.
 
-    GenTree* node = BlockRange().FirstNode();
+    GenTree* node = BlockRange().FirstNonPhiNode();
     while (node != nullptr)
     {
         node = LowerNode(node);
