@@ -11279,45 +11279,35 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
 #endif // !WINDOWS_AMD64_ABI
 
-//----------------------------------------------------------------------------------
-// genMultiRegStoreToLocal: store multi-reg value to a local
-//
-// Arguments:
-//    lclNode  -  Gentree of GT_STORE_LCL_VAR
-//
-// Return Value:
-//    None
-//
-// Assumption:
-//    The child of store is a multi-reg node.
-//
-void CodeGen::genMultiRegStoreToLocal(GenTreeLclVar* lclNode)
+void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 {
-    assert(lclNode->OperIs(GT_STORE_LCL_VAR));
-    assert(varTypeIsStruct(lclNode) || varTypeIsMultiReg(lclNode));
-    GenTree* op1       = lclNode->gtGetOp1();
-    GenTree* actualOp1 = op1->gtSkipReloadOrCopy();
-    assert(op1->IsMultiRegNode());
-    unsigned regCount =
-        actualOp1->IsMultiRegLclVar() ? actualOp1->AsLclVar()->GetFieldCount(compiler) : actualOp1->GetMultiRegCount();
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(varTypeIsStruct(store->GetType()) || varTypeIsMultiReg(store->GetType()));
 
-    unsigned   lclNum = lclNode->AsLclVarCommon()->GetLclNum();
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
-    if (op1->OperIs(GT_CALL))
+    GenTree* src = store->GetOp(0);
+    assert(src->IsMultiRegNode());
+
+    GenTree* actualSrc = src->gtSkipReloadOrCopy();
+    unsigned regCount =
+        actualSrc->IsMultiRegLclVar() ? actualSrc->AsLclVar()->GetFieldCount(compiler) : actualSrc->GetMultiRegCount();
+
+    unsigned   lclNum = store->GetLclNum();
+    LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+    if (src->OperIs(GT_CALL))
     {
         assert(regCount <= MAX_RET_REG_COUNT);
-        noway_assert(varDsc->lvIsMultiRegRet || !varDsc->IsPromoted());
+        noway_assert(lcl->lvIsMultiRegRet || !lcl->IsPromoted());
     }
 
 #ifdef FEATURE_SIMD
-    // Check for the case of an enregistered SIMD type that's returned in multiple registers.
-    if (varDsc->lvIsRegCandidate() && lclNode->GetRegNum() != REG_NA)
+    if (lcl->lvIsRegCandidate() && (store->GetRegNum() != REG_NA))
     {
-        assert(varTypeIsSIMD(lclNode));
-        genMultiRegStoreToSIMDLocal(lclNode);
+        assert(varTypeIsSIMD(store));
+        GenStoreLclVarMultiRegSIMD(store);
         return;
     }
-#endif // FEATURE_SIMD
+#endif
 
     // We have either a multi-reg local or a local with multiple fields in memory.
     //
@@ -11353,48 +11343,56 @@ void CodeGen::genMultiRegStoreToLocal(GenTreeLclVar* lclNode)
     // The code generator would move r3  to r1, leave r2 alone, and then load the spilled value into r3.
 
     int  offset        = 0;
-    bool isMultiRegVar = lclNode->IsMultiRegLclVar();
+    bool isMultiRegVar = store->IsMultiReg();
     bool hasRegs       = false;
 
     if (isMultiRegVar)
     {
         assert(compiler->lvaEnregMultiRegVars);
-        assert(regCount == varDsc->lvFieldCnt);
+        assert(regCount == lcl->GetPromotedFieldCount());
     }
+
     for (unsigned i = 0; i < regCount; ++i)
     {
-        regNumber reg  = genConsumeReg(op1, i);
-        var_types type = actualOp1->GetRegTypeByIndex(i);
+        regNumber reg  = genConsumeReg(src, i);
+        var_types type = actualSrc->GetRegTypeByIndex(i);
+
         // genConsumeReg will return the valid register, either from the COPY
         // or from the original source.
+
         assert(reg != REG_NA);
         regNumber varReg = REG_NA;
+
         if (isMultiRegVar)
         {
-            regNumber  varReg      = lclNode->GetRegByIndex(i);
-            unsigned   fieldLclNum = varDsc->lvFieldLclStart + i;
+            regNumber  varReg      = store->GetRegByIndex(i);
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
             LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(fieldLclNum);
             var_types  type        = fieldVarDsc->TypeGet();
             if (varReg != REG_NA)
             {
                 hasRegs = true;
+
                 if (varReg != reg)
                 {
                     inst_RV_RV(ins_Copy(type), varReg, reg, type);
                 }
+
                 fieldVarDsc->SetRegNum(varReg);
             }
             else
             {
                 varReg = REG_STK;
             }
+
             if ((varReg == REG_STK) || fieldVarDsc->lvLiveInOutOfHndlr)
             {
-                if (!lclNode->AsLclVar()->IsLastUse(i))
+                if (!store->AsLclVar()->IsLastUse(i))
                 {
                     GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, fieldLclNum, 0);
                 }
             }
+
             fieldVarDsc->SetRegNum(varReg);
         }
         else
@@ -11404,22 +11402,21 @@ void CodeGen::genMultiRegStoreToLocal(GenTreeLclVar* lclNode)
         }
     }
 
-    // Update variable liveness.
     if (isMultiRegVar)
     {
         if (hasRegs)
         {
-            genProduceReg(lclNode);
+            genProduceReg(store);
         }
         else
         {
-            genUpdateLife(lclNode);
+            genUpdateLife(store);
         }
     }
     else
     {
-        genUpdateLife(lclNode);
-        varDsc->SetRegNum(REG_STK);
+        genUpdateLife(store);
+        lcl->SetRegNum(REG_STK);
     }
 }
 

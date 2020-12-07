@@ -1507,11 +1507,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_STORE_LCL_FLD:
-            genCodeForStoreLclFld(treeNode->AsLclFld());
+            GenStoreLclFld(treeNode->AsLclFld());
             break;
 
         case GT_STORE_LCL_VAR:
-            genCodeForStoreLclVar(treeNode->AsLclVar());
+            GenStoreLclVar(treeNode->AsLclVar());
             break;
 
         case GT_RETFILT:
@@ -1789,61 +1789,49 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 }
 
 #ifdef FEATURE_SIMD
-//----------------------------------------------------------------------------------
-// genMultiRegStoreToSIMDLocal: store multi-reg value to a single-reg SIMD local
-//
-// Arguments:
-//    lclNode  -  GentreeLclVar of GT_STORE_LCL_VAR
-//
-// Return Value:
-//    None
-//
-void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
+
+void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 {
-#ifdef UNIX_AMD64_ABI
-    regNumber dst       = lclNode->GetRegNum();
-    GenTree*  op1       = lclNode->gtGetOp1();
-    GenTree*  actualOp1 = op1->gtSkipReloadOrCopy();
-    unsigned  regCount =
-        actualOp1->IsMultiRegLclVar() ? actualOp1->AsLclVar()->GetFieldCount(compiler) : actualOp1->GetMultiRegCount();
-    assert(op1->IsMultiRegNode());
-    genConsumeRegs(op1);
+#ifndef UNIX_AMD64_ABI
+    assert(!"Multireg store to SIMD reg not supported on X64 Windows");
+#else
+    GenTree* src = store->GetOp(0);
 
-    // Right now the only enregistrable structs supported are SIMD types.
-    // They are only returned in 1 or 2 registers - the 1 register case is
-    // handled as a regular STORE_LCL_VAR.
-    // This case is always a call (AsCall() will assert if it is not).
-    GenTreeCall*          call        = actualOp1->AsCall();
-    const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-    assert(retTypeDesc->GetRegCount() == MAX_RET_REG_COUNT);
+    // This is used to store a Vector3/4 call return value, on UNIX_AMD64_ABI
+    // such a value is returned into 2 XMM registers and we need to pack it
+    // into the XMM destination register.
 
-    assert(regCount == 2);
-    assert(varTypeIsFloating(retTypeDesc->GetRegType(0)));
-    assert(varTypeIsFloating(retTypeDesc->GetRegType(1)));
+    GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
 
-    // This is a case where the two 8-bytes that comprise the operand are in
-    // two different xmm registers and need to be assembled into a single
-    // xmm register.
-    regNumber dstReg  = lclNode->GetRegNum();
+    INDEBUG(ReturnTypeDesc* retDesc = call->GetReturnTypeDesc();)
+    assert(retDesc->GetRegCount() == 2);
+    assert(varTypeUsesFloatReg(retDesc->GetRegType(0)));
+    assert(varTypeUsesFloatReg(retDesc->GetRegType(1)));
+
+    genConsumeRegs(src);
+
     regNumber retReg0 = call->GetRegNumByIdx(0);
     regNumber retReg1 = call->GetRegNumByIdx(1);
 
-    if (op1->IsCopyOrReload())
+    if (src->IsCopyOrReload())
     {
-        // GT_COPY/GT_RELOAD will have valid reg for those positions
+        // COPY/RELOAD will have valid reg for those positions
         // that need to be copied or reloaded.
-        regNumber reloadReg = op1->AsCopyOrReload()->GetRegNumByIdx(0);
+
+        regNumber reloadReg = src->AsCopyOrReload()->GetRegNumByIdx(0);
         if (reloadReg != REG_NA)
         {
             retReg0 = reloadReg;
         }
 
-        reloadReg = op1->AsCopyOrReload()->GetRegNumByIdx(1);
+        reloadReg = src->AsCopyOrReload()->GetRegNumByIdx(1);
         if (reloadReg != REG_NA)
         {
             retReg1 = reloadReg;
         }
     }
+
+    regNumber dstReg = store->GetRegNum();
 
     if (dstReg == retReg0)
     {
@@ -1864,11 +1852,10 @@ void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
         GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
     }
 
-    genProduceReg(lclNode);
-#else  // !UNIX_AMD64_ABI
-    assert(!"Multireg store to SIMD reg not supported on X64 Windows");
-#endif // !UNIX_AMD64_ABI
+    genProduceReg(store);
+#endif // UNIX_AMD64_ABI
 }
+
 #endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
@@ -3834,160 +3821,165 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreLclFld: Produce code for a GT_STORE_LCL_FLD node.
-//
-// Arguments:
-//    tree - the GT_STORE_LCL_FLD node
-//
-void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
+void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 {
-    assert(tree->OperIs(GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_STORE_LCL_FLD));
+    assert(!store->TypeIs(TYP_STRUCT));
 
 #ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
+    if (store->TypeIs(TYP_SIMD12))
     {
-        genStoreSIMD12(tree, tree->GetOp(0));
+        genStoreSIMD12(store, store->GetOp(0));
         return;
     }
 #endif
 
-    var_types targetType = tree->TypeGet();
-    GenTree*  op1        = tree->gtGetOp1();
+    var_types type = store->GetType();
+    GenTree*  src  = store->GetOp(0);
 
-    noway_assert(targetType != TYP_STRUCT);
+    assert(varTypeUsesFloatReg(type) == varTypeUsesFloatReg(src->GetType()));
+    assert(varTypeSize(varActualType(type)) == varTypeSize(varActualType(src->GetType())));
 
-    assert(varTypeUsesFloatReg(targetType) == varTypeUsesFloatReg(op1));
-    assert(genTypeSize(genActualType(targetType)) == genTypeSize(genActualType(op1->TypeGet())));
-
-    genConsumeRegs(op1);
-    GetEmitter()->emitInsBinary(ins_Store(targetType), emitTypeSize(tree), tree, op1);
-
-    // Updating variable liveness after instruction was emitted
-    genUpdateLife(tree);
+    genConsumeRegs(src);
+    GetEmitter()->emitInsBinary(ins_Store(type), emitTypeSize(type), store, src);
+    genUpdateLife(store);
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreLclVar: Produce code for a GT_STORE_LCL_VAR node.
-//
-// Arguments:
-//    lclNode - the GT_STORE_LCL_VAR node
-//
-void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
+void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
-    assert(lclNode->OperIs(GT_STORE_LCL_VAR));
+    assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    regNumber targetReg = lclNode->GetRegNum();
-    emitter*  emit      = GetEmitter();
+    GenTree* src = store->GetOp(0);
 
-    GenTree* op1 = lclNode->gtGetOp1();
-
-    // Stores from a multi-reg source are handled separately.
-    if (op1->gtSkipReloadOrCopy()->IsMultiRegNode())
+    if (src->gtSkipReloadOrCopy()->IsMultiRegNode())
     {
-        genMultiRegStoreToLocal(lclNode);
+        GenStoreLclVarMultiReg(store);
+        return;
     }
-    else
-    {
-        unsigned   lclNum = lclNode->GetLclNum();
-        LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
 
-        var_types targetType = varDsc->GetRegisterType(lclNode);
+    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
+    var_types  lclRegType = lcl->GetRegisterType(store);
 
 #ifdef DEBUG
-        var_types op1Type = op1->TypeGet();
-        if (op1Type == TYP_STRUCT)
+    {
+        var_types srcRegType = src->GetType();
+
+        if (srcRegType == TYP_STRUCT)
         {
-            assert(op1->IsLocal());
-            GenTreeLclVar* op1LclVar = op1->AsLclVar();
-            unsigned       op1lclNum = op1LclVar->GetLclNum();
-            LclVarDsc*     op1VarDsc = compiler->lvaGetDesc(op1lclNum);
-            op1Type                  = op1VarDsc->GetRegisterType(op1LclVar);
+            GenTreeLclVar* srcLclVar = src->AsLclVar();
+
+            srcRegType = compiler->lvaGetDesc(srcLclVar)->GetRegisterType(srcLclVar);
         }
-        assert(varTypeUsesFloatReg(targetType) == varTypeUsesFloatReg(op1Type));
-        assert(!varTypeUsesFloatReg(targetType) || (emitTypeSize(targetType) == emitTypeSize(op1Type)));
+
+        assert(varTypeUsesFloatReg(lclRegType) == varTypeUsesFloatReg(srcRegType));
+        assert(!varTypeUsesFloatReg(lclRegType) || (emitTypeSize(lclRegType) == emitTypeSize(srcRegType)));
+    }
 #endif
 
-#if !defined(TARGET_64BIT)
-        if (targetType == TYP_LONG)
-        {
-            genStoreLongLclVar(lclNode);
-            return;
-        }
-#endif // !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
+    if (lclRegType == TYP_LONG)
+    {
+        GenStoreLclVarLong(store);
+        return;
+    }
+#endif
 
 #ifdef FEATURE_SIMD
-        if (targetType == TYP_SIMD12)
-        {
-            genStoreSIMD12(lclNode, lclNode->GetOp(0));
-            return;
-        }
+    if (lclRegType == TYP_SIMD12)
+    {
+        genStoreSIMD12(store, src);
+        return;
+    }
 #endif
 
-        genConsumeRegs(op1);
+    regNumber dstReg = store->GetRegNum();
+    unsigned  lclNum = store->GetLclNum();
 
-        if (op1->OperIs(GT_BITCAST) && op1->isContained())
+    if (src->OperIs(GT_BITCAST) && src->isContained())
+    {
+        GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
+        var_types bitCastSrcType = bitCastSrc->GetType();
+        regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
+
+        if (dstReg == REG_NA)
         {
-            GenTree*  bitCastSrc = op1->gtGetOp1();
-            var_types srcType    = bitCastSrc->TypeGet();
-            noway_assert(!bitCastSrc->isContained());
-            if (targetReg == REG_NA)
-            {
-                emit->emitIns_S_R(ins_Store(srcType, compiler->isSIMDTypeLocalAligned(lclNum)),
-                                  emitTypeSize(targetType), bitCastSrc->GetRegNum(), lclNum, 0);
-                genUpdateLife(lclNode);
-                varDsc->SetRegNum(REG_STK);
-            }
-            else
-            {
-                inst_BitCast(targetType, targetReg, srcType, bitCastSrc->GetRegNum());
-            }
-        }
-        else if (targetReg == REG_NA)
-        {
-            // stack store
-            emit->emitInsStoreLcl(ins_Store(targetType, compiler->isSIMDTypeLocalAligned(lclNum)),
-                                  emitTypeSize(targetType), lclNode);
-            varDsc->SetRegNum(REG_STK);
+            GetEmitter()->emitIns_S_R(ins_Store(bitCastSrcType, compiler->isSIMDTypeLocalAligned(lclNum)),
+                                      emitTypeSize(lclRegType), bitCastSrcReg, lclNum, 0);
+
+            genUpdateLife(store);
+            lcl->SetRegNum(REG_STK);
         }
         else
         {
-            // Look for the case where we have a constant zero which we've marked for reuse,
-            // but which isn't actually in the register we want.  In that case, it's better to create
-            // zero in the target register, because an xor is smaller than a copy. Note that we could
-            // potentially handle this in the register allocator, but we can't always catch it there
-            // because the target may not have a register allocated for it yet.
-            if (op1->isUsedFromReg() && (op1->GetRegNum() != targetReg) &&
-                (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero()))
-            {
-                op1->SetRegNum(REG_NA);
-                op1->ResetReuseRegVal();
-                op1->SetContained();
-            }
+            inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
 
-            if (!op1->isUsedFromReg())
-            {
-                // Currently, we assume that the non-reg source of a GT_STORE_LCL_VAR writing to a register
-                // must be a constant. However, in the future we might want to support an operand used from
-                // memory.  This is a bit tricky because we have to decide it can be used from memory before
-                // register allocation,
-                // and this would be a case where, once that's done, we need to mark that node as always
-                // requiring a register - which we always assume now anyway, but once we "optimize" that
-                // we'll have to take cases like this into account.
-                assert((op1->GetRegNum() == REG_NA) && op1->OperIsConst());
-                genSetRegToConst(targetReg, targetType, op1);
-            }
-            else if (op1->GetRegNum() != targetReg)
-            {
-                assert(op1->GetRegNum() != REG_NA);
-                emit->emitInsBinary(ins_Move_Extend(targetType, true), emitTypeSize(lclNode), lclNode, op1);
-            }
+            genProduceReg(store);
         }
-        if (targetReg != REG_NA)
-        {
-            genProduceReg(lclNode);
-        }
+
+        return;
     }
+
+    if (dstReg == REG_NA)
+    {
+        instruction ins  = ins_Store(lclRegType, compiler->isSIMDTypeLocalAligned(lclNum));
+        emitAttr    attr = emitTypeSize(lclRegType);
+
+        inst_set_SV_var(store);
+
+        if (src->isContained())
+        {
+            GetEmitter()->emitIns_S_I(ins, attr, lclNum, 0, static_cast<int>(src->AsIntCon()->GetValue()));
+        }
+        else
+        {
+            regNumber srcReg = genConsumeReg(src);
+
+            GetEmitter()->emitIns_S_R(ins, attr, srcReg, store->GetLclNum(), 0);
+        }
+
+        genUpdateLife(store);
+        lcl->SetRegNum(REG_STK);
+
+        return;
+    }
+
+    genConsumeRegs(src);
+
+    // Look for the case where we have a constant zero which we've marked for reuse,
+    // but which isn't actually in the register we want.  In that case, it's better to create
+    // zero in the target register, because an xor is smaller than a copy. Note that we could
+    // potentially handle this in the register allocator, but we can't always catch it there
+    // because the target may not have a register allocated for it yet.
+
+    if (src->isUsedFromReg() && (src->GetRegNum() != dstReg) &&
+        (src->IsIntegralConst(0) || src->IsDblConPositiveZero()))
+    {
+        src->SetRegNum(REG_NA);
+        src->ResetReuseRegVal();
+        src->SetContained();
+    }
+
+    if (!src->isUsedFromReg())
+    {
+        // Currently, we assume that the non-reg source of a GT_STORE_LCL_VAR writing to a register
+        // must be a constant. However, in the future we might want to support an operand used from
+        // memory. This is a bit tricky because we have to decide it can be used from memory before
+        // register allocation, and this would be a case where, once that's done, we need to mark
+        // that node as always requiring a register - which we always assume now anyway, but once we
+        // "optimize" that we'll have to take cases like this into account.
+
+        assert((src->GetRegNum() == REG_NA) && src->OperIsConst());
+
+        genSetRegToConst(dstReg, lclRegType, src);
+    }
+    else if (src->GetRegNum() != dstReg)
+    {
+        assert(src->GetRegNum() != REG_NA);
+
+        GetEmitter()->emitInsBinary(ins_Move_Extend(lclRegType, true), emitTypeSize(store->GetType()), store, src);
+    }
+
+    genProduceReg(store);
 }
 
 //------------------------------------------------------------------------

@@ -1113,14 +1113,6 @@ protected:
 
 #endif // FEATURE_HW_INTRINSICS
 
-#if !defined(TARGET_64BIT)
-
-    // CodeGen for Long Ints
-
-    void genStoreLongLclVar(GenTree* treeNode);
-
-#endif // !defined(TARGET_64BIT)
-
     // Do liveness update for register produced by the current node in codegen after
     // code has been emitted for it.
     void genProduceReg(GenTree* tree);
@@ -1179,8 +1171,13 @@ protected:
     void genCodeForBswap(GenTree* tree);
     void genCodeForLclVar(GenTreeLclVar* tree);
     void genCodeForLclFld(GenTreeLclFld* tree);
-    void genCodeForStoreLclFld(GenTreeLclFld* tree);
-    void genCodeForStoreLclVar(GenTreeLclVar* tree);
+    void GenStoreLclFld(GenTreeLclFld* store);
+    void GenStoreLclVar(GenTreeLclVar* store);
+#ifndef TARGET_64BIT
+    void GenStoreLclVarLong(GenTreeLclVar* store);
+#endif
+    void GenStoreLclVarMultiReg(GenTreeLclVar* store);
+    void GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void genCodeForJcc(GenTreeCC* tree);
     void genCodeForSetcc(GenTreeCC* setcc);
@@ -1285,9 +1282,6 @@ protected:
 #else  // !FEATURE_EH_FUNCLETS
     void genEHFinallyOrFilterRet(BasicBlock* block);
 #endif // !FEATURE_EH_FUNCLETS
-
-    void genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode);
-    void genMultiRegStoreToLocal(GenTreeLclVar* lclNode);
 
 #ifdef FEATURE_SIMD
     void genMultiRegSIMDReturn(GenTree* src);

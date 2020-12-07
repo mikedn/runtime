@@ -853,134 +853,99 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreLclFld: Produce code for a GT_STORE_LCL_FLD node.
-//
-// Arguments:
-//    tree - the GT_STORE_LCL_FLD node
-//
-void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
+void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 {
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-    emitter*  emit       = GetEmitter();
+    assert(store->OperIs(GT_STORE_LCL_FLD));
+    assert(!store->TypeIs(TYP_STRUCT));
 
-    noway_assert(targetType != TYP_STRUCT);
+    LclVarDsc* lcl  = compiler->lvaGetDesc(store);
+    var_types  type = store->GetType();
 
-    // record the offset
-    unsigned offset = tree->GetLclOffs();
+    assert(!lcl->lvNormalizeOnStore() || (type == varActualType(lcl->GetType())));
 
-    // We must have a stack store with GT_STORE_LCL_FLD
-    noway_assert(targetReg == REG_NA);
+    GenTree*  src     = store->GetOp(0);
+    regNumber srcReg  = genConsumeReg(src);
+    unsigned  lclOffs = store->GetLclOffs();
+    unsigned  lclNum  = store->GetLclNum();
+    emitter*  emit    = GetEmitter();
 
-    unsigned varNum = tree->GetLclNum();
-    assert(varNum < compiler->lvaCount);
-    LclVarDsc* varDsc = &(compiler->lvaTable[varNum]);
-
-    // Ensure that lclVar nodes are typed correctly.
-    assert(!varDsc->lvNormalizeOnStore() || targetType == genActualType(varDsc->TypeGet()));
-
-    GenTree* data = tree->gtOp1;
-
-    assert(!data->isContained());
-    genConsumeReg(data);
-    regNumber dataReg = data->GetRegNum();
-    if (tree->IsOffsetMisaligned())
+    if (store->IsOffsetMisaligned())
     {
-        // Arm supports unaligned access only for integer types,
-        // convert the storing floating data into 1 or 2 integer registers and write them as int.
-        regNumber addr = tree->ExtractTempReg();
-        emit->emitIns_R_S(INS_lea, EA_PTRSIZE, addr, varNum, offset);
-        if (targetType == TYP_FLOAT)
+        // ARM supports unaligned access only for integer types,
+        // use integer stores if the field is not aligned.
+
+        regNumber addrReg = store->ExtractTempReg();
+        emit->emitIns_R_S(INS_lea, EA_PTRSIZE, addrReg, lclNum, lclOffs);
+
+        if (type == TYP_FLOAT)
         {
-            regNumber floatAsInt = tree->GetSingleTempReg();
-            emit->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, floatAsInt, dataReg);
-            emit->emitIns_R_R(INS_str, EA_4BYTE, floatAsInt, addr);
+            regNumber tempReg = store->GetSingleTempReg();
+
+            emit->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg);
+            emit->emitIns_R_R(INS_str, EA_4BYTE, tempReg, addrReg);
         }
         else
         {
-            regNumber halfdoubleAsInt1 = tree->ExtractTempReg();
-            regNumber halfdoubleAsInt2 = tree->GetSingleTempReg();
-            emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, halfdoubleAsInt1, halfdoubleAsInt2, dataReg);
-            emit->emitIns_R_R_I(INS_str, EA_4BYTE, halfdoubleAsInt1, addr, 0);
-            emit->emitIns_R_R_I(INS_str, EA_4BYTE, halfdoubleAsInt2, addr, 4);
+            regNumber tempRegLo = store->ExtractTempReg();
+            regNumber tempRegHi = store->GetSingleTempReg();
+
+            emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempRegLo, tempRegHi, srcReg);
+            emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegLo, addrReg, 0);
+            emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegHi, addrReg, 4);
         }
     }
     else
     {
-        emitAttr    attr = emitTypeSize(targetType);
-        instruction ins  = ins_Store(targetType);
-        emit->emitIns_S_R(ins, attr, dataReg, varNum, offset);
+        emit->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, lclNum, lclOffs);
     }
 
-    // Updating variable liveness after instruction was emitted
-    genUpdateLife(tree);
-    varDsc->SetRegNum(REG_STK);
+    genUpdateLife(store);
+    lcl->SetRegNum(REG_STK);
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreLclVar: Produce code for a GT_STORE_LCL_VAR node.
-//
-// Arguments:
-//    tree - the GT_STORE_LCL_VAR node
-//
-void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* tree)
+void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
-    GenTree* data = tree->gtOp1;
+    assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    // var = call, where call returns a multi-reg return value
-    // case is handled separately.
-    if (data->gtSkipReloadOrCopy()->IsMultiRegNode())
+    GenTree* src = store->GetOp(0);
+
+    if (src->gtSkipReloadOrCopy()->IsMultiRegNode())
     {
-        genMultiRegStoreToLocal(tree);
+        GenStoreLclVarMultiReg(store);
+        return;
     }
-    else
+
+    LclVarDsc* lcl        = compiler->lvaGetDesc(store);
+    var_types  lclRegType = lcl->GetRegisterType(store);
+
+    if (lclRegType == TYP_LONG)
     {
-        unsigned varNum = tree->GetLclNum();
-        assert(varNum < compiler->lvaCount);
-        LclVarDsc* varDsc     = compiler->lvaGetDesc(varNum);
-        var_types  targetType = varDsc->GetRegisterType(tree);
-
-        if (targetType == TYP_LONG)
-        {
-            genStoreLongLclVar(tree);
-        }
-        else
-        {
-            genConsumeRegs(data);
-
-            assert(!data->isContained());
-            regNumber dataReg = data->GetRegNum();
-            assert(dataReg != REG_NA);
-
-            regNumber targetReg = tree->GetRegNum();
-
-            if (targetReg == REG_NA) // store into stack based LclVar
-            {
-                inst_set_SV_var(tree);
-
-                instruction ins  = ins_Store(targetType);
-                emitAttr    attr = emitTypeSize(targetType);
-
-                emitter* emit = GetEmitter();
-                emit->emitIns_S_R(ins, attr, dataReg, varNum, /* offset */ 0);
-
-                // Updating variable liveness after instruction was emitted
-                genUpdateLife(tree);
-
-                varDsc->SetRegNum(REG_STK);
-            }
-            else // store into register (i.e move into register)
-            {
-                if (dataReg != targetReg)
-                {
-                    // Assign into targetReg when dataReg (from op1) is not the same register
-                    inst_RV_RV(ins_Copy(targetType), targetReg, dataReg, targetType);
-                }
-                genProduceReg(tree);
-            }
-        }
+        GenStoreLclVarLong(store);
+        return;
     }
+
+    regNumber srcReg = genConsumeReg(src);
+    regNumber dstReg = store->GetRegNum();
+
+    if (dstReg == REG_NA)
+    {
+        unsigned lclNum = store->GetLclNum();
+        inst_set_SV_var(store);
+
+        GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, lclNum, 0);
+
+        genUpdateLife(store);
+        lcl->SetRegNum(REG_STK);
+
+        return;
+    }
+
+    if (srcReg != dstReg)
+    {
+        GetEmitter()->emitIns_R_R(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg);
+    }
+
+    genProduceReg(store);
 }
 
 //------------------------------------------------------------------------

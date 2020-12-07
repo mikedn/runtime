@@ -1523,7 +1523,7 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
 // stripping out the lo ops, and force them into the form var = mul, as we do for
 // GT_CALLs. In codegen, we then produce a mul instruction that produces the result
 // in edx:eax on x86 or in any two chosen by RA registers on arm32, and store those
-// registers on the stack in genStoreLongLclVar.
+// registers on the stack in GenStoreLclVarLong.
 //
 // All other GT_MULs have been converted to helper calls in morph.cpp
 //
