@@ -139,39 +139,32 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
     return false;
 }
 
-//------------------------------------------------------------------------
-// LowerStoreLoc: Lower a store of a lclVar
-//
-// Arguments:
-//    storeLoc - the local store (GT_STORE_LCL_FLD or GT_STORE_LCL_VAR)
-//
-// Notes:
-//    This involves:
-//    - Widening operations of unsigneds.
-//
-void Lowering::LowerStoreLoc(GenTreeLclVarCommon* storeLoc)
+void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
 {
-    GenTree* op1 = storeLoc->gtGetOp1();
-    if ((storeLoc->gtOper == GT_STORE_LCL_VAR) && (op1->gtOper == GT_CNS_INT))
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+
+    GenTree* src = store->GetOp(0);
+
+    if (src->OperIs(GT_CNS_INT))
     {
         // Try to widen the ops if they are going into a local var.
-        GenTreeIntCon* con    = op1->AsIntCon();
+        GenTreeIntCon* con    = src->AsIntCon();
         ssize_t        ival   = con->gtIconVal;
-        unsigned       varNum = storeLoc->GetLclNum();
+        unsigned       varNum = store->GetLclNum();
         LclVarDsc*     varDsc = comp->lvaGetDesc(varNum);
 
         if (varDsc->lvIsSIMDType())
         {
-            noway_assert(storeLoc->gtType != TYP_STRUCT);
+            noway_assert(store->gtType != TYP_STRUCT);
         }
-        unsigned size = genTypeSize(storeLoc);
+        unsigned size = genTypeSize(store);
         // If we are storing a constant into a local variable
         // we extend the size of the store here
         if ((size < 4) && !varTypeIsStruct(varDsc))
         {
             if (!varTypeIsUnsigned(varDsc))
             {
-                if (genTypeSize(storeLoc) == 1)
+                if (genTypeSize(store) == 1)
                 {
                     if ((ival & 0x7f) != ival)
                     {
@@ -180,7 +173,7 @@ void Lowering::LowerStoreLoc(GenTreeLclVarCommon* storeLoc)
                 }
                 else
                 {
-                    assert(genTypeSize(storeLoc) == 2);
+                    assert(genTypeSize(store) == 2);
                     if ((ival & 0x7fff) != ival)
                     {
                         ival = ival | 0xffff0000;
@@ -194,17 +187,13 @@ void Lowering::LowerStoreLoc(GenTreeLclVarCommon* storeLoc)
             // TODO-CQ: if the field is promoted shouldn't we also be able to do this?
             if (!varDsc->lvIsStructField)
             {
-                storeLoc->gtType = TYP_INT;
+                store->gtType = TYP_INT;
                 con->SetIconValue(ival);
             }
         }
     }
-    if (storeLoc->OperIs(GT_STORE_LCL_FLD))
-    {
-        // We should only encounter this for lclVars that are lvDoNotEnregister.
-        verifyLclFldDoNotEnregister(storeLoc->GetLclNum());
-    }
-    ContainCheckStoreLoc(storeLoc);
+
+    ContainCheckStoreLcl(store);
 }
 
 //------------------------------------------------------------------------
@@ -1454,42 +1443,45 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckStoreLoc: determine whether the source of a STORE_LCL* should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
+void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
-    assert(storeLoc->OperIsLocalStore());
-    GenTree* op1 = storeLoc->gtGetOp1();
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+
+    GenTree* src = store->gtGetOp1();
 
 #ifdef TARGET_XARCH
-    if (op1->OperIs(GT_BITCAST))
+    if (src->OperIs(GT_BITCAST))
     {
         // If we know that the source of the bitcast will be in a register, then we can make
         // the bitcast itself contained. This will allow us to store directly from the other
         // type if this node doesn't get a register.
-        GenTree* bitCastSrc = op1->gtGetOp1();
+        GenTree* bitCastSrc = src->AsUnOp()->GetOp(0);
         if (!bitCastSrc->isContained() && !bitCastSrc->IsRegOptional())
         {
-            op1->SetContained();
+            src->SetContained();
             return;
         }
     }
 #endif
 
 #ifdef TARGET_ARM64
-    if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->IsSIMDZero() || op1->IsHWIntrinsicZero())
+    if (src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsSIMDZero() || src->IsHWIntrinsicZero())
     {
-        op1->SetContained();
+        src->SetContained();
         return;
     }
 
-    if (storeLoc->TypeIs(TYP_SIMD12) && IsContainableMemoryOp(storeLoc))
+    if (store->TypeIs(TYP_SIMD12) && IsContainableMemoryOp(store))
     {
-        ContainSIMD12MemToMemCopy(storeLoc, op1);
+        ContainSIMD12MemToMemCopy(store, src);
+        return;
+    }
+#endif
+
+#ifdef TARGET_ARM
+    if (src->OperIs(GT_LONG))
+    {
+        src->SetContained();
         return;
     }
 #endif
@@ -1497,18 +1489,12 @@ void Lowering::ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc)
     // If the source is a containable immediate, make it contained, unless it is
     // an int-size or larger store of zero to memory, because we can generate smaller code
     // by zeroing a register and then storing it.
-    const LclVarDsc* varDsc = comp->lvaGetDesc(storeLoc);
-    var_types        type   = varDsc->GetRegisterType(storeLoc);
-    if (IsContainableImmed(storeLoc, op1) && (!op1->IsIntegralConst(0) || varTypeIsSmall(type)))
+    var_types type = comp->lvaGetDesc(store)->GetRegisterType(store);
+
+    if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
     {
-        MakeSrcContained(storeLoc, op1);
+        src->SetContained();
     }
-#ifdef TARGET_ARM
-    else if (op1->OperGet() == GT_LONG)
-    {
-        MakeSrcContained(storeLoc, op1);
-    }
-#endif // TARGET_ARM
 }
 
 void Lowering::ContainCheckCast(GenTreeCast* cast)

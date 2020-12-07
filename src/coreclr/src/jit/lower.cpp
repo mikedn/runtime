@@ -309,71 +309,21 @@ GenTree* Lowering::LowerNode(GenTree* node)
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_LCL_FLD:
-        {
-            // We should only encounter this for lclVars that are lvDoNotEnregister.
-            verifyLclFldDoNotEnregister(node->AsLclVarCommon()->GetLclNum());
+            LowerLclFld(node->AsLclFld());
             break;
-        }
 
         case GT_LCL_VAR:
-        {
-            GenTreeLclVar* lclNode = node->AsLclVar();
-            WidenSIMD12IfNecessary(lclNode);
-            LclVarDsc* varDsc = comp->lvaGetDesc(lclNode);
-
-            // The consumer of this node must check compatibility of the fields.
-            // This merely checks whether it is possible for this to be a multireg node.
-            if (lclNode->IsMultiRegLclVar())
-            {
-                if (!varDsc->lvPromoted ||
-                    (comp->lvaGetPromotionType(varDsc) != Compiler::PROMOTION_TYPE_INDEPENDENT) ||
-                    (varDsc->lvFieldCnt > MAX_MULTIREG_COUNT))
-                {
-                    lclNode->ClearMultiReg();
-                    if (lclNode->TypeIs(TYP_STRUCT))
-                    {
-                        comp->lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
-                    }
-                }
-            }
+            WidenSIMD12IfNecessary(node->AsLclVar());
+            LowerLclVar(node->AsLclVar());
             break;
-        }
 
         case GT_STORE_LCL_VAR:
-            WidenSIMD12IfNecessary(node->AsLclVarCommon());
-            FALLTHROUGH;
+            WidenSIMD12IfNecessary(node->AsLclVar());
+            LowerStoreLclVar(node->AsLclVar());
+            break;
 
         case GT_STORE_LCL_FLD:
-            if (node->OperIs(GT_STORE_LCL_FLD) && node->TypeIs(TYP_STRUCT))
-            {
-                GenTreeLclFld* addr = node->AsLclFld();
-                addr = comp->gtNewLclFldAddrNode(addr->GetLclNum(), addr->GetLclOffs(), FieldSeqStore::NotAField());
-                BlockRange().InsertBefore(node, addr);
-
-                ClassLayout* layout = node->AsLclFld()->GetLayout(comp);
-                GenTree*     src    = node->AsLclFld()->GetOp(0);
-
-                node->ChangeOper(layout->IsBlockLayout() ? GT_STORE_BLK : GT_STORE_OBJ);
-
-                GenTreeBlk* store = node->AsBlk();
-                store->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-                store->SetKind(StructStoreKind::Invalid);
-                store->SetLayout(layout);
-                store->SetAddr(addr);
-                store->SetData(src);
-
-                if (src->IsCall())
-                {
-                    LowerStoreSingleRegCallStruct(store->AsObj());
-                }
-                else
-                {
-                    LowerStructStore(store);
-                }
-                break;
-            }
-
-            LowerStoreLocCommon(node->AsLclVarCommon());
+            LowerStoreLclFld(node->AsLclFld());
             break;
 
 #if defined(TARGET_ARM64)
@@ -2774,103 +2724,127 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// LowerStoreLocCommon: platform idependent part of local var or field store lowering.
-//
-// Arguments:
-//     lclStore - The store lcl node to lower.
-//
-void Lowering::LowerStoreLocCommon(GenTreeLclVarCommon* lclStore)
+void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 {
-    assert(lclStore->OperIs(GT_STORE_LCL_FLD, GT_STORE_LCL_VAR));
-    JITDUMP("lowering store lcl var/field (before):\n");
-    DISPTREERANGE(BlockRange(), lclStore);
+    assert(lclVar->OperIs(GT_LCL_VAR));
+
+    LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
+
+    // The consumer of this node must check compatibility of the fields.
+    // This merely checks whether it is possible for this to be a multireg node.
+
+    if (lclVar->IsMultiReg() && ((comp->lvaGetPromotionType(lcl) != Compiler::PROMOTION_TYPE_INDEPENDENT) ||
+                                 (lcl->GetPromotedFieldCount() > MAX_MULTIREG_COUNT)))
+    {
+        lclVar->ClearMultiReg();
+
+        if (lclVar->TypeIs(TYP_STRUCT))
+        {
+            comp->lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
+        }
+    }
+}
+
+void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+
+    JITDUMP("Lowering STORE_LCL_VAR (before):\n");
+    DISPTREERANGE(BlockRange(), store);
     JITDUMP("\n");
 
-    GenTree*   src           = lclStore->gtGetOp1();
-    LclVarDsc* varDsc        = comp->lvaGetDesc(lclStore);
-    bool       srcIsMultiReg = src->IsMultiRegNode();
-    bool       dstIsMultiReg = lclStore->IsMultiRegLclVar();
+    GenTree*   src = store->GetOp(0);
+    LclVarDsc* lcl = comp->lvaGetDesc(store);
 
-    if (!dstIsMultiReg && varTypeIsStruct(varDsc))
+    bool srcIsMultiReg = src->IsMultiRegNode();
+
+    if (!store->IsMultiReg() && varTypeIsStruct(lcl->GetType()))
     {
-        // TODO-Cleanup: we want to check `varDsc->lvRegStruct` as the last condition instead of `!varDsc->lvPromoted`,
+        // TODO-Cleanup: we want to check `lcl->lvRegStruct` as the last condition instead of `!lcl->lvPromoted`,
         // but we do not set it for `CSE` vars so it is currently failing.
-        assert(varDsc->CanBeReplacedWithItsField(comp) || varDsc->lvDoNotEnregister || !varDsc->lvPromoted);
-        if (varDsc->CanBeReplacedWithItsField(comp))
+        assert(lcl->CanBeReplacedWithItsField(comp) || lcl->lvDoNotEnregister || !lcl->IsPromoted());
+
+        if (lcl->CanBeReplacedWithItsField(comp))
         {
-            assert(varDsc->lvFieldCnt == 1);
-            unsigned   fldNum = varDsc->lvFieldLclStart;
-            LclVarDsc* fldDsc = comp->lvaGetDesc(fldNum);
+            assert(lcl->GetPromotedFieldCount() == 1);
+
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+            LclVarDsc* fieldLcl    = comp->lvaGetDesc(fieldLclNum);
 
             JITDUMP("Replacing an independently promoted local var V%02u with its only field V%02u for the store "
                     "from a call [%06u]\n",
-                    lclStore->GetLclNum(), fldNum, comp->dspTreeID(lclStore));
-            lclStore->SetLclNum(fldNum);
-            lclStore->ChangeType(fldDsc->TypeGet());
-            varDsc = fldDsc;
+                    store->GetLclNum(), fieldLclNum, comp->dspTreeID(store));
+
+            store->SetLclNum(fieldLclNum);
+            store->SetType(fieldLcl->GetType());
+
+            lcl = fieldLcl;
         }
     }
 
-    if ((varTypeUsesFloatReg(lclStore) != varTypeUsesFloatReg(src)) && !lclStore->IsPhiDefn() &&
-        (src->TypeGet() != TYP_STRUCT))
+    if (!src->TypeIs(TYP_STRUCT) && (varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(src->GetType())) &&
+        !store->IsPhiDefn())
     {
-        if (m_lsra->isRegCandidate(varDsc))
+        if (m_lsra->isRegCandidate(lcl))
         {
-            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(lclStore->TypeGet(), src);
-            lclStore->gtOp1      = bitcast;
-            src                  = lclStore->gtGetOp1();
-            BlockRange().InsertBefore(lclStore, bitcast);
+            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(store->GetType(), src);
+            store->SetOp(0, bitcast);
+            BlockRange().InsertBefore(store, bitcast);
             LowerBitCast(bitcast);
+            src = bitcast;
         }
         else
         {
             // This is an actual store, we'll just retype it.
-            lclStore->gtType = src->TypeGet();
+            store->SetType(src->GetType());
         }
     }
 
-    if (srcIsMultiReg || lclStore->IsMultiRegLclVar())
+    if (srcIsMultiReg || store->IsMultiReg())
     {
         const ReturnTypeDesc* retTypeDesc = nullptr;
+
         if (src->OperIs(GT_CALL))
         {
             retTypeDesc = src->AsCall()->GetReturnTypeDesc();
         }
-        CheckMultiRegLclVar(lclStore->AsLclVar(), retTypeDesc);
+
+        CheckMultiRegLclVar(store, retTypeDesc);
     }
-    if ((lclStore->TypeGet() == TYP_STRUCT) && !srcIsMultiReg && (src->OperGet() != GT_PHI))
+
+    if (store->TypeIs(TYP_STRUCT) && !srcIsMultiReg && (src->OperGet() != GT_PHI))
     {
-        if (src->OperGet() == GT_CALL)
+        if (GenTreeCall* call = src->IsCall())
         {
-            GenTreeCall*       call    = src->AsCall();
-            const ClassLayout* layout  = varDsc->GetLayout();
-            const var_types    regType = layout->GetRegisterType();
+            ClassLayout* layout  = lcl->GetLayout();
+            var_types    regType = layout->GetRegisterType();
 
 #ifdef DEBUG
-            const unsigned slotCount = layout->GetSlotCount();
 #if defined(TARGET_XARCH) && !defined(UNIX_AMD64_ABI)
             // Windows x64 doesn't have multireg returns,
             // x86 uses it only for long return type, not for structs.
-            assert(slotCount == 1);
+            assert(layout->GetSlotCount() == 1);
             assert(regType != TYP_UNDEF);
-#else  // !TARGET_XARCH || UNIX_AMD64_ABI
-            if (!varDsc->lvIsHfa())
+#else
+            if (!lcl->lvIsHfa())
             {
-                if (slotCount > 1)
+                if (layout->GetSlotCount() > 1)
                 {
                     assert(call->HasMultiRegRetVal());
                 }
                 else
                 {
                     unsigned size = layout->GetSize();
+
                     assert((size <= 8) || (size == 16));
+
                     bool isPowerOf2    = (((size - 1) & size) == 0);
                     bool isTypeDefined = (regType != TYP_UNDEF);
+
                     assert(isPowerOf2 == isTypeDefined);
                 }
             }
-#endif // !TARGET_XARCH || UNIX_AMD64_ABI
+#endif
 #endif // DEBUG
 
 #if !defined(WINDOWS_AMD64_ABI)
@@ -2878,43 +2852,93 @@ void Lowering::LowerStoreLocCommon(GenTreeLclVarCommon* lclStore)
             {
                 // If we have a single return register,
                 // but we can't retype it as a primitive type, we must spill it.
-                GenTreeLclVar* spilledCall = SpillStructCallResult(call);
-                lclStore->gtOp1            = spilledCall;
-                src                        = lclStore->gtOp1;
+
+                store->SetOp(0, SpillStructCallResult(call));
                 JITDUMP("lowering store lcl var/field has to spill call src.\n");
-                LowerStoreLocCommon(lclStore);
+                LowerStoreLclVar(store);
+
                 return;
             }
 #endif // !WINDOWS_AMD64_ABI
         }
-        else if (!src->OperIs(GT_LCL_VAR) || (varDsc->GetLayout()->GetRegisterType() == TYP_UNDEF))
+        else if (!src->OperIs(GT_LCL_VAR) || (lcl->GetLayout()->GetRegisterType() == TYP_UNDEF))
         {
-            GenTreeLclVar* addr = comp->gtNewLclVarAddrNode(lclStore->GetLclNum(), TYP_BYREF);
+            GenTreeLclVar* addr = comp->gtNewLclVarAddrNode(store->GetLclNum(), TYP_BYREF);
 
             addr->gtFlags |= GTF_VAR_DEF;
             assert(!addr->IsPartialLclFld(comp));
             addr->gtFlags |= GTF_DONT_CSE;
 
             // Create the assignment node.
-            lclStore->ChangeOper(GT_STORE_OBJ);
-            GenTreeBlk* objStore = lclStore->AsObj();
+            store->ChangeOper(GT_STORE_OBJ);
+            GenTreeBlk* objStore = store->AsObj();
             // Only the GTF_LATE_ARG flag (if present) is preserved.
             objStore->gtFlags &= GTF_LATE_ARG;
             objStore->gtFlags |= GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
             objStore->SetKind(StructStoreKind::Invalid);
-            objStore->SetLayout(varDsc->GetLayout());
+            objStore->SetLayout(lcl->GetLayout());
             objStore->SetAddr(addr);
             objStore->SetData(src);
             BlockRange().InsertBefore(objStore, addr);
             LowerBlockStoreCommon(objStore);
+
             return;
         }
     }
 
-    LowerStoreLoc(lclStore);
-    JITDUMP("lowering store lcl var/field (after):\n");
-    DISPTREERANGE(BlockRange(), lclStore);
+    LowerStoreLclVarArch(store);
+
+    JITDUMP("Lowering STORE_LCL_VAR (after):\n");
+    DISPTREERANGE(BlockRange(), store);
     JITDUMP("\n");
+}
+
+void Lowering::LowerLclFld(GenTreeLclFld* lclFld)
+{
+    assert(lclFld->OperIs(GT_LCL_FLD));
+
+    verifyLclFldDoNotEnregister(lclFld->GetLclNum());
+}
+
+void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_FLD));
+
+    verifyLclFldDoNotEnregister(store->GetLclNum());
+
+    if (store->TypeIs(TYP_STRUCT))
+    {
+        GenTreeLclFld* addr =
+            comp->gtNewLclFldAddrNode(store->GetLclNum(), store->GetLclOffs(), FieldSeqStore::NotAField());
+        BlockRange().InsertBefore(store, addr);
+
+        ClassLayout* layout = store->GetLayout(comp);
+        GenTree*     src    = store->GetOp(0);
+
+        store->ChangeOper(layout->IsBlockLayout() ? GT_STORE_BLK : GT_STORE_OBJ);
+
+        GenTreeBlk* indir = store->AsBlk();
+        indir->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+        indir->SetKind(StructStoreKind::Invalid);
+        indir->SetLayout(layout);
+        indir->SetAddr(addr);
+        indir->SetData(src);
+
+        if (src->IsCall())
+        {
+            LowerStoreSingleRegCallStruct(indir->AsObj());
+        }
+        else
+        {
+            LowerStructStore(indir);
+        }
+
+        return;
+    }
+
+    assert(varTypeUsesFloatReg(store->GetType()) == varTypeUsesFloatReg(store->GetOp(0)->GetType()));
+
+    ContainCheckStoreLcl(store);
 }
 
 void Lowering::LowerRetStruct(GenTreeUnOp* ret)
@@ -2995,7 +3019,7 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 
             src->ChangeOper(GT_IND);
 
-            LowerStoreLocCommon(tempStore);
+            LowerStoreLclVar(tempStore);
 #endif
         }
 
@@ -3265,7 +3289,7 @@ GenTreeLclVar* Lowering::SpillStructCallResult(GenTreeCall* call)
     spill->gtFlags |= GTF_VAR_DEF;
 
     BlockRange().InsertAfter(call, spill);
-    ContainCheckStoreLoc(spill);
+    ContainCheckStoreLcl(spill);
     GenTreeLclVar* loadCallResult = comp->gtNewLclvNode(spillNum, TYP_STRUCT)->AsLclVar();
     BlockRange().InsertAfter(spill, loadCallResult);
     return loadCallResult;
@@ -4073,7 +4097,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
     storeCallSiteTracker->gtFlags |= GTF_VAR_DEF;
 
     BlockRange().InsertBefore(insertionPoint, constantZero, storeCallSiteTracker);
-    ContainCheckStoreLoc(storeCallSiteTracker);
+    ContainCheckStoreLcl(storeCallSiteTracker);
 #endif // TARGET_64BIT
 }
 
@@ -5991,7 +6015,7 @@ void Lowering::ContainCheckNode(GenTree* node)
     {
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
-            ContainCheckStoreLoc(node->AsLclVarCommon());
+            ContainCheckStoreLcl(node->AsLclVarCommon());
             break;
 
         case GT_EQ:
@@ -6170,7 +6194,7 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
         assert(!lcl->IsPromoted() || lcl->lvIsMultiRegRet || (lcl->lvIsHfa() && varTypeIsValidHfaType(lcl->GetType())));
 
         // Mark var as contained if not enregisterable.
-        if (!varTypeIsEnregisterable(src->GetType()) && !src->IsMultiRegLclVar())
+        if (!varTypeIsEnregisterable(src->GetType()) && !src->AsLclVar()->IsMultiReg())
         {
             src->SetContained();
         }
