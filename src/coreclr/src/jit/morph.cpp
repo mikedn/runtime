@@ -7055,7 +7055,6 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
         if (varTypeIsStruct(origCall->GetType()) && (info.retDesc.GetRegCount() > 1))
         {
-            lvaGetDesc(newRetLcl)->lvIsMultiRegRet = true;
             retVal->gtFlags |= GTF_DONT_CSE;
         }
     }
@@ -7859,7 +7858,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
             // Create a new temp.
             unsigned tmpNum =
                 lvaGrabTemp(false DEBUGARG("Return value temp for multi-reg return (rejected tail call)."));
-            lvaTable[tmpNum].lvIsMultiRegRet = true;
 
             CORINFO_CLASS_HANDLE structHandle = call->gtRetClsHnd;
             assert(structHandle != NO_CLASS_HANDLE);
@@ -16109,11 +16107,17 @@ void Compiler::fgPromoteStructs()
 
         bool promoted = structPromotionHelper->TryPromoteStructVar(lclNum);
 
-        if (!promoted && varTypeIsSIMD(lcl->GetType()) && !lcl->lvFieldAccessed)
+        if (!promoted)
         {
-            // Even if we have not used this in a SIMD intrinsic, if it is not being promoted,
-            // we will treat it as a reg struct.
-            lcl->lvRegStruct = true;
+            // If we don't promote then lvIsMultiRegRet is meaningless.
+            lcl->lvIsMultiRegRet = false;
+
+            if (varTypeIsSIMD(lcl->GetType()) && !lcl->lvFieldAccessed)
+            {
+                // Even if we have not used this in a SIMD intrinsic, if it is not being promoted,
+                // we will treat it as a reg struct.
+                lcl->lvRegStruct = true;
+            }
         }
     }
 

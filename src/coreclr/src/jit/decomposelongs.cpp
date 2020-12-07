@@ -1798,24 +1798,21 @@ GenTree* DecomposeLongs::DecomposeSimdGetItem(LIR::Use& use)
 GenTree* DecomposeLongs::StoreNodeToVar(LIR::Use& use)
 {
     if (use.IsDummyUse())
+    {
         return use.Def()->gtNext;
+    }
 
     GenTree* tree = use.Def();
     GenTree* user = use.User();
 
-    if (user->OperGet() == GT_STORE_LCL_VAR)
+    if (user->OperIs(GT_STORE_LCL_VAR))
     {
         // If parent is already a STORE_LCL_VAR, we can skip it if
         // it is already marked as lvIsMultiRegRet.
-        unsigned varNum = user->AsLclVarCommon()->GetLclNum();
-        if (m_compiler->lvaTable[varNum].lvIsMultiRegRet)
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(user->AsLclVar());
+
+        if (!lcl->IsPromoted() || lcl->lvIsMultiRegRet)
         {
-            return tree->gtNext;
-        }
-        else if (!m_compiler->lvaTable[varNum].lvPromoted)
-        {
-            // If var wasn't promoted, we can just set lvIsMultiRegRet.
-            m_compiler->lvaTable[varNum].lvIsMultiRegRet = true;
             return tree->gtNext;
         }
     }

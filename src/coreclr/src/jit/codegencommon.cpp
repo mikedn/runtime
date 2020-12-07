@@ -11211,7 +11211,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
     {
         unsigned lclNum = actualSrc->AsLclVar()->GetLclNum();
 
-        assert(compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet);
+        assert(compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet || !compiler->lvaGetDesc(lclNum)->IsPromoted());
 
         for (unsigned i = 0, offset = 0; i < retDesc.GetRegCount(); ++i)
         {
@@ -11231,7 +11231,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
     if (actualSrc->OperIs(GT_LCL_VAR))
     {
         lcl = compiler->lvaGetDesc(actualSrc->AsLclVar()->GetLclNum());
-        assert(lcl->lvIsMultiRegRet);
+        assert(lcl->lvIsMultiRegRet && lcl->IsPromoted());
     }
     else
     {
@@ -11301,16 +11301,12 @@ void CodeGen::genMultiRegStoreToLocal(GenTreeLclVar* lclNode)
     unsigned regCount =
         actualOp1->IsMultiRegLclVar() ? actualOp1->AsLclVar()->GetFieldCount(compiler) : actualOp1->GetMultiRegCount();
 
-    // Assumption: current implementation requires that a multi-reg
-    // var in 'var = call' is flagged as lvIsMultiRegRet to prevent it from
-    // being promoted, unless compiler->lvaEnregMultiRegVars is true.
-
     unsigned   lclNum = lclNode->AsLclVarCommon()->GetLclNum();
     LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
     if (op1->OperIs(GT_CALL))
     {
         assert(regCount <= MAX_RET_REG_COUNT);
-        noway_assert(varDsc->lvIsMultiRegRet);
+        noway_assert(varDsc->lvIsMultiRegRet || !varDsc->IsPromoted());
     }
 
 #ifdef FEATURE_SIMD
