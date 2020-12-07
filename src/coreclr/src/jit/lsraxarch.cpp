@@ -108,13 +108,12 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-        case GT_STORE_LCL_FLD:
         case GT_STORE_LCL_VAR:
-            if (tree->IsMultiRegLclVar() && isCandidateMultiRegLclVar(tree->AsLclVar()))
-            {
-                dstCount = compiler->lvaGetDesc(tree->AsLclVar()->GetLclNum())->lvFieldCnt;
-            }
-            srcCount = BuildStoreLoc(tree->AsLclVarCommon());
+            srcCount = BuildStoreLclVar(tree->AsLclVar(), &dstCount);
+            break;
+
+        case GT_STORE_LCL_FLD:
+            srcCount = BuildStoreLclFld(tree->AsLclFld());
             break;
 
         case GT_FIELD_LIST:

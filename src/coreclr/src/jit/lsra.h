@@ -1537,7 +1537,7 @@ private:
         pendingDelayFree         = false;
     }
 
-    bool isCandidateMultiRegLclVar(GenTreeLclVar* lclNode);
+    bool IsCandidateLclVarMultiReg(GenTreeLclVar* lclNode);
     bool checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode);
 
     RefPosition* BuildUse(GenTree* operand, regMaskTP candidates = RBM_NONE, int multiRegIdx = 0);
@@ -1581,9 +1581,11 @@ private:
     int BuildStructStore(GenTreeBlk* store);
     int BuildModDiv(GenTree* tree);
     int BuildIntrinsic(GenTree* tree);
-    void BuildStoreLocDef(GenTreeLclVarCommon* storeLoc, LclVarDsc* varDsc, RefPosition* singleUseRef, int index);
-    int BuildMultiRegStoreLoc(GenTreeLclVar* storeLoc);
-    int BuildStoreLoc(GenTreeLclVarCommon* tree);
+    void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, int index);
+    int BuildStoreLclVarMultiReg(GenTreeLclVar* store);
+    int BuildStoreLclVar(GenTreeLclVar* store, int* dstCount);
+    int BuildStoreLclFld(GenTreeLclFld* store);
+    int BuildStoreLcl(GenTreeLclVarCommon* store);
     int BuildIndir(GenTreeIndir* indirTree);
     int BuildGCWriteBarrier(GenTreeStoreInd* store);
     int BuildCast(GenTreeCast* cast);

@@ -1191,11 +1191,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 }
 
 //------------------------------------------------------------------------
-// LinearScan::isCandidateMultiRegLclVar: Check whether a MultiReg node should
-//                                        remain a candidate MultiReg
-//
-// Arguments:
-//    lclNode - the GT_LCL_VAR or GT_STORE_LCL_VAR of interest
+// Check whether a MultiReg node should remain a candidate MultiReg
 //
 // Return Value:
 //    true iff it remains a MultiReg lclVar.
@@ -1211,23 +1207,31 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 //    LSRA we have to reset the GTF_VAR_MULTIREG flag if necessary as we visit
 //    each node.
 //
-bool LinearScan::isCandidateMultiRegLclVar(GenTreeLclVar* lclNode)
+bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* lclVar)
 {
-    assert(compiler->lvaEnregMultiRegVars && lclNode->IsMultiReg());
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNode->GetLclNum());
-    assert(varDsc->lvPromoted);
+    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+    assert(lclVar->IsMultiReg());
+    assert(compiler->lvaEnregMultiRegVars);
+
+    LclVarDsc* varDsc = compiler->lvaGetDesc(lclVar);
+    assert(varDsc->IsPromoted());
+
     bool isMultiReg = (compiler->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT);
+
     if (!isMultiReg)
     {
-        lclNode->ClearMultiReg();
+        lclVar->ClearMultiReg();
     }
+
 #ifdef DEBUG
-    for (unsigned int i = 0; i < varDsc->lvFieldCnt; i++)
+    for (unsigned int i = 0; i < varDsc->GetPromotedFieldCount(); i++)
     {
-        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + i);
-        assert(isCandidateVar(fieldVarDsc) == isMultiReg);
+        LclVarDsc* fieldLcl = compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
+
+        assert(isCandidateVar(fieldLcl) == isMultiReg);
     }
-#endif // DEBUG
+#endif
+
     return isMultiReg;
 }
 
@@ -1271,7 +1275,7 @@ bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode)
         // we don't want it to be RegOptional in fixed-use cases, so that we can ensure proper
         // liveness modeling (e.g. if one field is in a register required by another field, in
         // a RegOptional case we won't handle the conflict properly if we decide not to allocate).
-        isCandidate = isCandidateMultiRegLclVar(lclNode);
+        isCandidate = IsCandidateLclVarMultiReg(lclNode);
         if (isCandidate)
         {
             assert(!lclNode->IsRegOptional());
@@ -2313,7 +2317,7 @@ void LinearScan::buildIntervals()
         {
             // We increment the location of each tree node by 2 so that the node definition, if any,
             // is at a new location and doesn't interfere with the uses.
-            // For multi-reg local stores, the 'BuildMultiRegStoreLoc' method will further increment the
+            // For multi-reg local stores, the 'BuildStoreLclVarMultiReg' method will further increment the
             // location by 2 for each destination register beyond the first.
             CLANG_FORMAT_COMMENT_ANCHOR;
 
@@ -3097,36 +3101,28 @@ int LinearScan::BuildBinaryUses(GenTreeOp* node, regMaskTP candidates)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildStoreLocDef: Build a definition RefPosition for a local store
-//
-// Arguments:
-//    storeLoc - the local store (GT_STORE_LCL_FLD or GT_STORE_LCL_VAR)
-//
-// Notes:
-//    This takes an index to enable building multiple defs for a multi-reg local.
-//
-void LinearScan::BuildStoreLocDef(GenTreeLclVarCommon* storeLoc,
-                                  LclVarDsc*           varDsc,
-                                  RefPosition*         singleUseRef,
-                                  int                  index)
+void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, int index)
 {
-    assert(varDsc->lvTracked);
-    unsigned  varIndex       = varDsc->lvVarIndex;
-    Interval* varDefInterval = getIntervalForLocalVar(varIndex);
-    if ((storeLoc->gtFlags & GTF_VAR_DEATH) == 0)
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(lcl->lvTracked);
+
+    Interval* varDefInterval = getIntervalForLocalVar(lcl->lvVarIndex);
+
+    if ((store->gtFlags & GTF_VAR_DEATH) == 0)
     {
-        VarSetOps::AddElemD(compiler, currentLiveVars, varIndex);
+        VarSetOps::AddElemD(compiler, currentLiveVars, lcl->lvVarIndex);
     }
+
     if (singleUseRef != nullptr)
     {
         Interval* srcInterval = singleUseRef->getInterval();
+
         if (srcInterval->relatedInterval == nullptr)
         {
             // Preference the source to the dest, unless this is a non-last-use localVar.
             // Note that the last-use info is not correct, but it is a better approximation than preferencing
             // the source to the dest, if the source's lifetime extends beyond the dest.
-            if (!srcInterval->isLocalVar || (singleUseRef->treeNode->gtFlags & GTF_VAR_DEATH) != 0)
+            if (!srcInterval->isLocalVar || ((singleUseRef->treeNode->gtFlags & GTF_VAR_DEATH) != 0))
             {
                 srcInterval->assignRelatedInterval(varDefInterval);
             }
@@ -3137,54 +3133,51 @@ void LinearScan::BuildStoreLocDef(GenTreeLclVarCommon* storeLoc,
             srcInterval->assignRelatedInterval(varDefInterval);
         }
     }
+
     RefPosition* def =
-        newRefPosition(varDefInterval, currentLoc + 1, RefTypeDef, storeLoc, allRegs(varDsc->TypeGet()), index);
+        newRefPosition(varDefInterval, currentLoc + 1, RefTypeDef, store, allRegs(lcl->GetType()), index);
+
     if (varDefInterval->isWriteThru)
     {
         // We always make write-thru defs reg-optional, as we can store them if they don't
         // get a register.
         def->regOptional = true;
     }
+
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     if (varTypeNeedsPartialCalleeSave(varDefInterval->registerType))
     {
         varDefInterval->isPartiallySpilled = false;
     }
-#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+#endif
 }
 
-//------------------------------------------------------------------------
-// BuildMultiRegStoreLoc: Set register requirements for a store of a lclVar
-//
-// Arguments:
-//    storeLoc - the multireg local store (GT_STORE_LCL_VAR)
-//
-// Returns:
-//    The number of source registers read.
-//
-int LinearScan::BuildMultiRegStoreLoc(GenTreeLclVar* storeLoc)
+int LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 {
-    GenTree*     op1      = storeLoc->gtGetOp1();
-    unsigned int dstCount = storeLoc->GetFieldCount(compiler);
-    unsigned int srcCount = dstCount;
-    LclVarDsc*   varDsc   = compiler->lvaGetDesc(storeLoc->GetLclNum());
-
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(store->IsMultiReg());
     assert(compiler->lvaEnregMultiRegVars);
-    assert(storeLoc->OperGet() == GT_STORE_LCL_VAR);
-    bool isMultiRegSrc = op1->IsMultiRegNode();
+
     // The source must be:
     // - a multi-reg source
     // - an enregisterable SIMD type, or
     // - in-memory local
-    //
+
+    GenTree* src           = store->GetOp(0);
+    bool     isMultiRegSrc = src->IsMultiRegNode();
+    unsigned dstCount      = store->GetFieldCount(compiler);
+    unsigned srcCount;
+
     if (isMultiRegSrc)
     {
-        assert(op1->GetMultiRegCount() == srcCount);
+        assert(src->GetMultiRegCount() == dstCount);
+
+        srcCount = dstCount;
     }
-    else if (varTypeIsEnregisterable(op1))
+    else if (varTypeIsEnregisterable(src->GetType()))
     {
         // Create a delay free use, as we'll have to use it to create each field
-        RefPosition* use = BuildUse(op1, RBM_NONE);
+        RefPosition* use = BuildUse(src, RBM_NONE);
         setDelayFree(use);
         srcCount = 1;
     }
@@ -3193,118 +3186,135 @@ int LinearScan::BuildMultiRegStoreLoc(GenTreeLclVar* storeLoc)
         // Otherwise we must have an in-memory struct lclVar.
         // We will just load directly into the register allocated for this lclVar,
         // so we don't need to build any uses.
-        assert(op1->OperIs(GT_LCL_VAR) && op1->isContained() && op1->TypeIs(TYP_STRUCT));
+        assert(src->OperIs(GT_LCL_VAR) && src->isContained() && src->TypeIs(TYP_STRUCT));
+
         srcCount = 0;
     }
+
     // For multi-reg local stores of multi-reg sources, the code generator will read each source
     // register, and then move it, if needed, to the destination register. These nodes have
     // 2*N locations where N is the number of registers, so that the liveness can
     // be reflected accordingly.
-    //
+
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+
     for (unsigned int i = 0; i < dstCount; ++i)
     {
         if (isMultiRegSrc)
         {
-            BuildUse(op1, RBM_NONE, i);
+            BuildUse(src, RBM_NONE, i);
         }
-        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + i);
-        assert(isCandidateVar(fieldVarDsc));
-        BuildStoreLocDef(storeLoc, fieldVarDsc, nullptr, i);
+
+        LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+        assert(isCandidateVar(fieldLcl));
+
+        BuildStoreLclVarDef(store, fieldLcl, nullptr, i);
+
         if (isMultiRegSrc && (i < (dstCount - 1)))
         {
             currentLoc += 2;
         }
     }
-    return srcCount;
+
+    return static_cast<int>(srcCount);
 }
 
-//------------------------------------------------------------------------
-// BuildStoreLoc: Set register requirements for a store of a lclVar
-//
-// Arguments:
-//    storeLoc - the local store (GT_STORE_LCL_FLD or GT_STORE_LCL_VAR)
-//
-// Notes:
-//    This involves:
-//    - Setting the appropriate candidates.
-//    - Handling of contained immediates.
-//    - Requesting an internal register for SIMD12 stores.
-//
-int LinearScan::BuildStoreLoc(GenTreeLclVarCommon* storeLoc)
+int LinearScan::BuildStoreLclVar(GenTreeLclVar* store, int* dstCount)
 {
-    GenTree*     op1 = storeLoc->gtGetOp1();
-    int          srcCount;
-    RefPosition* singleUseRef = nullptr;
-    LclVarDsc*   varDsc       = compiler->lvaGetDesc(storeLoc->GetLclNum());
+    assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    if (storeLoc->IsMultiRegLclVar())
+    if (store->IsMultiReg() && IsCandidateLclVarMultiReg(store))
     {
-        return BuildMultiRegStoreLoc(storeLoc->AsLclVar());
+        *dstCount = static_cast<int>(compiler->lvaGetDesc(store->GetLclNum())->GetPromotedFieldCount());
+        return BuildStoreLclVarMultiReg(store);
     }
 
+    return BuildStoreLcl(store);
+}
+
+int LinearScan::BuildStoreLclFld(GenTreeLclFld* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_FLD));
+
+    return BuildStoreLcl(store);
+}
+
+int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+
+    GenTree* src = store->GetOp(0);
+
 #ifdef FEATURE_SIMD
-    if (storeLoc->TypeIs(TYP_SIMD12) && op1->isContained() && op1->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR))
+    if (store->TypeIs(TYP_SIMD12))
     {
-        buildInternalIntRegisterDefForNode(storeLoc);
-        int srcCount = op1->OperIs(GT_IND) ? BuildIndirUses(op1->AsIndir()) : 0;
-        buildInternalRegisterUses();
-        return srcCount;
+        if (src->isContained() && src->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR))
+        {
+            BuildInternalIntDef(store);
+            int srcCount = src->OperIs(GT_IND) ? BuildIndirUses(src->AsIndir()) : 0;
+            BuildInternalUses();
+            return srcCount;
+        }
+
+        if (!src->OperIs(GT_CNS_INT))
+        {
+            // Need an additional register to extract upper 4 bytes of Vector3.
+            BuildInternalFloatDef(store, allSIMDRegs());
+        }
     }
 #endif
 
-// First, define internal registers.
-#ifdef FEATURE_SIMD
-    RefPosition* internalFloatDef = nullptr;
-    if (varTypeIsSIMD(storeLoc) && !op1->IsCnsIntOrI() && (storeLoc->TypeGet() == TYP_SIMD12))
-    {
-        // Need an additional register to extract upper 4 bytes of Vector3.
-        internalFloatDef = buildInternalFloatRegisterDefForNode(storeLoc, allSIMDRegs());
-    }
-#endif // FEATURE_SIMD
+    LclVarDsc*   lcl          = compiler->lvaGetDesc(store);
+    RefPosition* singleUseRef = nullptr;
+    int          srcCount;
 
-    // Second, use source registers.
-
-    if (op1->IsMultiRegNode())
+    if (src->IsMultiRegNode())
     {
         // This is the case where the source produces multiple registers.
-        // This must be a store lclvar.
-        assert(storeLoc->OperGet() == GT_STORE_LCL_VAR);
-        srcCount = op1->GetMultiRegCount();
+        assert(store->OperIs(GT_STORE_LCL_VAR));
+
+        srcCount = src->GetMultiRegCount();
 
         for (int i = 0; i < srcCount; ++i)
         {
-            BuildUse(op1, RBM_NONE, i);
+            BuildUse(src, RBM_NONE, i);
         }
     }
-    else if (op1->isContained() && op1->OperIs(GT_BITCAST))
+    else if (src->isContained() && src->OperIs(GT_BITCAST))
     {
-        GenTree*     bitCastSrc   = op1->gtGetOp1();
-        RegisterType registerType = bitCastSrc->TypeGet();
-        singleUseRef              = BuildUse(bitCastSrc, allRegs(registerType));
+        GenTree*  bitCastSrc   = src->AsUnOp()->GetOp(0);
+        var_types registerType = bitCastSrc->GetType();
+
+        singleUseRef = BuildUse(bitCastSrc, allRegs(registerType));
 
         Interval* srcInterval = singleUseRef->getInterval();
         assert(srcInterval->registerType == registerType);
+
         srcCount = 1;
     }
 #ifndef TARGET_64BIT
-    else if (varTypeIsLong(op1))
+    else if (varTypeIsLong(src->GetType()))
     {
         // GT_MUL_LONG is handled by the IsMultiRegNode case above.
-        assert(op1->OperIs(GT_LONG));
-        assert(op1->isContained() && !op1->gtGetOp1()->isContained() && !op1->gtGetOp2()->isContained());
-        srcCount = BuildBinaryUses(op1->AsOp());
+        assert(src->OperIs(GT_LONG));
+        assert(src->isContained());
+        assert(!src->AsOp()->GetOp(0)->isContained() && !src->AsOp()->GetOp(1)->isContained());
+
+        srcCount = BuildBinaryUses(src->AsOp());
+
         assert(srcCount == 2);
     }
-#endif // !TARGET_64BIT
-    else if (op1->isContained())
+#endif
+    else if (src->isContained())
     {
 #if defined(TARGET_XARCH) && defined(FEATURE_SIMD)
-        if (varTypeIsSIMD(storeLoc))
+        if (varTypeIsSIMD(store->GetType()))
         {
             // This is the zero-init case, and we need a register to hold the zero.
             // (On Arm64 we can just store REG_ZR.)
-            assert(op1->IsSIMDZero() || op1->IsHWIntrinsicZero());
-            singleUseRef = BuildUse(op1->AsSIMD()->GetOp(0));
+
+            assert(src->IsSIMDZero() || src->IsHWIntrinsicZero());
+            singleUseRef = BuildUse(src->AsSIMD()->GetOp(0));
             srcCount     = 1;
         }
         else
@@ -3315,41 +3325,38 @@ int LinearScan::BuildStoreLoc(GenTreeLclVarCommon* storeLoc)
     }
     else
     {
-        srcCount                = 1;
         regMaskTP srcCandidates = RBM_NONE;
 #ifdef TARGET_X86
-        var_types type = varDsc->GetRegisterType(storeLoc);
-        if (varTypeIsByte(type))
+        if (varTypeIsByte(lcl->GetRegisterType(store)))
         {
             srcCandidates = allByteRegs();
         }
-#endif // TARGET_X86
-        singleUseRef = BuildUse(op1, srcCandidates);
+#endif
+
+        singleUseRef = BuildUse(src, srcCandidates);
+        srcCount     = 1;
     }
 
-// Third, use internal registers.
 #ifdef TARGET_ARM
-    if (storeLoc->OperIs(GT_STORE_LCL_FLD) && storeLoc->AsLclFld()->IsOffsetMisaligned())
+    if (store->OperIs(GT_STORE_LCL_FLD) && store->AsLclFld()->IsOffsetMisaligned())
     {
-        buildInternalIntRegisterDefForNode(storeLoc); // to generate address.
-        buildInternalIntRegisterDefForNode(storeLoc); // to move float into an int reg.
-        if (storeLoc->TypeIs(TYP_DOUBLE))
+        BuildInternalIntDef(store); // to generate address.
+        BuildInternalIntDef(store); // to move float into an int reg.
+
+        if (store->TypeIs(TYP_DOUBLE))
         {
-            buildInternalIntRegisterDefForNode(storeLoc); // to move the second half into an int reg.
+            BuildInternalIntDef(store); // to move the second half into an int reg.
         }
     }
-#endif // TARGET_ARM
+#endif
 
 #if defined(FEATURE_SIMD) || defined(TARGET_ARM)
-    buildInternalRegisterUses();
-#endif // FEATURE_SIMD || TARGET_ARM
+    BuildInternalUses();
+#endif
 
-    // Fourth, define destination registers.
-
-    // Add the lclVar to currentLiveVars (if it will remain live)
-    if (isCandidateVar(varDsc))
+    if (isCandidateVar(lcl))
     {
-        BuildStoreLocDef(storeLoc, varDsc, singleUseRef, 0);
+        BuildStoreLclVarDef(store->AsLclVar(), lcl, singleUseRef, 0);
     }
 
     return srcCount;
