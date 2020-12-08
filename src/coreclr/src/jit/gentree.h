@@ -3917,7 +3917,104 @@ struct GenTreeCall final : public GenTree
     Use* gtCallLateArgs; // On x86:     The register arguments in an optimal order
                          // On ARM/x64: - also includes any outgoing arg space arguments
                          //             - that were evaluated into a temp LclVar
+
+    union {
+        // only used for CALLI unmanaged calls (CT_INDIRECT)
+        GenTree* gtCallCookie;
+        // gtInlineCandidateInfo is only used when inlining methods
+        InlineCandidateInfo*                  gtInlineCandidateInfo;
+        GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
+        void*                                 gtStubCallStubAddr; // GTF_CALL_VIRT_STUB - these are never inlined
+        CORINFO_GENERIC_HANDLE compileTimeHelperArgumentHandle; // Used to track type handle argument of dynamic helpers
+        void*                  gtDirectCallAddress; // Used to pass direct call address between lower and codegen
+    };
+
+    union {
+        CORINFO_METHOD_HANDLE gtCallMethHnd; // CT_USER_FUNC
+        GenTree*              gtCallAddr;    // CT_INDIRECT
+    };
+
+    // expression evaluated after args are placed which determines the control target
+    GenTree* gtControlExpr;
+
     CallInfo* fgArgInfo;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    // Call target lookup info for method call from a Ready To Run module
+    // TODO-MIKE-Cleanup: This wastes 3/7 bytes due to useless enum bits and internal padding.
+    CORINFO_CONST_LOOKUP gtEntryPoint;
+#endif
+
+    TailCallSiteInfo* tailCallInfo;
+
+    CORINFO_CLASS_HANDLE gtRetClsHnd; // The return type handle of the call if it is a struct; always available
+
+    unsigned gtCallMoreFlags;
+
+    unsigned char gtCallType : 3;   // value from the gtCallTypes enumeration
+    unsigned char m_retSigType : 5; // Signature return type
+
+#if FEATURE_MULTIREG_RET
+    // State required to support multi-reg returning call nodes.
+
+    // TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
+    ReturnTypeDesc gtReturnTypeDesc;
+
+    // GetRegNum() would always be the first return reg.
+    // The following array holds the other reg numbers of multi-reg return.
+    regNumberSmall gtOtherRegs[MAX_RET_REG_COUNT - 1];
+
+    MultiRegSpillFlags gtSpillFlags;
+#endif // FEATURE_MULTIREG_RET
+
+#if defined(DEBUG) || defined(INLINE_DATA)
+    // For non-inline candidates, track the first observation
+    // that blocks candidacy.
+    InlineObservation gtInlineObservation;
+
+    // IL offset of the call wrt its parent method.
+    IL_OFFSET gtRawILOffset;
+#endif // defined(DEBUG) || defined(INLINE_DATA)
+
+    // Used to register callsites with the EE
+    INDEBUG(CORINFO_SIG_INFO* callSig;)
+
+public:
+    GenTreeCall(var_types type, gtCallTypes kind, Use* args)
+        : GenTree(GT_CALL, varActualType(type))
+        , gtCallThisArg(nullptr)
+        , gtCallArgs(args)
+        , gtCallLateArgs(nullptr)
+        , gtControlExpr(nullptr)
+        , fgArgInfo(nullptr)
+        , tailCallInfo(nullptr)
+        , gtRetClsHnd(NO_CLASS_HANDLE)
+        , gtCallMoreFlags(0)
+        , gtCallType(kind)
+        , m_retSigType(type)
+#ifdef DEBUG
+        , callSig(nullptr)
+#endif
+    {
+        gtFlags |= (GTF_CALL | GTF_GLOB_REF);
+        for (Use& use : UseList(args))
+        {
+            gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+        }
+    }
+
+    GenTreeCall(const GenTreeCall* copyFrom)
+        : GenTree(GT_CALL, copyFrom->GetType())
+        , gtCallThisArg(nullptr)
+        , gtCallArgs(nullptr)
+        , gtCallLateArgs(nullptr)
+        , fgArgInfo(nullptr)
+        , gtRetClsHnd(copyFrom->gtRetClsHnd)
+        , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
+        , gtCallType(copyFrom->gtCallType)
+        , m_retSigType(copyFrom->m_retSigType)
+    {
+    }
 
     CallInfo* GetInfo() const
     {
@@ -3944,26 +4041,6 @@ struct GenTreeCall final : public GenTree
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
     CallArgInfo* GetArgInfoByLateArgUse(Use* use) const;
 
-    // Used to register callsites with the EE
-    INDEBUG(CORINFO_SIG_INFO* callSig;)
-
-    TailCallSiteInfo* tailCallInfo;
-
-#if FEATURE_MULTIREG_RET
-
-    // State required to support multi-reg returning call nodes.
-    //
-    // TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
-    ReturnTypeDesc gtReturnTypeDesc;
-
-    // GetRegNum() would always be the first return reg.
-    // The following array holds the other reg numbers of multi-reg return.
-    regNumberSmall gtOtherRegs[MAX_RET_REG_COUNT - 1];
-
-    MultiRegSpillFlags gtSpillFlags;
-
-#endif // FEATURE_MULTIREG_RET
-
     var_types GetRetSigType() const
     {
         return static_cast<var_types>(m_retSigType);
@@ -3976,8 +4053,6 @@ struct GenTreeCall final : public GenTree
 
     const ReturnTypeDesc* GetReturnTypeDesc() const
     {
-// TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
-
 #if FEATURE_MULTIREG_RET
         return &gtReturnTypeDesc;
 #else
@@ -3994,16 +4069,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //---------------------------------------------------------------------------
-    // GetRegNumByIdx: get ith return register allocated to this call node.
-    //
-    // Arguments:
-    //     idx   -   index of the return register
-    //
-    // Return Value:
-    //     Return regNumber of ith return register of call node.
-    //     Returns REG_NA if there is no valid return register for the given index.
-    //
     regNumber GetRegNumByIdx(unsigned idx) const
     {
         assert(idx < MAX_RET_REG_COUNT);
@@ -4020,16 +4085,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //----------------------------------------------------------------------
-    // SetRegNumByIdx: set ith return register of this call node
-    //
-    // Arguments:
-    //    reg    -   reg number
-    //    idx    -   index of the return register
-    //
-    // Return Value:
-    //    None
-    //
     void SetRegNumByIdx(regNumber reg, unsigned idx)
     {
         assert(idx < MAX_RET_REG_COUNT);
@@ -4049,15 +4104,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //----------------------------------------------------------------------------
-    // ClearOtherRegs: clear multi-reg state to indicate no regs are allocated
-    //
-    // Arguments:
-    //    None
-    //
-    // Return Value:
-    //    None
-    //
     void ClearOtherRegs()
     {
 #if FEATURE_MULTIREG_RET
@@ -4068,15 +4114,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //----------------------------------------------------------------------------
-    // CopyOtherRegs: copy multi-reg state from the given call node to this node
-    //
-    // Arguments:
-    //    fromCall  -  GenTreeCall node from which to copy multi-reg state
-    //
-    // Return Value:
-    //    None
-    //
     void CopyOtherRegs(GenTreeCall* fromCall)
     {
 #if FEATURE_MULTIREG_RET
@@ -4107,14 +4144,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //-------------------------------------------------------------------
-    // clearOtherRegFlags: clear GTF_* flags associated with gtOtherRegs
-    //
-    // Arguments:
-    //     None
-    //
-    // Return Value:
-    //     None
     void ClearOtherRegFlags()
     {
 #if FEATURE_MULTIREG_RET
@@ -4122,20 +4151,10 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //-------------------------------------------------------------------------
-    // CopyOtherRegFlags: copy GTF_* flags associated with gtOtherRegs from
-    // the given call node.
-    //
-    // Arguments:
-    //    fromCall  -  GenTreeCall node from which to copy
-    //
-    // Return Value:
-    //    None
-    //
     void CopyOtherRegFlags(GenTreeCall* fromCall)
     {
 #if FEATURE_MULTIREG_RET
-        this->gtSpillFlags = fromCall->gtSpillFlags;
+        gtSpillFlags = fromCall->gtSpillFlags;
 #endif
     }
 
@@ -4235,40 +4254,17 @@ struct GenTreeCall final : public GenTree
     bool HasNonStandardAddedArgs(Compiler* compiler) const;
     int GetNonStandardAddedArgCount(Compiler* compiler) const;
 
-    // Returns true if this call uses a retBuf argument and its calling convention
+    // Returns true if this call uses a return buffer argument.
     bool HasRetBufArg() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_RETBUFFARG) != 0;
     }
 
-    //-------------------------------------------------------------------------
-    // TreatAsHasRetBufArg:
-    //
-    // Arguments:
-    //     compiler, the compiler instance so that we can call eeGetHelperNum
-    //
-    // Return Value:
-    //     Returns true if we treat the call as if it has a retBuf argument
-    //     This method may actually have a retBuf argument
-    //     or it could be a JIT helper that we are still transforming during
-    //     the importer phase.
-    //
-    // Notes:
-    //     On ARM64 marking the method with the GTF_CALL_M_RETBUFFARG flag
-    //     will make HasRetBufArg() return true, but will also force the
-    //     use of register x8 to pass the RetBuf argument.
-    //
+    // Returns true if this call must be transformed as if having a return buffer
+    // arg even if the actual signature and ABI conventions indicates otherwise
+    // (HasRetBufArg == false).
     bool TreatAsHasRetBufArg() const;
 
-    //-----------------------------------------------------------------------------------------
-    // HasMultiRegRetVal: whether the call node returns its value in multiple return registers.
-    //
-    // Arguments:
-    //     None
-    //
-    // Return Value:
-    //     True if the call is returning a multi-reg return value. False otherwise.
-    //
     bool HasMultiRegRetVal() const
     {
 #if FEATURE_MULTIREG_RET
@@ -4338,43 +4334,35 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-#if FEATURE_FASTTAILCALL
     bool IsFastTailCall() const
     {
-#ifdef TARGET_X86
-        return IsTailCall() && !(gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
+#if !FEATURE_FASTTAILCALL
+        return false;
+#elif defined(TARGET_X86)
+        return IsTailCall() && ((gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER) == 0);
 #else
         return IsTailCall();
 #endif
     }
-#else  // !FEATURE_FASTTAILCALL
-    bool IsFastTailCall() const
-    {
-        return false;
-    }
-#endif // !FEATURE_FASTTAILCALL
 
-#if FEATURE_TAILCALL_OPT
     // Returns true if this is marked for opportunistic tail calling.
     // That is, can be tail called though not explicitly prefixed with "tail" prefix.
     bool IsImplicitTailCall() const
     {
+#if FEATURE_TAILCALL_OPT
         return (gtCallMoreFlags & GTF_CALL_M_IMPLICIT_TAILCALL) != 0;
+#else
+        return false;
+#endif
     }
     bool IsTailCallConvertibleToLoop() const
     {
+#if FEATURE_TAILCALL_OPT
         return (gtCallMoreFlags & GTF_CALL_M_TAILCALL_TO_LOOP) != 0;
-    }
-#else  // !FEATURE_TAILCALL_OPT
-    bool IsImplicitTailCall() const
-    {
+#else
         return false;
+#endif
     }
-    bool IsTailCallConvertibleToLoop() const
-    {
-        return false;
-    }
-#endif // !FEATURE_TAILCALL_OPT
 
     bool IsSameThis() const
     {
@@ -4488,46 +4476,6 @@ struct GenTreeCall final : public GenTree
         return (gtFlags & GTF_CALL_M_EXP_RUNTIME_LOOKUP) != 0;
     }
 
-    unsigned gtCallMoreFlags; // in addition to gtFlags
-
-    unsigned char gtCallType : 3;   // value from the gtCallTypes enumeration
-    unsigned char m_retSigType : 5; // Signature return type
-
-    CORINFO_CLASS_HANDLE gtRetClsHnd; // The return type handle of the call if it is a struct; always available
-
-    union {
-        // only used for CALLI unmanaged calls (CT_INDIRECT)
-        GenTree* gtCallCookie;
-        // gtInlineCandidateInfo is only used when inlining methods
-        InlineCandidateInfo*                  gtInlineCandidateInfo;
-        GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
-        void*                                 gtStubCallStubAddr; // GTF_CALL_VIRT_STUB - these are never inlined
-        CORINFO_GENERIC_HANDLE compileTimeHelperArgumentHandle; // Used to track type handle argument of dynamic helpers
-        void*                  gtDirectCallAddress; // Used to pass direct call address between lower and codegen
-    };
-
-    // expression evaluated after args are placed which determines the control target
-    GenTree* gtControlExpr;
-
-    union {
-        CORINFO_METHOD_HANDLE gtCallMethHnd; // CT_USER_FUNC
-        GenTree*              gtCallAddr;    // CT_INDIRECT
-    };
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    // Call target lookup info for method call from a Ready To Run module
-    CORINFO_CONST_LOOKUP gtEntryPoint;
-#endif
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-    // For non-inline candidates, track the first observation
-    // that blocks candidacy.
-    InlineObservation gtInlineObservation;
-
-    // IL offset of the call wrt its parent method.
-    IL_OFFSET gtRawILOffset;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-
     bool IsHelperCall() const
     {
         return gtCallType == CT_HELPER;
@@ -4546,10 +4494,6 @@ struct GenTreeCall final : public GenTree
 
     static bool Equals(GenTreeCall* c1, GenTreeCall* c2);
 
-    GenTreeCall(var_types type) : GenTree(GT_CALL, type)
-    {
-        fgArgInfo = nullptr;
-    }
 #if DEBUGGABLE_GENTREE
     GenTreeCall() : GenTree()
     {

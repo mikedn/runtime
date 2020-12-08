@@ -13876,7 +13876,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         }
         else
         {
-            copy = new (this, GT_CALL) GenTreeCall(TYP_INT);
+            copy = new (this, GT_CALL) GenTreeCall();
         }
 
         copy->ReplaceWith(tree, this);

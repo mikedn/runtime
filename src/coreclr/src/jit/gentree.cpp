@@ -5609,27 +5609,12 @@ GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCa
 }
 
 GenTreeCall* Compiler::gtNewCallNode(
-    gtCallTypes callType, CORINFO_METHOD_HANDLE callHnd, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
+    gtCallTypes kind, CORINFO_METHOD_HANDLE callHnd, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
-    GenTreeCall* node = new (this, GT_CALL) GenTreeCall(genActualType(type));
-
-    node->gtFlags |= (GTF_CALL | GTF_GLOB_REF);
-    for (GenTreeCall::Use& use : GenTreeCall::UseList(args))
-    {
-        node->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
-    }
-    node->gtCallType    = callType;
+    GenTreeCall* node   = new (this, GT_CALL) GenTreeCall(type, kind, args);
     node->gtCallMethHnd = callHnd;
-    node->gtCallArgs    = args;
-    node->gtCallThisArg = nullptr;
-    node->fgArgInfo     = nullptr;
-    INDEBUG(node->callSig = nullptr;)
-    node->tailCallInfo    = nullptr;
-    node->gtRetClsHnd     = nullptr;
-    node->gtControlExpr   = nullptr;
-    node->gtCallMoreFlags = 0;
 
-    if (callType == CT_INDIRECT)
+    if (kind == CT_INDIRECT)
     {
         node->gtCallCookie = nullptr;
     }
@@ -5637,8 +5622,6 @@ GenTreeCall* Compiler::gtNewCallNode(
     {
         node->gtInlineCandidateInfo = nullptr;
     }
-    node->gtCallLateArgs = nullptr;
-    node->SetRetSigType(type);
 
 #ifdef FEATURE_READYTORUN_COMPILER
     node->gtEntryPoint.addr       = nullptr;
@@ -7066,21 +7049,13 @@ DONE:
 
 GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlags, unsigned deepVarNum, int deepVarVal)
 {
-    GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree->TypeGet());
+    GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree);
 
-    if (tree->gtCallThisArg == nullptr)
-    {
-        copy->gtCallThisArg = nullptr;
-    }
-    else
+    if (tree->gtCallThisArg != nullptr)
     {
         copy->gtCallThisArg =
             gtNewCallArgs(gtCloneExpr(tree->gtCallThisArg->GetNode(), addFlags, deepVarNum, deepVarVal));
     }
-
-    copy->gtCallMoreFlags = tree->gtCallMoreFlags;
-    copy->gtCallArgs      = nullptr;
-    copy->gtCallLateArgs  = nullptr;
 
     GenTreeCall::Use** argsTail = &copy->gtCallArgs;
     for (GenTreeCall::Use& use : tree->Args())
@@ -7107,8 +7082,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
     // a shallow copy suffices.
     copy->tailCallInfo = tree->tailCallInfo;
 
-    copy->gtCallType = tree->gtCallType;
-    copy->SetRetSigType(tree->GetRetSigType());
+    // TODO-MIKE-Review: No gtCloneExpr!?!
     copy->gtControlExpr = tree->gtControlExpr;
 
     /* Copy the union */
@@ -7129,17 +7103,10 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
         copy->gtInlineCandidateInfo = nullptr;
     }
 
-    if (tree->fgArgInfo)
+    if (tree->fgArgInfo != nullptr)
     {
-        // Create and initialize the fgArgInfo for our copy of the call tree
         copy->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(this, copy, tree);
     }
-    else
-    {
-        copy->fgArgInfo = nullptr;
-    }
-
-    copy->gtRetClsHnd = tree->gtRetClsHnd;
 
 #if FEATURE_MULTIREG_RET
     copy->gtReturnTypeDesc = tree->gtReturnTypeDesc;
