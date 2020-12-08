@@ -3157,7 +3157,7 @@ protected:
 
     bool impMethodInfo_hasRetBuffArg(CORINFO_METHOD_INFO* methInfo);
 
-    GenTree* impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
+    GenTree* impFixupCallStructReturn(GenTreeCall* call);
 
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
     GenTree* impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass);

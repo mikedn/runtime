@@ -7755,8 +7755,9 @@ DONE_CALL:
 
             if (varTypeIsStruct(callRetTyp) && varTypeIsStruct(origCall->GetType()))
             {
-                // Need to treat all "split tree" cases here, not just inline candidates
-                call = impFixupCallStructReturn(origCall, sig->retTypeClass);
+                origCall->gtRetClsHnd = sig->retTypeClass;
+
+                call = impFixupCallStructReturn(origCall);
             }
 
             // TODO: consider handling fatcalli cases this way too...?
@@ -7887,19 +7888,17 @@ bool Compiler::impMethodInfo_hasRetBuffArg(CORINFO_METHOD_INFO* methInfo)
     return false;
 }
 
-GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass)
+GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call)
 {
     assert(varTypeIsStruct(call->GetType()));
 
-    call->gtRetClsHnd = retClass;
-
-    unsigned          retClassSize = info.compCompHnd->getClassSize(retClass);
+    unsigned          retClassSize = info.compCompHnd->getClassSize(call->gtRetClsHnd);
     structPassingKind retKind;
-    var_types         retKindType = getReturnTypeForStruct(retClass, &retKind);
+    var_types         retKindType = getReturnTypeForStruct(call->gtRetClsHnd, &retKind);
 
 #if FEATURE_MULTIREG_RET
     ReturnTypeDesc* retDesc = call->GetReturnTypeDesc();
-    retDesc->InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
+    retDesc->InitializeStruct(this, call->gtRetClsHnd, retClassSize, retKind, retKindType);
 
     if ((retDesc->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate())
     {
@@ -7908,7 +7907,7 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HAN
         // For inline candidate calls this transform is deferred to the inliner.
 
         unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
-        impAssignTempGen(tempLclNum, call, retClass, CHECK_SPILL_ALL);
+        impAssignTempGen(tempLclNum, call, call->gtRetClsHnd, CHECK_SPILL_ALL);
         LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
 
         GenTree* temp = gtNewLclvNode(tempLclNum, tempLcl->GetType());
