@@ -7055,7 +7055,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
         var_types newRetLclTye = varActualType(newRetLcl->GetType());
 
-        retValArg = gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(newRetLclNum, newRetLclTye));
+        retValArg = gtNewLclVarAddrNode(newRetLclNum);
         retVal    = gtNewLclvNode(newRetLclNum, newRetLclTye);
 
         if (varTypeIsStruct(origCall->GetType()) && (info.retDesc.GetRegCount() > 1))
@@ -7084,7 +7084,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         lvaSetVarAddrExposed(lvaRetAddrVar);
     }
 
-    GenTree* retAddrSlot           = gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(lvaRetAddrVar, TYP_I_IMPL));
+    GenTree* retAddrSlot           = gtNewLclVarAddrNode(lvaRetAddrVar);
     callDispatcherNode->gtCallArgs = gtPrependNewCallArg(retAddrSlot, callDispatcherNode->gtCallArgs);
 
     GenTree* finalTree = callDispatcherNode;
