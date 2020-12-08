@@ -79,6 +79,7 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->gtCallArgs            = args;
     call->gtCallLateArgs        = nullptr;
     call->fgArgInfo             = nullptr;
+    call->m_retSigType          = call->GetType();
     call->gtRetClsHnd           = nullptr;
     call->gtCallMoreFlags       = 0;
     call->gtInlineCandidateInfo = nullptr;
@@ -5649,7 +5650,7 @@ void Compiler::fgMorphCallInline(GenTreeCall* call, InlineResult* inlineResult)
     // If we failed to inline (or didn't even try), do some cleanup.
     if (inliningFailed)
     {
-        if (call->gtReturnType != TYP_VOID)
+        if (call->GetRetSigType() != TYP_VOID)
         {
             JITDUMP("Inlining [%06u] failed, so bashing " FMT_STMT " to NOP\n", dspTreeID(call), fgMorphStmt->GetID());
 
@@ -5887,7 +5888,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     if (callee->IsTailPrefixedCall())
     {
         assert(impTailCallRetTypeCompatible(info.compRetType, info.compMethodInfo->args.retTypeClass,
-                                            (var_types)callee->gtReturnType, callee->gtRetClsHnd));
+                                            callee->GetRetSigType(), callee->gtRetClsHnd));
     }
 
     assert(!callee->AreArgsComplete());
@@ -6941,9 +6942,9 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_DELEGATE_INV | GTF_CALL_M_WRAPPER_DELEGATE_INV);
 
     // The store-args stub returns no value.
-    call->gtRetClsHnd  = nullptr;
-    call->gtType       = TYP_VOID;
-    call->gtReturnType = TYP_VOID;
+    call->gtRetClsHnd = nullptr;
+    call->SetType(TYP_VOID);
+    call->SetRetSigType(TYP_VOID);
 
     GenTree* finalTree =
         gtNewOperNode(GT_COMMA, callDispatcherAndGetResult->TypeGet(), call, callDispatcherAndGetResult);
@@ -7031,27 +7032,31 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
             retVal = gtClone(retBufArg);
         }
     }
-    else if (origCall->gtType != TYP_VOID)
+    else if (!origCall->TypeIs(TYP_VOID))
     {
         JITDUMP("Creating a new temp for the return value\n");
-        unsigned newRetLcl = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
-        if (varTypeIsStruct(origCall->gtType))
+
+        unsigned   newRetLclNum = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
+        LclVarDsc* newRetLcl    = lvaGetDesc(newRetLclNum);
+
+        if (varTypeIsStruct(origCall->GetType()))
         {
-            lvaSetStruct(newRetLcl, origCall->gtRetClsHnd, false);
+            lvaSetStruct(newRetLclNum, origCall->gtRetClsHnd, false);
         }
         else
         {
             // Since we pass a reference to the return value to the dispatcher
             // we need to use the real return type so we can normalize it on
             // load when we return it.
-            lvaTable[newRetLcl].lvType = (var_types)origCall->gtReturnType;
+            newRetLcl->SetType(origCall->GetRetSigType());
         }
 
-        lvaSetVarAddrExposed(newRetLcl);
+        lvaSetVarAddrExposed(newRetLclNum);
 
-        retValArg =
-            gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(newRetLcl, genActualType(lvaTable[newRetLcl].lvType)));
-        retVal = gtNewLclvNode(newRetLcl, genActualType(lvaTable[newRetLcl].lvType));
+        var_types newRetLclTye = varActualType(newRetLcl->GetType());
+
+        retValArg = gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(newRetLclNum, newRetLclTye));
+        retVal    = gtNewLclvNode(newRetLclNum, newRetLclTye);
 
         if (varTypeIsStruct(origCall->GetType()) && (info.retDesc.GetRegCount() > 1))
         {

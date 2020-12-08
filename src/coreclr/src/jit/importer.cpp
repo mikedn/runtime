@@ -1173,7 +1173,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         }
         else
         {
-            srcType = static_cast<var_types>(src->AsCall()->gtReturnType);
+            srcType = src->AsCall()->GetRetSigType();
         }
     }
     else if (src->OperIs(GT_RET_EXPR))
@@ -7447,8 +7447,9 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             // the constructor claims to return VOID but we know it
             // actually returns the new object
             assert(callRetTyp == TYP_VOID);
-            callRetTyp   = TYP_REF;
-            call->gtType = TYP_REF;
+            callRetTyp = TYP_REF;
+            call->SetType(TYP_REF);
+            call->AsCall()->SetRetSigType(TYP_REF);
             impSpillSpecialSideEff();
 
             impPushOnStack(call, typeInfo(TI_REF, clsHnd));
@@ -13203,9 +13204,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     CORINFO_CLASS_HANDLE classHandle = impGetTypeHandleClass();
 
                     // The handle struct is returned in register
-                    var_types retRegType        = GetRuntimeHandleUnderlyingType();
-                    op1->AsCall()->gtReturnType = retRegType;
-                    op1->AsCall()->gtRetClsHnd  = classHandle;
+                    var_types retRegType       = GetRuntimeHandleUnderlyingType();
+                    op1->AsCall()->gtRetClsHnd = classHandle;
 #if FEATURE_MULTIREG_RET
                     op1->AsCall()->GetReturnTypeDesc()->InitializePrimitive(retRegType);
 #endif
@@ -13226,7 +13226,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     return;
                 }
 
-                helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE;
                 assert(resolvedToken.hClass != nullptr);
 
                 if (resolvedToken.hMethod != nullptr)
@@ -13237,14 +13236,17 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     helper = CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD;
                 }
+                else
+                {
+                    helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE;
+                }
 
                 op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op1));
 
                 {
                     // The handle struct is returned in register and
                     // it could be consumed both as `TYP_STRUCT` and `TYP_REF`.
-                    var_types retRegType        = GetRuntimeHandleUnderlyingType();
-                    op1->AsCall()->gtReturnType = retRegType;
+                    var_types retRegType = GetRuntimeHandleUnderlyingType();
 #if FEATURE_MULTIREG_RET
                     op1->AsCall()->GetReturnTypeDesc()->InitializePrimitive(retRegType);
 #endif

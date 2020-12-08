@@ -960,21 +960,24 @@ bool GenTreeCall::TreatAsHasRetBufArg() const
         return true;
     }
 
-    // If we see a Jit helper call that returns a TYP_STRUCT we will
-    // transform it as if it has a Return Buffer Argument
-    if (IsHelperCall() && (gtReturnType == TYP_STRUCT))
+    if (!TypeIs(TYP_STRUCT) || !IsHelperCall())
     {
-        CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(gtCallMethHnd);
-
-        if (helpFunc == CORINFO_HELP_UNBOX_NULLABLE)
-        {
-            return true;
-        }
-
-        assert(!"Unexpected JIT helper in TreatAsHasRetBufArg");
+        return false;
     }
 
-    return false;
+    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
+    {
+        case CORINFO_HELP_UNBOX_NULLABLE:
+            return true;
+        case CORINFO_HELP_METHODDESC_TO_STUBRUNTIMEMETHOD:
+        case CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL:
+            return false;
+        default:
+            assert(!"Unexpected JIT helper in TreatAsHasRetBufArg");
+            return false;
+    }
 }
 
 //-------------------------------------------------------------------------
@@ -5635,7 +5638,7 @@ GenTreeCall* Compiler::gtNewCallNode(
         node->gtInlineCandidateInfo = nullptr;
     }
     node->gtCallLateArgs = nullptr;
-    node->gtReturnType   = type;
+    node->SetRetSigType(type);
 
 #ifdef FEATURE_READYTORUN_COMPILER
     node->gtEntryPoint.addr       = nullptr;
@@ -7104,8 +7107,8 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
     // a shallow copy suffices.
     copy->tailCallInfo = tree->tailCallInfo;
 
-    copy->gtCallType    = tree->gtCallType;
-    copy->gtReturnType  = tree->gtReturnType;
+    copy->gtCallType = tree->gtCallType;
+    copy->SetRetSigType(tree->GetRetSigType());
     copy->gtControlExpr = tree->gtControlExpr;
 
     /* Copy the union */

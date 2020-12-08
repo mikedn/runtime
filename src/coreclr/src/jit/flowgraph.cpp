@@ -7626,9 +7626,9 @@ bool Compiler::fgCastNeeded(GenTree* tree, var_types toType)
     {
         fromType = tree->CastToType();
     }
-    else if (tree->OperGet() == GT_CALL)
+    else if (tree->OperIs(GT_CALL))
     {
-        fromType = (var_types)tree->AsCall()->gtReturnType;
+        fromType = tree->AsCall()->GetRetSigType();
     }
     else
     {
@@ -23346,7 +23346,7 @@ _Done:
 
     // If there is non-NULL return, replace the GT_CALL with its return value expression,
     // so later it will be picked up by the GT_RET_EXPR node.
-    if ((pInlineInfo->inlineCandidateInfo->fncRetType != TYP_VOID) || (iciCall->gtReturnType == TYP_STRUCT))
+    if ((pInlineInfo->inlineCandidateInfo->fncRetType != TYP_VOID) || (iciCall->GetRetSigType() == TYP_STRUCT))
     {
         noway_assert(pInlineInfo->retExpr);
 #ifdef DEBUG

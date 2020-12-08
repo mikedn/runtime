@@ -3964,6 +3964,16 @@ struct GenTreeCall final : public GenTree
 
 #endif // FEATURE_MULTIREG_RET
 
+    var_types GetRetSigType() const
+    {
+        return static_cast<var_types>(m_retSigType);
+    }
+
+    void SetRetSigType(var_types type)
+    {
+        m_retSigType = type;
+    }
+
     const ReturnTypeDesc* GetReturnTypeDesc() const
     {
 // TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
@@ -4481,7 +4491,7 @@ struct GenTreeCall final : public GenTree
     unsigned gtCallMoreFlags; // in addition to gtFlags
 
     unsigned char gtCallType : 3;   // value from the gtCallTypes enumeration
-    unsigned char gtReturnType : 5; // exact return type
+    unsigned char m_retSigType : 5; // Signature return type
 
     CORINFO_CLASS_HANDLE gtRetClsHnd; // The return type handle of the call if it is a struct; always available
 
