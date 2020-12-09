@@ -1441,10 +1441,9 @@ var_types Compiler::impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types*
 //  Compiler::impNormStructVal: Normalize a struct value
 //
 //  Arguments:
-//     structVal          - the node we are going to normalize
-//     structHnd          - the class handle for the node
-//     curLevel           - the current stack level
-//     forceNormalization - Force the creation of an OBJ node (default is false).
+//     structVal - the node we are going to normalize
+//     structHnd - the class handle for the node
+//     curLevel  - the current stack level
 //
 // Notes:
 //     Given struct value 'structVal', make sure it is 'canonical', that is
@@ -1454,12 +1453,9 @@ var_types Compiler::impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types*
 //     - a node (e.g. GT_INDEX) that will be morphed.
 //    If the node is a CALL or RET_EXPR, a copy will be made to a new temp.
 //
-GenTree* Compiler::impNormStructVal(GenTree*             structVal,
-                                    CORINFO_CLASS_HANDLE structHnd,
-                                    unsigned             curLevel,
-                                    bool                 forceNormalization /*=false*/)
+GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel)
 {
-    assert(forceNormalization || varTypeIsStruct(structVal->GetType()));
+    assert(varTypeIsStruct(structVal->GetType()));
     assert(structHnd != NO_CLASS_HANDLE);
 
     var_types structType = structVal->GetType();
@@ -1497,7 +1493,7 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
         case GT_FIELD:
             structVal->SetType(structType);
 
-            if ((structType == TYP_STRUCT) || forceNormalization)
+            if (structType == TYP_STRUCT)
             {
                 structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
             }
@@ -1556,7 +1552,7 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
 #ifdef FEATURE_SIMD
             if (commaValue->OperIsSimdOrHWintrinsic())
             {
-                lastComma->AsOp()->SetOp(1, impNormStructVal(commaValue, structHnd, curLevel, forceNormalization));
+                lastComma->AsOp()->SetOp(1, impNormStructVal(commaValue, structHnd, curLevel));
             }
             else
 #endif
@@ -1594,7 +1590,7 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
 
     structVal->SetType(structType);
 
-    if (!alreadyNormalized || forceNormalization)
+    if (!alreadyNormalized)
     {
         if (makeTemp)
         {
@@ -1606,7 +1602,7 @@ GenTree* Compiler::impNormStructVal(GenTree*             structVal,
             structVal = structLcl;
         }
 
-        if ((forceNormalization || (structType == TYP_STRUCT)) && !structVal->OperIs(GT_OBJ))
+        if ((structType == TYP_STRUCT) && !structVal->OperIs(GT_OBJ))
         {
             structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
         }
