@@ -14053,7 +14053,7 @@ bool Compiler::impInlineReturnInstruction()
     // Make sure the type matches the original call.
 
     var_types returnType = varActualType(op2->GetType());
-    var_types callType   = impInlineInfo->inlineCandidateInfo->fncRetType;
+    var_types callType   = varActualType(impInlineInfo->iciCall->GetRetSigType());
 
     if ((returnType != callType) && (callType == TYP_STRUCT))
     {
@@ -15405,7 +15405,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             if (JitConfig.JitNoInline())
             {
                 pParam->result->NoteFatal(InlineObservation::CALLEE_IS_JIT_NOINLINE);
-                goto _exit;
+                return;
             }
 #endif
 
@@ -15415,7 +15415,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             if (!pParam->pThis->info.compCompHnd->getMethodInfo(pParam->fncHandle, &methInfo))
             {
                 pParam->result->NoteFatal(InlineObservation::CALLEE_NO_METHOD_INFO);
-                goto _exit;
+                return;
             }
 
             bool forceInline;
@@ -15426,7 +15426,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             if (pParam->result->IsFailure())
             {
                 assert(pParam->result->IsNever());
-                goto _exit;
+                return;
             }
 
             // Speculatively check if initClass() can be done.
@@ -15438,7 +15438,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             if (initClassResult & CORINFO_INITCLASS_DONT_INLINE)
             {
                 pParam->result->NoteFatal(InlineObservation::CALLSITE_CANT_CLASS_INIT);
-                goto _exit;
+                return;
             }
 
             CorInfoInline vmResult;
@@ -15458,7 +15458,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             {
                 // Make sure not to report this one.  It was already reported by the VM.
                 pParam->result->SetReported();
-                goto _exit;
+                return;
             }
 
             // check for unsupported inlining restrictions
@@ -15472,7 +15472,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
                 if (!pParam->pThis->impIsThis(thisArg))
                 {
                     pParam->result->NoteFatal(InlineObservation::CALLSITE_REQUIRES_SAME_THIS);
-                    goto _exit;
+                    return;
                 }
             }
 
@@ -15483,14 +15483,9 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             unsigned clsAttr;
             clsAttr = pParam->pThis->info.compCompHnd->getClassAttribs(clsHandle);
 
-            /* Get the return type */
-
-            var_types fncRetType;
-            fncRetType = pParam->call->TypeGet();
-
 #ifdef DEBUG
-            var_types fncRealRetType;
-            fncRealRetType = JITtype2varType(methInfo.args.retType);
+            var_types fncRetType     = pParam->call->GetType();
+            var_types fncRealRetType = JITtype2varType(methInfo.args.retType);
 
             assert((genActualType(fncRealRetType) == genActualType(fncRetType)) ||
                    // <BUGNUM> VSW 288602 </BUGNUM>
@@ -15530,15 +15525,12 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             pInfo->clsAttr                        = clsAttr;
             pInfo->methAttr                       = pParam->methAttr;
             pInfo->initClassResult                = initClassResult;
-            pInfo->fncRetType                     = fncRetType;
             pInfo->exactContextNeedsRuntimeLookup = false;
 
             // Note exactContextNeedsRuntimeLookup is reset later on,
             // over in impMarkInlineCandidate.
 
             *(pParam->ppInlineCandidateInfo) = pInfo;
-
-        _exit:;
         },
         &param);
     if (!success)
