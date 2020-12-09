@@ -7045,23 +7045,28 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         }
         else
         {
-            // Since we pass a reference to the return value to the dispatcher
-            // we need to use the real return type so we can normalize it on
-            // load when we return it.
-            newRetLcl->SetType(origCall->GetRetSigType());
+            newRetLcl->SetType(origCall->GetType());
         }
 
         lvaSetVarAddrExposed(newRetLclNum);
 
-        var_types newRetLclTye = varActualType(newRetLcl->GetType());
-
-        retValArg = gtNewLclVarAddrNode(newRetLclNum);
-        retVal    = gtNewLclvNode(newRetLclNum, newRetLclTye);
+        if (varTypeIsSmall(origCall->GetRetSigType()))
+        {
+            // Use a LCL_FLD to widen small int return, the local is already address exposed
+            // so it's not worth adding an extra cast by relying on "normalize on load".
+            retVal = gtNewLclFldNode(newRetLclNum, origCall->GetRetSigType(), 0);
+        }
+        else
+        {
+            retVal = gtNewLclvNode(newRetLclNum, newRetLcl->GetType());
+        }
 
         if (varTypeIsStruct(origCall->GetType()) && (info.retDesc.GetRegCount() > 1))
         {
             retVal->gtFlags |= GTF_DONT_CSE;
         }
+
+        retValArg = gtNewLclVarAddrNode(newRetLclNum);
     }
     else
     {
