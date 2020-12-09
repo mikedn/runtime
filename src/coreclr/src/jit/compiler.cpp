@@ -898,23 +898,6 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
         }
     }
 
-#ifdef TARGET_64BIT
-    // Note this handles an odd case when FEATURE_MULTIREG_RET is disabled and HFAs are enabled
-    //
-    // getPrimitiveTypeForStruct will return TYP_UNKNOWN for a struct that is an HFA of two floats
-    // because when HFA are enabled, normally we would use two FP registers to pass or return it
-    //
-    // But if we don't have support for multiple register return types, we have to change this.
-    // Since what we have is an 8-byte struct (float + float)  we change useType to TYP_I_IMPL
-    // so that the struct is returned instead using an 8-byte integer register.
-    //
-    if ((FEATURE_MULTIREG_RET == 0) && (useType == TYP_UNKNOWN) && (structSize == (2 * sizeof(float))) && IsHfa(clsHnd))
-    {
-        useType           = TYP_I_IMPL;
-        howToReturnStruct = SPK_PrimitiveType;
-    }
-#endif
-
     // Did we change this struct type into a simple "primitive" type?
     if (useType != TYP_UNKNOWN)
     {
