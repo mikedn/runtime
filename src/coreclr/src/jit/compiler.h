@@ -8410,6 +8410,11 @@ public:
         var_types      compRetType; // Return type of the method as declared in IL
         ReturnTypeDesc retDesc;
 
+        var_types GetRetSigType() const
+        {
+            return compRetType;
+        }
+
         unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
         unsigned compArgsCount;   // Number of arguments (incl. implicit and     hidden)
 

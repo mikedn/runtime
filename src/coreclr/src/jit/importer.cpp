@@ -7756,6 +7756,7 @@ DONE_CALL:
 
             if (varTypeIsStruct(callRetTyp) && varTypeIsStruct(origCall->GetType()))
             {
+                origCall->SetRetSigType(impNormStructType(sig->retTypeClass));
                 origCall->gtRetClsHnd = sig->retTypeClass;
 
                 call = impFixupCallStructReturn(origCall);
@@ -14050,30 +14051,42 @@ bool Compiler::impInlineReturnInstruction()
 
     JITDUMPTREE(op2, "\nInlinee RETURN expression:\n");
 
-    // Make sure the type matches the original call.
-
-    var_types returnType = varActualType(op2->GetType());
-    var_types callType   = varActualType(impInlineInfo->iciCall->GetRetSigType());
-
-    if ((returnType != callType) && (callType == TYP_STRUCT))
+    // Make sure the return value type matches the return signature type.
     {
-        callType = impNormStructType(impInlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass);
-    }
+        var_types callType   = info.GetRetSigType();
+        var_types returnType = op2->GetType();
 
-    if (returnType != callType)
-    {
-        // Allow TYP_BYREF to be returned as TYP_I_IMPL and vice versa
-        if (((returnType == TYP_BYREF) && (callType == TYP_I_IMPL)) ||
-            ((returnType == TYP_I_IMPL) && (callType == TYP_BYREF)))
+        if (returnType == TYP_STRUCT)
         {
-            JITDUMP("Allowing return type mismatch: have %s, needed %s\n", varTypeName(returnType),
-                    varTypeName(callType));
+            // Currently call nodes do not have normalized type, use the signature type instead.
+            if (op2->IsCall())
+            {
+                returnType = op2->AsCall()->GetRetSigType();
+            }
+            else if (op2->IsRetExpr())
+            {
+                returnType = op2->AsRetExpr()->gtInlineCandidate->AsCall()->GetRetSigType();
+            }
         }
-        else
+
+        callType   = varActualType(callType);
+        returnType = varActualType(returnType);
+
+        if (returnType != callType)
         {
-            JITDUMP("Return type mismatch: have %s, needed %s\n", varTypeName(returnType), varTypeName(callType));
-            compInlineResult->NoteFatal(InlineObservation::CALLSITE_RETURN_TYPE_MISMATCH);
-            return false;
+            // Allow TYP_BYREF to be returned as TYP_I_IMPL and vice versa
+            if (((returnType == TYP_BYREF) && (callType == TYP_I_IMPL)) ||
+                ((returnType == TYP_I_IMPL) && (callType == TYP_BYREF)))
+            {
+                JITDUMP("Allowing return type mismatch: have %s, needed %s\n", varTypeName(returnType),
+                        varTypeName(callType));
+            }
+            else
+            {
+                JITDUMP("Return type mismatch: have %s, needed %s\n", varTypeName(returnType), varTypeName(callType));
+                compInlineResult->NoteFatal(InlineObservation::CALLSITE_RETURN_TYPE_MISMATCH);
+                return false;
+            }
         }
     }
 
@@ -14120,7 +14133,7 @@ bool Compiler::impInlineReturnInstruction()
         // struct.
 
         GenTree* effectiveRetVal = op2->gtEffectiveVal();
-        if ((returnType == TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
+        if (op2->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
         {
             GenTree* location = effectiveRetVal->AsUnOp()->GetOp(0);
             if (location->OperIs(GT_LCL_VAR))

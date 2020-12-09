@@ -147,6 +147,11 @@ void Compiler::lvaInitTypeRef()
         }
     }
 
+    if (compIsForInlining())
+    {
+        assert(impInlineInfo->iciCall->GetRetSigType() == info.GetRetSigType());
+    }
+
     /* x86 args look something like this:
         [this ptr] [hidden return buffer] [declared arguments]* [generic context] [var arg cookie]
 
