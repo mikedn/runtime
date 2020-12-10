@@ -1261,8 +1261,12 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     {
         LclVarDsc* lcl = lvaGetDesc(dest->AsLclVar());
 
+#if FEATURE_MULTIREG_RET
 #ifdef UNIX_AMD64_ABI
         if (src->OperIs(GT_CALL))
+#else
+        if (src->OperIs(GT_CALL) && src->AsCall()->HasMultiRegRetVal())
+#endif
         {
             // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
             // on the destination local variable.
@@ -1270,7 +1274,8 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
             // handle multireg returns.
 
-            // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally?!
+            // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally
+            // for UNIX_AMD64_ABI?!
             // Well, because MultiRegRet doesn't really have much to do with
             // multiple registers. The problem is that returning a struct in
             // one or multiple registers results in dependent promotion if
@@ -1279,27 +1284,12 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             // but it has more than one field.
             // At the same time, this shouldn't be needed if the struct is
             // returned in a single register and has a single field.
-            // And of course, this isn't really specific to unix-x64.
-            // And there's more code below that again sets lvIsMultiRegRet.
+            // But what about ARMARCH?!
             // Oh well, the usual mess.
 
             lcl->lvIsMultiRegRet = true;
         }
 #endif
-
-        if (src->IsMultiRegNode() ||
-            (src->OperIs(GT_RET_EXPR) && src->AsRetExpr()->gtInlineCandidate->AsCall()->HasMultiRegRetVal()))
-        {
-            if (lvaEnregMultiRegVars && varTypeIsStruct(dest->GetType()))
-            {
-                dest->AsLclVar()->SetMultiReg();
-            }
-
-            if (src->OperIs(GT_CALL))
-            {
-                lcl->lvIsMultiRegRet = true;
-            }
-        }
     }
 
     GenTreeOp* asgNode = gtNewAssignNode(dest, src);

@@ -2672,9 +2672,9 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 #if FEATURE_MULTIREG_RET
             if (varTypeIsStruct(src->GetType()))
             {
-                if (src->OperIs(GT_LCL_VAR) && comp->info.retDesc.GetRegCount() > 1)
+                if (src->OperIs(GT_LCL_VAR) && (comp->info.retDesc.GetRegCount() > 1))
                 {
-                    CheckMultiRegLclVar(src->AsLclVar(), &comp->info.retDesc);
+                    MakeMultiRegLclVar(src->AsLclVar(), &comp->info.retDesc);
                 }
             }
 #endif
@@ -2727,22 +2727,17 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
 void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 {
     assert(lclVar->OperIs(GT_LCL_VAR));
+    assert(!lclVar->IsMultiReg());
 
+#ifdef DEBUG
     LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
 
-    // The consumer of this node must check compatibility of the fields.
-    // This merely checks whether it is possible for this to be a multireg node.
-
-    if (lclVar->IsMultiReg() && ((comp->lvaGetPromotionType(lcl) != Compiler::PROMOTION_TYPE_INDEPENDENT) ||
-                                 (lcl->GetPromotedFieldCount() > MAX_MULTIREG_COUNT)))
+    if (lcl->IsPromoted() && (comp->lvaGetPromotionType(lclVar->GetLclNum()) == Compiler::PROMOTION_TYPE_INDEPENDENT))
     {
-        lclVar->ClearMultiReg();
-
-        if (lclVar->TypeIs(TYP_STRUCT))
-        {
-            comp->lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
-        }
+        LIR::Use use;
+        assert(BlockRange().TryGetUse(lclVar, &use) && use.User()->OperIs(GT_RETURN));
     }
+#endif
 }
 
 void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
@@ -2758,6 +2753,20 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
     LclVarDsc* lcl = comp->lvaGetDesc(store);
 
     bool srcIsMultiReg = src->IsMultiRegNode();
+
+#if FEATURE_MULTIREG_RET
+    if (srcIsMultiReg)
+    {
+        const ReturnTypeDesc* retTypeDesc = nullptr;
+
+        if (src->OperIs(GT_CALL))
+        {
+            retTypeDesc = src->AsCall()->GetReturnTypeDesc();
+        }
+
+        MakeMultiRegLclVar(store, retTypeDesc);
+    }
+#endif
 
     if (!store->IsMultiReg() && varTypeIsStruct(lcl->GetType()))
     {
@@ -2798,18 +2807,6 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
             // This is an actual store, we'll just retype it.
             store->SetType(src->GetType());
         }
-    }
-
-    if (srcIsMultiReg || store->IsMultiReg())
-    {
-        const ReturnTypeDesc* retTypeDesc = nullptr;
-
-        if (src->OperIs(GT_CALL))
-        {
-            retTypeDesc = src->AsCall()->GetReturnTypeDesc();
-        }
-
-        CheckMultiRegLclVar(store, retTypeDesc);
     }
 
     if (store->TypeIs(TYP_STRUCT) && !srcIsMultiReg)
@@ -5936,26 +5933,15 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::CheckMultiRegLclVar: Check whether a MultiReg GT_LCL_VAR node can
-//                                remain a multi-reg.
-//
-// Arguments:
-//   lclNode     - the GT_LCL_VAR or GT_STORE_LCL_VAR node.
-//   retTypeDesc - a return type descriptor either for a call source of a store of
-//                 the local, or for the GT_RETURN consumer of the local.
-//
-// Notes:
-//   If retTypeDesc is non-null, this method will check that the fields are compatible.
-//   Otherwise, it will only check that the lclVar is independently promoted
-//   (i.e. it is marked lvPromoted and not lvDoNotEnregister).
-//
-bool Lowering::CheckMultiRegLclVar(GenTreeLclVar* lclNode, const ReturnTypeDesc* retDesc)
+#if FEATURE_MULTIREG_RET
+
+void Lowering::MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retDesc)
 {
+    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+
     bool canEnregister = false;
 
-#if FEATURE_MULTIREG_RET
-    LclVarDsc* lcl = comp->lvaGetDesc(lclNode->GetLclNum());
+    LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
 
     if (comp->lvaEnregMultiRegVars && lcl->IsPromoted())
     {
@@ -5981,7 +5967,7 @@ bool Lowering::CheckMultiRegLclVar(GenTreeLclVar* lclNode, const ReturnTypeDesc*
     // For local stores on XARCH we only handle mismatched src/dest register count for
     // calls of SIMD type. If the source was another lclVar similarly promoted, we would
     // have broken it into multiple stores.
-    if (lclNode->OperIs(GT_STORE_LCL_VAR) && !lclNode->GetOp(0)->OperIs(GT_CALL))
+    if (lclVar->OperIs(GT_STORE_LCL_VAR) && !lclVar->GetOp(0)->OperIs(GT_CALL))
     {
         canEnregister = false;
     }
@@ -5989,21 +5975,20 @@ bool Lowering::CheckMultiRegLclVar(GenTreeLclVar* lclNode, const ReturnTypeDesc*
 
     if (canEnregister)
     {
-        lclNode->SetMultiReg();
+        lclVar->SetMultiReg();
     }
     else
     {
-        lclNode->ClearMultiReg();
+        assert(!lclVar->IsMultiReg());
 
         if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
-            comp->lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
+            comp->lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
         }
     }
-#endif // FEATURE_MULTIREG_RET
-
-    return canEnregister;
 }
+
+#endif // FEATURE_MULTIREG_RET
 
 //------------------------------------------------------------------------
 // Containment Analysis
