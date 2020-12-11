@@ -3155,8 +3155,6 @@ protected:
 
     CORINFO_CLASS_HANDLE impGetSpecialIntrinsicExactReturnType(CORINFO_METHOD_HANDLE specialIntrinsicHandle);
 
-    bool impMethodInfo_hasRetBuffArg(CORINFO_METHOD_INFO* methInfo);
-
     GenTree* impFixupCallStructReturn(GenTreeCall* call);
 
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);

@@ -7854,27 +7854,6 @@ DONE_CALL:
 #pragma warning(pop)
 #endif
 
-bool Compiler::impMethodInfo_hasRetBuffArg(CORINFO_METHOD_INFO* methInfo)
-{
-    CorInfoType corType = methInfo->args.retType;
-
-    if ((corType == CORINFO_TYPE_VALUECLASS) || (corType == CORINFO_TYPE_REFANY))
-    {
-        // We have some kind of STRUCT being returned
-
-        structPassingKind howToReturnStruct = SPK_Unknown;
-
-        var_types returnType = getReturnTypeForStruct(methInfo->args.retTypeClass, &howToReturnStruct);
-
-        if (howToReturnStruct == SPK_ByReference)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call)
 {
     assert(varTypeIsStruct(call->GetType()));
@@ -15708,8 +15687,6 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
     InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
     InlineResult*        inlineResult = pInlineInfo->inlineResult;
 
-    const bool hasRetBuffArg = impMethodInfo_hasRetBuffArg(methInfo);
-
     /* init the argument stuct */
 
     memset(inlArgInfo, 0, (MAX_INL_ARGS + 1) * sizeof(inlArgInfo[0]));
@@ -15734,6 +15711,8 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
         /* Increment the argument count */
         argCnt++;
     }
+
+    const bool hasRetBuffArg = call->HasRetBufArg();
 
     /* Record some information about each of the arguments */
     bool hasTypeCtxtArg = (methInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0;
