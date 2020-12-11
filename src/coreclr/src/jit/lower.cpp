@@ -3198,7 +3198,6 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
         {
             case GT_RETURN:
             case GT_STORE_LCL_VAR:
-            case GT_STORE_BLK:
             case GT_STORE_OBJ:
             case GT_STORE_LCL_FLD:
                 // Leave as is, the user will handle it.
