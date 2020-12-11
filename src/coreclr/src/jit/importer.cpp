@@ -11311,31 +11311,20 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if (varTypeIsStruct(op1))
                     {
-                        JITDUMP("\n ... CEE_POP struct ...\n");
-                        DISPTREE(op1);
-#ifdef UNIX_AMD64_ABI
-                        // Non-calls, such as obj or ret_expr, have to go through this.
-                        // Calls with large struct return value have to go through this.
-                        // Helper calls with small struct return value also have to go
-                        // through this since they do not follow Unix calling convention.
-                        if (op1->gtOper != GT_CALL || !IsMultiRegReturnedType(clsHnd) ||
-                            op1->AsCall()->gtCallType == CT_HELPER)
-#endif // UNIX_AMD64_ABI
-                        {
-                            // If the value being produced comes from loading
-                            // via an underlying address, just null check the address.
-                            if (op1->OperIs(GT_FIELD, GT_IND, GT_OBJ))
-                            {
-                                gtChangeOperToNullCheck(op1, block);
-                            }
-                            else
-                            {
-                                op1 = impGetStructAddr(op1, clsHnd, (unsigned)CHECK_SPILL_ALL, false);
-                            }
+                        JITDUMPTREE(op1, "\n ... CEE_POP struct ...\n");
 
-                            JITDUMP("\n ... optimized to ...\n");
-                            DISPTREE(op1);
+                        // If the value being produced comes from loading
+                        // via an underlying address, just null check the address.
+                        if (op1->OperIs(GT_FIELD, GT_IND, GT_OBJ))
+                        {
+                            gtChangeOperToNullCheck(op1, block);
                         }
+                        else
+                        {
+                            op1 = impGetStructAddr(op1, clsHnd, CHECK_SPILL_ALL, false);
+                        }
+
+                        JITDUMPTREE(op1, "\n ... optimized to ...\n");
                     }
 
                     // If op1 is non-overflow cast, throw it away since it is useless.
