@@ -22605,16 +22605,19 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     // leaving an assert in here. This can be fixed by looking ahead
     // when we visit GT_ASG similar to inlAttachStructInlineeToAsg.
     //
-    if (tree->OperGet() == GT_ASG)
+    if (tree->OperIs(GT_ASG))
     {
-        GenTree* value = tree->AsOp()->gtOp2;
+        GenTree* value = tree->AsOp()->GetOp(1);
 
-        if (value->OperGet() == GT_COMMA)
+        if (value->OperIs(GT_COMMA))
         {
-            GenTree* effectiveValue = value->gtEffectiveVal(/*commaOnly*/ true);
+            value = value->SkipComma();
 
-            noway_assert(!varTypeIsStruct(effectiveValue) || (effectiveValue->OperGet() != GT_RET_EXPR) ||
-                         !comp->IsMultiRegReturnedType(effectiveValue->AsRetExpr()->gtRetClsHnd));
+            bool isMultiRegCall = varTypeIsStruct(value->GetType()) && value->IsRetExpr() &&
+                                  value->AsRetExpr()->gtInlineCandidate->IsCall() &&
+                                  value->AsRetExpr()->gtInlineCandidate->AsCall()->HasMultiRegRetVal();
+
+            noway_assert(!isMultiRegCall);
         }
     }
 

@@ -1660,6 +1660,8 @@ public:
 
     inline GenTree* gtEffectiveVal(bool commaOnly = false);
 
+    GenTree* SkipComma();
+
     // Tunnel through any GT_RET_EXPRs
     inline GenTree* gtRetExprVal(unsigned __int64* pbbFlags);
 
@@ -7923,6 +7925,16 @@ inline GenTree* GenTree::gtEffectiveVal(bool commaOnly)
             return effectiveVal;
         }
     }
+}
+
+inline GenTree* GenTree::SkipComma()
+{
+    GenTree* node = this;
+    while (node->OperIs(GT_COMMA))
+    {
+        node = node->AsOp()->GetOp(1);
+    }
+    return node;
 }
 
 //-------------------------------------------------------------------------
