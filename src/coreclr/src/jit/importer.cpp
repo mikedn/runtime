@@ -6723,7 +6723,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 #endif
 
                 bIntrinsicImported = true;
-                goto DONE_CALL;
+                goto DONE_INTRINSIC;
             }
         }
 
@@ -6734,7 +6734,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             if (call != nullptr)
             {
                 bIntrinsicImported = true;
-                goto DONE_CALL;
+                goto DONE_INTRINSIC;
             }
         }
 #endif // FEATURE_SIMD
@@ -7448,19 +7448,13 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                 call = fgOptimizeDelegateConstructor(call->AsCall(), &exactContextHnd, ldftnToken);
             }
 
-            if (!bIntrinsicImported)
-            {
-
 #if defined(DEBUG) || defined(INLINE_DATA)
-
-                // Keep track of the raw IL offset of the call
-                call->AsCall()->gtRawILOffset = rawILOffset;
-
+            // Keep track of the raw IL offset of the call
+            call->AsCall()->gtRawILOffset = rawILOffset;
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-                // Is it an inline candidate?
-                impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
-            }
+            // Is it an inline candidate?
+            impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
             // append the call node.
             impAppendTree(call, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
@@ -7673,39 +7667,27 @@ DONE:
     // Note: we assume that small return types are already normalized by the managed callee
     // or by the pinvoke stub for calls to unmanaged code.
 
-    if (!bIntrinsicImported)
+    if (compIsForInlining() && opcode == CEE_CALLVIRT)
     {
-        //
-        // Things needed to be checked when bIntrinsicImported is false.
-        //
+        GenTree* callObj = call->AsCall()->gtCallThisArg->GetNode();
 
-        assert(call->gtOper == GT_CALL);
-        assert(callInfo != nullptr);
-
-        if (compIsForInlining() && opcode == CEE_CALLVIRT)
+        if ((call->AsCall()->IsVirtual() || (call->gtFlags & GTF_CALL_NULLCHECK)) &&
+            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->AsCall()->gtCallArgs, callObj,
+                                                               impInlineInfo->inlArgInfo))
         {
-            GenTree* callObj = call->AsCall()->gtCallThisArg->GetNode();
-
-            if ((call->AsCall()->IsVirtual() || (call->gtFlags & GTF_CALL_NULLCHECK)) &&
-                impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->AsCall()->gtCallArgs, callObj,
-                                                                   impInlineInfo->inlArgInfo))
-            {
-                impInlineInfo->thisDereferencedFirst = true;
-            }
+            impInlineInfo->thisDereferencedFirst = true;
         }
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-
-        // Keep track of the raw IL offset of the call
-        call->AsCall()->gtRawILOffset = rawILOffset;
-
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-
-        // Is it an inline candidate?
-        impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
     }
 
-DONE_CALL:
+#if defined(DEBUG) || defined(INLINE_DATA)
+    // Keep track of the raw IL offset of the call
+    call->AsCall()->gtRawILOffset = rawILOffset;
+#endif // defined(DEBUG) || defined(INLINE_DATA)
+
+    // Is it an inline candidate?
+    impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
+
+DONE_INTRINSIC:
     // Push or append the result of the call
     if (callRetTyp == TYP_VOID)
     {
