@@ -9736,32 +9736,6 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
 
 #endif // defined(TARGET_XARCH)
 
-//-----------------------------------------------------------------------------------
-// IsMultiRegReturnedType: Returns true if the type is returned in multiple registers
-//
-// Arguments:
-//     hClass   -  type handle
-//
-// Return Value:
-//     true if type is returned in multiple registers, false otherwise.
-//
-bool Compiler::IsMultiRegReturnedType(CORINFO_CLASS_HANDLE hClass)
-{
-    if (hClass == NO_CLASS_HANDLE)
-    {
-        return false;
-    }
-
-    structPassingKind howToReturnStruct;
-    var_types         returnType = getReturnTypeForStruct(hClass, &howToReturnStruct);
-
-#ifdef TARGET_ARM64
-    return (varTypeIsStruct(returnType) && (howToReturnStruct != SPK_PrimitiveType));
-#else
-    return (varTypeIsStruct(returnType));
-#endif
-}
-
 //----------------------------------------------
 // Methods that support HFA's for ARM32/ARM64
 //----------------------------------------------

@@ -13400,17 +13400,24 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #if FEATURE_MULTIREG_RET
                 // TODO-MIKE-Cleanup: This has nothing to do with multireg returns.
                 // No matter what the struct type is the helper returns the struct value
-                // via an "out" parameter, there's no way return it in registers because
+                // via an "out" parameter, there's no way to return it in registers because
                 // the same helper is used for all struct types.
-                // Doing this here is bad for CQ when the destination is a memory location
+                // Doing this here is bad for CQ when the destination is a memory location,
                 // because we introduce a temp instead of just passing in the address of
                 // that location. impAssignStructPtr (TreatAsHasRetBufArg) already handles
-                // this case so there's no real need for this to be done here.
+                // this case so there's no real need to do this here.
                 // Adding a temp when the destination is a promotable struct local might
-                // be useful because it avoid dependent promotion. But's probably something
+                // be useful because it avoids dependent promotion. But's probably something
                 // that impAssignStructPtr could handle as well.
 
-                if (IsMultiRegReturnedType(resolvedToken.hClass))
+                structPassingKind retKind;
+                var_types         retKindType = getReturnTypeForStruct(resolvedToken.hClass, &retKind);
+
+#ifdef TARGET_ARM64
+                if (varTypeIsStruct(retKindType) && (retKind != SPK_PrimitiveType))
+#else
+                if (varTypeIsStruct(retKindType))
+#endif
                 {
                     // Unbox nullable helper returns a TYP_STRUCT.
                     // For the multi-reg case we need to spill it to a temp so that

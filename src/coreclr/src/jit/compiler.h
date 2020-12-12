@@ -1606,8 +1606,6 @@ public:
     var_types GetHfaType(CORINFO_CLASS_HANDLE hClass);
     unsigned GetHfaCount(CORINFO_CLASS_HANDLE hClass);
 
-    bool IsMultiRegReturnedType(CORINFO_CLASS_HANDLE hClass);
-
     //-------------------------------------------------------------------------
     // The following is used for validating format of EH table
     //
