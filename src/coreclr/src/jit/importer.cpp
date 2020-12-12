@@ -13413,11 +13413,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 structPassingKind retKind;
                 var_types         retKindType = getReturnTypeForStruct(resolvedToken.hClass, &retKind);
 
-#ifdef TARGET_ARM64
-                if (varTypeIsStruct(retKindType) && (retKind != SPK_PrimitiveType))
-#else
-                if (varTypeIsStruct(retKindType))
-#endif
+                if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
                 {
                     // Unbox nullable helper returns a TYP_STRUCT.
                     // For the multi-reg case we need to spill it to a temp so that
