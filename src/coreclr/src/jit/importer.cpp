@@ -6342,19 +6342,6 @@ bool Compiler::impTailCallRetTypeCompatible(var_types            callerRetType,
     }
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-    // Jit64 compat:
-    if (callerRetType == TYP_VOID)
-    {
-        // This needs to be allowed to support the following IL pattern that Jit64 allows:
-        //     tail.call
-        //     pop
-        //     ret
-        //
-        // Note that the above IL pattern is not valid as per IL verification rules.
-        // Therefore, only full trust code can take advantage of this pattern.
-        return true;
-    }
-
     // These checks return true if the return value type sizes are the same and
     // get returned in the same return register i.e. caller doesn't need to normalize
     // return value. Some of the tail calls permitted by below checks would have
