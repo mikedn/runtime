@@ -649,48 +649,6 @@ inline bool isRegParamType(var_types type)
 #endif // !TARGET_X86
 }
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-/*****************************************************************************/
-// Returns true if 'type' is a struct that can be returned by value in multiple registers.
-//              if 'type' is not a struct the return value will be false.
-//
-// Arguments:
-//    type      - the basic jit var_type for the item being queried
-//    typeClass - the handle for the struct when 'type' is TYP_STRUCT
-//    typeSize  - Out param (if non-null) is updated with the size of 'type'.
-//
-inline bool Compiler::VarTypeIsMultiByteAndCanEnreg(var_types type, CORINFO_CLASS_HANDLE typeClass, unsigned* typeSize)
-{
-    bool     result = false;
-    unsigned size   = 0;
-
-    if (varTypeIsStruct(type))
-    {
-        assert(typeClass != nullptr);
-        size = info.compCompHnd->getClassSize(typeClass);
-        structPassingKind howToReturnStruct;
-        type = getReturnTypeForStruct(typeClass, &howToReturnStruct, size);
-        if (type != TYP_UNKNOWN)
-        {
-            result = true;
-        }
-    }
-    else
-    {
-        size = genTypeSize(type);
-    }
-
-    if (typeSize != nullptr)
-    {
-        *typeSize = size;
-    }
-
-    return result;
-}
-#endif // TARGET_AMD64 || TARGET_ARM64
-
-/*****************************************************************************/
-
 #ifdef DEBUG
 
 inline const char* varTypeGCstring(var_types type)

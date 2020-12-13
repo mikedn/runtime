@@ -5888,9 +5888,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     // To reach here means that the return types of the caller and callee are tail call compatible.
     if (callee->IsTailPrefixedCall())
     {
-        assert(impTailCallRetTypeCompatible(callee->GetRetSigType(), callee->GetRetLayout() == nullptr
-                                                                         ? NO_CLASS_HANDLE
-                                                                         : callee->GetRetLayout()->GetClassHandle()));
+        assert(impTailCallRetTypeCompatible(callee));
     }
 
     assert(!callee->AreArgsComplete());

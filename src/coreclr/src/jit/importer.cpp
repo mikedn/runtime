@@ -6324,44 +6324,37 @@ void Compiler::impInsertHelperCall(CORINFO_HELPER_DESC* helperInfo)
 // Checks whether the return types of caller and callee are compatible
 // so that callee can be tail called. Note that here we don't check
 // compatibility in IL Verifier sense, but on the lines of return type
-// sizes are equal and get returned in the same return register.
-bool Compiler::impTailCallRetTypeCompatible(var_types calleeRetType, CORINFO_CLASS_HANDLE calleeRetTypeClass)
+// sizes are equal and get returned in the same return register(s).
+bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call)
 {
-    var_types            callerRetType      = info.compRetType;
-    CORINFO_CLASS_HANDLE callerRetTypeClass = info.compMethodInfo->args.retTypeClass;
-
-    // Note that we can not relax this condition with genActualType() as the
-    // calling convention dictates that the caller of a function with a small
-    // typed return value is responsible for normalizing the return val.
-    if (callerRetType == calleeRetType)
+    if (!varTypeIsStruct(call->GetRetSigType()))
     {
-        return true;
+        // Note that we can not relax this condition with genActualType() as the
+        // calling convention dictates that the caller of a function with a small
+        // typed return value is responsible for normalizing the return val.
+
+        return call->GetRetSigType() == info.GetRetSigType();
     }
 
-    // If the class handles are the same and not null, the return types are compatible.
-    if ((callerRetTypeClass != nullptr) && (callerRetTypeClass == calleeRetTypeClass))
+    if (call->HasRetBufArg())
     {
-        return true;
+        return info.compRetBuffArg != BAD_VAR_NUM;
     }
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-    // These checks return true if the return value type sizes are the same and
-    // get returned in the same return register i.e. caller doesn't need to normalize
-    // return value. Some of the tail calls permitted by below checks would have
-    // been rejected by IL Verifier before we reached here.  Therefore, only full
-    // trust code can make those tail calls.
-    unsigned callerRetTypeSize = 0;
-    unsigned calleeRetTypeSize = 0;
-    bool isCallerRetTypMBEnreg = VarTypeIsMultiByteAndCanEnreg(callerRetType, callerRetTypeClass, &callerRetTypeSize);
-    bool isCalleeRetTypMBEnreg = VarTypeIsMultiByteAndCanEnreg(calleeRetType, calleeRetTypeClass, &calleeRetTypeSize);
-
-    if (varTypeIsIntegral(callerRetType) || isCallerRetTypMBEnreg)
+    if (call->GetRegCount() != info.retDesc.GetRegCount())
     {
-        return (varTypeIsIntegral(calleeRetType) || isCalleeRetTypMBEnreg) && (callerRetTypeSize == calleeRetTypeSize);
+        return false;
     }
-#endif // TARGET_AMD64 || TARGET_ARM64
 
-    return false;
+    for (unsigned i = 0; i < call->GetRegCount(); i++)
+    {
+        if (call->GetRegType(i) != info.retDesc.GetRegType(i))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 // For prefixFlags
@@ -7534,11 +7527,7 @@ DONE:
             BADCODE("Stack should be empty after tailcall");
         }
 
-        // Note that we can not relax this condition with genActualType() as
-        // the calling convention dictates that the caller of a function with
-        // a small-typed return value is responsible for normalizing the return val
-
-        if (canTailCall && !impTailCallRetTypeCompatible(callRetTyp, sig->retTypeClass))
+        if (canTailCall && !impTailCallRetTypeCompatible(call->AsCall()))
         {
             canTailCall             = false;
             szCanTailCallFailReason = "Return types are not tail call compatible";
