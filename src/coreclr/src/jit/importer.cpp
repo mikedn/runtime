@@ -6322,11 +6322,11 @@ void Compiler::impInsertHelperCall(CORINFO_HELPER_DESC* helperInfo)
 // so that callee can be tail called. Note that here we don't check
 // compatibility in IL Verifier sense, but on the lines of return type
 // sizes are equal and get returned in the same return register.
-bool Compiler::impTailCallRetTypeCompatible(var_types            callerRetType,
-                                            CORINFO_CLASS_HANDLE callerRetTypeClass,
-                                            var_types            calleeRetType,
-                                            CORINFO_CLASS_HANDLE calleeRetTypeClass)
+bool Compiler::impTailCallRetTypeCompatible(var_types calleeRetType, CORINFO_CLASS_HANDLE calleeRetTypeClass)
 {
+    var_types            callerRetType      = info.compRetType;
+    CORINFO_CLASS_HANDLE callerRetTypeClass = info.compMethodInfo->args.retTypeClass;
+
     // Note that we can not relax this condition with genActualType() as the
     // calling convention dictates that the caller of a function with a small
     // typed return value is responsible for normalizing the return val.
@@ -7517,9 +7517,7 @@ DONE:
         // the calling convention dictates that the caller of a function with
         // a small-typed return value is responsible for normalizing the return val
 
-        if (canTailCall &&
-            !impTailCallRetTypeCompatible(info.compRetType, info.compMethodInfo->args.retTypeClass, callRetTyp,
-                                          sig->retTypeClass))
+        if (canTailCall && !impTailCallRetTypeCompatible(callRetTyp, sig->retTypeClass))
         {
             canTailCall             = false;
             szCanTailCallFailReason = "Return types are not tail call compatible";
