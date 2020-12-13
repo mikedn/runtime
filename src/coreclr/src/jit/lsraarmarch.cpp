@@ -316,16 +316,10 @@ int LinearScan::BuildCall(GenTreeCall* call)
             BuildDef(call, genRegMask(call->GetRetDesc()->GetRegNum(i)), i);
         }
     }
-    else if (varTypeUsesFloatArgReg(call->GetType()))
+    else if (varTypeUsesFloatReg(call->GetType()))
     {
         BuildDef(call, RBM_FLOATRET);
     }
-#ifdef TARGET_64BIT
-    else if (call->TypeIs(TYP_LONG))
-    {
-        BuildDef(call, RBM_LNGRET);
-    }
-#endif
     else if (!call->TypeIs(TYP_VOID))
     {
         BuildDef(call, RBM_INTRET);

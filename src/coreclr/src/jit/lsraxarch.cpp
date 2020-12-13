@@ -1173,12 +1173,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
         BuildDef(call, RBM_FLOATRET);
 #endif
     }
-#ifdef TARGET_64BIT
-    else if (call->TypeIs(TYP_LONG))
-    {
-        BuildDef(call, RBM_LNGRET);
-    }
-#endif
     else if (!call->TypeIs(TYP_VOID))
     {
         BuildDef(call, RBM_INTRET);

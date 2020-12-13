@@ -3465,26 +3465,7 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
     }
 #endif // FEATURE_MULTIREG_RET
 
-    regMaskTP useCandidates;
-
-    switch (ret->GetType())
-    {
-        case TYP_FLOAT:
-            useCandidates = RBM_FLOATRET;
-            break;
-        case TYP_DOUBLE:
-            // We ONLY want the valid double register in the RBM_DOUBLERET mask.
-            useCandidates = (RBM_DOUBLERET & RBM_ALLDOUBLE);
-            break;
-        case TYP_LONG:
-            useCandidates = RBM_LNGRET;
-            break;
-        default:
-            useCandidates = RBM_INTRET;
-            break;
-    }
-
-    BuildUse(src, useCandidates);
+    BuildUse(src, varTypeUsesFloatReg(ret->GetType()) ? RBM_FLOATRET : RBM_INTRET);
 
     return 1;
 }
