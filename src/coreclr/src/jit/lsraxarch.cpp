@@ -2915,16 +2915,6 @@ int LinearScan::BuildMul(GenTree* tree)
         dstCount      = 2;
     }
 #endif
-    GenTree* containedMemOp = nullptr;
-    if (op1->isContained() && !op1->IsCnsIntOrI())
-    {
-        assert(!op2->isContained() || op2->IsCnsIntOrI());
-        containedMemOp = op1;
-    }
-    else if (op2->isContained() && !op2->IsCnsIntOrI())
-    {
-        containedMemOp = op2;
-    }
 
     BuildKills(tree, getKillSetForMul(tree->AsOp()));
     BuildDefs(tree, dstCount, dstCandidates);
