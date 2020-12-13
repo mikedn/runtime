@@ -482,7 +482,7 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildCall(tree->AsCall());
             if (tree->AsCall()->HasMultiRegRetVal())
             {
-                dstCount = tree->AsCall()->GetReturnTypeDesc()->GetRegCount();
+                dstCount = tree->AsCall()->GetRegCount();
             }
             break;
 

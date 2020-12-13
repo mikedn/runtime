@@ -2395,14 +2395,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
     // Determine return value size(s).
-    const ReturnTypeDesc* pRetTypeDesc  = call->GetReturnTypeDesc();
-    emitAttr              retSize       = EA_PTRSIZE;
-    emitAttr              secondRetSize = EA_UNKNOWN;
+    emitAttr retSize       = EA_PTRSIZE;
+    emitAttr secondRetSize = EA_UNKNOWN;
 
     if (call->HasMultiRegRetVal())
     {
-        retSize       = emitTypeSize(pRetTypeDesc->GetRegType(0));
-        secondRetSize = emitTypeSize(pRetTypeDesc->GetRegType(1));
+        retSize       = emitTypeSize(call->GetRegType(0));
+        secondRetSize = emitTypeSize(call->GetRegType(1));
     }
     else
     {
@@ -2552,19 +2551,15 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     var_types returnType = call->TypeGet();
     if (returnType != TYP_VOID)
     {
-        regNumber returnReg;
-
         if (call->HasMultiRegRetVal())
         {
-            assert(pRetTypeDesc != nullptr);
-
             // If regs allocated to call node are different from ABI return
             // regs in which the call has returned its result, move the result
             // to regs allocated to call node.
-            for (unsigned i = 0; i < pRetTypeDesc->GetRegCount(); ++i)
+            for (unsigned i = 0; i < call->GetRegCount(); ++i)
             {
-                var_types regType      = pRetTypeDesc->GetRegType(i);
-                returnReg              = pRetTypeDesc->GetRegNum(i);
+                var_types regType      = call->GetRegType(i);
+                regNumber returnReg    = call->GetRetDesc()->GetRegNum(i);
                 regNumber allocatedReg = call->GetRegNumByIdx(i);
                 if (returnReg != allocatedReg)
                 {
@@ -2574,6 +2569,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
         else
         {
+            regNumber returnReg;
+
 #ifdef TARGET_ARM
             if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
             {

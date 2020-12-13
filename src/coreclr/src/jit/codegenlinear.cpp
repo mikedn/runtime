@@ -1876,11 +1876,9 @@ void CodeGen::genProduceReg(GenTree* tree)
             // know which of its result regs needs to be spilled.
             if (tree->IsMultiRegCall())
             {
-                GenTreeCall*          call        = tree->AsCall();
-                const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned        regCount    = retTypeDesc->GetRegCount();
+                GenTreeCall* call = tree->AsCall();
 
-                for (unsigned i = 0; i < regCount; ++i)
+                for (unsigned i = 0; i < call->GetRegCount(); ++i)
                 {
                     unsigned flags = call->GetRegSpillFlagByIdx(i);
                     if ((flags & GTF_SPILL) != 0)
@@ -1959,14 +1957,12 @@ void CodeGen::genProduceReg(GenTree* tree)
             // Mark all the regs produced by the node.
             if (tree->IsMultiRegCall())
             {
-                const GenTreeCall*    call        = tree->AsCall();
-                const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned        regCount    = retTypeDesc->GetRegCount();
+                GenTreeCall* call = tree->AsCall();
 
-                for (unsigned i = 0; i < regCount; ++i)
+                for (unsigned i = 0; i < call->GetRegCount(); ++i)
                 {
                     regNumber reg  = call->GetRegNumByIdx(i);
-                    var_types type = retTypeDesc->GetRegType(i);
+                    var_types type = call->GetRegType(i);
                     gcInfo.gcMarkRegPtrVal(reg, type);
                 }
             }
@@ -1978,14 +1974,12 @@ void CodeGen::genProduceReg(GenTree* tree)
 
                 // A multi-reg GT_COPY node produces those regs to which
                 // copy has taken place.
-                const GenTreeCopyOrReload* copy        = tree->AsCopyOrReload();
-                const GenTreeCall*         call        = copy->gtGetOp1()->AsCall();
-                const ReturnTypeDesc*      retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned             regCount    = retTypeDesc->GetRegCount();
+                const GenTreeCopyOrReload* copy = tree->AsCopyOrReload();
+                const GenTreeCall*         call = copy->GetOp(0)->AsCall();
 
-                for (unsigned i = 0; i < regCount; ++i)
+                for (unsigned i = 0; i < call->GetRegCount(); ++i)
                 {
-                    var_types type  = retTypeDesc->GetRegType(i);
+                    var_types type  = call->GetRegType(i);
                     regNumber toReg = copy->GetRegNumByIdx(i);
 
                     if (toReg != REG_NA)

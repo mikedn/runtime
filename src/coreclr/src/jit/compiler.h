@@ -3154,9 +3154,10 @@ protected:
     CORINFO_CLASS_HANDLE impGetSpecialIntrinsicExactReturnType(CORINFO_METHOD_HANDLE specialIntrinsicHandle);
 
     void impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
+#if FEATURE_MULTIREG_RET
     GenTree* impCanonicalizeMultiRegCall(GenTreeCall* call);
-
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
+#endif
     GenTree* impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 
     GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);

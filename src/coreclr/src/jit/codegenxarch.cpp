@@ -1803,10 +1803,9 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 
     GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
 
-    INDEBUG(ReturnTypeDesc* retDesc = call->GetReturnTypeDesc();)
-    assert(retDesc->GetRegCount() == 2);
-    assert(varTypeUsesFloatReg(retDesc->GetRegType(0)));
-    assert(varTypeUsesFloatReg(retDesc->GetRegType(1)));
+    assert(call->GetRegCount() == 2);
+    assert(varTypeUsesFloatReg(call->GetRegType(0)));
+    assert(varTypeUsesFloatReg(call->GetRegType(1)));
 
     genConsumeRegs(src);
 
@@ -4565,14 +4564,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
     // Determine return value size(s).
-    const ReturnTypeDesc* retTypeDesc   = call->GetReturnTypeDesc();
-    emitAttr              retSize       = EA_PTRSIZE;
-    emitAttr              secondRetSize = EA_UNKNOWN;
+    emitAttr retSize       = EA_PTRSIZE;
+    emitAttr secondRetSize = EA_UNKNOWN;
 
     if (call->HasMultiRegRetVal())
     {
-        retSize       = emitTypeSize(retTypeDesc->GetRegType(0));
-        secondRetSize = emitTypeSize(retTypeDesc->GetRegType(1));
+        retSize       = emitTypeSize(call->GetRegType(0));
+        secondRetSize = emitTypeSize(call->GetRegType(1));
     }
     else
     {
@@ -4825,19 +4823,15 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         else
 #endif // TARGET_X86
         {
-            regNumber returnReg;
-
             if (call->HasMultiRegRetVal())
             {
-                assert(retTypeDesc != nullptr);
-
                 // If regs allocated to call node are different from ABI return
                 // regs in which the call has returned its result, move the result
                 // to regs allocated to call node.
-                for (unsigned i = 0; i < retTypeDesc->GetRegCount(); ++i)
+                for (unsigned i = 0; i < call->GetRegCount(); ++i)
                 {
-                    var_types regType      = retTypeDesc->GetRegType(i);
-                    returnReg              = retTypeDesc->GetRegNum(i);
+                    var_types regType      = call->GetRegType(i);
+                    regNumber returnReg    = call->GetRetDesc()->GetRegNum(i);
                     regNumber allocatedReg = call->GetRegNumByIdx(i);
                     if (returnReg != allocatedReg)
                     {
@@ -4851,7 +4845,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 // the native compiler doesn't guarantee it.
                 if (returnType == TYP_SIMD12)
                 {
-                    returnReg = retTypeDesc->GetRegNum(1);
+                    regNumber returnReg = call->GetRetDesc()->GetRegNum(1);
                     // Clear the upper 32 bits by two shift instructions.
                     // retReg = retReg << 96
                     // retReg = retReg >> 96
@@ -4862,6 +4856,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             }
             else
             {
+                regNumber returnReg;
+
 #ifdef TARGET_X86
                 if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
                 {

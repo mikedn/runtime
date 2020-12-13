@@ -469,7 +469,7 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildCall(tree->AsCall());
             if (tree->AsCall()->HasMultiRegRetVal())
             {
-                dstCount = tree->AsCall()->GetReturnTypeDesc()->GetRegCount();
+                dstCount = tree->AsCall()->GetRegCount();
             }
             break;
 
@@ -1006,26 +1006,16 @@ int LinearScan::BuildShiftRotate(GenTree* tree)
 //
 int LinearScan::BuildCall(GenTreeCall* call)
 {
-    bool                  hasMultiRegRetVal = false;
-    const ReturnTypeDesc* retTypeDesc       = nullptr;
-    int                   srcCount          = 0;
-    int                   dstCount          = 0;
-    regMaskTP             dstCandidates     = RBM_NONE;
+    int srcCount = 0;
+    int dstCount = 0;
 
-    assert(!call->isContained());
-    if (call->TypeGet() != TYP_VOID)
+    if (call->HasMultiRegRetVal())
     {
-        hasMultiRegRetVal = call->HasMultiRegRetVal();
-        if (hasMultiRegRetVal)
-        {
-            // dst count = number of registers in which the value is returned by call
-            retTypeDesc = call->GetReturnTypeDesc();
-            dstCount    = retTypeDesc->GetRegCount();
-        }
-        else
-        {
-            dstCount = 1;
-        }
+        dstCount = call->GetRegCount();
+    }
+    else if (!call->TypeIs(TYP_VOID))
+    {
+        dstCount = 1;
     }
 
     GenTree* ctrlExpr = call->gtControlExpr;
@@ -1034,10 +1024,10 @@ int LinearScan::BuildCall(GenTreeCall* call)
         ctrlExpr = call->gtCallAddr;
     }
 
-    RegisterType registerType = regType(call);
-
     // Set destination candidates for return value of the call.
-    CLANG_FORMAT_COMMENT_ANCHOR;
+
+    RegisterType registerType  = regType(call->GetType());
+    regMaskTP    dstCandidates = RBM_NONE;
 
 #ifdef TARGET_X86
     if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
@@ -1049,10 +1039,9 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
     else
 #endif // TARGET_X86
-        if (hasMultiRegRetVal)
+        if (call->HasMultiRegRetVal())
     {
-        assert(retTypeDesc != nullptr);
-        dstCandidates = retTypeDesc->GetRegMask();
+        dstCandidates = call->GetRetDesc()->GetRegMask();
         assert((int)genCountBits(dstCandidates) == dstCount);
     }
     else if (varTypeUsesFloatReg(registerType))

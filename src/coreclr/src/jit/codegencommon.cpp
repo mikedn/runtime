@@ -11209,7 +11209,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
     }
     else
     {
-        assert(actualSrc->AsCall()->GetReturnTypeDesc()->GetRegCount() == retDesc.GetRegCount());
+        assert(actualSrc->AsCall()->GetRegCount() == retDesc.GetRegCount());
     }
 
     for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)

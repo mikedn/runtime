@@ -1415,7 +1415,7 @@ void Lowering::LowerCall(GenTree* node)
         LowerFastTailCall(call);
     }
 
-    if (varTypeIsStruct(call))
+    if (varTypeIsStruct(call->GetType()))
     {
         LowerCallStruct(call);
     }
@@ -2761,7 +2761,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 
         if (src->OperIs(GT_CALL))
         {
-            retTypeDesc = src->AsCall()->GetReturnTypeDesc();
+            retTypeDesc = src->AsCall()->GetRetDesc();
         }
 
         MakeMultiRegLclVar(store, retTypeDesc);
@@ -3157,38 +3157,17 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
 //
 void Lowering::LowerCallStruct(GenTreeCall* call)
 {
-    assert(varTypeIsStruct(call));
-    if (call->HasMultiRegRetVal())
+    assert(varTypeIsStruct(call->GetType()));
+
+    if (call->GetRegCount() > 1)
     {
         return;
     }
 
-#if defined(FEATURE_HFA)
-    if (comp->IsHfa(call->gtRetClsHnd))
-    {
-#if defined(TARGET_ARM64)
-        assert(comp->GetHfaCount(call->gtRetClsHnd) == 1);
-#elif defined(TARGET_ARM)
-        // ARM returns double in 2 float registers, but
-        // `call->HasMultiRegRetVal()` count double registers.
-        assert(comp->GetHfaCount(call->gtRetClsHnd) <= 2);
-#elif  // !TARGET_ARM64 && !TARGET_ARM
-        unreached();
-#endif // !TARGET_ARM64 && !TARGET_ARM
-        var_types hfaType = comp->GetHfaType(call->gtRetClsHnd);
-        if (call->TypeIs(hfaType))
-        {
-            return;
-        }
-    }
-#endif // FEATURE_HFA
+    var_types regType  = call->GetRegType(0);
+    var_types callType = call->GetType();
 
-    CORINFO_CLASS_HANDLE retClsHnd = call->gtRetClsHnd;
-    structPassingKind    howToReturnStruct;
-    var_types            returnType = comp->getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-    assert(returnType != TYP_STRUCT && returnType != TYP_UNKNOWN);
-    var_types origType = call->TypeGet();
-    call->SetType(genActualType(returnType));
+    call->SetType(varActualType(regType));
 
     LIR::Use callUse;
     if (BlockRange().TryGetUse(call, &callUse))
@@ -3201,14 +3180,14 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
             case GT_STORE_OBJ:
             case GT_STORE_LCL_FLD:
                 // Leave as is, the user will handle it.
-                assert(user->TypeIs(origType) || varTypeIsSIMD(user->TypeGet()));
+                assert(user->TypeIs(callType) || varTypeIsSIMD(user->GetType()));
                 break;
 
             case GT_STOREIND:
 #ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(user))
+                if (varTypeIsSIMD(user->GetType()))
                 {
-                    user->ChangeType(returnType);
+                    user->SetType(regType);
                     break;
                 }
 #endif // FEATURE_SIMD
@@ -3216,7 +3195,7 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
                 // keep it for now.
                 assert(user->TypeIs(TYP_REF) || (user->TypeIs(TYP_I_IMPL) && comp->IsTargetAbi(CORINFO_CORERT_ABI)));
                 assert(call->IsHelperCall());
-                assert(returnType == user->TypeGet());
+                assert(regType == user->GetType());
                 break;
 
             default:

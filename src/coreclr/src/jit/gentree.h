@@ -3676,11 +3676,6 @@ enum structPassingKind
 //    - ABI return register numbers in which the value is returned
 //    - count of return registers in which the value is returned
 //
-// TODO-AllArch: Right now it is used for describing multi-reg returned types.
-// Eventually we would want to use it for describing even single-reg
-// returned types (e.g. structs returned in single register x64/arm).
-// This would allow us not to lie or normalize single struct return
-// values in importer/morph.
 struct ReturnTypeDesc
 {
 private:
@@ -3956,11 +3951,10 @@ struct GenTreeCall final : public GenTree
     unsigned char gtCallType : 3;   // value from the gtCallTypes enumeration
     unsigned char m_retSigType : 5; // Signature return type
 
+    ReturnTypeDesc m_retDesc;
+
 #if FEATURE_MULTIREG_RET
     // State required to support multi-reg returning call nodes.
-
-    // TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
-    ReturnTypeDesc gtReturnTypeDesc;
 
     // GetRegNum() would always be the first return reg.
     // The following array holds the other reg numbers of multi-reg return.
@@ -4015,6 +4009,7 @@ public:
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
         , gtCallType(copyFrom->gtCallType)
         , m_retSigType(copyFrom->m_retSigType)
+        , m_retDesc(copyFrom->m_retDesc)
     {
     }
 
@@ -4053,22 +4048,24 @@ public:
         m_retSigType = type;
     }
 
-    const ReturnTypeDesc* GetReturnTypeDesc() const
+    unsigned GetRegCount() const
     {
-#if FEATURE_MULTIREG_RET
-        return &gtReturnTypeDesc;
-#else
-        return nullptr;
-#endif
+        return m_retDesc.GetRegCount();
     }
 
-    ReturnTypeDesc* GetReturnTypeDesc()
+    var_types GetRegType(unsigned i) const
     {
-#if FEATURE_MULTIREG_RET
-        return &gtReturnTypeDesc;
-#else
-        return nullptr;
-#endif
+        return m_retDesc.GetRegType(i);
+    }
+
+    ReturnTypeDesc* GetRetDesc()
+    {
+        return &m_retDesc;
+    }
+
+    const ReturnTypeDesc* GetRetDesc() const
+    {
+        return &m_retDesc;
     }
 
     regNumber GetRegNumByIdx(unsigned idx) const
@@ -4269,24 +4266,7 @@ public:
 
     bool HasMultiRegRetVal() const
     {
-#if FEATURE_MULTIREG_RET
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-        if (varTypeIsLong(gtType))
-        {
-            return true;
-        }
-#endif
-
-        if (!varTypeIsStruct(gtType) || HasRetBufArg())
-        {
-            return false;
-        }
-
-        // Now it is a struct that is returned in registers.
-        return GetReturnTypeDesc()->GetRegCount() > 1;
-#else  // !FEATURE_MULTIREG_RET
-        return false;
-#endif // !FEATURE_MULTIREG_RET
+        return m_retDesc.GetRegCount() > 1;
     }
 
     // Returns true if VM has flagged this method as CORINFO_FLG_PINVOKE.
@@ -8075,7 +8055,7 @@ inline unsigned GenTree::GetMultiRegCount()
 #if FEATURE_MULTIREG_RET
     if (IsMultiRegCall())
     {
-        return AsCall()->GetReturnTypeDesc()->GetRegCount();
+        return AsCall()->GetRegCount();
     }
 
 #if FEATURE_ARG_SPLIT
@@ -8205,7 +8185,7 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
 #if FEATURE_MULTIREG_RET
     if (IsMultiRegCall())
     {
-        return AsCall()->AsCall()->GetReturnTypeDesc()->GetRegType(regIndex);
+        return AsCall()->AsCall()->GetRegType(regIndex);
     }
 
 #if FEATURE_ARG_SPLIT

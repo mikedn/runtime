@@ -98,17 +98,18 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->gtEntryPoint.accessType = IAT_VALUE;
 #endif
 
-#if FEATURE_MULTIREG_RET
-    call->GetReturnTypeDesc()->Reset();
-    call->ClearOtherRegs();
-    call->ClearOtherRegFlags();
+    call->GetRetDesc()->Reset();
 #ifndef TARGET_64BIT
     if (varTypeIsLong(tree->GetType()))
     {
-        call->GetReturnTypeDesc()->InitializeLong();
+        call->GetRetDesc()->InitializeLong();
     }
 #endif
-#endif // FEATURE_MULTIREG_RET
+
+#if FEATURE_MULTIREG_RET
+    call->ClearOtherRegs();
+    call->ClearOtherRegFlags();
+#endif
 
     if (tree->OperMayThrow(this))
     {

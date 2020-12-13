@@ -595,7 +595,7 @@ bool GenTree::gtHasReg() const
 
         // A Multi-reg call node is said to have regs, if it has
         // reg assigned to each of its result registers.
-        for (unsigned i = 0; i < call->GetReturnTypeDesc()->GetRegCount(); ++i)
+        for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
             hasReg = (call->GetRegNumByIdx(i) != REG_NA);
             if (!hasReg)
@@ -611,7 +611,7 @@ bool GenTree::gtHasReg() const
 
         // A Multi-reg copy or reload node is said to have regs,
         // if it has valid regs in any of the positions.
-        for (unsigned i = 0; i < call->GetReturnTypeDesc()->GetRegCount(); ++i)
+        for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
             hasReg = (copyOrReload->GetRegNumByIdx(i) != REG_NA);
             if (hasReg)
@@ -651,7 +651,7 @@ int GenTree::GetRegisterDstCount(Compiler* compiler) const
     }
     else if (IsMultiRegCall())
     {
-        return AsCall()->GetReturnTypeDesc()->GetRegCount();
+        return AsCall()->GetRegCount();
     }
     else if (IsCopyOrReload())
     {
@@ -722,7 +722,7 @@ regMaskTP GenTree::gtGetRegMask() const
         const GenTreeCall*         call         = copyOrReload->gtGetOp1()->AsCall();
 
         resultMask = RBM_NONE;
-        for (unsigned i = 0; i < call->GetReturnTypeDesc()->GetRegCount(); ++i)
+        for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
             regNumber reg = copyOrReload->GetRegNumByIdx(i);
             if (reg != REG_NA)
@@ -5670,7 +5670,7 @@ GenTreeCall* Compiler::gtNewCallNode(
 #ifndef TARGET_64BIT
     if (varTypeIsLong(type))
     {
-        node->GetReturnTypeDesc()->InitializeLong();
+        node->GetRetDesc()->InitializeLong();
     }
 #endif
 
@@ -7107,10 +7107,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
     {
         copy->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(this, copy, tree);
     }
-
-#if FEATURE_MULTIREG_RET
-    copy->gtReturnTypeDesc = tree->gtReturnTypeDesc;
-#endif
 
 #ifdef FEATURE_READYTORUN_COMPILER
     copy->setEntryPoint(tree->gtEntryPoint);
@@ -9061,7 +9057,7 @@ unsigned Compiler::gtDispRegCount(GenTree* tree)
     }
     else if (tree->OperIs(GT_CALL))
     {
-        unsigned regCount = tree->AsCall()->GetReturnTypeDesc()->GetRegCount();
+        unsigned regCount = tree->AsCall()->GetRegCount();
         // If it hasn't yet been initialized, we'd still like to see the registers printed.
         if (regCount == 0)
         {

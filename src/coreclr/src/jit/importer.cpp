@@ -7730,7 +7730,12 @@ DONE_INTRINSIC:
 
             if (varTypeIsStruct(call->GetType()))
             {
-                call = impCanonicalizeMultiRegCall(origCall);
+#if FEATURE_MULTIREG_RET
+                if ((origCall->GetRegCount() > 1) && !origCall->CanTailCall() && !isInlineCandidate)
+                {
+                    call = impCanonicalizeMultiRegCall(origCall);
+                }
+#endif
             }
 
             // TODO: consider handling fatcalli cases this way too...?
@@ -7738,6 +7743,11 @@ DONE_INTRINSIC:
             {
                 // We should not have made any adjustments in impCanonicalizeMultiRegCall
                 // as we defer those until we know the fate of the call.
+
+                // TODO-MIKE-Review: This seems broken. impCanonicalizeMultiRegCall is not
+                // called for inline candidates but it is called for guarded devirtualization
+                // candidates.
+
                 noway_assert(call == origCall);
 
                 assert(opts.OptEnabled(CLFLG_INLINING));
@@ -7852,47 +7862,53 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     unsigned          retClassSize = info.compCompHnd->getClassSize(retClass);
     structPassingKind retKind;
     var_types         retKindType = getReturnTypeForStruct(retClass, &retKind, retClassSize);
+    ReturnTypeDesc*   retDesc     = call->GetRetDesc();
 
-#if FEATURE_MULTIREG_RET
-    ReturnTypeDesc* retDesc = call->GetReturnTypeDesc();
-    assert(retDesc->GetRegCount() == 0);
-    retDesc->InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
-#endif
-
-    if (retKind == SPK_ByReference)
+    if (retKind == SPK_PrimitiveType)
     {
+        retDesc->InitializePrimitive(retKindType);
+    }
+#if FEATURE_MULTIREG_RET
+    else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
+    {
+        retDesc->InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
+    }
+#endif
+    else
+    {
+        assert(retKind == SPK_ByReference);
+
+        // JIT generated code does return the return buffer arg if required
+        // by the ABI but it does not use the return value so calls have no
+        // return registers in this case.
+        assert(retDesc->GetRegCount() == 0);
+
         call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
     }
 }
 
+#if FEATURE_MULTIREG_RET
+
 GenTree* Compiler::impCanonicalizeMultiRegCall(GenTreeCall* call)
 {
+    // Multireg return calls have limited support in IR - basically they can only
+    // be assigned to locals or "returned" if they're tail calls.
+    // For inline candidate calls this transform is deferred to the inliner.
+
     assert(varTypeIsStruct(call->GetType()));
+    assert((call->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate());
 
-#if FEATURE_MULTIREG_RET
-    ReturnTypeDesc* retDesc = call->GetReturnTypeDesc();
+    unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
+    impAssignTempGen(tempLclNum, call, call->gtRetClsHnd, CHECK_SPILL_ALL);
+    LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
 
-    if ((retDesc->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate())
-    {
-        // Multireg return calls have limited support in IR - basically they can only
-        // be assigned to locals or "returned" if they're tail calls.
-        // For inline candidate calls this transform is deferred to the inliner.
+    GenTree* temp = gtNewLclvNode(tempLclNum, tempLcl->GetType());
+    // Make sure that this struct stays in memory and doesn't get promoted.
+    tempLcl->lvIsMultiRegRet = true;
+    // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
+    temp->gtFlags |= GTF_DONT_CSE;
 
-        unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
-        impAssignTempGen(tempLclNum, call, call->gtRetClsHnd, CHECK_SPILL_ALL);
-        LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
-
-        GenTree* temp = gtNewLclvNode(tempLclNum, tempLcl->GetType());
-        // Make sure that this struct stays in memory and doesn't get promoted.
-        tempLcl->lvIsMultiRegRet = true;
-        // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
-        temp->gtFlags |= GTF_DONT_CSE;
-
-        return temp;
-    }
-#endif // FEATURE_MULTIREG_RET
-
-    return call;
+    return temp;
 }
 
 GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass)
@@ -7958,6 +7974,8 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
     return value;
 #endif
 }
+
+#endif // FEATURE_MULTIREG_RET
 
 GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass)
 {
@@ -13150,23 +13168,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
                 // convert native TypeHandle to RuntimeTypeHandle
-                {
-                    GenTreeCall::Use* helperArgs = gtNewCallArgs(op1);
+                op1 = gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL, TYP_STRUCT,
+                                          gtNewCallArgs(op1));
+                op1->AsCall()->gtRetClsHnd = impGetTypeHandleClass();
+                op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
 
-                    op1 = gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL, TYP_STRUCT,
-                                              helperArgs);
-
-                    CORINFO_CLASS_HANDLE classHandle = impGetTypeHandleClass();
-
-                    // The handle struct is returned in register
-                    var_types retRegType       = GetRuntimeHandleUnderlyingType();
-                    op1->AsCall()->gtRetClsHnd = classHandle;
-#if FEATURE_MULTIREG_RET
-                    op1->AsCall()->GetReturnTypeDesc()->InitializePrimitive(retRegType);
-#endif
-
-                    impPushOnStack(op1, typeInfo(TI_STRUCT, classHandle));
-                }
+                impPushOnStack(op1, typeInfo(TI_STRUCT, op1->AsCall()->gtRetClsHnd));
                 break;
 
             case CEE_LDTOKEN:
@@ -13197,16 +13204,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
                 op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op1));
-
-                {
-                    // The handle struct is returned in register and
-                    // it could be consumed both as `TYP_STRUCT` and `TYP_REF`.
-                    var_types retRegType = GetRuntimeHandleUnderlyingType();
-#if FEATURE_MULTIREG_RET
-                    op1->AsCall()->GetReturnTypeDesc()->InitializePrimitive(retRegType);
-#endif
-                    op1->AsCall()->gtRetClsHnd = tokenType;
-                }
+                op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
+                op1->AsCall()->gtRetClsHnd = tokenType;
 
                 impPushOnStack(op1, typeInfo(TI_STRUCT, tokenType));
                 break;
@@ -14280,10 +14279,12 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
                 value = impSpillPseudoReturnBufferCall(value, se.seTypeInfo.GetClassHandle());
             }
 
+#if FEATURE_MULTIREG_RET
             if (varTypeIsStruct(info.compRetType) && (info.retDesc.GetRegCount() > 1))
             {
                 value = impCanonicalizeMultiRegReturnValue(value, se.seTypeInfo.GetClassHandle());
             }
+#endif
 
             ret = gtNewOperNode(GT_RETURN, varActualType(info.compRetType), value);
         }

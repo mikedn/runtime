@@ -2769,10 +2769,10 @@ void LinearScan::BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates)
     {
         fixedReg = true;
     }
-    const ReturnTypeDesc* retTypeDesc = nullptr;
+    const ReturnTypeDesc* retDesc = nullptr;
     if (tree->IsMultiRegCall())
     {
-        retTypeDesc = tree->AsCall()->GetReturnTypeDesc();
+        retDesc = tree->AsCall()->GetRetDesc();
     }
     for (int i = 0; i < dstCount; i++)
     {
@@ -2781,9 +2781,9 @@ void LinearScan::BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates)
         {
             // In case of multi-reg call node, we have to query the ith position return register.
             // For all other cases of multi-reg definitions, the registers must be in sequential order.
-            if (retTypeDesc != nullptr)
+            if (retDesc != nullptr)
             {
-                thisDstCandidates = genRegMask(tree->AsCall()->GetReturnTypeDesc()->GetRegNum(i));
+                thisDstCandidates = genRegMask(retDesc->GetRegNum(i));
                 assert((dstCandidates & thisDstCandidates) != RBM_NONE);
             }
             else
@@ -3445,13 +3445,11 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
         if (GenTreeCall* call = src->IsCall())
         {
             noway_assert(call->IsMultiRegCall());
-
-            const ReturnTypeDesc* callRetDesc = call->GetReturnTypeDesc();
-            assert(retDesc.GetRegCount() == callRetDesc->GetRegCount());
+            assert(retDesc.GetRegCount() == call->GetRegCount());
 
             for (unsigned i = 0; i < retDesc.GetRegCount(); i++)
             {
-                assert(varTypeUsesFloatReg(retDesc.GetRegType(i)) == varTypeUsesFloatReg(callRetDesc->GetRegType(i)));
+                assert(varTypeUsesFloatReg(retDesc.GetRegType(i)) == varTypeUsesFloatReg(call->GetRegType(i)));
 
                 BuildUse(src, genRegMask(retDesc.GetRegNum(i)), i);
             }
