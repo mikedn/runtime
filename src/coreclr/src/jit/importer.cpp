@@ -6518,6 +6518,9 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 
     CORINFO_RESOLVED_TOKEN* ldftnToken = nullptr;
 
+    bool             hasCallSiteSig = false;
+    CORINFO_SIG_INFO callSiteSig;
+
     // Synchronized methods need to call CORINFO_HELP_MON_EXIT at the end. We could
     // do that before tailcalls, but that is probably not the intended
     // semantic. So just disallow tailcalls from synchronized methods.
@@ -7439,7 +7442,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
             // Is it an inline candidate?
-            impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
+            impMarkInlineCandidate(call->AsCall(), exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
             // append the call node.
             impAppendTree(call, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
@@ -7482,6 +7485,21 @@ DONE:
     call->AsCall()->callSig  = new (this, CMK_Generic) CORINFO_SIG_INFO;
     *call->AsCall()->callSig = *sig;
 #endif
+
+    if (call->TypeIs(TYP_STRUCT))
+    {
+        if ((clsFlags & CORINFO_FLG_ARRAY) != 0)
+        {
+            eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext,
+                             &callSiteSig);
+            hasCallSiteSig = true;
+            impInitializeStructCall(call->AsCall(), callSiteSig.retTypeClass);
+        }
+        else
+        {
+            impInitializeStructCall(call->AsCall(), sig->retTypeClass);
+        }
+    }
 
     // Final importer checks for calls flagged as tail calls.
     //
@@ -7668,7 +7686,7 @@ DONE:
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
     // Is it an inline candidate?
-    impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
+    impMarkInlineCandidate(call->AsCall(), exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
 DONE_INTRINSIC:
     // Push or append the result of the call
@@ -7689,9 +7707,15 @@ DONE_INTRINSIC:
     {
         impSpillSpecialSideEff();
 
-        if (clsFlags & CORINFO_FLG_ARRAY)
+        if ((clsFlags & CORINFO_FLG_ARRAY) != 0)
         {
-            eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, sig);
+            if (!hasCallSiteSig)
+            {
+                eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext,
+                                 &callSiteSig);
+            }
+
+            sig = &callSiteSig;
         }
 
         if (call->IsCall())
@@ -7704,18 +7728,15 @@ DONE_INTRINSIC:
             const bool isInlineCandidate                  = origCall->IsInlineCandidate();
             const bool isGuardedDevirtualizationCandidate = origCall->IsGuardedDevirtualizationCandidate();
 
-            if (call->TypeIs(TYP_STRUCT))
+            if (varTypeIsStruct(call->GetType()))
             {
-                origCall->SetRetSigType(impNormStructType(sig->retTypeClass));
-                origCall->gtRetClsHnd = sig->retTypeClass;
-
-                call = impFixupCallStructReturn(origCall);
+                call = impCanonicalizeMultiRegCall(origCall);
             }
 
             // TODO: consider handling fatcalli cases this way too...?
             if (isInlineCandidate || isGuardedDevirtualizationCandidate)
             {
-                // We should not have made any adjustments in impFixupCallStructReturn
+                // We should not have made any adjustments in impCanonicalizeMultiRegCall
                 // as we defer those until we know the fate of the call.
                 noway_assert(call == origCall);
 
@@ -7743,7 +7764,7 @@ DONE_INTRINSIC:
                     // and removes problems with cutting trees.
                     assert(!bIntrinsicImported);
                     assert(IsTargetAbi(CORINFO_CORERT_ABI));
-                    if (call->OperGet() != GT_LCL_VAR) // can be already converted by impFixupCallStructReturn.
+                    if (call->OperGet() != GT_LCL_VAR) // can be already converted by impCanonicalizeMultiRegCall.
                     {
                         unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli"));
                         impAssignTempGen(calliTempLclNum, call, sig->retTypeClass, (unsigned)CHECK_SPILL_NONE);
@@ -7819,17 +7840,37 @@ DONE_INTRINSIC:
 #pragma warning(pop)
 #endif
 
-GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call)
+void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass)
 {
-    assert(varTypeIsStruct(call->GetType()));
+    assert(call->GetType() == TYP_STRUCT);
+    assert(call->GetRetSigType() == TYP_STRUCT);
+    assert(call->gtRetClsHnd == NO_CLASS_HANDLE);
 
-    unsigned          retClassSize = info.compCompHnd->getClassSize(call->gtRetClsHnd);
+    call->SetRetSigType(impNormStructType(retClass));
+    call->gtRetClsHnd = retClass;
+
+    unsigned          retClassSize = info.compCompHnd->getClassSize(retClass);
     structPassingKind retKind;
-    var_types         retKindType = getReturnTypeForStruct(call->gtRetClsHnd, &retKind);
+    var_types         retKindType = getReturnTypeForStruct(retClass, &retKind, retClassSize);
 
 #if FEATURE_MULTIREG_RET
     ReturnTypeDesc* retDesc = call->GetReturnTypeDesc();
-    retDesc->InitializeStruct(this, call->gtRetClsHnd, retClassSize, retKind, retKindType);
+    assert(retDesc->GetRegCount() == 0);
+    retDesc->InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
+#endif
+
+    if (retKind == SPK_ByReference)
+    {
+        call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
+    }
+}
+
+GenTree* Compiler::impCanonicalizeMultiRegCall(GenTreeCall* call)
+{
+    assert(varTypeIsStruct(call->GetType()));
+
+#if FEATURE_MULTIREG_RET
+    ReturnTypeDesc* retDesc = call->GetReturnTypeDesc();
 
     if ((retDesc->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate())
     {
@@ -7850,11 +7891,6 @@ GenTree* Compiler::impFixupCallStructReturn(GenTreeCall* call)
         return temp;
     }
 #endif // FEATURE_MULTIREG_RET
-
-    if (retKind == SPK_ByReference)
-    {
-        call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
-    }
 
     return call;
 }
@@ -15400,7 +15436,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
 
             if (dwRestrictions & INLINE_SAME_THIS)
             {
-                GenTree* thisArg = pParam->call->AsCall()->gtCallThisArg->GetNode();
+                GenTree* thisArg = pParam->call->gtCallThisArg->GetNode();
                 assert(thisArg);
 
                 if (!pParam->pThis->impIsThis(thisArg))
@@ -16441,7 +16477,7 @@ BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
 // impMarkInlineCandidate: determine if this call can be subsequently inlined
 //
 // Arguments:
-//    callNode -- call under scrutiny
+//    call -- call under scrutiny
 //    exactContextHnd -- context handle for inlining
 //    exactContextNeedsRuntimeLookup -- true if context required runtime lookup
 //    callInfo -- call info from VM
@@ -16451,13 +16487,11 @@ BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
 //    guarded devirtualization for virtual calls where the method we'd
 //    devirtualize to cannot be inlined.
 
-void Compiler::impMarkInlineCandidate(GenTree*               callNode,
+void Compiler::impMarkInlineCandidate(GenTreeCall*           call,
                                       CORINFO_CONTEXT_HANDLE exactContextHnd,
                                       bool                   exactContextNeedsRuntimeLookup,
                                       CORINFO_CALL_INFO*     callInfo)
 {
-    GenTreeCall* call = callNode->AsCall();
-
     // Do the actual evaluation
     impMarkInlineCandidateHelper(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 

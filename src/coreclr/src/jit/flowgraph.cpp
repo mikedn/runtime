@@ -22554,7 +22554,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     // have deferred some work when importing call for cases where the
     // struct is returned in register(s).
     //
-    // See the bail-out clauses in impFixupCallStructReturn for inline
+    // See the bail-out clauses in impCanonicalizeMultiRegCall for inline
     // candidates.
     //
     // Do the deferred work now.

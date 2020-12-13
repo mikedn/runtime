@@ -7855,7 +7855,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         if (fgGlobalMorph && call->HasMultiRegRetVal() && varTypeIsStruct(call->TypeGet()))
         {
             // The tail call has been rejected so we must finish the work deferred
-            // by impFixupCallStructReturn for multi-reg-returning calls and transform
+            // by impCanonicalizeMultiRegCall for multi-reg-returning calls and transform
             //     ret call
             // into
             //     temp = call

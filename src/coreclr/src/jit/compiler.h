@@ -3153,7 +3153,8 @@ protected:
 
     CORINFO_CLASS_HANDLE impGetSpecialIntrinsicExactReturnType(CORINFO_METHOD_HANDLE specialIntrinsicHandle);
 
-    GenTree* impFixupCallStructReturn(GenTreeCall* call);
+    void impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
+    GenTree* impCanonicalizeMultiRegCall(GenTreeCall* call);
 
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
     GenTree* impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass);
@@ -3600,7 +3601,7 @@ private:
                                                             GenTree*          dereferencedAddress,
                                                             InlArgInfo*       inlArgInfo);
 
-    void impMarkInlineCandidate(GenTree*               call,
+    void impMarkInlineCandidate(GenTreeCall*           call,
                                 CORINFO_CONTEXT_HANDLE exactContextHnd,
                                 bool                   exactContextNeedsRuntimeLookup,
                                 CORINFO_CALL_INFO*     callInfo);
