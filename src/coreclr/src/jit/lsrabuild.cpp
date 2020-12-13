@@ -2751,43 +2751,6 @@ RefPosition* LinearScan::BuildDef(GenTree* tree, regMaskTP dstCandidates, int mu
     return defRefPosition;
 }
 
-//------------------------------------------------------------------------
-// BuildDef: Build one or more RefTypeDef RefPositions for the given node
-//
-// Arguments:
-//    tree          - The node that defines a register
-//    dstCount      - The number of registers defined by the node
-//    dstCandidates - the candidate registers for the definition
-//
-// Notes:
-//    Adds the RefInfo for the definitions to the defList.
-//
-void LinearScan::BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates)
-{
-    assert(!tree->OperIs(GT_CALL));
-
-    bool fixedReg = false;
-    if ((dstCount > 1) && (dstCandidates != RBM_NONE) && ((int)genCountBits(dstCandidates) == dstCount))
-    {
-        fixedReg = true;
-    }
-
-    for (int i = 0; i < dstCount; i++)
-    {
-        regMaskTP thisDstCandidates;
-        if (fixedReg)
-        {
-            thisDstCandidates = genFindLowestBit(dstCandidates);
-            dstCandidates &= ~thisDstCandidates;
-        }
-        else
-        {
-            thisDstCandidates = dstCandidates;
-        }
-        BuildDef(tree, thisDstCandidates, i);
-    }
-}
-
 void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
 {
     assert(killMask == getKillSetForNode(tree));

@@ -2868,12 +2868,7 @@ int LinearScan::BuildMul(GenTree* tree)
         return BuildSimple(tree);
     }
 
-    int       srcCount      = BuildBinaryUses(tree->AsOp());
-    int       dstCount      = 1;
-    regMaskTP dstCandidates = RBM_NONE;
-
-    bool isUnsignedMultiply    = ((tree->gtFlags & GTF_UNSIGNED) != 0);
-    bool requiresOverflowCheck = tree->gtOverflowEx();
+    int srcCount = BuildBinaryUses(tree->AsOp());
 
     // There are three forms of x86 multiply:
     // one-op form:     RDX:RAX = RAX * r/m
@@ -2889,35 +2884,38 @@ int LinearScan::BuildMul(GenTree* tree)
         assert((tree->gtFlags & GTF_MUL_64RSLT) == 0);
     }
 
+    BuildKills(tree, getKillSetForMul(tree->AsOp()));
+
     // We do use the widening multiply to implement
     // the overflow checking for unsigned multiply
     //
-    if (isUnsignedMultiply && requiresOverflowCheck)
+    if (tree->IsUnsigned() && tree->gtOverflowEx())
     {
         // The only encoding provided is RDX:RAX = RAX * rm
         //
         // Here we set RAX as the only destination candidate
         // In LSRA we set the kill set for this operation to RBM_RAX|RBM_RDX
         //
-        dstCandidates = RBM_RAX;
+        BuildDef(tree, RBM_RAX);
     }
     else if (tree->OperGet() == GT_MULHI)
     {
         // Have to use the encoding:RDX:RAX = RAX * rm. Since we only care about the
         // upper 32 bits of the result set the destination candidate to REG_RDX.
-        dstCandidates = RBM_RDX;
+        BuildDef(tree, RBM_RDX);
     }
 #if defined(TARGET_X86)
     else if (tree->OperGet() == GT_MUL_LONG)
     {
         // have to use the encoding:RDX:RAX = RAX * rm
-        dstCandidates = RBM_RAX | RBM_RDX;
-        dstCount      = 2;
+        BuildDef(tree, RBM_RAX, 0);
+        BuildDef(tree, RBM_RDX, 1);
     }
 #endif
-
-    BuildKills(tree, getKillSetForMul(tree->AsOp()));
-    BuildDefs(tree, dstCount, dstCandidates);
+    else
+    {
+        BuildDef(tree);
+    }
 
     return srcCount;
 }

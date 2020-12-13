@@ -455,7 +455,11 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         buildInternalRegisterUses();
     }
 
-    BuildDefs(putArg, argInfo->GetRegCount(), argRegMask);
+    for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
+    {
+        BuildDef(putArg, genRegMask(argInfo->GetRegNum(i)), i);
+    }
+
     return srcCount;
 }
 #endif // FEATURE_ARG_SPLIT

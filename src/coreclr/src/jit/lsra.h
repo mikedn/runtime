@@ -1563,7 +1563,6 @@ private:
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
 #endif
     RefPosition* BuildDef(GenTree* tree, regMaskTP dstCandidates = RBM_NONE, int multiRegIdx = 0);
-    void BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates = RBM_NONE);
     void BuildKills(GenTree* tree, regMaskTP killMask);
 
     int BuildReturn(GenTreeUnOp* ret);

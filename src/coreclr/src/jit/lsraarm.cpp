@@ -416,7 +416,8 @@ int LinearScan::BuildNode(GenTree* tree)
             dstCount = 2;
             srcCount = BuildBinaryUses(tree->AsOp());
             assert(srcCount == 2);
-            BuildDefs(tree, 2);
+            BuildDef(tree, RBM_NONE, 0);
+            BuildDef(tree, RBM_NONE, 1);
             break;
 
         case GT_FIELD_LIST:
@@ -732,29 +733,35 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_BITCAST:
         {
-            assert(dstCount == 1);
-            regNumber argReg  = tree->GetRegNum();
-            regMaskTP argMask = argReg == REG_NA ? RBM_NONE : genRegMask(argReg);
-
-            // If type of node is `long` then it is actually `double`.
-            // The actual `long` types must have been transformed as a field list with two fields.
-            if (tree->TypeGet() == TYP_LONG)
+            if (!tree->AsUnOp()->GetOp(0)->isContained())
             {
-                dstCount++;
-                assert(genRegArgNext(argReg) == REG_NEXT(argReg));
-                argMask |= genRegMask(REG_NEXT(argReg));
-                dstCount = 2;
-            }
-            if (!tree->gtGetOp1()->isContained())
-            {
-                BuildUse(tree->gtGetOp1());
+                BuildUse(tree->AsUnOp()->GetOp(0));
                 srcCount = 1;
             }
             else
             {
                 srcCount = 0;
             }
-            BuildDefs(tree, dstCount, argMask);
+
+            regNumber argReg  = tree->GetRegNum();
+            regMaskTP argMask = argReg == REG_NA ? RBM_NONE : genRegMask(argReg);
+
+            if (tree->TypeIs(TYP_LONG))
+            {
+                assert(genRegArgNext(argReg) == REG_NEXT(argReg));
+                regMaskTP argMaskNext = argReg == REG_NA ? RBM_NONE : genRegMask(REG_NEXT(argReg));
+
+                BuildDef(tree, argMask, 0);
+                BuildDef(tree, argMaskNext, 1);
+
+                dstCount = 2;
+            }
+            else
+            {
+                BuildDef(tree, argMask);
+
+                assert(dstCount == 1);
+            }
         }
         break;
 
