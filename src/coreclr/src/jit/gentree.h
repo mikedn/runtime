@@ -3714,8 +3714,6 @@ public:
     }
 
     regNumber GetRegNum(unsigned i) const;
-
-    regMaskTP GetRegMask() const;
 };
 
 class TailCallSiteInfo

@@ -122,7 +122,7 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
 {
     noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
 
-    if (!pushReg)
+    if (!pushReg && !varTypeUsesFloatReg(compiler->info.GetRetSigType()))
     {
         // Return registers that contain GC references must be reported
         // as live while the GC cookie is checked.

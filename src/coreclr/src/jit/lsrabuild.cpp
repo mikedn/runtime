@@ -2764,32 +2764,20 @@ RefPosition* LinearScan::BuildDef(GenTree* tree, regMaskTP dstCandidates, int mu
 //
 void LinearScan::BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates)
 {
+    assert(!tree->OperIs(GT_CALL));
+
     bool fixedReg = false;
     if ((dstCount > 1) && (dstCandidates != RBM_NONE) && ((int)genCountBits(dstCandidates) == dstCount))
     {
         fixedReg = true;
     }
-    const ReturnTypeDesc* retDesc = nullptr;
-    if (tree->IsMultiRegCall())
-    {
-        retDesc = tree->AsCall()->GetRetDesc();
-    }
+
     for (int i = 0; i < dstCount; i++)
     {
         regMaskTP thisDstCandidates;
         if (fixedReg)
         {
-            // In case of multi-reg call node, we have to query the ith position return register.
-            // For all other cases of multi-reg definitions, the registers must be in sequential order.
-            if (retDesc != nullptr)
-            {
-                thisDstCandidates = genRegMask(retDesc->GetRegNum(i));
-                assert((dstCandidates & thisDstCandidates) != RBM_NONE);
-            }
-            else
-            {
-                thisDstCandidates = genFindLowestBit(dstCandidates);
-            }
+            thisDstCandidates = genFindLowestBit(dstCandidates);
             dstCandidates &= ~thisDstCandidates;
         }
         else

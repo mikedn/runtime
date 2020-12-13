@@ -133,28 +133,9 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildCall: Set the NodeInfo for a call.
-//
-// Arguments:
-//    call - The call node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildCall(GenTreeCall* call)
 {
     int srcCount = 0;
-    int dstCount = 0;
-
-    if (call->HasMultiRegRetVal())
-    {
-        dstCount = call->GetRegCount();
-    }
-    else if (!call->TypeIs(TYP_VOID))
-    {
-        dstCount = 1;
-    }
 
     GenTree* ctrlExpr = call->gtControlExpr;
     if (call->gtCallType == CT_INDIRECT)
@@ -199,37 +180,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
 
 #endif // TARGET_ARM
-
-    // Set destination candidates for return value of the call.
-
-    RegisterType registerType  = call->GetType();
-    regMaskTP    dstCandidates = RBM_NONE;
-
-#ifdef TARGET_ARM
-    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
-    {
-        // The ARM CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
-        // TCB in REG_PINVOKE_TCB. fgMorphCall() sets the correct argument registers.
-        dstCandidates = RBM_PINVOKE_TCB;
-    }
-    else
-#endif // TARGET_ARM
-        if (call->HasMultiRegRetVal())
-    {
-        dstCandidates = call->GetRetDesc()->GetRegMask();
-    }
-    else if (varTypeUsesFloatArgReg(registerType))
-    {
-        dstCandidates = RBM_FLOATRET;
-    }
-    else if (registerType == TYP_LONG)
-    {
-        dstCandidates = RBM_LNGRET;
-    }
-    else
-    {
-        dstCandidates = RBM_INTRET;
-    }
 
     for (GenTreeCall::Use& arg : call->LateArgs())
     {
@@ -347,9 +297,39 @@ int LinearScan::BuildCall(GenTreeCall* call)
         srcCount++;
     }
 
-    buildInternalRegisterUses();
+    BuildInternalUses();
     BuildKills(call, getKillSetForCall(call));
-    BuildDefs(call, dstCount, dstCandidates);
+
+#ifdef TARGET_ARM
+    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
+    {
+        // The ARM CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
+        // TCB in REG_PINVOKE_TCB. fgMorphCall() sets the correct argument registers.
+        BuildDef(call, RBM_PINVOKE_TCB);
+    }
+    else
+#endif
+        if (call->HasMultiRegRetVal())
+    {
+        for (unsigned i = 0; i < call->GetRegCount(); i++)
+        {
+            BuildDef(call, genRegMask(call->GetRetDesc()->GetRegNum(i)), i);
+        }
+    }
+    else if (varTypeUsesFloatArgReg(call->GetType()))
+    {
+        BuildDef(call, RBM_FLOATRET);
+    }
+#ifdef TARGET_64BIT
+    else if (call->TypeIs(TYP_LONG))
+    {
+        BuildDef(call, RBM_LNGRET);
+    }
+#endif
+    else if (!call->TypeIs(TYP_VOID))
+    {
+        BuildDef(call, RBM_INTRET);
+    }
 
     return srcCount;
 }

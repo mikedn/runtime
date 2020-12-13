@@ -995,71 +995,14 @@ int LinearScan::BuildShiftRotate(GenTree* tree)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildCall: Set the NodeInfo for a call.
-//
-// Arguments:
-//    call      - The call node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildCall(GenTreeCall* call)
 {
     int srcCount = 0;
-    int dstCount = 0;
-
-    if (call->HasMultiRegRetVal())
-    {
-        dstCount = call->GetRegCount();
-    }
-    else if (!call->TypeIs(TYP_VOID))
-    {
-        dstCount = 1;
-    }
 
     GenTree* ctrlExpr = call->gtControlExpr;
     if (call->gtCallType == CT_INDIRECT)
     {
         ctrlExpr = call->gtCallAddr;
-    }
-
-    // Set destination candidates for return value of the call.
-
-    RegisterType registerType  = regType(call->GetType());
-    regMaskTP    dstCandidates = RBM_NONE;
-
-#ifdef TARGET_X86
-    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
-    {
-        // The x86 CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
-        // TCB in REG_PINVOKE_TCB. AMD64/ARM64 use the standard calling convention. fgMorphCall() sets the
-        // correct argument registers.
-        dstCandidates = RBM_PINVOKE_TCB;
-    }
-    else
-#endif // TARGET_X86
-        if (call->HasMultiRegRetVal())
-    {
-        dstCandidates = call->GetRetDesc()->GetRegMask();
-        assert((int)genCountBits(dstCandidates) == dstCount);
-    }
-    else if (varTypeUsesFloatReg(registerType))
-    {
-#ifdef TARGET_X86
-        // The return value will be on the X87 stack, and we will need to move it.
-        dstCandidates = allRegs(registerType);
-#else  // !TARGET_X86
-        dstCandidates = RBM_FLOATRET;
-#endif // !TARGET_X86
-    }
-    else if (registerType == TYP_LONG)
-    {
-        dstCandidates = RBM_LNGRET;
-    }
-    else
-    {
-        dstCandidates = RBM_INTRET;
     }
 
 // number of args to a call =
@@ -1201,9 +1144,45 @@ int LinearScan::BuildCall(GenTreeCall* call)
         srcCount += BuildOperandUses(ctrlExpr, ctrlExprCandidates);
     }
 
-    buildInternalRegisterUses();
+    BuildInternalUses();
     BuildKills(call, getKillSetForCall(call));
-    BuildDefs(call, dstCount, dstCandidates);
+
+#ifdef TARGET_X86
+    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
+    {
+        // The x86 CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
+        // TCB in REG_PINVOKE_TCB. AMD64/ARM64 use the standard calling convention. fgMorphCall() sets the
+        // correct argument registers.
+        BuildDef(call, RBM_PINVOKE_TCB);
+    }
+    else
+#endif
+        if (call->HasMultiRegRetVal())
+    {
+        for (unsigned i = 0; i < call->GetRegCount(); i++)
+        {
+            BuildDef(call, genRegMask(call->GetRetDesc()->GetRegNum(i)), i);
+        }
+    }
+    else if (varTypeUsesFloatReg(call->GetType()))
+    {
+#ifdef TARGET_X86
+        // The return value will be on the X87 stack, and we will need to move it.
+        BuildDef(call);
+#else
+        BuildDef(call, RBM_FLOATRET);
+#endif
+    }
+#ifdef TARGET_64BIT
+    else if (call->TypeIs(TYP_LONG))
+    {
+        BuildDef(call, RBM_LNGRET);
+    }
+#endif
+    else if (!call->TypeIs(TYP_VOID))
+    {
+        BuildDef(call, RBM_INTRET);
+    }
 
     return srcCount;
 }

@@ -17499,6 +17499,7 @@ regNumber ReturnTypeDesc::GetRegNum(unsigned i) const
     assert(i < m_regCount);
 
 #if defined(TARGET_X86)
+    assert(!varTypeUsesFloatReg(m_regType[i]));
     return i == 0 ? REG_EAX : REG_EDX;
 #elif defined(WINDOWS_AMD64_ABI)
     return varTypeUsesFloatReg(m_regType[0]) ? REG_XMM0 : REG_RAX;
@@ -17538,18 +17539,6 @@ regNumber ReturnTypeDesc::GetRegNum(unsigned i) const
 #else
     return REG_NA;
 #endif
-}
-
-regMaskTP ReturnTypeDesc::GetRegMask() const
-{
-    regMaskTP regMask = RBM_NONE;
-
-    for (unsigned i = 0; i < m_regCount; ++i)
-    {
-        regMask |= genRegMask(GetRegNum(i));
-    }
-
-    return regMask;
 }
 
 //------------------------------------------------------------------------
