@@ -716,24 +716,6 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_COPY:
-            srcCount = 1;
-#ifdef TARGET_ARM
-            // This case currently only occurs for double types that are passed as TYP_LONG;
-            // actual long types would have been decomposed by now.
-            if (tree->TypeGet() == TYP_LONG)
-            {
-                dstCount = 2;
-            }
-            else
-#endif
-            {
-                assert(dstCount == 1);
-            }
-            BuildUse(tree->gtGetOp1());
-            BuildDefs(tree, dstCount);
-            break;
-
         case GT_PUTARG_SPLIT:
             srcCount = BuildPutArgSplit(tree->AsPutArgSplit());
             dstCount = tree->AsPutArgSplit()->GetRegCount();
