@@ -6635,8 +6635,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             fgMorphStmt->SetRootNode(call);
         }
 
+        ClassLayout* retLayout = call->GetRetLayout();
+
         // Avoid potential extra work for the return (for example, vzeroupper)
-        call->gtType = TYP_VOID;
+        call->SetType(TYP_VOID);
+        call->SetRetSigType(TYP_VOID);
+        call->SetRetLayout(nullptr);
+        call->GetRetDesc()->Reset();
 
         // Do some target-specific transformations (before we process the args,
         // etc.) for the JIT helper case.
@@ -6705,7 +6710,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             if (varTypeIsStruct(origCallType))
             {
                 structPassingKind howToReturnStruct;
-                callType = getReturnTypeForStruct(call->GetRetLayout()->GetClassHandle(), &howToReturnStruct);
+                callType = getReturnTypeForStruct(retLayout->GetClassHandle(), &howToReturnStruct);
                 assert((howToReturnStruct != SPK_Unknown) && (howToReturnStruct != SPK_ByReference));
                 if (howToReturnStruct == SPK_ByValue)
                 {
@@ -6946,6 +6951,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     call->SetType(TYP_VOID);
     call->SetRetSigType(TYP_VOID);
     call->SetRetLayout(nullptr);
+    call->GetRetDesc()->Reset();
 
     GenTree* finalTree =
         gtNewOperNode(GT_COMMA, callDispatcherAndGetResult->TypeGet(), call, callDispatcherAndGetResult);
