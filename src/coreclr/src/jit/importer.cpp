@@ -638,9 +638,12 @@ void Compiler::impAssignTempGen(unsigned tmp, GenTree* val, unsigned curLevel)
     }
 }
 
-/*****************************************************************************
- * same as above, but handle the valueclass case too
- */
+void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
+{
+    assert((layout == nullptr) || !layout->IsBlockLayout());
+
+    impAssignTempGen(tmpNum, val, layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle(), curLevel);
+}
 
 void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
 {
@@ -7854,14 +7857,15 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
 {
     assert(call->GetType() == TYP_STRUCT);
     assert(call->GetRetSigType() == TYP_STRUCT);
-    assert(call->gtRetClsHnd == NO_CLASS_HANDLE);
+    assert(call->GetRetLayout() == nullptr);
+
+    ClassLayout* layout = typGetObjLayout(retClass);
 
     call->SetRetSigType(impNormStructType(retClass));
-    call->gtRetClsHnd = retClass;
+    call->SetRetLayout(layout);
 
-    unsigned          retClassSize = info.compCompHnd->getClassSize(retClass);
     structPassingKind retKind;
-    var_types         retKindType = getReturnTypeForStruct(retClass, &retKind, retClassSize);
+    var_types         retKindType = getReturnTypeForStruct(retClass, &retKind, layout->GetSize());
     ReturnTypeDesc*   retDesc     = call->GetRetDesc();
 
     if (retKind == SPK_PrimitiveType)
@@ -7871,7 +7875,7 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
 #if FEATURE_MULTIREG_RET
     else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
     {
-        retDesc->InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
+        retDesc->InitializeStruct(this, retClass, layout->GetSize(), retKind, retKindType);
     }
 #endif
     else
@@ -7899,7 +7903,7 @@ GenTree* Compiler::impCanonicalizeMultiRegCall(GenTreeCall* call)
     assert((call->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate());
 
     unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
-    impAssignTempGen(tempLclNum, call, call->gtRetClsHnd, CHECK_SPILL_ALL);
+    impAssignTempGen(tempLclNum, call, call->GetRetLayout(), CHECK_SPILL_ALL);
     LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
 
     GenTree* temp = gtNewLclvNode(tempLclNum, tempLcl->GetType());
@@ -13170,10 +13174,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // convert native TypeHandle to RuntimeTypeHandle
                 op1 = gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL, TYP_STRUCT,
                                           gtNewCallArgs(op1));
-                op1->AsCall()->gtRetClsHnd = impGetTypeHandleClass();
+                op1->AsCall()->SetRetLayout(typGetObjLayout(impGetTypeHandleClass()));
                 op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
 
-                impPushOnStack(op1, typeInfo(TI_STRUCT, op1->AsCall()->gtRetClsHnd));
+                impPushOnStack(op1, typeInfo(TI_STRUCT, op1->AsCall()->GetRetLayout()->GetClassHandle()));
                 break;
 
             case CEE_LDTOKEN:
@@ -13205,7 +13209,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op1));
                 op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
-                op1->AsCall()->gtRetClsHnd = tokenType;
+                op1->AsCall()->SetRetLayout(typGetObjLayout(tokenType));
 
                 impPushOnStack(op1, typeInfo(TI_STRUCT, tokenType));
                 break;
@@ -13347,12 +13351,20 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             canExpandInline ? "want smaller code or faster jitting" : "inline expansion not legal");
 
                     // Don't optimize, just call the helper and be done with it
-                    op1 = gtNewHelperCallNode(helper,
-                                              (var_types)((helper == CORINFO_HELP_UNBOX) ? TYP_BYREF : TYP_STRUCT),
-                                              gtNewCallArgs(op2, op1));
-                    if (op1->gtType == TYP_STRUCT)
+                    if (helper == CORINFO_HELP_UNBOX)
                     {
-                        op1->AsCall()->gtRetClsHnd = resolvedToken.hClass;
+                        op1 = gtNewHelperCallNode(helper, TYP_BYREF, gtNewCallArgs(op2, op1));
+                    }
+                    else
+                    {
+                        assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
+
+                        op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op2, op1));
+                        op1->AsCall()->SetRetLayout(typGetObjLayout(resolvedToken.hClass));
+
+                        // This helper always returns the nullable struct via an "out" parameter,
+                        // similar to a return buffer. We do not need to initialize reg types.
+                        assert(op1->AsCall()->TreatAsHasRetBufArg());
                     }
                 }
 
@@ -16062,7 +16074,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
     }
 
 #ifdef FEATURE_SIMD
-    if (!foundSIMDType && (call->AsCall()->gtRetClsHnd != nullptr) && isSIMDorHWSIMDClass(call->AsCall()->gtRetClsHnd))
+    if (!foundSIMDType && varTypeIsSIMD(call->AsCall()->GetRetSigType()))
     {
         foundSIMDType = true;
     }

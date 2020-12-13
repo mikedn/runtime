@@ -2531,6 +2531,13 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
     return false;
 }
 
+void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer)
+{
+    assert(!layout->IsBlockLayout());
+
+    lvaSetStruct(lclNum, layout->GetClassHandle(), checkUnsafeBuffer);
+}
+
 void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck)
 {
     noway_assert(varNum < lvaCount);

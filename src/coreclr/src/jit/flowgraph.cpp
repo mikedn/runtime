@@ -22482,8 +22482,8 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         return WALK_SKIP_SUBTREES;
     }
 
-    Compiler*            comp      = data->compiler;
-    CORINFO_CLASS_HANDLE retClsHnd = NO_CLASS_HANDLE;
+    Compiler*    comp      = data->compiler;
+    ClassLayout* retLayout = nullptr;
 
     while (tree->OperGet() == GT_RET_EXPR)
     {
@@ -22492,7 +22492,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         //
         if (varTypeIsStruct(tree))
         {
-            retClsHnd = tree->AsRetExpr()->gtRetClsHnd;
+            retLayout = tree->AsRetExpr()->GetRetLayout();
         }
 
         // Skip through chains of GT_RET_EXPRs (say from nested inlines)
@@ -22558,9 +22558,10 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     // candidates.
     //
     // Do the deferred work now.
-    if (retClsHnd != NO_CLASS_HANDLE)
+    if (retLayout != nullptr)
     {
-        structPassingKind retKind;
+        CORINFO_CLASS_HANDLE retClsHnd = retLayout->GetClassHandle();
+        structPassingKind    retKind;
         comp->getReturnTypeForStruct(retClsHnd, &retKind);
 
         switch (retKind)

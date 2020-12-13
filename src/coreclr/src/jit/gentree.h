@@ -3942,7 +3942,7 @@ struct GenTreeCall final : public GenTree
 
     TailCallSiteInfo* tailCallInfo;
 
-    CORINFO_CLASS_HANDLE gtRetClsHnd; // The return type handle of the call if it is a struct; always available
+    ClassLayout* m_retLayout; // The layout of the return (struct) type.
 
     unsigned gtCallMoreFlags;
 
@@ -3982,7 +3982,7 @@ public:
         , gtControlExpr(nullptr)
         , fgArgInfo(nullptr)
         , tailCallInfo(nullptr)
-        , gtRetClsHnd(NO_CLASS_HANDLE)
+        , m_retLayout(nullptr)
         , gtCallMoreFlags(0)
         , gtCallType(kind)
         , m_retSigType(type)
@@ -4003,7 +4003,7 @@ public:
         , gtCallArgs(nullptr)
         , gtCallLateArgs(nullptr)
         , fgArgInfo(nullptr)
-        , gtRetClsHnd(copyFrom->gtRetClsHnd)
+        , m_retLayout(copyFrom->m_retLayout)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
         , gtCallType(copyFrom->gtCallType)
         , m_retSigType(copyFrom->m_retSigType)
@@ -4044,6 +4044,19 @@ public:
     void SetRetSigType(var_types type)
     {
         m_retSigType = type;
+    }
+
+    ClassLayout* GetRetLayout() const
+    {
+        return m_retLayout;
+    }
+
+    void SetRetLayout(ClassLayout* layout)
+    {
+        assert((layout == nullptr) || layout->IsValueClass());
+        assert((layout == nullptr) || varTypeIsStruct(GetRetSigType()));
+
+        m_retLayout = layout;
     }
 
     unsigned GetRegCount() const
@@ -6577,17 +6590,25 @@ protected:
 
 struct GenTreeRetExpr : public GenTree
 {
-    GenTree*             gtInlineCandidate;
-    CORINFO_CLASS_HANDLE gtRetClsHnd;
-    uint64_t             bbFlags;
+private:
+    ClassLayout* m_retLayout;
+
+public:
+    GenTree* gtInlineCandidate;
+    uint64_t bbFlags;
 
     GenTreeRetExpr(var_types type, GenTreeCall* call, uint64_t bbFlags)
-        : GenTree(GT_RET_EXPR, type), gtInlineCandidate(call), gtRetClsHnd(call->gtRetClsHnd), bbFlags(bbFlags)
+        : GenTree(GT_RET_EXPR, type), m_retLayout(call->m_retLayout), gtInlineCandidate(call), bbFlags(bbFlags)
     {
         // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
         // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
         // For example, impImportLeave or CEE_POP need to spill GT_RET_EXPR before empty the evaluation stack.
         gtFlags |= GTF_CALL;
+    }
+
+    ClassLayout* GetRetLayout() const
+    {
+        return m_retLayout;
     }
 
 #if DEBUGGABLE_GENTREE

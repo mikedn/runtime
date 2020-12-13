@@ -72,6 +72,8 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     tree->ChangeOper(GT_CALL, GenTree::PRESERVE_VN);
 
     GenTreeCall* call = tree->AsCall();
+    call->SetRetSigType(tree->GetType());
+    call->SetRetLayout(nullptr);
 
     call->gtCallType            = CT_HELPER;
     call->gtCallMethHnd         = eeFindHelper(helper);
@@ -79,8 +81,6 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->gtCallArgs            = args;
     call->gtCallLateArgs        = nullptr;
     call->fgArgInfo             = nullptr;
-    call->m_retSigType          = call->GetType();
-    call->gtRetClsHnd           = nullptr;
     call->gtCallMoreFlags       = 0;
     call->gtInlineCandidateInfo = nullptr;
     call->gtControlExpr         = nullptr;
@@ -5888,7 +5888,9 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     // To reach here means that the return types of the caller and callee are tail call compatible.
     if (callee->IsTailPrefixedCall())
     {
-        assert(impTailCallRetTypeCompatible(callee->GetRetSigType(), callee->gtRetClsHnd));
+        assert(impTailCallRetTypeCompatible(callee->GetRetSigType(), callee->GetRetLayout() == nullptr
+                                                                         ? NO_CLASS_HANDLE
+                                                                         : callee->GetRetLayout()->GetClassHandle()));
     }
 
     assert(!callee->AreArgsComplete());
@@ -6702,9 +6704,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             var_types callType;
             if (varTypeIsStruct(origCallType))
             {
-                CORINFO_CLASS_HANDLE retClsHnd = call->gtRetClsHnd;
-                structPassingKind    howToReturnStruct;
-                callType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
+                structPassingKind howToReturnStruct;
+                callType = getReturnTypeForStruct(call->GetRetLayout()->GetClassHandle(), &howToReturnStruct);
                 assert((howToReturnStruct != SPK_Unknown) && (howToReturnStruct != SPK_ByReference));
                 if (howToReturnStruct == SPK_ByValue)
                 {
@@ -6942,9 +6943,9 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_DELEGATE_INV | GTF_CALL_M_WRAPPER_DELEGATE_INV);
 
     // The store-args stub returns no value.
-    call->gtRetClsHnd = nullptr;
     call->SetType(TYP_VOID);
     call->SetRetSigType(TYP_VOID);
+    call->SetRetLayout(nullptr);
 
     GenTree* finalTree =
         gtNewOperNode(GT_COMMA, callDispatcherAndGetResult->TypeGet(), call, callDispatcherAndGetResult);
@@ -7012,7 +7013,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         unsigned int tmpRetBufNum = lvaGrabTemp(true DEBUGARG("substitute local for return buffer"));
 
         constexpr bool unsafeValueClsCheck = false;
-        lvaSetStruct(tmpRetBufNum, origCall->gtRetClsHnd, unsafeValueClsCheck);
+        lvaSetStruct(tmpRetBufNum, origCall->GetRetLayout(), unsafeValueClsCheck);
         lvaSetVarAddrExposed(tmpRetBufNum);
 
         var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
@@ -7041,7 +7042,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
         if (varTypeIsStruct(origCall->GetType()))
         {
-            lvaSetStruct(newRetLclNum, origCall->gtRetClsHnd, false);
+            lvaSetStruct(newRetLclNum, origCall->GetRetLayout(), false);
         }
         else
         {
@@ -7865,37 +7866,29 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
             // Force re-evaluating the argInfo as the return argument has changed.
             call->fgArgInfo = nullptr;
 
-            // Create a new temp.
             unsigned tmpNum =
-                lvaGrabTemp(false DEBUGARG("Return value temp for multi-reg return (rejected tail call)."));
+                lvaNewTemp(call->GetRetLayout(), false DEBUGARG("multireg return call temp (rejected tail call)"));
 
-            CORINFO_CLASS_HANDLE structHandle = call->gtRetClsHnd;
-            assert(structHandle != NO_CLASS_HANDLE);
-            const bool unsafeValueClsCheck = false;
-            lvaSetStruct(tmpNum, structHandle, unsafeValueClsCheck);
-            var_types structType = lvaTable[tmpNum].lvType;
-            GenTree*  dst        = gtNewLclvNode(tmpNum, structType);
-            GenTree*  assg       = gtNewAssignNode(dst, call);
-            assg                 = fgMorphTree(assg);
+            GenTree* dst = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
+            GenTree* asg = fgMorphTree(gtNewAssignNode(dst, call));
 
-            // Create the assignment statement and insert it before the current statement.
-            Statement* assgStmt = gtNewStmt(assg, compCurStmt->GetILOffsetX());
-            fgInsertStmtBefore(compCurBB, compCurStmt, assgStmt);
-
-            // Return the temp.
-            GenTree* result = gtNewLclvNode(tmpNum, lvaTable[tmpNum].lvType);
-            result->gtFlags |= GTF_DONT_CSE;
-
-            compCurBB->bbFlags |= BBF_HAS_CALL; // This block has a call
+            Statement* asgStmt = gtNewStmt(asg, compCurStmt->GetILOffsetX());
+            fgInsertStmtBefore(compCurBB, compCurStmt, asgStmt);
 
 #ifdef DEBUG
             if (verbose)
             {
                 printf("\nInserting assignment of a multi-reg call result to a temp:\n");
-                gtDispStmt(assgStmt);
+                gtDispStmt(asgStmt);
             }
-            result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif // DEBUG
+#endif
+
+            compCurBB->bbFlags |= BBF_HAS_CALL;
+
+            GenTree* result = gtNewLclvNode(tmpNum, dst->GetType());
+            result->gtFlags |= GTF_DONT_CSE;
+            INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
             return result;
         }
 #endif

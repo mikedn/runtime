@@ -2870,6 +2870,7 @@ public:
     // Returns true if this local var is a multireg struct
     bool lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVararg);
 
+    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck);
     void lvaSetStructUsedAsVarArg(unsigned varNum);
 
@@ -3313,6 +3314,7 @@ public:
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
     void impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* stmtBefore);
     void impAssignTempGen(unsigned tmp, GenTree* val, unsigned curLevel);
+    void impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
     void impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
     Statement* impExtractLastStmt();
     GenTree* impCloneExpr(GenTree*             tree,

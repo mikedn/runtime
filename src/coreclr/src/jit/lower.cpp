@@ -3256,9 +3256,8 @@ void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
 GenTreeLclVar* Lowering::SpillStructCallResult(GenTreeCall* call)
 {
     // TODO-1stClassStructs: we can support this in codegen for `GT_STORE_BLK` without new temps.
-    const unsigned       spillNum = comp->lvaGrabTemp(true DEBUGARG("Return value temp for an odd struct return size"));
-    CORINFO_CLASS_HANDLE retClsHnd = call->gtRetClsHnd;
-    comp->lvaSetStruct(spillNum, retClsHnd, false);
+    unsigned spillNum = comp->lvaGrabTemp(true DEBUGARG("Return value temp for an odd struct return size"));
+    comp->lvaSetStruct(spillNum, call->GetRetLayout(), false);
     GenTreeLclFld* spill = new (comp, GT_STORE_LCL_FLD) GenTreeLclFld(GT_STORE_LCL_FLD, call->gtType, spillNum, 0);
     spill->gtOp1         = call;
     spill->gtFlags |= GTF_VAR_DEF;
