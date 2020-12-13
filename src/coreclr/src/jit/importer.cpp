@@ -7704,7 +7704,7 @@ DONE_INTRINSIC:
             const bool isInlineCandidate                  = origCall->IsInlineCandidate();
             const bool isGuardedDevirtualizationCandidate = origCall->IsGuardedDevirtualizationCandidate();
 
-            if (varTypeIsStruct(callRetTyp) && varTypeIsStruct(origCall->GetType()))
+            if (call->TypeIs(TYP_STRUCT))
             {
                 origCall->SetRetSigType(impNormStructType(sig->retTypeClass));
                 origCall->gtRetClsHnd = sig->retTypeClass;
