@@ -6597,9 +6597,6 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         assert(treeWithCall == call);
     }
 #endif
-    // Store the call type for later to introduce the correct placeholder.
-    var_types origCallType = call->TypeGet();
-
     GenTree* result;
     if (!canFastTailCall && !tailCallViaJitHelper)
     {
@@ -6633,7 +6630,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             fgMorphStmt->SetRootNode(call);
         }
 
-        ClassLayout* retLayout = call->GetRetLayout();
+        var_types retType = call->GetType();
 
         // Avoid potential extra work for the return (for example, vzeroupper)
         call->SetType(TYP_VOID);
@@ -6704,31 +6701,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             // if the root node was an `ASG`, `RET` or `CAST`.
             // Return a zero con node to exit morphing of the old trees without asserts
             // and forbid POST_ORDER morphing doing something wrong with our call.
-            var_types callType;
-            if (varTypeIsStruct(origCallType))
-            {
-                structPassingKind howToReturnStruct;
-                callType = getReturnTypeForStruct(retLayout->GetClassHandle(), &howToReturnStruct);
-                assert((howToReturnStruct != SPK_Unknown) && (howToReturnStruct != SPK_ByReference));
-                if (howToReturnStruct == SPK_ByValue)
-                {
-                    callType = TYP_I_IMPL;
-                }
-                else if (howToReturnStruct == SPK_ByValueAsHfa || varTypeIsSIMD(callType))
-                {
-                    callType = TYP_FLOAT;
-                }
-                assert((callType != TYP_UNKNOWN) && !varTypeIsStruct(callType));
-            }
-            else
-            {
-                callType = origCallType;
-            }
-            assert((callType != TYP_UNKNOWN) && !varTypeIsStruct(callType));
-            callType = genActualType(callType);
 
-            GenTree* zero = gtNewZeroConNode(callType);
-            result        = fgMorphTree(zero);
+            if (varTypeIsStruct(retType))
+            {
+                retType = TYP_INT;
+            }
+
+            result = fgMorphTree(gtNewZeroConNode(retType));
         }
         else
         {
