@@ -22550,6 +22550,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         }
     }
 
+#if FEATURE_MULTIREG_RET
     // If an inline was rejected and the call returns a struct, we may
     // have deferred some work when importing call for cases where the
     // struct is returned in register(s).
@@ -22558,6 +22559,12 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     // candidates.
     //
     // Do the deferred work now.
+
+    // TODO-MIKE-Cleanup: This seems to do more than impCanonicalizeMultiRegCall.
+    // That one simply ensures that multi-reg calls are spilled to a local and
+    // that lvIsMultiRegRet is set to true. But this code doesn't even bother to
+    // check if the return expression is still a call...
+
     if (retLayout != nullptr)
     {
         CORINFO_CLASS_HANDLE retClsHnd = retLayout->GetClassHandle();
@@ -22566,7 +22573,6 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
 
         switch (retKind)
         {
-#if FEATURE_MULTIREG_RET
             // Is this a type that is returned in multiple registers
             // or a via a primitve type that is larger than the struct type?
             // if so we need to force into into a form we accept.
@@ -22585,7 +22591,6 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
                     tree = *pTree = comp->inlAssignStructInlineeToTemp(tree, retClsHnd);
                 }
                 break;
-#endif // FEATURE_MULTIREG_RET
 
             case SPK_PrimitiveType:
             case SPK_ByReference:
@@ -22596,7 +22601,6 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         }
     }
 
-#if FEATURE_MULTIREG_RET
 #if defined(DEBUG)
 
     // Make sure we don't have a tree like so: V05 = (, , , retExpr);
