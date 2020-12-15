@@ -2952,27 +2952,33 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     // sequence of fields.
     FieldSeqNode* gtFieldSeq;
 
-#ifdef DEBUG
     // If the value represents target address, holds the method handle to that target which is used
     // to fetch target method name and display in the disassembled code.
-    size_t gtTargetHandle = 0;
-#endif
+    INDEBUG(size_t gtTargetHandle = 0;)
 
-    GenTreeIntCon(var_types type, ssize_t value DEBUGARG(bool largeNode = false))
-        : GenTreeIntConCommon(GT_CNS_INT, type DEBUGARG(largeNode))
+    GenTreeIntCon(var_types type, ssize_t value)
+        : GenTreeIntConCommon(GT_CNS_INT, type)
         , gtIconVal(value)
         , gtCompileTimeHandle(0)
         , gtFieldSeq(FieldSeqStore::NotAField())
     {
     }
 
-    GenTreeIntCon(var_types type, ssize_t value, FieldSeqNode* fields DEBUGARG(bool largeNode = false))
-        : GenTreeIntConCommon(GT_CNS_INT, type DEBUGARG(largeNode))
-        , gtIconVal(value)
-        , gtCompileTimeHandle(0)
-        , gtFieldSeq(fields)
+    GenTreeIntCon(var_types type, ssize_t value, FieldSeqNode* fieldSeq)
+        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), gtCompileTimeHandle(0), gtFieldSeq(fieldSeq)
     {
-        assert(fields != nullptr);
+        assert(fieldSeq != nullptr);
+    }
+
+    GenTreeIntCon(const GenTreeIntCon* copyFrom)
+        : GenTreeIntConCommon(GT_CNS_INT, copyFrom->GetType())
+        , gtIconVal(copyFrom->gtIconVal)
+        , gtCompileTimeHandle(copyFrom->gtCompileTimeHandle)
+        , gtFieldSeq(copyFrom->gtFieldSeq)
+#ifdef DEBUG
+        , gtTargetHandle(copyFrom->gtTargetHandle)
+#endif
+    {
     }
 
     ssize_t GetValue() const

@@ -941,22 +941,16 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
  *  that may need to be fixed up).
  */
 
-inline GenTree* Compiler::gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fields)
+inline GenTree* Compiler::gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fieldSeq)
 {
-    GenTree* node;
     assert((flags & GTF_ICON_HDL_MASK) != 0);
 
-    // Interpret "fields == NULL" as "not a field."
-    if (fields == nullptr)
+    if (fieldSeq == nullptr)
     {
-        fields = FieldSeqStore::NotAField();
+        fieldSeq = FieldSeqStore::NotAField();
     }
 
-#if defined(LATE_DISASM)
-    node = new (this, LargeOpOpcode()) GenTreeIntCon(TYP_I_IMPL, value, fields DEBUGARG(/*largeNode*/ true));
-#else
-    node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fields);
-#endif
+    GenTree* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fieldSeq);
     node->gtFlags |= flags;
     return node;
 }

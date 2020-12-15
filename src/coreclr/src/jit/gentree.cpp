@@ -6321,21 +6321,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
     switch (tree->gtOper)
     {
         case GT_CNS_INT:
-
-#if defined(LATE_DISASM)
-            if (tree->IsIconHandle())
-            {
-                copy = gtNewIconHandleNode(tree->AsIntCon()->gtIconVal, tree->gtFlags, tree->AsIntCon()->gtFieldSeq);
-                copy->AsIntCon()->gtCompileTimeHandle = tree->AsIntCon()->gtCompileTimeHandle;
-                copy->gtType                          = tree->gtType;
-            }
-            else
-#endif
-            {
-                copy = new (this, GT_CNS_INT)
-                    GenTreeIntCon(tree->gtType, tree->AsIntCon()->gtIconVal, tree->AsIntCon()->gtFieldSeq);
-                copy->AsIntCon()->gtCompileTimeHandle = tree->AsIntCon()->gtCompileTimeHandle;
-            }
+            copy = new (this, GT_CNS_INT) GenTreeIntCon(tree->AsIntCon());
             break;
 
         case GT_CNS_LNG:
@@ -6483,25 +6469,7 @@ GenTree* Compiler::gtCloneExpr(
         switch (oper)
         {
             case GT_CNS_INT:
-
-#if defined(LATE_DISASM)
-                if (tree->IsIconHandle())
-                {
-                    copy =
-                        gtNewIconHandleNode(tree->AsIntCon()->gtIconVal, tree->gtFlags, tree->AsIntCon()->gtFieldSeq);
-                    copy->AsIntCon()->gtCompileTimeHandle = tree->AsIntCon()->gtCompileTimeHandle;
-                    copy->gtType                          = tree->gtType;
-                }
-                else
-#endif
-                {
-                    copy = gtNewIconNode(tree->AsIntCon()->gtIconVal, tree->gtType);
-#ifdef DEBUG
-                    copy->AsIntCon()->gtTargetHandle = tree->AsIntCon()->gtTargetHandle;
-#endif
-                    copy->AsIntCon()->gtCompileTimeHandle = tree->AsIntCon()->gtCompileTimeHandle;
-                    copy->AsIntCon()->gtFieldSeq          = tree->AsIntCon()->gtFieldSeq;
-                }
+                copy = new (this, GT_CNS_INT) GenTreeIntCon(tree->AsIntCon());
                 goto DONE;
 
             case GT_CNS_LNG:
