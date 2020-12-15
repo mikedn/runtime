@@ -681,6 +681,8 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
             {
                 hfaType = GetHfaType(clsHnd);
             }
+
+#ifdef FEATURE_HFA
             if (varTypeIsValidHfaType(hfaType))
             {
                 // HFA's of count one should have been handled by getPrimitiveTypeForStruct
@@ -692,7 +694,8 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
                 howToPassStruct = SPK_ByValueAsHfa;
                 useType         = TYP_STRUCT;
             }
-            else // Not an HFA struct type
+            else
+#endif
             {
 
 #ifdef UNIX_AMD64_ABI
@@ -911,6 +914,7 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
         //
         if ((FEATURE_MULTIREG_RET == 1) && (structSize <= MAX_RET_MULTIREG_BYTES))
         {
+#ifdef FEATURE_HFA
             // Structs that are HFA's are returned in multiple registers
             if (IsHfa(clsHnd))
             {
@@ -922,7 +926,8 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
                 howToReturnStruct = SPK_ByValueAsHfa;
                 useType           = TYP_STRUCT;
             }
-            else // Not an HFA struct type
+            else
+#endif
             {
 
 #ifdef UNIX_AMD64_ABI

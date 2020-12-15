@@ -124,6 +124,12 @@ void Compiler::lvaInitTypeRef()
 #if FEATURE_MULTIREG_RET
         else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
         {
+            // TODO-MIKE-Throughput: Both getReturnTypeForStruct and InitializeStruct call
+            // getSystemVAmd64PassStructInRegisterDescriptor/getHFAType and those are rather
+            // expensive. Ideally getReturnTypeForStruct would just return all the necessary
+            // information (or just initialize retDesc directly). impInitializeStructCall
+            // has similar logic and the same problem.
+
             info.retDesc.InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
         }
 #endif
@@ -2514,13 +2520,16 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
 
         var_types type = getArgTypeForStruct(clsHnd, &howToPassStruct, isVarArg, varDsc->lvExactSize);
 
+#ifdef FEATURE_HFA
         if (howToPassStruct == SPK_ByValueAsHfa)
         {
             assert(type == TYP_STRUCT);
             return true;
         }
+#endif
 
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+        // TODO-MIKE-Review: Why is this excluded on ARM?
         if (howToPassStruct == SPK_ByValue)
         {
             assert(type == TYP_STRUCT);

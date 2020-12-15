@@ -3657,13 +3657,11 @@ enum class InlineObservation;
 enum structPassingKind
 {
     SPK_Unknown,       // Invalid value, never returned
-    SPK_PrimitiveType, // The struct is passed/returned using a primitive type.
-    SPK_ByValue,       // The struct is passed/returned by value (using the ABI rules)
-    //  for ARM64 and UNIX_X64 in multiple registers. (when all of the
-    //   parameters registers are used, then the stack will be used)
-    //  for X86 passed on the stack, for ARM32 passed in registers
-    //   or the stack or split between registers and the stack.
+    SPK_PrimitiveType, // The struct is passed/returned in a single register.
+#if FEATURE_MULTIREG_RET
+    SPK_ByValue,      // The struct is passed/returned in multiple registers.
     SPK_ByValueAsHfa, // The struct is passed/returned as an HFA in multiple registers.
+#endif
     SPK_ByReference
 }; // The struct is passed/returned by reference to a copy/buffer.
 
@@ -3679,7 +3677,14 @@ enum structPassingKind
 struct ReturnTypeDesc
 {
 private:
-    uint8_t   m_regCount;
+#if FEATURE_MULTIREG_RET
+    uint8_t m_regCount;
+#else
+    // Use only one bit as a hint to the compiler that the only possible values
+    // are 0 and 1. Not all the multi-reg return related code is under ifdef and
+    // without this PIN shows a ~0.25% regression.
+    uint8_t m_regCount : 1;
+#endif
     var_types m_regType[MAX_RET_REG_COUNT];
 
 public:
