@@ -7116,11 +7116,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // This is a reference to heap memory.
                         // We model statics as indices into GcHeap (which is a subset of ByrefExposed).
 
-                        FieldSeqNode* fldSeqForStaticVar =
-                            GetFieldSeqStore()->CreateSingleton(tree->AsClsVar()->gtClsVarHnd);
-                        size_t   structSize        = 0;
-                        ValueNum selectedStaticVar = vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap],
-                                                                               fldSeqForStaticVar, &structSize);
+                        size_t   structSize = 0;
+                        ValueNum selectedStaticVar =
+                            vnStore->VNApplySelectors(VNK_Liberal, fgCurMemoryVN[GcHeap], fldSeq, &structSize);
                         selectedStaticVar =
                             vnStore->VNApplySelectorsTypeCheck(selectedStaticVar, tree->TypeGet(), structSize);
 
@@ -7694,13 +7692,11 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
 
                     // We model statics as indices into GcHeap (which is a subset of ByrefExposed).
-                    FieldSeqNode* fldSeqForStaticVar =
-                        GetFieldSeqStore()->CreateSingleton(lhs->AsClsVar()->gtClsVarHnd);
-                    assert(fldSeqForStaticVar != FieldSeqStore::NotAField());
+                    FieldSeqNode* fieldSeq = lhs->AsClsVar()->GetFieldSeq();
 
                     ValueNum storeVal = rhsVNPair.GetLiberal(); // The value number from the rhs of the assignment
-                    storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, fgCurMemoryVN[GcHeap], fldSeqForStaticVar,
-                                                               storeVal, lhs->TypeGet(), compCurBB);
+                    storeVal = vnStore->VNApplySelectorsAssign(VNK_Liberal, fgCurMemoryVN[GcHeap], fieldSeq, storeVal,
+                                                               lhs->TypeGet(), compCurBB);
 
                     // It is not strictly necessary to set the lhs value number,
                     // but the dumps read better with it set to the 'storeVal' that we just computed
