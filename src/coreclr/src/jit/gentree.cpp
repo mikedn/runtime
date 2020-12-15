@@ -15866,38 +15866,12 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 else
 #endif
                 {
-                    // Attempt to find a handle for this expression.
-                    // We can do this for an array element indirection, or for a field indirection.
+                    // Array elements always use STRUCT typed IND nodes, not OBJ nodes.
+                    // We can get the struct handle from the array info annotation.
                     ArrayInfo arrInfo;
                     if (TryGetArrayInfo(tree->AsIndir(), &arrInfo))
                     {
                         structHnd = arrInfo.m_elemStructType;
-                    }
-                    else
-                    {
-                        GenTree*      addr     = tree->AsIndir()->Addr();
-                        FieldSeqNode* fieldSeq = nullptr;
-                        if ((addr->OperGet() == GT_ADD) && addr->gtGetOp2()->OperIs(GT_CNS_INT))
-                        {
-                            fieldSeq = addr->gtGetOp2()->AsIntCon()->gtFieldSeq;
-                        }
-                        else
-                        {
-                            GetZeroOffsetFieldMap()->Lookup(addr, &fieldSeq);
-                        }
-                        if (fieldSeq != nullptr)
-                        {
-                            fieldSeq = fieldSeq->GetTail();
-
-                            if ((fieldSeq != FieldSeqStore::NotAField()) && !fieldSeq->IsPseudoField())
-                            {
-                                CORINFO_FIELD_HANDLE fieldHnd = fieldSeq->GetFieldHandle();
-                                CorInfoType fieldCorType      = info.compCompHnd->getFieldType(fieldHnd, &structHnd);
-                                // With unsafe code and type casts
-                                // this can return a primitive type and have nullptr for structHnd
-                                // see runtime/issues/38541
-                            }
-                        }
                     }
                 }
                 break;
