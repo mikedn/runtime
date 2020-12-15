@@ -192,11 +192,9 @@ int LinearScan::BuildShiftLongCarry(GenTree* tree)
 int LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
-    int       srcCount;
-    int       dstCount      = 0;
-    regMaskTP dstCandidates = RBM_NONE;
-    regMaskTP killMask      = RBM_NONE;
-    bool      isLocalDefUse = false;
+    int  srcCount;
+    int  dstCount      = 0;
+    bool isLocalDefUse = false;
 
     // Reset the build-related members of LinearScan.
     clearBuildState();
@@ -247,14 +245,11 @@ int LinearScan::BuildNode(GenTree* tree)
         break;
 
         case GT_STORE_LCL_VAR:
-            if (tree->IsMultiRegLclVar() && isCandidateMultiRegLclVar(tree->AsLclVar()))
-            {
-                dstCount = compiler->lvaGetDesc(tree->AsLclVar()->GetLclNum())->lvFieldCnt;
-            }
-            FALLTHROUGH;
+            srcCount = BuildStoreLclVar(tree->AsLclVar(), &dstCount);
+            break;
 
         case GT_STORE_LCL_FLD:
-            srcCount = BuildStoreLoc(tree->AsLclVarCommon());
+            srcCount = BuildStoreLclFld(tree->AsLclFld());
             break;
 
         case GT_NOP:
@@ -393,8 +388,7 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = 1;
             assert(dstCount == 0);
             BuildUse(tree->gtGetOp1());
-            killMask = compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
+            BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
         case GT_MUL:
@@ -422,7 +416,8 @@ int LinearScan::BuildNode(GenTree* tree)
             dstCount = 2;
             srcCount = BuildBinaryUses(tree->AsOp());
             assert(srcCount == 2);
-            BuildDefs(tree, 2);
+            BuildDef(tree, RBM_NONE, 0);
+            BuildDef(tree, RBM_NONE, 1);
             break;
 
         case GT_FIELD_LIST:
@@ -444,7 +439,7 @@ int LinearScan::BuildNode(GenTree* tree)
             // This kills GC refs in callee save regs
             srcCount = 0;
             assert(dstCount == 0);
-            BuildDefsWithKills(tree, 0, RBM_NONE, RBM_NONE);
+            BuildKills(tree, RBM_NONE);
             break;
 
         case GT_LONG:
@@ -489,9 +484,8 @@ int LinearScan::BuildNode(GenTree* tree)
         break;
 
         case GT_RETURN:
-            srcCount = BuildReturn(tree);
-            killMask = getKillSetForReturn();
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
+            srcCount = BuildReturn(tree->AsUnOp());
+            BuildKills(tree, getKillSetForReturn());
             break;
 
         case GT_RETFILT:
@@ -642,7 +636,7 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildCall(tree->AsCall());
             if (tree->AsCall()->HasMultiRegRetVal())
             {
-                dstCount = tree->AsCall()->GetReturnTypeDesc()->GetReturnRegCount();
+                dstCount = tree->AsCall()->GetRegCount();
             }
             break;
 
@@ -723,24 +717,6 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_COPY:
-            srcCount = 1;
-#ifdef TARGET_ARM
-            // This case currently only occurs for double types that are passed as TYP_LONG;
-            // actual long types would have been decomposed by now.
-            if (tree->TypeGet() == TYP_LONG)
-            {
-                dstCount = 2;
-            }
-            else
-#endif
-            {
-                assert(dstCount == 1);
-            }
-            BuildUse(tree->gtGetOp1());
-            BuildDefs(tree, dstCount);
-            break;
-
         case GT_PUTARG_SPLIT:
             srcCount = BuildPutArgSplit(tree->AsPutArgSplit());
             dstCount = tree->AsPutArgSplit()->GetRegCount();
@@ -757,29 +733,35 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_BITCAST:
         {
-            assert(dstCount == 1);
-            regNumber argReg  = tree->GetRegNum();
-            regMaskTP argMask = argReg == REG_NA ? RBM_NONE : genRegMask(argReg);
-
-            // If type of node is `long` then it is actually `double`.
-            // The actual `long` types must have been transformed as a field list with two fields.
-            if (tree->TypeGet() == TYP_LONG)
+            if (!tree->AsUnOp()->GetOp(0)->isContained())
             {
-                dstCount++;
-                assert(genRegArgNext(argReg) == REG_NEXT(argReg));
-                argMask |= genRegMask(REG_NEXT(argReg));
-                dstCount = 2;
-            }
-            if (!tree->gtGetOp1()->isContained())
-            {
-                BuildUse(tree->gtGetOp1());
+                BuildUse(tree->AsUnOp()->GetOp(0));
                 srcCount = 1;
             }
             else
             {
                 srcCount = 0;
             }
-            BuildDefs(tree, dstCount, argMask);
+
+            regNumber argReg  = tree->GetRegNum();
+            regMaskTP argMask = argReg == REG_NA ? RBM_NONE : genRegMask(argReg);
+
+            if (tree->TypeIs(TYP_LONG))
+            {
+                assert(genRegArgNext(argReg) == REG_NEXT(argReg));
+                regMaskTP argMaskNext = argReg == REG_NA ? RBM_NONE : genRegMask(REG_NEXT(argReg));
+
+                BuildDef(tree, argMask, 0);
+                BuildDef(tree, argMaskNext, 1);
+
+                dstCount = 2;
+            }
+            else
+            {
+                BuildDef(tree, argMask);
+
+                assert(dstCount == 1);
+            }
         }
         break;
 

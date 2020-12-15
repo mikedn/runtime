@@ -309,71 +309,21 @@ GenTree* Lowering::LowerNode(GenTree* node)
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_LCL_FLD:
-        {
-            // We should only encounter this for lclVars that are lvDoNotEnregister.
-            verifyLclFldDoNotEnregister(node->AsLclVarCommon()->GetLclNum());
+            LowerLclFld(node->AsLclFld());
             break;
-        }
 
         case GT_LCL_VAR:
-        {
-            GenTreeLclVar* lclNode = node->AsLclVar();
-            WidenSIMD12IfNecessary(lclNode);
-            LclVarDsc* varDsc = comp->lvaGetDesc(lclNode);
-
-            // The consumer of this node must check compatibility of the fields.
-            // This merely checks whether it is possible for this to be a multireg node.
-            if (lclNode->IsMultiRegLclVar())
-            {
-                if (!varDsc->lvPromoted ||
-                    (comp->lvaGetPromotionType(varDsc) != Compiler::PROMOTION_TYPE_INDEPENDENT) ||
-                    (varDsc->lvFieldCnt > MAX_MULTIREG_COUNT))
-                {
-                    lclNode->ClearMultiReg();
-                    if (lclNode->TypeIs(TYP_STRUCT))
-                    {
-                        comp->lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
-                    }
-                }
-            }
+            WidenSIMD12IfNecessary(node->AsLclVar());
+            LowerLclVar(node->AsLclVar());
             break;
-        }
 
         case GT_STORE_LCL_VAR:
-            WidenSIMD12IfNecessary(node->AsLclVarCommon());
-            FALLTHROUGH;
+            WidenSIMD12IfNecessary(node->AsLclVar());
+            LowerStoreLclVar(node->AsLclVar());
+            break;
 
         case GT_STORE_LCL_FLD:
-            if (node->OperIs(GT_STORE_LCL_FLD) && node->TypeIs(TYP_STRUCT))
-            {
-                GenTreeLclFld* addr = node->AsLclFld();
-                addr = comp->gtNewLclFldAddrNode(addr->GetLclNum(), addr->GetLclOffs(), FieldSeqStore::NotAField());
-                BlockRange().InsertBefore(node, addr);
-
-                ClassLayout* layout = node->AsLclFld()->GetLayout(comp);
-                GenTree*     src    = node->AsLclFld()->GetOp(0);
-
-                node->ChangeOper(layout->IsBlockLayout() ? GT_STORE_BLK : GT_STORE_OBJ);
-
-                GenTreeBlk* store = node->AsBlk();
-                store->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-                store->SetKind(StructStoreKind::Invalid);
-                store->SetLayout(layout);
-                store->SetAddr(addr);
-                store->SetData(src);
-
-                if (src->IsCall())
-                {
-                    LowerStoreSingleRegCallStruct(store->AsObj());
-                }
-                else
-                {
-                    LowerStructStore(store);
-                }
-                break;
-            }
-
-            LowerStoreLocCommon(node->AsLclVarCommon());
+            LowerStoreLclFld(node->AsLclFld());
             break;
 
 #if defined(TARGET_ARM64)
@@ -1465,7 +1415,7 @@ void Lowering::LowerCall(GenTree* node)
         LowerFastTailCall(call);
     }
 
-    if (varTypeIsStruct(call))
+    if (varTypeIsStruct(call->GetType()))
     {
         LowerCallStruct(call);
     }
@@ -2697,118 +2647,66 @@ void Lowering::LowerJmpMethod(GenTree* jmp)
     }
 }
 
-// Lower GT_RETURN node to insert PInvoke method epilog if required.
 void Lowering::LowerRet(GenTreeUnOp* ret)
 {
-    assert(ret->OperGet() == GT_RETURN);
+    assert(ret->OperIs(GT_RETURN));
 
-    JITDUMP("lowering GT_RETURN\n");
-    DISPNODE(ret);
-    JITDUMP("============");
+    JITDUMPTREE(ret, "Lowering RETURN:\n");
 
-    GenTree* retVal = ret->gtGetOp1();
-    // There are two kinds of retyping:
-    // - A simple bitcast can be inserted when:
-    //   - We're returning a floating type as an integral type or vice-versa, or
-    //   - We're returning a struct as a primitive type and using the old form of retyping.
-    // - If we're returning a struct as a primitive type and *not* using old retying, we change the type of
-    //   'retval' in 'LowerRetStructLclVar()'
-    bool needBitcast =
-        (ret->TypeGet() != TYP_VOID) && (varTypeUsesFloatReg(ret) != varTypeUsesFloatReg(ret->gtGetOp1()));
-    bool doPrimitiveBitcast = false;
-    if (needBitcast)
+    if (!ret->TypeIs(TYP_VOID))
     {
-        if (comp->compDoOldStructRetyping())
+        GenTree* src = ret->GetOp(0);
+
+        if (!varTypeIsStruct(ret->GetType()) && !varTypeIsStruct(src->GetType()))
         {
-            // `struct A { SIMD12/16 }` on `UNIX_AMD64_ABI` is an example when
-            // `varTypeUsesFloatReg` returns different values for `ret` and `ret->gtGetOp1()`,
-            // but doesn't need a primitive bitcase.
-            doPrimitiveBitcast = !ret->TypeIs(TYP_STRUCT);
+            if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(src->GetType()))
+            {
+                GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), src);
+                ret->SetOp(0, bitcast);
+                BlockRange().InsertBefore(ret, bitcast);
+                LowerBitCast(bitcast);
+            }
         }
         else
         {
-            doPrimitiveBitcast = (!varTypeIsStruct(ret) && !varTypeIsStruct(retVal));
-        }
-    }
-
-    if (doPrimitiveBitcast)
-    {
-// Add a simple bitcast for an old retyping or when both types are not structs.
-// If one type is a struct it will be handled below for !compDoOldStructRetyping.
-#if defined(DEBUG)
-        if (comp->compDoOldStructRetyping())
-        {
-            assert(varTypeIsSIMD(ret) || !varTypeIsStruct(ret));
-            assert(varTypeIsSIMD(retVal) || !varTypeIsStruct(retVal));
-        }
-        else
-        {
-            assert(!varTypeIsStruct(ret) && !varTypeIsStruct(retVal));
-        }
+#if FEATURE_MULTIREG_RET
+            if (varTypeIsStruct(src->GetType()))
+            {
+                if (src->OperIs(GT_LCL_VAR) && (comp->info.retDesc.GetRegCount() > 1))
+                {
+                    MakeMultiRegLclVar(src->AsLclVar(), &comp->info.retDesc);
+                }
+            }
 #endif
 
-        GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->TypeGet(), retVal);
-        ret->gtOp1           = bitcast;
-        BlockRange().InsertBefore(ret, bitcast);
-        LowerBitCast(bitcast);
-    }
-    else if (ret->TypeGet() != TYP_VOID)
-    {
-#if FEATURE_MULTIREG_RET
-        if (retVal->OperIs(GT_LCL_VAR) && varTypeIsStruct(retVal))
-        {
-            LclVarDsc*     varDsc = comp->lvaGetDesc(retVal->AsLclVar());
-            ReturnTypeDesc retTypeDesc;
-            retTypeDesc.InitializeStructReturnType(comp, varDsc->GetLayout()->GetClassHandle());
-            if (retTypeDesc.GetReturnRegCount() > 1)
+            if (varTypeIsStruct(ret->GetType()))
             {
-                CheckMultiRegLclVar(retVal->AsLclVar(), &retTypeDesc);
-            }
-        }
-#endif // FEATURE_MULTIREG_RET
 #ifdef DEBUG
-        if (varTypeIsStruct(ret->TypeGet()) != varTypeIsStruct(retVal->TypeGet()))
-        {
-            if (!comp->compDoOldStructRetyping() && varTypeIsStruct(ret->TypeGet()))
-            {
-                assert(!comp->compDoOldStructRetyping());
-                assert(comp->info.compRetNativeType != TYP_STRUCT);
+                if (!varTypeIsStruct(src->GetType()))
+                {
+                    assert(comp->info.retDesc.GetRegCount() == 1);
 
-                var_types retActualType    = genActualType(comp->info.compRetNativeType);
-                var_types retValActualType = genActualType(retVal->TypeGet());
+                    var_types retActualType = varActualType(comp->info.retDesc.GetRegType(0));
+                    var_types srcActualType = varActualType(src->GetType());
 
-                bool constStructInit                  = retVal->IsConstInitVal();
-                bool implicitCastFromSameOrBiggerSize = (genTypeSize(retActualType) <= genTypeSize(retValActualType));
+                    bool constStructInit                  = src->IsConstInitVal();
+                    bool implicitCastFromSameOrBiggerSize = varTypeSize(retActualType) <= varTypeSize(srcActualType);
 
-                // This could happen if we have retyped op1 as a primitive type during struct promotion,
-                // check `retypedFieldsMap` for details.
-                bool actualTypesMatch = (retActualType == retValActualType);
+                    // This could happen if we have retyped op1 as a primitive type during struct promotion,
+                    // check `retypedFieldsMap` for details.
+                    bool actualTypesMatch = (retActualType == srcActualType);
 
-                assert(actualTypesMatch || constStructInit || implicitCastFromSameOrBiggerSize);
-            }
-        }
+                    assert(actualTypesMatch || constStructInit || implicitCastFromSameOrBiggerSize);
+                }
 #endif // DEBUG
 
-        if (varTypeIsStruct(ret))
-        {
-            LowerRetStruct(ret);
-        }
-        else if (!ret->TypeIs(TYP_VOID) && varTypeIsStruct(retVal))
-        {
-            if (comp->compDoOldStructRetyping())
-            {
-#ifdef FEATURE_SIMD
-                assert(ret->TypeIs(TYP_DOUBLE));
-                assert(retVal->TypeIs(TYP_SIMD8));
-#else
-                unreached();
-#endif
+                LowerRetStruct(ret);
             }
-            else
+            else if (varTypeIsStruct(src->GetType()))
             {
                 // Return struct as a primitive using Unsafe cast.
-                assert(!comp->compDoOldStructRetyping());
-                assert(retVal->OperIs(GT_LCL_VAR));
+
+                assert(src->OperIs(GT_LCL_VAR));
                 LowerRetSingleRegStructLclVar(ret);
             }
         }
@@ -2819,109 +2717,131 @@ void Lowering::LowerRet(GenTreeUnOp* ret)
     {
         InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(ret));
     }
-    ContainCheckRet(ret);
+
+    if (!ret->TypeIs(TYP_VOID))
+    {
+        ContainCheckRet(ret);
+    }
 }
 
-//----------------------------------------------------------------------------------------------
-// LowerStoreLocCommon: platform idependent part of local var or field store lowering.
-//
-// Arguments:
-//     lclStore - The store lcl node to lower.
-//
-void Lowering::LowerStoreLocCommon(GenTreeLclVarCommon* lclStore)
+void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 {
-    assert(lclStore->OperIs(GT_STORE_LCL_FLD, GT_STORE_LCL_VAR));
-    JITDUMP("lowering store lcl var/field (before):\n");
-    DISPTREERANGE(BlockRange(), lclStore);
+    assert(lclVar->OperIs(GT_LCL_VAR));
+    assert(!lclVar->IsMultiReg());
+
+#ifdef DEBUG
+    LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
+
+    if (lcl->IsPromoted() && (comp->lvaGetPromotionType(lclVar->GetLclNum()) == Compiler::PROMOTION_TYPE_INDEPENDENT))
+    {
+        LIR::Use use;
+        assert(BlockRange().TryGetUse(lclVar, &use) && use.User()->OperIs(GT_RETURN));
+    }
+#endif
+}
+
+void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(!store->GetOp(0)->OperIs(GT_PHI));
+
+    JITDUMP("Lowering STORE_LCL_VAR (before):\n");
+    DISPTREERANGE(BlockRange(), store);
     JITDUMP("\n");
 
-    GenTree*   src           = lclStore->gtGetOp1();
-    LclVarDsc* varDsc        = comp->lvaGetDesc(lclStore);
-    bool       srcIsMultiReg = src->IsMultiRegNode();
-    bool       dstIsMultiReg = lclStore->IsMultiRegLclVar();
+    GenTree*   src = store->GetOp(0);
+    LclVarDsc* lcl = comp->lvaGetDesc(store);
 
-    if (!dstIsMultiReg && varTypeIsStruct(varDsc))
+    bool srcIsMultiReg = src->IsMultiRegNode();
+
+#if FEATURE_MULTIREG_RET
+    if (srcIsMultiReg)
     {
-        // TODO-Cleanup: we want to check `varDsc->lvRegStruct` as the last condition instead of `!varDsc->lvPromoted`,
-        // but we do not set it for `CSE` vars so it is currently failing.
-        assert(varDsc->CanBeReplacedWithItsField(comp) || varDsc->lvDoNotEnregister || !varDsc->lvPromoted);
-        if (varDsc->CanBeReplacedWithItsField(comp))
+        const ReturnTypeDesc* retTypeDesc = nullptr;
+
+        if (src->OperIs(GT_CALL))
         {
-            assert(!comp->compDoOldStructRetyping());
-            assert(varDsc->lvFieldCnt == 1);
-            unsigned   fldNum = varDsc->lvFieldLclStart;
-            LclVarDsc* fldDsc = comp->lvaGetDesc(fldNum);
+            retTypeDesc = src->AsCall()->GetRetDesc();
+        }
+
+        MakeMultiRegLclVar(store, retTypeDesc);
+    }
+#endif
+
+    if (!store->IsMultiReg() && varTypeIsStruct(lcl->GetType()))
+    {
+        // TODO-Cleanup: we want to check `lcl->lvRegStruct` as the last condition instead of `!lcl->lvPromoted`,
+        // but we do not set it for `CSE` vars so it is currently failing.
+        assert(lcl->CanBeReplacedWithItsField(comp) || lcl->lvDoNotEnregister || !lcl->IsPromoted());
+
+        if (lcl->CanBeReplacedWithItsField(comp))
+        {
+            assert(lcl->GetPromotedFieldCount() == 1);
+
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+            LclVarDsc* fieldLcl    = comp->lvaGetDesc(fieldLclNum);
 
             JITDUMP("Replacing an independently promoted local var V%02u with its only field V%02u for the store "
                     "from a call [%06u]\n",
-                    lclStore->GetLclNum(), fldNum, comp->dspTreeID(lclStore));
-            lclStore->SetLclNum(fldNum);
-            lclStore->ChangeType(fldDsc->TypeGet());
-            varDsc = fldDsc;
+                    store->GetLclNum(), fieldLclNum, comp->dspTreeID(store));
+
+            store->SetLclNum(fieldLclNum);
+            store->SetType(fieldLcl->GetType());
+
+            lcl = fieldLcl;
         }
     }
 
-    if ((varTypeUsesFloatReg(lclStore) != varTypeUsesFloatReg(src)) && !lclStore->IsPhiDefn() &&
-        (src->TypeGet() != TYP_STRUCT))
+    if (!src->TypeIs(TYP_STRUCT) && (varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(src->GetType())))
     {
-        if (m_lsra->isRegCandidate(varDsc))
+        if (m_lsra->isRegCandidate(lcl))
         {
-            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(lclStore->TypeGet(), src);
-            lclStore->gtOp1      = bitcast;
-            src                  = lclStore->gtGetOp1();
-            BlockRange().InsertBefore(lclStore, bitcast);
+            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(store->GetType(), src);
+            store->SetOp(0, bitcast);
+            BlockRange().InsertBefore(store, bitcast);
             LowerBitCast(bitcast);
+            src = bitcast;
         }
         else
         {
             // This is an actual store, we'll just retype it.
-            lclStore->gtType = src->TypeGet();
+            store->SetType(src->GetType());
         }
     }
 
-    if (srcIsMultiReg || lclStore->IsMultiRegLclVar())
+    if (store->TypeIs(TYP_STRUCT) && !srcIsMultiReg)
     {
-        const ReturnTypeDesc* retTypeDesc = nullptr;
-        if (src->OperIs(GT_CALL))
+        if (GenTreeCall* call = src->IsCall())
         {
-            retTypeDesc = src->AsCall()->GetReturnTypeDesc();
-        }
-        CheckMultiRegLclVar(lclStore->AsLclVar(), retTypeDesc);
-    }
-    if ((lclStore->TypeGet() == TYP_STRUCT) && !srcIsMultiReg && (src->OperGet() != GT_PHI))
-    {
-        if (src->OperGet() == GT_CALL)
-        {
-            GenTreeCall*       call    = src->AsCall();
-            const ClassLayout* layout  = varDsc->GetLayout();
-            const var_types    regType = layout->GetRegisterType();
+            ClassLayout* layout  = lcl->GetLayout();
+            var_types    regType = layout->GetRegisterType();
 
 #ifdef DEBUG
-            const unsigned slotCount = layout->GetSlotCount();
 #if defined(TARGET_XARCH) && !defined(UNIX_AMD64_ABI)
             // Windows x64 doesn't have multireg returns,
             // x86 uses it only for long return type, not for structs.
-            assert(!comp->compDoOldStructRetyping());
-            assert(slotCount == 1);
+            assert(layout->GetSlotCount() == 1);
             assert(regType != TYP_UNDEF);
-#else  // !TARGET_XARCH || UNIX_AMD64_ABI
-            if (!varDsc->lvIsHfa())
+#else
+            if (!lcl->lvIsHfa())
             {
-                if (slotCount > 1)
+                if (layout->GetSlotCount() > 1)
                 {
                     assert(call->HasMultiRegRetVal());
                 }
                 else
                 {
-                    assert(!comp->compDoOldStructRetyping());
                     unsigned size = layout->GetSize();
+
                     assert((size <= 8) || (size == 16));
+
                     bool isPowerOf2    = (((size - 1) & size) == 0);
                     bool isTypeDefined = (regType != TYP_UNDEF);
+
                     assert(isPowerOf2 == isTypeDefined);
                 }
             }
-#endif // !TARGET_XARCH || UNIX_AMD64_ABI
+#endif
 #endif // DEBUG
 
 #if !defined(WINDOWS_AMD64_ABI)
@@ -2929,103 +2849,135 @@ void Lowering::LowerStoreLocCommon(GenTreeLclVarCommon* lclStore)
             {
                 // If we have a single return register,
                 // but we can't retype it as a primitive type, we must spill it.
-                GenTreeLclVar* spilledCall = SpillStructCallResult(call);
-                lclStore->gtOp1            = spilledCall;
-                src                        = lclStore->gtOp1;
+
+                store->SetOp(0, SpillStructCallResult(call));
                 JITDUMP("lowering store lcl var/field has to spill call src.\n");
-                LowerStoreLocCommon(lclStore);
+                LowerStoreLclVar(store);
+
                 return;
             }
 #endif // !WINDOWS_AMD64_ABI
         }
-        else if (!src->OperIs(GT_LCL_VAR) || (varDsc->GetLayout()->GetRegisterType() == TYP_UNDEF))
+        else if (!src->OperIs(GT_LCL_VAR) || (lcl->GetLayout()->GetRegisterType() == TYP_UNDEF))
         {
-            GenTreeLclVar* addr = comp->gtNewLclVarAddrNode(lclStore->GetLclNum(), TYP_BYREF);
+            GenTreeLclVar* addr = comp->gtNewLclVarAddrNode(store->GetLclNum(), TYP_BYREF);
 
             addr->gtFlags |= GTF_VAR_DEF;
             assert(!addr->IsPartialLclFld(comp));
             addr->gtFlags |= GTF_DONT_CSE;
 
             // Create the assignment node.
-            lclStore->ChangeOper(GT_STORE_OBJ);
-            GenTreeBlk* objStore = lclStore->AsObj();
+            store->ChangeOper(GT_STORE_OBJ);
+            GenTreeBlk* objStore = store->AsObj();
             // Only the GTF_LATE_ARG flag (if present) is preserved.
             objStore->gtFlags &= GTF_LATE_ARG;
             objStore->gtFlags |= GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
             objStore->SetKind(StructStoreKind::Invalid);
-            objStore->SetLayout(varDsc->GetLayout());
+            objStore->SetLayout(lcl->GetLayout());
             objStore->SetAddr(addr);
             objStore->SetData(src);
             BlockRange().InsertBefore(objStore, addr);
             LowerBlockStoreCommon(objStore);
+
             return;
         }
     }
 
-    LowerStoreLoc(lclStore);
-    JITDUMP("lowering store lcl var/field (after):\n");
-    DISPTREERANGE(BlockRange(), lclStore);
+    LowerStoreLclVarArch(store);
+
+    JITDUMP("Lowering STORE_LCL_VAR (after):\n");
+    DISPTREERANGE(BlockRange(), store);
     JITDUMP("\n");
 }
 
-//----------------------------------------------------------------------------------------------
-// LowerRetStructLclVar: Lowers a struct return node.
-//
-// Arguments:
-//     node - The return node to lower.
-//
-void Lowering::LowerRetStruct(GenTreeUnOp* ret)
+void Lowering::LowerLclFld(GenTreeLclFld* lclFld)
 {
-#if defined(FEATURE_HFA) && defined(TARGET_ARM64)
-    if (varTypeIsSIMD(ret))
+    assert(lclFld->OperIs(GT_LCL_FLD));
+
+    verifyLclFldDoNotEnregister(lclFld->GetLclNum());
+}
+
+void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
+{
+    assert(store->OperIs(GT_STORE_LCL_FLD));
+
+    verifyLclFldDoNotEnregister(store->GetLclNum());
+
+    if (store->TypeIs(TYP_STRUCT))
     {
-        if (comp->info.compRetNativeType == TYP_STRUCT)
+        GenTreeLclFld* addr =
+            comp->gtNewLclFldAddrNode(store->GetLclNum(), store->GetLclOffs(), FieldSeqStore::NotAField());
+        BlockRange().InsertBefore(store, addr);
+
+        ClassLayout* layout = store->GetLayout(comp);
+        GenTree*     src    = store->GetOp(0);
+
+        store->ChangeOper(layout->IsBlockLayout() ? GT_STORE_BLK : GT_STORE_OBJ);
+
+        GenTreeBlk* indir = store->AsBlk();
+        indir->gtFlags    = GTF_ASG | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+        indir->SetKind(StructStoreKind::Invalid);
+        indir->SetLayout(layout);
+        indir->SetAddr(addr);
+        indir->SetData(src);
+
+        if (src->IsCall())
         {
-            assert(varTypeIsSIMD(ret->gtGetOp1()));
-            assert(comp->compMethodReturnsMultiRegRegTypeAlternate());
-            if (!comp->compDoOldStructRetyping())
-            {
-                ret->ChangeType(comp->info.compRetNativeType);
-            }
-            else
-            {
-                // With old struct retyping a value that is returned as HFA
-                // could have both SIMD* or STRUCT types, keep it as it.
-                return;
-            }
+            LowerStoreSingleRegCallStruct(indir->AsObj());
         }
         else
         {
-            assert(comp->info.compRetNativeType == ret->TypeGet());
-            GenTree* retVal = ret->gtGetOp1();
-            if (retVal->TypeGet() != ret->TypeGet())
+            LowerStructStore(indir);
+        }
+
+        return;
+    }
+
+    assert(varTypeUsesFloatReg(store->GetType()) == varTypeUsesFloatReg(store->GetOp(0)->GetType()));
+
+    ContainCheckStoreLcl(store);
+}
+
+void Lowering::LowerRetStruct(GenTreeUnOp* ret)
+{
+    assert(ret->OperIs(GT_RETURN));
+    assert(varTypeIsStruct(ret->GetType()));
+
+    GenTree* src = ret->GetOp(0);
+
+#ifdef TARGET_ARM64
+    if (varTypeIsSIMD(ret->GetType()))
+    {
+        if (comp->info.retDesc.GetRegCount() > 1)
+        {
+            assert(varTypeIsSIMD(src->GetType()));
+
+            ret->SetType(TYP_STRUCT);
+        }
+        else
+        {
+            assert(comp->info.retDesc.GetRegType(0) == ret->GetType());
+
+            if (src->GetType() != ret->GetType())
             {
-                assert(retVal->OperIs(GT_LCL_VAR));
-                assert(!comp->compDoOldStructRetyping());
+                assert(src->OperIs(GT_LCL_VAR));
+
                 LowerRetSingleRegStructLclVar(ret);
             }
-            return;
         }
+
+        return;
     }
 #endif
 
-    if (comp->compMethodReturnsMultiRegRegTypeAlternate())
+    if (comp->info.retDesc.GetRegCount() > 1)
     {
         return;
     }
 
-    assert(!comp->compDoOldStructRetyping());
-    assert(ret->OperIs(GT_RETURN));
-    assert(varTypeIsStruct(ret));
-
-    GenTree* retVal = ret->gtGetOp1();
-    // Note: small types are returned as INT.
-    var_types nativeReturnType = genActualType(comp->info.compRetNativeType);
-    ret->SetType(nativeReturnType);
-
-    if (retVal->OperIs(GT_IND, GT_OBJ))
+    if (src->OperIs(GT_IND, GT_OBJ))
     {
-        var_types            retRegType = comp->info.compRetNativeType;
+        var_types            retRegType = comp->info.retDesc.GetRegType(0);
         CORINFO_CLASS_HANDLE retClass   = comp->info.compMethodInfo->args.retTypeClass;
 
         unsigned retClassSize = comp->info.compCompHnd->getClassSize(retClass);
@@ -3037,9 +2989,10 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
                 retRegType = varTypeSignedToUnsigned(retRegType);
             }
 
-            retVal->ChangeOper(GT_IND);
-            retVal->SetType(retRegType);
-            LowerIndir(retVal->AsIndir());
+            src->ChangeOper(GT_IND);
+            src->SetType(retRegType);
+
+            LowerIndir(src->AsIndir());
         }
         else
         {
@@ -3055,76 +3008,54 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
             ret->SetOp(0, retRegValue);
             BlockRange().InsertBefore(ret, retRegValue);
 
-            GenTreeLclVar* tempStore = comp->gtNewLclvNode(tempLclNum, retVal->GetType());
+            GenTreeLclVar* tempStore = comp->gtNewLclvNode(tempLclNum, src->GetType());
             tempStore->SetOper(GT_STORE_LCL_VAR);
             tempStore->gtFlags |= GTF_ASG | GTF_VAR_DEF;
-            tempStore->AsLclVar()->SetOp(0, retVal);
-            BlockRange().InsertAfter(retVal, tempStore);
+            tempStore->AsLclVar()->SetOp(0, src);
+            BlockRange().InsertAfter(src, tempStore);
 
-            retVal->ChangeOper(GT_IND);
+            src->ChangeOper(GT_IND);
 
-            LowerStoreLocCommon(tempStore);
+            LowerStoreLclVar(tempStore);
 #endif
         }
+
+        ret->SetType(varActualType(retRegType));
 
         return;
     }
 
-    switch (retVal->OperGet())
+    var_types retRegType = varActualType(comp->info.retDesc.GetRegType(0));
+    ret->SetType(retRegType);
+
+    switch (src->GetOper())
     {
         case GT_CALL:
-            assert(retVal->TypeIs(nativeReturnType)); // Type should be changed during call processing.
-            break;
-
-        case GT_CNS_INT:
-            // When we promote LCL_VAR single fields into return
-            // we could have all type of constans here.
-            if (varTypeUsesFloatReg(nativeReturnType))
-            {
-                // Do not expect `initblock` for SIMD* types,
-                // only 'initobj'.
-                assert(retVal->AsIntCon()->IconValue() == 0);
-                retVal->ChangeOperConst(GT_CNS_DBL);
-                retVal->ChangeType(TYP_FLOAT);
-                retVal->AsDblCon()->gtDconVal = 0;
-            }
+            assert(src->TypeIs(retRegType)); // Type should be changed during call processing.
             break;
 
         case GT_LCL_VAR:
             LowerRetSingleRegStructLclVar(ret);
             break;
 
-#if defined(FEATURE_SIMD) || defined(FEATURE_HW_INTRINSICS)
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-#endif // FEATURE_HW_INTRINSICS
-        {
-            assert(!retVal->TypeIs(TYP_STRUCT));
-            if (varTypeUsesFloatReg(ret) != varTypeUsesFloatReg(retVal))
-            {
-                GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->TypeGet(), retVal);
-                ret->gtOp1           = bitcast;
-                BlockRange().InsertBefore(ret, bitcast);
-                LowerBitCast(bitcast);
-            }
-        }
-        break;
-#endif // FEATURE_SIMD || FEATURE_HW_INTRINSICS
-
         case GT_LCL_FLD:
-        {
-#ifdef DEBUG
-            GenTreeLclFld* lclFld = retVal->AsLclFld();
-            unsigned       lclNum = lclFld->GetLclNum();
-            LclVarDsc*     varDsc = comp->lvaGetDesc(lclNum);
-            assert(varDsc->lvDoNotEnregister);
-#endif
-            retVal->ChangeType(nativeReturnType);
-        }
-        break;
+            assert(comp->lvaGetDesc(src->AsLclFld())->lvDoNotEnregister);
+            src->SetType(retRegType);
+            break;
+
+        case GT_CNS_INT:
+            // When we promote LCL_VAR single fields into return
+            // we could have all type of constans here.
+            if (varTypeUsesFloatReg(retRegType))
+            {
+                // Do not expect `initblk` for SIMD* types, only 'initobj'.
+                assert(src->AsIntCon()->GetValue() == 0);
+
+                src->ChangeOperConst(GT_CNS_DBL);
+                src->SetType(TYP_FLOAT);
+                src->AsDblCon()->SetValue(0.0);
+            }
+            break;
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
         case GT_CNS_DBL:
@@ -3137,11 +3068,12 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 #endif
 
         default:
-            assert(varTypeIsEnregisterable(retVal));
-            if (varTypeUsesFloatReg(ret) != varTypeUsesFloatReg(retVal))
+            assert(varTypeIsEnregisterable(src->GetType()));
+
+            if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(src->GetType()))
             {
-                GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->TypeGet(), retVal);
-                ret->gtOp1           = bitcast;
+                GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), src);
+                ret->SetOp(0, bitcast);
                 BlockRange().InsertBefore(ret, bitcast);
                 LowerBitCast(bitcast);
             }
@@ -3152,9 +3084,6 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 //----------------------------------------------------------------------------------------------
 // LowerRetSingleRegStructLclVar: Lowers a return node with a struct lclVar as a source.
 //
-// Arguments:
-//    node - The return node to lower.
-//
 // Notes:
 //    - the function is only for LclVars that are returned in one register;
 //    - if LclVar is allocated in memory then read it as return type;
@@ -3162,53 +3091,54 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 //
 void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
 {
-    assert(!comp->compMethodReturnsMultiRegRegTypeAlternate());
-    assert(!comp->compDoOldStructRetyping());
     assert(ret->OperIs(GT_RETURN));
-    GenTreeLclVarCommon* lclVar = ret->gtGetOp1()->AsLclVar();
-    assert(lclVar->OperIs(GT_LCL_VAR));
-    unsigned   lclNum = lclVar->GetLclNum();
-    LclVarDsc* varDsc = comp->lvaGetDesc(lclNum);
+    assert(comp->info.retDesc.GetRegCount() == 1);
 
-    if (varDsc->CanBeReplacedWithItsField(comp))
+    GenTreeLclVar* lclVar = ret->GetOp(0)->AsLclVar();
+
+    unsigned   lclNum = lclVar->GetLclNum();
+    LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
+
+    if (lcl->CanBeReplacedWithItsField(comp))
     {
-        // We can replace the struct with its only field and keep the field on a register.
-        unsigned   fieldLclNum = varDsc->lvFieldLclStart;
-        LclVarDsc* fieldDsc    = comp->lvaGetDesc(fieldLclNum);
-        assert(varTypeIsSmallInt(fieldDsc->lvType)); // For a non-small type it had to be done in morph.
+        // We can replace the struct with its only field and keep the field in a register.
+        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+        LclVarDsc* fieldLcl    = comp->lvaGetDesc(fieldLclNum);
+
+        // For a non-small type it had to be done in morph.
+        assert(varTypeIsSmallInt(fieldLcl->GetType()));
+
+        JITDUMP("Replacing an independently promoted local var V%02u with its only field V%02u for the return [%06u]\n",
+                lclNum, fieldLclNum, comp->dspTreeID(ret));
 
         lclVar->SetLclNum(fieldLclNum);
-        JITDUMP("Replacing an independently promoted local var V%02u with its only field  V%02u for the return "
-                "[%06u]\n",
-                lclNum, fieldLclNum, comp->dspTreeID(ret));
-        lclVar->ChangeType(fieldDsc->lvType);
-        lclNum = fieldLclNum;
-        varDsc = comp->lvaGetDesc(lclNum);
-    }
-    else if (!varDsc->lvRegStruct && !varTypeIsEnregisterable(varDsc))
+        lclVar->SetType(fieldLcl->GetType());
 
+        lclNum = fieldLclNum;
+        lcl    = comp->lvaGetDesc(fieldLclNum);
+    }
+    else if (!lcl->lvRegStruct && !varTypeIsEnregisterable(lcl->GetType()))
     {
         // TODO-1stClassStructs: We can no longer promote or enregister this struct,
         // since it is referenced as a whole.
         comp->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
     }
 
-    if (varDsc->lvDoNotEnregister)
+    if (lcl->lvDoNotEnregister)
     {
         lclVar->ChangeOper(GT_LCL_FLD);
-        lclVar->AsLclFld()->SetLclOffs(0);
-        lclVar->ChangeType(ret->TypeGet());
+        lclVar->SetType(ret->GetType());
     }
     else
     {
-        var_types lclVarType = varDsc->GetRegisterType(lclVar);
+        var_types lclVarType = lcl->GetRegisterType(lclVar);
         assert(lclVarType != TYP_UNDEF);
-        lclVar->ChangeType(lclVarType);
+        lclVar->SetType(lclVarType);
 
-        if (varTypeUsesFloatReg(ret) != varTypeUsesFloatReg(lclVarType))
+        if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(lclVarType))
         {
-            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->TypeGet(), lclVar);
-            ret->gtOp1           = bitcast;
+            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), lclVar);
+            ret->SetOp(0, bitcast);
             BlockRange().InsertBefore(ret, bitcast);
             LowerBitCast(bitcast);
         }
@@ -3227,39 +3157,17 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
 //
 void Lowering::LowerCallStruct(GenTreeCall* call)
 {
-    assert(varTypeIsStruct(call));
-    if (call->HasMultiRegRetVal())
+    assert(varTypeIsStruct(call->GetType()));
+
+    if (call->GetRegCount() > 1)
     {
         return;
     }
 
-#if defined(FEATURE_HFA)
-    if (comp->IsHfa(call->gtRetClsHnd))
-    {
-#if defined(TARGET_ARM64)
-        assert(comp->GetHfaCount(call->gtRetClsHnd) == 1);
-#elif defined(TARGET_ARM)
-        // ARM returns double in 2 float registers, but
-        // `call->HasMultiRegRetVal()` count double registers.
-        assert(comp->GetHfaCount(call->gtRetClsHnd) <= 2);
-#elif  // !TARGET_ARM64 && !TARGET_ARM
-        unreached();
-#endif // !TARGET_ARM64 && !TARGET_ARM
-        var_types hfaType = comp->GetHfaType(call->gtRetClsHnd);
-        if (call->TypeIs(hfaType))
-        {
-            return;
-        }
-    }
-#endif // FEATURE_HFA
+    var_types regType  = call->GetRegType(0);
+    var_types callType = call->GetType();
 
-    assert(!comp->compDoOldStructRetyping());
-    CORINFO_CLASS_HANDLE        retClsHnd = call->gtRetClsHnd;
-    Compiler::structPassingKind howToReturnStruct;
-    var_types                   returnType = comp->getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-    assert(returnType != TYP_STRUCT && returnType != TYP_UNKNOWN);
-    var_types origType = call->TypeGet();
-    call->SetType(genActualType(returnType));
+    call->SetType(varActualType(regType));
 
     LIR::Use callUse;
     if (BlockRange().TryGetUse(call, &callUse))
@@ -3269,18 +3177,17 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
         {
             case GT_RETURN:
             case GT_STORE_LCL_VAR:
-            case GT_STORE_BLK:
             case GT_STORE_OBJ:
             case GT_STORE_LCL_FLD:
                 // Leave as is, the user will handle it.
-                assert(user->TypeIs(origType) || varTypeIsSIMD(user->TypeGet()));
+                assert(user->TypeIs(callType) || varTypeIsSIMD(user->GetType()));
                 break;
 
             case GT_STOREIND:
 #ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(user))
+                if (varTypeIsSIMD(user->GetType()))
                 {
-                    user->ChangeType(returnType);
+                    user->SetType(regType);
                     break;
                 }
 #endif // FEATURE_SIMD
@@ -3288,7 +3195,7 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
                 // keep it for now.
                 assert(user->TypeIs(TYP_REF) || (user->TypeIs(TYP_I_IMPL) && comp->IsTargetAbi(CORINFO_CORERT_ABI)));
                 assert(call->IsHelperCall());
-                assert(returnType == user->TypeGet());
+                assert(regType == user->GetType());
                 break;
 
             default:
@@ -3309,10 +3216,9 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
 //
 void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
 {
-    assert(!comp->compDoOldStructRetyping());
     assert(varTypeIsStruct(store->GetType()));
-
-    GenTreeCall* call = store->GetValue()->AsCall();
+    assert(store->Data()->IsCall());
+    GenTreeCall* call = store->Data()->AsCall();
     assert(!call->HasMultiRegRetVal());
 
     ClassLayout* layout  = store->GetLayout();
@@ -3350,15 +3256,14 @@ void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
 GenTreeLclVar* Lowering::SpillStructCallResult(GenTreeCall* call)
 {
     // TODO-1stClassStructs: we can support this in codegen for `GT_STORE_BLK` without new temps.
-    const unsigned       spillNum = comp->lvaGrabTemp(true DEBUGARG("Return value temp for an odd struct return size"));
-    CORINFO_CLASS_HANDLE retClsHnd = call->gtRetClsHnd;
-    comp->lvaSetStruct(spillNum, retClsHnd, false);
+    unsigned spillNum = comp->lvaGrabTemp(true DEBUGARG("Return value temp for an odd struct return size"));
+    comp->lvaSetStruct(spillNum, call->GetRetLayout(), false);
     GenTreeLclFld* spill = new (comp, GT_STORE_LCL_FLD) GenTreeLclFld(GT_STORE_LCL_FLD, call->gtType, spillNum, 0);
     spill->gtOp1         = call;
     spill->gtFlags |= GTF_VAR_DEF;
 
     BlockRange().InsertAfter(call, spill);
-    ContainCheckStoreLoc(spill);
+    ContainCheckStoreLcl(spill);
     GenTreeLclVar* loadCallResult = comp->gtNewLclvNode(spillNum, TYP_STRUCT)->AsLclVar();
     BlockRange().InsertAfter(spill, loadCallResult);
     return loadCallResult;
@@ -4166,7 +4071,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
     storeCallSiteTracker->gtFlags |= GTF_VAR_DEF;
 
     BlockRange().InsertBefore(insertionPoint, constantZero, storeCallSiteTracker);
-    ContainCheckStoreLoc(storeCallSiteTracker);
+    ContainCheckStoreLcl(storeCallSiteTracker);
 #endif // TARGET_64BIT
 }
 
@@ -5846,13 +5751,12 @@ bool Lowering::CheckBlock(Compiler* compiler, BasicBlock* block)
 {
     assert(block->isEmpty() || block->IsLIR());
 
-    LIR::Range& blockRange = LIR::AsRange(block);
-    for (GenTree* node : blockRange)
+    for (GenTree* node : LIR::AsRange(block).NonPhiNodes())
     {
         CheckNode(compiler, node);
     }
 
-    assert(blockRange.CheckLIR(compiler, true));
+    assert(LIR::AsRange(block).CheckLIR(compiler, true));
     return true;
 }
 #endif
@@ -5877,7 +5781,7 @@ void Lowering::LowerBlock(BasicBlock* block)
     // Lowering::CheckBlock() runs some extra checks on call arguments in
     // order to help catch unlowered nodes.
 
-    GenTree* node = BlockRange().FirstNode();
+    GenTree* node = BlockRange().FirstNonPhiNode();
     while (node != nullptr)
     {
         node = LowerNode(node);
@@ -6006,73 +5910,62 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::CheckMultiRegLclVar: Check whether a MultiReg GT_LCL_VAR node can
-//                                remain a multi-reg.
-//
-// Arguments:
-//   lclNode     - the GT_LCL_VAR or GT_STORE_LCL_VAR node.
-//   retTypeDesc - a return type descriptor either for a call source of a store of
-//                 the local, or for the GT_RETURN consumer of the local.
-//
-// Notes:
-//   If retTypeDesc is non-null, this method will check that the fields are compatible.
-//   Otherwise, it will only check that the lclVar is independently promoted
-//   (i.e. it is marked lvPromoted and not lvDoNotEnregister).
-//
-bool Lowering::CheckMultiRegLclVar(GenTreeLclVar* lclNode, const ReturnTypeDesc* retTypeDesc)
-{
-    bool canEnregister = false;
 #if FEATURE_MULTIREG_RET
-    LclVarDsc* varDsc = comp->lvaGetDesc(lclNode->GetLclNum());
-    if ((comp->lvaEnregMultiRegVars) && varDsc->lvPromoted)
+
+void Lowering::MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retDesc)
+{
+    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+
+    bool canEnregister = false;
+
+    LclVarDsc* lcl = comp->lvaGetDesc(lclVar);
+
+    if (comp->lvaEnregMultiRegVars && lcl->IsPromoted())
     {
         // We can enregister if we have a promoted struct and all the fields' types match the ABI requirements.
         // Note that we don't promote structs with explicit layout, so we don't need to check field offsets, and
         // if we have multiple types packed into a single register, we won't have matching reg and field counts,
         // so we can tolerate mismatches of integer size.
-        if (varDsc->lvPromoted && (comp->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT))
+        if (comp->lvaGetPromotionType(lcl) == Compiler::PROMOTION_TYPE_INDEPENDENT)
         {
             // If we have no retTypeDesc, we only care that it is independently promoted.
-            if (retTypeDesc == nullptr)
+            if (retDesc == nullptr)
             {
                 canEnregister = true;
             }
-            else
+            else if (retDesc->GetRegCount() == lcl->GetPromotedFieldCount())
             {
-                unsigned regCount = retTypeDesc->GetReturnRegCount();
-
-                if (regCount == varDsc->lvFieldCnt)
-                {
-                    canEnregister = true;
-                }
+                canEnregister = true;
             }
         }
     }
+
 #ifdef TARGET_XARCH
     // For local stores on XARCH we only handle mismatched src/dest register count for
     // calls of SIMD type. If the source was another lclVar similarly promoted, we would
     // have broken it into multiple stores.
-    if (lclNode->OperIs(GT_STORE_LCL_VAR) && !lclNode->gtGetOp1()->OperIs(GT_CALL))
+    if (lclVar->OperIs(GT_STORE_LCL_VAR) && !lclVar->GetOp(0)->OperIs(GT_CALL))
     {
         canEnregister = false;
     }
 #endif // TARGET_XARCH
+
     if (canEnregister)
     {
-        lclNode->SetMultiReg();
+        lclVar->SetMultiReg();
     }
     else
     {
-        lclNode->ClearMultiReg();
-        if (varDsc->lvPromoted && !varDsc->lvDoNotEnregister)
+        assert(!lclVar->IsMultiReg());
+
+        if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
-            comp->lvaSetVarDoNotEnregister(lclNode->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
+            comp->lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
         }
     }
-#endif
-    return canEnregister;
 }
+
+#endif // FEATURE_MULTIREG_RET
 
 //------------------------------------------------------------------------
 // Containment Analysis
@@ -6083,7 +5976,7 @@ void Lowering::ContainCheckNode(GenTree* node)
     {
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
-            ContainCheckStoreLoc(node->AsLclVarCommon());
+            ContainCheckStoreLcl(node->AsLclVarCommon());
             break;
 
         case GT_EQ:
@@ -6237,47 +6130,39 @@ void Lowering::ContainCheckLclHeap(GenTreeOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckRet: determine whether the source of a node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckRet(GenTreeUnOp* ret)
 {
     assert(ret->OperIs(GT_RETURN));
 
-#if !defined(TARGET_64BIT)
-    if (ret->TypeGet() == TYP_LONG)
-    {
-        GenTree* op1 = ret->gtGetOp1();
-        noway_assert(op1->OperGet() == GT_LONG);
-        MakeSrcContained(ret, op1);
-    }
-#endif // !defined(TARGET_64BIT)
-#if FEATURE_MULTIREG_RET
-    if (ret->TypeIs(TYP_STRUCT))
-    {
-        GenTree* op1 = ret->gtGetOp1();
-        // op1 must be either a lclvar or a multi-reg returning call
-        if (op1->OperGet() == GT_LCL_VAR)
-        {
-            GenTreeLclVarCommon* lclVarCommon = op1->AsLclVarCommon();
-            LclVarDsc*           varDsc       = &(comp->lvaTable[lclVarCommon->GetLclNum()]);
-            // This must be a multi-reg return or an HFA of a single element.
-            assert(varDsc->lvIsMultiRegRet || (varDsc->lvIsHfa() && varTypeIsValidHfaType(varDsc->lvType)));
+    GenTree* src = ret->GetOp(0);
 
-            // Mark var as contained if not enregisterable.
-            if (!varTypeIsEnregisterable(op1))
-            {
-                if (!op1->IsMultiRegLclVar())
-                {
-                    MakeSrcContained(ret, op1);
-                }
-            }
-        }
+#ifndef TARGET_64BIT
+    if (ret->TypeIs(TYP_LONG))
+    {
+        noway_assert(src->OperIs(GT_LONG));
+        src->SetContained();
+
+        return;
     }
-#endif // FEATURE_MULTIREG_RET
+#endif
+
+#if FEATURE_MULTIREG_RET
+    if (ret->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR))
+    {
+        LclVarDsc* lcl = comp->lvaGetDesc(src->AsLclVar());
+
+        // This must be a multi-reg return or an HFA of a single element.
+        assert(!lcl->IsPromoted() || lcl->lvIsMultiRegRet || (lcl->lvIsHfa() && varTypeIsValidHfaType(lcl->GetType())));
+
+        // Mark var as contained if not enregisterable.
+        if (!varTypeIsEnregisterable(src->GetType()) && !src->AsLclVar()->IsMultiReg())
+        {
+            src->SetContained();
+        }
+
+        return;
+    }
+#endif
 }
 
 //------------------------------------------------------------------------

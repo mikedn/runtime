@@ -3184,37 +3184,6 @@ void emitter::emitInsStoreInd(instruction ins, emitAttr attr, GenTreeStoreInd* m
 }
 
 //------------------------------------------------------------------------
-// emitInsStoreLcl: Emits a "mov [mem], reg/imm" (or a variant such as "movss")
-// instruction for a GT_STORE_LCL_VAR node.
-//
-// Arguments:
-//    ins - the instruction to emit
-//    attr - the instruction operand size
-//    varNode - the GT_STORE_LCL_VAR node
-//
-void emitter::emitInsStoreLcl(instruction ins, emitAttr attr, GenTreeLclVarCommon* varNode)
-{
-    assert(varNode->OperIs(GT_STORE_LCL_VAR));
-    assert(varNode->GetRegNum() == REG_NA); // stack store
-
-    GenTree* data = varNode->gtGetOp1();
-    codeGen->inst_set_SV_var(varNode);
-
-    if (data->isContainedIntOrIImmed())
-    {
-        emitIns_S_I(ins, attr, varNode->GetLclNum(), 0, (int)data->AsIntConCommon()->IconValue());
-    }
-    else
-    {
-        assert(!data->isContained());
-        emitIns_S_R(ins, attr, data->GetRegNum(), varNode->GetLclNum(), 0);
-    }
-
-    // Updating variable liveness after instruction was emitted
-    codeGen->genUpdateLife(varNode);
-}
-
-//------------------------------------------------------------------------
 // emitInsBinary: Emits an instruction for a node which takes two operands
 //
 // Arguments:

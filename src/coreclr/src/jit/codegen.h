@@ -1113,14 +1113,6 @@ protected:
 
 #endif // FEATURE_HW_INTRINSICS
 
-#if !defined(TARGET_64BIT)
-
-    // CodeGen for Long Ints
-
-    void genStoreLongLclVar(GenTree* treeNode);
-
-#endif // !defined(TARGET_64BIT)
-
     // Do liveness update for register produced by the current node in codegen after
     // code has been emitted for it.
     void genProduceReg(GenTree* tree);
@@ -1179,8 +1171,13 @@ protected:
     void genCodeForBswap(GenTree* tree);
     void genCodeForLclVar(GenTreeLclVar* tree);
     void genCodeForLclFld(GenTreeLclFld* tree);
-    void genCodeForStoreLclFld(GenTreeLclFld* tree);
-    void genCodeForStoreLclVar(GenTreeLclVar* tree);
+    void GenStoreLclFld(GenTreeLclFld* store);
+    void GenStoreLclVar(GenTreeLclVar* store);
+#ifndef TARGET_64BIT
+    void GenStoreLclVarLong(GenTreeLclVar* store);
+#endif
+    void GenStoreLclVarMultiReg(GenTreeLclVar* store);
+    void GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void genCodeForJcc(GenTreeCC* tree);
     void genCodeForSetcc(GenTreeCC* setcc);
@@ -1286,29 +1283,23 @@ protected:
     void genEHFinallyOrFilterRet(BasicBlock* block);
 #endif // !FEATURE_EH_FUNCLETS
 
-    void genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode);
-    void genMultiRegStoreToLocal(GenTreeLclVar* lclNode);
-
-    // Codegen for multi-register struct returns.
-    bool isStructReturn(GenTree* treeNode);
 #ifdef FEATURE_SIMD
-    void genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc);
+    void genMultiRegSIMDReturn(GenTree* src);
 #endif
-    void genStructReturn(GenTree* treeNode);
+#ifndef WINDOWS_AMD64_ABI
+    void genMultiRegStructReturn(GenTree* src);
+#endif
+
+#ifndef TARGET_64BIT
+    void genLongReturn(GenTree* src);
+#endif
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
-    void genLongReturn(GenTree* treeNode);
-#endif // TARGET_X86 ||  TARGET_ARM
+    void genFloatReturn(GenTree* src);
+#endif
 
-#if defined(TARGET_X86)
-    void genFloatReturn(GenTree* treeNode);
-#endif // TARGET_X86
-
-#if defined(TARGET_ARM64)
-    void genSimpleReturn(GenTree* treeNode);
-#endif // TARGET_ARM64
-
-    void genReturn(GenTree* treeNode);
+    void genRetFilt(GenTree* retfilt);
+    void genReturn(GenTree* ret);
 
 #ifdef TARGET_ARMARCH
     void genStackPointerConstantAdjustment(ssize_t spDelta);
@@ -1331,7 +1322,7 @@ protected:
     }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    void genStackPointerCheck(bool doStackPointerCheck, unsigned lvaStackPointerVar);
+    void genStackPointerCheck(unsigned lvaStackPointerVar);
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
 
 #ifdef DEBUG
@@ -1397,8 +1388,6 @@ public:
 
     void inst_SA_RV(instruction ins, unsigned ofs, regNumber reg, var_types type);
     void inst_SA_IV(instruction ins, unsigned ofs, int val, var_types type);
-
-    void inst_FS_ST(instruction ins, emitAttr size, TempDsc* tmp, unsigned ofs);
 
     void inst_TT(instruction ins, GenTree* tree, unsigned offs = 0, int shfv = 0, emitAttr size = EA_UNKNOWN);
 

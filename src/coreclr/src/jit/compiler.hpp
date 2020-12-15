@@ -649,63 +649,6 @@ inline bool isRegParamType(var_types type)
 #endif // !TARGET_X86
 }
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-/*****************************************************************************/
-// Returns true if 'type' is a struct that can be enregistered for call args
-//                         or can be returned by value in multiple registers.
-//              if 'type' is not a struct the return value will be false.
-//
-// Arguments:
-//    type      - the basic jit var_type for the item being queried
-//    typeClass - the handle for the struct when 'type' is TYP_STRUCT
-//    typeSize  - Out param (if non-null) is updated with the size of 'type'.
-//    forReturn - this is true when we asking about a GT_RETURN context;
-//                this is false when we are asking about an argument context
-//    isVarArg  - whether or not this is a vararg fixed arg or variable argument
-//              - if so on arm64 windows getArgTypeForStruct will ignore HFA
-//              - types
-//
-inline bool Compiler::VarTypeIsMultiByteAndCanEnreg(
-    var_types type, CORINFO_CLASS_HANDLE typeClass, unsigned* typeSize, bool forReturn, bool isVarArg)
-{
-    bool     result = false;
-    unsigned size   = 0;
-
-    if (varTypeIsStruct(type))
-    {
-        assert(typeClass != nullptr);
-        size = info.compCompHnd->getClassSize(typeClass);
-        if (forReturn)
-        {
-            structPassingKind howToReturnStruct;
-            type = getReturnTypeForStruct(typeClass, &howToReturnStruct, size);
-        }
-        else
-        {
-            structPassingKind howToPassStruct;
-            type = getArgTypeForStruct(typeClass, &howToPassStruct, isVarArg, size);
-        }
-        if (type != TYP_UNKNOWN)
-        {
-            result = true;
-        }
-    }
-    else
-    {
-        size = genTypeSize(type);
-    }
-
-    if (typeSize != nullptr)
-    {
-        *typeSize = size;
-    }
-
-    return result;
-}
-#endif // TARGET_AMD64 || TARGET_ARM64
-
-/*****************************************************************************/
-
 #ifdef DEBUG
 
 inline const char* varTypeGCstring(var_types type)
@@ -1685,7 +1628,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     {
         printf("\nlvaGrabTemp returning %d (", tempNum);
         gtDispLclVar(tempNum, false);
-        printf(")%s called for %s.\n", shortLifetime ? "" : " (a long lifetime temp)", reason);
+        printf(")%s called for \"%s\".\n", shortLifetime ? "" : " (a long lifetime temp)", reason);
     }
 #endif // DEBUG
 

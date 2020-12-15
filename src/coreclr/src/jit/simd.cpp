@@ -1019,11 +1019,11 @@ GenTree* Compiler::impSIMDPopStack(var_types type)
     {
         // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
 
-        CORINFO_CLASS_HANDLE structHandle =
-            tree->OperIs(GT_RET_EXPR) ? tree->AsRetExpr()->gtRetClsHnd : tree->AsCall()->gtRetClsHnd;
+        ClassLayout* layout =
+            tree->OperIs(GT_RET_EXPR) ? tree->AsRetExpr()->GetRetLayout() : tree->AsCall()->GetRetLayout();
 
         unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
-        impAssignTempGen(tmpNum, tree, structHandle, (unsigned)CHECK_SPILL_ALL);
+        impAssignTempGen(tmpNum, tree, layout->GetClassHandle(), CHECK_SPILL_ALL);
         tree = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
     }
 

@@ -72,6 +72,8 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     tree->ChangeOper(GT_CALL, GenTree::PRESERVE_VN);
 
     GenTreeCall* call = tree->AsCall();
+    call->SetRetSigType(tree->GetType());
+    call->SetRetLayout(nullptr);
 
     call->gtCallType            = CT_HELPER;
     call->gtCallMethHnd         = eeFindHelper(helper);
@@ -79,7 +81,6 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->gtCallArgs            = args;
     call->gtCallLateArgs        = nullptr;
     call->fgArgInfo             = nullptr;
-    call->gtRetClsHnd           = nullptr;
     call->gtCallMoreFlags       = 0;
     call->gtInlineCandidateInfo = nullptr;
     call->gtControlExpr         = nullptr;
@@ -97,17 +98,18 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->gtEntryPoint.accessType = IAT_VALUE;
 #endif
 
+    call->GetRetDesc()->Reset();
+#ifndef TARGET_64BIT
+    if (varTypeIsLong(tree->GetType()))
+    {
+        call->GetRetDesc()->InitializeLong();
+    }
+#endif
+
 #if FEATURE_MULTIREG_RET
-    call->ResetReturnType();
     call->ClearOtherRegs();
     call->ClearOtherRegFlags();
-#ifndef TARGET_64BIT
-    if (varTypeIsLong(tree))
-    {
-        call->InitializeLongReturnType();
-    }
-#endif // !TARGET_64BIT
-#endif // FEATURE_MULTIREG_RET
+#endif
 
     if (tree->OperMayThrow(this))
     {
@@ -4465,84 +4467,6 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
 #endif // !TARGET_X86
 
-//****************************************************************************
-//  fgFixupStructReturn:
-//    The companion to impFixupCallStructReturn.  Now that the importer is done
-//    change the gtType to the precomputed native return type
-//    requires that callNode currently has a struct type
-//
-void Compiler::fgFixupStructReturn(GenTree* callNode)
-{
-    if (!compDoOldStructRetyping())
-    {
-        return;
-    }
-    assert(varTypeIsStruct(callNode));
-
-    GenTreeCall* call              = callNode->AsCall();
-    bool         callHasRetBuffArg = call->HasRetBufArg();
-    bool         isHelperCall      = call->IsHelperCall();
-
-    // Decide on the proper return type for this call that currently returns a struct
-    //
-    CORINFO_CLASS_HANDLE        retClsHnd = call->gtRetClsHnd;
-    Compiler::structPassingKind howToReturnStruct;
-    var_types                   returnType;
-
-    // There are a couple of Helper Calls that say they return a TYP_STRUCT but they
-    // expect this method to re-type this to a TYP_REF (what is in call->gtReturnType)
-    //
-    //    CORINFO_HELP_METHODDESC_TO_STUBRUNTIMEMETHOD
-    //    CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD
-    //    CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL
-    //
-    if (isHelperCall)
-    {
-        assert(!callHasRetBuffArg);
-        assert(retClsHnd == NO_CLASS_HANDLE);
-
-        // Now that we are past the importer, re-type this node
-        howToReturnStruct = SPK_PrimitiveType;
-        returnType        = (var_types)call->gtReturnType;
-    }
-    else
-    {
-        returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-    }
-
-    if (howToReturnStruct == SPK_ByReference)
-    {
-        assert(returnType == TYP_UNKNOWN);
-        assert(callHasRetBuffArg);
-    }
-    else
-    {
-        assert(returnType != TYP_UNKNOWN);
-
-        if (!varTypeIsStruct(returnType))
-        {
-            // Widen the primitive type if necessary
-            returnType = genActualType(returnType);
-        }
-        call->gtType = returnType;
-    }
-
-#if FEATURE_MULTIREG_RET
-    // Either we don't have a struct now or if struct, then it is a struct returned in regs or in return buffer.
-    assert((call->gtType != TYP_STRUCT) || call->HasMultiRegRetVal() || callHasRetBuffArg);
-#else // !FEATURE_MULTIREG_RET
-    // No more struct returns
-    assert(call->TypeGet() != TYP_STRUCT);
-#endif
-
-#if !defined(UNIX_AMD64_ABI)
-    // If it was a struct return, it has been transformed into a call
-    // with a return buffer (that returns TYP_VOID) or into a return
-    // of a primitive/enregisterable type
-    assert(!callHasRetBuffArg || (call->TypeGet() == TYP_VOID));
-#endif
-}
-
 /*****************************************************************************
  *
  *  A little helper used to rearrange nested commutative operations. The
@@ -5727,7 +5651,7 @@ void Compiler::fgMorphCallInline(GenTreeCall* call, InlineResult* inlineResult)
     // If we failed to inline (or didn't even try), do some cleanup.
     if (inliningFailed)
     {
-        if (call->gtReturnType != TYP_VOID)
+        if (call->GetRetSigType() != TYP_VOID)
         {
             JITDUMP("Inlining [%06u] failed, so bashing " FMT_STMT " to NOP\n", dspTreeID(call), fgMorphStmt->GetID());
 
@@ -5961,19 +5885,11 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
 bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 {
 #if FEATURE_FASTTAILCALL
-
     // To reach here means that the return types of the caller and callee are tail call compatible.
-    // In the case of structs that can be returned in a register, compRetNativeType is set to the actual return type.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
     if (callee->IsTailPrefixedCall())
     {
-        var_types retType = (compDoOldStructRetyping() ? info.compRetNativeType : info.compRetType);
-        assert(impTailCallRetTypeCompatible(retType, info.compMethodInfo->args.retTypeClass,
-                                            (var_types)callee->gtReturnType, callee->gtRetClsHnd));
+        assert(impTailCallRetTypeCompatible(callee));
     }
-#endif
 
     assert(!callee->AreArgsComplete());
 
@@ -6681,9 +6597,6 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         assert(treeWithCall == call);
     }
 #endif
-    // Store the call type for later to introduce the correct placeholder.
-    var_types origCallType = call->TypeGet();
-
     GenTree* result;
     if (!canFastTailCall && !tailCallViaJitHelper)
     {
@@ -6717,8 +6630,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             fgMorphStmt->SetRootNode(call);
         }
 
+        var_types retType = call->GetType();
+
         // Avoid potential extra work for the return (for example, vzeroupper)
-        call->gtType = TYP_VOID;
+        call->SetType(TYP_VOID);
+        call->SetRetSigType(TYP_VOID);
+        call->SetRetLayout(nullptr);
+        call->GetRetDesc()->Reset();
 
         // Do some target-specific transformations (before we process the args,
         // etc.) for the JIT helper case.
@@ -6783,32 +6701,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             // if the root node was an `ASG`, `RET` or `CAST`.
             // Return a zero con node to exit morphing of the old trees without asserts
             // and forbid POST_ORDER morphing doing something wrong with our call.
-            var_types callType;
-            if (varTypeIsStruct(origCallType))
-            {
-                CORINFO_CLASS_HANDLE        retClsHnd = call->gtRetClsHnd;
-                Compiler::structPassingKind howToReturnStruct;
-                callType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-                assert((howToReturnStruct != SPK_Unknown) && (howToReturnStruct != SPK_ByReference));
-                if (howToReturnStruct == SPK_ByValue)
-                {
-                    callType = TYP_I_IMPL;
-                }
-                else if (howToReturnStruct == SPK_ByValueAsHfa || varTypeIsSIMD(callType))
-                {
-                    callType = TYP_FLOAT;
-                }
-                assert((callType != TYP_UNKNOWN) && !varTypeIsStruct(callType));
-            }
-            else
-            {
-                callType = origCallType;
-            }
-            assert((callType != TYP_UNKNOWN) && !varTypeIsStruct(callType));
-            callType = genActualType(callType);
 
-            GenTree* zero = gtNewZeroConNode(callType);
-            result        = fgMorphTree(zero);
+            if (varTypeIsStruct(retType))
+            {
+                retType = TYP_INT;
+            }
+
+            result = fgMorphTree(gtNewZeroConNode(retType));
         }
         else
         {
@@ -7026,9 +6925,10 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_DELEGATE_INV | GTF_CALL_M_WRAPPER_DELEGATE_INV);
 
     // The store-args stub returns no value.
-    call->gtRetClsHnd  = nullptr;
-    call->gtType       = TYP_VOID;
-    call->gtReturnType = TYP_VOID;
+    call->SetType(TYP_VOID);
+    call->SetRetSigType(TYP_VOID);
+    call->SetRetLayout(nullptr);
+    call->GetRetDesc()->Reset();
 
     GenTree* finalTree =
         gtNewOperNode(GT_COMMA, callDispatcherAndGetResult->TypeGet(), call, callDispatcherAndGetResult);
@@ -7076,10 +6976,9 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     // void DispatchTailCalls(void* callersRetAddrSlot, void* callTarget, void* retValue)
 
     // Add return value arg.
-    GenTree*     retValArg;
-    GenTree*     retVal           = nullptr;
-    unsigned int newRetLcl        = BAD_VAR_NUM;
-    GenTree*     copyToRetBufNode = nullptr;
+    GenTree* retValArg;
+    GenTree* retVal           = nullptr;
+    GenTree* copyToRetBufNode = nullptr;
 
     if (origCall->HasRetBufArg())
     {
@@ -7097,7 +6996,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         unsigned int tmpRetBufNum = lvaGrabTemp(true DEBUGARG("substitute local for return buffer"));
 
         constexpr bool unsafeValueClsCheck = false;
-        lvaSetStruct(tmpRetBufNum, origCall->gtRetClsHnd, unsafeValueClsCheck);
+        lvaSetStruct(tmpRetBufNum, origCall->GetRetLayout(), unsafeValueClsCheck);
         lvaSetVarAddrExposed(tmpRetBufNum);
 
         var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
@@ -7117,32 +7016,41 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
             retVal = gtClone(retBufArg);
         }
     }
-    else if (origCall->gtType != TYP_VOID)
+    else if (!origCall->TypeIs(TYP_VOID))
     {
         JITDUMP("Creating a new temp for the return value\n");
-        newRetLcl = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
-        if (varTypeIsStruct(origCall->gtType))
+
+        unsigned   newRetLclNum = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
+        LclVarDsc* newRetLcl    = lvaGetDesc(newRetLclNum);
+
+        if (varTypeIsStruct(origCall->GetType()))
         {
-            lvaSetStruct(newRetLcl, origCall->gtRetClsHnd, false);
+            lvaSetStruct(newRetLclNum, origCall->GetRetLayout(), false);
         }
         else
         {
-            // Since we pass a reference to the return value to the dispatcher
-            // we need to use the real return type so we can normalize it on
-            // load when we return it.
-            lvaTable[newRetLcl].lvType = (var_types)origCall->gtReturnType;
+            newRetLcl->SetType(origCall->GetType());
         }
 
-        lvaSetVarAddrExposed(newRetLcl);
+        lvaSetVarAddrExposed(newRetLclNum);
 
-        retValArg =
-            gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(newRetLcl, genActualType(lvaTable[newRetLcl].lvType)));
-        retVal = gtNewLclvNode(newRetLcl, genActualType(lvaTable[newRetLcl].lvType));
-
-        if (varTypeIsStruct(origCall->gtType))
+        if (varTypeIsSmall(origCall->GetRetSigType()))
         {
-            retVal = impFixupStructReturnType(retVal, origCall->gtRetClsHnd);
+            // Use a LCL_FLD to widen small int return, the local is already address exposed
+            // so it's not worth adding an extra cast by relying on "normalize on load".
+            retVal = gtNewLclFldNode(newRetLclNum, origCall->GetRetSigType(), 0);
         }
+        else
+        {
+            retVal = gtNewLclvNode(newRetLclNum, newRetLcl->GetType());
+        }
+
+        if (varTypeIsStruct(origCall->GetType()) && (info.retDesc.GetRegCount() > 1))
+        {
+            retVal->gtFlags |= GTF_DONT_CSE;
+        }
+
+        retValArg = gtNewLclVarAddrNode(newRetLclNum);
     }
     else
     {
@@ -7165,7 +7073,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         lvaSetVarAddrExposed(lvaRetAddrVar);
     }
 
-    GenTree* retAddrSlot           = gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(lvaRetAddrVar, TYP_I_IMPL));
+    GenTree* retAddrSlot           = gtNewLclVarAddrNode(lvaRetAddrVar);
     callDispatcherNode->gtCallArgs = gtPrependNewCallArg(retAddrSlot, callDispatcherNode->gtCallArgs);
 
     GenTree* finalTree = callDispatcherNode;
@@ -7918,10 +7826,6 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
 
 GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 {
-    if (varTypeIsStruct(call))
-    {
-        fgFixupStructReturn(call);
-    }
     if (call->CanTailCall())
     {
         GenTree* newNode = fgMorphPotentialTailCall(call);
@@ -7936,7 +7840,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         if (fgGlobalMorph && call->HasMultiRegRetVal() && varTypeIsStruct(call->TypeGet()))
         {
             // The tail call has been rejected so we must finish the work deferred
-            // by impFixupCallStructReturn for multi-reg-returning calls and transform
+            // by impCanonicalizeMultiRegCall for multi-reg-returning calls and transform
             //     ret call
             // into
             //     temp = call
@@ -7945,38 +7849,29 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
             // Force re-evaluating the argInfo as the return argument has changed.
             call->fgArgInfo = nullptr;
 
-            // Create a new temp.
             unsigned tmpNum =
-                lvaGrabTemp(false DEBUGARG("Return value temp for multi-reg return (rejected tail call)."));
-            lvaTable[tmpNum].lvIsMultiRegRet = true;
+                lvaNewTemp(call->GetRetLayout(), false DEBUGARG("multireg return call temp (rejected tail call)"));
 
-            CORINFO_CLASS_HANDLE structHandle = call->gtRetClsHnd;
-            assert(structHandle != NO_CLASS_HANDLE);
-            const bool unsafeValueClsCheck = false;
-            lvaSetStruct(tmpNum, structHandle, unsafeValueClsCheck);
-            var_types structType = lvaTable[tmpNum].lvType;
-            GenTree*  dst        = gtNewLclvNode(tmpNum, structType);
-            GenTree*  assg       = gtNewAssignNode(dst, call);
-            assg                 = fgMorphTree(assg);
+            GenTree* dst = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
+            GenTree* asg = fgMorphTree(gtNewAssignNode(dst, call));
 
-            // Create the assignment statement and insert it before the current statement.
-            Statement* assgStmt = gtNewStmt(assg, compCurStmt->GetILOffsetX());
-            fgInsertStmtBefore(compCurBB, compCurStmt, assgStmt);
-
-            // Return the temp.
-            GenTree* result = gtNewLclvNode(tmpNum, lvaTable[tmpNum].lvType);
-            result->gtFlags |= GTF_DONT_CSE;
-
-            compCurBB->bbFlags |= BBF_HAS_CALL; // This block has a call
+            Statement* asgStmt = gtNewStmt(asg, compCurStmt->GetILOffsetX());
+            fgInsertStmtBefore(compCurBB, compCurStmt, asgStmt);
 
 #ifdef DEBUG
             if (verbose)
             {
                 printf("\nInserting assignment of a multi-reg call result to a temp:\n");
-                gtDispStmt(assgStmt);
+                gtDispStmt(asgStmt);
             }
-            result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif // DEBUG
+#endif
+
+            compCurBB->bbFlags |= BBF_HAS_CALL;
+
+            GenTree* result = gtNewLclvNode(tmpNum, dst->GetType());
+            result->gtFlags |= GTF_DONT_CSE;
+            INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
             return result;
         }
 #endif
@@ -9105,13 +9000,9 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         JITDUMP(" not morphing a multireg call return\n");
         return asg;
     }
-    else if (dest->IsMultiRegLclVar() && !src->IsMultiRegNode())
-    {
-        dest->AsLclVar()->ClearMultiReg();
-    }
 #endif // FEATURE_MULTIREG_RET
 
-    if (src->IsCall() && !compDoOldStructRetyping())
+    if (src->IsCall())
     {
         if (dest->OperIs(GT_OBJ))
         {
@@ -9544,22 +9435,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
             }
         }
-
-        // if (!destLclVar->lvRegStruct || (destLclVar->lvType != dest->TypeGet()))
-        // {
-        //     if (!dest->IsMultiRegLclVar() || (blockWidth != destLclVar->lvExactSize) ||
-        //         (destLclVar->lvCustomLayout && destLclVar->lvContainsHoles))
-        //     {
-        //         // Mark it as DoNotEnregister.
-        //         lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_BlockOp));
-        //     }
-        //     else if (dest->IsMultiRegLclVar())
-        //     {
-        //         // Handle this as lvIsMultiRegRet; this signals to SSA that it can't consider these fields
-        //         // SSA candidates (we don't have a way to represent multiple SSANums on MultiRegLclVar nodes).
-        //         destLclVar->lvIsMultiRegRet = true;
-        //     }
-        // }
 
         if (srcLclVar != nullptr)
         {
@@ -10650,59 +10525,60 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             return fgMorphIntoHelperCall(tree, helper, gtNewCallArgs(op1, op2));
 
         case GT_RETURN:
-            // normalize small integer return values
-            if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && (op1 != nullptr) && (op1->TypeGet() != TYP_VOID) &&
-                fgCastNeeded(op1, info.compRetType))
+            if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && fgCastNeeded(op1, info.compRetType))
             {
-                // Small-typed return values are normalized by the callee
+                // Small-typed return values are extended by the callee.
+
                 op1 = gtNewCastNode(TYP_INT, op1, false, info.compRetType);
-
-                // Propagate GTF_COLON_COND
                 op1->gtFlags |= (tree->gtFlags & GTF_COLON_COND);
+                op1 = fgMorphCast(op1->AsCast());
 
-                tree->AsOp()->gtOp1 = fgMorphCast(op1->AsCast());
-
-                // Propagate side effect flags
+                tree->AsUnOp()->SetOp(0, op1);
                 tree->gtFlags &= ~GTF_ALL_EFFECT;
-                tree->gtFlags |= (tree->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
+                tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
 
                 return tree;
             }
-            if (!compDoOldStructRetyping() && !tree->TypeIs(TYP_VOID))
+
+            if (!tree->TypeIs(TYP_VOID))
             {
                 if (op1->OperIs(GT_OBJ, GT_IND))
                 {
                     op1 = fgMorphRetInd(tree->AsUnOp());
                 }
+
                 if (op1->OperIs(GT_LCL_VAR))
                 {
-                    // With a `genReturnBB` this `RETURN(src)` tree will be replaced by a `ASG(genReturnLocal, src)`
-                    // and `ASG` will be tranformed into field by field copy without parent local referencing if
-                    // possible.
+                    // With merged returns, RETURN trees are replaced by assignments to the merged return temp.
+                    // Such assignments may be promoted to prevent dependent promotion of involved locals.
+
                     GenTreeLclVar* lclVar = op1->AsLclVar();
                     unsigned       lclNum = lclVar->GetLclNum();
+
                     if ((genReturnLocal == BAD_VAR_NUM) || (genReturnLocal == lclNum))
                     {
-                        LclVarDsc* varDsc = lvaGetDesc(lclVar);
-                        if (varDsc->CanBeReplacedWithItsField(this))
+                        LclVarDsc* lcl = lvaGetDesc(lclVar);
+
+                        if (lcl->CanBeReplacedWithItsField(this))
                         {
                             // We can replace the struct with its only field and allow copy propogation to replace
                             // return value that was written as a field.
-                            unsigned   fieldLclNum = varDsc->lvFieldLclStart;
-                            LclVarDsc* fieldDsc    = lvaGetDesc(fieldLclNum);
+                            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
+                            LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
 
-                            if (!varTypeIsSmallInt(fieldDsc->lvType))
+                            if (!varTypeIsSmallInt(fieldLcl->GetType()))
                             {
                                 // TODO-CQ: support that substitution for small types without creating `CAST` node.
                                 // When a small struct is returned in a register higher bits could be left in undefined
                                 // state.
+
                                 JITDUMP("Replacing an independently promoted local var V%02u with its only field  "
                                         "V%02u for "
                                         "the return [%06u]\n",
-                                        lclVar->GetLclNum(), fieldLclNum, dspTreeID(tree));
+                                        lclNum, fieldLclNum, dspTreeID(tree));
+
                                 lclVar->SetLclNum(fieldLclNum);
-                                var_types fieldType = fieldDsc->lvType;
-                                lclVar->ChangeType(fieldDsc->lvType);
+                                lclVar->SetType(fieldLcl->GetType());
                             }
                         }
                     }
@@ -13031,73 +12907,81 @@ DONE_MORPHING_CHILDREN:
 //
 GenTree* Compiler::fgMorphRetInd(GenTreeUnOp* ret)
 {
-    assert(!compDoOldStructRetyping());
     assert(ret->OperIs(GT_RETURN));
-    assert(ret->gtGetOp1()->OperIs(GT_IND, GT_OBJ));
-    GenTreeIndir* ind  = ret->gtGetOp1()->AsIndir();
-    GenTree*      addr = ind->Addr();
+    assert(ret->GetOp(0)->OperIs(GT_IND, GT_OBJ));
 
-    if (addr->OperIs(GT_ADDR) && addr->gtGetOp1()->OperIs(GT_LCL_VAR))
+    GenTreeIndir* indir = ret->GetOp(0)->AsIndir();
+    GenTree*      addr  = indir->GetAddr();
+
+    if (!addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
     {
-        // If `return` retypes LCL_VAR as a smaller struct it should not set `doNotEnregister` on that
-        // LclVar.
-        // Example: in `Vector128:AsVector2` we have RETURN SIMD8(OBJ SIMD8(ADDR byref(LCL_VAR SIMD16))).
-        GenTreeLclVar* lclVar = addr->gtGetOp1()->AsLclVar();
-        if (!lvaIsImplicitByRefLocal(lclVar->GetLclNum()))
-        {
-            assert(!gtIsActiveCSE_Candidate(addr) && !gtIsActiveCSE_Candidate(ind));
-            unsigned indSize;
-            if (ind->OperIs(GT_IND))
-            {
-                indSize = genTypeSize(ind);
-            }
-            else
-            {
-                indSize = ind->AsBlk()->GetLayout()->GetSize();
-            }
-
-            LclVarDsc* varDsc = lvaGetDesc(lclVar);
-
-            unsigned lclVarSize;
-            if (!lclVar->TypeIs(TYP_STRUCT))
-
-            {
-                lclVarSize = genTypeSize(varDsc->TypeGet());
-            }
-            else
-            {
-                lclVarSize = varDsc->lvExactSize;
-            }
-            // TODO: change conditions in `canFold` to `indSize <= lclVarSize`, but currently do not support `BITCAST
-            // int<-SIMD16` etc.
-            assert((indSize <= lclVarSize) || varDsc->lvDoNotEnregister);
-
-#if defined(TARGET_64BIT)
-            bool canFold = (indSize == lclVarSize);
-#else // !TARGET_64BIT
-            // TODO: improve 32 bit targets handling for LONG returns if necessary, nowadays we do not support `BITCAST
-            // long<->double` there.
-            bool canFold = (indSize == lclVarSize) && (lclVarSize <= REGSIZE_BYTES);
-#endif
-            // TODO: support `genReturnBB != nullptr`, it requires #11413 to avoid `Incompatible types for
-            // gtNewTempAssign`.
-            if (canFold && (genReturnBB == nullptr))
-            {
-                // Fold (TYPE1)*(&(TYPE2)x) even if types do not match, lowering will handle it.
-                // Getting rid of this IND(ADDR()) pair allows to keep lclVar as not address taken
-                // and enregister it.
-                DEBUG_DESTROY_NODE(ind);
-                DEBUG_DESTROY_NODE(addr);
-                ret->gtOp1 = lclVar;
-                return ret->gtGetOp1();
-            }
-            else if (!varDsc->lvDoNotEnregister)
-            {
-                lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(Compiler::DNER_BlockOp));
-            }
-        }
+        return indir;
     }
-    return ind;
+
+    assert(!gtIsActiveCSE_Candidate(addr) && !gtIsActiveCSE_Candidate(indir));
+
+    unsigned indirSize;
+
+    if (indir->OperIs(GT_IND))
+    {
+        indirSize = varTypeSize(indir->GetType());
+    }
+    else
+    {
+        indirSize = indir->AsBlk()->GetLayout()->GetSize();
+    }
+
+    GenTreeLclVar* lclVar = addr->AsUnOp()->GetOp(0)->AsLclVar();
+    LclVarDsc*     lcl    = lvaGetDesc(lclVar);
+
+    assert(!lcl->IsImplicitByRefParam());
+
+    unsigned lclSize;
+
+    if (lcl->GetType() != TYP_STRUCT)
+    {
+        lclSize = varTypeSize(lcl->GetType());
+    }
+    else
+    {
+        lclSize = lcl->lvExactSize;
+    }
+
+    // If `return` retypes LCL_VAR as a smaller struct it should not set `doNotEnregister` on that LclVar.
+    // Example: in `Vector128:AsVector2` we have RETURN SIMD8(OBJ SIMD8(ADDR byref(LCL_VAR SIMD16))).
+
+    // TODO: change conditions in `canFold` to `indSize <= lclVarSize`, but currently do not support `BITCAST
+    // int<-SIMD16` etc.
+    assert((indirSize <= lclSize) || lcl->lvDoNotEnregister);
+
+#ifdef TARGET_64BIT
+    bool canFold = (indirSize == lclSize);
+#else
+    // TODO: improve 32 bit targets handling for LONG returns if necessary, nowadays we do not support `BITCAST
+    // long<->double` there.
+    bool canFold = (indirSize == lclSize) && (lclSize <= REGSIZE_BYTES);
+#endif
+
+    // TODO: support `genReturnBB != nullptr`, it requires #11413 to avoid `Incompatible types for
+    // gtNewTempAssign`.
+
+    if (canFold && (genReturnBB == nullptr))
+    {
+        // Fold (TYPE1)*(&(TYPE2)x) even if types do not match, lowering will handle it.
+        // Getting rid of this IND(ADDR()) pair allows to keep lclVar as not address taken
+        // and enregister it.
+
+        ret->SetOp(0, lclVar);
+
+        return lclVar;
+    }
+
+    if (!lcl->lvDoNotEnregister)
+    {
+        lvaSetVarDoNotEnregister(lclVar->GetLclNum() DEBUGARG(DNER_BlockOp));
+    }
+
+    return indir;
 }
 
 #ifdef _PREFAST_
@@ -13953,7 +13837,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         }
         else
         {
-            copy = new (this, GT_CALL) GenTreeCall(TYP_INT);
+            copy = new (this, GT_CALL) GenTreeCall();
         }
 
         copy->ReplaceWith(tree, this);
@@ -15281,7 +15165,7 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 
     if (genReturnLocal != BAD_VAR_NUM)
     {
-        noway_assert(compMethodHasRetVal());
+        noway_assert(info.retDesc.GetRegCount() != 0);
 
         noway_assert(ret != nullptr);
         noway_assert(ret->OperIs(GT_RETURN));
@@ -15289,16 +15173,32 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 
         noway_assert(lastStmt->GetNextStmt() == nullptr);
 
-        // Replace the RETURN with an assignment to the merged return temp.
-        //
-        // The return tree may be a COMMA and then gtNewTempAssign will extract it
-        // to a separate statement, AFTER the assignment statment because we don't
-        // always have a previous statement to pass to gtNewTempAssign. Then we'll
-        // need to move the assignment statement at the end of the block.
+        // Replace the RETURN with an assignment to the merged return temp. If the return value is
+        // a COMMA then extract its side effects to a new statement, otherwise impAssignStructPtr
+        // will add new statements AFTER the last statement.
 
-        Statement* newLastStmt = lastStmt;
-        IL_OFFSETX ilOffset    = lastStmt->GetILOffsetX();
-        GenTree*   asg = gtNewTempAssign(genReturnLocal, ret->AsUnOp()->GetOp(0), &newLastStmt, ilOffset, block);
+        GenTree* value = ret->AsUnOp()->GetOp(0);
+
+        // TODO-MIKE-Cleanup: Is this really needed? fgMorphCopyBlock already handles COMMAs
+        // but the approach taken here is perhaps preferable. It eliminates the COMMA by
+        // extracting its side effect into a separate statement. fgMorphCopyBlock keeps the
+        // COMMA but transforms it into an address and adds an OBJ. For locals this is bad
+        // because it makes them address exposed. Fortunately it seems that struct locals
+        // never appear under COMMAs. Known sources of struct COMMAs are static struct fields,
+        // struct array elements and struct returns in synchronized methods.
+
+        while (value->OperIs(GT_COMMA) && varTypeIsStruct(value->GetType()))
+        {
+            Statement* newStmt = gtNewStmt(value->AsOp()->GetOp(0), lastStmt->GetILOffsetX());
+            fgInsertStmtBefore(block, lastStmt, newStmt);
+            value = value->AsOp()->GetOp(1);
+        }
+
+        // MKREFANY too requires a separate statement since it really generates 2 assignments.
+        // TypedReference is not a valid return type so don't bother with it.
+        noway_assert(!value->OperIs(GT_MKREFANY));
+
+        GenTree* asg = gtNewTempAssign(genReturnLocal, value);
 
         if (asg->OperIs(GT_ASG) && varTypeIsStruct(asg->AsOp()->GetOp(0)->GetType()))
         {
@@ -15306,19 +15206,13 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         }
 
         lastStmt->SetRootNode(asg);
-
-        if (newLastStmt != lastStmt)
-        {
-            fgRemoveStmt(block, lastStmt);
-            fgInsertStmtAfter(block, newLastStmt, lastStmt);
-        }
     }
     else if ((ret != nullptr) && ret->OperIs(GT_RETURN))
     {
         // If the return buffer address is being returned then we don't have a merged return
         // temp because the address is just a LCL_VAR. Otherwise this has to be a VOID RETURN.
 
-        if (!compMethodReturnsRetBufAddr())
+        if (info.compRetBuffArg == BAD_VAR_NUM)
         {
             noway_assert(ret->TypeIs(TYP_VOID));
             noway_assert(ret->AsUnOp()->gtOp1 == nullptr);
@@ -16179,11 +16073,17 @@ void Compiler::fgPromoteStructs()
 
         bool promoted = structPromotionHelper->TryPromoteStructVar(lclNum);
 
-        if (!promoted && varTypeIsSIMD(lcl->GetType()) && !lcl->lvFieldAccessed)
+        if (!promoted)
         {
-            // Even if we have not used this in a SIMD intrinsic, if it is not being promoted,
-            // we will treat it as a reg struct.
-            lcl->lvRegStruct = true;
+            // If we don't promote then lvIsMultiRegRet is meaningless.
+            lcl->lvIsMultiRegRet = false;
+
+            if (varTypeIsSIMD(lcl->GetType()) && !lcl->lvFieldAccessed)
+            {
+                // Even if we have not used this in a SIMD intrinsic, if it is not being promoted,
+                // we will treat it as a reg struct.
+                lcl->lvRegStruct = true;
+            }
         }
     }
 

@@ -468,49 +468,6 @@ var_types Compiler::getJitGCType(BYTE gcType)
     return result;
 }
 
-#ifdef ARM_SOFTFP
-//---------------------------------------------------------------------------
-// IsSingleFloat32Struct:
-//    Check if the given struct type contains only one float32 value type
-//
-// Arguments:
-//    clsHnd     - the handle for the struct type
-//
-// Return Value:
-//    true if the given struct type contains only one float32 value type,
-//    false otherwise.
-//
-
-bool Compiler::isSingleFloat32Struct(CORINFO_CLASS_HANDLE clsHnd)
-{
-    for (;;)
-    {
-        // all of class chain must be of value type and must have only one field
-        if (!info.compCompHnd->isValueClass(clsHnd) || info.compCompHnd->getClassNumInstanceFields(clsHnd) != 1)
-        {
-            return false;
-        }
-
-        CORINFO_CLASS_HANDLE* pClsHnd   = &clsHnd;
-        CORINFO_FIELD_HANDLE  fldHnd    = info.compCompHnd->getFieldInClass(clsHnd, 0);
-        CorInfoType           fieldType = info.compCompHnd->getFieldType(fldHnd, pClsHnd);
-
-        switch (fieldType)
-        {
-            case CORINFO_TYPE_VALUECLASS:
-                clsHnd = *pClsHnd;
-                break;
-
-            case CORINFO_TYPE_FLOAT:
-                return true;
-
-            default:
-                return false;
-        }
-    }
-}
-#endif // ARM_SOFTFP
-
 //-----------------------------------------------------------------------------
 // getPrimitiveTypeForStruct:
 //     Get the "primitive" type that is is used for a struct
@@ -543,8 +500,6 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
 {
     assert(structSize != 0);
 
-    var_types useType = TYP_UNKNOWN;
-
 // Start by determining if we have an HFA/HVA with a single element.
 #ifdef FEATURE_HFA
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
@@ -559,36 +514,15 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
             case 8:
 #ifdef TARGET_ARM64
             case 16:
-#endif // TARGET_ARM64
+#endif
             {
-                var_types hfaType;
-#ifdef ARM_SOFTFP
-                // For ARM_SOFTFP, HFA is unsupported so we need to check in another way.
-                // This matters only for size-4 struct because bigger structs would be processed with RetBuf.
-                if (isSingleFloat32Struct(clsHnd))
+                var_types hfaType = GetHfaType(clsHnd);
+                if (hfaType != TYP_UNDEF)
                 {
-                    hfaType = TYP_FLOAT;
-                }
-#else  // !ARM_SOFTFP
-                hfaType = GetHfaType(clsHnd);
-#endif // ARM_SOFTFP
-                // We're only interested in the case where the struct size is equal to the size of the hfaType.
-                if (varTypeIsValidHfaType(hfaType))
-                {
-                    if (genTypeSize(hfaType) == structSize)
-                    {
-                        useType = hfaType;
-                    }
-                    else
-                    {
-                        return TYP_UNKNOWN;
-                    }
+                    return (varTypeSize(hfaType) == structSize) ? hfaType : TYP_UNKNOWN;
                 }
             }
-        }
-        if (useType != TYP_UNKNOWN)
-        {
-            return useType;
+            break;
         }
     }
 #endif // FEATURE_HFA
@@ -597,51 +531,40 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
     switch (structSize)
     {
         case 1:
-            useType = TYP_BYTE;
-            break;
+            return TYP_BYTE;
 
         case 2:
-            useType = TYP_SHORT;
-            break;
+            return TYP_SHORT;
 
 #if !defined(TARGET_XARCH) || defined(UNIX_AMD64_ABI)
         case 3:
-            useType = TYP_INT;
-            break;
-
-#endif // !TARGET_XARCH || UNIX_AMD64_ABI
+            return TYP_INT;
+#endif
 
 #ifdef TARGET_64BIT
         case 4:
-            // We dealt with the one-float HFA above. All other 4-byte structs are handled as INT.
-            useType = TYP_INT;
-            break;
+            return TYP_INT;
 
 #if !defined(TARGET_XARCH) || defined(UNIX_AMD64_ABI)
         case 5:
         case 6:
         case 7:
-            useType = TYP_I_IMPL;
-            break;
-
-#endif // !TARGET_XARCH || UNIX_AMD64_ABI
-#endif // TARGET_64BIT
+            return TYP_I_IMPL;
+#endif
+#endif
 
         case TARGET_POINTER_SIZE:
         {
             BYTE gcPtr = 0;
             // Check if this pointer-sized struct is wrapping a GC object
             info.compCompHnd->getClassGClayout(clsHnd, &gcPtr);
-            useType = getJitGCType(gcPtr);
+            return getJitGCType(gcPtr);
         }
         break;
 
         default:
-            useType = TYP_UNKNOWN;
-            break;
+            return TYP_UNKNOWN;
     }
-
-    return useType;
 }
 
 //-----------------------------------------------------------------------------
@@ -758,6 +681,8 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
             {
                 hfaType = GetHfaType(clsHnd);
             }
+
+#ifdef FEATURE_HFA
             if (varTypeIsValidHfaType(hfaType))
             {
                 // HFA's of count one should have been handled by getPrimitiveTypeForStruct
@@ -769,7 +694,8 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
                 howToPassStruct = SPK_ByValueAsHfa;
                 useType         = TYP_STRUCT;
             }
-            else // Not an HFA struct type
+            else
+#endif
             {
 
 #ifdef UNIX_AMD64_ABI
@@ -970,36 +896,10 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
 
         if (useType != TYP_UNKNOWN)
         {
-            if (structSize == genTypeSize(useType))
-            {
-                // Currently: 1, 2, 4, or 8 byte structs
-                howToReturnStruct = SPK_PrimitiveType;
-            }
-            else
-            {
-                // Currently: 3, 5, 6, or 7 byte structs
-                assert(structSize < genTypeSize(useType));
-                howToReturnStruct = SPK_EnclosingType;
-            }
+            assert(structSize <= varTypeSize(useType));
+            howToReturnStruct = SPK_PrimitiveType;
         }
     }
-
-#ifdef TARGET_64BIT
-    // Note this handles an odd case when FEATURE_MULTIREG_RET is disabled and HFAs are enabled
-    //
-    // getPrimitiveTypeForStruct will return TYP_UNKNOWN for a struct that is an HFA of two floats
-    // because when HFA are enabled, normally we would use two FP registers to pass or return it
-    //
-    // But if we don't have support for multiple register return types, we have to change this.
-    // Since what we have is an 8-byte struct (float + float)  we change useType to TYP_I_IMPL
-    // so that the struct is returned instead using an 8-byte integer register.
-    //
-    if ((FEATURE_MULTIREG_RET == 0) && (useType == TYP_UNKNOWN) && (structSize == (2 * sizeof(float))) && IsHfa(clsHnd))
-    {
-        useType           = TYP_I_IMPL;
-        howToReturnStruct = SPK_PrimitiveType;
-    }
-#endif
 
     // Did we change this struct type into a simple "primitive" type?
     if (useType != TYP_UNKNOWN)
@@ -1014,6 +914,7 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
         //
         if ((FEATURE_MULTIREG_RET == 1) && (structSize <= MAX_RET_MULTIREG_BYTES))
         {
+#ifdef FEATURE_HFA
             // Structs that are HFA's are returned in multiple registers
             if (IsHfa(clsHnd))
             {
@@ -1025,7 +926,8 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
                 howToReturnStruct = SPK_ByValueAsHfa;
                 useType           = TYP_STRUCT;
             }
-            else // Not an HFA struct type
+            else
+#endif
             {
 
 #ifdef UNIX_AMD64_ABI
@@ -4265,7 +4167,7 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
             // Update type of return spill temp if we have gathered
             // better info when importing the inlinee, and the return
             // spill temp is single def.
-            if (fgNeedReturnSpillTemp())
+            if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
             {
                 CORINFO_CLASS_HANDLE retExprClassHnd = impInlineInfo->retExprClassHnd;
                 if (retExprClassHnd != nullptr)
@@ -5977,7 +5879,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         default:
             BADCODE("bad calling convention");
     }
-    info.compRetNativeType = info.compRetType = JITtype2varType(methodInfo->args.retType);
 
     info.compUnmanagedCallCountWithGCTransition = 0;
     info.compLvFrameListRoot                    = BAD_VAR_NUM;

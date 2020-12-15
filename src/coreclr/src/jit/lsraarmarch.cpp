@@ -133,37 +133,9 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildCall: Set the NodeInfo for a call.
-//
-// Arguments:
-//    call - The call node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildCall(GenTreeCall* call)
 {
-    bool                  hasMultiRegRetVal = false;
-    const ReturnTypeDesc* retTypeDesc       = nullptr;
-    regMaskTP             dstCandidates     = RBM_NONE;
-
     int srcCount = 0;
-    int dstCount = 0;
-    if (call->TypeGet() != TYP_VOID)
-    {
-        hasMultiRegRetVal = call->HasMultiRegRetVal();
-        if (hasMultiRegRetVal)
-        {
-            // dst count = number of registers in which the value is returned by call
-            retTypeDesc = call->GetReturnTypeDesc();
-            dstCount    = retTypeDesc->GetReturnRegCount();
-        }
-        else
-        {
-            dstCount = 1;
-        }
-    }
 
     GenTree* ctrlExpr = call->gtControlExpr;
     if (call->gtCallType == CT_INDIRECT)
@@ -208,37 +180,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
 
 #endif // TARGET_ARM
-
-    RegisterType registerType = call->TypeGet();
-
-// Set destination candidates for return value of the call.
-
-#ifdef TARGET_ARM
-    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
-    {
-        // The ARM CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
-        // TCB in REG_PINVOKE_TCB. fgMorphCall() sets the correct argument registers.
-        dstCandidates = RBM_PINVOKE_TCB;
-    }
-    else
-#endif // TARGET_ARM
-        if (hasMultiRegRetVal)
-    {
-        assert(retTypeDesc != nullptr);
-        dstCandidates = retTypeDesc->GetABIReturnRegs();
-    }
-    else if (varTypeUsesFloatArgReg(registerType))
-    {
-        dstCandidates = RBM_FLOATRET;
-    }
-    else if (registerType == TYP_LONG)
-    {
-        dstCandidates = RBM_LNGRET;
-    }
-    else
-    {
-        dstCandidates = RBM_INTRET;
-    }
 
     for (GenTreeCall::Use& arg : call->LateArgs())
     {
@@ -356,11 +297,34 @@ int LinearScan::BuildCall(GenTreeCall* call)
         srcCount++;
     }
 
-    buildInternalRegisterUses();
+    BuildInternalUses();
+    BuildKills(call, getKillSetForCall(call));
 
-    // Now generate defs and kills.
-    regMaskTP killMask = getKillSetForCall(call);
-    BuildDefsWithKills(call, dstCount, dstCandidates, killMask);
+#ifdef TARGET_ARM
+    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
+    {
+        // The ARM CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
+        // TCB in REG_PINVOKE_TCB. fgMorphCall() sets the correct argument registers.
+        BuildDef(call, RBM_PINVOKE_TCB);
+    }
+    else
+#endif
+        if (call->HasMultiRegRetVal())
+    {
+        for (unsigned i = 0; i < call->GetRegCount(); i++)
+        {
+            BuildDef(call, genRegMask(call->GetRetDesc()->GetRegNum(i)), i);
+        }
+    }
+    else if (varTypeUsesFloatReg(call->GetType()))
+    {
+        BuildDef(call, RBM_FLOATRET);
+    }
+    else if (!call->TypeIs(TYP_VOID))
+    {
+        BuildDef(call, RBM_INTRET);
+    }
+
     return srcCount;
 }
 
@@ -485,7 +449,11 @@ int LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         buildInternalRegisterUses();
     }
 
-    BuildDefs(putArg, argInfo->GetRegCount(), argRegMask);
+    for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
+    {
+        BuildDef(putArg, genRegMask(argInfo->GetRegNum(i)), i);
+    }
+
     return srcCount;
 }
 #endif // FEATURE_ARG_SPLIT
@@ -613,8 +581,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
     }
 
     BuildInternalUses();
-    regMaskTP killMask = getKillSetForStructStore(store);
-    BuildDefsWithKills(store, 0, RBM_NONE, killMask);
+    BuildKills(store, getKillSetForStructStore(store));
 
     return useCount;
 }

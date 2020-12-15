@@ -591,12 +591,11 @@ bool GenTree::gtHasReg() const
 
     if (IsMultiRegCall())
     {
-        const GenTreeCall* call     = AsCall();
-        const unsigned     regCount = call->GetReturnTypeDesc()->GetReturnRegCount();
+        const GenTreeCall* call = AsCall();
 
         // A Multi-reg call node is said to have regs, if it has
         // reg assigned to each of its result registers.
-        for (unsigned i = 0; i < regCount; ++i)
+        for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
             hasReg = (call->GetRegNumByIdx(i) != REG_NA);
             if (!hasReg)
@@ -609,11 +608,10 @@ bool GenTree::gtHasReg() const
     {
         const GenTreeCopyOrReload* copyOrReload = AsCopyOrReload();
         const GenTreeCall*         call         = copyOrReload->gtGetOp1()->AsCall();
-        const unsigned             regCount     = call->GetReturnTypeDesc()->GetReturnRegCount();
 
         // A Multi-reg copy or reload node is said to have regs,
         // if it has valid regs in any of the positions.
-        for (unsigned i = 0; i < regCount; ++i)
+        for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
             hasReg = (copyOrReload->GetRegNumByIdx(i) != REG_NA);
             if (hasReg)
@@ -653,7 +651,7 @@ int GenTree::GetRegisterDstCount(Compiler* compiler) const
     }
     else if (IsMultiRegCall())
     {
-        return AsCall()->GetReturnTypeDesc()->GetReturnRegCount();
+        return AsCall()->GetRegCount();
     }
     else if (IsCopyOrReload())
     {
@@ -722,10 +720,9 @@ regMaskTP GenTree::gtGetRegMask() const
 
         const GenTreeCopyOrReload* copyOrReload = AsCopyOrReload();
         const GenTreeCall*         call         = copyOrReload->gtGetOp1()->AsCall();
-        const unsigned             regCount     = call->GetReturnTypeDesc()->GetReturnRegCount();
 
         resultMask = RBM_NONE;
-        for (unsigned i = 0; i < regCount; ++i)
+        for (unsigned i = 0; i < call->GetRegCount(); ++i)
         {
             regNumber reg = copyOrReload->GetRegNumByIdx(i);
             if (reg != REG_NA)
@@ -941,9 +938,6 @@ int GenTreeCall::GetNonStandardAddedArgCount(Compiler* compiler) const
 //-------------------------------------------------------------------------
 // TreatAsHasRetBufArg:
 //
-// Arguments:
-//     compiler, the compiler instance so that we can call eeGetHelperNum
-//
 // Return Value:
 //     Returns true if we treat the call as if it has a retBuf argument
 //     This method may actually have a retBuf argument
@@ -955,43 +949,35 @@ int GenTreeCall::GetNonStandardAddedArgCount(Compiler* compiler) const
 //     will make HasRetBufArg() return true, but will also force the
 //     use of register x8 to pass the RetBuf argument.
 //
-//     These two Jit Helpers that we handle here by returning true
-//     aren't actually defined to return a struct, so they don't expect
-//     their RetBuf to be passed in x8, instead they  expect it in x0.
+//     These Jit Helpers that we handle here by returning true aren't
+//     actually defined to return a struct, so they don't expect their
+//     RetBuf to be passed in x8, instead they  expect it in x0.
 //
-bool GenTreeCall::TreatAsHasRetBufArg(Compiler* compiler) const
+bool GenTreeCall::TreatAsHasRetBufArg() const
 {
     if (HasRetBufArg())
     {
         return true;
     }
-    else
-    {
-        // If we see a Jit helper call that returns a TYP_STRUCT we will
-        // transform it as if it has a Return Buffer Argument
-        //
-        if (IsHelperCall() && (gtReturnType == TYP_STRUCT))
-        {
-            // There are two possible helper calls that use this path:
-            //  CORINFO_HELP_GETFIELDSTRUCT and CORINFO_HELP_UNBOX_NULLABLE
-            //
-            CorInfoHelpFunc helpFunc = compiler->eeGetHelperNum(gtCallMethHnd);
 
-            if (helpFunc == CORINFO_HELP_GETFIELDSTRUCT)
-            {
-                return true;
-            }
-            else if (helpFunc == CORINFO_HELP_UNBOX_NULLABLE)
-            {
-                return true;
-            }
-            else
-            {
-                assert(!"Unexpected JIT helper in TreatAsHasRetBufArg");
-            }
-        }
+    if (!TypeIs(TYP_STRUCT) || !IsHelperCall())
+    {
+        return false;
     }
-    return false;
+
+    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
+    {
+        case CORINFO_HELP_UNBOX_NULLABLE:
+            return true;
+        case CORINFO_HELP_METHODDESC_TO_STUBRUNTIMEMETHOD:
+        case CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL:
+            return false;
+        default:
+            assert(!"Unexpected JIT helper in TreatAsHasRetBufArg");
+            return false;
+    }
 }
 
 //-------------------------------------------------------------------------
@@ -5568,69 +5554,36 @@ GenTree* Compiler::gtNewSconNode(int CPX, CORINFO_MODULE_HANDLE scpHandle)
 
 GenTree* Compiler::gtNewZeroConNode(var_types type)
 {
-    GenTree* zero;
-    switch (type)
+    switch (varActualType(type))
     {
         case TYP_INT:
-            zero = gtNewIconNode(0);
-            break;
-
         case TYP_BYREF:
-            FALLTHROUGH;
-
         case TYP_REF:
-            zero         = gtNewIconNode(0);
-            zero->gtType = type;
-            break;
-
+            return gtNewIconNode(0, type);
         case TYP_LONG:
-            zero = gtNewLconNode(0);
-            break;
-
+            return gtNewLconNode(0);
         case TYP_FLOAT:
-            zero         = gtNewDconNode(0.0);
-            zero->gtType = type;
-            break;
-
         case TYP_DOUBLE:
-            zero = gtNewDconNode(0.0);
-            break;
-
+            return gtNewDconNode(0.0, type);
         default:
-            noway_assert(!"Bad type in gtNewZeroConNode");
-            zero = nullptr;
-            break;
+            unreached();
     }
-    return zero;
 }
 
 GenTree* Compiler::gtNewOneConNode(var_types type)
 {
-    GenTree* one;
-    switch (type)
+    switch (varActualType(type))
     {
         case TYP_INT:
-        case TYP_UINT:
-            one = gtNewIconNode(1);
-            break;
-
+            return gtNewIconNode(1);
         case TYP_LONG:
-        case TYP_ULONG:
-            one = gtNewLconNode(1);
-            break;
-
+            return gtNewLconNode(1);
         case TYP_FLOAT:
         case TYP_DOUBLE:
-            one         = gtNewDconNode(1.0);
-            one->gtType = type;
-            break;
-
+            return gtNewDconNode(1.0, type);
         default:
-            noway_assert(!"Bad type in gtNewOneConNode");
-            one = nullptr;
-            break;
+            unreached();
     }
-    return one;
 }
 
 #ifdef FEATURE_SIMD
@@ -5656,27 +5609,12 @@ GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCa
 }
 
 GenTreeCall* Compiler::gtNewCallNode(
-    gtCallTypes callType, CORINFO_METHOD_HANDLE callHnd, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
+    gtCallTypes kind, CORINFO_METHOD_HANDLE callHnd, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
-    GenTreeCall* node = new (this, GT_CALL) GenTreeCall(genActualType(type));
-
-    node->gtFlags |= (GTF_CALL | GTF_GLOB_REF);
-    for (GenTreeCall::Use& use : GenTreeCall::UseList(args))
-    {
-        node->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
-    }
-    node->gtCallType    = callType;
+    GenTreeCall* node   = new (this, GT_CALL) GenTreeCall(type, kind, args);
     node->gtCallMethHnd = callHnd;
-    node->gtCallArgs    = args;
-    node->gtCallThisArg = nullptr;
-    node->fgArgInfo     = nullptr;
-    INDEBUG(node->callSig = nullptr;)
-    node->tailCallInfo    = nullptr;
-    node->gtRetClsHnd     = nullptr;
-    node->gtControlExpr   = nullptr;
-    node->gtCallMoreFlags = 0;
 
-    if (callType == CT_INDIRECT)
+    if (kind == CT_INDIRECT)
     {
         node->gtCallCookie = nullptr;
     }
@@ -5684,8 +5622,6 @@ GenTreeCall* Compiler::gtNewCallNode(
     {
         node->gtInlineCandidateInfo = nullptr;
     }
-    node->gtCallLateArgs = nullptr;
-    node->gtReturnType   = type;
 
 #ifdef FEATURE_READYTORUN_COMPILER
     node->gtEntryPoint.addr       = nullptr;
@@ -5731,14 +5667,12 @@ GenTreeCall* Compiler::gtNewCallNode(
     // Initialize spill flags of gtOtherRegs
     node->ClearOtherRegFlags();
 
-#if !defined(TARGET_64BIT)
-    if (varTypeIsLong(node))
+#ifndef TARGET_64BIT
+    if (varTypeIsLong(type))
     {
-        assert(node->gtReturnType == node->gtType);
-        // Initialize Return type descriptor of call node
-        node->InitializeLongReturnType();
+        node->GetRetDesc()->InitializeLong();
     }
-#endif // !defined(TARGET_64BIT)
+#endif
 
     return node;
 }
@@ -7115,21 +7049,13 @@ DONE:
 
 GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlags, unsigned deepVarNum, int deepVarVal)
 {
-    GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree->TypeGet());
+    GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree);
 
-    if (tree->gtCallThisArg == nullptr)
-    {
-        copy->gtCallThisArg = nullptr;
-    }
-    else
+    if (tree->gtCallThisArg != nullptr)
     {
         copy->gtCallThisArg =
             gtNewCallArgs(gtCloneExpr(tree->gtCallThisArg->GetNode(), addFlags, deepVarNum, deepVarVal));
     }
-
-    copy->gtCallMoreFlags = tree->gtCallMoreFlags;
-    copy->gtCallArgs      = nullptr;
-    copy->gtCallLateArgs  = nullptr;
 
     GenTreeCall::Use** argsTail = &copy->gtCallArgs;
     for (GenTreeCall::Use& use : tree->Args())
@@ -7156,8 +7082,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
     // a shallow copy suffices.
     copy->tailCallInfo = tree->tailCallInfo;
 
-    copy->gtCallType    = tree->gtCallType;
-    copy->gtReturnType  = tree->gtReturnType;
+    // TODO-MIKE-Review: No gtCloneExpr!?!
     copy->gtControlExpr = tree->gtControlExpr;
 
     /* Copy the union */
@@ -7178,21 +7103,10 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlag
         copy->gtInlineCandidateInfo = nullptr;
     }
 
-    if (tree->fgArgInfo)
+    if (tree->fgArgInfo != nullptr)
     {
-        // Create and initialize the fgArgInfo for our copy of the call tree
         copy->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(this, copy, tree);
     }
-    else
-    {
-        copy->fgArgInfo = nullptr;
-    }
-
-    copy->gtRetClsHnd = tree->gtRetClsHnd;
-
-#if FEATURE_MULTIREG_RET
-    copy->gtReturnTypeDesc = tree->gtReturnTypeDesc;
-#endif
 
 #ifdef FEATURE_READYTORUN_COMPILER
     copy->setEntryPoint(tree->gtEntryPoint);
@@ -9143,7 +9057,7 @@ unsigned Compiler::gtDispRegCount(GenTree* tree)
     }
     else if (tree->OperIs(GT_CALL))
     {
-        unsigned regCount = tree->AsCall()->GetReturnTypeDesc()->TryGetReturnRegCount();
+        unsigned regCount = tree->AsCall()->GetRegCount();
         // If it hasn't yet been initialized, we'd still like to see the registers printed.
         if (regCount == 0)
         {
@@ -13896,9 +13810,6 @@ DONE:
 // Arguments:
 //    tmp         - local number for a compiler temp
 //    val         - value to assign to the temp
-//    pAfterStmt  - statement to insert any additional statements after
-//    ilOffset    - il offset for new statements
-//    block       - block to insert any additional statements in
 //
 // Return Value:
 //    Normally a new assignment node.
@@ -13911,11 +13822,10 @@ DONE:
 //
 //    May set compFloatingPointUsed.
 
-GenTree* Compiler::gtNewTempAssign(
-    unsigned tmp, GenTree* val, Statement** pAfterStmt, IL_OFFSETX ilOffset, BasicBlock* block)
+GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
 {
     // Self-assignment is a nop.
-    if (val->OperGet() == GT_LCL_VAR && val->AsLclVarCommon()->GetLclNum() == tmp)
+    if (val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == tmp))
     {
         return gtNewNothingNode();
     }
@@ -13978,7 +13888,6 @@ GenTree* Compiler::gtNewTempAssign(
         {
             // It could come from `ASG(struct, 0)` that was propagated to `RETURN struct(0)`,
             // and now it is merging to a struct again.
-            assert(!compDoOldStructRetyping());
             assert(tmp == genReturnLocal);
             ok = true;
         }
@@ -14024,7 +13933,6 @@ GenTree* Compiler::gtNewTempAssign(
         // 2. we are propogating `ASG(struct V01, 0)` to `RETURN(struct V01)`, `CNT_INT` doesn't `structHnd`;
         // in these cases, we can use the type of the merge return for the assignment.
         assert(val->OperIs(GT_IND, GT_LCL_FLD, GT_CNS_INT));
-        assert(!compDoOldStructRetyping());
         assert(tmp == genReturnLocal);
         valStructHnd = varDsc->GetLayout()->GetClassHandle();
         assert(valStructHnd != NO_CLASS_HANDLE);
@@ -14032,7 +13940,6 @@ GenTree* Compiler::gtNewTempAssign(
 
     if ((valStructHnd != NO_CLASS_HANDLE) && val->IsConstInitVal())
     {
-        assert(!compDoOldStructRetyping());
         asg = gtNewAssignNode(dest, val);
     }
     else if (varTypeIsStruct(varDsc) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valTyp)))
@@ -14048,9 +13955,12 @@ GenTree* Compiler::gtNewTempAssign(
         {
             assert(valx->gtOper != GT_OBJ);
         }
+
         dest->gtFlags |= GTF_DONT_CSE;
         valx->gtFlags |= GTF_DONT_CSE;
-        asg = impAssignStruct(dest, val, valStructHnd, (unsigned)CHECK_SPILL_NONE, pAfterStmt, ilOffset, block);
+
+        GenTree* destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
+        asg               = impAssignStructPtr(destAddr, val, valStructHnd, CHECK_SPILL_NONE);
     }
     else
     {
@@ -14069,151 +13979,6 @@ GenTree* Compiler::gtNewTempAssign(
     }
 
     return asg;
-}
-
-/*****************************************************************************
- *
- *  Create a helper call to access a COM field (iff 'assg' is non-zero this is
- *  an assignment and 'assg' is the new value).
- */
-
-GenTree* Compiler::gtNewRefCOMfield(GenTree*                objPtr,
-                                    CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    CORINFO_ACCESS_FLAGS    access,
-                                    CORINFO_FIELD_INFO*     pFieldInfo,
-                                    var_types               lclTyp,
-                                    CORINFO_CLASS_HANDLE    structType,
-                                    GenTree*                assg)
-{
-    assert(pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_HELPER ||
-           pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER ||
-           pFieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER);
-
-    /* If we can't access it directly, we need to call a helper function */
-    GenTreeCall::Use* args       = nullptr;
-    var_types         helperType = TYP_BYREF;
-
-    if (pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_HELPER)
-    {
-        if (access & CORINFO_ACCESS_SET)
-        {
-            assert(assg != nullptr);
-            // helper needs pointer to struct, not struct itself
-            if (pFieldInfo->helper == CORINFO_HELP_SETFIELDSTRUCT)
-            {
-                assert(structType != nullptr);
-                assg = impGetStructAddr(assg, structType, (unsigned)CHECK_SPILL_ALL, true);
-            }
-            else if (lclTyp == TYP_DOUBLE && assg->TypeGet() == TYP_FLOAT)
-            {
-                assg = gtNewCastNode(TYP_DOUBLE, assg, false, TYP_DOUBLE);
-            }
-            else if (lclTyp == TYP_FLOAT && assg->TypeGet() == TYP_DOUBLE)
-            {
-                assg = gtNewCastNode(TYP_FLOAT, assg, false, TYP_FLOAT);
-            }
-
-            args       = gtNewCallArgs(assg);
-            helperType = TYP_VOID;
-        }
-        else if (access & CORINFO_ACCESS_GET)
-        {
-            helperType = lclTyp;
-
-            // The calling convention for the helper does not take into
-            // account optimization of primitive structs.
-            if ((pFieldInfo->helper == CORINFO_HELP_GETFIELDSTRUCT) && !varTypeIsStruct(lclTyp))
-            {
-                helperType = TYP_STRUCT;
-            }
-        }
-    }
-
-    if (pFieldInfo->helper == CORINFO_HELP_GETFIELDSTRUCT || pFieldInfo->helper == CORINFO_HELP_SETFIELDSTRUCT)
-    {
-        assert(pFieldInfo->structType != nullptr);
-        args = gtPrependNewCallArg(gtNewIconEmbClsHndNode(pFieldInfo->structType), args);
-    }
-
-    GenTree* fieldHnd = impTokenToHandle(pResolvedToken);
-    if (fieldHnd == nullptr)
-    { // compDonotInline()
-        return nullptr;
-    }
-
-    args = gtPrependNewCallArg(fieldHnd, args);
-
-    // If it's a static field, we shouldn't have an object node
-    // If it's an instance field, we have an object node
-    assert((pFieldInfo->fieldAccessor != CORINFO_FIELD_STATIC_ADDR_HELPER) ^ (objPtr == nullptr));
-
-    if (objPtr != nullptr)
-    {
-        args = gtPrependNewCallArg(objPtr, args);
-    }
-
-    GenTreeCall* call = gtNewHelperCallNode(pFieldInfo->helper, genActualType(helperType), args);
-
-#if FEATURE_MULTIREG_RET
-    if (varTypeIsStruct(call))
-    {
-        call->InitializeStructReturnType(this, structType);
-    }
-#endif // FEATURE_MULTIREG_RET
-
-    GenTree* result = call;
-
-    if (pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_HELPER)
-    {
-        if (access & CORINFO_ACCESS_GET)
-        {
-            if (pFieldInfo->helper == CORINFO_HELP_GETFIELDSTRUCT)
-            {
-                if (!varTypeIsStruct(lclTyp))
-                {
-                    // get the result as primitive type
-                    result = impGetStructAddr(result, structType, (unsigned)CHECK_SPILL_ALL, true);
-                    result = gtNewOperNode(GT_IND, lclTyp, result);
-                }
-            }
-            else if (varTypeIsIntegral(lclTyp) && genTypeSize(lclTyp) < genTypeSize(TYP_INT))
-            {
-                // The helper does not extend the small return types.
-                result = gtNewCastNode(genActualType(lclTyp), result, false, lclTyp);
-            }
-        }
-    }
-    else
-    {
-        // OK, now do the indirection
-        if (access & CORINFO_ACCESS_GET)
-        {
-            if (varTypeIsStruct(lclTyp))
-            {
-                result = gtNewObjNode(structType, result);
-            }
-            else
-            {
-                result = gtNewOperNode(GT_IND, lclTyp, result);
-            }
-            result->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF);
-        }
-        else if (access & CORINFO_ACCESS_SET)
-        {
-            if (varTypeIsStruct(lclTyp))
-            {
-                result = impAssignStructPtr(result, assg, structType, (unsigned)CHECK_SPILL_ALL);
-            }
-            else
-            {
-                result = gtNewOperNode(GT_IND, lclTyp, result);
-                result->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-                result = gtNewAssignNode(result, assg);
-            }
-        }
-    }
-
-    return result;
 }
 
 /*****************************************************************************
@@ -14905,15 +14670,13 @@ bool Compiler::gtComplexityExceeds(GenTree** tree, unsigned limit)
 
 bool GenTree::IsPhiNode()
 {
-    return (OperGet() == GT_PHI_ARG) || (OperGet() == GT_PHI) || IsPhiDefn();
+    return OperIs(GT_PHI_ARG, GT_PHI) || IsPhiDefn();
 }
 
 bool GenTree::IsPhiDefn()
 {
-    bool res = ((OperGet() == GT_ASG) && (AsOp()->gtOp2 != nullptr) && (AsOp()->gtOp2->OperGet() == GT_PHI)) ||
-               ((OperGet() == GT_STORE_LCL_VAR) && (AsOp()->gtOp1 != nullptr) && (AsOp()->gtOp1->OperGet() == GT_PHI));
-    assert(!res || OperGet() == GT_STORE_LCL_VAR || AsOp()->gtOp1->OperGet() == GT_LCL_VAR);
-    return res;
+    return (OperIs(GT_ASG) && AsOp()->GetOp(1)->OperIs(GT_PHI)) ||
+           (OperIs(GT_STORE_LCL_VAR) && AsLclVar()->GetOp(0)->OperIs(GT_PHI));
 }
 
 // IsPartialLclFld: Check for a GT_LCL_FLD whose type is a different size than the lclVar.
@@ -16058,10 +15821,10 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 structHnd = tree->AsObj()->GetLayout()->GetClassHandle();
                 break;
             case GT_CALL:
-                structHnd = tree->AsCall()->gtRetClsHnd;
+                structHnd = tree->AsCall()->GetRetLayout()->GetClassHandle();
                 break;
             case GT_RET_EXPR:
-                structHnd = tree->AsRetExpr()->gtRetClsHnd;
+                structHnd = tree->AsRetExpr()->GetRetLayout()->GetClassHandle();
                 break;
             case GT_INDEX:
                 structHnd = tree->AsIndex()->GetElemClassHandle();
@@ -16094,9 +15857,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 break;
             case GT_LCL_VAR:
                 structHnd = lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
-                break;
-            case GT_RETURN:
-                structHnd = gtGetStructHandleIfPresent(tree->AsOp()->gtOp1);
                 break;
             case GT_IND:
 #ifdef FEATURE_SIMD
@@ -17616,308 +17376,169 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
     return node;
 }
 
-//---------------------------------------------------------------------------------------
-// InitializeStructReturnType:
-//    Initialize the Return Type Descriptor for a method that returns a struct type
-//
-// Arguments
-//    comp        -  Compiler Instance
-//    retClsHnd   -  VM handle to the struct type returned by the method
-//
-// Return Value
-//    None
-//
-void ReturnTypeDesc::InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HANDLE retClsHnd)
+void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
+                                      CORINFO_CLASS_HANDLE retClass,
+                                      unsigned             retClassSize,
+                                      structPassingKind    retKind,
+                                      var_types            retKindType)
 {
-    assert(!m_inited);
+    switch (retKind)
+    {
+        case SPK_PrimitiveType:
+            assert(retKindType != TYP_UNKNOWN);
+            assert(retKindType != TYP_STRUCT);
+
+            m_regCount   = 1;
+            m_regType[0] = retKindType;
+            break;
 
 #if FEATURE_MULTIREG_RET
-
-    assert(retClsHnd != NO_CLASS_HANDLE);
-    unsigned structSize = comp->info.compCompHnd->getClassSize(retClsHnd);
-
-    Compiler::structPassingKind howToReturnStruct;
-    var_types                   returnType = comp->getReturnTypeForStruct(retClsHnd, &howToReturnStruct, structSize);
-
-    switch (howToReturnStruct)
-    {
-        case Compiler::SPK_EnclosingType:
-            m_isEnclosingType = true;
-            FALLTHROUGH;
-
-        case Compiler::SPK_PrimitiveType:
+        case SPK_ByValueAsHfa:
         {
-            assert(returnType != TYP_UNKNOWN);
-            assert(returnType != TYP_STRUCT);
-            m_regType[0] = returnType;
-            break;
-        }
-
-        case Compiler::SPK_ByValueAsHfa:
-        {
-            assert(varTypeIsStruct(returnType));
-            var_types hfaType = comp->GetHfaType(retClsHnd);
-
-            // We should have an hfa struct type
-            assert(varTypeIsValidHfaType(hfaType));
+            assert(varTypeIsStruct(retKindType));
+            var_types regType = comp->GetHfaType(retClass);
+            assert(varTypeIsValidHfaType(regType));
 
             // Note that the retail build issues a warning about a potential divsion by zero without this Max function
-            unsigned elemSize = Max((unsigned)1, EA_SIZE_IN_BYTES(emitActualTypeSize(hfaType)));
+            unsigned elemSize = Max(1u, varTypeSize(regType));
 
-            // The size of this struct should be evenly divisible by elemSize
-            assert((structSize % elemSize) == 0);
+            assert((retClassSize % elemSize) == 0);
+            m_regCount = static_cast<uint8_t>(retClassSize / elemSize);
+            assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
 
-            unsigned hfaCount = (structSize / elemSize);
-            for (unsigned i = 0; i < hfaCount; ++i)
+            for (unsigned i = 0; i < m_regCount; ++i)
             {
-                m_regType[i] = hfaType;
+                m_regType[i] = regType;
             }
 
-            if (comp->compFloatingPointUsed == false)
-            {
-                comp->compFloatingPointUsed = true;
-            }
+            comp->compFloatingPointUsed |= true;
             break;
         }
 
-        case Compiler::SPK_ByValue:
+        case SPK_ByValue:
         {
-            assert(varTypeIsStruct(returnType));
+            assert(varTypeIsStruct(retKindType));
 
 #ifdef UNIX_AMD64_ABI
-
             SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retClsHnd, &structDesc);
+            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retClass, &structDesc);
 
             assert(structDesc.passedInRegisters);
-            for (int i = 0; i < structDesc.eightByteCount; i++)
+            assert(structDesc.eightByteCount == 2);
+
+            m_regCount = 2;
+
+            for (int i = 0; i < 2; i++)
             {
-                assert(i < MAX_RET_REG_COUNT);
                 m_regType[i] = comp->GetEightByteType(structDesc, i);
             }
-
 #elif defined(TARGET_ARM64)
+            assert((retClassSize > REGSIZE_BYTES) && (retClassSize <= (2 * REGSIZE_BYTES)));
 
-            // a non-HFA struct returned using two registers
-            //
-            assert((structSize > TARGET_POINTER_SIZE) && (structSize <= (2 * TARGET_POINTER_SIZE)));
+            BYTE gcPtrs[2]{TYPE_GC_NONE, TYPE_GC_NONE};
+            comp->info.compCompHnd->getClassGClayout(retClass, &gcPtrs[0]);
 
-            BYTE gcPtrs[2] = {TYPE_GC_NONE, TYPE_GC_NONE};
-            comp->info.compCompHnd->getClassGClayout(retClsHnd, &gcPtrs[0]);
+            m_regCount = 2;
+
             for (unsigned i = 0; i < 2; ++i)
             {
                 m_regType[i] = comp->getJitGCType(gcPtrs[i]);
             }
-
-#else //  TARGET_XXX
-
-            // This target needs support here!
-            //
-            NYI("Unsupported TARGET returning a TYP_STRUCT in InitializeStructReturnType");
-
-#endif // UNIX_AMD64_ABI
-
-            break; // for case SPK_ByValue
+#else
+            unreached();
+#endif
+            break;
         }
+#endif //  FEATURE_MULTIREG_RET
 
-        case Compiler::SPK_ByReference:
-
+        case SPK_ByReference:
             // We are returning using the return buffer argument
             // There are no return registers
+
+            m_regCount = 0;
             break;
 
         default:
-
-            unreached(); // By the contract of getReturnTypeForStruct we should never get here.
-
-    } // end of switch (howToReturnStruct)
-
-#endif //  FEATURE_MULTIREG_RET
-
-#ifdef DEBUG
-    m_inited = true;
-#endif
+            unreached();
+    }
 }
 
-//---------------------------------------------------------------------------------------
-// InitializeLongReturnType:
-//    Initialize the Return Type Descriptor for a method that returns a TYP_LONG
-//
-void ReturnTypeDesc::InitializeLongReturnType()
+void ReturnTypeDesc::InitializePrimitive(var_types regType)
 {
-    assert(!m_inited);
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-    // Setups up a ReturnTypeDesc for returning a long using two registers
-    //
+    if (regType == TYP_VOID)
+    {
+        m_regCount = 0;
+    }
+    else if (varTypeIsLong(regType))
+    {
+        InitializeLong();
+    }
+    else
+    {
+        m_regCount   = 1;
+        m_regType[0] = regType;
+    }
+}
+
+void ReturnTypeDesc::InitializeLong()
+{
+#ifdef TARGET_64BIT
+    m_regCount   = 1;
+    m_regType[0] = TYP_LONG;
+#else
     assert(MAX_RET_REG_COUNT >= 2);
+
+    m_regCount   = 2;
     m_regType[0] = TYP_INT;
     m_regType[1] = TYP_INT;
-
-#else // not (TARGET_X86 or TARGET_ARM)
-
-    m_regType[0] = TYP_LONG;
-
-#endif // TARGET_X86 or TARGET_ARM
-
-#ifdef DEBUG
-    m_inited = true;
 #endif
 }
 
-//-------------------------------------------------------------------
-// GetABIReturnReg:  Return ith return register as per target ABI
-//
-// Arguments:
-//     idx   -   Index of the return register.
-//               The first return register has an index of 0 and so on.
-//
-// Return Value:
-//     Returns ith return register as per target ABI.
-//
-// Notes:
-//     x86 and ARM return long in multiple registers.
-//     ARM and ARM64 return HFA struct in multiple registers.
-//
-regNumber ReturnTypeDesc::GetABIReturnReg(unsigned idx) const
+regNumber ReturnTypeDesc::GetRegNum(unsigned i) const
 {
-    unsigned count = GetReturnRegCount();
-    assert(idx < count);
+    assert(i < m_regCount);
 
-    regNumber resultReg = REG_NA;
-
-#ifdef UNIX_AMD64_ABI
-    var_types regType0 = GetReturnRegType(0);
-
-    if (idx == 0)
+#if defined(TARGET_X86)
+    assert(!varTypeUsesFloatReg(m_regType[i]));
+    return i == 0 ? REG_EAX : REG_EDX;
+#elif defined(WINDOWS_AMD64_ABI)
+    return varTypeUsesFloatReg(m_regType[0]) ? REG_XMM0 : REG_RAX;
+#elif defined(UNIX_AMD64_ABI)
+    if (i == 0)
     {
-        if (varTypeIsIntegralOrI(regType0))
-        {
-            resultReg = REG_INTRET;
-        }
-        else
-        {
-            noway_assert(varTypeUsesFloatReg(regType0));
-            resultReg = REG_FLOATRET;
-        }
-    }
-    else if (idx == 1)
-    {
-        var_types regType1 = GetReturnRegType(1);
-
-        if (varTypeIsIntegralOrI(regType1))
-        {
-            if (varTypeIsIntegralOrI(regType0))
-            {
-                resultReg = REG_INTRET_1;
-            }
-            else
-            {
-                resultReg = REG_INTRET;
-            }
-        }
-        else
-        {
-            noway_assert(varTypeUsesFloatReg(regType1));
-
-            if (varTypeUsesFloatReg(regType0))
-            {
-                resultReg = REG_FLOATRET_1;
-            }
-            else
-            {
-                resultReg = REG_FLOATRET;
-            }
-        }
+        return varTypeUsesFloatReg(m_regType[0]) ? REG_XMM0 : REG_RAX;
     }
 
-#elif defined(TARGET_X86)
-
-    if (idx == 0)
+    if (varTypeUsesFloatReg(m_regType[1]))
     {
-        resultReg = REG_LNGRET_LO;
+        return varTypeUsesFloatReg(m_regType[0]) ? REG_XMM1 : REG_XMM0;
     }
-    else if (idx == 1)
+    else
     {
-        resultReg = REG_LNGRET_HI;
+        return varTypeUsesFloatReg(m_regType[0]) ? REG_RAX : REG_RDX;
     }
-
 #elif defined(TARGET_ARM)
+    regNumber firstReg = REG_R0;
 
-    var_types regType = GetReturnRegType(idx);
-    if (varTypeIsIntegralOrI(regType))
+    if (varTypeUsesFloatReg(m_regType[0]))
     {
-        // Ints are returned in one return register.
-        // Longs are returned in two return registers.
-        if (idx == 0)
+        firstReg = REG_F0;
+
+        if (m_regType[0] == TYP_DOUBLE)
         {
-            resultReg = REG_LNGRET_LO;
-        }
-        else if (idx == 1)
-        {
-            resultReg = REG_LNGRET_HI;
-        }
-    }
-    else
-    {
-        // Floats are returned in one return register (f0).
-        // Doubles are returned in one return register (d0).
-        // Structs are returned in four registers with HFAs.
-        assert(idx < MAX_RET_REG_COUNT); // Up to 4 return registers for HFA's
-        if (regType == TYP_DOUBLE)
-        {
-            resultReg = (regNumber)((unsigned)(REG_FLOATRET) + idx * 2); // d0, d1, d2 or d3
-        }
-        else
-        {
-            resultReg = (regNumber)((unsigned)(REG_FLOATRET) + idx); // f0, f1, f2 or f3
+            // A DOUBLE reg uses 2 consecutive FLOAT registers.
+            i *= 2;
         }
     }
 
+    return static_cast<regNumber>(firstReg + i);
 #elif defined(TARGET_ARM64)
+    regNumber firstReg = varTypeUsesFloatReg(m_regType[0]) ? REG_V0 : REG_R0;
 
-    var_types regType = GetReturnRegType(idx);
-    if (varTypeIsIntegralOrI(regType))
-    {
-        noway_assert(idx < 2);                              // Up to 2 return registers for 16-byte structs
-        resultReg = (idx == 0) ? REG_INTRET : REG_INTRET_1; // X0 or X1
-    }
-    else
-    {
-        noway_assert(idx < 4);                                   // Up to 4 return registers for HFA's
-        resultReg = (regNumber)((unsigned)(REG_FLOATRET) + idx); // V0, V1, V2 or V3
-    }
-
-#endif // TARGET_XXX
-
-    assert(resultReg != REG_NA);
-    return resultReg;
-}
-
-//--------------------------------------------------------------------------------
-// GetABIReturnRegs: get the mask of return registers as per target arch ABI.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    reg mask of return registers in which the return type is returned.
-//
-// Note:
-//    This routine can be used when the caller is not particular about the order
-//    of return registers and wants to know the set of return registers.
-//
-// static
-regMaskTP ReturnTypeDesc::GetABIReturnRegs() const
-{
-    regMaskTP resultMask = RBM_NONE;
-
-    unsigned count = GetReturnRegCount();
-    for (unsigned i = 0; i < count; ++i)
-    {
-        resultMask |= genRegMask(GetABIReturnReg(i));
-    }
-
-    return resultMask;
+    return static_cast<regNumber>(firstReg + i);
+#else
+    return REG_NA;
+#endif
 }
 
 //------------------------------------------------------------------------

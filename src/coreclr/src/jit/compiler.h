@@ -690,14 +690,6 @@ public:
         return slots;
     }
 
-    // lvIsMultiRegArgOrRet()
-    //     returns true if this is a multireg LclVar struct used in an argument context
-    //               or if this is a multireg LclVar struct assigned from a multireg call
-    bool lvIsMultiRegArgOrRet()
-    {
-        return lvIsMultiRegArg || lvIsMultiRegRet;
-    }
-
 private:
     regNumberSmall _lvRegNum; // Used to store the register this variable is in (or, the low register of a
                               // register pair). It is set during codegen any time the
@@ -1601,16 +1593,6 @@ public:
     DWORD expensiveDebugCheckLevel;
 #endif
 
-#if FEATURE_MULTIREG_RET
-    GenTree* impAssignMultiRegTypeToVar(GenTree* op, CORINFO_CLASS_HANDLE hClass);
-#endif // FEATURE_MULTIREG_RET
-
-    GenTree* impAssignSmallStructTypeToVar(GenTree* op, CORINFO_CLASS_HANDLE hClass);
-
-#ifdef ARM_SOFTFP
-    bool isSingleFloat32Struct(CORINFO_CLASS_HANDLE hClass);
-#endif // ARM_SOFTFP
-
     //-------------------------------------------------------------------------
     // Functions to handle homogeneous floating-point aggregates (HFAs) in ARM/ARM64.
     // HFAs are one to four element structs where each element is the same
@@ -1623,8 +1605,6 @@ public:
     bool IsHfa(CORINFO_CLASS_HANDLE hClass);
     var_types GetHfaType(CORINFO_CLASS_HANDLE hClass);
     unsigned GetHfaCount(CORINFO_CLASS_HANDLE hClass);
-
-    bool IsMultiRegReturnedType(CORINFO_CLASS_HANDLE hClass);
 
     //-------------------------------------------------------------------------
     // The following is used for validating format of EH table
@@ -2189,19 +2169,7 @@ public:
 
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
 
-    GenTree* gtNewTempAssign(unsigned    tmp,
-                             GenTree*    val,
-                             Statement** pAfterStmt = nullptr,
-                             IL_OFFSETX  ilOffset   = BAD_IL_OFFSET,
-                             BasicBlock* block      = nullptr);
-
-    GenTree* gtNewRefCOMfield(GenTree*                objPtr,
-                              CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                              CORINFO_ACCESS_FLAGS    access,
-                              CORINFO_FIELD_INFO*     pFieldInfo,
-                              var_types               lclTyp,
-                              CORINFO_CLASS_HANDLE    structType,
-                              GenTree*                assg);
+    GenTree* gtNewTempAssign(unsigned tmp, GenTree* val);
 
     GenTree* gtNewNothingNode();
 
@@ -2902,6 +2870,7 @@ public:
     // Returns true if this local var is a multireg struct
     bool lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVararg);
 
+    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck);
     void lvaSetStructUsedAsVarArg(unsigned varNum);
 
@@ -3185,15 +3154,24 @@ protected:
 
     CORINFO_CLASS_HANDLE impGetSpecialIntrinsicExactReturnType(CORINFO_METHOD_HANDLE specialIntrinsicHandle);
 
-    bool impMethodInfo_hasRetBuffArg(CORINFO_METHOD_INFO* methInfo);
-
-    GenTree* impFixupCallStructReturn(GenTreeCall* call, CORINFO_CLASS_HANDLE retClsHnd);
-
-    GenTree* impFixupStructReturnType(GenTree* op, CORINFO_CLASS_HANDLE retClsHnd);
+    void impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
+#if FEATURE_MULTIREG_RET
+    GenTree* impCanonicalizeMultiRegCall(GenTreeCall* call);
+    GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
+#endif
+    GenTree* impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 
     GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
     GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
+
+    GenTree* impImportFieldAccess(GenTree*                objPtr,
+                                  CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                  CORINFO_ACCESS_FLAGS    access,
+                                  CORINFO_FIELD_INFO*     pFieldInfo,
+                                  var_types               lclTyp,
+                                  CORINFO_CLASS_HANDLE    structType,
+                                  GenTree*                assg);
 
     GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                         CORINFO_ACCESS_FLAGS    access,
@@ -3335,49 +3313,22 @@ public:
     void impInsertStmtBefore(Statement* stmt, Statement* stmtBefore);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
     void impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* stmtBefore);
-    void impAssignTempGen(unsigned    tmp,
-                          GenTree*    val,
-                          unsigned    curLevel,
-                          Statement** pAfterStmt = nullptr,
-                          IL_OFFSETX  ilOffset   = BAD_IL_OFFSET,
-                          BasicBlock* block      = nullptr);
-    void impAssignTempGen(unsigned             tmpNum,
-                          GenTree*             val,
-                          CORINFO_CLASS_HANDLE structHnd,
-                          unsigned             curLevel,
-                          Statement**          pAfterStmt = nullptr,
-                          IL_OFFSETX           ilOffset   = BAD_IL_OFFSET,
-                          BasicBlock*          block      = nullptr);
-
+    void impAssignTempGen(unsigned tmp, GenTree* val, unsigned curLevel);
+    void impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
+    void impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
     Statement* impExtractLastStmt();
     GenTree* impCloneExpr(GenTree*             tree,
                           GenTree**            clone,
                           CORINFO_CLASS_HANDLE structHnd,
-                          unsigned             curLevel,
-                          Statement** pAfterStmt DEBUGARG(const char* reason));
-    GenTree* impAssignStruct(GenTree*             dest,
-                             GenTree*             src,
-                             CORINFO_CLASS_HANDLE structHnd,
-                             unsigned             curLevel,
-                             Statement**          pAfterStmt = nullptr,
-                             IL_OFFSETX           ilOffset   = BAD_IL_OFFSET,
-                             BasicBlock*          block      = nullptr);
-    GenTree* impAssignStructPtr(GenTree*             dest,
-                                GenTree*             src,
-                                CORINFO_CLASS_HANDLE structHnd,
-                                unsigned             curLevel,
-                                Statement**          pAfterStmt = nullptr,
-                                IL_OFFSETX           ilOffset   = BAD_IL_OFFSET,
-                                BasicBlock*          block      = nullptr);
+                          unsigned curLevel DEBUGARG(const char* reason));
+    GenTree* impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    GenTree* impAssignStructPtr(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
     var_types impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types* simdBaseType = nullptr);
 
-    GenTree* impNormStructVal(GenTree*             structVal,
-                              CORINFO_CLASS_HANDLE structHnd,
-                              unsigned             curLevel,
-                              bool                 forceNormalization = false);
+    GenTree* impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                               BOOL*                   pRuntimeLookup    = nullptr,
@@ -3416,9 +3367,6 @@ public:
                                         bool                    isCastClass);
 
     GenTree* impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass);
-
-    bool VarTypeIsMultiByteAndCanEnreg(
-        var_types type, CORINFO_CLASS_HANDLE typeClass, unsigned* typeSize, bool forReturn, bool isVarArg);
 
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
     bool IsTargetIntrinsic(NamedIntrinsic intrinsicName);
@@ -3585,11 +3533,8 @@ private:
     void impLoadVar(unsigned lclNum, IL_OFFSET offset);
     void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
     void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
-    bool impReturnInstruction(int prefixFlags, OPCODE& opcode);
-
-#ifdef TARGET_ARM
-    void impMarkLclDstNotPromotable(unsigned tmpNum, GenTree* op, CORINFO_CLASS_HANDLE hClass);
-#endif
+    bool impInlineReturnInstruction();
+    void impReturnInstruction(int prefixFlags, OPCODE* opcode);
 
     // A free list of linked list nodes used to represent to-do stacks of basic blocks.
     struct BlockListNode
@@ -3657,7 +3602,7 @@ private:
                                                             GenTree*          dereferencedAddress,
                                                             InlArgInfo*       inlArgInfo);
 
-    void impMarkInlineCandidate(GenTree*               call,
+    void impMarkInlineCandidate(GenTreeCall*           call,
                                 CORINFO_CONTEXT_HANDLE exactContextHnd,
                                 bool                   exactContextNeedsRuntimeLookup,
                                 CORINFO_CALL_INFO*     callInfo);
@@ -3667,10 +3612,7 @@ private:
                                       bool                   exactContextNeedsRuntimeLookup,
                                       CORINFO_CALL_INFO*     callInfo);
 
-    bool impTailCallRetTypeCompatible(var_types            callerRetType,
-                                      CORINFO_CLASS_HANDLE callerRetTypeClass,
-                                      var_types            calleeRetType,
-                                      CORINFO_CLASS_HANDLE calleeRetTypeClass);
+    bool impTailCallRetTypeCompatible(GenTreeCall* call);
 
     bool impIsTailCallILPattern(
         bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive);
@@ -4307,22 +4249,6 @@ public:
 
     // Convert a BYTE which represents the VM's CorInfoGCtype to the JIT's var_types
     var_types getJitGCType(BYTE gcType);
-
-    enum structPassingKind
-    {
-        SPK_Unknown,       // Invalid value, never returned
-        SPK_PrimitiveType, // The struct is passed/returned using a primitive type.
-        SPK_EnclosingType, // Like SPK_Primitive type, but used for return types that
-                           //  require a primitive type temp that is larger than the struct size.
-                           //  Currently used for structs of size 3, 5, 6, or 7 bytes.
-        SPK_ByValue,       // The struct is passed/returned by value (using the ABI rules)
-                           //  for ARM64 and UNIX_X64 in multiple registers. (when all of the
-                           //   parameters registers are used, then the stack will be used)
-                           //  for X86 passed on the stack, for ARM32 passed in registers
-                           //   or the stack or split between registers and the stack.
-        SPK_ByValueAsHfa,  // The struct is passed/returned as an HFA in multiple registers.
-        SPK_ByReference
-    }; // The struct is passed/returned by reference to a copy/buffer.
 
     // Get the "primitive" type that is is used when we are given a struct of size 'structSize'.
     // For pointer sized structs the 'clsHnd' is used to determine if the struct contains GC ref.
@@ -4993,7 +4919,6 @@ private:
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
 
-    void fgFixupStructReturn(GenTree* call);
     GenTree* fgMorphLocalVar(GenTree* tree, bool forceRemorph);
 
 public:
@@ -5057,7 +4982,7 @@ private:
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
-    GenTree* fgMorphRetInd(GenTreeUnOp* tree);
+    GenTree* fgMorphRetInd(GenTreeUnOp* ret);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
 
@@ -5208,11 +5133,6 @@ private:
     static fgWalkPreFn  fgUpdateSideEffectsPre;
     static fgWalkPostFn fgUpdateSideEffectsPost;
 
-    // The given local variable, required to be a struct variable, is being assigned via
-    // a "lclField", to make it masquerade as an integral type in the ABI.  Make sure that
-    // the variable is not enregistered, and is therefore not promoted independently.
-    void fgLclFldAssign(unsigned lclNum);
-
     static fgWalkPreFn gtHasLocalsWithAddrOpCB;
 
     enum TypeProducerKind
@@ -5230,8 +5150,6 @@ private:
     bool gtIsActiveCSE_Candidate(GenTree* tree);
 
     bool fgIsBigOffset(size_t offset);
-
-    bool fgNeedReturnSpillTemp();
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -8480,10 +8398,16 @@ public:
         bool compPublishStubParam : 1;   // EAX captured in prolog will be available through an intrinsic
         bool compHasNextCallRetAddr : 1; // The NextCallReturnAddress intrinsic is used.
 
-        var_types compRetType;       // Return type of the method as declared in IL
-        var_types compRetNativeType; // Normalized return type as per target arch ABI
-        unsigned  compILargsCount;   // Number of arguments (incl. implicit but not hidden)
-        unsigned  compArgsCount;     // Number of arguments (incl. implicit and     hidden)
+        var_types      compRetType; // Return type of the method as declared in IL
+        ReturnTypeDesc retDesc;
+
+        var_types GetRetSigType() const
+        {
+            return compRetType;
+        }
+
+        unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
+        unsigned compArgsCount;   // Number of arguments (incl. implicit and     hidden)
 
 #if FEATURE_FASTTAILCALL
         unsigned compArgStackSize; // Incoming argument stack size in bytes
@@ -8536,110 +8460,6 @@ public:
 
         unsigned genCPU; // What CPU are we running on
     } info;
-
-    // Returns true if the method being compiled returns a non-void and non-struct value.
-    // Note that lvaInitTypeRef() normalizes compRetNativeType for struct returns in a
-    // single register as per target arch ABI (e.g on Amd64 Windows structs of size 1, 2,
-    // 4 or 8 gets normalized to TYP_BYTE/TYP_SHORT/TYP_INT/TYP_LONG; On Arm HFA structs).
-    // Methods returning such structs are considered to return non-struct return value and
-    // this method returns true in that case.
-    bool compMethodReturnsNativeScalarType()
-    {
-        return (info.compRetType != TYP_VOID) && !varTypeIsStruct(info.compRetNativeType);
-    }
-
-    // Returns true if the method being compiled returns RetBuf addr as its return value
-    bool compMethodReturnsRetBufAddr()
-    {
-        // There are cases where implicit RetBuf argument should be explicitly returned in a register.
-        // In such cases the return type is changed to TYP_BYREF and appropriate IR is generated.
-        // These cases are:
-        // 1. Profiler Leave calllback expects the address of retbuf as return value for
-        //    methods with hidden RetBuf argument.  impReturnInstruction() when profiler
-        //    callbacks are needed creates GT_RETURN(TYP_BYREF, op1 = Addr of RetBuf) for
-        //    methods with hidden RetBufArg.
-        //
-        // 2. As per the System V ABI, the address of RetBuf needs to be returned by
-        //    methods with hidden RetBufArg in RAX. In such case GT_RETURN is of TYP_BYREF,
-        //    returning the address of RetBuf.
-        //
-        // 3. Windows 64-bit native calling convention also requires the address of RetBuff
-        //    to be returned in RAX.
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_AMD64
-        return (info.compRetBuffArg != BAD_VAR_NUM);
-#else  // !TARGET_AMD64
-        return (compIsProfilerHookNeeded()) && (info.compRetBuffArg != BAD_VAR_NUM);
-#endif // !TARGET_AMD64
-    }
-
-    bool compDoOldStructRetyping()
-    {
-        return JitConfig.JitDoOldStructRetyping();
-    }
-
-    // Returns true if the method returns a value in more than one return register
-    // TODO-ARM-Bug: Deal with multi-register genReturnLocaled structs?
-    // TODO-ARM64: Does this apply for ARM64 too?
-    bool compMethodReturnsMultiRegRetType()
-    {
-#if FEATURE_MULTIREG_RET
-#if defined(TARGET_X86)
-        // On x86 only 64-bit longs are returned in multiple registers
-        return varTypeIsLong(info.compRetNativeType);
-#else  // targets: X64-UNIX, ARM64 or ARM32
-        // On all other targets that support multireg return values:
-        // Methods returning a struct in multiple registers have a return value of TYP_STRUCT.
-        // Such method's compRetNativeType is TYP_STRUCT without a hidden RetBufArg
-        return varTypeIsStruct(info.compRetNativeType) && (info.compRetBuffArg == BAD_VAR_NUM);
-#endif // TARGET_XXX
-
-#else // not FEATURE_MULTIREG_RET
-
-        // For this architecture there are no multireg returns
-        return false;
-
-#endif // FEATURE_MULTIREG_RET
-    }
-
-    // Returns true if the method returns a value in more than one return register,
-    // it should replace/be  merged with compMethodReturnsMultiRegRetType when #36868 is fixed.
-    // The difference from original `compMethodReturnsMultiRegRetType` is in ARM64 SIMD* handling,
-    // this method correctly returns false for it (it is passed as HVA), when the original returns true.
-    bool compMethodReturnsMultiRegRegTypeAlternate()
-    {
-#if FEATURE_MULTIREG_RET
-#if defined(TARGET_X86)
-        // On x86 only 64-bit longs are returned in multiple registers
-        return varTypeIsLong(info.compRetNativeType);
-#else // targets: X64-UNIX, ARM64 or ARM32
-#if defined(TARGET_ARM64)
-        // TYP_SIMD* are returned in one register.
-        if (varTypeIsSIMD(info.compRetNativeType))
-        {
-            return false;
-        }
-#endif
-        // On all other targets that support multireg return values:
-        // Methods returning a struct in multiple registers have a return value of TYP_STRUCT.
-        // Such method's compRetNativeType is TYP_STRUCT without a hidden RetBufArg
-        return varTypeIsStruct(info.compRetNativeType) && (info.compRetBuffArg == BAD_VAR_NUM);
-#endif // TARGET_XXX
-
-#else // not FEATURE_MULTIREG_RET
-
-        // For this architecture there are no multireg returns
-        return false;
-
-#endif // FEATURE_MULTIREG_RET
-    }
-
-    // Returns true if the method being compiled returns a value
-    bool compMethodHasRetVal()
-    {
-        return compMethodReturnsNativeScalarType() || compMethodReturnsMultiRegRetType();
-    }
 
     // Returns true if the method requires a PInvoke prolog and epilog
     bool compMethodRequiresPInvokeFrame()

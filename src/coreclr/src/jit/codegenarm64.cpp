@@ -1874,223 +1874,151 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreLclFld: Produce code for a GT_STORE_LCL_FLD node.
-//
-// Arguments:
-//    tree - the GT_STORE_LCL_FLD node
-//
-void CodeGen::genCodeForStoreLclFld(GenTreeLclFld* tree)
+void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 {
+    assert(store->OperIs(GT_STORE_LCL_FLD));
+    assert(!store->TypeIs(TYP_STRUCT));
+
 #ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
+    if (store->TypeIs(TYP_SIMD12))
     {
-        genStoreSIMD12(tree, tree->GetOp(0));
+        genStoreSIMD12(store, store->GetOp(0));
         return;
     }
 #endif
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-    emitter*  emit       = GetEmitter();
-    noway_assert(targetType != TYP_STRUCT);
+    LclVarDsc* lcl  = compiler->lvaGetDesc(store);
+    var_types  type = store->GetType();
 
-    // record the offset
-    unsigned offset = tree->GetLclOffs();
+    assert(!lcl->lvNormalizeOnStore() || (type == varActualType(lcl->GetType())));
 
-    // We must have a stack store with GT_STORE_LCL_FLD
-    noway_assert(targetReg == REG_NA);
+    GenTree*  src = store->GetOp(0);
+    regNumber srcReg;
 
-    unsigned   varNum = tree->GetLclNum();
-    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-
-    // Ensure that lclVar nodes are typed correctly.
-    assert(!varDsc->lvNormalizeOnStore() || targetType == genActualType(varDsc->TypeGet()));
-
-    GenTree*  data = tree->GetOp(0);
-    regNumber dataReg;
-
-    if (data->isContained())
+    if (src->isContained())
     {
-        assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero() ||
-               data->IsHWIntrinsicZero());
-        dataReg = REG_ZR;
+        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsSIMDZero() || src->IsHWIntrinsicZero());
+
+        srcReg = REG_ZR;
     }
     else
     {
-        dataReg = genConsumeReg(data);
+        srcReg = genConsumeReg(src);
     }
 
-    if ((dataReg == REG_ZR) && (targetType == TYP_SIMD16))
+    unsigned lclNum  = store->GetLclNum();
+    unsigned lclOffs = store->GetLclOffs();
+
+    if ((srcReg == REG_ZR) && (type == TYP_SIMD16))
     {
-        emit->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, dataReg, dataReg, varNum, offset);
+        GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, lclNum, lclOffs);
     }
     else
     {
-        assert((dataReg != REG_ZR) || (varTypeSize(targetType) <= REGSIZE_BYTES));
-        emit->emitIns_S_R(ins_Store(targetType), emitActualTypeSize(targetType), dataReg, varNum, offset);
+        assert((srcReg != REG_ZR) || (varTypeSize(type) <= REGSIZE_BYTES));
+
+        GetEmitter()->emitIns_S_R(ins_Store(type), emitActualTypeSize(type), srcReg, lclNum, lclOffs);
     }
 
-    genUpdateLife(tree);
-
-    varDsc->SetRegNum(REG_STK);
+    genUpdateLife(store);
+    lcl->SetRegNum(REG_STK);
 }
 
-//------------------------------------------------------------------------
-// genCodeForStoreLclVar: Produce code for a GT_STORE_LCL_VAR node.
-//
-// Arguments:
-//    lclNode - the GT_STORE_LCL_VAR node
-//
-void CodeGen::genCodeForStoreLclVar(GenTreeLclVar* lclNode)
+void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
-    GenTree* data = lclNode->gtOp1;
+    assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    // Stores from a multi-reg source are handled separately.
-    if (data->gtSkipReloadOrCopy()->IsMultiRegNode())
+    GenTree* src = store->GetOp(0);
+
+    if (src->gtSkipReloadOrCopy()->IsMultiRegNode())
     {
-        genMultiRegStoreToLocal(lclNode);
+        GenStoreLclVarMultiReg(store);
         return;
     }
 
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNode);
-    if (lclNode->IsMultiReg())
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+
+    if (store->IsMultiReg())
     {
         // This is the case of storing to a multi-reg HFA local from a fixed-size SIMD type.
-        assert(varTypeIsSIMD(data) && varDsc->lvIsHfa() && (varDsc->GetHfaType() == TYP_FLOAT));
-        regNumber    operandReg = genConsumeReg(data);
-        unsigned int regCount   = varDsc->lvFieldCnt;
-        for (unsigned i = 0; i < regCount; ++i)
+        assert(varTypeIsSIMD(src->GetType()) && lcl->lvIsHfa() && (lcl->GetHfaType() == TYP_FLOAT));
+
+        regNumber srcReg = genConsumeReg(src);
+
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
-            regNumber varReg = lclNode->GetRegByIndex(i);
-            assert(varReg != REG_NA);
-            unsigned   fieldLclNum = varDsc->lvFieldLclStart + i;
-            LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(fieldLclNum);
-            assert(fieldVarDsc->TypeGet() == TYP_FLOAT);
-            GetEmitter()->emitIns_R_R_I(INS_dup, emitTypeSize(TYP_FLOAT), varReg, operandReg, i);
+            assert(compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->GetType() == TYP_FLOAT);
+
+            regNumber fieldReg = store->GetRegByIndex(i);
+            assert(fieldReg != REG_NA);
+
+            GetEmitter()->emitIns_R_R_I(INS_dup, EA_4BYTE, fieldReg, srcReg, i);
         }
-        genProduceReg(lclNode);
+
+        genProduceReg(store);
+        return;
+    }
+
+    var_types lclRegType = lcl->GetRegisterType(store);
+
+#ifdef FEATURE_SIMD
+    if (lclRegType == TYP_SIMD12)
+    {
+        genStoreSIMD12(store, store->GetOp(0));
+        return;
+    }
+#endif
+
+    regNumber srcReg;
+
+    if (src->isContained())
+    {
+        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsSIMDZero() || src->IsHWIntrinsicZero());
+
+        srcReg = REG_ZR;
     }
     else
     {
-        regNumber targetReg = lclNode->GetRegNum();
-        emitter*  emit      = GetEmitter();
+        srcReg = genConsumeReg(src);
+    }
 
-        unsigned  varNum     = lclNode->GetLclNum();
-        var_types targetType = varDsc->GetRegisterType(lclNode);
+    regNumber dstReg = store->GetRegNum();
 
-#ifdef FEATURE_SIMD
-        if (targetType == TYP_SIMD12)
+    if (dstReg == REG_NA)
+    {
+        unsigned lclNum = store->GetLclNum();
+        inst_set_SV_var(store);
+
+        if ((srcReg == REG_ZR) && (lclRegType == TYP_SIMD16))
         {
-            genStoreSIMD12(lclNode, lclNode->GetOp(0));
-            return;
-        }
-#endif
-
-        regNumber dataReg = REG_NA;
-
-        if (data->isContained())
-        {
-            assert(data->IsIntegralConst(0) || data->IsDblConPositiveZero() || data->IsSIMDZero() ||
-                   data->IsHWIntrinsicZero());
-            dataReg = REG_ZR;
+            GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, lclNum, 0);
         }
         else
         {
-            dataReg = genConsumeReg(data);
+            assert((srcReg != REG_ZR) || (varTypeSize(lclRegType) <= REGSIZE_BYTES));
+
+            GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitActualTypeSize(lclRegType), srcReg, lclNum, 0);
         }
 
-        if (targetReg == REG_NA) // store into stack based LclVar
-        {
-            inst_set_SV_var(lclNode);
+        genUpdateLife(store);
+        lcl->SetRegNum(REG_STK);
 
-            instruction ins  = ins_Store(targetType);
-            emitAttr    attr = emitActualTypeSize(targetType);
-
-            if ((dataReg == REG_ZR) && (targetType == TYP_SIMD16))
-            {
-                emit->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, dataReg, dataReg, varNum, 0);
-            }
-            else
-            {
-                assert((dataReg != REG_ZR) || (genTypeSize(targetType) <= REGSIZE_BYTES));
-                emit->emitIns_S_R(ins, attr, dataReg, varNum, /* offset */ 0);
-            }
-
-            genUpdateLife(lclNode);
-
-            varDsc->SetRegNum(REG_STK);
-        }
-        else // store into register (i.e move into register)
-        {
-            if (dataReg != targetReg)
-            {
-                if ((dataReg == REG_ZR) && genIsValidFloatReg(targetReg))
-                {
-                    emit->emitIns_R_I(INS_movi, EA_16BYTE, targetReg, 0x00, INS_OPTS_16B);
-                }
-                else
-                {
-                    inst_RV_RV(ins_Copy(targetType), targetReg, dataReg, targetType);
-                }
-            }
-
-            genProduceReg(lclNode);
-        }
+        return;
     }
-}
 
-//------------------------------------------------------------------------
-// genSimpleReturn: Generates code for simple return statement for arm64.
-//
-// Note: treeNode's and op1's registers are already consumed.
-//
-// Arguments:
-//    treeNode - The GT_RETURN or GT_RETFILT tree node with non-struct and non-void type
-//
-// Return Value:
-//    None
-//
-void CodeGen::genSimpleReturn(GenTree* treeNode)
-{
-    assert(treeNode->OperGet() == GT_RETURN || treeNode->OperGet() == GT_RETFILT);
-    GenTree*  op1        = treeNode->gtGetOp1();
-    var_types targetType = treeNode->TypeGet();
-
-    assert(targetType != TYP_STRUCT);
-    assert(targetType != TYP_VOID);
-
-    regNumber retReg = varTypeUsesFloatArgReg(treeNode) ? REG_FLOATRET : REG_INTRET;
-
-    bool movRequired = (op1->GetRegNum() != retReg);
-
-    if (!movRequired)
+    if (srcReg != dstReg)
     {
-        if (op1->OperGet() == GT_LCL_VAR)
+        if ((srcReg == REG_ZR) && genIsValidFloatReg(dstReg))
         {
-            GenTreeLclVarCommon* lcl            = op1->AsLclVarCommon();
-            bool                 isRegCandidate = compiler->lvaTable[lcl->GetLclNum()].lvIsRegCandidate();
-            if (isRegCandidate && ((op1->gtFlags & GTF_SPILLED) == 0))
-            {
-                // We may need to generate a zero-extending mov instruction to load the value from this GT_LCL_VAR
-
-                unsigned   lclNum  = lcl->GetLclNum();
-                LclVarDsc* varDsc  = &(compiler->lvaTable[lclNum]);
-                var_types  op1Type = genActualType(op1->TypeGet());
-                var_types  lclType = genActualType(varDsc->TypeGet());
-
-                if (genTypeSize(op1Type) < genTypeSize(lclType))
-                {
-                    movRequired = true;
-                }
-            }
+            GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, dstReg, 0x00, INS_OPTS_16B);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_R(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg);
         }
     }
-    if (movRequired)
-    {
-        emitAttr attr = emitActualTypeSize(targetType);
-        GetEmitter()->emitIns_R_R(INS_mov, attr, retReg, op1->GetRegNum());
-    }
+
+    genProduceReg(store);
 }
 
 /***********************************************************************************************

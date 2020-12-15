@@ -6007,7 +6007,7 @@ void Compiler::fgFindBasicBlocks()
 
         // Use a spill temp for the return value if there are multiple return blocks,
         // or if the inlinee has GC ref locals.
-        if ((info.compRetNativeType != TYP_VOID) && ((retBlocks > 1) || impInlineInfo->HasGcRefLocals()))
+        if ((info.compRetType != TYP_VOID) && ((retBlocks > 1) || impInlineInfo->HasGcRefLocals()))
         {
             // If we've spilled the ret expr to a temp we can reuse the temp
             // as the inlinee return spill temp.
@@ -6040,14 +6040,7 @@ void Compiler::fgFindBasicBlocks()
             {
                 // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
                 lvaInlineeReturnSpillTemp = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
-                if (compDoOldStructRetyping())
-                {
-                    lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetNativeType;
-                }
-                else
-                {
-                    lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetType;
-                }
+                lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetType;
 
                 // If the method returns a ref class, set the class of the spill temp
                 // to the method's return value. We may update this later if it turns
@@ -7633,9 +7626,9 @@ bool Compiler::fgCastNeeded(GenTree* tree, var_types toType)
     {
         fromType = tree->CastToType();
     }
-    else if (tree->OperGet() == GT_CALL)
+    else if (tree->OperIs(GT_CALL))
     {
-        fromType = (var_types)tree->AsCall()->gtReturnType;
+        fromType = tree->AsCall()->GetRetSigType();
     }
     else
     {
@@ -8268,12 +8261,7 @@ GenTree* Compiler::fgCreateMonitorTree(unsigned lvaMonAcquired, unsigned lvaThis
             //
             //
             // Before morph stage, it is possible to have a case of GT_RETURN(TYP_LONG, op1) where op1's type is
-            // TYP_STRUCT (of 8-bytes) and op1 is call node. See the big comment block in impReturnInstruction()
-            // for details for the case where info.compRetType is not the same as info.compRetNativeType.  For
-            // this reason pass compMethodInfo->args.retTypeClass which is guaranteed to be a valid class handle
-            // if the return type is a value class.  Note that fgInsertCommFormTemp() in turn uses this class handle
-            // if the type of op1 is TYP_STRUCT to perform lvaSetStruct() on the new temp that is created, which
-            // in turn passes it to VM to know the size of value type.
+            // TYP_STRUCT (of 8-bytes) and op1 is call node.
             GenTree* temp = fgInsertCommaFormTemp(&retNode->AsOp()->gtOp1, info.compMethodInfo->args.retTypeClass);
 
             GenTree* lclVar = retNode->AsOp()->gtOp1->AsOp()->gtOp2;
@@ -8636,77 +8624,58 @@ private:
 
         GenTree* returnExpr;
 
-        if (returnConst != nullptr)
+        if (comp->info.retDesc.GetRegCount() == 0)
         {
-            returnExpr             = comp->gtNewOperNode(GT_RETURN, returnConst->gtType, returnConst);
+            noway_assert((comp->info.compRetType == TYP_VOID) || varTypeIsStruct(comp->info.compRetType));
+
+            returnExpr = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+
+            comp->genReturnLocal = BAD_VAR_NUM;
+        }
+        else if (returnConst != nullptr)
+        {
+            returnExpr = comp->gtNewOperNode(GT_RETURN, returnConst->GetType(), returnConst);
+
             returnConstants[index] = returnConst->IntegralValue();
         }
-        else if (comp->compMethodReturnsRetBufAddr())
+        else if (comp->info.compRetBuffArg != BAD_VAR_NUM)
         {
+            assert(comp->info.retDesc.GetRegCount() == 1);
+
             GenTree* retBuffAddr = comp->gtNewLclvNode(comp->info.compRetBuffArg, TYP_BYREF);
             retBuffAddr->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_BYREF, retBuffAddr);
 
             comp->genReturnLocal = BAD_VAR_NUM;
         }
-        else if (comp->compMethodHasRetVal())
+        else
         {
             // There is a return value, so create a temp for it.  Real returns will store the value in there and
             // it'll be reloaded by the single return.
-            unsigned returnLocalNum   = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
-            comp->genReturnLocal      = returnLocalNum;
-            LclVarDsc& returnLocalDsc = comp->lvaTable[returnLocalNum];
+            unsigned   lclNum = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
+            LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
-            if (comp->compMethodReturnsNativeScalarType())
+            if (varTypeIsStruct(comp->info.compRetType))
             {
-                if (!comp->compDoOldStructRetyping())
-                {
-                    returnLocalDsc.lvType = genActualType(comp->info.compRetType);
-                    if (varTypeIsStruct(returnLocalDsc.lvType))
-                    {
-                        comp->lvaSetStruct(returnLocalNum, comp->info.compMethodInfo->args.retTypeClass, false);
-                    }
-                }
-                else
-                {
-                    returnLocalDsc.lvType = genActualType(comp->info.compRetNativeType);
-                }
-            }
-            else if (comp->compMethodReturnsMultiRegRetType())
-            {
-                returnLocalDsc.lvType = TYP_STRUCT;
-                comp->lvaSetStruct(returnLocalNum, comp->info.compMethodInfo->args.retTypeClass, true);
-                returnLocalDsc.lvIsMultiRegRet = true;
+                comp->lvaSetStruct(lclNum, comp->info.compMethodInfo->args.retTypeClass, false);
+                lcl->lvIsMultiRegRet = (comp->info.retDesc.GetRegCount() > 1);
             }
             else
             {
-                assert(!"unreached");
+                lcl->SetType(varActualType(comp->info.compRetType));
+                comp->compFloatingPointUsed |= varTypeIsFloating(comp->info.compRetType);
             }
 
-            if (varTypeIsFloating(returnLocalDsc.lvType))
-            {
-                comp->compFloatingPointUsed = true;
-            }
-
-#ifdef DEBUG
             // This temporary should not be converted to a double in stress mode,
             // because we introduce assigns to it after the stress conversion
-            returnLocalDsc.lvKeepType = 1;
-#endif
+            INDEBUG(lcl->lvKeepType = 1;)
 
-            GenTree* retTemp = comp->gtNewLclvNode(returnLocalNum, returnLocalDsc.TypeGet());
-
+            GenTree* retTemp = comp->gtNewLclvNode(lclNum, lcl->GetType());
             // make sure copy prop ignores this node (make sure it always does a reload from the temp).
             retTemp->gtFlags |= GTF_DONT_CSE;
-            returnExpr = comp->gtNewOperNode(GT_RETURN, retTemp->gtType, retTemp);
-        }
-        else
-        {
-            // return void
-            noway_assert(comp->info.compRetType == TYP_VOID || varTypeIsStruct(comp->info.compRetType));
-            comp->genReturnLocal = BAD_VAR_NUM;
+            returnExpr = comp->gtNewOperNode(GT_RETURN, lcl->GetType(), retTemp);
 
-            returnExpr = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+            comp->genReturnLocal = lclNum;
         }
 
         // Add 'return' expression to the return block
@@ -22513,8 +22482,8 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         return WALK_SKIP_SUBTREES;
     }
 
-    Compiler*            comp      = data->compiler;
-    CORINFO_CLASS_HANDLE retClsHnd = NO_CLASS_HANDLE;
+    Compiler*    comp      = data->compiler;
+    ClassLayout* retLayout = nullptr;
 
     while (tree->OperGet() == GT_RET_EXPR)
     {
@@ -22523,7 +22492,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         //
         if (varTypeIsStruct(tree))
         {
-            retClsHnd = tree->AsRetExpr()->gtRetClsHnd;
+            retLayout = tree->AsRetExpr()->GetRetLayout();
         }
 
         // Skip through chains of GT_RET_EXPRs (say from nested inlines)
@@ -22544,11 +22513,16 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         {
             printf("\nReplacing the return expression placeholder ");
             printTreeID(tree);
-            printf(" with ");
-            printTreeID(inlineCandidate);
-            printf("\n");
-            // Dump out the old return expression placeholder it will be overwritten by the ReplaceWith below
-            comp->gtDispTree(tree);
+
+            if (data->parent == nullptr)
+            {
+                comp->gtDispTree(tree);
+            }
+            else
+            {
+                printf(" in\n");
+                comp->gtDispTree(data->parent);
+            }
         }
 #endif // DEBUG
 
@@ -22558,7 +22532,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
 #ifdef DEBUG
         if (comp->verbose)
         {
-            printf("\nInserting the inline return expression\n");
+            printf("with inline return expression\n");
             comp->gtDispTree(tree);
             printf("\n");
         }
@@ -22576,113 +22550,57 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         }
     }
 
+#if FEATURE_MULTIREG_RET
     // If an inline was rejected and the call returns a struct, we may
     // have deferred some work when importing call for cases where the
     // struct is returned in register(s).
     //
-    // See the bail-out clauses in impFixupCallStructReturn for inline
+    // See the bail-out clauses in impCanonicalizeMultiRegCall for inline
     // candidates.
     //
     // Do the deferred work now.
-    if (retClsHnd != NO_CLASS_HANDLE)
+
+    // TODO-MIKE-Cleanup: This seems to do more than impCanonicalizeMultiRegCall.
+    // That one simply ensures that multi-reg calls are spilled to a local and
+    // that lvIsMultiRegRet is set to true. But this code doesn't even bother to
+    // check if the return expression is still a call...
+
+    if (retLayout != nullptr)
     {
-        structPassingKind howToReturnStruct;
-        var_types         returnType = comp->getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-        GenTree*          parent     = data->parent;
+        CORINFO_CLASS_HANDLE retClsHnd = retLayout->GetClassHandle();
+        structPassingKind    retKind;
+        comp->getReturnTypeForStruct(retClsHnd, &retKind);
 
-        switch (howToReturnStruct)
+        switch (retKind)
         {
-
-#if FEATURE_MULTIREG_RET
-
             // Is this a type that is returned in multiple registers
             // or a via a primitve type that is larger than the struct type?
             // if so we need to force into into a form we accept.
             // i.e. LclVar = call()
             case SPK_ByValue:
             case SPK_ByValueAsHfa:
-            {
                 // See assert below, we only look one level above for an asg parent.
-                if (parent->OperIs(GT_ASG))
+                if (data->parent->OperIs(GT_ASG))
                 {
                     // Either lhs is a call V05 = call(); or lhs is addr, and asg becomes a copyBlk.
-                    comp->inlAttachStructInlineeToAsg(parent->AsOp(), tree, retClsHnd);
+                    comp->inlAttachStructInlineeToAsg(data->parent->AsOp(), tree, retClsHnd);
                 }
                 else
                 {
                     // Just assign the inlinee to a variable to keep it simple.
                     tree = *pTree = comp->inlAssignStructInlineeToTemp(tree, retClsHnd);
                 }
-            }
-            break;
-
-#endif // FEATURE_MULTIREG_RET
-
-            case SPK_EnclosingType:
-            {
-                // For enclosing type returns, we must return the call value to a temp since
-                // the return type is larger than the struct type.
-                if (!tree->IsCall())
-                {
-                    break;
-                }
-
-                GenTreeCall* call = tree->AsCall();
-
-                assert(call->gtReturnType == TYP_STRUCT);
-
-                if (call->gtReturnType != TYP_STRUCT)
-                {
-                    break;
-                }
-
-                JITDUMP("\nCall returns small struct via enclosing type, retyping. Before:\n");
-                DISPTREE(call);
-
-                // Create new struct typed temp for return value
-                const unsigned tmpNum =
-                    comp->lvaGrabTemp(true DEBUGARG("small struct return temp for rejected inline"));
-                comp->lvaSetStruct(tmpNum, retClsHnd, false);
-                GenTree* assign = comp->gtNewTempAssign(tmpNum, call);
-
-                // Modify assign tree and call return types to the primitive return type
-                call->gtReturnType = returnType;
-                call->gtType       = returnType;
-                assign->gtType     = returnType;
-
-                // Modify the temp reference in the assign as a primitive reference via GT_LCL_FLD
-                GenTree* tempAsPrimitive = assign->AsOp()->gtOp1;
-                assert(tempAsPrimitive->gtOper == GT_LCL_VAR);
-                tempAsPrimitive->gtType = returnType;
-                tempAsPrimitive->ChangeOper(GT_LCL_FLD);
-
-                // Return temp as value of call tree via comma
-                GenTree* tempAsStruct = comp->gtNewLclvNode(tmpNum, TYP_STRUCT);
-                GenTree* comma        = comp->gtNewOperNode(GT_COMMA, TYP_STRUCT, assign, tempAsStruct);
-                parent->ReplaceOperand(pTree, comma);
-
-                JITDUMP("\nAfter:\n");
-                DISPTREE(comma);
-            }
-            break;
-
-            case SPK_PrimitiveType:
-                // We should have already retyped the call as a primitive type
-                // when we first imported the call
                 break;
 
+            case SPK_PrimitiveType:
             case SPK_ByReference:
-                // We should have already added the return buffer
-                // when we first imported the call
                 break;
 
             default:
-                noway_assert(!"Unexpected struct passing kind");
-                break;
+                unreached();
         }
     }
 
-#if FEATURE_MULTIREG_RET
 #if defined(DEBUG)
 
     // Make sure we don't have a tree like so: V05 = (, , , retExpr);
@@ -22692,16 +22610,19 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     // leaving an assert in here. This can be fixed by looking ahead
     // when we visit GT_ASG similar to inlAttachStructInlineeToAsg.
     //
-    if (tree->OperGet() == GT_ASG)
+    if (tree->OperIs(GT_ASG))
     {
-        GenTree* value = tree->AsOp()->gtOp2;
+        GenTree* value = tree->AsOp()->GetOp(1);
 
-        if (value->OperGet() == GT_COMMA)
+        if (value->OperIs(GT_COMMA))
         {
-            GenTree* effectiveValue = value->gtEffectiveVal(/*commaOnly*/ true);
+            value = value->SkipComma();
 
-            noway_assert(!varTypeIsStruct(effectiveValue) || (effectiveValue->OperGet() != GT_RET_EXPR) ||
-                         !comp->IsMultiRegReturnedType(effectiveValue->AsRetExpr()->gtRetClsHnd));
+            bool isMultiRegCall = varTypeIsStruct(value->GetType()) && value->IsRetExpr() &&
+                                  value->AsRetExpr()->gtInlineCandidate->IsCall() &&
+                                  value->AsRetExpr()->gtInlineCandidate->AsCall()->HasMultiRegRetVal();
+
+            noway_assert(!isMultiRegCall);
         }
     }
 
@@ -23051,7 +22972,7 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
     // (This could happen for example for a BBJ_THROW block fall through a BBJ_RETURN block which
     // causes the BBJ_RETURN block not to be imported at all.)
     // Fail the inlining attempt
-    if (inlineCandidateInfo->fncRetType != TYP_VOID && inlineInfo.retExpr == nullptr)
+    if ((call->GetRetSigType() != TYP_VOID) && (inlineInfo.retExpr == nullptr))
     {
 #ifdef DEBUG
         if (verbose)
@@ -23433,7 +23354,7 @@ _Done:
 
     // If there is non-NULL return, replace the GT_CALL with its return value expression,
     // so later it will be picked up by the GT_RET_EXPR node.
-    if ((pInlineInfo->inlineCandidateInfo->fncRetType != TYP_VOID) || (iciCall->gtReturnType == TYP_STRUCT))
+    if (pInlineInfo->iciCall->GetRetSigType() != TYP_VOID)
     {
         noway_assert(pInlineInfo->retExpr);
 #ifdef DEBUG
@@ -23588,6 +23509,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
 
                     // Create the temp assignment for this argument
 
+                    GenTree* asg;
+
                     if (varTypeIsStruct(argType))
                     {
                         CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(argNode);
@@ -23619,7 +23542,30 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                             restoreLayout = true;
                         }
 
-                        impAssignTempGen(tmpNum, argNode, structHnd, CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
+                        assert(!argNode->TypeIs(TYP_STRUCT) || (structHnd != NO_CLASS_HANDLE));
+
+                        if (varTypeIsStruct(argNode->GetType()) && (structHnd != NO_CLASS_HANDLE))
+                        {
+                            lvaSetStruct(tmpNum, structHnd, false);
+
+                            // The argument cannot be a COMMA, impNormStructVal should have changed
+                            // it to OBJ(COMMA(...)).
+                            // It also cannot be MKREFANY because TypedReference parameters block
+                            // inlining. That's probably an unnecessary limitation but who cares
+                            // about TypedReference?
+                            // This means that impAssignStructPtr won't have to add new statements,
+                            // it cannot do that since we're not actually importing IL.
+
+                            assert(!argNode->OperIs(GT_COMMA, GT_MKREFANY));
+
+                            GenTree* dst     = gtNewLclvNode(tmpNum, tmpLcl->GetType());
+                            GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
+                            asg              = impAssignStructPtr(dstAddr, argNode, structHnd, CHECK_SPILL_NONE);
+                        }
+                        else
+                        {
+                            asg = gtNewTempAssign(tmpNum, argNode);
+                        }
 
                         if (restoreLayout)
                         {
@@ -23628,8 +23574,12 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     }
                     else
                     {
-                        impAssignTempGen(tmpNum, argNode, CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
+                        asg = gtNewTempAssign(tmpNum, argNode);
                     }
+
+                    Statement* stmt = gtNewStmt(asg, callILOffset);
+                    fgInsertStmtAfter(block, afterStmt, stmt);
+                    afterStmt = stmt;
 
                     // We used to refine the temp type here based on
                     // the actual arg, but we now do this up front, when
@@ -23843,30 +23793,14 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                     continue;
                 }
 
-                var_types lclTyp = (var_types)lvaTable[tmpNum].lvType;
+                var_types lclTyp = tmpDsc->GetType();
                 noway_assert(lclTyp == lclVarInfo[lclNum + inlineInfo->argCnt].lclType);
 
-                if (!varTypeIsStruct(lclTyp))
-                {
-                    // Unsafe value cls check is not needed here since in-linee compiler instance would have
-                    // iterated over locals and marked accordingly.
-                    impAssignTempGen(tmpNum, gtNewZeroConNode(genActualType(lclTyp)), NO_CLASS_HANDLE,
-                                     (unsigned)CHECK_SPILL_NONE, &afterStmt, callILOffset, block);
-                }
-                else
-                {
-                    GenTree* init = gtNewAssignNode(gtNewLclvNode(tmpNum, lclTyp), gtNewIconNode(0));
-                    newStmt       = gtNewStmt(init, callILOffset);
-                    fgInsertStmtAfter(block, afterStmt, newStmt);
-                    afterStmt = newStmt;
-                }
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    gtDispStmt(afterStmt);
-                }
-#endif // DEBUG
+                GenTree*   zero = varTypeIsStruct(lclTyp) ? gtNewIconNode(0) : gtNewZeroConNode(lclTyp);
+                GenTreeOp* asg  = gtNewAssignNode(gtNewLclvNode(tmpNum, lclTyp), zero);
+                Statement* stmt = gtNewStmt(asg, callILOffset);
+                fgInsertStmtAfter(block, afterStmt, stmt);
+                afterStmt = stmt;
             }
         }
     }
@@ -24045,15 +23979,6 @@ Compiler::fgWalkResult Compiler::fgChkLocAllocCB(GenTree** pTree, fgWalkData* da
     }
 
     return Compiler::WALK_CONTINUE;
-}
-
-void Compiler::fgLclFldAssign(unsigned lclNum)
-{
-    assert(varTypeIsStruct(lvaTable[lclNum].lvType));
-    if (lvaTable[lclNum].lvPromoted && lvaTable[lclNum].lvFieldCnt > 1)
-    {
-        lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
-    }
 }
 
 //------------------------------------------------------------------------
@@ -25875,18 +25800,6 @@ void Compiler::fgCompDominatedByExceptionalEntryBlocks()
             }
         }
     }
-}
-
-//------------------------------------------------------------------------
-// fgNeedReturnSpillTemp: Answers does the inlinee need to spill all returns
-//  as a temp.
-//
-// Return Value:
-//    true if the inlinee has to spill return exprs.
-bool Compiler::fgNeedReturnSpillTemp()
-{
-    assert(compIsForInlining());
-    return (lvaInlineeReturnSpillTemp != BAD_VAR_NUM);
 }
 
 //------------------------------------------------------------------------

@@ -48,8 +48,6 @@ int LinearScan::BuildNode(GenTree* tree)
     Interval* prefSrcInterval = nullptr;
     int       srcCount;
     int       dstCount      = 0;
-    regMaskTP dstCandidates = RBM_NONE;
-    regMaskTP killMask      = RBM_NONE;
     bool      isLocalDefUse = false;
 
     // Reset the build-related members of LinearScan.
@@ -110,13 +108,12 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-        case GT_STORE_LCL_FLD:
         case GT_STORE_LCL_VAR:
-            if (tree->IsMultiRegLclVar() && isCandidateMultiRegLclVar(tree->AsLclVar()))
-            {
-                dstCount = compiler->lvaGetDesc(tree->AsLclVar()->GetLclNum())->lvFieldCnt;
-            }
-            srcCount = BuildStoreLoc(tree->AsLclVarCommon());
+            srcCount = BuildStoreLclVar(tree->AsLclVar(), &dstCount);
+            break;
+
+        case GT_STORE_LCL_FLD:
+            srcCount = BuildStoreLclFld(tree->AsLclFld());
             break;
 
         case GT_FIELD_LIST:
@@ -137,14 +134,13 @@ int LinearScan::BuildNode(GenTree* tree)
             // This kills GC refs in callee save regs
             srcCount = 0;
             assert(dstCount == 0);
-            BuildDefsWithKills(tree, 0, RBM_NONE, RBM_NONE);
+            BuildKills(tree, RBM_NONE);
             break;
 
         case GT_PROF_HOOK:
             srcCount = 0;
             assert(dstCount == 0);
-            killMask = getKillSetForProfilerHook();
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
+            BuildKills(tree, getKillSetForProfilerHook());
             break;
 
         case GT_CNS_INT:
@@ -184,9 +180,8 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_RETURN:
-            srcCount = BuildReturn(tree);
-            killMask = getKillSetForReturn();
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
+            srcCount = BuildReturn(tree->AsUnOp());
+            BuildKills(tree, getKillSetForReturn());
             break;
 
         case GT_RETFILT:
@@ -302,15 +297,12 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_RETURNTRAP:
-        {
             // This just turns into a compare of its child with an int + a conditional call.
-            RefPosition* internalDef = buildInternalIntRegisterDefForNode(tree);
-            srcCount                 = BuildOperandUses(tree->gtGetOp1());
+            buildInternalIntRegisterDefForNode(tree);
+            srcCount = BuildOperandUses(tree->gtGetOp1());
             buildInternalRegisterUses();
-            killMask = compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
-            BuildDefsWithKills(tree, 0, RBM_NONE, killMask);
-        }
-        break;
+            BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
+            break;
 
         case GT_MOD:
         case GT_DIV:
@@ -477,7 +469,7 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildCall(tree->AsCall());
             if (tree->AsCall()->HasMultiRegRetVal())
             {
-                dstCount = tree->AsCall()->GetReturnTypeDesc()->GetReturnRegCount();
+                dstCount = tree->AsCall()->GetRegCount();
             }
             break;
 
@@ -1003,82 +995,14 @@ int LinearScan::BuildShiftRotate(GenTree* tree)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildCall: Set the NodeInfo for a call.
-//
-// Arguments:
-//    call      - The call node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
 int LinearScan::BuildCall(GenTreeCall* call)
 {
-    bool                  hasMultiRegRetVal = false;
-    const ReturnTypeDesc* retTypeDesc       = nullptr;
-    int                   srcCount          = 0;
-    int                   dstCount          = 0;
-    regMaskTP             dstCandidates     = RBM_NONE;
-
-    assert(!call->isContained());
-    if (call->TypeGet() != TYP_VOID)
-    {
-        hasMultiRegRetVal = call->HasMultiRegRetVal();
-        if (hasMultiRegRetVal)
-        {
-            // dst count = number of registers in which the value is returned by call
-            retTypeDesc = call->GetReturnTypeDesc();
-            dstCount    = retTypeDesc->GetReturnRegCount();
-        }
-        else
-        {
-            dstCount = 1;
-        }
-    }
+    int srcCount = 0;
 
     GenTree* ctrlExpr = call->gtControlExpr;
     if (call->gtCallType == CT_INDIRECT)
     {
         ctrlExpr = call->gtCallAddr;
-    }
-
-    RegisterType registerType = regType(call);
-
-    // Set destination candidates for return value of the call.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_X86
-    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
-    {
-        // The x86 CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
-        // TCB in REG_PINVOKE_TCB. AMD64/ARM64 use the standard calling convention. fgMorphCall() sets the
-        // correct argument registers.
-        dstCandidates = RBM_PINVOKE_TCB;
-    }
-    else
-#endif // TARGET_X86
-        if (hasMultiRegRetVal)
-    {
-        assert(retTypeDesc != nullptr);
-        dstCandidates = retTypeDesc->GetABIReturnRegs();
-        assert((int)genCountBits(dstCandidates) == dstCount);
-    }
-    else if (varTypeUsesFloatReg(registerType))
-    {
-#ifdef TARGET_X86
-        // The return value will be on the X87 stack, and we will need to move it.
-        dstCandidates = allRegs(registerType);
-#else  // !TARGET_X86
-        dstCandidates = RBM_FLOATRET;
-#endif // !TARGET_X86
-    }
-    else if (registerType == TYP_LONG)
-    {
-        dstCandidates = RBM_LNGRET;
-    }
-    else
-    {
-        dstCandidates = RBM_INTRET;
     }
 
 // number of args to a call =
@@ -1220,11 +1144,40 @@ int LinearScan::BuildCall(GenTreeCall* call)
         srcCount += BuildOperandUses(ctrlExpr, ctrlExprCandidates);
     }
 
-    buildInternalRegisterUses();
+    BuildInternalUses();
+    BuildKills(call, getKillSetForCall(call));
 
-    // Now generate defs and kills.
-    regMaskTP killMask = getKillSetForCall(call);
-    BuildDefsWithKills(call, dstCount, dstCandidates, killMask);
+#ifdef TARGET_X86
+    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
+    {
+        // The x86 CORINFO_HELP_INIT_PINVOKE_FRAME helper uses a custom calling convention that returns with
+        // TCB in REG_PINVOKE_TCB. AMD64/ARM64 use the standard calling convention. fgMorphCall() sets the
+        // correct argument registers.
+        BuildDef(call, RBM_PINVOKE_TCB);
+    }
+    else
+#endif
+        if (call->HasMultiRegRetVal())
+    {
+        for (unsigned i = 0; i < call->GetRegCount(); i++)
+        {
+            BuildDef(call, genRegMask(call->GetRetDesc()->GetRegNum(i)), i);
+        }
+    }
+    else if (varTypeUsesFloatReg(call->GetType()))
+    {
+#ifdef TARGET_X86
+        // The return value will be on the X87 stack, and we will need to move it.
+        BuildDef(call);
+#else
+        BuildDef(call, RBM_FLOATRET);
+#endif
+    }
+    else if (!call->TypeIs(TYP_VOID))
+    {
+        BuildDef(call, RBM_INTRET);
+    }
+
     return srcCount;
 }
 
@@ -1430,8 +1383,7 @@ int LinearScan::BuildStructStore(GenTreeBlk* store)
 #endif
 
     BuildInternalUses();
-    regMaskTP killMask = getKillSetForStructStore(store);
-    BuildDefsWithKills(store, 0, RBM_NONE, killMask);
+    BuildKills(store, getKillSetForStructStore(store));
 
     return useCount;
 }
@@ -1787,9 +1739,9 @@ int LinearScan::BuildModDiv(GenTree* tree)
     srcCount += BuildDelayFreeUses(op2, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
 
     buildInternalRegisterUses();
+    BuildKills(tree, getKillSetForModDiv(tree->AsOp()));
+    BuildDef(tree, dstCandidates);
 
-    regMaskTP killMask = getKillSetForModDiv(tree->AsOp());
-    BuildDefsWithKills(tree, 1, dstCandidates, killMask);
     return srcCount;
 }
 
@@ -2910,12 +2862,7 @@ int LinearScan::BuildMul(GenTree* tree)
         return BuildSimple(tree);
     }
 
-    int       srcCount      = BuildBinaryUses(tree->AsOp());
-    int       dstCount      = 1;
-    regMaskTP dstCandidates = RBM_NONE;
-
-    bool isUnsignedMultiply    = ((tree->gtFlags & GTF_UNSIGNED) != 0);
-    bool requiresOverflowCheck = tree->gtOverflowEx();
+    int srcCount = BuildBinaryUses(tree->AsOp());
 
     // There are three forms of x86 multiply:
     // one-op form:     RDX:RAX = RAX * r/m
@@ -2931,44 +2878,39 @@ int LinearScan::BuildMul(GenTree* tree)
         assert((tree->gtFlags & GTF_MUL_64RSLT) == 0);
     }
 
+    BuildKills(tree, getKillSetForMul(tree->AsOp()));
+
     // We do use the widening multiply to implement
     // the overflow checking for unsigned multiply
     //
-    if (isUnsignedMultiply && requiresOverflowCheck)
+    if (tree->IsUnsigned() && tree->gtOverflowEx())
     {
         // The only encoding provided is RDX:RAX = RAX * rm
         //
         // Here we set RAX as the only destination candidate
         // In LSRA we set the kill set for this operation to RBM_RAX|RBM_RDX
         //
-        dstCandidates = RBM_RAX;
+        BuildDef(tree, RBM_RAX);
     }
     else if (tree->OperGet() == GT_MULHI)
     {
         // Have to use the encoding:RDX:RAX = RAX * rm. Since we only care about the
         // upper 32 bits of the result set the destination candidate to REG_RDX.
-        dstCandidates = RBM_RDX;
+        BuildDef(tree, RBM_RDX);
     }
 #if defined(TARGET_X86)
     else if (tree->OperGet() == GT_MUL_LONG)
     {
         // have to use the encoding:RDX:RAX = RAX * rm
-        dstCandidates = RBM_RAX | RBM_RDX;
-        dstCount      = 2;
+        BuildDef(tree, RBM_RAX, 0);
+        BuildDef(tree, RBM_RDX, 1);
     }
 #endif
-    GenTree* containedMemOp = nullptr;
-    if (op1->isContained() && !op1->IsCnsIntOrI())
+    else
     {
-        assert(!op2->isContained() || op2->IsCnsIntOrI());
-        containedMemOp = op1;
+        BuildDef(tree);
     }
-    else if (op2->isContained() && !op2->IsCnsIntOrI())
-    {
-        containedMemOp = op2;
-    }
-    regMaskTP killMask = getKillSetForMul(tree->AsOp());
-    BuildDefsWithKills(tree, dstCount, dstCandidates, killMask);
+
     return srcCount;
 }
 

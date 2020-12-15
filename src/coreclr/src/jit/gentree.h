@@ -1660,6 +1660,8 @@ public:
 
     inline GenTree* gtEffectiveVal(bool commaOnly = false);
 
+    GenTree* SkipComma();
+
     // Tunnel through any GT_RET_EXPRs
     inline GenTree* gtRetExprVal(unsigned __int64* pbbFlags);
 
@@ -3652,7 +3654,19 @@ struct GenTreeColon : public GenTreeOp
 // gtCall   -- method call      (GT_CALL)
 enum class InlineObservation;
 
-// Return type descriptor of a GT_CALL node.
+enum structPassingKind
+{
+    SPK_Unknown,       // Invalid value, never returned
+    SPK_PrimitiveType, // The struct is passed/returned in a single register.
+#if FEATURE_MULTIREG_RET
+    SPK_ByValue,      // The struct is passed/returned in multiple registers.
+    SPK_ByValueAsHfa, // The struct is passed/returned as an HFA in multiple registers.
+#endif
+    SPK_ByReference
+}; // The struct is passed/returned by reference to a copy/buffer.
+
+// Return type descriptor for the compiled method or a GT_CALL node.
+//
 // x64 Unix, Arm64, Arm32 and x86 allow a value to be returned in multiple
 // registers. For such calls this struct provides the following info
 // on their return type
@@ -3660,149 +3674,51 @@ enum class InlineObservation;
 //    - ABI return register numbers in which the value is returned
 //    - count of return registers in which the value is returned
 //
-// TODO-ARM: Update this to meet the needs of Arm64 and Arm32
-//
-// TODO-AllArch: Right now it is used for describing multi-reg returned types.
-// Eventually we would want to use it for describing even single-reg
-// returned types (e.g. structs returned in single register x64/arm).
-// This would allow us not to lie or normalize single struct return
-// values in importer/morph.
 struct ReturnTypeDesc
 {
 private:
-    var_types m_regType[MAX_RET_REG_COUNT];
-    bool      m_isEnclosingType;
-
-#ifdef DEBUG
-    bool m_inited;
+#if FEATURE_MULTIREG_RET
+    uint8_t m_regCount;
+#else
+    // Use only one bit as a hint to the compiler that the only possible values
+    // are 0 and 1. Not all the multi-reg return related code is under ifdef and
+    // without this PIN shows a ~0.25% regression.
+    uint8_t m_regCount : 1;
 #endif
+    var_types m_regType[MAX_RET_REG_COUNT];
 
 public:
-    ReturnTypeDesc()
+    ReturnTypeDesc() : m_regCount(0)
     {
-        Reset();
     }
 
-    // Initialize the Return Type Descriptor for a method that returns a struct type
-    void InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HANDLE retClsHnd);
+    void InitializeStruct(Compiler*            comp,
+                          CORINFO_CLASS_HANDLE retClass,
+                          unsigned             retClassSize,
+                          structPassingKind    retKind,
+                          var_types            retKindType);
 
-    // Initialize the Return Type Descriptor for a method that returns a TYP_LONG
-    // Only needed for X86 and arm32.
-    void InitializeLongReturnType();
+    void InitializePrimitive(var_types regType);
 
-    // Reset type descriptor to defaults
+    void InitializeLong();
+
     void Reset()
     {
-        for (unsigned i = 0; i < MAX_RET_REG_COUNT; ++i)
-        {
-            m_regType[i] = TYP_UNKNOWN;
-        }
-        m_isEnclosingType = false;
-#ifdef DEBUG
-        m_inited = false;
-#endif
+        m_regCount = 0;
     }
 
-#ifdef DEBUG
-    // NOTE: we only use this function when writing out IR dumps. These dumps may take place before the ReturnTypeDesc
-    // has been initialized.
-    unsigned TryGetReturnRegCount() const
+    unsigned GetRegCount() const
     {
-        return m_inited ? GetReturnRegCount() : 0;
+        return m_regCount;
     }
-#endif // DEBUG
 
-    //--------------------------------------------------------------------------------------------
-    // GetReturnRegCount:  Get the count of return registers in which the return value is returned.
-    //
-    // Arguments:
-    //    None
-    //
-    // Return Value:
-    //   Count of return registers.
-    //   Returns 0 if the return type is not returned in registers.
-    unsigned GetReturnRegCount() const
+    var_types GetRegType(unsigned i) const
     {
-        assert(m_inited);
-
-        int regCount = 0;
-        for (unsigned i = 0; i < MAX_RET_REG_COUNT; ++i)
-        {
-            if (m_regType[i] == TYP_UNKNOWN)
-            {
-                break;
-            }
-            // otherwise
-            regCount++;
-        }
-
-#ifdef DEBUG
-        // Any remaining elements in m_regTypes[] should also be TYP_UNKNOWN
-        for (unsigned i = regCount + 1; i < MAX_RET_REG_COUNT; ++i)
-        {
-            assert(m_regType[i] == TYP_UNKNOWN);
-        }
-#endif
-
-        return regCount;
+        assert(i < m_regCount);
+        return m_regType[i];
     }
 
-    //-----------------------------------------------------------------------
-    // IsMultiRegRetType: check whether the type is returned in multiple
-    // return registers.
-    //
-    // Arguments:
-    //    None
-    //
-    // Return Value:
-    //    Returns true if the type is returned in multiple return registers.
-    //    False otherwise.
-    // Note that we only have to examine the first two values to determine this
-    //
-    bool IsMultiRegRetType() const
-    {
-        if (MAX_RET_REG_COUNT < 2)
-        {
-            return false;
-        }
-        else
-        {
-            assert(m_inited);
-            return ((m_regType[0] != TYP_UNKNOWN) && (m_regType[1] != TYP_UNKNOWN));
-        }
-    }
-
-    //--------------------------------------------------------------------------
-    // GetReturnRegType:  Get var_type of the return register specified by index.
-    //
-    // Arguments:
-    //    index - Index of the return register.
-    //            First return register will have an index 0 and so on.
-    //
-    // Return Value:
-    //    var_type of the return register specified by its index.
-    //    asserts if the index does not have a valid register return type.
-
-    var_types GetReturnRegType(unsigned index) const
-    {
-        var_types result = m_regType[index];
-        assert(result != TYP_UNKNOWN);
-
-        return result;
-    }
-
-    // True if this value is returned in integer register
-    // that is larger than the type itself.
-    bool IsEnclosingType() const
-    {
-        return m_isEnclosingType;
-    }
-
-    // Get ith ABI return register
-    regNumber GetABIReturnReg(unsigned idx) const;
-
-    // Get reg mask of ABI return registers
-    regMaskTP GetABIReturnRegs() const;
+    regNumber GetRegNum(unsigned i) const;
 };
 
 class TailCallSiteInfo
@@ -4001,7 +3917,104 @@ struct GenTreeCall final : public GenTree
     Use* gtCallLateArgs; // On x86:     The register arguments in an optimal order
                          // On ARM/x64: - also includes any outgoing arg space arguments
                          //             - that were evaluated into a temp LclVar
+
+    union {
+        // only used for CALLI unmanaged calls (CT_INDIRECT)
+        GenTree* gtCallCookie;
+        // gtInlineCandidateInfo is only used when inlining methods
+        InlineCandidateInfo*                  gtInlineCandidateInfo;
+        GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
+        void*                                 gtStubCallStubAddr; // GTF_CALL_VIRT_STUB - these are never inlined
+        CORINFO_GENERIC_HANDLE compileTimeHelperArgumentHandle; // Used to track type handle argument of dynamic helpers
+        void*                  gtDirectCallAddress; // Used to pass direct call address between lower and codegen
+    };
+
+    union {
+        CORINFO_METHOD_HANDLE gtCallMethHnd; // CT_USER_FUNC
+        GenTree*              gtCallAddr;    // CT_INDIRECT
+    };
+
+    // expression evaluated after args are placed which determines the control target
+    GenTree* gtControlExpr;
+
     CallInfo* fgArgInfo;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    // Call target lookup info for method call from a Ready To Run module
+    // TODO-MIKE-Cleanup: This wastes 3/7 bytes due to useless enum bits and internal padding.
+    CORINFO_CONST_LOOKUP gtEntryPoint;
+#endif
+
+    TailCallSiteInfo* tailCallInfo;
+
+    ClassLayout* m_retLayout; // The layout of the return (struct) type.
+
+    unsigned gtCallMoreFlags;
+
+    unsigned char gtCallType : 3;   // value from the gtCallTypes enumeration
+    unsigned char m_retSigType : 5; // Signature return type
+
+    ReturnTypeDesc m_retDesc;
+
+#if FEATURE_MULTIREG_RET
+    // State required to support multi-reg returning call nodes.
+
+    // GetRegNum() would always be the first return reg.
+    // The following array holds the other reg numbers of multi-reg return.
+    regNumberSmall gtOtherRegs[MAX_RET_REG_COUNT - 1];
+
+    MultiRegSpillFlags gtSpillFlags;
+#endif // FEATURE_MULTIREG_RET
+
+#if defined(DEBUG) || defined(INLINE_DATA)
+    // For non-inline candidates, track the first observation
+    // that blocks candidacy.
+    InlineObservation gtInlineObservation;
+
+    // IL offset of the call wrt its parent method.
+    IL_OFFSET gtRawILOffset;
+#endif // defined(DEBUG) || defined(INLINE_DATA)
+
+    // Used to register callsites with the EE
+    INDEBUG(CORINFO_SIG_INFO* callSig;)
+
+public:
+    GenTreeCall(var_types type, gtCallTypes kind, Use* args)
+        : GenTree(GT_CALL, varActualType(type))
+        , gtCallThisArg(nullptr)
+        , gtCallArgs(args)
+        , gtCallLateArgs(nullptr)
+        , gtControlExpr(nullptr)
+        , fgArgInfo(nullptr)
+        , tailCallInfo(nullptr)
+        , m_retLayout(nullptr)
+        , gtCallMoreFlags(0)
+        , gtCallType(kind)
+        , m_retSigType(type)
+#ifdef DEBUG
+        , callSig(nullptr)
+#endif
+    {
+        gtFlags |= (GTF_CALL | GTF_GLOB_REF);
+        for (Use& use : UseList(args))
+        {
+            gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+        }
+    }
+
+    GenTreeCall(const GenTreeCall* copyFrom)
+        : GenTree(GT_CALL, copyFrom->GetType())
+        , gtCallThisArg(nullptr)
+        , gtCallArgs(nullptr)
+        , gtCallLateArgs(nullptr)
+        , fgArgInfo(nullptr)
+        , m_retLayout(copyFrom->m_retLayout)
+        , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
+        , gtCallType(copyFrom->gtCallType)
+        , m_retSigType(copyFrom->m_retSigType)
+        , m_retDesc(copyFrom->m_retDesc)
+    {
+    }
 
     CallInfo* GetInfo() const
     {
@@ -4028,76 +4041,49 @@ struct GenTreeCall final : public GenTree
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
     CallArgInfo* GetArgInfoByLateArgUse(Use* use) const;
 
-    // Used to register callsites with the EE
-    INDEBUG(CORINFO_SIG_INFO* callSig;)
-
-    TailCallSiteInfo* tailCallInfo;
-
-#if FEATURE_MULTIREG_RET
-
-    // State required to support multi-reg returning call nodes.
-    //
-    // TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
-    ReturnTypeDesc gtReturnTypeDesc;
-
-    // GetRegNum() would always be the first return reg.
-    // The following array holds the other reg numbers of multi-reg return.
-    regNumberSmall gtOtherRegs[MAX_RET_REG_COUNT - 1];
-
-    MultiRegSpillFlags gtSpillFlags;
-
-#endif // FEATURE_MULTIREG_RET
-
-    //-----------------------------------------------------------------------
-    // GetReturnTypeDesc: get the type descriptor of return value of the call
-    //
-    // Arguments:
-    //    None
-    //
-    // Returns
-    //    Type descriptor of the value returned by call
-    //
-    // TODO-AllArch: enable for all call nodes to unify single-reg and multi-reg returns.
-    const ReturnTypeDesc* GetReturnTypeDesc() const
+    var_types GetRetSigType() const
     {
-#if FEATURE_MULTIREG_RET
-        return &gtReturnTypeDesc;
-#else
-        return nullptr;
-#endif
+        return static_cast<var_types>(m_retSigType);
     }
 
-    void InitializeLongReturnType()
+    void SetRetSigType(var_types type)
     {
-#if FEATURE_MULTIREG_RET
-        gtReturnTypeDesc.InitializeLongReturnType();
-#endif
+        m_retSigType = type;
     }
 
-    void InitializeStructReturnType(Compiler* comp, CORINFO_CLASS_HANDLE retClsHnd)
+    ClassLayout* GetRetLayout() const
     {
-#if FEATURE_MULTIREG_RET
-        gtReturnTypeDesc.InitializeStructReturnType(comp, retClsHnd);
-#endif
+        return m_retLayout;
     }
 
-    void ResetReturnType()
+    void SetRetLayout(ClassLayout* layout)
     {
-#if FEATURE_MULTIREG_RET
-        gtReturnTypeDesc.Reset();
-#endif
+        assert((layout == nullptr) || layout->IsValueClass());
+        assert((layout == nullptr) || varTypeIsStruct(GetRetSigType()));
+
+        m_retLayout = layout;
     }
 
-    //---------------------------------------------------------------------------
-    // GetRegNumByIdx: get ith return register allocated to this call node.
-    //
-    // Arguments:
-    //     idx   -   index of the return register
-    //
-    // Return Value:
-    //     Return regNumber of ith return register of call node.
-    //     Returns REG_NA if there is no valid return register for the given index.
-    //
+    unsigned GetRegCount() const
+    {
+        return m_retDesc.GetRegCount();
+    }
+
+    var_types GetRegType(unsigned i) const
+    {
+        return m_retDesc.GetRegType(i);
+    }
+
+    ReturnTypeDesc* GetRetDesc()
+    {
+        return &m_retDesc;
+    }
+
+    const ReturnTypeDesc* GetRetDesc() const
+    {
+        return &m_retDesc;
+    }
+
     regNumber GetRegNumByIdx(unsigned idx) const
     {
         assert(idx < MAX_RET_REG_COUNT);
@@ -4114,16 +4100,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //----------------------------------------------------------------------
-    // SetRegNumByIdx: set ith return register of this call node
-    //
-    // Arguments:
-    //    reg    -   reg number
-    //    idx    -   index of the return register
-    //
-    // Return Value:
-    //    None
-    //
     void SetRegNumByIdx(regNumber reg, unsigned idx)
     {
         assert(idx < MAX_RET_REG_COUNT);
@@ -4143,15 +4119,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //----------------------------------------------------------------------------
-    // ClearOtherRegs: clear multi-reg state to indicate no regs are allocated
-    //
-    // Arguments:
-    //    None
-    //
-    // Return Value:
-    //    None
-    //
     void ClearOtherRegs()
     {
 #if FEATURE_MULTIREG_RET
@@ -4162,15 +4129,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //----------------------------------------------------------------------------
-    // CopyOtherRegs: copy multi-reg state from the given call node to this node
-    //
-    // Arguments:
-    //    fromCall  -  GenTreeCall node from which to copy multi-reg state
-    //
-    // Return Value:
-    //    None
-    //
     void CopyOtherRegs(GenTreeCall* fromCall)
     {
 #if FEATURE_MULTIREG_RET
@@ -4201,14 +4159,6 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //-------------------------------------------------------------------
-    // clearOtherRegFlags: clear GTF_* flags associated with gtOtherRegs
-    //
-    // Arguments:
-    //     None
-    //
-    // Return Value:
-    //     None
     void ClearOtherRegFlags()
     {
 #if FEATURE_MULTIREG_RET
@@ -4216,20 +4166,10 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-    //-------------------------------------------------------------------------
-    // CopyOtherRegFlags: copy GTF_* flags associated with gtOtherRegs from
-    // the given call node.
-    //
-    // Arguments:
-    //    fromCall  -  GenTreeCall node from which to copy
-    //
-    // Return Value:
-    //    None
-    //
     void CopyOtherRegFlags(GenTreeCall* fromCall)
     {
 #if FEATURE_MULTIREG_RET
-        this->gtSpillFlags = fromCall->gtSpillFlags;
+        gtSpillFlags = fromCall->gtSpillFlags;
 #endif
     }
 
@@ -4329,59 +4269,20 @@ struct GenTreeCall final : public GenTree
     bool HasNonStandardAddedArgs(Compiler* compiler) const;
     int GetNonStandardAddedArgCount(Compiler* compiler) const;
 
-    // Returns true if this call uses a retBuf argument and its calling convention
+    // Returns true if this call uses a return buffer argument.
     bool HasRetBufArg() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_RETBUFFARG) != 0;
     }
 
-    //-------------------------------------------------------------------------
-    // TreatAsHasRetBufArg:
-    //
-    // Arguments:
-    //     compiler, the compiler instance so that we can call eeGetHelperNum
-    //
-    // Return Value:
-    //     Returns true if we treat the call as if it has a retBuf argument
-    //     This method may actually have a retBuf argument
-    //     or it could be a JIT helper that we are still transforming during
-    //     the importer phase.
-    //
-    // Notes:
-    //     On ARM64 marking the method with the GTF_CALL_M_RETBUFFARG flag
-    //     will make HasRetBufArg() return true, but will also force the
-    //     use of register x8 to pass the RetBuf argument.
-    //
-    bool TreatAsHasRetBufArg(Compiler* compiler) const;
+    // Returns true if this call must be transformed as if having a return buffer
+    // arg even if the actual signature and ABI conventions indicates otherwise
+    // (HasRetBufArg == false).
+    bool TreatAsHasRetBufArg() const;
 
-    //-----------------------------------------------------------------------------------------
-    // HasMultiRegRetVal: whether the call node returns its value in multiple return registers.
-    //
-    // Arguments:
-    //     None
-    //
-    // Return Value:
-    //     True if the call is returning a multi-reg return value. False otherwise.
-    //
     bool HasMultiRegRetVal() const
     {
-#ifdef FEATURE_MULTIREG_RET
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-        if (varTypeIsLong(gtType))
-        {
-            return true;
-        }
-#endif
-
-        if (!varTypeIsStruct(gtType) || HasRetBufArg())
-        {
-            return false;
-        }
-        // Now it is a struct that is returned in registers.
-        return GetReturnTypeDesc()->IsMultiRegRetType();
-#else  // !FEATURE_MULTIREG_RET
-        return false;
-#endif // !FEATURE_MULTIREG_RET
+        return m_retDesc.GetRegCount() > 1;
     }
 
     // Returns true if VM has flagged this method as CORINFO_FLG_PINVOKE.
@@ -4431,43 +4332,35 @@ struct GenTreeCall final : public GenTree
 #endif
     }
 
-#if FEATURE_FASTTAILCALL
     bool IsFastTailCall() const
     {
-#ifdef TARGET_X86
-        return IsTailCall() && !(gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
+#if !FEATURE_FASTTAILCALL
+        return false;
+#elif defined(TARGET_X86)
+        return IsTailCall() && ((gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER) == 0);
 #else
         return IsTailCall();
 #endif
     }
-#else  // !FEATURE_FASTTAILCALL
-    bool IsFastTailCall() const
-    {
-        return false;
-    }
-#endif // !FEATURE_FASTTAILCALL
 
-#if FEATURE_TAILCALL_OPT
     // Returns true if this is marked for opportunistic tail calling.
     // That is, can be tail called though not explicitly prefixed with "tail" prefix.
     bool IsImplicitTailCall() const
     {
+#if FEATURE_TAILCALL_OPT
         return (gtCallMoreFlags & GTF_CALL_M_IMPLICIT_TAILCALL) != 0;
+#else
+        return false;
+#endif
     }
     bool IsTailCallConvertibleToLoop() const
     {
+#if FEATURE_TAILCALL_OPT
         return (gtCallMoreFlags & GTF_CALL_M_TAILCALL_TO_LOOP) != 0;
-    }
-#else  // !FEATURE_TAILCALL_OPT
-    bool IsImplicitTailCall() const
-    {
+#else
         return false;
+#endif
     }
-    bool IsTailCallConvertibleToLoop() const
-    {
-        return false;
-    }
-#endif // !FEATURE_TAILCALL_OPT
 
     bool IsSameThis() const
     {
@@ -4581,46 +4474,6 @@ struct GenTreeCall final : public GenTree
         return (gtFlags & GTF_CALL_M_EXP_RUNTIME_LOOKUP) != 0;
     }
 
-    unsigned gtCallMoreFlags; // in addition to gtFlags
-
-    unsigned char gtCallType : 3;   // value from the gtCallTypes enumeration
-    unsigned char gtReturnType : 5; // exact return type
-
-    CORINFO_CLASS_HANDLE gtRetClsHnd; // The return type handle of the call if it is a struct; always available
-
-    union {
-        // only used for CALLI unmanaged calls (CT_INDIRECT)
-        GenTree* gtCallCookie;
-        // gtInlineCandidateInfo is only used when inlining methods
-        InlineCandidateInfo*                  gtInlineCandidateInfo;
-        GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
-        void*                                 gtStubCallStubAddr; // GTF_CALL_VIRT_STUB - these are never inlined
-        CORINFO_GENERIC_HANDLE compileTimeHelperArgumentHandle; // Used to track type handle argument of dynamic helpers
-        void*                  gtDirectCallAddress; // Used to pass direct call address between lower and codegen
-    };
-
-    // expression evaluated after args are placed which determines the control target
-    GenTree* gtControlExpr;
-
-    union {
-        CORINFO_METHOD_HANDLE gtCallMethHnd; // CT_USER_FUNC
-        GenTree*              gtCallAddr;    // CT_INDIRECT
-    };
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    // Call target lookup info for method call from a Ready To Run module
-    CORINFO_CONST_LOOKUP gtEntryPoint;
-#endif
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-    // For non-inline candidates, track the first observation
-    // that blocks candidacy.
-    InlineObservation gtInlineObservation;
-
-    // IL offset of the call wrt its parent method.
-    IL_OFFSET gtRawILOffset;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-
     bool IsHelperCall() const
     {
         return gtCallType == CT_HELPER;
@@ -4639,10 +4492,6 @@ struct GenTreeCall final : public GenTree
 
     static bool Equals(GenTreeCall* c1, GenTreeCall* c2);
 
-    GenTreeCall(var_types type) : GenTree(GT_CALL, type)
-    {
-        fgArgInfo = nullptr;
-    }
 #if DEBUGGABLE_GENTREE
     GenTreeCall() : GenTree()
     {
@@ -6746,17 +6595,25 @@ protected:
 
 struct GenTreeRetExpr : public GenTree
 {
-    GenTree*             gtInlineCandidate;
-    CORINFO_CLASS_HANDLE gtRetClsHnd;
-    uint64_t             bbFlags;
+private:
+    ClassLayout* m_retLayout;
+
+public:
+    GenTree* gtInlineCandidate;
+    uint64_t bbFlags;
 
     GenTreeRetExpr(var_types type, GenTreeCall* call, uint64_t bbFlags)
-        : GenTree(GT_RET_EXPR, type), gtInlineCandidate(call), gtRetClsHnd(call->gtRetClsHnd), bbFlags(bbFlags)
+        : GenTree(GT_RET_EXPR, type), m_retLayout(call->m_retLayout), gtInlineCandidate(call), bbFlags(bbFlags)
     {
         // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
         // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
         // For example, impImportLeave or CEE_POP need to spill GT_RET_EXPR before empty the evaluation stack.
         gtFlags |= GTF_CALL;
+    }
+
+    ClassLayout* GetRetLayout() const
+    {
+        return m_retLayout;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -8074,6 +7931,16 @@ inline GenTree* GenTree::gtEffectiveVal(bool commaOnly)
     }
 }
 
+inline GenTree* GenTree::SkipComma()
+{
+    GenTree* node = this;
+    while (node->OperIs(GT_COMMA))
+    {
+        node = node->AsOp()->GetOp(1);
+    }
+    return node;
+}
+
 //-------------------------------------------------------------------------
 // gtRetExprVal - walk back through GT_RET_EXPRs
 //
@@ -8212,7 +8079,7 @@ inline unsigned GenTree::GetMultiRegCount()
 #if FEATURE_MULTIREG_RET
     if (IsMultiRegCall())
     {
-        return AsCall()->GetReturnTypeDesc()->GetReturnRegCount();
+        return AsCall()->GetRegCount();
     }
 
 #if FEATURE_ARG_SPLIT
@@ -8342,7 +8209,7 @@ inline var_types GenTree::GetRegTypeByIndex(int regIndex)
 #if FEATURE_MULTIREG_RET
     if (IsMultiRegCall())
     {
-        return AsCall()->AsCall()->GetReturnTypeDesc()->GetReturnRegType(regIndex);
+        return AsCall()->AsCall()->GetRegType(regIndex);
     }
 
 #if FEATURE_ARG_SPLIT

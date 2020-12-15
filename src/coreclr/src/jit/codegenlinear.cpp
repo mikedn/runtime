@@ -1876,11 +1876,9 @@ void CodeGen::genProduceReg(GenTree* tree)
             // know which of its result regs needs to be spilled.
             if (tree->IsMultiRegCall())
             {
-                GenTreeCall*          call        = tree->AsCall();
-                const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned        regCount    = retTypeDesc->GetReturnRegCount();
+                GenTreeCall* call = tree->AsCall();
 
-                for (unsigned i = 0; i < regCount; ++i)
+                for (unsigned i = 0; i < call->GetRegCount(); ++i)
                 {
                     unsigned flags = call->GetRegSpillFlagByIdx(i);
                     if ((flags & GTF_SPILL) != 0)
@@ -1959,14 +1957,12 @@ void CodeGen::genProduceReg(GenTree* tree)
             // Mark all the regs produced by the node.
             if (tree->IsMultiRegCall())
             {
-                const GenTreeCall*    call        = tree->AsCall();
-                const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned        regCount    = retTypeDesc->GetReturnRegCount();
+                GenTreeCall* call = tree->AsCall();
 
-                for (unsigned i = 0; i < regCount; ++i)
+                for (unsigned i = 0; i < call->GetRegCount(); ++i)
                 {
                     regNumber reg  = call->GetRegNumByIdx(i);
-                    var_types type = retTypeDesc->GetReturnRegType(i);
+                    var_types type = call->GetRegType(i);
                     gcInfo.gcMarkRegPtrVal(reg, type);
                 }
             }
@@ -1978,14 +1974,12 @@ void CodeGen::genProduceReg(GenTree* tree)
 
                 // A multi-reg GT_COPY node produces those regs to which
                 // copy has taken place.
-                const GenTreeCopyOrReload* copy        = tree->AsCopyOrReload();
-                const GenTreeCall*         call        = copy->gtGetOp1()->AsCall();
-                const ReturnTypeDesc*      retTypeDesc = call->GetReturnTypeDesc();
-                const unsigned             regCount    = retTypeDesc->GetReturnRegCount();
+                const GenTreeCopyOrReload* copy = tree->AsCopyOrReload();
+                const GenTreeCall*         call = copy->GetOp(0)->AsCall();
 
-                for (unsigned i = 0; i < regCount; ++i)
+                for (unsigned i = 0; i < call->GetRegCount(); ++i)
                 {
-                    var_types type  = retTypeDesc->GetReturnRegType(i);
+                    var_types type  = call->GetRegType(i);
                     regNumber toReg = copy->GetRegNumByIdx(i);
 
                     if (toReg != REG_NA)
@@ -2375,59 +2369,42 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
     }
 }
 
-#if !defined(TARGET_64BIT)
-//------------------------------------------------------------------------
-// genStoreLongLclVar: Generate code to store a non-enregistered long lclVar
-//
-// Arguments:
-//    treeNode - A TYP_LONG lclVar node.
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    'treeNode' must be a TYP_LONG lclVar node for a lclVar that has NOT been promoted.
-//    Its operand must be a GT_LONG node.
-//
-void CodeGen::genStoreLongLclVar(GenTree* treeNode)
+#ifndef TARGET_64BIT
+
+void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 {
-    emitter* emit = GetEmitter();
+    LclVarDsc* lcl = compiler->lvaGetDesc(store);
 
-    GenTreeLclVarCommon* lclNode = treeNode->AsLclVarCommon();
-    unsigned             lclNum  = lclNode->GetLclNum();
-    LclVarDsc*           varDsc  = &(compiler->lvaTable[lclNum]);
-    assert(varDsc->TypeGet() == TYP_LONG);
-    assert(!varDsc->lvPromoted);
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
+    assert(lcl->GetType() == TYP_LONG);
+    assert(!lcl->IsPromoted());
 
-    // A GT_LONG is always contained, so it cannot have RELOAD or COPY inserted between it and its consumer,
-    // but a MUL_LONG may.
-    noway_assert(op1->OperIs(GT_LONG) || op1->gtSkipReloadOrCopy()->OperIs(GT_MUL_LONG));
-    genConsumeRegs(op1);
+    GenTree*  src = store->GetOp(0);
+    regNumber loSrcReg;
+    regNumber hiSrcReg;
 
-    if (op1->OperGet() == GT_LONG)
+    if (src->OperIs(GT_LONG))
     {
-        GenTree* loVal = op1->gtGetOp1();
-        GenTree* hiVal = op1->gtGetOp2();
+        assert(src->isContained());
 
-        noway_assert((loVal->GetRegNum() != REG_NA) && (hiVal->GetRegNum() != REG_NA));
-
-        emit->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, loVal->GetRegNum(), lclNum, 0);
-        emit->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, hiVal->GetRegNum(), lclNum, genTypeSize(TYP_INT));
+        loSrcReg = genConsumeReg(src->AsOp()->GetOp(0));
+        hiSrcReg = genConsumeReg(src->AsOp()->GetOp(1));
     }
     else
     {
-        assert((op1->gtSkipReloadOrCopy()->gtFlags & GTF_MUL_64RSLT) != 0);
-        // This is either a multi-reg MUL_LONG, or a multi-reg reload or copy.
-        assert(op1->IsMultiRegNode() && (op1->GetMultiRegCount() == 2));
+        noway_assert(src->gtSkipReloadOrCopy()->OperIs(GT_MUL_LONG));
+        assert(src->GetMultiRegCount() == 2);
 
-        // Stack store
-        emit->emitIns_S_R(ins_Store(TYP_INT), emitTypeSize(TYP_INT), op1->GetRegByIndex(0), lclNum, 0);
-        emit->emitIns_S_R(ins_Store(TYP_INT), emitTypeSize(TYP_INT), op1->GetRegByIndex(1), lclNum,
-                          genTypeSize(TYP_INT));
+        genConsumeRegs(src);
+
+        loSrcReg = src->GetRegByIndex(0);
+        hiSrcReg = src->GetRegByIndex(1);
     }
+
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, loSrcReg, store->GetLclNum(), 0);
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, hiSrcReg, store->GetLclNum(), 4);
 }
-#endif // !defined(TARGET_64BIT)
+
+#endif
 
 //------------------------------------------------------------------------
 // genCodeForJumpTrue: Generate code for a GT_JTRUE node.

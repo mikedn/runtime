@@ -409,7 +409,6 @@ typedef unsigned char   regNumberSmall;
   // Which register are int and long values returned in ?
   #define REG_INTRET               REG_EAX
   #define RBM_INTRET               RBM_EAX
-  #define RBM_LNGRET              (RBM_EDX|RBM_EAX)
   #define REG_LNGRET_LO            REG_EAX
   #define RBM_LNGRET_LO            RBM_EAX
   #define REG_LNGRET_HI            REG_EDX
@@ -417,7 +416,6 @@ typedef unsigned char   regNumberSmall;
 
   #define REG_FLOATRET             REG_NA
   #define RBM_FLOATRET             RBM_NONE
-  #define RBM_DOUBLERET            RBM_NONE
 
   // The registers trashed by the CORINFO_HELP_STOP_FOR_GC helper
   #define RBM_STOP_FOR_GC_TRASH    RBM_CALLEE_TRASH
@@ -734,8 +732,6 @@ typedef unsigned char   regNumberSmall;
   #define REG_INTRET               REG_EAX
   #define RBM_INTRET               RBM_EAX
 
-  #define RBM_LNGRET               RBM_EAX
-
 #ifdef UNIX_AMD64_ABI
     #define REG_INTRET_1           REG_RDX
     #define RBM_INTRET_1           RBM_RDX
@@ -747,15 +743,10 @@ typedef unsigned char   regNumberSmall;
 
   #define REG_FLOATRET             REG_XMM0
   #define RBM_FLOATRET             RBM_XMM0
-  #define REG_DOUBLERET            REG_XMM0
-  #define RBM_DOUBLERET            RBM_XMM0
 
 #ifdef UNIX_AMD64_ABI
 #define REG_FLOATRET_1             REG_XMM1
 #define RBM_FLOATRET_1             RBM_XMM1
-
-#define REG_DOUBLERET_1            REG_XMM1
-#define RBM_DOUBLERET_1            RBM_XMM1
 #endif // UNIX_AMD64_ABI
 
   #define REG_FPBASE               REG_EBP
@@ -1113,7 +1104,6 @@ typedef unsigned char   regNumberSmall;
   // Which register are int and long values returned in ?
   #define REG_INTRET               REG_R0
   #define RBM_INTRET               RBM_R0
-  #define RBM_LNGRET              (RBM_R1|RBM_R0)
   #define REG_LNGRET_LO            REG_R0
   #define REG_LNGRET_HI            REG_R1
   #define RBM_LNGRET_LO            RBM_R0
@@ -1121,11 +1111,10 @@ typedef unsigned char   regNumberSmall;
 
   #define REG_FLOATRET             REG_F0
   #define RBM_FLOATRET             RBM_F0
-  #define RBM_DOUBLERET           (RBM_F0|RBM_F1)
 
   // The registers trashed by the CORINFO_HELP_STOP_FOR_GC helper (JIT_RareDisableHelper).
   // See vm\arm\amshelpers.asm for more details.
-  #define RBM_STOP_FOR_GC_TRASH     (RBM_CALLEE_TRASH & ~(RBM_LNGRET|RBM_R7|RBM_R8|RBM_R11|RBM_DOUBLERET|RBM_F2|RBM_F3|RBM_F4|RBM_F5|RBM_F6|RBM_F7))
+  #define RBM_STOP_FOR_GC_TRASH     (RBM_CALLEE_TRASH & ~(RBM_R0|RBM_R1|RBM_R7|RBM_R8|RBM_R11|RBM_F0|RBM_F1|RBM_F2|RBM_F3|RBM_F4|RBM_F5|RBM_F6|RBM_F7))
 
   // The registers trashed by the CORINFO_HELP_INIT_PINVOKE_FRAME helper.
   #define RBM_INIT_PINVOKE_FRAME_TRASH (RBM_CALLEE_TRASH | RBM_PINVOKE_TCB | RBM_PINVOKE_SCRATCH)
@@ -1437,14 +1426,12 @@ typedef unsigned char   regNumberSmall;
   // Which register are int and long values returned in ?
   #define REG_INTRET               REG_R0
   #define RBM_INTRET               RBM_R0
-  #define RBM_LNGRET               RBM_R0
   // second return register for 16-byte structs
   #define REG_INTRET_1             REG_R1
   #define RBM_INTRET_1             RBM_R1
 
   #define REG_FLOATRET             REG_V0
   #define RBM_FLOATRET             RBM_V0
-  #define RBM_DOUBLERET            RBM_V0
 
   // The registers trashed by the CORINFO_HELP_STOP_FOR_GC helper
   #define RBM_STOP_FOR_GC_TRASH    RBM_CALLEE_TRASH

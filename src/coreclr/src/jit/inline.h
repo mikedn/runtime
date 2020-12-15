@@ -540,7 +540,6 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
     unsigned               clsAttr;
     unsigned               methAttr;
     CorInfoInitClassResult initClassResult;
-    var_types              fncRetType;
     bool                   exactContextNeedsRuntimeLookup;
 };
 

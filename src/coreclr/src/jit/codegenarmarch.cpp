@@ -262,14 +262,17 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_STORE_LCL_FLD:
-            genCodeForStoreLclFld(treeNode->AsLclFld());
+            GenStoreLclFld(treeNode->AsLclFld());
             break;
 
         case GT_STORE_LCL_VAR:
-            genCodeForStoreLclVar(treeNode->AsLclVar());
+            GenStoreLclVar(treeNode->AsLclVar());
             break;
 
         case GT_RETFILT:
+            genRetFilt(treeNode);
+            break;
+
         case GT_RETURN:
             genReturn(treeNode);
             break;
@@ -1177,43 +1180,42 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 #endif // FEATURE_ARG_SPLIT
 
 #ifdef FEATURE_SIMD
-//----------------------------------------------------------------------------------
-// genMultiRegStoreToSIMDLocal: store multi-reg value to a single-reg SIMD local
-//
-// Arguments:
-//    lclNode  -  GentreeLclVar of GT_STORE_LCL_VAR
-//
-// Return Value:
-//    None
-//
-void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
+
+void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 {
-    regNumber dst       = lclNode->GetRegNum();
-    GenTree*  op1       = lclNode->gtGetOp1();
-    GenTree*  actualOp1 = op1->gtSkipReloadOrCopy();
-    unsigned  regCount =
-        actualOp1->IsMultiRegLclVar() ? actualOp1->AsLclVar()->GetFieldCount(compiler) : actualOp1->GetMultiRegCount();
-    assert(op1->IsMultiRegNode());
-    genConsumeRegs(op1);
+    GenTree* src = store->GetOp(0);
+    assert(src->IsMultiRegNode());
+
+    GenTree* actualSrc = src->gtSkipReloadOrCopy();
+    unsigned regCount =
+        actualSrc->IsMultiRegLclVar() ? actualSrc->AsLclVar()->GetFieldCount(compiler) : actualSrc->GetMultiRegCount();
+
+    genConsumeRegs(src);
 
     // Treat dst register as a homogenous vector with element size equal to the src size
-    // Insert pieces in reverse order
+    // Insert pieces in reverse order.
+
+    regNumber dstReg = store->GetRegNum();
+
     for (int i = regCount - 1; i >= 0; --i)
     {
-        var_types type = op1->gtSkipReloadOrCopy()->GetRegTypeByIndex(i);
-        regNumber reg  = op1->GetRegByIndex(i);
-        if (op1->IsCopyOrReload())
+        var_types type   = actualSrc->GetRegTypeByIndex(i);
+        regNumber srcReg = src->GetRegByIndex(i);
+
+        if (src->IsCopyOrReload())
         {
-            // GT_COPY/GT_RELOAD will have valid reg for those positions
-            // that need to be copied or reloaded.
-            regNumber reloadReg = op1->AsCopyOrReload()->GetRegNumByIdx(i);
+            // COPY/RELOAD will have valid reg for those positions that need to be copied or reloaded.
+
+            regNumber reloadReg = src->AsCopyOrReload()->GetRegNumByIdx(i);
+
             if (reloadReg != REG_NA)
             {
-                reg = reloadReg;
+                srcReg = reloadReg;
             }
         }
 
-        assert(reg != REG_NA);
+        assert(srcReg != REG_NA);
+
         if (varTypeIsFloating(type))
         {
             // If the register piece was passed in a floating point register
@@ -1224,7 +1226,7 @@ void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
             // iterations
             // For the case where reg == dst, if we iterate so that we write dst[0] last, we eliminate the need for
             // a temporary
-            GetEmitter()->emitIns_R_R_I_I(INS_mov, emitTypeSize(type), dst, reg, i, 0);
+            GetEmitter()->emitIns_R_R_I_I(INS_mov, emitTypeSize(type), dstReg, srcReg, i, 0);
         }
         else
         {
@@ -1232,12 +1234,13 @@ void CodeGen::genMultiRegStoreToSIMDLocal(GenTreeLclVar* lclNode)
             // Use a vector mov from general purpose register instruction
             // mov dst[i], reg
             // This effectively moves from `reg` to `dst[i]`
-            GetEmitter()->emitIns_R_R_I(INS_mov, emitTypeSize(type), dst, reg, i);
+            GetEmitter()->emitIns_R_R_I(INS_mov, emitTypeSize(type), dstReg, srcReg, i);
         }
     }
 
-    genProduceReg(lclNode);
+    genProduceReg(store);
 }
+
 #endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
@@ -2392,14 +2395,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
     // Determine return value size(s).
-    const ReturnTypeDesc* pRetTypeDesc  = call->GetReturnTypeDesc();
-    emitAttr              retSize       = EA_PTRSIZE;
-    emitAttr              secondRetSize = EA_UNKNOWN;
+    emitAttr retSize       = EA_PTRSIZE;
+    emitAttr secondRetSize = EA_UNKNOWN;
 
     if (call->HasMultiRegRetVal())
     {
-        retSize       = emitTypeSize(pRetTypeDesc->GetReturnRegType(0));
-        secondRetSize = emitTypeSize(pRetTypeDesc->GetReturnRegType(1));
+        retSize       = emitTypeSize(call->GetRegType(0));
+        secondRetSize = emitTypeSize(call->GetRegType(1));
     }
     else
     {
@@ -2549,20 +2551,15 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     var_types returnType = call->TypeGet();
     if (returnType != TYP_VOID)
     {
-        regNumber returnReg;
-
         if (call->HasMultiRegRetVal())
         {
-            assert(pRetTypeDesc != nullptr);
-            unsigned regCount = pRetTypeDesc->GetReturnRegCount();
-
             // If regs allocated to call node are different from ABI return
             // regs in which the call has returned its result, move the result
             // to regs allocated to call node.
-            for (unsigned i = 0; i < regCount; ++i)
+            for (unsigned i = 0; i < call->GetRegCount(); ++i)
             {
-                var_types regType      = pRetTypeDesc->GetReturnRegType(i);
-                returnReg              = pRetTypeDesc->GetABIReturnReg(i);
+                var_types regType      = call->GetRegType(i);
+                regNumber returnReg    = call->GetRetDesc()->GetRegNum(i);
                 regNumber allocatedReg = call->GetRegNumByIdx(i);
                 if (returnReg != allocatedReg)
                 {
@@ -2572,6 +2569,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
         else
         {
+            regNumber returnReg;
+
 #ifdef TARGET_ARM
             if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
             {
@@ -3567,48 +3566,32 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
 }
 
 #ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// genSIMDSplitReturn: Generates code for returning a fixed-size SIMD type that lives
-//                     in a single register, but is returned in multiple registers.
-//
-// Arguments:
-//    src         - The source of the return
-//    retTypeDesc - The return type descriptor.
-//
-void CodeGen::genSIMDSplitReturn(GenTree* src, ReturnTypeDesc* retTypeDesc)
+
+void CodeGen::genMultiRegSIMDReturn(GenTree* src)
 {
-    assert(varTypeIsSIMD(src));
+    assert(varTypeIsSIMD(src->GetType()));
     assert(src->isUsedFromReg());
+
     regNumber srcReg = src->GetRegNum();
 
-    // Treat src register as a homogenous vector with element size equal to the reg size
-    // Insert pieces in order
-    unsigned regCount = retTypeDesc->GetReturnRegCount();
-    for (unsigned i = 0; i < regCount; ++i)
+    for (unsigned i = 0; i < compiler->info.retDesc.GetRegCount(); ++i)
     {
-        var_types type = retTypeDesc->GetReturnRegType(i);
-        regNumber reg  = retTypeDesc->GetABIReturnReg(i);
-        if (varTypeIsFloating(type))
+        var_types retType = compiler->info.retDesc.GetRegType(i);
+        regNumber retReg  = compiler->info.retDesc.GetRegNum(i);
+
+        if (varTypeIsFloating(retType))
         {
-            // If the register piece is to be passed in a floating point register
-            // Use a vector mov element instruction
-            // reg is not a vector, so it is in the first element reg[0]
             // mov reg[0], src[i]
-            // This effectively moves from `src[i]` to `reg[0]`, upper bits of reg remain unchanged
-            // For the case where src == reg, since we are only writing reg[0], as long as we iterate
-            // so that src[0] is consumed before writing reg[0], we do not need a temporary.
-            GetEmitter()->emitIns_R_R_I_I(INS_mov, emitTypeSize(type), reg, srcReg, 0, i);
+            GetEmitter()->emitIns_R_R_I_I(INS_mov, emitTypeSize(retType), retReg, srcReg, 0, i);
         }
         else
         {
-            // If the register piece is to be passed in an integer register
-            // Use a vector mov to general purpose register instruction
             // mov reg, src[i]
-            // This effectively moves from `src[i]` to `reg`
-            GetEmitter()->emitIns_R_R_I(INS_mov, emitTypeSize(type), reg, srcReg, i);
+            GetEmitter()->emitIns_R_R_I(INS_mov, emitTypeSize(retType), retReg, srcReg, i);
         }
     }
 }
+
 #endif // FEATURE_SIMD
 
 #endif // TARGET_ARMARCH

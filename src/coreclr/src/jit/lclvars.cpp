@@ -88,6 +88,75 @@ void Compiler::lvaInit()
 
 void Compiler::lvaInitTypeRef()
 {
+    var_types retType       = JITtype2varType(info.compMethodInfo->args.retType);
+    bool      hasRetBuffArg = false;
+
+    if (retType != TYP_STRUCT)
+    {
+        info.retDesc.InitializePrimitive(retType);
+        info.compRetType = retType;
+    }
+    else
+    {
+        CORINFO_CLASS_HANDLE retClass     = info.compMethodInfo->args.retTypeClass;
+        unsigned             retClassSize = info.compCompHnd->getClassSize(retClass);
+        structPassingKind    retKind      = SPK_Unknown;
+        var_types            retKindType  = getReturnTypeForStruct(retClass, &retKind, retClassSize);
+
+        info.compRetType = impNormStructType(retClass);
+
+        if (retKind == SPK_PrimitiveType)
+        {
+            assert(retKindType != TYP_UNKNOWN);
+            assert(retKindType != TYP_STRUCT);
+
+            info.retDesc.InitializePrimitive(retKindType);
+
+            if ((retKindType == TYP_LONG) && !compLongUsed)
+            {
+                compLongUsed = true;
+            }
+            else if (varTypeIsFloating(retKindType) && !compFloatingPointUsed)
+            {
+                compFloatingPointUsed = true;
+            }
+        }
+#if FEATURE_MULTIREG_RET
+        else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
+        {
+            // TODO-MIKE-Throughput: Both getReturnTypeForStruct and InitializeStruct call
+            // getSystemVAmd64PassStructInRegisterDescriptor/getHFAType and those are rather
+            // expensive. Ideally getReturnTypeForStruct would just return all the necessary
+            // information (or just initialize retDesc directly). impInitializeStructCall
+            // has similar logic and the same problem.
+
+            info.retDesc.InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
+        }
+#endif
+        else
+        {
+            assert(retKind == SPK_ByReference);
+
+            hasRetBuffArg = true;
+            retKindType   = TYP_VOID;
+
+            if (!compIsForInlining()
+#ifndef TARGET_AMD64
+                && compIsProfilerHookNeeded()
+#endif
+                    )
+            {
+                retKindType = TYP_BYREF;
+            }
+
+            info.retDesc.InitializePrimitive(retKindType);
+        }
+    }
+
+    if (compIsForInlining())
+    {
+        assert(impInlineInfo->iciCall->GetRetSigType() == info.GetRetSigType());
+    }
 
     /* x86 args look something like this:
         [this ptr] [hidden return buffer] [declared arguments]* [generic context] [var arg cookie]
@@ -121,50 +190,6 @@ void Compiler::lvaInitTypeRef()
     }
 
     info.compILargsCount = info.compArgsCount;
-
-#ifdef FEATURE_SIMD
-    if (supportSIMDTypes() && (info.compRetNativeType == TYP_STRUCT))
-    {
-        var_types structType = impNormStructType(info.compMethodInfo->args.retTypeClass);
-        info.compRetType     = structType;
-    }
-#endif // FEATURE_SIMD
-
-    // Are we returning a struct using a return buffer argument?
-    //
-    const bool hasRetBuffArg = impMethodInfo_hasRetBuffArg(info.compMethodInfo);
-
-    // Possibly change the compRetNativeType from TYP_STRUCT to a "primitive" type
-    // when we are returning a struct by value and it fits in one register
-    //
-    if (!hasRetBuffArg && varTypeIsStruct(info.compRetNativeType))
-    {
-        CORINFO_CLASS_HANDLE retClsHnd = info.compMethodInfo->args.retTypeClass;
-
-        Compiler::structPassingKind howToReturnStruct;
-        var_types                   returnType = getReturnTypeForStruct(retClsHnd, &howToReturnStruct);
-
-        // We can safely widen the return type for enclosed structs.
-        if ((howToReturnStruct == SPK_PrimitiveType) || (howToReturnStruct == SPK_EnclosingType))
-        {
-            assert(returnType != TYP_UNKNOWN);
-            assert(returnType != TYP_STRUCT);
-
-            info.compRetNativeType = returnType;
-
-            // ToDo: Refactor this common code sequence into its own method as it is used 4+ times
-            if ((returnType == TYP_LONG) && (compLongUsed == false))
-            {
-                compLongUsed = true;
-            }
-            else if (((returnType == TYP_FLOAT) || (returnType == TYP_DOUBLE)) && (compFloatingPointUsed == false))
-            {
-                compFloatingPointUsed = true;
-            }
-        }
-    }
-
-    // Do we have a RetBuffArg?
 
     if (hasRetBuffArg)
     {
@@ -464,14 +489,10 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
 /*****************************************************************************/
 void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo)
 {
-    LclVarDsc* varDsc        = varDscInfo->varDsc;
-    bool       hasRetBuffArg = impMethodInfo_hasRetBuffArg(info.compMethodInfo);
-
-    // These two should always match
-    noway_assert(hasRetBuffArg == varDscInfo->hasRetBufArg);
-
-    if (hasRetBuffArg)
+    if (varDscInfo->hasRetBufArg)
     {
+        LclVarDsc* varDsc = varDscInfo->varDsc;
+
         info.compRetBuffArg = varDscInfo->varNum;
         varDsc->lvType      = TYP_BYREF;
         varDsc->lvIsParam   = 1;
@@ -1717,10 +1738,19 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
         return false;
     }
 
-    if (!compiler->lvaEnregMultiRegVars && varDsc->lvIsMultiRegArgOrRet())
+    if (!compiler->lvaEnregMultiRegVars)
     {
-        JITDUMP("  struct promotion of V%02u is disabled because lvIsMultiRegArgOrRet()\n", lclNum);
-        return false;
+        if (varDsc->lvIsMultiRegArg)
+        {
+            JITDUMP("  struct promotion of V%02u is disabled because it is a multi-reg arg\n", lclNum);
+            return false;
+        }
+
+        if (varDsc->lvIsMultiRegRet)
+        {
+            JITDUMP("  struct promotion of V%02u is disabled because it is a multi-reg return\n", lclNum);
+            return false;
+        }
     }
 
     // TODO-CQ: enable promotion for OSR locals
@@ -1731,10 +1761,9 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
     }
 
     CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
-    assert(typeHnd != nullptr);
 
     bool canPromote = CanPromoteStructType(typeHnd);
-    if (canPromote && varDsc->lvIsMultiRegArgOrRet())
+    if (canPromote && (varDsc->lvIsMultiRegArg || varDsc->lvIsMultiRegRet))
     {
         unsigned fieldCnt = structPromotionInfo.fieldCnt;
         if (fieldCnt > MAX_MULTIREG_COUNT)
@@ -1886,8 +1915,7 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
             shouldPromote = false;
         }
     }
-    else if (!compiler->compDoOldStructRetyping() && (lclNum == compiler->genReturnLocal) &&
-             (structPromotionInfo.fieldCnt > 1))
+    else if ((lclNum == compiler->genReturnLocal) && (structPromotionInfo.fieldCnt > 1))
     {
         // TODO-1stClassStructs: a temporary solution to keep diffs small, it will be fixed later.
         shouldPromote = false;
@@ -2240,7 +2268,7 @@ void Compiler::lvaPromoteLongVars()
             continue;
         }
 
-        assert(!varDsc->lvIsMultiRegArgOrRet());
+        assert(!varDsc->lvIsMultiRegArg && !varDsc->lvIsMultiRegRet);
         varDsc->lvFieldCnt      = 2;
         varDsc->lvFieldLclStart = lvaCount;
         varDsc->lvPromoted      = true;
@@ -2492,13 +2520,16 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
 
         var_types type = getArgTypeForStruct(clsHnd, &howToPassStruct, isVarArg, varDsc->lvExactSize);
 
+#ifdef FEATURE_HFA
         if (howToPassStruct == SPK_ByValueAsHfa)
         {
             assert(type == TYP_STRUCT);
             return true;
         }
+#endif
 
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+        // TODO-MIKE-Review: Why is this excluded on ARM?
         if (howToPassStruct == SPK_ByValue)
         {
             assert(type == TYP_STRUCT);
@@ -2507,6 +2538,13 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
 #endif
     }
     return false;
+}
+
+void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer)
+{
+    assert(!layout->IsBlockLayout());
+
+    lvaSetStruct(lclNum, layout->GetClassHandle(), checkUnsafeBuffer);
 }
 
 void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck)

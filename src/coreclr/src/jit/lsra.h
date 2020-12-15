@@ -1537,7 +1537,7 @@ private:
         pendingDelayFree         = false;
     }
 
-    bool isCandidateMultiRegLclVar(GenTreeLclVar* lclNode);
+    bool IsCandidateLclVarMultiReg(GenTreeLclVar* lclNode);
     bool checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode);
 
     RefPosition* BuildUse(GenTree* operand, regMaskTP candidates = RBM_NONE, int multiRegIdx = 0);
@@ -1563,10 +1563,9 @@ private:
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
 #endif
     RefPosition* BuildDef(GenTree* tree, regMaskTP dstCandidates = RBM_NONE, int multiRegIdx = 0);
-    void BuildDefs(GenTree* tree, int dstCount, regMaskTP dstCandidates = RBM_NONE);
-    void BuildDefsWithKills(GenTree* tree, int dstCount, regMaskTP dstCandidates, regMaskTP killMask);
+    void BuildKills(GenTree* tree, regMaskTP killMask);
 
-    int BuildReturn(GenTree* tree);
+    int BuildReturn(GenTreeUnOp* ret);
 #ifdef TARGET_XARCH
     // This method, unlike the others, returns the number of sources, since it may be called when
     // 'tree' is contained.
@@ -1581,9 +1580,11 @@ private:
     int BuildStructStore(GenTreeBlk* store);
     int BuildModDiv(GenTree* tree);
     int BuildIntrinsic(GenTree* tree);
-    void BuildStoreLocDef(GenTreeLclVarCommon* storeLoc, LclVarDsc* varDsc, RefPosition* singleUseRef, int index);
-    int BuildMultiRegStoreLoc(GenTreeLclVar* storeLoc);
-    int BuildStoreLoc(GenTreeLclVarCommon* tree);
+    void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, int index);
+    int BuildStoreLclVarMultiReg(GenTreeLclVar* store);
+    int BuildStoreLclVar(GenTreeLclVar* store, int* dstCount);
+    int BuildStoreLclFld(GenTreeLclFld* store);
+    int BuildStoreLcl(GenTreeLclVarCommon* store);
     int BuildIndir(GenTreeIndir* indirTree);
     int BuildGCWriteBarrier(GenTreeStoreInd* store);
     int BuildCast(GenTreeCast* cast);

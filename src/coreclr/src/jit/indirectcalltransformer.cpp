@@ -650,7 +650,7 @@ private:
 
                 if (varTypeIsStruct(origCall->GetType()))
                 {
-                    compiler->lvaSetStruct(returnTemp, origCall->gtRetClsHnd, false);
+                    compiler->lvaSetStruct(returnTemp, origCall->GetRetLayout(), false);
                 }
 
                 GenTree* tempTree = compiler->gtNewLclvNode(returnTemp, origCall->GetType());

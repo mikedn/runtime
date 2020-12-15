@@ -91,7 +91,7 @@ private:
     void ContainCheckStoreIndir(GenTreeIndir* indirNode);
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
-    void ContainCheckStoreLoc(GenTreeLclVarCommon* storeLoc);
+    void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
     void ContainCheckCast(GenTreeCast* node);
     void ContainCheckCompare(GenTreeOp* node);
     void ContainCheckBinary(GenTreeOp* node);
@@ -134,7 +134,11 @@ private:
     GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
     void LowerJmpMethod(GenTree* jmp);
     void LowerRet(GenTreeUnOp* ret);
-    void LowerStoreLocCommon(GenTreeLclVarCommon* lclVar);
+    void LowerLclVar(GenTreeLclVar* lclVar);
+    void LowerStoreLclVar(GenTreeLclVar* store);
+    void LowerStoreLclVarArch(GenTreeLclVar* store);
+    void LowerLclFld(GenTreeLclFld* lclFld);
+    void LowerStoreLclFld(GenTreeLclFld* store);
     void LowerRetStruct(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerCallStruct(GenTreeCall* call);
@@ -333,8 +337,9 @@ private:
 #endif
 
     void WidenSIMD12IfNecessary(GenTreeLclVarCommon* node);
-    bool CheckMultiRegLclVar(GenTreeLclVar* lclNode, const ReturnTypeDesc* retTypeDesc);
-    void LowerStoreLoc(GenTreeLclVarCommon* tree);
+#if FEATURE_MULTIREG_RET
+    void MakeMultiRegLclVar(GenTreeLclVar* lclVar, const ReturnTypeDesc* retTypeDesc);
+#endif
     GenTree* LowerArrElem(GenTree* node);
     void LowerRotate(GenTree* tree);
     void LowerShift(GenTreeOp* shift);
