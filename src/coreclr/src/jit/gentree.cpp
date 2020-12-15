@@ -5319,9 +5319,8 @@ GenTreeIntCon* Compiler::gtNewIconNode(ssize_t value, var_types type)
 
 GenTreeIntCon* Compiler::gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq)
 {
-    GenTreeIntCon* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, static_cast<ssize_t>(fieldOffset));
-    node->gtFieldSeq    = fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq;
-    return node;
+    return new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, static_cast<ssize_t>(fieldOffset),
+                                                fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
 }
 
 // return a new node representing the value in a physical register
@@ -9492,8 +9491,7 @@ void Compiler::gtDispConst(GenTree* tree)
                 }
             }
 
-            gtDispFieldSeq(tree->AsIntCon()->gtFieldSeq);
-
+            gtDispFieldSeq(tree->AsIntCon()->GetFieldSeq());
             break;
 
         case GT_CNS_LNG:
@@ -12889,9 +12887,9 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 #endif
                         // Fold into GT_IND of null byref
                         tree->ChangeOperConst(GT_CNS_INT);
-                        tree->gtType                 = TYP_BYREF;
-                        tree->AsIntCon()->gtIconVal  = 0;
-                        tree->AsIntCon()->gtFieldSeq = FieldSeqStore::NotAField();
+                        tree->SetType(TYP_BYREF);
+                        tree->AsIntCon()->SetValue(0);
+
                         if (vnStore != nullptr)
                         {
                             fgValueNumberTreeConst(tree);
@@ -13015,8 +13013,9 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             }
                         }
                     }
-                    i1       = itemp;
-                    fieldSeq = GetFieldSeqStore()->Append(op1->AsIntCon()->gtFieldSeq, op2->AsIntCon()->gtFieldSeq);
+                    i1 = itemp;
+                    fieldSeq =
+                        GetFieldSeqStore()->Append(op1->AsIntCon()->GetFieldSeq(), op2->AsIntCon()->GetFieldSeq());
                     break;
                 case GT_SUB:
                     itemp = i1 - i2;
@@ -13155,9 +13154,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
              * GT_JTRUE has to be a GT_CNS_INT - value 0 or 1 */
 
             tree->ChangeOperConst(GT_CNS_INT);
-            tree->gtType                 = TYP_INT;
-            tree->AsIntCon()->gtIconVal  = i1;
-            tree->AsIntCon()->gtFieldSeq = fieldSeq;
+            tree->SetType(TYP_INT);
+            tree->AsIntCon()->SetValue(i1);
+            tree->AsIntCon()->SetFieldSeq(fieldSeq);
+
             if (vnStore != nullptr)
             {
                 fgValueNumberTreeConst(tree);
@@ -16092,9 +16092,9 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
                     const bool op1IsStaticFieldBase = gtIsStaticGCBaseHelperCall(op1);
 
-                    if (op1IsStaticFieldBase && (op2->OperGet() == GT_CNS_INT))
+                    if (op1IsStaticFieldBase && op2->IsIntCon())
                     {
-                        FieldSeqNode* fieldSeq = op2->AsIntCon()->gtFieldSeq;
+                        FieldSeqNode* fieldSeq = op2->AsIntCon()->GetFieldSeq();
 
                         if (fieldSeq != nullptr)
                         {

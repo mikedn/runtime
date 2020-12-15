@@ -1337,7 +1337,7 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
     if (oper == GT_CNS_INT)
     {
-        AsIntCon()->gtFieldSeq = nullptr;
+        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
     }
 
 #if defined(TARGET_ARM)
@@ -1385,7 +1385,7 @@ inline void GenTree::ChangeOperConst(genTreeOps oper)
     // Some constant subtypes have additional fields that must be initialized.
     if (oper == GT_CNS_INT)
     {
-        AsIntCon()->gtFieldSeq = FieldSeqStore::NotAField();
+        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
     }
 }
 

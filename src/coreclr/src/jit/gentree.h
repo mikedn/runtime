@@ -2943,14 +2943,9 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     */
     ssize_t gtCompileTimeHandle;
 
-    // TODO-Cleanup: It's not clear what characterizes the cases where the field
-    // above is used.  It may be that its uses and those of the "gtFieldSeq" field below
-    // are mutually exclusive, and they could be put in a union.  Or else we should separate
-    // this type into three subtypes.
-
-    // If this constant represents the offset of one or more fields, "gtFieldSeq" represents that
+    // If this constant represents the offset of one or more fields, "m_fieldSeq" represents that
     // sequence of fields.
-    FieldSeqNode* gtFieldSeq;
+    FieldSeqNode* m_fieldSeq;
 
     // If the value represents target address, holds the method handle to that target which is used
     // to fetch target method name and display in the disassembled code.
@@ -2960,12 +2955,12 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         : GenTreeIntConCommon(GT_CNS_INT, type)
         , gtIconVal(value)
         , gtCompileTimeHandle(0)
-        , gtFieldSeq(FieldSeqStore::NotAField())
+        , m_fieldSeq(FieldSeqStore::NotAField())
     {
     }
 
     GenTreeIntCon(var_types type, ssize_t value, FieldSeqNode* fieldSeq)
-        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), gtCompileTimeHandle(0), gtFieldSeq(fieldSeq)
+        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), gtCompileTimeHandle(0), m_fieldSeq(fieldSeq)
     {
         assert(fieldSeq != nullptr);
     }
@@ -2974,7 +2969,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         : GenTreeIntConCommon(GT_CNS_INT, copyFrom->GetType())
         , gtIconVal(copyFrom->gtIconVal)
         , gtCompileTimeHandle(copyFrom->gtCompileTimeHandle)
-        , gtFieldSeq(copyFrom->gtFieldSeq)
+        , m_fieldSeq(copyFrom->m_fieldSeq)
 #ifdef DEBUG
         , gtTargetHandle(copyFrom->gtTargetHandle)
 #endif
@@ -2994,23 +2989,23 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     void SetValue(ssize_t value)
     {
         gtIconVal  = value;
-        gtFieldSeq = FieldSeqStore::NotAField();
+        m_fieldSeq = FieldSeqStore::NotAField();
     }
 
     void SetValue(unsigned offset, FieldSeqNode* fieldSeq)
     {
         gtIconVal  = offset;
-        gtFieldSeq = fieldSeq;
+        m_fieldSeq = fieldSeq;
     }
 
     FieldSeqNode* GetFieldSeq() const
     {
-        return gtFieldSeq;
+        return m_fieldSeq;
     }
 
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
-        gtFieldSeq = fieldSeq;
+        m_fieldSeq = fieldSeq;
     }
 
     void FixupInitBlkValue(var_types asgType);

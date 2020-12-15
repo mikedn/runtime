@@ -3883,7 +3883,7 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTree* opA, GenTree* opB)
 {
     if (opB->OperGet() == GT_CNS_INT)
     {
-        FieldSeqNode* fldSeq = opB->AsIntCon()->gtFieldSeq;
+        FieldSeqNode* fldSeq = opB->AsIntCon()->GetFieldSeq();
         if (fldSeq != nullptr)
         {
             return ExtendPtrVN(opA, fldSeq);

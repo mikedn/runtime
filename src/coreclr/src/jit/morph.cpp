@@ -9872,8 +9872,8 @@ GenTree* Compiler::fgMorphCommutative(GenTreeOp* tree)
     cns1->gtIconVal = foldedCns->AsIntCon()->IconValue();
     if ((oper == GT_ADD) && foldedCns->IsCnsIntOrI())
     {
-        cns1->AsIntCon()->gtFieldSeq =
-            GetFieldSeqStore()->Append(cns1->AsIntCon()->gtFieldSeq, cns2->AsIntCon()->gtFieldSeq);
+        cns1->AsIntCon()->SetFieldSeq(
+            GetFieldSeqStore()->Append(cns1->AsIntCon()->GetFieldSeq(), cns2->AsIntCon()->GetFieldSeq()));
     }
 
     GenTreeOp* newTree = tree->gtGetOp1()->AsOp();
@@ -11551,14 +11551,13 @@ DONE_MORPHING_CHILDREN:
                 /* Check for "op1 - cns2" , we change it to "op1 + (-cns2)" */
 
                 noway_assert(op2);
-                if (op2->IsCnsIntOrI() && !op2->IsIconHandle())
+                if (op2->IsIntCon() && !op2->IsIconHandle())
                 {
                     // Negate the constant and change the node to be "+",
                     // except when `op2` is a const byref.
 
-                    op2->AsIntCon()->SetIconValue(-op2->AsIntConCommon()->IconValue());
-                    op2->AsIntCon()->gtFieldSeq = FieldSeqStore::NotAField();
-                    oper                        = GT_ADD;
+                    op2->AsIntCon()->SetValue(-op2->AsIntCon()->GetValue());
+                    oper = GT_ADD;
                     tree->ChangeOper(oper);
                     goto CM_ADD_OP;
                 }
@@ -11788,11 +11787,10 @@ DONE_MORPHING_CHILDREN:
                         if (!gtIsActiveCSE_Candidate(op2) &&
                             ((op1->TypeGet() == tree->TypeGet()) || (op1->TypeGet() != TYP_REF)))
                         {
-                            if (fgGlobalMorph && (op2->OperGet() == GT_CNS_INT) &&
-                                (op2->AsIntCon()->gtFieldSeq != nullptr) &&
-                                (op2->AsIntCon()->gtFieldSeq != FieldSeqStore::NotAField()))
+                            if (fgGlobalMorph && op2->IsIntCon() && (op2->AsIntCon()->GetFieldSeq() != nullptr) &&
+                                (op2->AsIntCon()->GetFieldSeq() != FieldSeqStore::NotAField()))
                             {
-                                fgAddFieldSeqForZeroOffset(op1, op2->AsIntCon()->gtFieldSeq);
+                                fgAddFieldSeqForZeroOffset(op1, op2->AsIntCon()->GetFieldSeq());
                             }
 
                             DEBUG_DESTROY_NODE(op2);
@@ -12178,8 +12176,8 @@ DONE_MORPHING_CHILDREN:
                             break;
                         }
 
-                        ival1    = op1->AsOp()->gtOp2->AsIntCon()->gtIconVal;
-                        fieldSeq = op1->AsOp()->gtOp2->AsIntCon()->gtFieldSeq;
+                        ival1    = op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+                        fieldSeq = op1->AsOp()->GetOp(1)->AsIntCon()->GetFieldSeq();
 
                         // Does the address have an associated zero-offset field sequence?
                         FieldSeqNode* addrFieldSeq = nullptr;
@@ -12254,9 +12252,11 @@ DONE_MORPHING_CHILDREN:
                     }
                     else // we have a GT_LCL_VAR
                     {
-                        assert(temp->OperGet() == GT_LCL_VAR);
-                        temp->ChangeOper(GT_LCL_FLD); // Note that this typically makes the gtFieldSeq "NotAField",
-                        // unless there is a zero filed offset associated with 'temp'.
+                        assert(temp->OperIs(GT_LCL_VAR));
+
+                        // Note that this typically sets the node's field sequence to "NotAField",
+                        // unless there is a zero field offset associated with 'temp'.
+                        temp->ChangeOper(GT_LCL_FLD);
                         lclFld = temp->AsLclFld();
                         lclFld->SetLclOffs(static_cast<unsigned>(ival1));
 
@@ -16285,14 +16285,19 @@ void Compiler::fgMarkDemotedImplicitByRefParams()
 //    fieldSeqZero - a fieldSeq (with a zero offset)
 //
 // Notes:
-//    Some GenTree nodes have internal fields that record the field sequence.
-//    If we have one of these nodes: GT_CNS_INT, GT_LCL_FLD
-//    we can append the field sequence using the gtFieldSeq
-//    If we have a GT_ADD of a GT_CNS_INT we can use the
-//    fieldSeq from child node.
-//    Otherwise we record 'fieldSeqZero' in the GenTree node using
-//    a Map:  GetFieldSeqStore()
-//    When doing so we take care to preserve any existing zero field sequence
+//    A sequence of FIELD nodes usually gets converted to a LCL_FLD or an indirection
+//    where the address is ADD(objRef, CNS_INT(fieldOffset)). In either case we can
+//    record the field sequence in the LCL_FLD/CNS_INT node, if one exists. If the
+//    field offset is 0 the ADD node may get folded to just objRef and then we have
+//    no place where to record the field sequence.
+//
+//    This can happen for local field accesses that haven't yet been converted to
+//    LCL_FLD in LocalAddressVisitor or for static fields (the first static field
+//    in an R2R compiled assembly hits this case so it's rather rare).
+//
+//    For now such a field sequence is recorded in a hash table where the key is the
+//    address tree node, usually an ADDR(LCL_VAR) tree for the first field of a local
+//    struct variable or a helper call for static field.
 //
 void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZero)
 {
@@ -16326,9 +16331,9 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
     switch (addr->OperGet())
     {
         case GT_CNS_INT:
-            fieldSeqUpdate               = GetFieldSeqStore()->Append(addr->AsIntCon()->gtFieldSeq, fieldSeqZero);
-            addr->AsIntCon()->gtFieldSeq = fieldSeqUpdate;
-            fieldSeqRecorded             = true;
+            fieldSeqUpdate = GetFieldSeqStore()->Append(addr->AsIntCon()->GetFieldSeq(), fieldSeqZero);
+            addr->AsIntCon()->SetFieldSeq(fieldSeqUpdate);
+            fieldSeqRecorded = true;
             break;
 
         case GT_LCL_FLD:
@@ -16353,21 +16358,21 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
             break;
 
         case GT_ADD:
-            if (addr->AsOp()->gtOp1->OperGet() == GT_CNS_INT)
+            if (addr->AsOp()->GetOp(0)->IsIntCon())
             {
-                fieldSeqNode = addr->AsOp()->gtOp1;
+                fieldSeqNode = addr->AsOp()->GetOp(0);
 
-                fieldSeqUpdate = GetFieldSeqStore()->Append(addr->AsOp()->gtOp1->AsIntCon()->gtFieldSeq, fieldSeqZero);
-                addr->AsOp()->gtOp1->AsIntCon()->gtFieldSeq = fieldSeqUpdate;
-                fieldSeqRecorded                            = true;
+                fieldSeqUpdate = GetFieldSeqStore()->Append(fieldSeqNode->AsIntCon()->GetFieldSeq(), fieldSeqZero);
+                fieldSeqNode->AsIntCon()->SetFieldSeq(fieldSeqUpdate);
+                fieldSeqRecorded = true;
             }
-            else if (addr->AsOp()->gtOp2->OperGet() == GT_CNS_INT)
+            else if (addr->AsOp()->GetOp(1)->IsIntCon())
             {
-                fieldSeqNode = addr->AsOp()->gtOp2;
+                fieldSeqNode = addr->AsOp()->GetOp(1);
 
-                fieldSeqUpdate = GetFieldSeqStore()->Append(addr->AsOp()->gtOp2->AsIntCon()->gtFieldSeq, fieldSeqZero);
-                addr->AsOp()->gtOp2->AsIntCon()->gtFieldSeq = fieldSeqUpdate;
-                fieldSeqRecorded                            = true;
+                fieldSeqUpdate = GetFieldSeqStore()->Append(fieldSeqNode->AsIntCon()->GetFieldSeq(), fieldSeqZero);
+                fieldSeqNode->AsIntCon()->SetFieldSeq(fieldSeqUpdate);
+                fieldSeqRecorded = true;
             }
             break;
 
@@ -16375,7 +16380,7 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
             break;
     }
 
-    if (fieldSeqRecorded == false)
+    if (!fieldSeqRecorded)
     {
         // Record in the general zero-offset map.
 
