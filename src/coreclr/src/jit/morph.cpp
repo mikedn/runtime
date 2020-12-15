@@ -8322,8 +8322,7 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             var_types initType     = TYP_UNDEF;
             var_types initBaseType = TYP_UNDEF;
 
-            if ((destFieldSeq != nullptr) && (destFieldSeq != FieldSeqStore::NotAField()) &&
-                !destFieldSeq->IsPseudoField())
+            if ((destFieldSeq != nullptr) && destFieldSeq->GetTail()->IsField())
             {
                 CORINFO_CLASS_HANDLE fieldClassHandle;
                 var_types            fieldBaseType = TYP_UNKNOWN;

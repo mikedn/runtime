@@ -15405,7 +15405,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
         return false;
     }
 
-    if (!fieldSeq->IsPseudoField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
+    if (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
     {
         *pObj    = nullptr;
         *pStatic = addr;
@@ -15453,7 +15453,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
             (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
             // TODO-Review: A pseudoField here indicates an issue - this requires investigation
             // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
-            !icon->GetFieldSeq()->IsPseudoField())
+            !icon->GetFieldSeq()->IsBoxedValueField())
         {
             staticStructFldSeq = icon->GetFieldSeq();
         }
@@ -16132,8 +16132,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                         {
                             fieldSeq = fieldSeq->GetTail();
 
-                            assert(!fieldSeq->IsPseudoField());
-
                             // No benefit to calling gtGetFieldClassHandle here, as
                             // the exact field being accessed can vary.
                             CORINFO_FIELD_HANDLE fieldHnd     = fieldSeq->GetFieldHandle();
@@ -16476,7 +16474,7 @@ bool Compiler::optParseArrayAddress(
     // Also, find the first non-pseudo field...
     while (fldSeq != nullptr)
     {
-        if ((fldSeq != FieldSeqStore::NotAField()) && !fldSeq->IsPseudoField())
+        if (fldSeq != FieldSeqStore::NotAField())
         {
             // Due to the way INDEX is expanded in IR we don't expected to encounter any struct
             // fields in the field sequence. Access to a struct field of an array element is
@@ -16915,9 +16913,9 @@ bool FieldSeqNode::IsBoxedValueField() const
     return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
 }
 
-bool FieldSeqNode::IsPseudoField() const
+bool FieldSeqNode::IsField() const
 {
-    return m_fieldHnd == FieldSeqStore::BoxedValuePseudoFieldHandle;
+    return (this != FieldSeqStore::NotAField()) && !IsBoxedValueField();
 }
 
 #ifdef FEATURE_SIMD

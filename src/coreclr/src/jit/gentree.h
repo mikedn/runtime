@@ -245,11 +245,11 @@ public:
 
     bool IsBoxedValueField() const;
 
-    bool IsPseudoField() const;
+    bool IsField() const;
 
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
-        assert(!IsPseudoField() && (m_fieldHnd != nullptr));
+        assert(IsField());
         return m_fieldHnd;
     }
 

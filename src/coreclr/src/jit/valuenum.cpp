@@ -3555,64 +3555,62 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
     {
         return map;
     }
-    else
+
+    if (fieldSeq->IsBoxedValueField())
     {
-        assert(fieldSeq != FieldSeqStore::NotAField());
+        // Skip any boxed pseudo fields, these are used for static struct fields and are
+        // a side effect of using boxed values. We have s_field.boxed_data.x and we need
+        // only s_field.x.
+        return VNApplySelectors(vnk, map, fieldSeq->GetNext(), wbFinalStructSize);
+    }
 
-        // Skip any pseudo-fields
-        if (fieldSeq->IsPseudoField())
-        {
-            return VNApplySelectors(vnk, map, fieldSeq->GetNext(), wbFinalStructSize);
-        }
+    // Otherwise, is a real field handle.
+    CORINFO_FIELD_HANDLE fldHnd    = fieldSeq->GetFieldHandle();
+    CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
+    ValueNum             fldHndVN  = VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
+    noway_assert(fldHnd != nullptr);
+    CorInfoType fieldCit  = m_pComp->info.compCompHnd->getFieldType(fldHnd, &structHnd);
+    var_types   fieldType = JITtype2varType(fieldCit);
 
-        // Otherwise, is a real field handle.
-        CORINFO_FIELD_HANDLE fldHnd    = fieldSeq->GetFieldHandle();
-        CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
-        ValueNum             fldHndVN  = VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
-        noway_assert(fldHnd != nullptr);
-        CorInfoType fieldCit  = m_pComp->info.compCompHnd->getFieldType(fldHnd, &structHnd);
-        var_types   fieldType = JITtype2varType(fieldCit);
-
-        size_t structSize = 0;
-        if (varTypeIsStruct(fieldType))
+    size_t structSize = 0;
+    if (varTypeIsStruct(fieldType))
+    {
+        structSize = m_pComp->info.compCompHnd->getClassSize(structHnd);
+        // We do not normalize the type field accesses during importation unless they
+        // are used in a call, return or assignment.
+        if ((fieldType == TYP_STRUCT) && m_pComp->structSizeMightRepresentSIMDType(structSize))
         {
-            structSize = m_pComp->info.compCompHnd->getClassSize(structHnd);
-            // We do not normalize the type field accesses during importation unless they
-            // are used in a call, return or assignment.
-            if ((fieldType == TYP_STRUCT) && m_pComp->structSizeMightRepresentSIMDType(structSize))
-            {
-                fieldType = m_pComp->impNormStructType(structHnd);
-            }
+            fieldType = m_pComp->impNormStructType(structHnd);
         }
-        if (wbFinalStructSize != nullptr)
-        {
-            *wbFinalStructSize = structSize;
-        }
+    }
+    if (wbFinalStructSize != nullptr)
+    {
+        *wbFinalStructSize = structSize;
+    }
 
 #ifdef DEBUG
-        if (m_pComp->verbose)
+    if (m_pComp->verbose)
+    {
+        printf("  VNApplySelectors:\n");
+        const char* modName;
+        const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
+        printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s", fldName, fldHndVN, varTypeName(fieldType));
+        if (varTypeIsStruct(fieldType))
         {
-            printf("  VNApplySelectors:\n");
-            const char* modName;
-            const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
-            printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s", fldName, fldHndVN, varTypeName(fieldType));
-            if (varTypeIsStruct(fieldType))
-            {
-                printf(", size = %d", structSize);
-            }
-            printf("\n");
+            printf(", size = %d", structSize);
         }
+        printf("\n");
+    }
 #endif
 
-        if (fieldSeq->GetNext() != nullptr)
-        {
-            ValueNum newMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
-            return VNApplySelectors(vnk, newMap, fieldSeq->GetNext(), wbFinalStructSize);
-        }
-        else // end of fieldSeq
-        {
-            return VNForMapSelect(vnk, fieldType, map, fldHndVN);
-        }
+    if (fieldSeq->GetNext() != nullptr)
+    {
+        ValueNum newMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
+        return VNApplySelectors(vnk, newMap, fieldSeq->GetNext(), wbFinalStructSize);
+    }
+    else // end of fieldSeq
+    {
+        return VNForMapSelect(vnk, fieldType, map, fldHndVN);
     }
 }
 
@@ -3721,60 +3719,54 @@ ValueNum ValueNumStore::VNApplySelectorsAssign(
     {
         return VNApplySelectorsAssignTypeCoerce(elem, indType, block);
     }
+
+    if (fieldSeq->IsBoxedValueField())
+    {
+        // Skip any boxed pseudo fields, these are used for static struct fields and are
+        // a side effect of using boxed values. We have s_field.boxed_data.x and we need
+        // only s_field.x.
+        return VNApplySelectorsAssign(vnk, map, fieldSeq->GetNext(), elem, indType, block);
+    }
+
+    // Otherwise, fldHnd is a real field handle.
+    CORINFO_FIELD_HANDLE fldHnd   = fieldSeq->GetFieldHandle();
+    ValueNum             fldHndVN = VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
+    noway_assert(fldHnd != nullptr);
+    CorInfoType fieldCit  = m_pComp->info.compCompHnd->getFieldType(fldHnd);
+    var_types   fieldType = JITtype2varType(fieldCit);
+
+    ValueNum elemAfter;
+    if (fieldSeq->GetNext())
+    {
+#ifdef DEBUG
+        if (m_pComp->verbose)
+        {
+            const char* modName;
+            const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
+            printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s\n", fldName, fldHndVN, varTypeName(fieldType));
+        }
+#endif
+        ValueNum fseqMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
+        elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, fieldSeq->GetNext(), elem, indType, block);
+    }
     else
     {
-        assert(fieldSeq != FieldSeqStore::NotAField());
-
-        // Skip any pseudo-fields.
-        // These will occur, at least, in struct static expressions, for method table offsets.
-        if (fieldSeq->IsPseudoField())
-        {
-            return VNApplySelectorsAssign(vnk, map, fieldSeq->GetNext(), elem, indType, block);
-        }
-
-        // Otherwise, fldHnd is a real field handle.
-        CORINFO_FIELD_HANDLE fldHnd   = fieldSeq->GetFieldHandle();
-        ValueNum             fldHndVN = VNForHandle(ssize_t(fldHnd), GTF_ICON_FIELD_HDL);
-        noway_assert(fldHnd != nullptr);
-        CorInfoType fieldCit  = m_pComp->info.compCompHnd->getFieldType(fldHnd);
-        var_types   fieldType = JITtype2varType(fieldCit);
-
-        ValueNum elemAfter;
-        if (fieldSeq->GetNext())
-        {
 #ifdef DEBUG
-            if (m_pComp->verbose)
-            {
-                const char* modName;
-                const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
-                printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s\n", fldName, fldHndVN,
-                       varTypeName(fieldType));
-            }
-#endif
-            ValueNum fseqMap = VNForMapSelect(vnk, fieldType, map, fldHndVN);
-            elemAfter        = VNApplySelectorsAssign(vnk, fseqMap, fieldSeq->GetNext(), elem, indType, block);
-        }
-        else
+        if (m_pComp->verbose)
         {
-#ifdef DEBUG
-            if (m_pComp->verbose)
+            if (fieldSeq->GetNext() == nullptr)
             {
-                if (fieldSeq->GetNext() == nullptr)
-                {
-                    printf("  VNApplySelectorsAssign:\n");
-                }
-                const char* modName;
-                const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
-                printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s\n", fldName, fldHndVN,
-                       varTypeName(fieldType));
+                printf("  VNApplySelectorsAssign:\n");
             }
-#endif
-            elemAfter = VNApplySelectorsAssignTypeCoerce(elem, indType, block);
+            const char* modName;
+            const char* fldName = m_pComp->eeGetFieldName(fldHnd, &modName);
+            printf("    VNForHandle(%s) is " FMT_VN ", fieldType is %s\n", fldName, fldHndVN, varTypeName(fieldType));
         }
-
-        ValueNum newMap = VNForMapStore(fieldType, map, fldHndVN, elemAfter);
-        return newMap;
+#endif
+        elemAfter = VNApplySelectorsAssignTypeCoerce(elem, indType, block);
     }
+
+    return VNForMapStore(fieldType, map, fldHndVN, elemAfter);
 }
 
 ValueNumPair ValueNumStore::VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType)
