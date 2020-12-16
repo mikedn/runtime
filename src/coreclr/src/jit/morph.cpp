@@ -9823,8 +9823,8 @@ GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 }
 
 //------------------------------------------------------------------------------
-// fgMorphCommutative : Try to simplify "(X op C1) op C2" to "X op C3"
-//                      for commutative operators.
+// fgMorphAssociative : Try to simplify "(X op C1) op C2" to "X op C3"
+//                      for associative operators.
 //
 // Arguments:
 //       tree - node to fold
@@ -9833,7 +9833,7 @@ GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 //       A folded GenTree* instance or nullptr if something prevents folding.
 //
 
-GenTree* Compiler::fgMorphCommutative(GenTreeOp* tree)
+GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
 {
     assert(varTypeIsIntegralOrI(tree->TypeGet()));
     assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR));
@@ -11960,7 +11960,7 @@ DONE_MORPHING_CHILDREN:
 
             if (varTypeIsIntegralOrI(tree->TypeGet()) && tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
             {
-                GenTree* foldedTree = fgMorphCommutative(tree->AsOp());
+                GenTree* foldedTree = fgMorphAssociative(tree->AsOp());
                 if (foldedTree != nullptr)
                 {
                     tree = foldedTree;
