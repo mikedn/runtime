@@ -9869,12 +9869,8 @@ GenTree* Compiler::fgMorphCommutative(GenTreeOp* tree)
         return nullptr;
     }
 
-    cns1->gtIconVal = foldedCns->AsIntCon()->IconValue();
-    if ((oper == GT_ADD) && foldedCns->IsCnsIntOrI())
-    {
-        cns1->AsIntCon()->SetFieldSeq(
-            GetFieldSeqStore()->Append(cns1->AsIntCon()->GetFieldSeq(), cns2->AsIntCon()->GetFieldSeq()));
-    }
+    cns1->SetValue(foldedCns->AsIntCon()->GetValue());
+    cns1->SetFieldSeq(foldedCns->AsIntCon()->GetFieldSeq());
 
     GenTreeOp* newTree = tree->gtGetOp1()->AsOp();
     DEBUG_DESTROY_NODE(tree);
