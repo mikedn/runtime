@@ -3879,16 +3879,52 @@ ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fsVN1, ValueNum fsVN2)
     return fieldSeqVN;
 }
 
-ValueNum ValueNumStore::ExtendPtrVN(GenTree* opA, GenTree* opB)
+ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
 {
-    if (opB->OperGet() == GT_CNS_INT)
+    assert(add->OperIs(GT_ADD));
+
+    ArrayInfo arrInfo;
+    if (m_pComp->optIsArrayElemAddr(add, &arrInfo))
     {
-        FieldSeqNode* fldSeq = opB->AsIntCon()->GetFieldSeq();
-        if (fldSeq != nullptr)
+        GenTree*      arr      = nullptr;
+        ValueNum      inxVN    = NoVN;
+        FieldSeqNode* fieldSeq = nullptr;
+
+        if (m_pComp->optParseArrayAddress(add, &arrInfo, &arr, &inxVN, &fieldSeq))
         {
-            return ExtendPtrVN(opA, fldSeq);
+            // Currently struct fields are not included in array element address expressions.
+            assert(fieldSeq == nullptr);
+
+            // Otherwise...
+            // Need to form H[arrType][arr][ind][fldSeq]
+            // Get the array element type equivalence class rep.
+            CORINFO_CLASS_HANDLE elemTypeEq   = Compiler::EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
+            ValueNum             elemTypeEqVN = VNForHandle(ssize_t(elemTypeEq), GTF_ICON_CLASS_HDL);
+            JITDUMP("    VNForHandle(arrElemType: %s) is " FMT_VN "\n",
+                    (arrInfo.m_elemType == TYP_STRUCT) ? m_pComp->eeGetClassName(arrInfo.m_elemStructType)
+                                                       : varTypeName(arrInfo.m_elemType),
+                    elemTypeEqVN)
+
+            // We take the "VNNormalValue"s here, because if either has exceptional outcomes,
+            // they will be captured as part of the value of the composite "addr" operation...
+            ValueNum arrVN = VNLiberalNormalValue(arr->gtVNPair);
+            inxVN          = VNNormalValue(inxVN);
+
+            // Additionally, relabel the address with a PtrToArrElem value number.
+            ValueNum fldSeqVN = VNForFieldSeq(fieldSeq);
+            return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, inxVN, fldSeqVN);
         }
     }
+
+    if (GenTreeIntCon* intCon = add->GetOp(1)->IsIntCon())
+    {
+        FieldSeqNode* fldSeq = intCon->GetFieldSeq();
+        if ((fldSeq != nullptr) && !fldSeq->IsArrayElement())
+        {
+            return ExtendPtrVN(add->GetOp(0), fldSeq);
+        }
+    }
+
     return NoVN;
 }
 
@@ -8102,7 +8138,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     //
                     if ((oper == GT_ADD) && (!tree->gtOverflowEx()))
                     {
-                        newVN = vnStore->ExtendPtrVN(tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
+                        newVN = vnStore->ExtendPtrVN(tree->AsOp());
                     }
 
                     if (newVN != ValueNumStore::NoVN)
