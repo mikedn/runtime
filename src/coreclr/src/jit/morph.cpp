@@ -4899,9 +4899,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         tree->gtFlags |= GTF_DONT_CSE;
     }
 
-    // Store information about it.
-    GetArrayInfoMap()->Set(tree, ArrayInfo(elemTyp, elemSize, (int)elemOffs, elemStructType));
-
     // Did we create a bndsChk tree?
     if (bndsChk)
     {
@@ -12345,9 +12342,9 @@ DONE_MORPHING_CHILDREN:
                 commaNode->gtFlags = (treeFlags & ~GTF_REVERSE_OPS); // Bashing the GT_COMMA flags here is
                                                                      // dangerous, clear the GTF_REVERSE_OPS at
                                                                      // least.
-#ifdef DEBUG
-                commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+
+                INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
                 while (commaNode->AsOp()->gtOp2->gtOper == GT_COMMA)
                 {
                     commaNode         = commaNode->AsOp()->gtOp2;
@@ -12358,18 +12355,10 @@ DONE_MORPHING_CHILDREN:
                     // least.
                     commaNode->gtFlags |= ((commaNode->AsOp()->gtOp1->gtFlags | commaNode->AsOp()->gtOp2->gtFlags) &
                                            (GTF_ASG | GTF_CALL));
-#ifdef DEBUG
-                    commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+
+                    INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
                 }
-                bool      wasArrIndex = (tree->gtFlags & GTF_IND_ARR_INDEX) != 0;
-                ArrayInfo arrInfo;
-                if (wasArrIndex)
-                {
-                    bool b = GetArrayInfoMap()->Lookup(tree, &arrInfo);
-                    assert(b);
-                    GetArrayInfoMap()->Remove(tree);
-                }
+
                 tree          = op1;
                 GenTree* addr = commaNode->AsOp()->gtOp2;
                 op1           = gtNewIndir(typ, addr);
@@ -12377,13 +12366,8 @@ DONE_MORPHING_CHILDREN:
                 op1->gtFlags |= treeFlags & ~GTF_ALL_EFFECT & ~GTF_IND_NONFAULTING;
                 op1->gtFlags |= (addr->gtFlags & GTF_ALL_EFFECT);
 
-                if (wasArrIndex)
-                {
-                    GetArrayInfoMap()->Set(op1, arrInfo);
-                }
-#ifdef DEBUG
-                op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+                INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
                 commaNode->AsOp()->gtOp2 = op1;
                 commaNode->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
                 return tree;

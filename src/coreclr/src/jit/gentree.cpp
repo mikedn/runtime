@@ -370,17 +370,7 @@ void GenTree::ReplaceWith(GenTree* src, Compiler* comp)
     this->gtPrev = prev;
     this->gtNext = next;
 
-#ifdef DEBUG
-    gtSeqNum = 0;
-#endif
-    // Transfer any annotations.
-    if (src->OperGet() == GT_IND && src->gtFlags & GTF_IND_ARR_INDEX)
-    {
-        ArrayInfo arrInfo;
-        bool      b = comp->GetArrayInfoMap()->Lookup(src, &arrInfo);
-        assert(b);
-        comp->GetArrayInfoMap()->Set(this, arrInfo);
-    }
+    INDEBUG(gtSeqNum = 0;)
     DEBUG_DESTROY_NODE(src);
 }
 
@@ -6739,30 +6729,8 @@ GenTree* Compiler::gtCloneExpr(
         /* Flags */
         addFlags |= tree->gtFlags;
 
-        // Copy any node annotations, if necessary.
-        switch (tree->gtOper)
-        {
-            case GT_STOREIND:
-            case GT_IND:
-            case GT_OBJ:
-            case GT_STORE_OBJ:
-            {
-                ArrayInfo arrInfo;
-                if (TryGetArrayInfo(tree->AsIndir(), &arrInfo))
-                {
-                    GetArrayInfoMap()->Set(copy, arrInfo);
-                }
-            }
-            break;
-
-            default:
-                break;
-        }
-
-#ifdef DEBUG
-        /* GTF_NODE_MASK should not be propagated from 'tree' to 'copy' */
-        addFlags &= ~GTF_NODE_MASK;
-#endif
+        // GTF_NODE_MASK should not be propagated from 'tree' to 'copy'
+        INDEBUG(addFlags &= ~GTF_NODE_MASK;)
 
         // Effects flags propagate upwards.
         if (copy->AsOp()->gtOp1 != nullptr)
@@ -15835,27 +15803,17 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 break;
             case GT_IND:
 #ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(tree))
+                if (varTypeIsSIMD(tree->GetType()))
                 {
-                    structHnd = gtGetStructHandleForSIMD(tree->gtType, TYP_FLOAT);
+                    structHnd = gtGetStructHandleForSIMD(tree->GetType(), TYP_FLOAT);
 #ifdef FEATURE_HW_INTRINSICS
                     if (structHnd == NO_CLASS_HANDLE)
                     {
-                        structHnd = gtGetStructHandleForHWSIMD(tree->gtType, TYP_FLOAT);
+                        structHnd = gtGetStructHandleForHWSIMD(tree->GetType(), TYP_FLOAT);
                     }
 #endif
                 }
-                else
 #endif
-                {
-                    // Array elements always use STRUCT typed IND nodes, not OBJ nodes.
-                    // We can get the struct handle from the array info annotation.
-                    ArrayInfo arrInfo;
-                    if (TryGetArrayInfo(tree->AsIndir(), &arrInfo))
-                    {
-                        structHnd = arrInfo.m_elemStructType;
-                    }
-                }
                 break;
 #ifdef FEATURE_SIMD
             case GT_SIMD:
