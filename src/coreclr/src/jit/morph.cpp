@@ -4857,8 +4857,16 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
     assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0) ||
            (GenTree::s_gtNodeSizes[GT_IND] == TREE_NODE_SZ_SMALL));
 
-    // Change the orginal GT_INDEX node into a GT_IND node
-    tree->SetOper(GT_IND);
+    if (elemStructType == NO_CLASS_HANDLE)
+    {
+        tree->ChangeOper(GT_IND);
+    }
+    else
+    {
+        tree->ChangeOper(GT_OBJ);
+        tree->AsObj()->SetLayout(typGetObjLayout(elemStructType));
+        tree->AsObj()->SetKind(StructStoreKind::Invalid);
+    }
 
     // If the index node is a floating-point type, notify the compiler
     // we'll potentially use floating point registers at the time of codegen.
