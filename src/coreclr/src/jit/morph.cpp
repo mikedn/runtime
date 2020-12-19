@@ -4614,6 +4614,13 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         }
     }
 
+    unsigned elemTypeNum = static_cast<unsigned>(elemTyp);
+
+    if (elemTyp == TYP_STRUCT)
+    {
+        elemTypeNum = typGetObjLayoutNum(elemStructType);
+    }
+
 #ifdef FEATURE_SIMD
     if (featureSIMD && varTypeIsStruct(elemTyp) && structSizeMightRepresentSIMDType(elemSize))
     {
@@ -4839,7 +4846,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
 
     /* Add the first element's offset */
 
-    GenTree* cns = gtNewIconNode(elemOffs, TYP_I_IMPL);
+    GenTree* cns = gtNewIconNode(elemOffs, GetFieldSeqStore()->GetArrayElement(elemTypeNum, elemOffs));
 
     addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, cns);
 

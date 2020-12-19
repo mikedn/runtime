@@ -2333,13 +2333,7 @@ public:
     // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
     // array information.
     bool optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo);
-
-    // Requires "addr" to be the address of a (possible) array element (or struct field within that).
-    // If it is, sets "*arrayInfo" to the array access info and returns true.  If not, returns "false".
     bool optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
-
-    // Requires "offset" to be an int expression.
-    bool optIsOffset(GenTree* offset) const;
 
     // Return true if call is a recursive call; return false otherwise.
     // Note when inlining, this looks for calls back to the root method.

@@ -7496,6 +7496,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         GenTree*      obj          = nullptr;
                         GenTree*      staticOffset = nullptr;
                         FieldSeqNode* fldSeq       = nullptr;
+                        ArrayInfo     arrInfo;
 
                         // Is the LHS an array index expression?
                         if (argIsVNFunc && funcApp.m_func == VNF_PtrToArrElem)
@@ -7519,12 +7520,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             recordGcHeapStore(tree, heapVN DEBUGARG("ArrIndexAssign (case 1)"));
                         }
                         // It may be that we haven't parsed it yet.  Try.
-                        else if (lhs->gtFlags & GTF_IND_ARR_INDEX)
+                        else if (optIsArrayElemAddr(lhs->AsIndir()->GetAddr(), &arrInfo))
                         {
-                            ArrayInfo arrInfo;
-                            bool      b = GetArrayInfoMap()->Lookup(lhs, &arrInfo);
-                            assert(b);
-
                             ValueNum      inxVN  = ValueNumStore::NoVN;
                             FieldSeqNode* fldSeq = nullptr;
                             GenTree*      arr    = nullptr;
@@ -7796,6 +7793,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             GenTree*             obj          = nullptr;
             GenTree*             staticOffset = nullptr;
             bool                 isVolatile   = (tree->gtFlags & GTF_IND_VOLATILE) != 0;
+            ArrayInfo            arrInfo;
 
             // See if the addr has any exceptional part.
             ValueNumPair addrNvnp;
@@ -7824,12 +7822,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             }
             // We always want to evaluate the LHS when the GT_IND node is marked with GTF_IND_ARR_INDEX
             // as this will relabel the GT_IND child correctly using the VNF_PtrToArrElem
-            else if ((tree->gtFlags & GTF_IND_ARR_INDEX) != 0)
+            else if (tree->OperIs(GT_IND) && optIsArrayElemAddr(tree->AsIndir()->GetAddr(), &arrInfo))
             {
-                ArrayInfo arrInfo;
-                bool      b = GetArrayInfoMap()->Lookup(tree, &arrInfo);
-                assert(b);
-
                 ValueNum      inxVN  = ValueNumStore::NoVN;
                 FieldSeqNode* fldSeq = nullptr;
                 GenTree*      arr    = nullptr;

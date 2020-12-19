@@ -247,10 +247,29 @@ public:
 
     bool IsField() const;
 
+    bool IsArrayElement() const
+    {
+        return (reinterpret_cast<uintptr_t>(m_fieldHnd) & 1) != 0;
+    }
+
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
         assert(IsField());
         return m_fieldHnd;
+    }
+
+    unsigned GetArrayElementTypeNum() const
+    {
+        assert(IsArrayElement());
+
+        return static_cast<unsigned>((reinterpret_cast<uintptr_t>(m_fieldHnd) >> 9));
+    }
+
+    uint8_t GetArrayDataOffs() const
+    {
+        assert(IsArrayElement());
+
+        return static_cast<uint8_t>(reinterpret_cast<uintptr_t>(m_fieldHnd) >> 1);
     }
 
     FieldSeqNode* GetNext() const
@@ -301,6 +320,8 @@ public:
     // Returns the (canonical in the store) singleton field sequence for the given handle.
     FieldSeqNode* CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd);
 
+    FieldSeqNode* GetArrayElement(unsigned elementTypeNum, uint8_t dataOffs);
+
     // This is a special distinguished FieldSeqNode indicating that a constant does *not*
     // represent a valid field sequence.  This is "infectious", in the sense that appending it
     // (on either side) to any field sequence yields the "NotAField()" sequence.
@@ -314,6 +335,8 @@ public:
     // they are the results of CreateSingleton, NotAField, or Append calls.  If either of the arguments
     // are the "NotAField" value, so is the result.
     FieldSeqNode* Append(FieldSeqNode* a, FieldSeqNode* b);
+
+    FieldSeqNode* FoldAdd(const struct GenTreeIntCon* i1, const struct GenTreeIntCon* i2);
 
     INDEBUG(void DebugCheck(FieldSeqNode* f);)
 
@@ -3475,6 +3498,7 @@ public:
 
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
+        assert((fieldSeq == nullptr) || !fieldSeq->IsArrayElement());
         m_fieldSeq = fieldSeq;
     }
 
@@ -6898,7 +6922,7 @@ public:
 
     FieldSeqNode* GetFieldSeq() const
     {
-        assert(m_fieldSeq->GetFieldHandle() == gtClsVarHnd);
+        assert((m_fieldSeq == nullptr) || (m_fieldSeq->GetFieldHandle() == gtClsVarHnd));
         return m_fieldSeq;
     }
 

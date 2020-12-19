@@ -7828,12 +7828,11 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                             GenTree* addrArg = tree->AsOp()->gtOp1;
                             if (addrArg->OperGet() == GT_IND)
                             {
+                                ArrayInfo arrInfo;
+
                                 // Is the LHS an array index expression?
-                                if (addrArg->gtFlags & GTF_IND_ARR_INDEX)
+                                if (optIsArrayElemAddr(addrArg->AsIndir()->GetAddr(), &arrInfo))
                                 {
-                                    ArrayInfo arrInfo;
-                                    bool      b = GetArrayInfoMap()->Lookup(addrArg, &arrInfo);
-                                    assert(b);
                                     CORINFO_CLASS_HANDLE elemTypeEq =
                                         EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
                                     ValueNum elemTypeEqVN =

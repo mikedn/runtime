@@ -9523,7 +9523,7 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
         return;
     }
 
-    printf(" Fseq[");
+    printf(" Fseq(");
     for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
     {
         if (fieldSeq == FieldSeqStore::NotAField())
@@ -9533,6 +9533,10 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
         else if (fieldSeq->IsBoxedValueField())
         {
             printf("#BoxedValue");
+        }
+        else if (fieldSeq->IsArrayElement())
+        {
+            printf("[*]");
         }
         else
         {
@@ -9544,7 +9548,7 @@ void Compiler::gtDispFieldSeq(FieldSeqNode* fieldSeq)
             printf(".");
         }
     }
-    printf("]");
+    printf(")");
 }
 
 //------------------------------------------------------------------------
@@ -12995,6 +12999,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     break;
 
                 case GT_ADD:
+#ifndef TARGET_64BIT
+                    fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
+#endif
+
                     itemp = i1 + i2;
                     if (tree->gtOverflow())
                     {
@@ -13014,8 +13022,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         }
                     }
                     i1 = itemp;
-                    fieldSeq =
-                        GetFieldSeqStore()->Append(op1->AsIntCon()->GetFieldSeq(), op2->AsIntCon()->GetFieldSeq());
                     break;
                 case GT_SUB:
                     itemp = i1 - i2;
@@ -13361,6 +13367,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto FOLD_COND;
 
                 case GT_ADD:
+#ifdef TARGET_64BIT
+                    fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
+#endif
+
                     ltemp = lval1 + lval2;
 
                 LNG_ADD_CHKOVF:
@@ -13551,11 +13561,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
         CNS_LONG:
 
-            if (fieldSeq != FieldSeqStore::NotAField())
-            {
-                return tree;
-            }
-
 #ifdef DEBUG
             if (verbose)
             {
@@ -13568,6 +13573,9 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
             tree->ChangeOperConst(GT_CNS_NATIVELONG);
             tree->AsIntConCommon()->SetLngValue(lval1);
+#ifdef TARGET_64BIT
+            tree->AsIntCon()->SetFieldSeq(fieldSeq);
+#endif
             if (vnStore != nullptr)
             {
                 fgValueNumberTreeConst(tree);
@@ -15373,6 +15381,12 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
         return false;
     }
 
+    if (fieldSeq->IsArrayElement())
+    {
+        // Array elements are handled separately.
+        return false;
+    }
+
     if (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle()))
     {
         *pObj    = nullptr;
@@ -15421,7 +15435,7 @@ bool Compiler::optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, 
             (icon->GetFieldSeq()->GetNext() == nullptr) && // A static field should be a singleton
             // TODO-Review: A pseudoField here indicates an issue - this requires investigation
             // See test case src\ddsuites\src\clr\x86\CoreMangLib\Dev\Globalization\CalendarRegressions.exe
-            !icon->GetFieldSeq()->IsBoxedValueField())
+            !icon->GetFieldSeq()->IsBoxedValueField() && !icon->GetFieldSeq()->IsArrayElement())
         {
             staticStructFldSeq = icon->GetFieldSeq();
         }
@@ -16096,7 +16110,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                     {
                         FieldSeqNode* fieldSeq = op2->AsIntCon()->GetFieldSeq();
 
-                        if (fieldSeq != nullptr)
+                        if ((fieldSeq != nullptr) && !fieldSeq->IsArrayElement())
                         {
                             fieldSeq = fieldSeq->GetTail();
 
@@ -16438,6 +16452,11 @@ bool Compiler::optParseArrayAddress(
         return false;
     }
 
+    if ((fldSeq != nullptr) && fldSeq->IsArrayElement())
+    {
+        fldSeq = fldSeq->GetNext();
+    }
+
     // OK, new we have to figure out if any part of the "offset" is a constant contribution to the index.
     // Also, find the first non-pseudo field...
     while (fldSeq != nullptr)
@@ -16675,62 +16694,75 @@ bool Compiler::optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo)
 {
     assert(indir->OperIs(GT_IND));
 
-    if ((indir->gtFlags & GTF_IND_ARR_INDEX) != 0)
+    GenTree* addr = indir->GetAddr();
+
+    while (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_IND))
     {
-        bool b = GetArrayInfoMap()->Lookup(indir, arrayInfo);
-        assert(b);
-        return true;
+        addr = addr->AsUnOp()->GetOp(0)->AsIndir()->GetAddr();
     }
 
-    return optIsArrayElemAddr(indir->GetAddr(), arrayInfo);
+    return optIsArrayElemAddr(addr, arrayInfo);
 }
 
 bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
 {
-    switch (addr->GetOper())
+    if (!addr->OperIs(GT_ADD) || !addr->TypeIs(TYP_BYREF))
     {
-        case GT_ADD:
+        return false;
+    }
+
+    GenTree* array  = addr->AsOp()->GetOp(0);
+    GenTree* offset = addr->AsOp()->GetOp(1);
+
+    if (!array->TypeIs(TYP_REF))
+    {
+        if (!offset->TypeIs(TYP_REF))
         {
-            GenTree* arrAddr = addr->AsOp()->GetOp(0);
-            GenTree* offset  = addr->AsOp()->GetOp(1);
-
-            if (!arrAddr->TypeIs(TYP_BYREF))
-            {
-                if (!offset->TypeIs(TYP_BYREF))
-                {
-                    return false;
-                }
-
-                std::swap(arrAddr, offset);
-            }
-
-            return optIsOffset(offset) && optIsArrayElemAddr(arrAddr, arrayInfo);
+            return false;
         }
 
-        case GT_ADDR:
-        {
-            GenTree* location = addr->AsUnOp()->GetOp(0);
-            return location->OperIs(GT_IND) && optIsArrayElem(location->AsIndir(), arrayInfo);
-        }
-
-        default:
-            return false;
+        std::swap(array, offset);
     }
-}
 
-bool Compiler::optIsOffset(GenTree* tree) const
-{
-    switch (tree->GetOper())
+    if (offset->OperIs(GT_ADD))
     {
-        case GT_CNS_INT:
-            return true;
-
-        case GT_ADD:
-            return optIsOffset(tree->AsOp()->GetOp(0)) && optIsOffset(tree->AsOp()->GetOp(1));
-
-        default:
-            return false;
+        offset = offset->AsOp()->GetOp(1);
     }
+
+    if (!offset->IsIntCon())
+    {
+        return false;
+    }
+
+    FieldSeqNode* fieldSeq = offset->AsIntCon()->GetFieldSeq();
+
+    if ((fieldSeq == nullptr) || !fieldSeq->IsArrayElement())
+    {
+        return false;
+    }
+
+    arrayInfo->m_elemOffset = fieldSeq->GetArrayDataOffs();
+
+    unsigned elemTypeNum = fieldSeq->GetArrayElementTypeNum();
+
+    if (typIsLayoutNum(elemTypeNum))
+    {
+        ClassLayout* layout = typGetLayoutByNum(elemTypeNum);
+
+        arrayInfo->m_elemType       = TYP_STRUCT;
+        arrayInfo->m_elemSize       = layout->GetSize();
+        arrayInfo->m_elemStructType = layout->GetClassHandle();
+    }
+    else
+    {
+        var_types elemType = static_cast<var_types>(elemTypeNum);
+
+        arrayInfo->m_elemType       = elemType;
+        arrayInfo->m_elemSize       = varTypeSize(elemType);
+        arrayInfo->m_elemStructType = NO_CLASS_HANDLE;
+    }
+
+    return true;
 }
 
 // Note that the value of the below field doesn't matter; it exists only to provide a distinguished address.
@@ -16758,6 +16790,19 @@ FieldSeqNode* FieldSeqStore::CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd)
     }
 
     return res;
+}
+
+FieldSeqNode* FieldSeqStore::GetArrayElement(unsigned elementTypeNum, uint8_t dataOffs)
+{
+    assert(elementTypeNum < (1u << 23));
+
+    uintptr_t fieldHandle = elementTypeNum;
+    fieldHandle <<= 8;
+    fieldHandle |= dataOffs;
+    fieldHandle <<= 1;
+    fieldHandle |= 1;
+
+    return CreateSingleton(reinterpret_cast<CORINFO_FIELD_HANDLE>(fieldHandle));
 }
 
 FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
@@ -16799,11 +16844,71 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     return res;
 }
 
+FieldSeqNode* FieldSeqStore::FoldAdd(const GenTreeIntCon* i1, const GenTreeIntCon* i2)
+{
+    assert(i1->TypeIs(TYP_I_IMPL) && i2->TypeIs(TYP_I_IMPL));
+
+    FieldSeqNode* f1 = i1->GetFieldSeq();
+    FieldSeqNode* f2 = i2->GetFieldSeq();
+
+    assert(f1 != nullptr);
+    assert(f2 != nullptr);
+
+    if (f2->IsArrayElement())
+    {
+        // ArrayElement is always first in the field sequence so we don't need to worry
+        // about correct field sequence ordering.
+
+        std::swap(f1, f2);
+        std::swap(i1, i2);
+    }
+
+    if (f1->IsArrayElement())
+    {
+        unsigned elemTypeNum  = f1->GetArrayElementTypeNum();
+        unsigned elemTypeSize = m_compiler->typIsLayoutNum(elemTypeNum)
+                                    ? m_compiler->typGetLayoutByNum(elemTypeNum)->GetSize()
+                                    : varTypeSize(static_cast<var_types>(elemTypeNum));
+
+        target_size_t offset1 = static_cast<target_ssize_t>(i1->GetValue());
+        target_size_t offset2 = static_cast<target_ssize_t>(i2->GetValue());
+
+        if (f2->IsField() && (offset2 < elemTypeSize))
+        {
+            return Append(f1, f2);
+        }
+
+        // If the second offset is a multiple of the element size it means that we had a
+        // constant index and the offset expression was folded to a constant.
+
+        if ((f2 == FieldSeqStore::NotAField()) && ((offset2 % elemTypeSize) == 0))
+        {
+            return f1;
+        }
+
+        // TODO-MIKE-CQ: Can we make a ArrayElement + NotAField field sequence so we don't discard
+        // array information? If f2 is NotAField (because, for example, the array element type is a
+        // struct with overlapping fields - System.Runtime.Caching has some examples) that doesn't
+        // mean that the store may alias an array having a different element type. Or instead of
+        // an ArrayElement + NotAField field sequence keep only ArrayElement and have VN check the
+        // offset - if it's not a multiple of the array element type size then it means that some
+        // part of the array element is accessed and since there's no Field present in the field
+        // sequence that means we're dealing with a "not a field" case. In this version we don't
+        // need to deal with the pre-existing "NotAField + anything = NotAField" rule.
+
+        return FieldSeqStore::NotAField();
+    }
+
+    return Append(f1, f2);
+}
+
 #ifdef DEBUG
 void FieldSeqStore::DebugCheck(FieldSeqNode* f)
 {
     FieldSeqNode* a = f;
     FieldSeqNode* b = f->m_next;
+
+    assert(!b->IsArrayElement());
 
     if (a->IsBoxedValueField())
     {
@@ -16821,7 +16926,15 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
     {
         // Boxed value fields are only used together with static fields.
         assert(!a->IsBoxedValueField());
+        assert(!a->IsArrayElement());
         assert(vm->isFieldStatic(a->m_fieldHnd));
+
+        return;
+    }
+
+    if (a->IsArrayElement())
+    {
+        assert(b->IsField());
 
         return;
     }
