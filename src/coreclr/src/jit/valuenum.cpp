@@ -7529,7 +7529,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         ArrayInfo     arrInfo;
 
                         // Is the LHS an array index expression?
-                        if (argIsVNFunc && funcApp.m_func == VNF_PtrToArrElem)
+                        if (argIsVNFunc && (funcApp.m_func == VNF_PtrToArrElem))
                         {
                             unsigned elemTypeNum =
                                 static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
@@ -7547,38 +7547,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                             ValueNum heapVN = fgValueNumberArrIndexAssign(elemTypeNum, arrVN, inxVN, fldSeq,
                                                                           rhsVNPair.GetLiberal(), lhs->TypeGet());
-                            recordGcHeapStore(tree, heapVN DEBUGARG("ArrIndexAssign (case 1)"));
-                        }
-                        // It may be that we haven't parsed it yet.  Try.
-                        else if (optIsArrayElemAddr(lhs->AsIndir()->GetAddr(), &arrInfo))
-                        {
-                            ValueNum      inxVN  = ValueNumStore::NoVN;
-                            FieldSeqNode* fldSeq = nullptr;
-                            GenTree*      arr    = nullptr;
-
-                            if (!optParseArrayAddress(arg, &arrInfo, &arr, &inxVN, &fldSeq))
-                            {
-                                fgMutateGcHeap(tree DEBUGARG("assignment to unparseable array expression"));
-                                return;
-                            }
-
-                            // Currently struct fields are not included in array element address expressions.
-                            assert(fldSeq == nullptr);
-
-                            // Need to form H[arrType][arr][ind][fldSeq] = rhsVNPair.GetLiberal()
-
-                            // Get the element type equivalence class representative.
-                            ValueNum arrVN = arr->gtVNPair.GetLiberal();
-
-                            FieldSeqNode* zeroOffsetFldSeq = nullptr;
-                            if (GetZeroOffsetFieldMap()->Lookup(arg, &zeroOffsetFldSeq))
-                            {
-                                fldSeq = GetFieldSeqStore()->Append(fldSeq, zeroOffsetFldSeq);
-                            }
-
-                            ValueNum heapVN = fgValueNumberArrIndexAssign(arrInfo.m_elemTypeNum, arrVN, inxVN, fldSeq,
-                                                                          rhsVNPair.GetLiberal(), lhs->TypeGet());
-                            recordGcHeapStore(tree, heapVN DEBUGARG("ArrIndexAssign (case 2)"));
+                            recordGcHeapStore(tree, heapVN DEBUGARG("array element store"));
                         }
                         else if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
@@ -7848,72 +7817,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 ValueNum newUniq = vnStore->VNForExpr(compCurBB, tree->TypeGet());
                 tree->gtVNPair   = vnStore->VNPWithExc(ValueNumPair(newUniq, newUniq), addrXvnp);
             }
-            // We always want to evaluate the LHS when the GT_IND node is marked with GTF_IND_ARR_INDEX
-            // as this will relabel the GT_IND child correctly using the VNF_PtrToArrElem
-            else if (tree->OperIs(GT_IND) && optIsArrayElemAddr(tree->AsIndir()->GetAddr(), &arrInfo))
-            {
-                ValueNum      inxVN  = ValueNumStore::NoVN;
-                FieldSeqNode* fldSeq = nullptr;
-                GenTree*      arr    = nullptr;
-
-                if (!optParseArrayAddress(addr, &arrInfo, &arr, &inxVN, &fldSeq))
-                {
-                    tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-                    return;
-                }
-
-                // Currently struct fields are not included in array element address expressions.
-                assert(fldSeq == nullptr);
-
-                // Otherwise...
-                // Need to form H[arrType][arr][ind][fldSeq]
-                ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-                JITDUMP("    VNForTypeNum(elemTypeNum: %s) is " FMT_VN "\n",
-                        typIsLayoutNum(arrInfo.m_elemTypeNum)
-                            ? typGetLayoutByNum(arrInfo.m_elemTypeNum)->GetClassName()
-                            : varTypeName(static_cast<var_types>(arrInfo.m_elemTypeNum)),
-                        elemTypeEqVN);
-
-                // We take the "VNNormalValue"s here, because if either has exceptional outcomes, they will be captured
-                // as part of the value of the composite "addr" operation...
-                ValueNum arrVN = vnStore->VNLiberalNormalValue(arr->gtVNPair);
-                inxVN          = vnStore->VNNormalValue(inxVN);
-
-                // Additionally, relabel the address with a PtrToArrElem value number.
-                ValueNum fldSeqVN = vnStore->VNForFieldSeq(fldSeq);
-                ValueNum elemAddr =
-                    vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, inxVN, fldSeqVN);
-
-                // The aggregate "addr" VN should have had all the exceptions bubble up...
-                elemAddr = vnStore->VNWithExc(elemAddr, addrXvnp.GetLiberal());
-                addr->gtVNPair.SetBoth(elemAddr);
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("  Relabeled IND_ARR_INDEX address node ");
-                    Compiler::printTreeID(addr);
-                    printf(" with l:" FMT_VN ": ", elemAddr);
-                    vnStore->vnDump(this, elemAddr);
-                    printf("\n");
-                    if (vnStore->VNNormalValue(elemAddr) != elemAddr)
-                    {
-                        printf("      [" FMT_VN " is: ", vnStore->VNNormalValue(elemAddr));
-                        vnStore->vnDump(this, vnStore->VNNormalValue(elemAddr));
-                        printf("]\n");
-                    }
-                }
-#endif // DEBUG
-
-                // We now need to retrieve the value number for the array element value
-                // and give this value number to the GT_IND node 'tree'
-                // We do this whenever we have an rvalue, but we don't do it for a
-                // normal LHS assignment into an array element.
-                //
-                if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
-                {
-                    fgValueNumberArrIndexVal(tree, arrInfo.m_elemTypeNum, arrVN, inxVN, addrXvnp.GetLiberal(), fldSeq);
-                }
-            }
             // In general we skip GT_IND nodes on that are the LHS of an assignment.  (We labeled these earlier.)
             // We will "evaluate" this as part of the assignment.
             else if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
@@ -7939,7 +7842,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         var_types    indType   = tree->TypeGet();
                         ValueNumPair lclVNPair = varDsc->GetPerSsaData(ssaNum)->m_vnPair;
                         tree->gtVNPair         = vnStore->VNPairApplySelectors(lclVNPair, localFldSeq, indType);
-                        ;
                     }
                     tree->gtVNPair = vnStore->VNPWithExc(tree->gtVNPair, addrXvnp);
                 }
