@@ -285,6 +285,7 @@ public:
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
     // that happens to be the same...
     ValueNum VNForHandle(ssize_t cnsVal, unsigned iconFlags);
+    ValueNum VNForTypeNum(unsigned typeNum);
 
     // And the single constant for an object reference type.
     static ValueNum VNForNull()

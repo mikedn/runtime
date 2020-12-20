@@ -1739,6 +1739,11 @@ ValueNum ValueNumStore::VNForHandle(ssize_t cnsVal, unsigned handleFlags)
     }
 }
 
+ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
+{
+    return VNForHandle(static_cast<ssize_t>(typeNum), GTF_ICON_CLASS_HDL);
+}
+
 // Returns the value number for zero of the given "typ".
 // It has an unreached() for a "typ" that has no zero value, such as TYP_VOID.
 ValueNum ValueNumStore::VNZeroForType(var_types typ)
@@ -3895,15 +3900,13 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
             // Currently struct fields are not included in array element address expressions.
             assert(fieldSeq == nullptr);
 
-            // Otherwise...
             // Need to form H[arrType][arr][ind][fldSeq]
-            // Get the array element type equivalence class rep.
-            CORINFO_CLASS_HANDLE elemTypeEq   = Compiler::EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
-            ValueNum             elemTypeEqVN = VNForHandle(ssize_t(elemTypeEq), GTF_ICON_CLASS_HDL);
-            JITDUMP("    VNForHandle(arrElemType: %s) is " FMT_VN "\n",
-                    (arrInfo.m_elemType == TYP_STRUCT) ? m_pComp->eeGetClassName(arrInfo.m_elemStructType)
-                                                       : varTypeName(arrInfo.m_elemType),
-                    elemTypeEqVN)
+            ValueNum elemTypeEqVN = VNForTypeNum(arrInfo.m_elemTypeNum);
+            JITDUMP("    VNForTypeNum(elemTypeNum: %s) is " FMT_VN "\n",
+                    m_pComp->typIsLayoutNum(arrInfo.m_elemTypeNum)
+                        ? m_pComp->typGetLayoutByNum(arrInfo.m_elemTypeNum)->GetClassName()
+                        : varTypeName(static_cast<var_types>(arrInfo.m_elemTypeNum)),
+                    elemTypeEqVN);
 
             // We take the "VNNormalValue"s here, because if either has exceptional outcomes,
             // they will be captured as part of the value of the composite "addr" operation...
@@ -3975,16 +3978,12 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTree* opA, FieldSeqNode* fldSeq)
     return res;
 }
 
-ValueNum Compiler::fgValueNumberArrIndexAssign(CORINFO_CLASS_HANDLE elemTypeEq,
-                                               ValueNum             arrVN,
-                                               ValueNum             inxVN,
-                                               FieldSeqNode*        fldSeq,
-                                               ValueNum             rhsVN,
-                                               var_types            indType)
+ValueNum Compiler::fgValueNumberArrIndexAssign(
+    unsigned elemTypeNum, ValueNum arrVN, ValueNum inxVN, FieldSeqNode* fldSeq, ValueNum rhsVN, var_types indType)
 {
     bool      invalidateArray      = false;
-    ValueNum  elemTypeEqVN         = vnStore->VNForHandle(ssize_t(elemTypeEq), GTF_ICON_CLASS_HDL);
-    var_types arrElemType          = DecodeElemType(elemTypeEq);
+    ValueNum  elemTypeEqVN         = vnStore->VNForTypeNum(elemTypeNum);
+    var_types arrElemType          = typIsLayoutNum(elemTypeNum) ? TYP_STRUCT : static_cast<var_types>(elemTypeNum);
     ValueNum  hAtArrType           = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, fgCurMemoryVN[GcHeap], elemTypeEqVN);
     ValueNum  hAtArrTypeAtArr      = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, hAtArrType, arrVN);
     ValueNum  hAtArrTypeAtArrAtInx = vnStore->VNForMapSelect(VNK_Liberal, arrElemType, hAtArrTypeAtArr, inxVN);
@@ -4046,7 +4045,7 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(CORINFO_CLASS_HANDLE elemTypeEq,
 
         if (arrElemType == TYP_STRUCT)
         {
-            printf("%s[]).\n", eeGetClassName(elemTypeEq));
+            printf("%s[]).\n", typGetLayoutByNum(elemTypeNum)->GetClassName());
         }
         else
         {
@@ -4080,27 +4079,23 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(CORINFO_CLASS_HANDLE elemTypeEq,
 ValueNum Compiler::fgValueNumberArrIndexVal(GenTree* tree, VNFuncApp* pFuncApp, ValueNum addrXvn)
 {
     assert(vnStore->IsVNHandle(pFuncApp->m_args[0]));
-    CORINFO_CLASS_HANDLE arrElemTypeEQ = CORINFO_CLASS_HANDLE(vnStore->ConstantValue<ssize_t>(pFuncApp->m_args[0]));
-    ValueNum             arrVN         = pFuncApp->m_args[1];
-    ValueNum             inxVN         = pFuncApp->m_args[2];
-    FieldSeqNode*        fldSeq        = vnStore->FieldSeqVNToFieldSeq(pFuncApp->m_args[3]);
-    return fgValueNumberArrIndexVal(tree, arrElemTypeEQ, arrVN, inxVN, addrXvn, fldSeq);
+    unsigned      arrElemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(pFuncApp->m_args[0]));
+    ValueNum      arrVN          = pFuncApp->m_args[1];
+    ValueNum      inxVN          = pFuncApp->m_args[2];
+    FieldSeqNode* fldSeq         = vnStore->FieldSeqVNToFieldSeq(pFuncApp->m_args[3]);
+    return fgValueNumberArrIndexVal(tree, arrElemTypeNum, arrVN, inxVN, addrXvn, fldSeq);
 }
 
-ValueNum Compiler::fgValueNumberArrIndexVal(GenTree*             tree,
-                                            CORINFO_CLASS_HANDLE elemTypeEq,
-                                            ValueNum             arrVN,
-                                            ValueNum             inxVN,
-                                            ValueNum             excVN,
-                                            FieldSeqNode*        fldSeq)
+ValueNum Compiler::fgValueNumberArrIndexVal(
+    GenTree* tree, unsigned elemTypeNum, ValueNum arrVN, ValueNum inxVN, ValueNum excVN, FieldSeqNode* fldSeq)
 {
-    assert(tree == nullptr || tree->OperIsIndir());
+    assert((tree == nullptr) || tree->OperIsIndir());
 
     // The VN inputs are required to be non-exceptional values.
     assert(arrVN == vnStore->VNNormalValue(arrVN));
     assert(inxVN == vnStore->VNNormalValue(inxVN));
 
-    var_types elemTyp = DecodeElemType(elemTypeEq);
+    var_types elemTyp = typIsLayoutNum(elemTypeNum) ? TYP_STRUCT : static_cast<var_types>(elemTypeNum);
     var_types indType = (tree == nullptr) ? elemTyp : tree->TypeGet();
     ValueNum  selectedElem;
 
@@ -4126,7 +4121,7 @@ ValueNum Compiler::fgValueNumberArrIndexVal(GenTree*             tree,
     }
     else
     {
-        ValueNum elemTypeEqVN    = vnStore->VNForHandle(ssize_t(elemTypeEq), GTF_ICON_CLASS_HDL);
+        ValueNum elemTypeEqVN    = vnStore->VNForTypeNum(elemTypeNum);
         ValueNum hAtArrType      = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, fgCurMemoryVN[GcHeap], elemTypeEqVN);
         ValueNum hAtArrTypeAtArr = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, hAtArrType, arrVN);
         ValueNum wholeElem       = vnStore->VNForMapSelect(VNK_Liberal, elemTyp, hAtArrTypeAtArr, inxVN);
@@ -4137,7 +4132,7 @@ ValueNum Compiler::fgValueNumberArrIndexVal(GenTree*             tree,
             printf("  hAtArrType " FMT_VN " is MapSelect(curGcHeap(" FMT_VN "), ", hAtArrType, fgCurMemoryVN[GcHeap]);
             if (elemTyp == TYP_STRUCT)
             {
-                printf("%s[]).\n", eeGetClassName(elemTypeEq));
+                printf("%s[]).\n", typGetLayoutByNum(elemTypeNum)->GetClassName());
             }
             else
             {
@@ -6286,33 +6281,32 @@ ValueNum Compiler::fgMemoryVNForLoopSideEffects(MemoryKind  memoryKind,
             }
         }
         // Now do the array maps.
-        Compiler::LoopDsc::ClassHandleSet* elemTypesMod = optLoopTable[loopNum].lpArrayElemTypesModified;
+        Compiler::LoopDsc::TypeNumSet* elemTypesMod = optLoopTable[loopNum].lpArrayElemTypesModified;
         if (elemTypesMod != nullptr)
         {
-            for (Compiler::LoopDsc::ClassHandleSet::KeyIterator ki = elemTypesMod->Begin();
-                 !ki.Equal(elemTypesMod->End()); ++ki)
+            for (Compiler::LoopDsc::TypeNumSet::KeyIterator ki = elemTypesMod->Begin(); !ki.Equal(elemTypesMod->End());
+                 ++ki)
             {
-                CORINFO_CLASS_HANDLE elemClsHnd = ki.Get();
+                unsigned elemTypeNum = ki.Get();
 
 #ifdef DEBUG
                 if (verbose)
                 {
-                    var_types elemTyp = DecodeElemType(elemClsHnd);
                     // If a valid class handle is given when the ElemType is set, DecodeElemType will
                     // return TYP_STRUCT, and elemClsHnd is that handle.
                     // Otherwise, elemClsHnd is NOT a valid class handle, and is the encoded var_types value.
-                    if (elemTyp == TYP_STRUCT)
+                    if (typIsLayoutNum(elemTypeNum))
                     {
-                        printf("     Array map %s[]\n", eeGetClassName(elemClsHnd));
+                        printf("     Array map %s[]\n", typGetLayoutByNum(elemTypeNum)->GetClassName());
                     }
                     else
                     {
-                        printf("     Array map %s[]\n", varTypeName(elemTyp));
+                        printf("     Array map %s[]\n", varTypeName(static_cast<var_types>(elemTypeNum)));
                     }
                 }
 #endif // DEBUG
 
-                ValueNum elemTypeVN = vnStore->VNForHandle(ssize_t(elemClsHnd), GTF_ICON_CLASS_HDL);
+                ValueNum elemTypeVN = vnStore->VNForTypeNum(elemTypeNum);
                 ValueNum uniqueVN   = vnStore->VNForExpr(entryBlock, TYP_REF);
                 newMemoryVN         = vnStore->VNForMapStore(TYP_REF, newMemoryVN, elemTypeVN, uniqueVN);
             }
@@ -7537,8 +7531,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // Is the LHS an array index expression?
                         if (argIsVNFunc && funcApp.m_func == VNF_PtrToArrElem)
                         {
-                            CORINFO_CLASS_HANDLE elemTypeEq =
-                                CORINFO_CLASS_HANDLE(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
+                            unsigned elemTypeNum =
+                                static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
                             ValueNum      arrVN  = funcApp.m_args[1];
                             ValueNum      inxVN  = funcApp.m_args[2];
                             FieldSeqNode* fldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[3]);
@@ -7551,7 +7545,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             }
 #endif // DEBUG
 
-                            ValueNum heapVN = fgValueNumberArrIndexAssign(elemTypeEq, arrVN, inxVN, fldSeq,
+                            ValueNum heapVN = fgValueNumberArrIndexAssign(elemTypeNum, arrVN, inxVN, fldSeq,
                                                                           rhsVNPair.GetLiberal(), lhs->TypeGet());
                             recordGcHeapStore(tree, heapVN DEBUGARG("ArrIndexAssign (case 1)"));
                         }
@@ -7574,8 +7568,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             // Need to form H[arrType][arr][ind][fldSeq] = rhsVNPair.GetLiberal()
 
                             // Get the element type equivalence class representative.
-                            CORINFO_CLASS_HANDLE elemTypeEq =
-                                EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
                             ValueNum arrVN = arr->gtVNPair.GetLiberal();
 
                             FieldSeqNode* zeroOffsetFldSeq = nullptr;
@@ -7584,7 +7576,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                                 fldSeq = GetFieldSeqStore()->Append(fldSeq, zeroOffsetFldSeq);
                             }
 
-                            ValueNum heapVN = fgValueNumberArrIndexAssign(elemTypeEq, arrVN, inxVN, fldSeq,
+                            ValueNum heapVN = fgValueNumberArrIndexAssign(arrInfo.m_elemTypeNum, arrVN, inxVN, fldSeq,
                                                                           rhsVNPair.GetLiberal(), lhs->TypeGet());
                             recordGcHeapStore(tree, heapVN DEBUGARG("ArrIndexAssign (case 2)"));
                         }
@@ -7875,13 +7867,12 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                 // Otherwise...
                 // Need to form H[arrType][arr][ind][fldSeq]
-                // Get the array element type equivalence class rep.
-                CORINFO_CLASS_HANDLE elemTypeEq   = EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
-                ValueNum             elemTypeEqVN = vnStore->VNForHandle(ssize_t(elemTypeEq), GTF_ICON_CLASS_HDL);
-                JITDUMP("    VNForHandle(arrElemType: %s) is " FMT_VN "\n",
-                        (arrInfo.m_elemType == TYP_STRUCT) ? eeGetClassName(arrInfo.m_elemStructType)
-                                                           : varTypeName(arrInfo.m_elemType),
-                        elemTypeEqVN)
+                ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+                JITDUMP("    VNForTypeNum(elemTypeNum: %s) is " FMT_VN "\n",
+                        typIsLayoutNum(arrInfo.m_elemTypeNum)
+                            ? typGetLayoutByNum(arrInfo.m_elemTypeNum)->GetClassName()
+                            : varTypeName(static_cast<var_types>(arrInfo.m_elemTypeNum)),
+                        elemTypeEqVN);
 
                 // We take the "VNNormalValue"s here, because if either has exceptional outcomes, they will be captured
                 // as part of the value of the composite "addr" operation...
@@ -7920,7 +7911,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 //
                 if ((tree->gtFlags & GTF_IND_ASG_LHS) == 0)
                 {
-                    fgValueNumberArrIndexVal(tree, elemTypeEq, arrVN, inxVN, addrXvnp.GetLiberal(), fldSeq);
+                    fgValueNumberArrIndexVal(tree, arrInfo.m_elemTypeNum, arrVN, inxVN, addrXvnp.GetLiberal(), fldSeq);
                 }
             }
             // In general we skip GT_IND nodes on that are the LHS of an assignment.  (We labeled these earlier.)

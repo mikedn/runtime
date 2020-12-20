@@ -4614,13 +4614,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         }
     }
 
-    unsigned elemTypeNum = static_cast<unsigned>(elemTyp);
-
-    if (elemTyp == TYP_STRUCT)
-    {
-        elemTypeNum = typGetObjLayoutNum(elemStructType);
-    }
-
 #ifdef FEATURE_SIMD
     if (featureSIMD && varTypeIsStruct(elemTyp) && structSizeMightRepresentSIMDType(elemSize))
     {
@@ -4639,6 +4632,20 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         }
     }
 #endif // FEATURE_SIMD
+
+    // TODO-MIKE-Review: It's not clear why the type information is discarded for SIMD types.
+    // This may have some CQ implications - all arrays having the same SIMD type are treated
+    // as aliased in VN (e.g. Vector128<float>[] & Vector128<int>[] & Vector4).
+    unsigned elemTypeNum;
+
+    if (elemStructType != NO_CLASS_HANDLE)
+    {
+        elemTypeNum = typGetObjLayoutNum(elemStructType);
+    }
+    else
+    {
+        elemTypeNum = static_cast<unsigned>(elemTyp);
+    }
 
     // In minopts, we expand GT_INDEX to indir(GT_INDEX_ADDR) in order to minimize the size of the IR. As minopts
     // compilation time is roughly proportional to the size of the IR, this helps keep compilation times down.
@@ -4864,7 +4871,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
     else
     {
         tree->ChangeOper(GT_OBJ);
-        tree->AsObj()->SetLayout(typGetObjLayout(elemStructType));
+        tree->AsObj()->SetLayout(typGetLayoutByNum(elemTypeNum));
         tree->AsObj()->SetKind(StructStoreKind::Invalid);
     }
 

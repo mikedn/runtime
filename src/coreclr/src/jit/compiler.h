@@ -1214,22 +1214,12 @@ LinearScanInterface* getLinearScanAllocator(Compiler* comp);
 // Information about arrays: their element type and size, and the offset of the first element.
 struct ArrayInfo
 {
-    var_types            m_elemType;
-    uint8_t              m_elemOffset;
-    unsigned             m_elemSize;
-    CORINFO_CLASS_HANDLE m_elemStructType;
+    uint8_t  m_elemOffset;
+    unsigned m_elemSize;
+    unsigned m_elemTypeNum;
 
-    ArrayInfo() : m_elemType(TYP_UNDEF), m_elemOffset(0), m_elemSize(0), m_elemStructType(nullptr)
+    ArrayInfo() : m_elemOffset(0), m_elemSize(0), m_elemTypeNum(0)
     {
-    }
-
-    ArrayInfo(var_types elemType, unsigned elemSize, unsigned elemOffset, CORINFO_CLASS_HANDLE elemStructType)
-        : m_elemType(elemType)
-        , m_elemOffset(static_cast<uint8_t>(elemOffset))
-        , m_elemSize(elemSize)
-        , m_elemStructType(elemStructType)
-    {
-        assert(elemOffset <= UINT8_MAX);
     }
 };
 
@@ -4082,12 +4072,8 @@ public:
     // match the element type of the array or fldSeq.  When this type doesn't match
     // or if the fldSeq is 'NotAField' we invalidate the array contents H[elemTypeEq][arrVN]
     //
-    ValueNum fgValueNumberArrIndexAssign(CORINFO_CLASS_HANDLE elemTypeEq,
-                                         ValueNum             arrVN,
-                                         ValueNum             inxVN,
-                                         FieldSeqNode*        fldSeq,
-                                         ValueNum             rhsVN,
-                                         var_types            indType);
+    ValueNum fgValueNumberArrIndexAssign(
+        unsigned elemTypeNum, ValueNum arrVN, ValueNum inxVN, FieldSeqNode* fldSeq, ValueNum rhsVN, var_types indType);
 
     // Requires that "tree" is a GT_IND marked as an array index, and that its address argument
     // has been parsed to yield the other input arguments.  If evaluation of the address
@@ -4098,12 +4084,8 @@ public:
     // The type tree->TypeGet() will typically match the element type of the array or fldSeq.
     // When this type doesn't match or if the fldSeq is 'NotAField' we return a new unique VN
     //
-    ValueNum fgValueNumberArrIndexVal(GenTree*             tree,
-                                      CORINFO_CLASS_HANDLE elemTypeEq,
-                                      ValueNum             arrVN,
-                                      ValueNum             inxVN,
-                                      ValueNum             excVN,
-                                      FieldSeqNode*        fldSeq);
+    ValueNum fgValueNumberArrIndexVal(
+        GenTree* tree, unsigned elemTypeNum, ValueNum arrVN, ValueNum inxVN, ValueNum excVN, FieldSeqNode* fldSeq);
 
     // Requires "funcApp" to be a VNF_PtrToArrElem, and "addrXvn" to represent the exception set thrown
     // by evaluating the array index expression "tree".  Returns the value number resulting from
@@ -4214,41 +4196,6 @@ public:
     // of memory values; the "conservative" interpretation needs no VN, since every access of
     // memory yields an unknown value.
     ValueNum fgCurMemoryVN[MemoryKindCount];
-
-    // Return a "pseudo"-class handle for an array element type.  If "elemType" is TYP_STRUCT,
-    // requires "elemStructType" to be non-null (and to have a low-order zero).  Otherwise, low order bit
-    // is 1, and the rest is an encoding of "elemTyp".
-    static CORINFO_CLASS_HANDLE EncodeElemType(var_types elemTyp, CORINFO_CLASS_HANDLE elemStructType)
-    {
-        if (elemStructType != nullptr)
-        {
-            assert(varTypeIsStruct(elemTyp) || elemTyp == TYP_REF || elemTyp == TYP_BYREF ||
-                   varTypeIsIntegral(elemTyp));
-            assert((size_t(elemStructType) & 0x1) == 0x0); // Make sure the encoding below is valid.
-            return elemStructType;
-        }
-        else
-        {
-            assert(elemTyp != TYP_STRUCT);
-            elemTyp = varTypeUnsignedToSigned(elemTyp);
-            return CORINFO_CLASS_HANDLE(size_t(elemTyp) << 1 | 0x1);
-        }
-    }
-    // If "clsHnd" is the result of an "EncodePrim" call, returns true and sets "*pPrimType" to the
-    // var_types it represents.  Otherwise, returns TYP_STRUCT (on the assumption that "clsHnd" is
-    // the struct type of the element).
-    static var_types DecodeElemType(CORINFO_CLASS_HANDLE clsHnd)
-    {
-        size_t clsHndVal = size_t(clsHnd);
-        if (clsHndVal & 0x1)
-        {
-            return var_types(clsHndVal >> 1);
-        }
-        else
-        {
-            return TYP_STRUCT;
-        }
-    }
 
     // Convert a BYTE which represents the VM's CorInfoGCtype to the JIT's var_types
     var_types getJitGCType(BYTE gcType);
@@ -5400,19 +5347,15 @@ public:
                                           // instance fields modified
                                           // in the loop.
 
-        typedef JitHashTable<CORINFO_CLASS_HANDLE, JitPtrKeyFuncs<struct CORINFO_CLASS_STRUCT_>, bool> ClassHandleSet;
-        ClassHandleSet* lpArrayElemTypesModified; // Bits set indicate the set of sz array element types such that
-                                                  // arrays of that type are modified
-                                                  // in the loop.
+        // The set of array element types that are modified in the loop.
+        typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, bool> TypeNumSet;
+        TypeNumSet* lpArrayElemTypesModified;
 
         // Adds the variable liveness information for 'blk' to 'this' LoopDsc
         void AddVariableLiveness(Compiler* comp, BasicBlock* blk);
 
         inline void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
-        // This doesn't *always* take a class handle -- it can also take primitive types, encoded as class handles
-        // (shifted left, with a low-order bit set to distinguish.)
-        // Use the {Encode/Decode}ElemType methods to construct/destruct these.
-        inline void AddModifiedElemType(Compiler* comp, CORINFO_CLASS_HANDLE structHnd);
+        inline void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
 
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
 
@@ -5588,7 +5531,7 @@ protected:
     // Adds "fldHnd" to the set of modified fields of "lnum" and any parent loops.
     void AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_HANDLE fldHnd);
     // Adds "elemType" to the set of modified array element types of "lnum" and any parent loops.
-    void AddModifiedElemTypeAllContainingLoops(unsigned lnum, CORINFO_CLASS_HANDLE elemType);
+    void AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned elemTypeNum);
 
     // Requires that "from" and "to" have the same "bbJumpKind" (perhaps because "to" is a clone
     // of "from".)  Copies the jump destination from "from" to "to".

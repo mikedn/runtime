@@ -3300,14 +3300,14 @@ inline void Compiler::LoopDsc::AddModifiedField(Compiler* comp, CORINFO_FIELD_HA
     lpFieldsModified->Set(fldHnd, true, FieldHandleSet::Overwrite);
 }
 
-inline void Compiler::LoopDsc::AddModifiedElemType(Compiler* comp, CORINFO_CLASS_HANDLE structHnd)
+inline void Compiler::LoopDsc::AddModifiedElemType(Compiler* comp, unsigned elemTypeNum)
 {
     if (lpArrayElemTypesModified == nullptr)
     {
         lpArrayElemTypesModified =
-            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::ClassHandleSet(comp->getAllocatorLoopHoist());
+            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::TypeNumSet(comp->getAllocatorLoopHoist());
     }
-    lpArrayElemTypesModified->Set(structHnd, true, ClassHandleSet::Overwrite);
+    lpArrayElemTypesModified->Set(elemTypeNum, true, TypeNumSet::Overwrite);
 }
 
 inline void Compiler::LoopDsc::VERIFY_lpIterTree()

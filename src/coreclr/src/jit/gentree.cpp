@@ -16699,25 +16699,25 @@ bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
         return false;
     }
 
-    arrayInfo->m_elemOffset = fieldSeq->GetArrayDataOffs();
+    arrayInfo->m_elemOffset  = fieldSeq->GetArrayDataOffs();
+    arrayInfo->m_elemTypeNum = fieldSeq->GetArrayElementTypeNum();
 
-    unsigned elemTypeNum = fieldSeq->GetArrayElementTypeNum();
-
-    if (typIsLayoutNum(elemTypeNum))
+    if (typIsLayoutNum(arrayInfo->m_elemTypeNum))
     {
-        ClassLayout* layout = typGetLayoutByNum(elemTypeNum);
+        ClassLayout* layout = typGetLayoutByNum(arrayInfo->m_elemTypeNum);
 
-        arrayInfo->m_elemType       = TYP_STRUCT;
-        arrayInfo->m_elemSize       = layout->GetSize();
-        arrayInfo->m_elemStructType = layout->GetClassHandle();
+        arrayInfo->m_elemSize = layout->GetSize();
     }
     else
     {
-        var_types elemType = static_cast<var_types>(elemTypeNum);
+        var_types elemType = static_cast<var_types>(arrayInfo->m_elemTypeNum);
 
-        arrayInfo->m_elemType       = elemType;
-        arrayInfo->m_elemSize       = varTypeSize(elemType);
-        arrayInfo->m_elemStructType = NO_CLASS_HANDLE;
+        // The runtime allows casting between arrays of signed and unsigned integer types.
+        // We're going to treat such arrays as aliased by always using the signed type.
+        elemType                 = varTypeUnsignedToSigned(elemType);
+        arrayInfo->m_elemTypeNum = static_cast<unsigned>(elemType);
+
+        arrayInfo->m_elemSize = varTypeSize(elemType);
     }
 
     return true;
