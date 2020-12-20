@@ -3978,11 +3978,17 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTree* opA, FieldSeqNode* fldSeq)
     return res;
 }
 
-ValueNum Compiler::fgValueNumberArrIndexAssign(
-    unsigned elemTypeNum, ValueNum arrVN, ValueNum inxVN, FieldSeqNode* fldSeq, ValueNum rhsVN, var_types indType)
+ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueNum rhsVN, var_types indType)
 {
+    assert(elemAddr.m_func == VNF_PtrToArrElem);
+
+    unsigned      elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
+    ValueNum      arrVN       = elemAddr.m_args[1];
+    ValueNum      inxVN       = elemAddr.m_args[2];
+    FieldSeqNode* fldSeq      = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
+
     bool      invalidateArray      = false;
-    ValueNum  elemTypeEqVN         = vnStore->VNForTypeNum(elemTypeNum);
+    ValueNum  elemTypeEqVN         = elemAddr.m_args[0];
     var_types arrElemType          = typIsLayoutNum(elemTypeNum) ? TYP_STRUCT : static_cast<var_types>(elemTypeNum);
     ValueNum  hAtArrType           = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, fgCurMemoryVN[GcHeap], elemTypeEqVN);
     ValueNum  hAtArrTypeAtArr      = vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, hAtArrType, arrVN);
@@ -7531,11 +7537,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         // Is the LHS an array index expression?
                         if (argIsVNFunc && (funcApp.m_func == VNF_PtrToArrElem))
                         {
-                            unsigned elemTypeNum =
-                                static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
-                            ValueNum      arrVN  = funcApp.m_args[1];
-                            ValueNum      inxVN  = funcApp.m_args[2];
-                            FieldSeqNode* fldSeq = vnStore->FieldSeqVNToFieldSeq(funcApp.m_args[3]);
 #ifdef DEBUG
                             if (verbose)
                             {
@@ -7545,8 +7546,8 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             }
 #endif // DEBUG
 
-                            ValueNum heapVN = fgValueNumberArrIndexAssign(elemTypeNum, arrVN, inxVN, fldSeq,
-                                                                          rhsVNPair.GetLiberal(), lhs->TypeGet());
+                            ValueNum heapVN =
+                                fgValueNumberArrIndexAssign(funcApp, rhsVNPair.GetLiberal(), lhs->GetType());
                             recordGcHeapStore(tree, heapVN DEBUGARG("array element store"));
                         }
                         else if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))

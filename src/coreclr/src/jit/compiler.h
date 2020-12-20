@@ -4072,8 +4072,7 @@ public:
     // match the element type of the array or fldSeq.  When this type doesn't match
     // or if the fldSeq is 'NotAField' we invalidate the array contents H[elemTypeEq][arrVN]
     //
-    ValueNum fgValueNumberArrIndexAssign(
-        unsigned elemTypeNum, ValueNum arrVN, ValueNum inxVN, FieldSeqNode* fldSeq, ValueNum rhsVN, var_types indType);
+    ValueNum fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueNum rhsVN, var_types indType);
 
     // Requires that "tree" is a GT_IND marked as an array index, and that its address argument
     // has been parsed to yield the other input arguments.  If evaluation of the address
