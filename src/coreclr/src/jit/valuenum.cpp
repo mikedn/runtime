@@ -4082,20 +4082,16 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueN
     return vnStore->VNForMapStore(TYP_REF, fgCurMemoryVN[GcHeap], elemTypeEqVN, newValAtArrType);
 }
 
-ValueNum Compiler::fgValueNumberArrIndexVal(GenTree* tree, VNFuncApp* pFuncApp, ValueNum addrXvn)
-{
-    assert(vnStore->IsVNHandle(pFuncApp->m_args[0]));
-    unsigned      arrElemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(pFuncApp->m_args[0]));
-    ValueNum      arrVN          = pFuncApp->m_args[1];
-    ValueNum      inxVN          = pFuncApp->m_args[2];
-    FieldSeqNode* fldSeq         = vnStore->FieldSeqVNToFieldSeq(pFuncApp->m_args[3]);
-    return fgValueNumberArrIndexVal(tree, arrElemTypeNum, arrVN, inxVN, addrXvn, fldSeq);
-}
-
-ValueNum Compiler::fgValueNumberArrIndexVal(
-    GenTree* tree, unsigned elemTypeNum, ValueNum arrVN, ValueNum inxVN, ValueNum excVN, FieldSeqNode* fldSeq)
+ValueNum Compiler::fgValueNumberArrIndexVal(GenTree* tree, const VNFuncApp& elemAddr, ValueNum excVN)
 {
     assert((tree == nullptr) || tree->OperIsIndir());
+    assert(elemAddr.m_func == VNF_PtrToArrElem);
+    assert(vnStore->IsVNHandle(elemAddr.m_args[0]));
+
+    unsigned      elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(elemAddr.m_args[0]));
+    ValueNum      arrVN       = elemAddr.m_args[1];
+    ValueNum      inxVN       = elemAddr.m_args[2];
+    FieldSeqNode* fldSeq      = vnStore->FieldSeqVNToFieldSeq(elemAddr.m_args[3]);
 
     // The VN inputs are required to be non-exceptional values.
     assert(arrVN == vnStore->VNNormalValue(arrVN));
@@ -6763,7 +6759,7 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
                         else if (srcAddrFuncApp.m_func == VNF_PtrToArrElem)
                         {
                             ValueNum elemLib =
-                                fgValueNumberArrIndexVal(nullptr, &srcAddrFuncApp, vnStore->VNForEmptyExcSet());
+                                fgValueNumberArrIndexVal(nullptr, srcAddrFuncApp, vnStore->VNForEmptyExcSet());
                             rhsVNPair.SetLiberal(elemLib);
                             rhsVNPair.SetConservative(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
                         }
@@ -7874,7 +7870,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 }
                 else if (vnStore->GetVNFunc(addrNvnp.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
                 {
-                    fgValueNumberArrIndexVal(tree, &funcApp, addrXvnp.GetLiberal());
+                    fgValueNumberArrIndexVal(tree, funcApp, addrXvnp.GetLiberal());
                 }
                 else if (optIsFieldAddr(addr, &obj, &staticOffset, &fldSeq2))
                 {

@@ -4082,15 +4082,12 @@ public:
     // VN for the conservative VN.)  Also marks the tree's argument as the address of an array element.
     // The type tree->TypeGet() will typically match the element type of the array or fldSeq.
     // When this type doesn't match or if the fldSeq is 'NotAField' we return a new unique VN
-    //
-    ValueNum fgValueNumberArrIndexVal(
-        GenTree* tree, unsigned elemTypeNum, ValueNum arrVN, ValueNum inxVN, ValueNum excVN, FieldSeqNode* fldSeq);
 
     // Requires "funcApp" to be a VNF_PtrToArrElem, and "addrXvn" to represent the exception set thrown
     // by evaluating the array index expression "tree".  Returns the value number resulting from
     // dereferencing the array in the current GcHeap state.  If "tree" is non-null, it must be the
     // "GT_IND" that does the dereference, and it is given the returned value number.
-    ValueNum fgValueNumberArrIndexVal(GenTree* tree, struct VNFuncApp* funcApp, ValueNum addrXvn);
+    ValueNum fgValueNumberArrIndexVal(GenTree* tree, const VNFuncApp& elemAddr, ValueNum addrXvn);
 
     // Compute the value number for a byref-exposed load of the given type via the given pointerVN.
     ValueNum fgValueNumberByrefExposedLoad(var_types type, ValueNum pointerVN);
