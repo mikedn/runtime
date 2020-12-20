@@ -4087,7 +4087,7 @@ public:
     // by evaluating the array index expression "tree".  Returns the value number resulting from
     // dereferencing the array in the current GcHeap state.  If "tree" is non-null, it must be the
     // "GT_IND" that does the dereference, and it is given the returned value number.
-    ValueNum fgValueNumberArrIndexVal(GenTree* tree, const VNFuncApp& elemAddr, ValueNum addrXvn);
+    ValueNum fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum addrXvn, var_types indType);
 
     // Compute the value number for a byref-exposed load of the given type via the given pointerVN.
     ValueNum fgValueNumberByrefExposedLoad(var_types type, ValueNum pointerVN);

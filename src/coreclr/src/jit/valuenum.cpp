@@ -4082,9 +4082,8 @@ ValueNum Compiler::fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueN
     return vnStore->VNForMapStore(TYP_REF, fgCurMemoryVN[GcHeap], elemTypeEqVN, newValAtArrType);
 }
 
-ValueNum Compiler::fgValueNumberArrIndexVal(GenTree* tree, const VNFuncApp& elemAddr, ValueNum excVN)
+ValueNum Compiler::fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum excVN, var_types indType)
 {
-    assert((tree == nullptr) || tree->OperIsIndir());
     assert(elemAddr.m_func == VNF_PtrToArrElem);
     assert(vnStore->IsVNHandle(elemAddr.m_args[0]));
 
@@ -4098,7 +4097,6 @@ ValueNum Compiler::fgValueNumberArrIndexVal(GenTree* tree, const VNFuncApp& elem
     assert(inxVN == vnStore->VNNormalValue(inxVN));
 
     var_types elemTyp = typIsLayoutNum(elemTypeNum) ? TYP_STRUCT : static_cast<var_types>(elemTypeNum);
-    var_types indType = (tree == nullptr) ? elemTyp : tree->TypeGet();
     ValueNum  selectedElem;
 
     if (fldSeq == FieldSeqStore::NotAField())
@@ -4112,14 +4110,9 @@ ValueNum Compiler::fgValueNumberArrIndexVal(GenTree* tree, const VNFuncApp& elem
 #ifdef DEBUG
         if (verbose)
         {
-            printf("  IND of PtrToArrElem is unique VN " FMT_VN ".\n", selectedElem);
+            printf("  selectedElem is unique VN " FMT_VN ".\n", selectedElem);
         }
 #endif // DEBUG
-
-        if (tree != nullptr)
-        {
-            tree->gtVNPair.SetBoth(selectedElem);
-        }
     }
     else
     {
@@ -4165,15 +4158,6 @@ ValueNum Compiler::fgValueNumberArrIndexVal(GenTree* tree, const VNFuncApp& elem
             printf("  selectedElem is " FMT_VN " after applying selectors.\n", selectedElem);
         }
 #endif // DEBUG
-
-        if (tree != nullptr)
-        {
-            tree->gtVNPair.SetLiberal(selectedElem);
-
-            // TODO-CQ: what to do here about exceptions?  We don't have the array and ind conservative
-            // values, so we don't have their exceptions.  Maybe we should.
-            tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->TypeGet()));
-        }
     }
 
     return selectedElem;
@@ -6520,26 +6504,15 @@ void Compiler::fgValueNumberTreeConst(GenTree* tree)
     }
 }
 
-//------------------------------------------------------------------------
-// fgValueNumberBlockAssignment: Perform value numbering for block assignments.
-//
-// Arguments:
-//    tree          - the block assignment to be value numbered.
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    'tree' must be a block assignment (GT_INITBLK, GT_COPYBLK, GT_COPYOBJ).
-
 void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
 {
     assert(tree->OperIs(GT_ASG));
+    assert(tree->TypeIs(TYP_STRUCT));
 
     GenTree* lhs = tree->gtGetOp1();
     GenTree* rhs = tree->gtGetOp2();
 
-    assert(varTypeIsStruct(lhs->GetType()));
+    assert(lhs->TypeIs(TYP_STRUCT));
 
     if (rhs->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
@@ -6758,9 +6731,10 @@ void Compiler::fgValueNumberBlockAssignment(GenTree* tree)
                         }
                         else if (srcAddrFuncApp.m_func == VNF_PtrToArrElem)
                         {
-                            ValueNum elemLib =
-                                fgValueNumberArrIndexVal(nullptr, srcAddrFuncApp, vnStore->VNForEmptyExcSet());
-                            rhsVNPair.SetLiberal(elemLib);
+                            ValueNum vn =
+                                fgValueNumberArrIndexVal(srcAddrFuncApp, vnStore->VNForEmptyExcSet(), TYP_STRUCT);
+
+                            rhsVNPair.SetLiberal(vn);
                             rhsVNPair.SetConservative(vnStore->VNForExpr(compCurBB, lclVarTree->TypeGet()));
                         }
                         else
@@ -7528,7 +7502,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                         GenTree*      obj          = nullptr;
                         GenTree*      staticOffset = nullptr;
                         FieldSeqNode* fldSeq       = nullptr;
-                        ArrayInfo     arrInfo;
 
                         // Is the LHS an array index expression?
                         if (argIsVNFunc && (funcApp.m_func == VNF_PtrToArrElem))
@@ -7701,8 +7674,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     break;
             }
         }
-        // Other kinds of assignment: initblk and copyblk.
-        else if (oper == GT_ASG && (tree->TypeGet() == TYP_STRUCT))
+        else if ((oper == GT_ASG) && tree->TypeIs(TYP_STRUCT))
         {
             fgValueNumberBlockAssignment(tree);
         }
@@ -7787,7 +7759,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             GenTree*             obj          = nullptr;
             GenTree*             staticOffset = nullptr;
             bool                 isVolatile   = (tree->gtFlags & GTF_IND_VOLATILE) != 0;
-            ArrayInfo            arrInfo;
 
             // See if the addr has any exceptional part.
             ValueNumPair addrNvnp;
@@ -7870,7 +7841,12 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 }
                 else if (vnStore->GetVNFunc(addrNvnp.GetLiberal(), &funcApp) && (funcApp.m_func == VNF_PtrToArrElem))
                 {
-                    fgValueNumberArrIndexVal(tree, funcApp, addrXvnp.GetLiberal());
+                    ValueNum vn = fgValueNumberArrIndexVal(funcApp, addrXvnp.GetLiberal(), tree->GetType());
+
+                    tree->gtVNPair.SetLiberal(vn);
+                    // TODO-CQ: what to do here about exceptions? We don't have the array and index conservative
+                    // values, so we don't have their exceptions. Maybe we should.
+                    tree->gtVNPair.SetConservative(vnStore->VNForExpr(compCurBB, tree->GetType()));
                 }
                 else if (optIsFieldAddr(addr, &obj, &staticOffset, &fldSeq2))
                 {
