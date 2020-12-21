@@ -1417,25 +1417,11 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-        {
-            // The original GT_LCL_VAR might be annotated with a zeroOffset field.
-            FieldSeqNode* zeroFieldSeq = nullptr;
-            Compiler*     compiler     = JitTls::GetCompiler();
-            bool          isZeroOffset = compiler->GetZeroOffsetFieldMap()->Lookup(this, &zeroFieldSeq);
-
             AsLclFld()->SetLayoutNum(0);
             AsLclFld()->SetLclOffs(0);
             AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-
-            if (zeroFieldSeq != nullptr)
-            {
-                // Set the zeroFieldSeq in the GT_LCL_FLD node
-                AsLclFld()->SetFieldSeq(zeroFieldSeq);
-                // and remove the annotation from the ZeroOffsetFieldMap
-                compiler->GetZeroOffsetFieldMap()->Remove(this);
-            }
             break;
-        }
+
 #ifdef TARGET_ARM
         case GT_BITCAST:
             AsMultiRegOp()->gtOtherReg = REG_NA;
