@@ -12438,15 +12438,6 @@ DONE_MORPHING_CHILDREN:
 
                 return addr;
             }
-            else if (op1->gtOper == GT_CAST)
-            {
-                GenTree* casting = op1->AsCast()->CastOp();
-                if (casting->gtOper == GT_LCL_VAR || casting->gtOper == GT_CLS_VAR)
-                {
-                    DEBUG_DESTROY_NODE(op1);
-                    tree->AsOp()->gtOp1 = op1 = casting;
-                }
-            }
             else if ((op1->gtOper == GT_COMMA) && !optValnumCSE_phase)
             {
                 // Perform the transform ADDR(COMMA(x, ..., z)) == COMMA(x, ..., ADDR(z)).
