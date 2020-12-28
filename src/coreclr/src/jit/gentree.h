@@ -779,8 +779,8 @@ public:
 
     void SetSideEffects(unsigned sideEffects)
     {
-        assert((sideEffects & !GTF_ALL_EFFECT) == 0);
-        gtFlags = (gtFlags & !GTF_ALL_EFFECT) | sideEffects;
+        assert((sideEffects & ~GTF_ALL_EFFECT) == 0);
+        gtFlags = (gtFlags & ~GTF_ALL_EFFECT) | sideEffects;
     }
 
 // The extra flag GTF_IS_IN_CSE is used to tell the consumer of these flags

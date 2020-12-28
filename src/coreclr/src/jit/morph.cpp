@@ -8725,7 +8725,7 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         //   after: [3] comma byref <- [2] comma byref <- [4] addr byref <- [1] LCL_VAR struct
 
         ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
-        for (GenTree* comma = tree; (comma != nullptr) && comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
+        for (GenTree* comma = tree; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
         {
             commas.Push(comma->AsOp());
         }
@@ -12438,67 +12438,80 @@ DONE_MORPHING_CHILDREN:
 
                 return addr;
             }
-            else if ((op1->gtOper == GT_COMMA) && !optValnumCSE_phase)
+            else if (op1->OperIs(GT_COMMA) && !optValnumCSE_phase)
             {
                 // Perform the transform ADDR(COMMA(x, ..., z)) == COMMA(x, ..., ADDR(z)).
-                // (Be sure to mark "z" as an l-value...)
 
-                GenTreePtrStack commas(getAllocator(CMK_ArrayStack));
-                for (GenTree* comma = op1; comma != nullptr && comma->gtOper == GT_COMMA; comma = comma->gtGetOp2())
+                ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
+                for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
                 {
-                    commas.Push(comma);
-                }
-                GenTree* commaNode = commas.Top();
-
-                // The top-level addr might be annotated with a zeroOffset field.
-                FieldSeqNode* zeroFieldSeq = nullptr;
-                bool          isZeroOffset = GetZeroOffsetFieldMap()->Lookup(tree, &zeroFieldSeq);
-                tree                       = op1;
-                commaNode->AsOp()->gtOp2->gtFlags |= GTF_DONT_CSE;
-
-                // If the node we're about to put under a GT_ADDR is an indirection, it
-                // doesn't need to be materialized, since we only want the addressing mode. Because
-                // of this, this GT_IND is not a faulting indirection and we don't have to extract it
-                // as a side effect.
-                GenTree* commaOp2 = commaNode->AsOp()->gtOp2;
-                if (commaOp2->OperIsBlk())
-                {
-                    commaOp2->SetOper(GT_IND);
-                }
-                if (commaOp2->gtOper == GT_IND)
-                {
-                    commaOp2->gtFlags |= GTF_IND_NONFAULTING;
-                    commaOp2->gtFlags &= ~GTF_EXCEPT;
-                    commaOp2->gtFlags |= (commaOp2->AsOp()->gtOp1->gtFlags & GTF_EXCEPT);
+                    commas.Push(comma->AsOp());
                 }
 
-                op1 = gtNewOperNode(GT_ADDR, TYP_BYREF, commaOp2);
+                GenTreeOp* lastComma = commas.Top();
+                GenTree*   location  = lastComma->GetOp(1);
+                GenTree*   addr      = nullptr;
 
-                if (isZeroOffset)
+                if (location->OperIs(GT_OBJ))
                 {
-                    // Transfer the annotation to the new GT_ADDR node.
-                    fgAddFieldSeqForZeroOffset(op1, zeroFieldSeq);
+                    location->SetOper(GT_IND);
                 }
-                commaNode->AsOp()->gtOp2 = op1;
-                // Originally, I gave all the comma nodes type "byref".  But the ADDR(IND(x)) == x transform
-                // might give op1 a type different from byref (like, say, native int).  So now go back and give
-                // all the comma nodes the type of op1.
-                // TODO: the comma flag update below is conservative and can be improved.
-                // For example, if we made the ADDR(IND(x)) == x transformation, we may be able to
-                // get rid of some of the IND flags on the COMMA nodes (e.g., GTF_GLOB_REF).
+
+                if (location->OperIs(GT_IND))
+                {
+                    if ((location->gtFlags & GTF_IND_ARR_INDEX) == 0)
+                    {
+                        addr = location->AsIndir()->GetAddr();
+
+                        // The morphed ADDR might be annotated with a zero offset field sequence.
+                        FieldSeqNode* zeroFieldSeq = nullptr;
+                        if (GetZeroOffsetFieldMap()->Lookup(tree, &zeroFieldSeq))
+                        {
+                            fgAddFieldSeqForZeroOffset(addr, zeroFieldSeq);
+                        }
+                    }
+                    else
+                    {
+                        // If the node we're about to put under a GT_ADDR is an indirection, it doesn't
+                        // need to be materialized, since we only want its address. Because of this, the
+                        // GT_IND is not a faulting indirection.
+
+                        // TODO: the flag update below is conservative and can be improved.
+                        // For example, if we made the ADDR(IND(x)) == x transformation, we may be able to
+                        // get rid of some other IND flags (e.g., GTF_GLOB_REF).
+
+                        location->gtFlags |= GTF_IND_NONFAULTING;
+                        location->gtFlags &= ~GTF_EXCEPT;
+                        location->gtFlags |= (location->AsIndir()->GetAddr()->gtFlags & GTF_EXCEPT);
+                    }
+                }
+
+                if (addr == nullptr)
+                {
+                    addr = tree;
+                    addr->AsUnOp()->SetOp(0, location);
+                    addr->SetSideEffects(location->GetSideEffects());
+
+                    location->SetDoNotCSE();
+                }
+
+                lastComma->SetOp(1, addr);
+
+                // TODO-MIKE-Cleanup: Like the similar transform in fgMorphBlkNode, this doesn't update
+                // value numbers on COMMAs. It's likely that this transform doesn't happen past global
+                // morph so probabily this doesn't matter too much.
+
+                // TODO-MIKE-CQ: The first COMMA has GTF_DONT_CSE set because it's under ADDR.
+                // GTF_DONT_CSE is no longer necessary and should be removed.
 
                 while (!commas.Empty())
                 {
-                    GenTree* comma = commas.Pop();
-                    comma->SetType(op1->GetType());
-                    comma->ClearDoNotCSE();
-#ifdef DEBUG
-                    comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
-                    gtUpdateNodeSideEffects(comma);
+                    GenTreeOp* comma = commas.Pop();
+                    comma->SetType(addr->GetType());
+                    comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
                 }
 
-                return tree;
+                return op1;
             }
             break;
 
