@@ -12490,8 +12490,8 @@ DONE_MORPHING_CHILDREN:
                 while (!commas.Empty())
                 {
                     GenTree* comma = commas.Pop();
-                    comma->gtType  = op1->gtType;
-                    comma->gtFlags |= op1->gtFlags;
+                    comma->SetType(op1->GetType());
+                    comma->ClearDoNotCSE();
 #ifdef DEBUG
                     comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
 #endif
