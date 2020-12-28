@@ -8992,7 +8992,7 @@ public:
         Compiler* compRoot = impInlineRoot();
         if (compRoot->m_fieldSeqStore == nullptr)
         {
-            compRoot->m_fieldSeqStore = new (this, CMK_FieldSeqStore) FieldSeqStore(this);
+            compRoot->m_fieldSeqStore = new (this, CMK_FieldSeqStore) FieldSeqStore(compRoot);
         }
         return compRoot->m_fieldSeqStore;
     }
