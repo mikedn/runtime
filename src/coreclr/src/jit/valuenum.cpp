@@ -9765,7 +9765,7 @@ void Compiler::fgValueNumberAddExceptionSet(GenTree* tree)
                 break;
 
             case GT_ARR_LENGTH:
-                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsArrLen()->ArrRef());
+                fgValueNumberAddExceptionSetForIndirection(tree, tree->AsArrLen()->GetArray());
                 break;
 
             case GT_ARR_ELEM:

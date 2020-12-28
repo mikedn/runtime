@@ -1422,8 +1422,8 @@ void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree
         unsigned simdElementCount = varTypeSize(simdType) / varTypeSize(TYP_FLOAT);
 
         GenTree* lastIndex = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
-        GenTree* arrLen = compiler->gtNewArrLen(TYP_INT, compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length,
-                                                compiler->compCurBB);
+        GenTree* arrLen =
+            compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length, compiler->compCurBB);
         GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL);
 
         addr   = compiler->gtNewOperNode(GT_COMMA, array->GetType(), arrBndsChk, array);
@@ -1976,9 +1976,8 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                     op3 = gtCloneExpr(index);
                 }
 
-                GenTreeArrLen* arrLen =
-                    gtNewArrLen(TYP_INT, arrayRefForArgRngChk, (int)OFFSETOF__CORINFO_Array__length, compCurBB);
-                argRngChk = new (this, GT_ARR_BOUNDS_CHECK)
+                GenTreeArrLen* arrLen = gtNewArrLen(arrayRefForArgRngChk, OFFSETOF__CORINFO_Array__length, compCurBB);
+                argRngChk             = new (this, GT_ARR_BOUNDS_CHECK)
                     GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, arrLen, op3CheckKind);
                 // Now, clone op3 to create another node for the argChk
                 GenTree* index2 = gtCloneExpr(op3);
@@ -1997,8 +1996,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             {
                 op2CheckKind = SCK_ARG_EXCPN;
             }
-            GenTreeArrLen* arrLen =
-                gtNewArrLen(TYP_INT, arrayRefForArgChk, (int)OFFSETOF__CORINFO_Array__length, compCurBB);
+            GenTreeArrLen*    arrLen = gtNewArrLen(arrayRefForArgChk, OFFSETOF__CORINFO_Array__length, compCurBB);
             GenTreeBoundsChk* argChk = new (this, GT_ARR_BOUNDS_CHECK)
                 GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, checkIndexExpr, arrLen, op2CheckKind);
 

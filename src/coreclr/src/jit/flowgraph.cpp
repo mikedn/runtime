@@ -9652,39 +9652,34 @@ void Compiler::fgSimpleLowering()
             {
                 case GT_ARR_LENGTH:
                 {
-                    GenTreeArrLen* arrLen = tree->AsArrLen();
-                    GenTree*       arr    = arrLen->AsArrLen()->ArrRef();
-                    GenTree*       add;
-                    GenTree*       con;
-
-                    /* Create the expression "*(array_addr + ArrLenOffs)" */
+                    GenTree* arr = tree->AsArrLen()->GetArray();
 
                     noway_assert(arr->gtNext == tree);
 
-                    noway_assert(arrLen->ArrLenOffset() == OFFSETOF__CORINFO_Array__length ||
-                                 arrLen->ArrLenOffset() == OFFSETOF__CORINFO_String__stringLen);
+                    GenTree* addr;
 
-                    if ((arr->gtOper == GT_CNS_INT) && (arr->AsIntCon()->gtIconVal == 0))
+                    if (arr->IsIntegralConst(0))
                     {
                         // If the array is NULL, then we should get a NULL reference
                         // exception when computing its length.  We need to maintain
-                        // an invariant where there is no sum of two constants node, so
-                        // let's simply return an indirection of NULL.
+                        // an invariant where there is no sum of two constants node,
+                        // so let's simply return an indirection of NULL. Also change
+                        // the address to I_IMPL, there's no reason to keep the REF.
 
-                        add = arr;
+                        addr = arr;
+                        addr->SetType(TYP_I_IMPL);
                     }
                     else
                     {
-                        con = gtNewIconNode(arrLen->ArrLenOffset(), TYP_I_IMPL);
-                        add = gtNewOperNode(GT_ADD, TYP_BYREF, arr, con);
+                        GenTree* ofs = gtNewIconNode(tree->AsArrLen()->GetLenOffs(), TYP_I_IMPL);
+                        addr         = gtNewOperNode(GT_ADD, TYP_BYREF, arr, ofs);
 
-                        range.InsertAfter(arr, con, add);
+                        range.InsertAfter(arr, ofs, addr);
                     }
 
-                    // Change to a GT_IND.
-                    tree->ChangeOperUnchecked(GT_IND);
+                    tree->ChangeOper(GT_IND);
+                    tree->AsIndir()->SetAddr(addr);
 
-                    tree->AsOp()->gtOp1 = add;
                     break;
                 }
 

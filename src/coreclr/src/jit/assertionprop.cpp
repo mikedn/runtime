@@ -2172,8 +2172,7 @@ void Compiler::optAssertionGen(GenTree* tree)
             break;
 
         case GT_ARR_LENGTH:
-            // An array length is an indirection (but doesn't derive from GenTreeIndir).
-            assertionInfo = optCreateAssertion(tree->AsArrLen()->ArrRef(), nullptr, OAK_NOT_EQUAL);
+            assertionInfo = optCreateAssertion(tree->AsArrLen()->GetArray(), nullptr, OAK_NOT_EQUAL);
             break;
 
         case GT_ARR_BOUNDS_CHECK:

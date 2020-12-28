@@ -1171,29 +1171,17 @@ inline GenTreeIndex* Compiler::gtNewStringIndex(GenTree* arr, GenTree* ind)
         GenTreeIndex(TYP_USHORT, arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars);
 }
 
-//------------------------------------------------------------------------------
-// gtNewArrLen : Helper to create an array length node.
-//
-//
-// Arguments:
-//    typ      -  Type of the node
-//    arrayOp  -  Array node
-//    lenOffset - Offset of the length field
-//    block     - Basic block that will contain the result
-//
-// Return Value:
-//    New GT_ARR_LENGTH node
-
-inline GenTreeArrLen* Compiler::gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset, BasicBlock* block)
+inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block)
 {
-    GenTreeArrLen* arrLen = new (this, GT_ARR_LENGTH) GenTreeArrLen(typ, arrayOp, lenOffset);
-    static_assert_no_msg(GTF_ARRLEN_NONFAULTING == GTF_IND_NONFAULTING);
-    arrLen->SetIndirExceptionFlags(this);
     if (block != nullptr)
     {
         block->bbFlags |= BBF_HAS_IDX_LEN;
     }
+
     optMethodFlags |= OMF_HAS_ARRAYREF;
+
+    GenTreeArrLen* arrLen = new (this, GT_ARR_LENGTH) GenTreeArrLen(arr, lenOffs);
+    arrLen->SetIndirExceptionFlags(this);
     return arrLen;
 }
 
@@ -3479,19 +3467,18 @@ inline bool Compiler::LoopDsc::lpArrLenLimit(Compiler* comp, ArrIndex* index)
     assert(lpFlags & LPFLG_ARRLEN_LIMIT);
 
     GenTree* limit = lpLimit();
-    assert(limit->OperGet() == GT_ARR_LENGTH);
 
     // Check if we have a.length or a[i][j].length
-    if (limit->AsArrLen()->ArrRef()->gtOper == GT_LCL_VAR)
+    if (limit->AsArrLen()->GetArray()->OperIs(GT_LCL_VAR))
     {
-        index->arrLcl = limit->AsArrLen()->ArrRef()->AsLclVarCommon()->GetLclNum();
+        index->arrLcl = limit->AsArrLen()->GetArray()->AsLclVar()->GetLclNum();
         index->rank   = 0;
         return true;
     }
     // We have a[i].length, extract a[i] pattern.
-    else if (limit->AsArrLen()->ArrRef()->gtOper == GT_COMMA)
+    else if (limit->AsArrLen()->GetArray()->OperIs(GT_COMMA))
     {
-        return comp->optReconstructArrIndex(limit->AsArrLen()->ArrRef(), index, BAD_VAR_NUM);
+        return comp->optReconstructArrIndex(limit->AsArrLen()->GetArray(), index, BAD_VAR_NUM);
     }
     return false;
 }

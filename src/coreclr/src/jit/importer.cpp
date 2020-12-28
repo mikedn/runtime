@@ -3452,8 +3452,8 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                         break;
                     }
                 }
-                GenTreeArrLen* arrLen = gtNewArrLen(TYP_INT, op1, OFFSETOF__CORINFO_String__stringLen, compCurBB);
-                op1                   = arrLen;
+
+                op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen, compCurBB);
             }
             else
             {
@@ -13732,14 +13732,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val;
                 if (opts.OptimizationEnabled())
                 {
-                    /* Use GT_ARR_LENGTH operator so rng check opts see this */
-                    GenTreeArrLen* arrLen = gtNewArrLen(TYP_INT, op1, OFFSETOF__CORINFO_Array__length, block);
-
-                    op1 = arrLen;
+                    op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_Array__length, block);
                 }
                 else
                 {
-                    /* Create the expression "*(array_addr + ArrLenOffs)" */
                     op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
                                         gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL));
                     op1 = gtNewIndir(TYP_INT, op1);

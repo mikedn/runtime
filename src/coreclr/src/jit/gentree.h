@@ -5929,27 +5929,28 @@ public:
 #endif
 };
 
-/* gtArrLen -- array length (GT_ARR_LENGTH)
-   GT_ARR_LENGTH is used for "arr.length" */
-
 struct GenTreeArrLen : public GenTreeUnOp
 {
-    GenTree*& ArrRef()
-    {
-        return gtOp1;
-    } // the array address node
-private:
-    int gtArrLenOffset; // constant to add to "gtArrRef" to get the address of the array length.
+    static_assert_no_msg(GTF_ARRLEN_NONFAULTING == GTF_IND_NONFAULTING);
 
-public:
-    inline int ArrLenOffset()
+    GenTreeArrLen(GenTree* arr, uint8_t lenOffs) : GenTreeUnOp(GT_ARR_LENGTH, TYP_INT, arr)
     {
-        return gtArrLenOffset;
+        // The offset of length is always the same for both strings and arrays.
+        assert(lenOffs == TARGET_POINTER_SIZE);
     }
 
-    GenTreeArrLen(var_types type, GenTree* arrRef, int lenOffset)
-        : GenTreeUnOp(GT_ARR_LENGTH, type, arrRef), gtArrLenOffset(lenOffset)
+    GenTreeArrLen(const GenTreeArrLen* copyFrom) : GenTreeUnOp(GT_ARR_LENGTH, copyFrom->GetType(), copyFrom->GetArray())
     {
+    }
+
+    GenTree* GetArray() const
+    {
+        return gtOp1;
+    }
+
+    uint8_t GetLenOffs() const
+    {
+        return TARGET_POINTER_SIZE;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -5991,9 +5992,9 @@ struct GenTreeBoundsChk : public GenTree
     // If the gtArrLen is really an array length, returns array reference, else "NULL".
     GenTree* GetArray()
     {
-        if (gtArrLen->OperGet() == GT_ARR_LENGTH)
+        if (gtArrLen->IsArrLen())
         {
-            return gtArrLen->AsArrLen()->ArrRef();
+            return gtArrLen->AsArrLen()->GetArray();
         }
         else
         {

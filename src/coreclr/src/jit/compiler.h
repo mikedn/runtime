@@ -2155,7 +2155,7 @@ public:
     GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
     GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
 
-    GenTreeArrLen* gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset, BasicBlock* block);
+    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block);
     GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
 
     GenTree* gtNewIndir(var_types typ, GenTree* addr);

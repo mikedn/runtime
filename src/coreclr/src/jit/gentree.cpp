@@ -1298,10 +1298,6 @@ AGAIN:
             switch (oper)
             {
                 case GT_ARR_LENGTH:
-                    if (op1->AsArrLen()->ArrLenOffset() != op2->AsArrLen()->ArrLenOffset())
-                    {
-                        return false;
-                    }
                     break;
                 case GT_CAST:
                     if (op1->AsCast()->gtCastType != op2->AsCast()->gtCastType)
@@ -1993,7 +1989,6 @@ AGAIN:
             switch (oper)
             {
                 case GT_ARR_LENGTH:
-                    hash += tree->AsArrLen()->ArrLenOffset();
                     break;
                 case GT_CAST:
                     hash ^= tree->AsCast()->gtCastType;
@@ -5056,8 +5051,7 @@ bool GenTree::OperMayThrow(Compiler* comp)
             return (((this->gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(this->AsIndir()->Addr()));
 
         case GT_ARR_LENGTH:
-            return (((this->gtFlags & GTF_IND_NONFAULTING) == 0) &&
-                    comp->fgAddrCouldBeNull(this->AsArrLen()->ArrRef()));
+            return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsArrLen()->GetArray());
 
         case GT_ARR_ELEM:
             return comp->fgAddrCouldBeNull(this->AsArrElem()->gtArrObj);
@@ -6623,7 +6617,7 @@ GenTree* Compiler::gtCloneExpr(
             break;
 
             case GT_ARR_LENGTH:
-                copy = gtNewArrLen(tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsArrLen()->ArrLenOffset(), nullptr);
+                copy = new (this, GT_ARR_LENGTH) GenTreeArrLen(tree->AsArrLen());
                 break;
 
             case GT_ARR_INDEX:
@@ -8141,12 +8135,12 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
     GenTree* addr = nullptr;
     if (OperIsIndir())
     {
-        addr = AsIndir()->Addr();
+        addr = AsIndir()->GetAddr();
     }
     else
     {
         assert(gtOper == GT_ARR_LENGTH);
-        addr = AsArrLen()->ArrRef();
+        addr = AsArrLen()->GetArray();
     }
 
     if (OperMayThrow(comp) || ((addr->gtFlags & GTF_EXCEPT) != 0))
