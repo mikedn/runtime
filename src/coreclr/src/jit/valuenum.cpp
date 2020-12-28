@@ -3891,16 +3891,10 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
     ArrayInfo arrInfo;
     if (m_pComp->optIsArrayElemAddr(add, &arrInfo))
     {
-        GenTree*      arr      = nullptr;
-        ValueNum      inxVN    = NoVN;
-        FieldSeqNode* fieldSeq = nullptr;
+        ValueNum indexVN = ExtractArrayElementIndex(arrInfo);
 
-        if (m_pComp->optParseArrayAddress(add, &arrInfo, &arr, &inxVN, &fieldSeq))
+        if (indexVN != NoVN)
         {
-            // Currently struct fields are not included in array element address expressions.
-            assert(fieldSeq == nullptr);
-
-            // Need to form H[arrType][arr][ind][fldSeq]
             ValueNum elemTypeEqVN = VNForTypeNum(arrInfo.m_elemTypeNum);
             JITDUMP("    VNForTypeNum(elemTypeNum: %s) is " FMT_VN "\n",
                     m_pComp->typIsLayoutNum(arrInfo.m_elemTypeNum)
@@ -3910,12 +3904,21 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
 
             // We take the "VNNormalValue"s here, because if either has exceptional outcomes,
             // they will be captured as part of the value of the composite "addr" operation...
-            ValueNum arrVN = VNLiberalNormalValue(arr->gtVNPair);
-            inxVN          = VNNormalValue(inxVN);
+            ValueNum arrVN = VNNormalValue(arrInfo.m_arrayExpr->gtVNPair.GetLiberal());
+            indexVN        = VNNormalValue(indexVN);
 
-            // Additionally, relabel the address with a PtrToArrElem value number.
-            ValueNum fldSeqVN = VNForFieldSeq(fieldSeq);
-            return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, inxVN, fldSeqVN);
+#ifdef DEBUG
+            if (m_pComp->verbose)
+            {
+                printf("    Index VN is " FMT_VN " ", indexVN);
+                vnDump(m_pComp, indexVN);
+                printf("\n");
+            }
+#endif
+
+            ValueNum fldSeqVN = VNForFieldSeq(arrInfo.m_elemOffsetConst->GetFieldSeq()->GetNext());
+
+            return VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN, arrVN, indexVN, fldSeqVN);
         }
     }
 
@@ -3929,6 +3932,203 @@ ValueNum ValueNumStore::ExtendPtrVN(GenTreeOp* add)
     }
 
     return NoVN;
+}
+
+ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
+{
+    assert(arrayInfo.m_arrayExpr->TypeIs(TYP_REF));
+    assert(arrayInfo.m_elemOffsetConst->GetFieldSeq()->IsArrayElement() &&
+           (varActualType(arrayInfo.m_elemOffsetConst->GetType()) == TYP_I_IMPL));
+    assert((arrayInfo.m_elemOffsetExpr == nullptr) ||
+           (varActualType(arrayInfo.m_elemOffsetExpr->GetType()) == TYP_I_IMPL));
+
+    target_size_t elemSize;
+
+    if (m_pComp->typIsLayoutNum(arrayInfo.m_elemTypeNum))
+    {
+        elemSize = m_pComp->typGetLayoutByNum(arrayInfo.m_elemTypeNum)->GetSize();
+    }
+    else
+    {
+        elemSize = varTypeSize(static_cast<var_types>(arrayInfo.m_elemTypeNum));
+    }
+
+    // Note that while the index is a signed integer (int32 or native int) the offset is
+    // really unsigned. Also, using unsigned values avoids C++ signed integer overflow.
+
+    target_size_t offset   = static_cast<target_size_t>(arrayInfo.m_elemOffsetConst->GetValue());
+    ValueNum      offsetVN = NoVN;
+
+    if (arrayInfo.m_elemOffsetExpr != nullptr)
+    {
+        offsetVN = VNNormalValue(arrayInfo.m_elemOffsetExpr->gtVNPair.GetLiberal());
+        assert(varActualType(TypeOfVN(offsetVN)) == TYP_I_IMPL);
+
+        if (IsVNConstant(offsetVN))
+        {
+            offset += CoercedConstantValue<target_size_t>(offsetVN);
+            offsetVN = NoVN;
+        }
+    }
+
+    // The offset contains the array data offset, remove it so we can determine
+    // the index as offset / elemSize.
+
+    offset -= arrayInfo.m_elemOffsetConst->GetFieldSeq()->GetArrayDataOffs();
+
+    // The offset should now be a multiple of the element size, unless it also
+    // contains the offset of a struct field. Then the field sequence should
+    // also include a struct field sequence.
+
+    target_size_t fieldOffset = offset % elemSize;
+
+    if (fieldOffset != 0)
+    {
+        assert(arrayInfo.m_elemOffsetConst->GetFieldSeq()->GetNext()->IsField());
+
+        // TODO-MIKE-Cleanup: Would be good to actually retrieve the field offset
+        // from the field sequence but that currently requires calling the VM.
+        // Anyway, this path is pretty much never hit due to GTF_IND_ARR_INDEX.
+
+        offset -= fieldOffset;
+        assert(offset % elemSize == 0);
+    }
+
+    // Note that this index isn't necessarily the same as the original index.
+    // The offset computation might have overflowed, especially on 32 bit targets,
+    // so what we get is only congruent to the original index. For an INT array "a"
+    // and "a[int.MaxValue]" we get (on 32 bit targets)
+    //     0x7FFF'FFFF * 4 / 4 = 0xFFFF'FFFC / 4 = 0x3FFF'FFFF
+    // Also, for something like "a[i - 3]" we get
+    //     0xFFFF'FFFD * 4 / 4 = 0xFFFF'FFF4 / 4 = 0x3FFF'FFFD
+    // The second case is perhaps a bit unfortunate, a 0xFFFF'FFFD result would have
+    // been preferable.
+    // It is correct for aliasing purposes ("a[i - 3]" and "a[i + 1073741821]" are
+    // indeed aliased, even if "i + 1073741821" is an invalid index as far as range
+    // checks are concerned) but other uses may require some extra care.
+
+    // TODO-MIKE-Cleanup: Can we use signed integer division to avoid the second case?
+    // It's probably not sufficient since a "negative" offset doesn't indicate that
+    // the original index was negative.
+
+    target_size_t index = offset / elemSize;
+
+    if (offsetVN == NoVN)
+    {
+        // The entire offset is constant so the index is also constant.
+        // Ignore indices that exceed INT32_MAX, they definitely don't represent
+        // a valid element access and anyway such code will throw an exception.
+        // We could also ignore indices that are invalid for the given element
+        // type but that requires an extra integer division and it's not clear
+        // if there's any real benefit in wasting cycles on that.
+
+        return (index > INT32_MAX) ? NoVN : VNForUPtrSizeIntCon(index);
+    }
+
+    // Otherwise the offset is something like "ADD(MUL(i, elemSize), offset)". Morph
+    // may transform a MUL into LSH and/or a series of constant multiplications, such
+    // as "i * 2 * 3". Peel off constant multiplications to try to find the index.
+    // We could use DIV(offset, elemSize) as the index VN but that's just one extra
+    // VN we need to allocate.
+
+    // TODO-MIKE-Consider: Do we even need to bother with the index? Can't we just use
+    // the offset VN in VNF_PtrToArrElem? Having the index could probably be useful to
+    // determine that a[i] and a[i + 1] do not alias but VN doesn't handle that now.
+
+    for (VNFuncApp offsetVNFunc; (elemSize > 1) && GetVNFunc(offsetVN, &offsetVNFunc);)
+    {
+        ValueNum      unscaledOffsetVN;
+        target_size_t scale;
+
+        if (offsetVNFunc.m_func == VNFunc(GT_MUL))
+        {
+            ValueNum scaleVN;
+
+            if (IsVNConstant(offsetVNFunc.m_args[1]))
+            {
+                unscaledOffsetVN = offsetVNFunc.m_args[0];
+                scaleVN          = offsetVNFunc.m_args[1];
+            }
+            else if (IsVNConstant(offsetVNFunc.m_args[0]))
+            {
+                scaleVN          = offsetVNFunc.m_args[0];
+                unscaledOffsetVN = offsetVNFunc.m_args[1];
+            }
+            else
+            {
+                break;
+            }
+
+            scale = CoercedConstantValue<target_size_t>(scaleVN);
+        }
+        else if (offsetVNFunc.m_func == VNFunc(GT_LSH))
+        {
+            ValueNum scaleVN;
+
+            if (IsVNConstant(offsetVNFunc.m_args[1]))
+            {
+                unscaledOffsetVN = offsetVNFunc.m_args[0];
+                scaleVN          = offsetVNFunc.m_args[1];
+            }
+            else
+            {
+                break;
+            }
+
+            scale = CoercedConstantValue<target_size_t>(scaleVN);
+            scale = target_size_t(1) << scale;
+        }
+        else
+        {
+            break;
+        }
+
+        if (scale == elemSize)
+        {
+            offsetVN = unscaledOffsetVN;
+            elemSize = 1;
+        }
+        else if ((scale < elemSize) && (elemSize % scale == 0))
+        {
+            offsetVN = unscaledOffsetVN;
+            elemSize = elemSize / scale;
+        }
+        else if ((scale > elemSize) && (scale % elemSize == 0))
+        {
+            offsetVN = VNForFunc(TYP_I_IMPL, VNFunc(GT_MUL), unscaledOffsetVN, VNForUPtrSizeIntCon(scale / elemSize));
+            elemSize = 1;
+        }
+        else
+        {
+            // TODO-MIKE-Consider: This doesn't handle cases like "(i * 2) * 3" that get
+            // reassociated as "(i * 3) * 2" to take advantage of scaled addressing modes
+            // (* 2) and LEA (* 3 = [rax + rax * 2]). We first encounter "* 2" that was
+            // part of the index expression and give up, before we find "* 3" from the
+            // offset expression. It's unlikely that it matters, the JIT doesn't seem to
+            // perform such reassociation and anyway the only gain would be that we don't
+            // have to create a new DIV VN.
+
+            break;
+        }
+    }
+
+    ValueNum indexVN;
+
+    if (elemSize == 1)
+    {
+        indexVN = offsetVN;
+    }
+    else
+    {
+        indexVN = VNForFunc(TYP_I_IMPL, VNFunc(GT_DIV), offsetVN, VNForUPtrSizeIntCon(elemSize));
+    }
+
+    if (index != 0)
+    {
+        indexVN = VNForFunc(TYP_I_IMPL, VNFunc(GT_ADD), indexVN, VNForUPtrSizeIntCon(index));
+    }
+
+    return indexVN;
 }
 
 ValueNum ValueNumStore::ExtendPtrVN(GenTree* opA, FieldSeqNode* fldSeq)

@@ -1214,11 +1214,12 @@ LinearScanInterface* getLinearScanAllocator(Compiler* comp);
 // Information about arrays: their element type and size, and the offset of the first element.
 struct ArrayInfo
 {
-    uint8_t  m_elemOffset;
-    unsigned m_elemSize;
-    unsigned m_elemTypeNum;
+    GenTree*       m_arrayExpr;
+    GenTree*       m_elemOffsetExpr;
+    GenTreeIntCon* m_elemOffsetConst;
+    unsigned       m_elemTypeNum;
 
-    ArrayInfo() : m_elemOffset(0), m_elemSize(0), m_elemTypeNum(0)
+    ArrayInfo() : m_arrayExpr(nullptr), m_elemOffsetExpr(nullptr), m_elemOffsetConst(nullptr), m_elemTypeNum(0)
     {
     }
 };
@@ -2298,23 +2299,6 @@ public:
     // If it is a field address, the field sequence will be a sequence of length >= 1,
     // starting with an instance or static field, and optionally continuing with struct fields.
     bool optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq);
-
-    // Requires "addr" to be the address of an array (the child of a GT_IND labeled with GTF_IND_ARR_INDEX).
-    // Sets "pArr" to the node representing the array (either an array object pointer, or perhaps a byref to the some
-    // element).
-    // Sets "*pArrayType" to the class handle for the array type.
-    // Sets "*inxVN" to the value number inferred for the array index.
-    // Sets "*pFldSeq" to the sequence, if any, of struct fields used to index into the array element.
-    bool optParseArrayAddress(
-        GenTree* addr, const ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq);
-
-    // Helper method for the above.
-    void optParseArrayAddressWork(GenTree*        addr,
-                                  target_ssize_t  scale,
-                                  GenTree**       pArr,
-                                  ValueNum*       pInxVN,
-                                  target_ssize_t* pOffset,
-                                  FieldSeqNode**  pFldSeq);
 
     // Requires "indir" to be a GT_IND.
     // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the

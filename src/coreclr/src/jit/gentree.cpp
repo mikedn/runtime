@@ -2921,6 +2921,11 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, int* pCostEx, int* pCostSz, var_typ
 
         INDEBUG(GenTree* op1Save = addr);
 
+        // TODO-MIKE-Fix: Delete this pile of incomprehensible garbage. It asserts on code
+        // like "a[i + long.MaxValue / 4]" and there doesn't seem to be an easy/safe way to
+        // fix it because gtWalkOp basically tries to duplicate the genCreateAddrMode logic
+        // and fails.
+
         // Walk 'addr' identifying non-overflow ADDs that will be part of the address mode.
         // Note that we will be modifying 'op1' and 'op2' so that eventually they should
         // map to the base and index.
@@ -16369,269 +16374,6 @@ bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
     return false;
 }
 
-bool Compiler::optParseArrayAddress(
-    GenTree* addr, const ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq)
-{
-    assert(*pArr == nullptr);
-    assert(*pInxVN == ValueNumStore::NoVN);
-    assert(*pFldSeq == nullptr);
-
-    if (!FitsIn<target_ssize_t>(arrayInfo->m_elemSize))
-    {
-        // This seems unlikely, but no harm in being safe...
-        return false;
-    }
-
-    ValueNum       inxVN  = ValueNumStore::NoVN;
-    target_ssize_t offset = 0;
-    FieldSeqNode*  fldSeq = nullptr;
-
-    optParseArrayAddressWork(addr, 1, pArr, &inxVN, &offset, &fldSeq);
-
-    // If we didn't find an array reference (perhaps it is the constant null?) we will give up.
-    if (*pArr == nullptr)
-    {
-        return false;
-    }
-
-    if ((fldSeq != nullptr) && fldSeq->IsArrayElement())
-    {
-        fldSeq = fldSeq->GetNext();
-    }
-
-    // OK, new we have to figure out if any part of the "offset" is a constant contribution to the index.
-    // Also, find the first non-pseudo field...
-    while (fldSeq != nullptr)
-    {
-        if (fldSeq != FieldSeqStore::NotAField())
-        {
-            // Due to the way INDEX is expanded in IR we don't expected to encounter any struct
-            // fields in the field sequence. Access to a struct field of an array element is
-            // imported as FIELD(ADDR(INDEX(a, i)) and INDEX gets expanded to IND(element_addr)
-            // so we end up with ADDR(IND(element_addr)). Normally this would become element_addr
-            // but the IND has GTF_IND_ARR_INDEX set on it, which blocks this kind of transform
-            // and thus prevents the field offset from becoming a part of the element address
-            // expression.
-            //
-            // This means that ParseArrayAddress will always return a null field sequence so the
-            // pFldSeq parameter is useless. But let's keep it for now as it would be better to
-            // be able to sink the field offset into the element address expression (not clear
-            // how, in addition to GTF_IND_ARR_INDEX there's also the range check COMMA...).
-
-            assert(!"Unexpected struct field encountered in array address expression");
-
-            return false;
-        }
-
-        fldSeq = fldSeq->GetNext();
-    }
-
-    // Otherwise...
-    target_ssize_t firstElementOffset = static_cast<target_ssize_t>(arrayInfo->m_elemOffset);
-    target_ssize_t elemSize           = static_cast<target_ssize_t>(arrayInfo->m_elemSize);
-
-    target_ssize_t constIndOffset = offset - firstElementOffset;
-    // This should be divisible by the element size...
-    assert((constIndOffset % elemSize) == 0);
-    target_ssize_t constInd = constIndOffset / elemSize;
-
-    ValueNumStore* vnStore = GetValueNumStore();
-
-    if (inxVN == ValueNumStore::NoVN)
-    {
-        // Must be a constant index.
-        *pInxVN = vnStore->VNForPtrSizeIntCon(constInd);
-
-        return true;
-    }
-
-    // The value associated with the index value number (inxVN) is the offset into the array,
-    // which has been scaled by element size. We need to recover the array index from that offset
-    if (vnStore->IsVNConstant(inxVN))
-    {
-        target_ssize_t index = vnStore->CoercedConstantValue<target_ssize_t>(inxVN);
-        noway_assert(elemSize > 0 && ((index % elemSize) == 0));
-        *pInxVN = vnStore->VNForPtrSizeIntCon((index / elemSize) + constInd);
-
-        return true;
-    }
-
-    bool canFoldDiv = false;
-
-    // If the index VN is a MUL by elemSize, see if we can eliminate it instead of adding
-    // the division by elemSize.
-    VNFuncApp funcApp;
-    if (vnStore->GetVNFunc(inxVN, &funcApp) && (funcApp.m_func == VNFunc(GT_MUL)))
-    {
-        ValueNum vnForElemSize = vnStore->VNForLongCon(elemSize);
-
-        // One of the multiply operand is elemSize, so the resulting
-        // index VN should simply be the other operand.
-        if (funcApp.m_args[1] == vnForElemSize)
-        {
-            *pInxVN    = funcApp.m_args[0];
-            canFoldDiv = true;
-        }
-        else if (funcApp.m_args[0] == vnForElemSize)
-        {
-            *pInxVN    = funcApp.m_args[1];
-            canFoldDiv = true;
-        }
-    }
-
-    // Perform ((inxVN / elemSizeVN) + vnForConstInd)
-    if (!canFoldDiv)
-    {
-        ValueNum vnForElemSize  = vnStore->VNForPtrSizeIntCon(elemSize);
-        ValueNum vnForScaledInx = vnStore->VNForFunc(TYP_I_IMPL, VNFunc(GT_DIV), inxVN, vnForElemSize);
-
-        *pInxVN = vnForScaledInx;
-    }
-
-    if (constInd != 0)
-    {
-        ValueNum vnForConstInd = GetValueNumStore()->VNForPtrSizeIntCon(constInd);
-
-        *pInxVN = GetValueNumStore()->VNForFunc(TYP_I_IMPL, VNFunc(GT_ADD), *pInxVN, vnForConstInd);
-    }
-
-    return true;
-}
-
-void Compiler::optParseArrayAddressWork(GenTree*        addr,
-                                        target_ssize_t  scale,
-                                        GenTree**       pArr,
-                                        ValueNum*       pInxVN,
-                                        target_ssize_t* pOffset,
-                                        FieldSeqNode**  pFldSeq)
-{
-    if (addr->OperIs(GT_ADD, GT_SUB))
-    {
-        GenTree* op1 = addr->AsOp()->GetOp(0);
-        GenTree* op2 = addr->AsOp()->GetOp(1);
-
-        optParseArrayAddressWork(op1, scale, pArr, pInxVN, pOffset, pFldSeq);
-        if (addr->OperIs(GT_SUB))
-        {
-            scale = -scale;
-        }
-        optParseArrayAddressWork(op2, scale, pArr, pInxVN, pOffset, pFldSeq);
-
-        return;
-    }
-
-    if (addr->TypeIs(TYP_REF))
-    {
-        // This must be the array reference.
-
-        assert(scale == 1); // Can't scale the array reference by anything.
-        *pArr = addr;
-
-        return;
-    }
-
-    if (GenTreeIntCon* icon = addr->IsIntCon())
-    {
-        assert(!icon->ImmedValNeedsReloc(this));
-
-        *pFldSeq = GetFieldSeqStore()->Append(*pFldSeq, icon->GetFieldSeq());
-
-        // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t
-        // type.
-        *pOffset += scale * static_cast<target_ssize_t>(icon->GetValue());
-
-        return;
-    }
-
-    if (addr->OperIs(GT_MUL))
-    {
-        GenTree* op1 = addr->AsOp()->GetOp(0);
-        GenTree* op2 = addr->AsOp()->GetOp(1);
-
-        GenTree*       nonConstOp = nullptr;
-        GenTreeIntCon* constOp    = nullptr;
-
-        if (op2->OperIs(GT_CNS_INT))
-        {
-            nonConstOp = op1;
-            constOp    = op2->AsIntCon();
-        }
-        else if (op1->OperIs(GT_CNS_INT))
-        {
-            constOp    = op1->AsIntCon();
-            nonConstOp = op2;
-        }
-
-        if (nonConstOp != nullptr)
-        {
-            assert(!constOp->AsIntCon()->ImmedValNeedsReloc(this));
-
-            // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntConCommon::gtIconVal had
-            // target_ssize_t type.
-            scale *= static_cast<target_ssize_t>(constOp->AsIntCon()->GetValue());
-
-            optParseArrayAddressWork(nonConstOp, scale, pArr, pInxVN, pOffset, pFldSeq);
-
-            return;
-        }
-
-        // Otherwise treat as a contribution to the index.
-    }
-    else if (addr->OperIs(GT_LSH))
-    {
-        GenTree* op1 = addr->AsOp()->GetOp(0);
-        GenTree* op2 = addr->AsOp()->GetOp(1);
-
-        if (op2->OperIs(GT_CNS_INT))
-        {
-            assert(!op2->AsIntCon()->ImmedValNeedsReloc(this));
-
-            // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t
-            // type.
-            scale *= target_ssize_t{1} << static_cast<target_ssize_t>(op2->AsIntCon()->GetValue());
-
-            optParseArrayAddressWork(op1, scale, pArr, pInxVN, pOffset, pFldSeq);
-
-            return;
-        }
-
-        // Otherwise, treat as a contribution to the index.
-    }
-    else if (addr->OperIs(GT_COMMA))
-    {
-        GenTree* op1 = addr->AsOp()->GetOp(0);
-        GenTree* op2 = addr->AsOp()->GetOp(1);
-
-        // We don't care about exceptions for this purpose.
-        if (op1->OperIs(GT_ARR_BOUNDS_CHECK) || op1->IsNothingNode())
-        {
-            optParseArrayAddressWork(op2, scale, pArr, pInxVN, pOffset, pFldSeq);
-
-            return;
-        }
-
-        // Otherwise, treat as a contribution to the index.
-    }
-
-    // If we didn't return above, must be a contribution to the non-constant part of the index VN.
-    ValueNum vn = GetValueNumStore()->VNLiberalNormalValue(addr->gtVNPair);
-
-    if (scale != 1)
-    {
-        ValueNum mulVN = GetValueNumStore()->VNForLongCon(scale);
-        vn             = GetValueNumStore()->VNForFunc(addr->GetType(), VNFunc(GT_MUL), mulVN, vn);
-    }
-
-    if (*pInxVN == ValueNumStore::NoVN)
-    {
-        *pInxVN = vn;
-    }
-    else
-    {
-        *pInxVN = GetValueNumStore()->VNForFunc(addr->GetType(), VNFunc(GT_ADD), *pInxVN, vn);
-    }
-}
-
 bool Compiler::optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo)
 {
     assert(indir->OperIs(GT_IND));
@@ -16666,33 +16408,35 @@ bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
         std::swap(array, offset);
     }
 
+    assert(offset->TypeIs(TYP_I_IMPL));
+
+    GenTree* offsetExpr  = nullptr;
+    GenTree* offsetConst = offset;
+
     if (offset->OperIs(GT_ADD))
     {
-        offset = offset->AsOp()->GetOp(1);
+        offsetExpr  = offset->AsOp()->GetOp(0);
+        offsetConst = offset->AsOp()->GetOp(1);
     }
 
-    if (!offset->IsIntCon())
+    if (!offsetConst->IsIntCon())
     {
         return false;
     }
 
-    FieldSeqNode* fieldSeq = offset->AsIntCon()->GetFieldSeq();
+    FieldSeqNode* fieldSeq = offsetConst->AsIntCon()->GetFieldSeq();
 
     if ((fieldSeq == nullptr) || !fieldSeq->IsArrayElement())
     {
         return false;
     }
 
-    arrayInfo->m_elemOffset  = fieldSeq->GetArrayDataOffs();
-    arrayInfo->m_elemTypeNum = fieldSeq->GetArrayElementTypeNum();
+    arrayInfo->m_arrayExpr       = array;
+    arrayInfo->m_elemOffsetExpr  = offsetExpr;
+    arrayInfo->m_elemOffsetConst = offsetConst->AsIntCon();
+    arrayInfo->m_elemTypeNum     = fieldSeq->GetArrayElementTypeNum();
 
-    if (typIsLayoutNum(arrayInfo->m_elemTypeNum))
-    {
-        ClassLayout* layout = typGetLayoutByNum(arrayInfo->m_elemTypeNum);
-
-        arrayInfo->m_elemSize = layout->GetSize();
-    }
-    else
+    if (!typIsLayoutNum(arrayInfo->m_elemTypeNum))
     {
         var_types elemType = static_cast<var_types>(arrayInfo->m_elemTypeNum);
 
@@ -16700,8 +16444,6 @@ bool Compiler::optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo)
         // We're going to treat such arrays as aliased by always using the signed type.
         elemType                 = varTypeUnsignedToSigned(elemType);
         arrayInfo->m_elemTypeNum = static_cast<unsigned>(elemType);
-
-        arrayInfo->m_elemSize = varTypeSize(elemType);
     }
 
     return true;
