@@ -14590,17 +14590,10 @@ static Compiler::fgWalkResult ComplexityExceedsWalker(GenTree** pTree, Compiler:
     }
 }
 
-bool Compiler::gtComplexityExceeds(GenTree** tree, unsigned limit)
+bool Compiler::gtComplexityExceeds(GenTree* tree, unsigned limit)
 {
     ComplexityStruct complexity(limit);
-    if (fgWalkTreePre(tree, &ComplexityExceedsWalker, &complexity) == WALK_ABORT)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
+    return fgWalkTreePre(&tree, &ComplexityExceedsWalker, &complexity) == WALK_ABORT;
 }
 
 bool GenTree::IsPhiNode()

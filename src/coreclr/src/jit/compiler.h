@@ -2228,7 +2228,7 @@ public:
     // is #of nodes in subtree) of "tree" is greater than "limit".
     // (This is somewhat redundant with the "GetCostEx()/GetCostSz()" fields, but can be used
     // before they have been set.)
-    bool gtComplexityExceeds(GenTree** tree, unsigned limit);
+    bool gtComplexityExceeds(GenTree* tree, unsigned limit);
 
     bool gtCompareTree(GenTree* op1, GenTree* op2);
 
@@ -4860,7 +4860,7 @@ private:
     SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
 #endif // FEATURE_SIMD
 
-    GenTree* fgMorphArrayIndex(GenTree* tree);
+    GenTree* fgMorphArrayIndex(GenTreeIndex* tree);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
