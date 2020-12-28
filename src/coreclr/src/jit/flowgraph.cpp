@@ -9676,7 +9676,7 @@ void Compiler::fgSimpleLowering()
                     else
                     {
                         con = gtNewIconNode(arrLen->ArrLenOffset(), TYP_I_IMPL);
-                        add = gtNewOperNode(GT_ADD, TYP_REF, arr, con);
+                        add = gtNewOperNode(GT_ADD, TYP_BYREF, arr, con);
 
                         range.InsertAfter(arr, con, add);
                     }
