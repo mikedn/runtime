@@ -45,7 +45,7 @@ ReturnKind GCInfo::getReturnKind()
     }
 #endif
 
-    if (compiler->info.compRetBuffArg == BAD_VAR_NUM)
+    if (compiler->info.compRetBuffArg != BAD_VAR_NUM)
     {
         // The ABI may require to return the buffer address (a BYREF)
         // but the JIT doesn't use it.
