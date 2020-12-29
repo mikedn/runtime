@@ -4860,10 +4860,12 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         if ((index->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) || gtComplexityExceeds(&index, MAX_ARR_COMPLEXITY) ||
             index->OperIs(GT_FIELD, GT_LCL_FLD))
         {
-            unsigned indexTmpNum = lvaGrabTemp(true DEBUGARG("index expr"));
-            indexDefn            = gtNewTempAssign(indexTmpNum, index);
-            index                = gtNewLclvNode(indexTmpNum, index->TypeGet());
-            index2               = gtNewLclvNode(indexTmpNum, index->TypeGet());
+            var_types indexTmpType = varActualType(index->GetType());
+            unsigned  indexTmpNum  = lvaNewTemp(indexTmpType, true DEBUGARG("index expr"));
+
+            indexDefn = gtNewAssignNode(gtNewLclvNode(indexTmpNum, indexTmpType), index);
+            index     = gtNewLclvNode(indexTmpNum, indexTmpType);
+            index2    = gtNewLclvNode(indexTmpNum, indexTmpType);
         }
         else
         {
