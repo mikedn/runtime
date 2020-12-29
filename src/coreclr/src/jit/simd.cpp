@@ -1977,8 +1977,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 }
 
                 GenTreeArrLen* arrLen = gtNewArrLen(arrayRefForArgRngChk, OFFSETOF__CORINFO_Array__length, compCurBB);
-                argRngChk             = new (this, GT_ARR_BOUNDS_CHECK)
-                    GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, arrLen, op3CheckKind);
+                argRngChk             = gtNewArrBoundsChk(index, arrLen, op3CheckKind);
                 // Now, clone op3 to create another node for the argChk
                 GenTree* index2 = gtCloneExpr(op3);
                 assert(index != nullptr);
@@ -1997,8 +1996,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 op2CheckKind = SCK_ARG_EXCPN;
             }
             GenTreeArrLen*    arrLen = gtNewArrLen(arrayRefForArgChk, OFFSETOF__CORINFO_Array__length, compCurBB);
-            GenTreeBoundsChk* argChk = new (this, GT_ARR_BOUNDS_CHECK)
-                GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, checkIndexExpr, arrLen, op2CheckKind);
+            GenTreeBoundsChk* argChk = gtNewArrBoundsChk(checkIndexExpr, arrLen, op2CheckKind);
 
             // Create a GT_COMMA tree for the bounds check(s).
             op2 = gtNewOperNode(GT_COMMA, op2->TypeGet(), argChk, op2);
@@ -2155,7 +2153,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
                 GenTree*          lengthNode = new (this, GT_CNS_INT) GenTreeIntCon(TYP_INT, vectorLength);
                 GenTreeBoundsChk* simdChk =
-                    new (this, GT_SIMD_CHK) GenTreeBoundsChk(GT_SIMD_CHK, TYP_VOID, index, lengthNode, SCK_RNGCHK_FAIL);
+                    new (this, GT_SIMD_CHK) GenTreeBoundsChk(GT_SIMD_CHK, index, lengthNode, SCK_RNGCHK_FAIL);
 
                 // Create a GT_COMMA tree for the bounds check.
                 op2 = gtNewOperNode(GT_COMMA, op2->TypeGet(), simdChk, op2);

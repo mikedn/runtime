@@ -1187,7 +1187,7 @@ inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, Basic
 
 inline GenTreeBoundsChk* Compiler::gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind)
 {
-    return new (this, GT_ARR_BOUNDS_CHECK) GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, length, kind);
+    return new (this, GT_ARR_BOUNDS_CHECK) GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, index, length, kind);
 }
 
 //------------------------------------------------------------------------------

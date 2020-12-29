@@ -4524,10 +4524,10 @@ void Compiler::fgSetRngChkTarget(GenTree* tree, bool delay)
     if (tree->OperIsBoundsCheck())
     {
         GenTreeBoundsChk* const boundsChk = tree->AsBoundsChk();
-        BasicBlock* const       failBlock = fgSetRngChkTargetInner(boundsChk->gtThrowKind, delay);
+        BasicBlock* const       failBlock = fgSetRngChkTargetInner(boundsChk->GetThrowKind(), delay);
         if (failBlock != nullptr)
         {
-            boundsChk->gtIndRngFailBB = failBlock;
+            boundsChk->SetThrowBlock(failBlock);
         }
     }
     else if (tree->OperIs(GT_INDEX_ADDR))
@@ -4789,10 +4789,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
             arrLen = gtNewCastNode(bndsChkType, arrLen, false, bndsChkType);
         }
 
-        GenTreeBoundsChk* arrBndsChk = new (this, GT_ARR_BOUNDS_CHECK)
-            GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, arrLen, SCK_RNGCHK_FAIL);
-
-        bndsChk = arrBndsChk;
+        bndsChk = gtNewArrBoundsChk(index, arrLen, SCK_RNGCHK_FAIL);
 
         // Now we'll switch to using the second copies for arrRef and index
         // to compute the address expression
@@ -13839,31 +13836,33 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_SIMD
         case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-        {
+#endif
             fgSetRngChkTarget(tree);
 
-            GenTreeBoundsChk* bndsChk = tree->AsBoundsChk();
-            bndsChk->gtIndex          = fgMorphTree(bndsChk->gtIndex);
-            bndsChk->gtArrLen         = fgMorphTree(bndsChk->gtArrLen);
-            // If the index is a comma(throw, x), just return that.
-            if (!optValnumCSE_phase && fgIsCommaThrow(bndsChk->gtIndex))
             {
-                tree = bndsChk->gtIndex;
+                GenTreeBoundsChk* check  = tree->AsBoundsChk();
+                GenTree*          index  = check->GetIndex();
+                GenTree*          length = check->GetLength();
+
+                index  = fgMorphTree(index);
+                length = fgMorphTree(length);
+
+                // If the index is a COMMA(throw, x), just return that.
+                if (!optValnumCSE_phase && fgIsCommaThrow(index))
+                {
+                    tree = index;
+                }
+                else
+                {
+                    check->SetIndex(index);
+                    check->SetLength(length);
+                    check->SetSideEffects(GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects());
+                }
             }
-
-            bndsChk->gtFlags &= ~GTF_CALL;
-
-            // Propagate effects flags upwards
-            bndsChk->gtFlags |= (bndsChk->gtIndex->gtFlags & GTF_ALL_EFFECT);
-            bndsChk->gtFlags |= (bndsChk->gtArrLen->gtFlags & GTF_ALL_EFFECT);
-
-            // Otherwise, we don't change the tree.
-        }
-        break;
+            break;
 
         case GT_ARR_ELEM:
             tree->AsArrElem()->gtArrObj = fgMorphTree(tree->AsArrElem()->gtArrObj);

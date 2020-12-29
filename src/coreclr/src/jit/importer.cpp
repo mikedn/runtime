@@ -3709,8 +3709,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             CORINFO_FIELD_HANDLE lengthHnd    = info.compCompHnd->getFieldInClass(clsHnd, 1);
             const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
             GenTree*             length       = gtNewFieldRef(TYP_INT, lengthHnd, ptrToSpan, lengthOffset);
-            GenTree*             boundsCheck  = new (this, GT_ARR_BOUNDS_CHECK)
-                GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, length, SCK_RNGCHK_FAIL);
+            GenTree*             boundsCheck  = gtNewArrBoundsChk(index, length, SCK_RNGCHK_FAIL);
 
             // Element access
             GenTree*             indexIntPtr = impImplicitIorI4Cast(indexClone, TYP_I_IMPL);

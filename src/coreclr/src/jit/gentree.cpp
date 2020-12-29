@@ -1500,13 +1500,11 @@ AGAIN:
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_SIMD
         case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            return Compare(op1->AsBoundsChk()->gtIndex, op2->AsBoundsChk()->gtIndex) &&
-                   Compare(op1->AsBoundsChk()->gtArrLen, op2->AsBoundsChk()->gtArrLen) &&
-                   (op1->AsBoundsChk()->gtThrowKind == op2->AsBoundsChk()->gtThrowKind);
+#endif
+            return GenTreeBoundsChk::Equals(op1->AsBoundsChk(), op2->AsBoundsChk());
 
         case GT_STORE_DYN_BLK:
         case GT_DYN_BLK:
@@ -2221,7 +2219,7 @@ AGAIN:
 #endif // FEATURE_HW_INTRINSICS
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->gtIndex));
             hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->gtArrLen));
-            hash = genTreeHashAdd(hash, tree->AsBoundsChk()->gtThrowKind);
+            hash = genTreeHashAdd(hash, tree->AsBoundsChk()->GetThrowKind());
             break;
 
         case GT_STORE_DYN_BLK:
@@ -6868,16 +6866,15 @@ GenTree* Compiler::gtCloneExpr(
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_SIMD
         case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            copy = new (this, oper)
-                GenTreeBoundsChk(oper, tree->TypeGet(),
-                                 gtCloneExpr(tree->AsBoundsChk()->gtIndex, addFlags, deepVarNum, deepVarVal),
-                                 gtCloneExpr(tree->AsBoundsChk()->gtArrLen, addFlags, deepVarNum, deepVarVal),
-                                 tree->AsBoundsChk()->gtThrowKind);
-            copy->AsBoundsChk()->gtIndRngFailBB = tree->AsBoundsChk()->gtIndRngFailBB;
+#endif
+            copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
+            copy->AsBoundsChk()->SetIndex(
+                gtCloneExpr(tree->AsBoundsChk()->GetIndex(), addFlags, deepVarNum, deepVarVal));
+            copy->AsBoundsChk()->SetLength(
+                gtCloneExpr(tree->AsBoundsChk()->GetLength(), addFlags, deepVarNum, deepVarVal));
             break;
 
         case GT_DYN_BLK:
@@ -8334,7 +8331,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
     }
     else if (tree->gtOper == GT_ARR_BOUNDS_CHECK)
     {
-        switch (tree->AsBoundsChk()->gtThrowKind)
+        switch (tree->AsBoundsChk()->GetThrowKind())
         {
             case SCK_RNGCHK_FAIL:
                 sprintf_s(bufp, sizeof(buf), " %s_Rng", name);

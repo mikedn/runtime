@@ -5960,47 +5960,91 @@ struct GenTreeArrLen : public GenTreeUnOp
 #endif
 };
 
-// This takes:
-// - a comparison value (generally an array length),
-// - an index value, and
-// - the label to jump to if the index is out of range.
-// - the "kind" of the throw block to branch to on failure
-// It generates no result.
-
 struct GenTreeBoundsChk : public GenTree
 {
-    GenTree* gtIndex;  // The index expression.
-    GenTree* gtArrLen; // An expression for the length of the array being indexed.
+    GenTree*        gtIndex;
+    GenTree*        gtArrLen;
+    BasicBlock*     m_throwBlock;
+    SpecialCodeKind m_throwKind;
 
-    BasicBlock*     gtIndRngFailBB; // Basic block to jump to for array-index-out-of-range
-    SpecialCodeKind gtThrowKind;    // Kind of throw block to branch to on failure
-
-    GenTreeBoundsChk(genTreeOps oper, var_types type, GenTree* index, GenTree* arrLen, SpecialCodeKind kind)
-        : GenTree(oper, type), gtIndex(index), gtArrLen(arrLen), gtIndRngFailBB(nullptr), gtThrowKind(kind)
+    GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, SpecialCodeKind kind)
+        : GenTree(oper, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
     {
-        // Effects flags propagate upwards.
-        gtFlags |= (index->gtFlags & GTF_ALL_EFFECT);
-        gtFlags |= (arrLen->gtFlags & GTF_ALL_EFFECT);
-        gtFlags |= GTF_EXCEPT;
+        bool isValidOper = (oper == GT_ARR_BOUNDS_CHECK)
+#ifdef FEATURE_SIMD
+                           || (oper == GT_SIMD_CHK)
+#endif
+#ifdef FEATURE_HW_INTRINSICS
+                           || (oper == GT_HW_INTRINSIC_CHK)
+#endif
+            ;
+        assert(isValidOper);
+
+        gtFlags |= GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects();
     }
+
+    GenTreeBoundsChk(const GenTreeBoundsChk* copyFrom)
+        : GenTree(copyFrom->GetOper(), TYP_VOID)
+        , gtIndex(copyFrom->gtIndex)
+        , gtArrLen(copyFrom->gtArrLen)
+        , m_throwBlock(copyFrom->m_throwBlock)
+        , m_throwKind(copyFrom->m_throwKind)
+    {
+    }
+
+    GenTree* GetIndex() const
+    {
+        return gtIndex;
+    }
+
+    void SetIndex(GenTree* index)
+    {
+        assert(varTypeIsIntegral(index->GetType()));
+        gtIndex = index;
+    }
+
+    GenTree* GetLength() const
+    {
+        return gtArrLen;
+    }
+
+    void SetLength(GenTree* length)
+    {
+        assert(varTypeIsIntegral(length->GetType()));
+        gtArrLen = length;
+    }
+
+    GenTree* GetArray() const
+    {
+        return gtArrLen->IsArrLen() ? gtArrLen->AsArrLen()->GetArray() : nullptr;
+    }
+
+    SpecialCodeKind GetThrowKind() const
+    {
+        return m_throwKind;
+    }
+
+    BasicBlock* GetThrowBlock() const
+    {
+        return m_throwBlock;
+    }
+
+    void SetThrowBlock(BasicBlock* block)
+    {
+        m_throwBlock = block;
+    }
+
+    static bool Equals(const GenTreeBoundsChk* c1, const GenTreeBoundsChk* c2)
+    {
+        return (c1->GetOper() == c2->GetOper()) && (c1->m_throwKind == c2->m_throwKind) &&
+               Compare(c1->gtIndex, c2->gtIndex) && Compare(c1->gtArrLen, c2->gtArrLen);
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeBoundsChk() : GenTree()
     {
     }
 #endif
-
-    // If the gtArrLen is really an array length, returns array reference, else "NULL".
-    GenTree* GetArray()
-    {
-        if (gtArrLen->IsArrLen())
-        {
-            return gtArrLen->AsArrLen()->GetArray();
-        }
-        else
-        {
-            return nullptr;
-        }
-    }
 };
 
 // gtArrElem -- general array element (GT_ARR_ELEM), for non "SZ_ARRAYS"
