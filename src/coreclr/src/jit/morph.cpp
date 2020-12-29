@@ -4672,13 +4672,14 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
 
         GenTreeIndexAddr* indexAddr = new (this, GT_INDEX_ADDR)
             GenTreeIndexAddr(array, index, asIndex->GetLenOffs(), asIndex->GetDataOffs(), elemSize);
-        indexAddr->gtFlags |= asIndex->gtFlags & GTF_INX_RNGCHK;
         INDEBUG(indexAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
         // Mark the indirection node as needing a range check if necessary.
         // Note this will always be true unless JitSkipArrayBoundCheck() is used
-        if ((indexAddr->gtFlags & GTF_INX_RNGCHK) != 0)
+        if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
         {
+            tree->gtFlags &= ~GTF_INX_RNGCHK;
+            indexAddr->gtFlags |= GTF_INX_RNGCHK | GTF_EXCEPT;
             fgSetRngChkTarget(indexAddr);
         }
 
@@ -4695,13 +4696,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
 
         GenTreeIndir* indir = tree->AsIndir();
         indir->SetAddr(indexAddr);
-
-        bool canCSE    = indir->CanCSE();
-        indir->gtFlags = indexAddr->gtFlags & GTF_ALL_EFFECT;
-        if (!canCSE)
-        {
-            indir->SetDoNotCSE();
-        }
+        indir->SetSideEffects(GTF_GLOB_REF | indexAddr->GetSideEffects());
 
         return indir;
     }
@@ -4721,6 +4716,8 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
     // If we're doing range checking, introduce a GT_ARR_BOUNDS_CHECK node for the address.
     if (chkd)
     {
+        tree->gtFlags &= ~GTF_INX_RNGCHK;
+
         GenTree* arrRef2 = nullptr; // The second copy will be used in array address expression
         GenTree* index2  = nullptr;
 
@@ -4879,11 +4876,8 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         this->compFloatingPointUsed = true;
     }
 
-    // We've now consumed the GTF_INX_RNGCHK, and the node
-    // is no longer a GT_INDEX node.
-    tree->gtFlags &= ~GTF_INX_RNGCHK;
-
-    tree->AsOp()->gtOp1 = addr;
+    tree->AsIndir()->SetAddr(addr);
+    tree->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
 
     // This is an array index expression.
     tree->gtFlags |= GTF_IND_ARR_INDEX;
