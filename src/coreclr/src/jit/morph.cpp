@@ -4703,11 +4703,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         }
 
         boundsCheck = gtNewArrBoundsChk(index2, arrLen, SCK_RNGCHK_FAIL);
-
-        if (opts.MinOpts())
-        {
-            boundsCheck->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
-        }
     }
 
     GenTree* offset = index;
