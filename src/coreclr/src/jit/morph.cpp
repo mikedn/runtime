@@ -4615,7 +4615,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         if (checkIndexRange)
         {
             addr->gtFlags |= GTF_INX_RNGCHK | GTF_EXCEPT;
-            addr->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL, true));
+            addr->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
         }
 
         indir->AsIndir()->SetAddr(addr);
@@ -4703,7 +4703,11 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         }
 
         boundsCheck = gtNewArrBoundsChk(index2, arrLen, SCK_RNGCHK_FAIL);
-        boundsCheck->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL, true));
+
+        if (opts.MinOpts())
+        {
+            boundsCheck->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
+        }
     }
 
     GenTree* offset = index;
@@ -13723,10 +13727,21 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
                 check->SetLength(length);
                 check->SetSideEffects(GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects());
 
-                BasicBlock* throwBlock = fgGetRngChkTarget(compCurBB, check->GetThrowKind(), true);
-                if (throwBlock != nullptr)
+                // TODO-MIKE-Review: This doesn't make a lot of sense. One way or another, fgSimpleLowering
+                // create and sets the throw block (if throw helper blocks are used). Why would we do this
+                // here only in minopts? It probably makes sense to delay throw block creation to lowering
+                // so the optimizer has fewer blocks to process (throw blocks don't do anything interesting,
+                // they're just helper calls without any arguments). But if we delay when optimizations are
+                // enabled why not also delay in minopts? Is this a leftover from when the throw block stack
+                // level for x86 args was computed during morph?
+
+                if (opts.MinOpts())
                 {
-                    check->SetThrowBlock(throwBlock);
+                    BasicBlock* throwBlock = fgGetRngChkTarget(compCurBB, check->GetThrowKind());
+                    if (throwBlock != nullptr)
+                    {
+                        check->SetThrowBlock(throwBlock);
+                    }
                 }
             }
         }
@@ -13752,7 +13767,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             if (fgGlobalMorph)
             {
-                fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL, false);
+                fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL);
             }
             break;
 

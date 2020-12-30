@@ -9691,7 +9691,7 @@ void Compiler::fgSimpleLowering()
 #endif
                 {
                     GenTreeBoundsChk* check      = tree->AsBoundsChk();
-                    BasicBlock*       throwBlock = fgGetRngChkTarget(block, check->GetThrowKind(), false);
+                    BasicBlock*       throwBlock = fgGetRngChkTarget(block, check->GetThrowKind());
                     if (throwBlock != nullptr)
                     {
                         check->SetThrowBlock(throwBlock);
@@ -18698,19 +18698,9 @@ Compiler::AddCodeDsc* Compiler::fgFindExcptnTarget(SpecialCodeKind kind, unsigne
 // Return Value:
 //   The target throw helper block this check jumps to upon failure.
 //
-BasicBlock* Compiler::fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind, bool delay)
+BasicBlock* Compiler::fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind)
 {
     if (!fgUseThrowHelperBlocks() || compIsForInlining())
-    {
-        return nullptr;
-    }
-
-    if (opts.MinOpts())
-    {
-        delay = false;
-    }
-
-    if (delay)
     {
         return nullptr;
     }

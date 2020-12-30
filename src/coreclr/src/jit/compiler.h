@@ -5003,7 +5003,7 @@ private:
     bool        fgRngChkThrowAdded;
     AddCodeDsc* fgExcptnTargetCache[SCK_COUNT];
 
-    BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind, bool delay);
+    BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind);
 
     BasicBlock* fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind);
 
