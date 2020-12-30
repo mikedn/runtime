@@ -4517,36 +4517,7 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
 
 #endif
 
-/*****************************************************************************/
-
-void Compiler::fgSetRngChkTarget(GenTree* tree, bool delay)
-{
-    if (tree->OperIsBoundsCheck())
-    {
-        GenTreeBoundsChk* const boundsChk = tree->AsBoundsChk();
-        BasicBlock* const       failBlock = fgSetRngChkTargetInner(boundsChk->GetThrowKind(), delay);
-        if (failBlock != nullptr)
-        {
-            boundsChk->SetThrowBlock(failBlock);
-        }
-    }
-    else if (tree->OperIs(GT_INDEX_ADDR))
-    {
-        GenTreeIndexAddr* const indexAddr = tree->AsIndexAddr();
-        BasicBlock* const       failBlock = fgSetRngChkTargetInner(SCK_RNGCHK_FAIL, delay);
-        if (failBlock != nullptr)
-        {
-            indexAddr->SetThrowBlock(failBlock);
-        }
-    }
-    else
-    {
-        noway_assert(tree->OperIs(GT_ARR_ELEM, GT_ARR_INDEX));
-        fgSetRngChkTargetInner(SCK_RNGCHK_FAIL, delay);
-    }
-}
-
-BasicBlock* Compiler::fgSetRngChkTargetInner(SpecialCodeKind kind, bool delay)
+BasicBlock* Compiler::fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind, bool delay)
 {
     if (opts.MinOpts())
     {
@@ -4558,7 +4529,7 @@ BasicBlock* Compiler::fgSetRngChkTargetInner(SpecialCodeKind kind, bool delay)
         if (!delay && !compIsForInlining())
         {
             // Create/find the appropriate "range-fail" label
-            return fgRngChkTarget(compCurBB, kind);
+            return fgRngChkTarget(block, kind);
         }
     }
 
@@ -4663,7 +4634,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         if (checkIndexRange)
         {
             addr->gtFlags |= GTF_INX_RNGCHK | GTF_EXCEPT;
-            fgSetRngChkTarget(addr);
+            addr->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL, true));
         }
 
         indir->AsIndir()->SetAddr(addr);
@@ -4751,7 +4722,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         }
 
         boundsCheck = gtNewArrBoundsChk(index2, arrLen, SCK_RNGCHK_FAIL);
-        fgSetRngChkTarget(boundsCheck);
+        boundsCheck->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL, true));
     }
 
     GenTree* offset = index;
@@ -13752,29 +13723,33 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif
-            fgSetRngChkTarget(tree);
+        {
+            GenTreeBoundsChk* check  = tree->AsBoundsChk();
+            GenTree*          index  = check->GetIndex();
+            GenTree*          length = check->GetLength();
 
+            index  = fgMorphTree(index);
+            length = fgMorphTree(length);
+
+            // If the index is a COMMA(throw, x), just return that.
+            if (!optValnumCSE_phase && fgIsCommaThrow(index))
             {
-                GenTreeBoundsChk* check  = tree->AsBoundsChk();
-                GenTree*          index  = check->GetIndex();
-                GenTree*          length = check->GetLength();
+                tree = index;
+            }
+            else
+            {
+                check->SetIndex(index);
+                check->SetLength(length);
+                check->SetSideEffects(GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects());
 
-                index  = fgMorphTree(index);
-                length = fgMorphTree(length);
-
-                // If the index is a COMMA(throw, x), just return that.
-                if (!optValnumCSE_phase && fgIsCommaThrow(index))
+                BasicBlock* throwBlock = fgGetRngChkTarget(compCurBB, check->GetThrowKind(), true);
+                if (throwBlock != nullptr)
                 {
-                    tree = index;
-                }
-                else
-                {
-                    check->SetIndex(index);
-                    check->SetLength(length);
-                    check->SetSideEffects(GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects());
+                    check->SetThrowBlock(throwBlock);
                 }
             }
-            break;
+        }
+        break;
 
         case GT_ARR_ELEM:
             tree->AsArrElem()->gtArrObj = fgMorphTree(tree->AsArrElem()->gtArrObj);
@@ -13796,11 +13771,14 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             if (fgGlobalMorph)
             {
-                fgSetRngChkTarget(tree, false);
+                fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL, false);
             }
             break;
 
         case GT_ARR_OFFSET:
+            // GT_ARR_OFFSET nodes are created during lowering.
+            noway_assert(!fgGlobalMorph);
+
             tree->AsArrOffs()->gtOffset = fgMorphTree(tree->AsArrOffs()->gtOffset);
             tree->AsArrOffs()->gtIndex  = fgMorphTree(tree->AsArrOffs()->gtIndex);
             tree->AsArrOffs()->gtArrObj = fgMorphTree(tree->AsArrOffs()->gtArrObj);
@@ -13809,10 +13787,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             tree->gtFlags |= tree->AsArrOffs()->gtOffset->gtFlags & GTF_ALL_EFFECT;
             tree->gtFlags |= tree->AsArrOffs()->gtIndex->gtFlags & GTF_ALL_EFFECT;
             tree->gtFlags |= tree->AsArrOffs()->gtArrObj->gtFlags & GTF_ALL_EFFECT;
-            if (fgGlobalMorph)
-            {
-                fgSetRngChkTarget(tree, false);
-            }
             break;
 
         case GT_PHI:

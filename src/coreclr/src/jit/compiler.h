@@ -4779,9 +4779,7 @@ private:
     hashBv* m_abiStructArgTempsInUse;
 #endif
 
-    void fgSetRngChkTarget(GenTree* tree, bool delay = true);
-
-    BasicBlock* fgSetRngChkTargetInner(SpecialCodeKind kind, bool delay);
+    BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind, bool delay);
 
 #if REARRANGE_ADDS
     void fgMoveOpsLeft(GenTree* tree);

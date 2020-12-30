@@ -9642,8 +9642,7 @@ void Compiler::fgSimpleLowering()
 
     for (BasicBlock* block = fgFirstBB; block; block = block->bbNext)
     {
-        // Walk the statement trees in this basic block.
-        compCurBB = block; // Used in fgRngChkTarget.
+        compCurBB = block;
 
         LIR::Range& range = LIR::AsRange(block);
         for (GenTree* tree : range)
@@ -9686,13 +9685,17 @@ void Compiler::fgSimpleLowering()
                 case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_SIMD
                 case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
                 case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
                 {
-                    // Add in a call to an error routine.
-                    fgSetRngChkTarget(tree, false);
+                    GenTreeBoundsChk* check      = tree->AsBoundsChk();
+                    BasicBlock*       throwBlock = fgGetRngChkTarget(block, check->GetThrowKind(), false);
+                    if (throwBlock != nullptr)
+                    {
+                        check->SetThrowBlock(throwBlock);
+                    }
                     break;
                 }
 
