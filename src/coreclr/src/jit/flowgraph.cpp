@@ -9689,15 +9689,8 @@ void Compiler::fgSimpleLowering()
 #ifdef FEATURE_HW_INTRINSICS
                 case GT_HW_INTRINSIC_CHK:
 #endif
-                {
-                    GenTreeBoundsChk* check      = tree->AsBoundsChk();
-                    BasicBlock*       throwBlock = fgGetRngChkTarget(block, check->GetThrowKind());
-                    if (throwBlock != nullptr)
-                    {
-                        check->SetThrowBlock(throwBlock);
-                    }
+                    tree->AsBoundsChk()->SetThrowBlock(fgGetRngChkTarget(block, tree->AsBoundsChk()->GetThrowKind()));
                     break;
-                }
 
 #if FEATURE_FIXED_OUT_ARGS
                 case GT_CALL:

@@ -13728,7 +13728,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
                 check->SetSideEffects(GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects());
 
                 // TODO-MIKE-Review: This doesn't make a lot of sense. One way or another, fgSimpleLowering
-                // create and sets the throw block (if throw helper blocks are used). Why would we do this
+                // creates and sets the throw block (if throw helper blocks are used). Why would we do this
                 // here only in minopts? It probably makes sense to delay throw block creation to lowering
                 // so the optimizer has fewer blocks to process (throw blocks don't do anything interesting,
                 // they're just helper calls without any arguments). But if we delay when optimizations are
@@ -13737,11 +13737,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
                 if (opts.MinOpts())
                 {
-                    BasicBlock* throwBlock = fgGetRngChkTarget(compCurBB, check->GetThrowKind());
-                    if (throwBlock != nullptr)
-                    {
-                        check->SetThrowBlock(throwBlock);
-                    }
+                    check->SetThrowBlock(fgGetRngChkTarget(compCurBB, check->GetThrowKind()));
                 }
             }
         }
