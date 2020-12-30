@@ -4779,8 +4779,6 @@ private:
     hashBv* m_abiStructArgTempsInUse;
 #endif
 
-    BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind, bool delay);
-
 #if REARRANGE_ADDS
     void fgMoveOpsLeft(GenTree* tree);
 #endif
@@ -5005,7 +5003,7 @@ private:
     bool        fgRngChkThrowAdded;
     AddCodeDsc* fgExcptnTargetCache[SCK_COUNT];
 
-    BasicBlock* fgRngChkTarget(BasicBlock* block, SpecialCodeKind kind);
+    BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind, bool delay);
 
     BasicBlock* fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind);
 

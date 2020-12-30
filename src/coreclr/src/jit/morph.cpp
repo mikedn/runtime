@@ -4517,25 +4517,6 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
 
 #endif
 
-BasicBlock* Compiler::fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind, bool delay)
-{
-    if (opts.MinOpts())
-    {
-        delay = false;
-    }
-
-    if (!opts.compDbgCode)
-    {
-        if (!delay && !compIsForInlining())
-        {
-            // Create/find the appropriate "range-fail" label
-            return fgRngChkTarget(block, kind);
-        }
-    }
-
-    return nullptr;
-}
-
 GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 {
     // Fold "cns_str"[cns_index] to ushort constant

@@ -18688,24 +18688,33 @@ Compiler::AddCodeDsc* Compiler::fgFindExcptnTarget(SpecialCodeKind kind, unsigne
     return fgExcptnTargetCache[kind];
 }
 
-/*****************************************************************************
- *
- *  The given basic block contains an array range check; return the label this
- *  range check is to jump to upon failure.
- */
-
 //------------------------------------------------------------------------
-// fgRngChkTarget: Create/find the appropriate "range-fail" label for the block.
+// fgGetRngChkTarget: Create/find the appropriate throw block for a range check.
 //
 // Arguments:
-//   srcBlk  - the block that needs an entry;
-//   kind    - the kind of exception;
+//   block - the block that contains the range check
+//   kind  - the kind of exception
 //
 // Return Value:
 //   The target throw helper block this check jumps to upon failure.
 //
-BasicBlock* Compiler::fgRngChkTarget(BasicBlock* block, SpecialCodeKind kind)
+BasicBlock* Compiler::fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind, bool delay)
 {
+    if (!fgUseThrowHelperBlocks() || compIsForInlining())
+    {
+        return nullptr;
+    }
+
+    if (opts.MinOpts())
+    {
+        delay = false;
+    }
+
+    if (delay)
+    {
+        return nullptr;
+    }
+
 #ifdef DEBUG
     if (verbose)
     {
@@ -18715,10 +18724,9 @@ BasicBlock* Compiler::fgRngChkTarget(BasicBlock* block, SpecialCodeKind kind)
             gtDispStmt(compCurStmt);
         }
     }
-#endif // DEBUG
+#endif
 
-    /* We attach the target label to the containing try block (if any) */
-    noway_assert(!compIsForInlining());
+    // We attach the throw block to the containing try region (if any).
     return fgAddCodeRef(block, bbThrowIndex(block), kind);
 }
 
