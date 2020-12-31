@@ -4756,47 +4756,44 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 
     GenTree* addr = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
 
-    indir->AsIndir()->SetAddr(addr);
-    indir->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
     indir->gtFlags |= GTF_IND_ARR_INDEX;
 
     if (boundsCheck == nullptr)
     {
-        indir->gtFlags |= GTF_EXCEPT;
+        addr = fgMorphTree(addr);
+
+        indir->AsIndir()->SetAddr(addr);
+        indir->SetSideEffects(GTF_GLOB_REF | GTF_EXCEPT | addr->GetSideEffects());
+
+        return indir;
     }
-    else
+
+    indir->AsIndir()->SetAddr(addr);
+    // If there's a bounds check, the indir itself won't fault since
+    // the bounds check ensures that the address is not null.
+    indir->gtFlags |= GTF_IND_NONFAULTING;
+    indir->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
+
+    // Note that the original INDEX node may have GTF_DONOT_CSE set, either
+    // because it's the LHS of an ASG or because it is used by an ADDR. We
+    // leave the setting of GTF_DONOT_CSE to ASG/ADDR post-order morphing
+    // because attempting to set it here causes other problems (e.g. ADDR
+    // morphing actually transforms ADDR(COMMA(_, x)) into COMMA(_, ADDR(x))
+    // and forgets to clear GTF_DONOT_CSE from the COMMA node).
+
+    GenTreeOp* comma = gtNewOperNode(GT_COMMA, indir->GetType(), boundsCheck, indir);
+
+    if (indexTmpAsg != nullptr)
     {
-        // If there's a bounds check, the indir itself won't fault since
-        // the bounds check ensures that the address is not null.
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-
-        // Note that the original INDEX node may have GTF_DONOT_CSE set, either
-        // because it's the LHS of an ASG or because it is used by an ADDR. We
-        // leave the setting of GTF_DONOT_CSE to ASG/ADDR post-order morphing
-        // because attempting to set it here causes other problems (e.g. ADDR
-        // morphing actually transforms ADDR(COMMA(_, x)) into COMMA(_, ADDR(x))
-        // and forgets to clear GTF_DONOT_CSE from the COMMA node).
-
-        indir = gtNewOperNode(GT_COMMA, indir->GetType(), boundsCheck, indir);
-
-        if (indexTmpAsg != nullptr)
-        {
-            indir = gtNewOperNode(GT_COMMA, indir->GetType(), indexTmpAsg, indir);
-        }
-
-        if (arrayTmpAsg != nullptr)
-        {
-            indir = gtNewOperNode(GT_COMMA, indir->GetType(), arrayTmpAsg, indir);
-        }
+        comma = gtNewOperNode(GT_COMMA, indir->GetType(), indexTmpAsg, comma);
     }
 
-    fgMorphTree(indir);
+    if (arrayTmpAsg != nullptr)
+    {
+        comma = gtNewOperNode(GT_COMMA, indir->GetType(), arrayTmpAsg, comma);
+    }
 
-    INDEBUG(GenTree* arrElem = indir->gtEffectiveVal();)
-    assert(arrElem->AsIndir()->GetAddr()->TypeIs(TYP_BYREF));
-    assert(((arrElem->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) != 0) || !fgGlobalMorph);
-
-    return indir;
+    return fgMorphTree(comma);
 }
 
 /*****************************************************************************
