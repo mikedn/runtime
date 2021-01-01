@@ -12248,7 +12248,7 @@ DONE_MORPHING_CHILDREN:
                 break;
             }
 
-            if (op1->OperGet() == GT_IND)
+            if (op1->OperIs(GT_IND, GT_OBJ))
             {
                 if ((op1->gtFlags & GTF_IND_ARR_INDEX) == 0)
                 {
@@ -12259,7 +12259,7 @@ DONE_MORPHING_CHILDREN:
                     }
 
                     // Perform the transform ADDR(IND(...)) == (...).
-                    GenTree* addr = op1->AsOp()->gtOp1;
+                    GenTree* addr = op1->AsIndir()->GetAddr();
 
                     // If tree has a zero field sequence annotation, update the annotation
                     // on addr node.
@@ -12276,24 +12276,6 @@ DONE_MORPHING_CHILDREN:
 
                     return addr;
                 }
-            }
-            else if (op1->OperGet() == GT_OBJ)
-            {
-                // Can not remove a GT_ADDR if it is currently a CSE candidate.
-                if (gtIsActiveCSE_Candidate(tree))
-                {
-                    break;
-                }
-
-                // Perform the transform ADDR(OBJ(...)) == (...).
-                GenTree* addr = op1->AsObj()->Addr();
-
-                noway_assert(varTypeIsGC(addr->gtType) || addr->gtType == TYP_I_IMPL);
-
-                DEBUG_DESTROY_NODE(op1);
-                DEBUG_DESTROY_NODE(tree);
-
-                return addr;
             }
             else if (op1->OperIs(GT_COMMA) && !optValnumCSE_phase)
             {
