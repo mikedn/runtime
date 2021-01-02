@@ -8117,9 +8117,6 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
         if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
         {
-            // If it's a local address expression it cannot also be an array element.
-            assert((dest->gtFlags & GTF_IND_ARR_INDEX) == 0);
-
             destLclNum = destLclNode->GetLclNum();
             destLclVar = lvaGetDesc(destLclNum);
         }
@@ -8869,9 +8866,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         if (dest->OperIs(GT_IND, GT_OBJ) &&
             dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
         {
-            // If it's a local address expression it cannot also be an array element.
-            assert((dest->gtFlags & GTF_IND_ARR_INDEX) == 0);
-
             destLclNum = destLclNode->GetLclNum();
             destLclVar = lvaGetDesc(destLclNum);
         }
@@ -8908,9 +8902,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         if (destHasSize && src->OperIs(GT_IND, GT_OBJ) &&
             src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcLclOffs, &srcFieldSeq))
         {
-            // If it's a local address expression it cannot also be an array element.
-            assert((src->gtFlags & GTF_IND_ARR_INDEX) == 0);
-
             srcLclNum = srcLclNode->GetLclNum();
             srcLclVar = lvaGetDesc(srcLclNum);
         }
@@ -9360,14 +9351,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (srcLclVar == nullptr)
         {
-            if (src->OperIsIndir() && ((src->gtFlags & GTF_IND_ARR_INDEX) == 0))
-            {
-                addr = src->AsIndir()->GetAddr();
-            }
-            else
-            {
-                addr = gtNewOperNode(GT_ADDR, TYP_BYREF, src);
-            }
+            addr = src->AsIndir()->GetAddr();
         }
         else if (fieldCount > 1)
         {
@@ -9384,14 +9368,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (destLclVar == nullptr)
         {
-            if (dest->OperIsIndir() && (dest->gtFlags & GTF_IND_ARR_INDEX) == 0)
-            {
-                addr = dest->AsIndir()->GetAddr();
-            }
-            else
-            {
-                addr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
-            }
+            addr = dest->AsIndir()->GetAddr();
         }
         else if (fieldCount > 1)
         {
