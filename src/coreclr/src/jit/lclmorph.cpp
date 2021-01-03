@@ -1236,12 +1236,6 @@ private:
                 assert(user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == indir));
                 return;
             }
-
-            // We may get SIMD typed IND nodes, they don't have layout (so it's not needed,
-            // they're not call args) but we can still simplify IND(ADDR(LCL_VAR)) to LCL_VAR
-            // if they have the same SIMD type.
-
-            assert(!user->IsCall());
         }
         else if (indir->OperIs(GT_FIELD))
         {
@@ -1273,14 +1267,36 @@ private:
             }
         }
 
+        if ((indirLayout != varDsc->GetLayout()) && (indirLayout != nullptr) && varDsc->IsPromoted() &&
+            (indir->GetType() == varDsc->GetType()) && (val.Offset() == 0) &&
+            (indirLayout->GetSize() == varDsc->GetLayout()->GetSize()))
+        {
+            // If the indir layout doesn't match and the local is promoted then ignore the
+            // indir layout to avoid having to make a LCL_FLD and dependent promote the
+            // local. The indir layout isn't really needed anymore, since call arg morphing
+            // uses the one from the call signature.
+
+            // The only thing other than the ABI the layout influences is GCness of stores
+            // to the local but in that case it really does make more sense to ignore the
+            // indir layout and use the local variable layout as that is the "real" one when
+            // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
+            // copies doesn't make a lot of sense.
+
+            // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
+            // not clear if it's worth doing and safe.
+            // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
+            // this can create more assignments with different source and destination types
+            // and it's not clear how well VN maps handles those.
+            // Also, discarding type information is not that great in general and it may be
+            // better to instead teach assertion propagation to deal with LCL_FLDs.
+
+            indirLayout = varDsc->GetLayout();
+        }
+
         // For SIMD locals/indirs we don't care about the layout, only that the types match.
         // This could probably be relaxed to allow cases like Vector2 indir and Vector4 local
         // since they all use the same registers. Might need to zero out the upper elements
         // though.
-
-        // For STRUCT locals/indirs the layout has to match exactly. This restriction can
-        // likely be relaxed to "have the same size" or even less, since values used as
-        // call args no longer need to preserve their type.
 
         if ((val.Offset() == 0) && (indir->GetType() == varDsc->GetType()) &&
             (varTypeIsSIMD(indir->GetType()) || (indirLayout == varDsc->GetLayout())))
@@ -1288,9 +1304,7 @@ private:
             indir->ChangeOper(GT_LCL_VAR);
             indir->AsLclVar()->SetLclNum(val.LclNum());
         }
-        else if (!varDsc->IsPromoted() && !varDsc->IsPromotedField() &&
-                 ((indirLayout == nullptr) || (val.Offset() != 0) ||
-                  (indirLayout->GetSize() != varDsc->GetLayout()->GetSize()) || varDsc->lvDoNotEnregister))
+        else
         {
             indir->ChangeOper(GT_LCL_FLD);
             indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1305,30 +1319,6 @@ private:
             // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
             // later transformed into a LCL_VAR and the variable cannot be enregistered.
             m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
-        }
-        else
-        {
-            // TODO-ADDR: For now we do not attempt to create LCL_FLDs for certain indirect
-            // accesses to promoted locals - when the indirection exactly overlaps the local
-            // but has a different layout.
-            //
-            // We may end up needing to do this in some cases, like Memory/ReadOnlyMemory
-            // reinterpretation, that should not result in dependent promotion due to DNER.
-            // Eventually we should handle this by creating the LCL_FLD but not DNERing the
-            // promoted local here and instead doing that during global morphing.
-            //
-            // In general this is a problem only for call args, as we need to preserve the
-            // original layout we get from FIELD/OBJ. For block copies we should be able to
-            // ignore differences in layout and use a LCL_VAR instead of a LCL_FLD to avoid
-            // this issue.
-            //
-            // Even for call args, cases like Memory/ReadOnlyMemory can be handled by checking
-            // if the 2 layouts are identical. Though this is slightly more cumbersome to do
-            // because we only have the list of field of the promoted local, for the layout
-            // we get from the OBJ we'll need to query the VM to get its fields. Or just
-            // cache the fields in the layout to avoid repeated VM queries...
-
-            return;
         }
 
         unsigned flags = 0;

@@ -9766,6 +9766,11 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             // TODO-MIKE-Review: This looks fishy - it's only correct if the destination has the same type as the
             // source. If reinterpretation has ocurred then it would likely be wiser to use NotAField.
+
+            // TODO-MIKE-Fix: This is definitely bogus when pseudo-recursive struct promotion is involved. In the
+            // LclVarDsc we have the field handle of the inner struct field but here we need the field handle of
+            // the leaf primitive field.
+
             FieldSeqNode* srcFieldSeq = GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle());
 
             if (srcFieldLclVar->GetPromotedFieldOffset() == 0)
