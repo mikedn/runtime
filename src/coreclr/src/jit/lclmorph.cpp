@@ -720,9 +720,9 @@ private:
             {
                 isWide = true;
             }
-            else if (varDsc->TypeGet() == TYP_STRUCT)
+            else if (varDsc->GetType() == TYP_STRUCT)
             {
-                isWide = (endOffset.Value() > varDsc->lvExactSize);
+                isWide = (endOffset.Value() > varDsc->GetLayout()->GetSize());
             }
             else
             {
@@ -737,7 +737,7 @@ private:
                 //
                 // For TYP_BLK variables the type size is 0 so they're always address
                 // exposed.
-                isWide = (endOffset.Value() > genTypeSize(varDsc->TypeGet()));
+                isWide = (endOffset.Value() > varTypeSize(varDsc->GetType()));
             }
         }
 
