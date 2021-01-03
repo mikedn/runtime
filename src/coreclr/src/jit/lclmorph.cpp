@@ -1097,7 +1097,7 @@ private:
             // Though perhaps the solution is to use LCL_FLD but defer DNERing the local to morph
             // or lowering.
 
-            if (indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_FIELD) && (indirType != TYP_STRUCT))
+            if (indir->OperIs(GT_IND, GT_OBJ, GT_FIELD) && (indirType != TYP_STRUCT))
             {
                 indir->ChangeOper(GT_LCL_FLD);
                 indir->AsLclFld()->SetLclNum(val.LclNum());
@@ -1127,7 +1127,7 @@ private:
                 m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
             }
 
-            INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_FIELD);)
+            INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ, GT_FIELD);)
 
             return;
         }
@@ -1248,13 +1248,11 @@ private:
         }
         else
         {
-            indirLayout = indir->AsBlk()->GetLayout();
+            indirLayout = indir->AsObj()->GetLayout();
 
-            if (indirLayout->IsBlockLayout())
-            {
-                fieldSeq = nullptr;
-            }
-            else if (fieldSeq != nullptr)
+            assert(!indirLayout->IsBlockLayout());
+
+            if (fieldSeq != nullptr)
             {
                 CORINFO_CLASS_HANDLE fieldClassHandle;
                 CorInfoType corType = m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle(),
