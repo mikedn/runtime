@@ -823,43 +823,51 @@ private:
     //
     // Notes:
     //    This returns 0 for indirection of unknown size, typically GT_DYN_BLK.
-    //    GT_IND nodes that have type TYP_STRUCT are expected to only appears
-    //    on the RHS of an assignment, in which case the LHS size will be used instead.
-    //    Otherwise 0 is returned as well.
+    //    GT_IND nodes that have type TYP_STRUCT are expected to only appear
+    //    on the RHS of an assignment to DYN_BLK so they're also considered to
+    //    have unknown size.
     //
     unsigned GetIndirSize(GenTree* indir, GenTree* user)
     {
         assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK, GT_DYN_BLK, GT_FIELD));
 
-        if (indir->TypeGet() != TYP_STRUCT)
+        if (indir->GetType() != TYP_STRUCT)
         {
-            return genTypeSize(indir->TypeGet());
+            return varTypeSize(indir->GetType());
         }
 
-        // A struct indir that is the RHS of an assignment needs special casing:
-        // - It can be a GT_IND of type TYP_STRUCT, in which case the size is given by the LHS.
-        // - It can be a GT_OBJ that has a correct size, but different than the size of the LHS.
-        //   The LHS size takes precedence.
-        // Just take the LHS size in all cases.
+        if (indir->OperIs(GT_IND))
+        {
+            // STRUCT typed IND nodes are only used as the source of DYN_BLK
+            // so their size is unknown.
+
+            return 0;
+        }
+
         if (user->OperIs(GT_ASG) && (indir == user->AsOp()->GetOp(1)))
         {
-            indir = user->gtGetOp1();
+            // A struct indir that is the RHS of an assignment should get its size from the LHS,
+            // in case the LHS and RHS have different types the LHS size is used in codegen.
+            // This shouldn't happen as it would mean the IL is invalid but the importer's too
+            // messed up to expect it to properly reject invalid IL.
 
-            if (indir->TypeGet() != TYP_STRUCT)
+            indir = user->AsOp()->GetOp(0);
+
+            if (indir->GetType() != TYP_STRUCT)
             {
-                return genTypeSize(indir->TypeGet());
+                return varTypeSize(indir->GetType());
             }
 
             // The LHS may be a LCL_VAR/LCL_FLD, these are not indirections so we need to handle them here.
             // It can also be a GT_INDEX, this is an indirection but it never applies to lclvar addresses
             // so it needs to be handled here as well.
 
-            switch (indir->OperGet())
+            switch (indir->GetOper())
             {
                 case GT_LCL_VAR:
                     return m_compiler->lvaGetDesc(indir->AsLclVar())->lvExactSize;
                 case GT_LCL_FLD:
-                    return genTypeSize(indir->TypeGet());
+                    return varTypeSize(indir->GetType());
                 case GT_INDEX:
                     return indir->AsIndex()->GetElemSize();
                 default:
@@ -867,7 +875,7 @@ private:
             }
         }
 
-        switch (indir->OperGet())
+        switch (indir->GetOper())
         {
             case GT_FIELD:
                 return m_compiler->info.compCompHnd->getClassSize(
@@ -1226,16 +1234,9 @@ private:
         }
         else if (indir->OperIs(GT_IND))
         {
-            if (indir->TypeIs(TYP_STRUCT))
-            {
-                // Skip TYP_STRUCT IND nodes, it's not clear what we can do with them.
-                // Normally these should appear only as sources of variable sized copy block
-                // operations (DYN_BLK) so it probably doesn't make much sense to try to
-                // convert these to local nodes.
+            // Can't have STRUCT typed IND nodes here, they should have been rejected earlier.
 
-                assert(user->OperIs(GT_ASG) && (user->AsOp()->GetOp(1) == indir));
-                return;
-            }
+            assert(varTypeIsSIMD(indir->GetType()));
         }
         else if (indir->OperIs(GT_FIELD))
         {
