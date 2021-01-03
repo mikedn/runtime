@@ -4462,7 +4462,7 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
     // Apply the type update to implicit byref parameters; also choose (based on address-exposed
     // analysis) which implicit byref promotions to keep (requires copy to initialize) or discard.
     //
-    DoPhase(this, PHASE_MORPH_IMPBYREF, &Compiler::fgRetypeImplicitByRefArgs);
+    DoPhase(this, PHASE_MORPH_IMPBYREF, &Compiler::fgRetypeImplicitByRefParams);
 
 #ifdef DEBUG
     // Now that locals have address-taken and implicit byref marked, we can safely apply stress.
@@ -4476,8 +4476,8 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
         unsigned prevBBCount = fgBBcount;
         fgMorphBlocks();
 
-        // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref args
-        fgMarkDemotedImplicitByRefArgs();
+        // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
+        fgMarkDemotedImplicitByRefParams();
         lvaRefCountState = RCS_INVALID;
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)

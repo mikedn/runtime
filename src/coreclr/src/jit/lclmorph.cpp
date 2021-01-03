@@ -1571,7 +1571,7 @@ private:
     // Notes:
     //    abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when it decides
     //    if it's legal to elide certain copies of them;
-    //    fgRetypeImplicitByRefArgs checks the ref counts when it decides to undo promotions.
+    //    fgRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
     //
     void UpdateEarlyRefCountForImplicitByRef(unsigned lclNum)
     {
@@ -1730,7 +1730,7 @@ void Compiler::fgMarkAddressExposedLocals()
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
 
-class IndirectArgMorphVisitor final : public GenTreeVisitor<IndirectArgMorphVisitor>
+class IndirectParamMorphVisitor final : public GenTreeVisitor<IndirectParamMorphVisitor>
 {
     INDEBUG(bool m_stmtModified = false;)
 
@@ -1744,7 +1744,7 @@ public:
         UseExecutionOrder = false,
     };
 
-    IndirectArgMorphVisitor(Compiler* comp) : GenTreeVisitor<IndirectArgMorphVisitor>(comp)
+    IndirectParamMorphVisitor(Compiler* comp) : GenTreeVisitor<IndirectParamMorphVisitor>(comp)
     {
     }
 
@@ -1755,7 +1755,7 @@ public:
 #ifdef DEBUG
         if (m_compiler->verbose && m_stmtModified)
         {
-            printf("IndirectArgMorphVisitor modified statement:\n");
+            printf("IndirectParamMorphVisitor modified statement:\n");
             m_compiler->gtDispTree(stmt->GetRootNode());
         }
 #endif
@@ -1770,30 +1770,30 @@ public:
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
             case GT_LCL_VAR_ADDR:
             case GT_LCL_FLD_ADDR:
-                MorphImplicitByRefArgAddr(node->AsLclVarCommon());
+                MorphImplicitByRefParamAddr(node->AsLclVarCommon());
                 return Compiler::WALK_SKIP_SUBTREES;
 
             case GT_ADDR:
                 if (node->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
-                    MorphImplicitByRefArg(node);
+                    MorphImplicitByRefParam(node);
                     return Compiler::WALK_SKIP_SUBTREES;
                 }
                 return Compiler::WALK_CONTINUE;
 
             case GT_LCL_VAR:
             case GT_LCL_FLD:
-                MorphImplicitByRefArg(node);
+                MorphImplicitByRefParam(node);
                 return Compiler::WALK_SKIP_SUBTREES;
 #elif defined(TARGET_X86)
             case GT_LCL_VAR_ADDR:
             case GT_LCL_FLD_ADDR:
-                MorphVarargsStackArgAddr(node->AsLclVarCommon());
+                MorphVarargsStackParamAddr(node->AsLclVarCommon());
                 return Compiler::WALK_SKIP_SUBTREES;
 
             case GT_LCL_VAR:
             case GT_LCL_FLD:
-                MorphVarargsStackArg(node->AsLclVarCommon());
+                MorphVarargsStackParam(node->AsLclVarCommon());
                 return Compiler::WALK_SKIP_SUBTREES;
 #endif
 
@@ -1803,7 +1803,7 @@ public:
     }
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
-    void MorphImplicitByRefArgAddr(GenTreeLclVarCommon* lclAddrNode)
+    void MorphImplicitByRefParamAddr(GenTreeLclVarCommon* lclAddrNode)
     {
         assert(lclAddrNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
 
@@ -1811,13 +1811,13 @@ public:
 
         if (lcl->IsImplicitByRefParam())
         {
-            // Can't assert lvAddrExposed/lvDoNotEnregister because fgRetypeImplicitByRefArgs
+            // Can't assert lvAddrExposed/lvDoNotEnregister because fgRetypeImplicitByRefParams
             // already cleared both of them.
             // assert(lclVarDsc->lvAddrExposed);
             // assert(lclVarDsc->lvDoNotEnregister);
 
             // Locals referenced by GT_LCL_VAR|FLD_ADDR cannot be enregistered and currently
-            // fgRetypeImplicitByRefArgs undoes promotion of such arguments.
+            // fgRetypeImplicitByRefParams undoes promotion of such arguments.
             assert(!lcl->IsPromoted());
 
             if (lclAddrNode->OperIs(GT_LCL_FLD_ADDR))
@@ -1849,7 +1849,7 @@ public:
                  m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->IsImplicitByRefParam())
         {
             // This was a field reference to an implicit-by-reference struct parameter that was dependently
-            // promoted and now it is being demoted; update it to reference the original argument.
+            // promoted and now it is being demoted; update it to reference the original parameter.
 
             assert(lcl->GetPromotedFieldHandle() != nullptr);
 
@@ -1863,7 +1863,7 @@ public:
                 fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, lclAddrNode->AsLclFld()->GetFieldSeq());
             }
 
-            // Change LCL_VAR|FLD_ADDR(argPromotedField) into ADD(LCL_VAR<BYREF>(arg), offset)
+            // Change LCL_VAR|FLD_ADDR(paramPromotedField) into ADD(LCL_VAR<BYREF>(param), offset)
             GenTree* add = lclAddrNode;
             add->ChangeOper(GT_ADD);
             add->SetType(TYP_BYREF);
@@ -1875,7 +1875,7 @@ public:
         }
     }
 
-    void MorphImplicitByRefArg(GenTree* tree)
+    void MorphImplicitByRefParam(GenTree* tree)
     {
         assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
                (tree->OperIs(GT_ADDR) && tree->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR, GT_LCL_FLD)));
@@ -1886,8 +1886,8 @@ public:
 
         if (lcl->IsImplicitByRefParam())
         {
-            // fgRetypeImplicitByRefArgs creates LCL_VAR nodes that reference
-            // implicit byref args and are already TYP_BYREF, ignore them.
+            // fgRetypeImplicitByRefParams creates LCL_VAR nodes that reference
+            // implicit byref params and are already TYP_BYREF, ignore them.
             if (lclNode->OperIs(GT_LCL_VAR) && lclNode->TypeIs(TYP_BYREF))
             {
                 return;
@@ -1925,7 +1925,7 @@ public:
                 {
                     if (offset != nullptr)
                     {
-                        // Change ADDR<BYREF|I_IMPL>(LCL_FLD<>(arg)) into ADD(LCL_VAR<BYREF>(arg), lclOffs))
+                        // Change ADDR<BYREF|I_IMPL>(LCL_FLD<>(param)) into ADD(LCL_VAR<BYREF>(param), lclOffs))
                         lclNode->SetType(TYP_BYREF);
                         lclNode->gtFlags = 0;
 
@@ -1937,7 +1937,7 @@ public:
                     }
                     else
                     {
-                        // Change ADDR<BYREF|I_IMPL>(LCL_VAR<STRUCT>(arg)) into LCL_VAR<BYREF>(arg)
+                        // Change ADDR<BYREF|I_IMPL>(LCL_VAR<STRUCT>(param)) into LCL_VAR<BYREF>(param)
                         tree->ChangeOper(GT_LCL_VAR);
                         tree->SetType(TYP_BYREF);
                         tree->AsLclVar()->SetLclNum(lclNum);
@@ -1985,7 +1985,7 @@ public:
         {
             // This was a field reference to an implicit-by-reference struct parameter that was
             // dependently promoted and now it is being demoted; update it to a field reference
-            // off the original argument.
+            // off the original parameter.
 
             assert(lcl->GetType() != TYP_STRUCT);
             assert(lcl->GetPromotedFieldHandle() != nullptr);
@@ -2006,7 +2006,7 @@ public:
 
             if (tree->OperIs(GT_ADDR))
             {
-                // Change ADDR(LCL_VAR(argPromotedField)) into ADD(LCL_VAR<BYREF>(arg), offset)
+                // Change ADDR(LCL_VAR(paramPromotedField)) into ADD(LCL_VAR<BYREF>(param), offset)
                 lclNode->SetLclNum(lclNum);
                 lclNode->SetType(TYP_BYREF);
                 lclNode->gtFlags = 0;
@@ -2051,17 +2051,17 @@ public:
         }
     }
 #elif defined(TARGET_X86)
-    void MorphVarargsStackArgAddr(GenTreeLclVarCommon* lclNode)
+    void MorphVarargsStackParamAddr(GenTreeLclVarCommon* lclNode)
     {
         assert(lclNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
 
-        if (!IsVarargsStackArg(lclNode))
+        if (!IsVarargsStackParam(lclNode))
         {
             return;
         }
 
         GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
-        GenTree* offset = GetVarargsStackArgOffset(lclNode);
+        GenTree* offset = GetVarargsStackParamOffset(lclNode);
         GenTree* addr   = lclNode;
 
         addr->ChangeOper(GT_ADD);
@@ -2072,17 +2072,17 @@ public:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void MorphVarargsStackArg(GenTreeLclVarCommon* lclNode)
+    void MorphVarargsStackParam(GenTreeLclVarCommon* lclNode)
     {
         assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-        if (!IsVarargsStackArg(lclNode))
+        if (!IsVarargsStackParam(lclNode))
         {
             return;
         }
 
         GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
-        GenTree* offset = GetVarargsStackArgOffset(lclNode);
+        GenTree* offset = GetVarargsStackParamOffset(lclNode);
         GenTree* addr   = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, base, offset);
         GenTree* indir  = lclNode;
 
@@ -2105,13 +2105,13 @@ public:
         INDEBUG(m_stmtModified = true;)
     }
 
-    bool IsVarargsStackArg(GenTreeLclVarCommon* lclNode) const
+    bool IsVarargsStackParam(GenTreeLclVarCommon* lclNode) const
     {
         LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNode);
-        return lcl->lvIsParam && !lcl->lvIsRegArg && (lclNode->GetLclNum() != m_compiler->lvaVarargsHandleArg);
+        return lcl->IsParam() && !lcl->IsRegParam() && (lclNode->GetLclNum() != m_compiler->lvaVarargsHandleArg);
     }
 
-    GenTreeIntCon* GetVarargsStackArgOffset(GenTreeLclVarCommon* lclNode) const
+    GenTreeIntCon* GetVarargsStackParamOffset(GenTreeLclVarCommon* lclNode) const
     {
         int stkOffs = m_compiler->lvaGetDesc(lclNode)->GetStackOffset();
         stkOffs -= static_cast<int>(m_compiler->codeGen->intRegState.rsCalleeRegArgCount) * REGSIZE_BYTES;
@@ -2122,13 +2122,13 @@ public:
 };
 
 //------------------------------------------------------------------------
-// fgMorphIndirectArgs: Traverse the entire statement tree and morph
-//    implicit-by-ref or x86 vararg stack argument references in it.
+// fgMorphIndirectParams: Traverse the entire statement tree and morph
+//    implicit-by-ref or x86 vararg stack parameter references in it.
 //
 // Arguments:
 //    stmt - the statement to traverse
 //
-void Compiler::fgMorphIndirectArgs(Statement* stmt)
+void Compiler::fgMorphIndirectParams(Statement* stmt)
 {
     assert(fgGlobalMorph);
 
@@ -2139,7 +2139,7 @@ void Compiler::fgMorphIndirectArgs(Statement* stmt)
     }
 #endif
 
-    IndirectArgMorphVisitor visitor(this);
+    IndirectParamMorphVisitor visitor(this);
     visitor.VisitStmt(stmt);
 }
 
