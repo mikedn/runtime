@@ -4383,7 +4383,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // We don't need a copy if this is the last use of an implicit by-ref local.
     if (opts.OptimizationEnabled())
     {
-        GenTreeLclVar* const lclNode = arg->IsImplicitByrefParameterValue(this);
+        GenTreeLclVar* const lclNode = arg->IsImplicitByrefIndir(this);
 
         if (lclNode != nullptr)
         {
@@ -6087,7 +6087,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
             return true;
         }
 
-        GenTreeLclVar* lclNode = argInfo->GetNode()->IsImplicitByrefParameterValue(this);
+        GenTreeLclVar* lclNode = argInfo->GetNode()->IsImplicitByrefIndir(this);
 
         if (lclNode == nullptr)
         {
@@ -6144,7 +6144,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 
             if (argInfo2->IsImplicitByRef())
             {
-                GenTreeLclVar* const lclNode2 = argNode2->IsImplicitByrefParameterValue(this);
+                GenTreeLclVar* const lclNode2 = argNode2->IsImplicitByrefIndir(this);
 
                 if ((lclNode2 != nullptr) && (lclNode->GetLclNum() == lclNode2->GetLclNum()))
                 {

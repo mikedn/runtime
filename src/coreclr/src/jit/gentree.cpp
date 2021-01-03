@@ -15005,33 +15005,25 @@ bool GenTree::IsLocalAddrExpr(Compiler*             comp,
     return false;
 }
 
-//------------------------------------------------------------------------
-// IsImplicitByrefParameterValue: determine if this tree is the entire
-//     value of a local implicit byref parameter
-//
-// Arguments:
-//    compiler -- compiler instance
-//
-// Return Value:
-//    GenTreeLclVar node for the local, or nullptr.
-//
-GenTreeLclVar* GenTree::IsImplicitByrefParameterValue(Compiler* compiler)
+GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
 {
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
-    GenTreeLclVar* lcl = nullptr;
-
-    if (OperIs(GT_OBJ) && AsObj()->GetAddr()->OperIs(GT_LCL_VAR))
+    if (OperIs(GT_OBJ, GT_IND) && AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
     {
-        lcl = AsObj()->GetAddr()->AsLclVar();
-    }
+        // TODO-MIKE-CQ: This does not recognize access to fields of an
+        // implicit byref param so abiMorphImplicitByRefStructArg will
+        // make an unnecessary copy and fgCallHasMustCopyByrefParameter
+        // will block fast tail calls for calls like "CALL(param.b)" when
+        // "b" is also a struct passed by implicit reference.
 
-    if ((lcl != nullptr) && compiler->lvaIsImplicitByRefLocal(lcl->GetLclNum()))
-    {
-        return lcl;
-    }
+        GenTreeLclVar* lclVar = AsIndir()->GetAddr()->AsLclVar();
 
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+        if (compiler->lvaGetDesc(lclVar)->IsImplicitByRefParam())
+        {
+            return lclVar;
+        }
+    }
+#endif
 
     return nullptr;
 }
