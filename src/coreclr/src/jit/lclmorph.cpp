@@ -865,9 +865,9 @@ private:
             switch (indir->GetOper())
             {
                 case GT_LCL_VAR:
-                    return m_compiler->lvaGetDesc(indir->AsLclVar())->lvExactSize;
+                    return m_compiler->lvaGetDesc(indir->AsLclVar())->GetLayout()->GetSize();
                 case GT_LCL_FLD:
-                    return varTypeSize(indir->GetType());
+                    return indir->AsLclFld()->GetLayout(m_compiler)->GetSize();
                 case GT_INDEX:
                     return indir->AsIndex()->GetElemSize();
                 default:
