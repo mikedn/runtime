@@ -1897,11 +1897,13 @@ public:
 
             if (lcl->IsPromoted())
             {
-                assert(lclNode->OperIs(GT_LCL_VAR));
+                // fgRetypeImplicitByRefParams created a new promoted struct local to represent this
+                // param. Rewrite this to refer to the new local. We should never encounter a LCL_FLD
+                // because promotion is aborted if it turns out that it is dependent.
 
-                // fgRetypeImplicitByRefArgs created a new promoted struct local to represent this
-                // arg. Rewrite this to refer to the new local.
+                assert(lclNode->OperIs(GT_LCL_VAR));
                 assert(lcl->lvFieldLclStart != 0);
+
                 lclNode->SetLclNum(lcl->lvFieldLclStart);
             }
             else
@@ -1988,13 +1990,19 @@ public:
             assert(lcl->GetType() != TYP_STRUCT);
             assert(lcl->GetPromotedFieldHandle() != nullptr);
 
-            // LCL_FLD isn't currently supported for promoted/demoted args.
-            assert(lclNode->OperIs(GT_LCL_VAR));
+            unsigned      lclNum   = lcl->GetPromotedFieldParentLclNum();
+            unsigned      lclOffs  = lcl->GetPromotedFieldOffset();
+            FieldSeqNode* fieldSeq = m_compiler->GetFieldSeqStore()->CreateSingleton(lcl->GetPromotedFieldHandle());
 
-            unsigned       lclNum   = lcl->GetPromotedFieldParentLclNum();
-            unsigned       lclOffs  = lcl->GetPromotedFieldOffset();
-            FieldSeqNode*  fieldSeq = m_compiler->GetFieldSeqStore()->CreateSingleton(lcl->GetPromotedFieldHandle());
-            GenTreeIntCon* offset   = m_compiler->gtNewIconNode(lclOffs, fieldSeq);
+            lcl = m_compiler->lvaGetDesc(lclNum);
+
+            if (lclNode->OperIs(GT_LCL_FLD))
+            {
+                lclOffs += lclNode->AsLclFld()->GetLclOffs();
+                fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, lclNode->AsLclFld()->GetFieldSeq());
+            }
+
+            GenTreeIntCon* offset = m_compiler->gtNewIconNode(lclOffs, fieldSeq);
 
             if (tree->OperIs(GT_ADDR))
             {
@@ -2010,12 +2018,20 @@ public:
             }
             else
             {
-                // Change LCL_VAR<fieldType>(argPromotedField) into IND<fieldType>(ADD(LCL_VAR<BYREF>(arg), offset))
-                lclNode = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
+                // Change LCL_VAR<fieldType>(paramPromotedField) into IND<fieldType>(ADD(LCL_VAR<BYREF>(param), offset))
 
-                if (varTypeIsStruct(tree->GetType()))
+                if (lclNode->TypeIs(TYP_STRUCT))
                 {
-                    ClassLayout* layout = lcl->GetLayout();
+                    ClassLayout* layout = nullptr;
+
+                    if (lclNode->OperIs(GT_LCL_FLD))
+                    {
+                        layout = lclNode->AsLclFld()->GetLayout(m_compiler);
+                    }
+                    else
+                    {
+                        layout = lcl->GetImplicitByRefParamLayout();
+                    }
 
                     tree->ChangeOper(GT_OBJ);
                     tree->AsObj()->SetLayout(layout);
@@ -2024,6 +2040,8 @@ public:
                 {
                     tree->ChangeOper(GT_IND);
                 }
+
+                lclNode = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
 
                 tree->AsIndir()->SetAddr(m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, lclNode, offset));
                 tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;

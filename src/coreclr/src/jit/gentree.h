@@ -3191,6 +3191,8 @@ public:
 
     void SetLclNum(unsigned lclNum)
     {
+        assert(lclNum != BAD_VAR_NUM);
+
         m_lclNum = lclNum;
         m_ssaNum = SsaConfig::RESERVED_SSA_NUM;
     }
