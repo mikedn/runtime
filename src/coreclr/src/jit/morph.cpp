@@ -4383,7 +4383,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // We don't need a copy if this is the last use of an implicit by-ref local.
     if (opts.OptimizationEnabled())
     {
-        GenTreeLclVar* const lclNode = arg->IsImplicitByrefParameterValue(this);
+        GenTreeLclVar* const lclNode = arg->IsImplicitByrefIndir(this);
 
         if (lclNode != nullptr)
         {
@@ -6087,7 +6087,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
             return true;
         }
 
-        GenTreeLclVar* lclNode = argInfo->GetNode()->IsImplicitByrefParameterValue(this);
+        GenTreeLclVar* lclNode = argInfo->GetNode()->IsImplicitByrefIndir(this);
 
         if (lclNode == nullptr)
         {
@@ -6144,7 +6144,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 
             if (argInfo2->IsImplicitByRef())
             {
-                GenTreeLclVar* const lclNode2 = argNode2->IsImplicitByrefParameterValue(this);
+                GenTreeLclVar* const lclNode2 = argNode2->IsImplicitByrefIndir(this);
 
                 if ((lclNode2 != nullptr) && (lclNode->GetLclNum() == lclNode2->GetLclNum()))
                 {
@@ -6186,8 +6186,8 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
                 // exposed then it could contain its address.
 
                 // TODO-MIKE-CQ: lvHasLdAddrOp is likely overly conservative. lvAddrExposed should be
-                // used instead but that one gets reset in fgRetypeImplicitByRefArgs.
-                // Maybe fgRetypeImplicitByRefArgs could copy lvAddrExposed somewhere so we can use it
+                // used instead but that one gets reset in fgRetypeImplicitByRefParams.
+                // Maybe fgRetypeImplicitByRefParams could copy lvAddrExposed somewhere so we can use it
                 // here, though care needs to be taken because nothing will ever update it.
 
                 JITDUMP("V%02u is address exposed\n", lclNode->GetLclNum());
@@ -6358,7 +6358,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
                 else if (varDsc->lvPromoted && (lvaTable[varDsc->lvFieldLclStart].lvParentLcl != varNum))
                 {
                     // This temp was used for struct promotion bookkeeping.  It will not be used, and will have
-                    // its ref count and address-taken flag reset in fgMarkDemotedImplicitByRefArgs.
+                    // its ref count and address-taken flag reset in fgMarkDemotedImplicitByRefParams.
                     assert(lvaIsImplicitByRefLocal(lvaTable[varDsc->lvFieldLclStart].lvParentLcl));
                     assert(fgGlobalMorph);
                 }
@@ -9766,6 +9766,11 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             // TODO-MIKE-Review: This looks fishy - it's only correct if the destination has the same type as the
             // source. If reinterpretation has ocurred then it would likely be wiser to use NotAField.
+
+            // TODO-MIKE-Fix: This is definitely bogus when pseudo-recursive struct promotion is involved. In the
+            // LclVarDsc we have the field handle of the inner struct field but here we need the field handle of
+            // the leaf primitive field.
+
             FieldSeqNode* srcFieldSeq = GetFieldSeqStore()->CreateSingleton(srcFieldLclVar->GetPromotedFieldHandle());
 
             if (srcFieldLclVar->GetPromotedFieldOffset() == 0)
@@ -14800,11 +14805,11 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
  *  for reentrant calls.
  */
 
-void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
+void Compiler::fgMorphStmts(BasicBlock* block)
 {
-    fgRemoveRestOfBlock = false;
+    assert(fgGlobalMorph);
 
-    *lnot = *loadw = false;
+    fgRemoveRestOfBlock = false;
 
     for (Statement* stmt : block->Statements())
     {
@@ -14828,10 +14833,7 @@ void Compiler::fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw)
 #endif
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
-        if (fgGlobalMorph)
-        {
-            fgMorphIndirectArgs(stmt);
-        }
+        fgMorphIndirectParams(stmt);
 #endif
 
         GenTree* oldTree = stmt->GetRootNode();
@@ -15052,12 +15054,6 @@ void Compiler::fgMorphBlocks()
 
     do
     {
-#if OPT_BOOL_OPS
-        bool lnot = false;
-#endif
-
-        bool loadw = false;
-
 #ifdef DEBUG
         if (verbose)
         {
@@ -15080,7 +15076,7 @@ void Compiler::fgMorphBlocks()
         compCurBB = block;
 
         // Process all statement trees in the basic block.
-        fgMorphStmts(block, &lnot, &loadw);
+        fgMorphStmts(block);
 
         // Do we need to merge the result of this block into a single return block?
         if ((block->bbJumpKind == BBJ_RETURN) && ((block->bbFlags & BBF_HAS_JMP) == 0))
@@ -16130,21 +16126,21 @@ void Compiler::fgResetImplicitByRefRefCount()
 }
 
 //------------------------------------------------------------------------
-// fgRetypeImplicitByRefArgs: Update the types on implicit byref parameters' `LclVarDsc`s (from
+// fgRetypeImplicitByRefParams: Update the types on implicit byref parameters' `LclVarDsc`s (from
 //                            struct to pointer).  Also choose (based on address-exposed analysis)
 //                            which struct promotions of implicit byrefs to keep or discard.
 //                            For those which are kept, insert the appropriate initialization code.
 //                            For those which are to be discarded, annotate the promoted field locals
-//                            so that fgMorphImplicitByRefArgs will know to rewrite their appearances
+//                            so that fgMorphImplicitByRefParams will know to rewrite their appearances
 //                            using indirections off the pointer parameters.
 
-void Compiler::fgRetypeImplicitByRefArgs()
+void Compiler::fgRetypeImplicitByRefParams()
 {
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\n*************** In fgRetypeImplicitByRefArgs()\n");
+        printf("\n*************** In fgRetypeImplicitByRefParams()\n");
     }
 #endif // DEBUG
 
@@ -16238,7 +16234,7 @@ void Compiler::fgRetypeImplicitByRefArgs()
 
                     if (undoPromotion)
                     {
-                        // Leave lvParentLcl pointing to the parameter so that fgMorphImplicitByRefArgs
+                        // Leave lvParentLcl pointing to the parameter so that fgMorphImplicitByRefParams
                         // will know to rewrite appearances of this local.
                         assert(fieldVarDsc->lvParentLcl == lclNum);
                     }
@@ -16265,7 +16261,7 @@ void Compiler::fgRetypeImplicitByRefArgs()
                 }
 
                 // Hijack lvFieldLclStart to record the new temp number.
-                // It will get fixed up in fgMarkDemotedImplicitByRefArgs.
+                // It will get fixed up in fgMarkDemotedImplicitByRefParams.
                 varDsc->lvFieldLclStart = newLclNum;
                 // Go ahead and clear lvFieldCnt -- either we're promoting
                 // a replacement temp or we're not promoting this arg, and
@@ -16273,7 +16269,7 @@ void Compiler::fgRetypeImplicitByRefArgs()
                 // have these fields.
                 varDsc->lvFieldCnt = 0;
 
-                // Hijack lvPromoted to communicate to fgMorphImplicitByRefArgs
+                // Hijack lvPromoted to communicate to fgMorphImplicitByRefParams
                 // whether references to the struct should be rewritten as
                 // indirections off the pointer (not promoted) or references
                 // to the new struct local (promoted).
@@ -16284,11 +16280,11 @@ void Compiler::fgRetypeImplicitByRefArgs()
                 // The "undo promotion" path above clears lvPromoted for args that struct
                 // promotion wanted to promote but that aren't considered profitable to
                 // rewrite.  It hijacks lvFieldLclStart to communicate to
-                // fgMarkDemotedImplicitByRefArgs that it needs to clean up annotations left
-                // on such args for fgMorphImplicitByRefArgs to consult in the interim.
+                // fgMarkDemotedImplicitByRefParams that it needs to clean up annotations left
+                // on such args for fgMorphImplicitByRefParams to consult in the interim.
                 // Here we have an arg that was simply never promoted, so make sure it doesn't
-                // have nonzero lvFieldLclStart, since that would confuse fgMorphImplicitByRefArgs
-                // and fgMarkDemotedImplicitByRefArgs.
+                // have nonzero lvFieldLclStart, since that would confuse fgMorphImplicitByRefParams
+                // and fgMarkDemotedImplicitByRefParams.
                 assert(varDsc->lvFieldLclStart == 0);
             }
 
@@ -16325,12 +16321,12 @@ void Compiler::fgRetypeImplicitByRefArgs()
 }
 
 //------------------------------------------------------------------------
-// fgMarkDemotedImplicitByRefArgs: Clear annotations for any implicit byrefs that struct promotion
+// fgMarkDemotedImplicitByRefParams: Clear annotations for any implicit byrefs that struct promotion
 //                                 asked to promote.  Appearances of these have now been rewritten
-//                                 (by fgMorphImplicitByRefArgs) using indirections from the pointer
+//                                 (by fgMorphImplicitByRefParams) using indirections from the pointer
 //                                 parameter or references to the promotion temp, as appropriate.
 
-void Compiler::fgMarkDemotedImplicitByRefArgs()
+void Compiler::fgMarkDemotedImplicitByRefParams()
 {
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
 
@@ -16343,12 +16339,12 @@ void Compiler::fgMarkDemotedImplicitByRefArgs()
             if (varDsc->lvPromoted)
             {
                 // The parameter is simply a pointer now, so clear lvPromoted.  It was left set
-                // by fgRetypeImplicitByRefArgs to communicate to fgMorphImplicitByRefArgs that
-                // appearances of this arg needed to be rewritten to a new promoted struct local.
+                // by fgRetypeImplicitByRefParams to communicate to fgMorphImplicitByRefParams that
+                // appearances of this param needed to be rewritten to a new promoted struct local.
                 varDsc->lvPromoted = false;
 
-                // Clear the lvFieldLclStart value that was set by fgRetypeImplicitByRefArgs
-                // to tell fgMorphImplicitByRefArgs which local is the new promoted struct one.
+                // Clear the lvFieldLclStart value that was set by fgRetypeImplicitByRefParams
+                // to tell fgMorphImplicitByRefParams which local is the new promoted struct one.
                 varDsc->lvFieldLclStart = 0;
             }
             else if (varDsc->lvFieldLclStart != 0)

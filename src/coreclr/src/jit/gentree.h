@@ -1829,9 +1829,9 @@ public:
     // yields an address into a local
     GenTreeLclVarCommon* IsLocalAddrExpr();
 
-    // Determine if this tree represents the value of an entire implict byref parameter,
+    // Determine if this tree represents and indirection for an implict byref parameter,
     // and if so return the tree for the parameter.
-    GenTreeLclVar* IsImplicitByrefParameterValue(Compiler* compiler);
+    GenTreeLclVar* IsImplicitByrefIndir(Compiler* compiler);
 
     // Determine if this is a LclVarCommon node and return some additional info about it in the
     // two out parameters.
@@ -3191,6 +3191,8 @@ public:
 
     void SetLclNum(unsigned lclNum)
     {
+        assert(lclNum != BAD_VAR_NUM);
+
         m_lclNum = lclNum;
         m_ssaNum = SsaConfig::RESERVED_SSA_NUM;
     }

@@ -432,6 +432,16 @@ public:
     unsigned char lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
 #endif                                   // defined(TARGET_AMD64) || defined(TARGET_ARM64)
 
+    bool IsParam() const
+    {
+        return lvIsParam;
+    }
+
+    bool IsRegParam() const
+    {
+        return lvIsRegArg;
+    }
+
     bool IsImplicitByRefParam() const
     {
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
@@ -482,8 +492,8 @@ public:
     unsigned char lvIsUnsafeBuffer : 1; // Does this contain an unsafe buffer requiring buffer overflow security checks?
     unsigned char lvPromoted : 1; // True when this local is a promoted struct, a normed struct, or a "split" long on a
                                   // 32-bit target.  For implicit byref parameters, this gets hijacked between
-                                  // fgRetypeImplicitByRefArgs and fgMarkDemotedImplicitByRefArgs to indicate whether
-                                  // references to the arg are being rewritten as references to a promoted shadow local.
+    // fgRetypeImplicitByRefParams and fgMarkDemotedImplicitByRefParams to indicate whether
+    // references to the arg are being rewritten as references to a promoted shadow local.
     unsigned char lvIsStructField : 1;     // Is this local var a field of a promoted struct local?
     unsigned char lvOverlappingFields : 1; // True when we have a struct with possibly overlapping fields
     unsigned char lvContainsHoles : 1;     // True when we have a promoted struct that contains holes
@@ -554,7 +564,7 @@ public:
     union {
         unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted struct
                                   // local.  For implicit byref parameters, this gets hijacked between
-                                  // fgRetypeImplicitByRefArgs and fgMarkDemotedImplicitByRefArgs to point to the
+                                  // fgRetypeImplicitByRefParams and fgMarkDemotedImplicitByRefParams to point to the
                                   // struct local created to model the parameter's struct promotion, if any.
         unsigned lvParentLcl; // The index of the local var representing the parent (i.e. the promoted struct local).
                               // Valid on promoted struct local fields.
@@ -857,7 +867,7 @@ public:
 private:
     unsigned short m_lvRefCnt; // unweighted (real) reference count.  For implicit by reference
                                // parameters, this gets hijacked from fgResetImplicitByRefRefCount
-                               // through fgMarkDemotedImplicitByRefArgs, to provide a static
+                               // through fgMarkDemotedImplicitByRefParams, to provide a static
                                // appearance count (computed during address-exposed analysis)
                                // that abiMakeImplicityByRefStructArgCopy consults during global morph
                                // to determine if eliding its copy is legal.
@@ -3927,7 +3937,7 @@ public:
 
     bool fgFoldConditional(BasicBlock* block);
 
-    void fgMorphStmts(BasicBlock* block, bool* lnot, bool* loadw);
+    void fgMorphStmts(BasicBlock* block);
     void fgMorphBlocks();
 
     void fgMergeBlockReturn(BasicBlock* block);
@@ -5117,16 +5127,16 @@ private:
 
     // Change implicit byrefs' types from struct to pointer, and for any that were
     // promoted, create new promoted struct temps.
-    void fgRetypeImplicitByRefArgs();
+    void fgRetypeImplicitByRefParams();
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection)
-    // or stack args of x86 varargs methods.
-    void fgMorphIndirectArgs(Statement* stmt);
+    // or stack params of x86 varargs methods.
+    void fgMorphIndirectParams(Statement* stmt);
 #endif
 
     // Clear up annotations for any struct promotion temps created for implicit byrefs.
-    void fgMarkDemotedImplicitByRefArgs();
+    void fgMarkDemotedImplicitByRefParams();
 
     void fgMarkAddressExposedLocals();
 
