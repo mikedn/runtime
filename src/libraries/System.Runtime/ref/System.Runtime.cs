@@ -1691,8 +1691,9 @@ namespace System
     }
     public abstract partial class Delegate : System.ICloneable, System.Runtime.Serialization.ISerializable
     {
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The target method might be removed")]
         protected Delegate(object target, string method) { }
-        protected Delegate(System.Type target, string method) { }
+        protected Delegate([System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] System.Type target, string method) { }
         public System.Reflection.MethodInfo Method { get { throw null; } }
         public object? Target { get { throw null; } }
         public virtual object Clone() { throw null; }
@@ -1711,12 +1712,9 @@ namespace System
         public static System.Delegate? CreateDelegate(System.Type type, object target, string method, bool ignoreCase, bool throwOnBindFailure) { throw null; }
         public static System.Delegate CreateDelegate(System.Type type, System.Reflection.MethodInfo method) { throw null; }
         public static System.Delegate? CreateDelegate(System.Type type, System.Reflection.MethodInfo method, bool throwOnBindFailure) { throw null; }
-        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The target method might be removed")]
-        public static System.Delegate CreateDelegate(System.Type type, System.Type target, string method) { throw null; }
-        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The target method might be removed")]
-        public static System.Delegate CreateDelegate(System.Type type, System.Type target, string method, bool ignoreCase) { throw null; }
-        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The target method might be removed")]
-        public static System.Delegate? CreateDelegate(System.Type type, System.Type target, string method, bool ignoreCase, bool throwOnBindFailure) { throw null; }
+        public static System.Delegate CreateDelegate(System.Type type, [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] System.Type target, string method) { throw null; }
+        public static System.Delegate CreateDelegate(System.Type type, [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] System.Type target, string method, bool ignoreCase) { throw null; }
+        public static System.Delegate? CreateDelegate(System.Type type, [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] System.Type target, string method, bool ignoreCase, bool throwOnBindFailure) { throw null; }
         public object? DynamicInvoke(params object?[]? args) { throw null; }
         protected virtual object? DynamicInvokeImpl(object?[]? args) { throw null; }
         public override bool Equals(object? obj) { throw null; }
@@ -2657,6 +2655,7 @@ namespace System
         public static short Abs(short value) { throw null; }
         public static int Abs(int value) { throw null; }
         public static long Abs(long value) { throw null; }
+        public static nint Abs(nint value) { throw null; }
         [System.CLSCompliantAttribute(false)]
         public static sbyte Abs(sbyte value) { throw null; }
         public static float Abs(float value) { throw null; }
@@ -2682,6 +2681,7 @@ namespace System
         public static short Clamp(short value, short min, short max) { throw null; }
         public static int Clamp(int value, int min, int max) { throw null; }
         public static long Clamp(long value, long min, long max) { throw null; }
+        public static nint Clamp(nint value, nint min, nint max) { throw null; }
         [System.CLSCompliantAttribute(false)]
         public static sbyte Clamp(sbyte value, sbyte min, sbyte max) { throw null; }
         public static float Clamp(float value, float min, float max) { throw null; }
@@ -2691,11 +2691,28 @@ namespace System
         public static uint Clamp(uint value, uint min, uint max) { throw null; }
         [System.CLSCompliantAttribute(false)]
         public static ulong Clamp(ulong value, ulong min, ulong max) { throw null; }
+        [System.CLSCompliantAttribute(false)]
+        public static nuint Clamp(nuint value, nuint min, nuint max) { throw null; }
         public static double CopySign(double x, double y) { throw null; }
         public static double Cos(double d) { throw null; }
         public static double Cosh(double value) { throw null; }
         public static int DivRem(int a, int b, out int result) { throw null; }
         public static long DivRem(long a, long b, out long result) { throw null; }
+        public static (byte Quotient, byte Remainder) DivRem(byte left, byte right) { throw null; }
+        public static (short Quotient, short Remainder) DivRem(short left, short right) { throw null; }
+        public static (int Quotient, int Remainder) DivRem(int left, int right) { throw null; }
+        public static (long Quotient, long Remainder) DivRem(long left, long right) { throw null; }
+        public static (nint Quotient, nint Remainder) DivRem(nint left, nint right) { throw null; }
+        [System.CLSCompliantAttribute(false)]
+        public static (sbyte Quotient, sbyte Remainder) DivRem(sbyte left, sbyte right) { throw null; }
+        [System.CLSCompliantAttribute(false)]
+        public static (ushort Quotient, ushort Remainder) DivRem(ushort left, ushort right) { throw null; }
+        [System.CLSCompliantAttribute(false)]
+        public static (uint Quotient, uint Remainder) DivRem(uint left, uint right) { throw null; }
+        [System.CLSCompliantAttribute(false)]
+        public static (ulong Quotient, ulong Remainder) DivRem(ulong left, ulong right) { throw null; }
+        [System.CLSCompliantAttribute(false)]
+        public static (nuint Quotient, nuint Remainder) DivRem(nuint left, nuint right) { throw null; }
         public static double Exp(double d) { throw null; }
         public static decimal Floor(decimal d) { throw null; }
         public static double Floor(double d) { throw null; }
@@ -2712,6 +2729,7 @@ namespace System
         public static short Max(short val1, short val2) { throw null; }
         public static int Max(int val1, int val2) { throw null; }
         public static long Max(long val1, long val2) { throw null; }
+        public static nint Max(nint val1, nint val2) { throw null; }
         [System.CLSCompliantAttribute(false)]
         public static sbyte Max(sbyte val1, sbyte val2) { throw null; }
         public static float Max(float val1, float val2) { throw null; }
@@ -2721,6 +2739,8 @@ namespace System
         public static uint Max(uint val1, uint val2) { throw null; }
         [System.CLSCompliantAttribute(false)]
         public static ulong Max(ulong val1, ulong val2) { throw null; }
+        [System.CLSCompliantAttribute(false)]
+        public static nuint Max(nuint val1, nuint val2) { throw null; }
         public static double MaxMagnitude(double x, double y) { throw null; }
         public static byte Min(byte val1, byte val2) { throw null; }
         public static decimal Min(decimal val1, decimal val2) { throw null; }
@@ -2728,6 +2748,7 @@ namespace System
         public static short Min(short val1, short val2) { throw null; }
         public static int Min(int val1, int val2) { throw null; }
         public static long Min(long val1, long val2) { throw null; }
+        public static nint Min(nint val1, nint val2) { throw null; }
         [System.CLSCompliantAttribute(false)]
         public static sbyte Min(sbyte val1, sbyte val2) { throw null; }
         public static float Min(float val1, float val2) { throw null; }
@@ -2737,6 +2758,8 @@ namespace System
         public static uint Min(uint val1, uint val2) { throw null; }
         [System.CLSCompliantAttribute(false)]
         public static ulong Min(ulong val1, ulong val2) { throw null; }
+        [System.CLSCompliantAttribute(false)]
+        public static nuint Min(nuint val1, nuint val2) { throw null; }
         public static double MinMagnitude(double x, double y) { throw null; }
         public static double Pow(double x, double y) { throw null; }
         public static decimal Round(decimal d) { throw null; }
@@ -2753,6 +2776,7 @@ namespace System
         public static int Sign(short value) { throw null; }
         public static int Sign(int value) { throw null; }
         public static int Sign(long value) { throw null; }
+        public static int Sign(nint value) { throw null; }
         [System.CLSCompliantAttribute(false)]
         public static int Sign(sbyte value) { throw null; }
         public static int Sign(float value) { throw null; }
@@ -2918,8 +2942,9 @@ namespace System
     }
     public abstract partial class MulticastDelegate : System.Delegate
     {
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The target method might be removed")]
         protected MulticastDelegate(object target, string method) : base (default(object), default(string)) { }
-        protected MulticastDelegate(System.Type target, string method) : base (default(object), default(string)) { }
+        protected MulticastDelegate([System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] System.Type target, string method) : base (default(object), default(string)) { }
         protected sealed override System.Delegate CombineImpl(System.Delegate? follow) { throw null; }
         public sealed override bool Equals(object? obj) { throw null; }
         public sealed override int GetHashCode() { throw null; }
@@ -9118,6 +9143,10 @@ namespace System.Runtime.CompilerServices
     {
         public CallConvStdcall() { }
     }
+    public class CallConvSuppressGCTransition
+    {
+        public CallConvSuppressGCTransition() { }
+    }
     public partial class CallConvThiscall
     {
         public CallConvThiscall() { }
@@ -11082,10 +11111,15 @@ namespace System.Threading.Tasks
         public bool Wait(int millisecondsTimeout, System.Threading.CancellationToken cancellationToken) { throw null; }
         public void Wait(System.Threading.CancellationToken cancellationToken) { }
         public bool Wait(System.TimeSpan timeout) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
         public static void WaitAll(params System.Threading.Tasks.Task[] tasks) { }
+        [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
         public static bool WaitAll(System.Threading.Tasks.Task[] tasks, int millisecondsTimeout) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
         public static bool WaitAll(System.Threading.Tasks.Task[] tasks, int millisecondsTimeout, System.Threading.CancellationToken cancellationToken) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
         public static void WaitAll(System.Threading.Tasks.Task[] tasks, System.Threading.CancellationToken cancellationToken) { }
+        [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
         public static bool WaitAll(System.Threading.Tasks.Task[] tasks, System.TimeSpan timeout) { throw null; }
         public static int WaitAny(params System.Threading.Tasks.Task[] tasks) { throw null; }
         public static int WaitAny(System.Threading.Tasks.Task[] tasks, int millisecondsTimeout) { throw null; }
