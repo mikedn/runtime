@@ -2047,7 +2047,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #elif defined(TARGET_ARM64)
         const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || varTypeUsesFloatReg(argx->GetType());
 #elif defined(TARGET_AMD64)
-        const bool passUsingFloatRegs = varTypeIsFloating(argx->GetType());
+        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argx->GetType());
 #elif defined(TARGET_X86)
 // X86 doesn't pass anything in float registers.
 #else
@@ -2062,7 +2062,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         // Figure out if the argument will be passed in a register.
 
-        if (isRegParamType(argx->GetType()))
+        if (isRegParamType(argx->GetType()) X86_ONLY(&&!isStructArg))
         {
 #ifdef TARGET_ARM
 #ifndef ARM_SOFTFP
@@ -2544,8 +2544,11 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 arg->SetType(TYP_I_IMPL);
             }
 
-#if (defined(TARGET_ARM64) && defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
+#if defined(TARGET_WINDOWS) || defined(TARGET_ARM)
             // win-arm64 varargs and arm-soft-fp pass floating point args in integer registers.
+            // win-x64 passes single float/double field structs in integer registers, if we
+            // promoted the struct, or if a float/double local was reinterpreted as a single
+            // FP field struct we need to bitcast the FP value to integer.
             if ((argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum(0)) &&
 #ifdef TARGET_ARM
                 // Decomposition doesn't support LONG BITCAST so we'll have to handle the DOUBLE
@@ -2560,6 +2563,14 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                 argUse->SetNode(arg);
             }
 #endif // (defined(TARGET_ARM64) && defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
+
+            bool argMatchesRegType =
+                (argInfo->GetRegCount() == 0) ||
+#ifdef TARGET_ARM
+                (arg->TypeIs(TYP_DOUBLE) && (argInfo->GetRegCount() == 2) && genIsValidIntReg(argInfo->GetRegNum(0))) ||
+#endif
+                (varTypeUsesFloatReg(arg->GetType()) == genIsValidFloatReg(argInfo->GetRegNum(0)));
+            assert(argMatchesRegType);
 
             argsSideEffects |= arg->gtFlags;
             continue;
