@@ -2526,6 +2526,19 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
         if (!varTypeIsStruct(arg->GetType()))
         {
+            if (typIsLayoutNum(argUse->GetSigTypeNum()) && arg->IsCast() && !arg->gtOverflow() &&
+                varTypeIsSmall(arg->AsCast()->GetCastType()) &&
+                (varTypeSize(arg->AsCast()->GetCastType()) == typGetLayoutByNum(argUse->GetSigTypeNum())->GetSize()))
+            {
+                // This is a struct arg that became a primitive type arg due to struct promotion.
+                // Promoted struct fields are "normalized on load" but we don't need normalization
+                // because struct args do not need to be widened so we can drop the normalization
+                // cast.
+
+                arg = arg->AsCast()->GetOp(0);
+                argUse->SetNode(arg);
+            }
+
             if (arg->TypeIs(TYP_BYREF) && arg->IsLocalAddrExpr() != nullptr)
             {
                 arg->SetType(TYP_I_IMPL);
