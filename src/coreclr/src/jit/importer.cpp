@@ -10484,10 +10484,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     compFloatingPointUsed = true;
                 }
 
-                /* Mark the expression as containing an assignment */
-
-                op1->gtFlags |= GTF_ASG;
-
                 goto SPILL_APPEND;
 
             case CEE_ADD:
@@ -12674,10 +12670,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
 
                     op1 = gtNewAssignNode(op1, op2);
-
-                    /* Mark the expression as containing an assignment */
-
-                    op1->gtFlags |= GTF_ASG;
                 }
 
                 /* Check if the class needs explicit initialization */
