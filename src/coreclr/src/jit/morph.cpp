@@ -4544,26 +4544,6 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 
     noway_assert((elemType != TYP_STRUCT) || (elemLayout != nullptr));
 
-#ifdef FEATURE_SIMD
-    if (supportSIMDTypes() && (elemType == TYP_STRUCT) && structSizeMightRepresentSIMDType(elemSize))
-    {
-        // The importer doesn't normalize the type of INDEX nodes so we need to do it here.
-
-        unsigned simdElemSize = 0;
-        if (getBaseTypeAndSizeOfSIMDType(elemLayout->GetClassHandle(), &simdElemSize) != TYP_UNKNOWN)
-        {
-            assert(simdElemSize == elemSize);
-            elemType = getSIMDTypeForSize(elemSize);
-            tree->SetType(elemType);
-        }
-    }
-#endif
-
-    if (varTypeUsesFloatReg(tree->GetType()))
-    {
-        compFloatingPointUsed = true;
-    }
-
     bool checkIndexRange = false;
 
     if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)

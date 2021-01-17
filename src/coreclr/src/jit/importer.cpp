@@ -10326,6 +10326,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     assert((opcode == CEE_LDELEM) || (opcode == CEE_LDELEMA));
 
+                    op1->SetType(impNormStructType(clsHnd));
+
                     ClassLayout* layout = typGetObjLayout(clsHnd);
                     op1->AsIndex()->SetLayout(layout);
                     op1->AsIndex()->SetElemSize(layout->GetSize());
@@ -10336,10 +10338,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
                 }
 
-                if ((opcode == CEE_LDELEM) && (lclTyp == TYP_STRUCT))
+                if (opcode == CEE_LDELEM)
                 {
-                    op1 = gtNewObjNode(clsHnd, op1);
-                    op1->gtFlags |= GTF_EXCEPT;
+                    if (lclTyp == TYP_STRUCT)
+                    {
+                        op1 = gtNewObjNode(clsHnd, op1);
+                        op1->gtFlags |= GTF_EXCEPT;
+                    }
+
+                    if (varTypeUsesFloatReg(op1->GetType()))
+                    {
+                        compFloatingPointUsed = true;
+                    }
                 }
 
                 if ((opcode == CEE_LDELEM) &&
@@ -10450,26 +10460,28 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /* Create the index node */
-
                 op1 = gtNewArrayIndex(lclTyp, op3, op1);
-
-                /* Create the assignment node and append it */
 
                 if (lclTyp == TYP_STRUCT)
                 {
+                    op1->SetType(impNormStructType(clsHnd));
+
                     ClassLayout* layout = typGetObjLayout(clsHnd);
                     op1->AsIndex()->SetLayout(layout);
                     op1->AsIndex()->SetElemSize(layout->GetSize());
-                }
-                if (varTypeIsStruct(op1))
-                {
+
                     op1 = impAssignStruct(op1, op2, clsHnd, CHECK_SPILL_ALL);
                 }
                 else
                 {
-                    op2 = impImplicitR4orR8Cast(op2, op1->TypeGet());
+                    op2 = impImplicitR4orR8Cast(op2, op1->GetType());
+
                     op1 = gtNewAssignNode(op1, op2);
+                }
+
+                if (varTypeUsesFloatReg(op1->GetType()))
+                {
+                    compFloatingPointUsed = true;
                 }
 
                 /* Mark the expression as containing an assignment */
