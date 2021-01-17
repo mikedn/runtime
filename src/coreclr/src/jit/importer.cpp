@@ -1473,16 +1473,6 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
             makeTemp = true;
             break;
 
-        case GT_INDEX:
-            // TODO-MIKE-Cleanup: This is bogus. INDEX should have the correct handle already
-            // or the IL is invalid. And if we want to tolerate invalid IL then the correct
-            // way to do it is to wrap INDEX in an OBJ of the desired type, not the to change
-            // the element class handle, that also affects element offset computation...
-            structVal->AsIndex()->SetLayout(typGetObjLayout(structHnd));
-            structVal->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(structHnd));
-            alreadyNormalized = true;
-            break;
-
         case GT_FIELD:
             structVal->SetType(structType);
 
@@ -1497,6 +1487,11 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
             structLcl = structVal->AsLclVarCommon();
             structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
             assert(structVal->GetType() == structType);
+            alreadyNormalized = true;
+            break;
+
+        case GT_INDEX:
+            assert(varTypeIsStruct(structVal->GetType()));
             alreadyNormalized = true;
             break;
 
