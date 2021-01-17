@@ -9518,8 +9518,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             }
         }
 
-        CORINFO_CLASS_HANDLE clsHnd       = DUMMY_INIT(NULL);
-        CORINFO_CLASS_HANDLE stelemClsHnd = DUMMY_INIT(NULL);
+        CORINFO_CLASS_HANDLE clsHnd = DUMMY_INIT(NULL);
 
         var_types lclTyp, ovflType = TYP_UNKNOWN;
         GenTree*  op1           = DUMMY_INIT(NULL);
@@ -10365,23 +10364,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
-                stelemClsHnd = resolvedToken.hClass;
+                clsHnd = resolvedToken.hClass;
 
-                // If it's a reference type just behave as though it's a stelem.ref instruction
-                if (!eeIsValueClass(stelemClsHnd))
+                if (eeIsValueClass(clsHnd))
                 {
-                    goto STELEM_REF;
-                }
-
-                // Otherwise extract the type
-                {
-                    CorInfoType jitTyp = info.compCompHnd->asCorInfoType(stelemClsHnd);
-                    lclTyp             = JITtype2varType(jitTyp);
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
                     goto ARR_ST;
                 }
 
+                // If it's a reference type just behave as though it's a stelem.ref instruction
+                FALLTHROUGH;
+
             case CEE_STELEM_REF:
-            STELEM_REF:
                 if (opts.OptimizationEnabled())
                 {
                     GenTree* array = impStackTop(2).val;
@@ -10469,15 +10463,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    assert(stelemClsHnd != DUMMY_INIT(NULL));
-
-                    ClassLayout* layout = typGetObjLayout(stelemClsHnd);
+                    ClassLayout* layout = typGetObjLayout(clsHnd);
                     op1->AsIndex()->SetLayout(layout);
                     op1->AsIndex()->SetElemSize(layout->GetSize());
                 }
                 if (varTypeIsStruct(op1))
                 {
-                    op1 = impAssignStruct(op1, op2, stelemClsHnd, (unsigned)CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op1, op2, clsHnd, CHECK_SPILL_ALL);
                 }
                 else
                 {
