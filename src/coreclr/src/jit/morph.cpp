@@ -4538,11 +4538,11 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         }
     }
 
-    var_types            elemType  = tree->GetType();
-    unsigned             elemSize  = tree->GetElemSize();
-    CORINFO_CLASS_HANDLE elemClass = tree->GetElemClassHandle();
+    var_types    elemType   = tree->GetType();
+    ClassLayout* elemLayout = tree->GetLayout();
+    unsigned     elemSize   = tree->GetElemSize();
 
-    noway_assert((elemType != TYP_STRUCT) || (elemClass != NO_CLASS_HANDLE));
+    noway_assert((elemType != TYP_STRUCT) || (elemLayout != nullptr));
 
 #ifdef FEATURE_SIMD
     if (supportSIMDTypes() && (elemType == TYP_STRUCT) && structSizeMightRepresentSIMDType(elemSize))
@@ -4550,7 +4550,7 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
         // The importer doesn't normalize the type of INDEX nodes so we need to do it here.
 
         unsigned simdElemSize = 0;
-        if (getBaseTypeAndSizeOfSIMDType(elemClass, &simdElemSize) != TYP_UNKNOWN)
+        if (getBaseTypeAndSizeOfSIMDType(elemLayout->GetClassHandle(), &simdElemSize) != TYP_UNKNOWN)
         {
             assert(simdElemSize == elemSize);
             elemType = getSIMDTypeForSize(elemSize);
@@ -4585,10 +4585,10 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
     // as aliased in VN (e.g. Vector128<float>[] & Vector128<int>[] & Vector4).
     if (elemType == TYP_STRUCT)
     {
-        elemTypeNum = typGetObjLayoutNum(elemClass);
+        elemTypeNum = typGetLayoutNum(elemLayout);
 
         indir->ChangeOper(GT_OBJ);
-        indir->AsObj()->SetLayout(typGetLayoutByNum(elemTypeNum));
+        indir->AsObj()->SetLayout(elemLayout);
         indir->AsObj()->SetKind(StructStoreKind::Invalid);
     }
     else

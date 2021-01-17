@@ -5750,16 +5750,13 @@ public:
 struct GenTreeIndex : public GenTreeOp
 {
 private:
-    CORINFO_CLASS_HANDLE m_elemClassHandle;
-    uint8_t              m_dataOffs;
-    unsigned             m_elemSize;
+    ClassLayout* m_layout;
+    uint8_t      m_dataOffs;
+    unsigned     m_elemSize;
 
 public:
     GenTreeIndex(var_types type, GenTree* arr, GenTree* ind, uint8_t lenOffs, uint8_t dataOffs)
-        : GenTreeOp(GT_INDEX, type, arr, ind)
-        , m_elemClassHandle(NO_CLASS_HANDLE)
-        , m_dataOffs(dataOffs)
-        , m_elemSize(varTypeSize(type))
+        : GenTreeOp(GT_INDEX, type, arr, ind), m_layout(nullptr), m_dataOffs(dataOffs), m_elemSize(varTypeSize(type))
     {
         // The offset of length is always the same for both strings and arrays.
         assert(lenOffs == TARGET_POINTER_SIZE);
@@ -5781,7 +5778,7 @@ public:
 
     GenTreeIndex(const GenTreeIndex* copyFrom)
         : GenTreeOp(GT_INDEX, copyFrom->GetType(), copyFrom->gtOp1, copyFrom->gtOp2)
-        , m_elemClassHandle(copyFrom->m_elemClassHandle)
+        , m_layout(copyFrom->m_layout)
         , m_dataOffs(copyFrom->m_dataOffs)
         , m_elemSize(copyFrom->m_elemSize)
     {
@@ -5809,14 +5806,16 @@ public:
         gtOp2 = index;
     }
 
-    CORINFO_CLASS_HANDLE GetElemClassHandle() const
+    ClassLayout* GetLayout() const
     {
-        return m_elemClassHandle;
+        assert((m_layout == nullptr) || varTypeIsStruct(GetType()));
+        return m_layout;
     }
 
-    void SetElemClassHandle(CORINFO_CLASS_HANDLE classHandle)
+    void SetLayout(ClassLayout* layout)
     {
-        m_elemClassHandle = classHandle;
+        assert((layout == nullptr) || varTypeIsStruct(GetType()));
+        m_layout = layout;
     }
 
     uint8_t GetLenOffs() const

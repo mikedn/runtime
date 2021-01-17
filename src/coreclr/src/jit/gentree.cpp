@@ -8856,9 +8856,9 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
     if (tree)
     {
-        printf(" %-6s", varTypeName(tree->TypeGet()));
+        printf(" %-6s", varTypeName(tree->GetType()));
 
-        if (varTypeIsStruct(tree->TypeGet()))
+        if (varTypeIsStruct(tree->GetType()))
         {
             ClassLayout* layout = nullptr;
 
@@ -8870,7 +8870,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             {
                 LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
 
-                if (varTypeIsStruct(varDsc->TypeGet()))
+                if (varTypeIsStruct(varDsc->GetType()))
                 {
                     layout = varDsc->GetLayout();
                 }
@@ -8879,10 +8879,14 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             {
                 layout = typGetLayoutByNum(tree->AsLclFld()->GetLayoutNum());
             }
+            else if (GenTreeIndex* index = tree->IsIndex())
+            {
+                layout = index->GetLayout();
+            }
 
             if (layout != nullptr)
             {
-                gtDispClassLayout(layout, tree->TypeGet());
+                gtDispClassLayout(layout, tree->GetType());
             }
         }
 
@@ -15759,7 +15763,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 structHnd = tree->AsRetExpr()->GetRetLayout()->GetClassHandle();
                 break;
             case GT_INDEX:
-                structHnd = tree->AsIndex()->GetElemClassHandle();
+                structHnd = tree->AsIndex()->GetLayout()->GetClassHandle();
                 break;
             case GT_FIELD:
                 info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);

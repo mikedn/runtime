@@ -1193,7 +1193,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     else if (src->OperIs(GT_INDEX))
     {
         assert(src->TypeIs(TYP_STRUCT));
-        assert(src->AsIndex()->GetElemClassHandle() == structHnd);
+        assert(src->AsIndex()->GetLayout()->GetClassHandle() == structHnd);
 
         // Currently INDEX type isn't normalized so we have to do it here.
         srcType = impNormStructType(structHnd);
@@ -1478,7 +1478,7 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
             // or the IL is invalid. And if we want to tolerate invalid IL then the correct
             // way to do it is to wrap INDEX in an OBJ of the desired type, not the to change
             // the element class handle, that also affects element offset computation...
-            structVal->AsIndex()->SetElemClassHandle(structHnd);
+            structVal->AsIndex()->SetLayout(typGetObjLayout(structHnd));
             structVal->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(structHnd));
             alreadyNormalized = true;
             break;
@@ -10332,8 +10332,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     assert((opcode == CEE_LDELEM) || (opcode == CEE_LDELEMA));
 
-                    op1->AsIndex()->SetElemClassHandle(clsHnd);
-                    op1->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(clsHnd));
+                    ClassLayout* layout = typGetObjLayout(clsHnd);
+                    op1->AsIndex()->SetLayout(layout);
+                    op1->AsIndex()->SetElemSize(layout->GetSize());
                 }
 
                 if ((opcode == CEE_LDELEMA) || (lclTyp == TYP_STRUCT))
@@ -10470,8 +10471,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     assert(stelemClsHnd != DUMMY_INIT(NULL));
 
-                    op1->AsIndex()->SetElemClassHandle(stelemClsHnd);
-                    op1->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(stelemClsHnd));
+                    ClassLayout* layout = typGetObjLayout(stelemClsHnd);
+                    op1->AsIndex()->SetLayout(layout);
+                    op1->AsIndex()->SetElemSize(layout->GetSize());
                 }
                 if (varTypeIsStruct(op1))
                 {
