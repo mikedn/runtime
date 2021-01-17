@@ -132,7 +132,7 @@ const char* varTypeName(var_types type)
  *  Return the name of the given register.
  */
 
-const char* getRegName(regNumber reg, bool isFloat)
+const char* getRegName(regNumber reg)
 {
     // Special-case REG_NA; it's not in the regNames array, but we might want to print it.
     if (reg == REG_NA)
@@ -152,116 +152,13 @@ const char* getRegName(regNumber reg, bool isFloat)
     return reg < _countof(regNames) ? regNames[reg] : "???";
 }
 
-const char* getRegName(unsigned reg,
-                       bool     isFloat) // this is for gcencode.cpp and disasm.cpp that dont use the regNumber type
+const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp that dont use the regNumber type
 {
-    return getRegName((regNumber)reg, isFloat);
+    return getRegName(static_cast<regNumber>(reg));
 }
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 
 #if defined(DEBUG)
-
-const char* getRegNameFloat(regNumber reg, var_types type)
-{
-#ifdef TARGET_ARM
-    assert(genIsValidFloatReg(reg));
-    if (type == TYP_FLOAT)
-        return getRegName(reg);
-    else
-    {
-        const char* regName;
-
-        switch (reg)
-        {
-            default:
-                assert(!"Bad double register");
-                regName = "d??";
-                break;
-            case REG_F0:
-                regName = "d0";
-                break;
-            case REG_F2:
-                regName = "d2";
-                break;
-            case REG_F4:
-                regName = "d4";
-                break;
-            case REG_F6:
-                regName = "d6";
-                break;
-            case REG_F8:
-                regName = "d8";
-                break;
-            case REG_F10:
-                regName = "d10";
-                break;
-            case REG_F12:
-                regName = "d12";
-                break;
-            case REG_F14:
-                regName = "d14";
-                break;
-            case REG_F16:
-                regName = "d16";
-                break;
-            case REG_F18:
-                regName = "d18";
-                break;
-            case REG_F20:
-                regName = "d20";
-                break;
-            case REG_F22:
-                regName = "d22";
-                break;
-            case REG_F24:
-                regName = "d24";
-                break;
-            case REG_F26:
-                regName = "d26";
-                break;
-            case REG_F28:
-                regName = "d28";
-                break;
-            case REG_F30:
-                regName = "d30";
-                break;
-        }
-        return regName;
-    }
-
-#elif defined(TARGET_ARM64)
-
-    static const char* regNamesFloat[] = {
-#define REGDEF(name, rnum, mask, xname, wname) xname,
-#include "register.h"
-    };
-    assert((unsigned)reg < ArrLen(regNamesFloat));
-
-    return regNamesFloat[reg];
-
-#else
-    static const char* regNamesFloat[] = {
-#define REGDEF(name, rnum, mask, sname) "x" sname,
-#include "register.h"
-    };
-#ifdef FEATURE_SIMD
-    static const char* regNamesYMM[] = {
-#define REGDEF(name, rnum, mask, sname) "y" sname,
-#include "register.h"
-    };
-#endif // FEATURE_SIMD
-    assert((unsigned)reg < ArrLen(regNamesFloat));
-
-#ifdef FEATURE_SIMD
-    if (type == TYP_SIMD32)
-    {
-        return regNamesYMM[reg];
-    }
-#endif // FEATURE_SIMD
-
-    return regNamesFloat[reg];
-#endif
-}
 
 /*****************************************************************************
  *

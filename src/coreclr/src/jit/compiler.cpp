@@ -2001,8 +2001,7 @@ const char* Compiler::compRegVarName(regNumber reg, bool displayVar, bool isFloa
             static int index = 0;                               // for circular index into the name array
 
             index = (index + 1) % 2; // circular reuse of index
-            sprintf_s(nameVarReg[index], NAME_VAR_REG_BUFFER_LEN, "%s'%s'", getRegName(reg, isFloatReg),
-                      VarNameToStr(varName));
+            sprintf_s(nameVarReg[index], NAME_VAR_REG_BUFFER_LEN, "%s'%s'", getRegName(reg), VarNameToStr(varName));
 
             return nameVarReg[index];
         }
@@ -2011,7 +2010,7 @@ const char* Compiler::compRegVarName(regNumber reg, bool displayVar, bool isFloa
     /* no debug info required or no variable in that register
        -> return standard name */
 
-    return getRegName(reg, isFloatReg);
+    return getRegName(reg);
 }
 
 const char* Compiler::compRegNameForSize(regNumber reg, size_t size)
