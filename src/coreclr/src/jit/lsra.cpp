@@ -9573,7 +9573,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
             {
                 regNumber reg       = tree->GetRegNum();
                 int       charCount = _snprintf_s(operandString, operandStringLength, operandStringLength, "%s%s",
-                                            getRegName(reg, genIsValidFloatReg(reg)), lastUseChar);
+                                            getRegName(reg), lastUseChar);
                 operandString += charCount;
                 operandStringLength -= charCount;
 
@@ -9586,7 +9586,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
                     {
                         regNumber reg = tree->GetRegByIndex(regIndex);
                         charCount     = _snprintf_s(operandString, operandStringLength, operandStringLength, ",%s%s",
-                                                getRegName(reg, genIsValidFloatReg(reg)), lastUseChar);
+                                                getRegName(reg), lastUseChar);
                         operandString += charCount;
                         operandStringLength -= charCount;
                     }
@@ -9795,10 +9795,10 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                 assert(reg == assignedReg || varDsc->lvRegister == false);
                 if (reg != argReg)
                 {
-                    printf(getRegName(argReg, isFloatRegType(interval->registerType)));
+                    printf(getRegName(argReg));
                     printf("=>");
                 }
-                printf("%s)", getRegName(reg, isFloatRegType(interval->registerType)));
+                printf("%s)", getRegName(reg));
             }
         }
         printf("\n");
@@ -9928,8 +9928,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                                 {
                                     assert(genMaxOneBit(currentRefPosition->registerAssignment));
                                     assert(lastFixedRegRefPos != nullptr);
-                                    printf(" Fixed:%s(#%d)", getRegName(currentRefPosition->assignedReg(),
-                                                                        isFloatRegType(interval->registerType)),
+                                    printf(" Fixed:%s(#%d)", getRegName(currentRefPosition->assignedReg()),
                                            lastFixedRegRefPos->rpNum);
                                     lastFixedRegRefPos = nullptr;
                                 }
@@ -9953,8 +9952,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                             if (currentRefPosition->isFixedRegRef)
                             {
                                 assert(genMaxOneBit(currentRefPosition->registerAssignment));
-                                printf(" %s", getRegName(currentRefPosition->assignedReg(),
-                                                         isFloatRegType(interval->registerType)));
+                                printf(" %s", getRegName(currentRefPosition->assignedReg()));
                             }
                             if (currentRefPosition->isLocalDefUse)
                             {
@@ -9977,8 +9975,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                                 printf("\n        Kill: ");
                                 killPrinted = true;
                             }
-                            printf(getRegName(currentRefPosition->assignedReg(),
-                                              isFloatRegType(currentRefPosition->getReg()->registerType)));
+                            printf(getRegName(currentRefPosition->assignedReg()));
                             printf(" ");
                             break;
                         case RefTypeFixedReg:

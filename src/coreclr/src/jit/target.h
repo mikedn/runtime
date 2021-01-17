@@ -1609,13 +1609,12 @@ public:
 };
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
-const char* getRegName(unsigned reg, bool isFloat = false); // this is for gcencode.cpp and disasm.cpp that don't use
-                                                            // the regNumber type
-const char* getRegName(regNumber reg, bool isFloat = false);
+const char* getRegName(unsigned reg); // this is for gcencode.cpp and disasm.cpp that don't use
+                                      // the regNumber type
+const char* getRegName(regNumber reg);
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 
 #ifdef DEBUG
-const char* getRegNameFloat(regNumber reg, var_types type);
 extern void dspRegMask(regMaskTP regMask, size_t minSiz = 0);
 #endif
 
