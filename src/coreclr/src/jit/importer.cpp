@@ -4959,49 +4959,17 @@ int Compiler::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const B
             // box + br_true/false
             if ((codeAddr + ((codeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
             {
-                GenTree* const treeToBox       = impStackTop().val;
-                bool           canOptimize     = true;
-                GenTree*       treeToNullcheck = nullptr;
-
-                // Can the thing being boxed cause a side effect?
-                if ((treeToBox->gtFlags & GTF_SIDE_EFFECT) != 0)
+                if (info.compCompHnd->getBoxHelper(pResolvedToken->hClass) == CORINFO_HELP_BOX)
                 {
-                    // Is this a side effect we can replicate cheaply?
-                    if (((treeToBox->gtFlags & GTF_SIDE_EFFECT) == GTF_EXCEPT) && treeToBox->OperIs(GT_OBJ, GT_IND))
+                    GenTree* sideEffects = impImportPop(compCurBB);
+
+                    if (sideEffects != nullptr)
                     {
-                        // Yes, we just need to perform a null check if needed.
-                        GenTree* const addr = treeToBox->AsOp()->gtGetOp1();
-                        if (fgAddrCouldBeNull(addr))
-                        {
-                            treeToNullcheck = addr;
-                        }
+                        impAppendTree(sideEffects, CHECK_SPILL_ALL, impCurStmtOffs);
                     }
-                    else
-                    {
-                        canOptimize = false;
-                    }
-                }
 
-                if (canOptimize)
-                {
-                    CorInfoHelpFunc boxHelper = info.compCompHnd->getBoxHelper(pResolvedToken->hClass);
-                    if (boxHelper == CORINFO_HELP_BOX)
-                    {
-                        JITDUMP("\n Importing BOX; BR_TRUE/FALSE as %sconstant\n",
-                                treeToNullcheck == nullptr ? "" : "nullcheck+");
-                        impPopStack();
-
-                        GenTree* result = gtNewIconNode(1);
-
-                        if (treeToNullcheck != nullptr)
-                        {
-                            GenTree* nullcheck = gtNewNullCheck(treeToNullcheck, compCurBB);
-                            result             = gtNewOperNode(GT_COMMA, TYP_INT, nullcheck, result);
-                        }
-
-                        impPushOnStack(result, typeInfo());
-                        return 0;
-                    }
+                    impPushOnStack(gtNewIconNode(1), typeInfo());
+                    return 0;
                 }
             }
             break;
@@ -11303,71 +11271,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_POP:
-            {
-                /* Pull the top value from the stack */
+                op1 = impImportPop(block);
 
-                StackEntry se = impPopStack();
-                clsHnd        = se.seTypeInfo.GetClassHandle();
-                op1           = se.val;
-
-                /* Get hold of the type of the value being duplicated */
-
-                lclTyp = genActualType(op1->gtType);
-
-                /* Does the value have any side effects? */
-
-                if ((op1->gtFlags & GTF_SIDE_EFFECT) || opts.compDbgCode)
+                if (op1 != nullptr)
                 {
-                    // Since we are throwing away the value, just normalize
-                    // it to its address.  This is more efficient.
-
-                    if (varTypeIsStruct(op1))
-                    {
-                        JITDUMPTREE(op1, "\n ... CEE_POP struct ...\n");
-
-                        // If the value being produced comes from loading
-                        // via an underlying address, just null check the address.
-                        if (op1->OperIs(GT_FIELD, GT_IND, GT_OBJ))
-                        {
-                            gtChangeOperToNullCheck(op1, block);
-                        }
-                        else
-                        {
-                            op1 = impGetStructAddr(op1, clsHnd, CHECK_SPILL_ALL, false);
-                        }
-
-                        JITDUMPTREE(op1, "\n ... optimized to ...\n");
-                    }
-
-                    // If op1 is non-overflow cast, throw it away since it is useless.
-                    // Another reason for throwing away the useless cast is in the context of
-                    // implicit tail calls when the operand of pop is GT_CAST(GT_CALL(..)).
-                    // The cast gets added as part of importing GT_CALL, which gets in the way
-                    // of fgMorphCall() on the forms of tail call nodes that we assert.
-                    if ((op1->gtOper == GT_CAST) && !op1->gtOverflow())
-                    {
-                        op1 = op1->AsOp()->gtOp1;
-                    }
-
-                    if (op1->gtOper != GT_CALL)
-                    {
-                        if ((op1->gtFlags & GTF_SIDE_EFFECT) != 0)
-                        {
-                            op1 = gtUnusedValNode(op1);
-                        }
-                        else
-                        {
-                            op1->gtBashToNOP();
-                        }
-                    }
-
-                    /* Append the value to the tree list */
                     goto SPILL_APPEND;
                 }
 
-                // No side effects - just remove the entire tree
-            }
-            break;
+                break;
 
             case CEE_DUP:
             {
@@ -18000,4 +17911,66 @@ GenTree* Compiler::impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* s
     }
 
     return gtNewAssignNode(dst, src);
+}
+
+GenTree* Compiler::impImportPop(BasicBlock* block)
+{
+    StackEntry           se     = impPopStack();
+    CORINFO_CLASS_HANDLE clsHnd = se.seTypeInfo.GetClassHandle();
+    GenTree*             op1    = se.val;
+
+    if (((op1->gtFlags & GTF_SIDE_EFFECT) == 0) && !opts.compDbgCode)
+    {
+        return nullptr;
+    }
+
+    if (varTypeIsStruct(op1->GetType()))
+    {
+        JITDUMPTREE(op1, "\n ... CEE_POP struct ...\n");
+
+        // If the value being produced comes from loading
+        // via an underlying address, just null check the address.
+
+        // TODO-MIKE-Cleanup: If the tree is an INDEX then this will assign it to
+        // a newly allocated temp. We don't need it, we only need the range check
+        // side effect. This could probably be achieved by changing the tree to
+        // ADDR(INDEX(...)) and treating the address as an unused value below or
+        // perhaps by simply replacing INDEX with ARR_BOUNDS_CHECK here instead of
+        // deferring it to morph.
+
+        if (op1->OperIs(GT_FIELD, GT_IND, GT_OBJ))
+        {
+            gtChangeOperToNullCheck(op1, block);
+        }
+        else
+        {
+            op1 = impGetStructAddr(op1, clsHnd, CHECK_SPILL_ALL, false);
+        }
+
+        JITDUMPTREE(op1, "\n ... optimized to ...\n");
+    }
+
+    // If op1 is non-overflow cast, throw it away since it is useless.
+    // Another reason for throwing away the useless cast is in the context of
+    // implicit tail calls when the operand of pop is GT_CAST(GT_CALL(..)).
+    // The cast gets added as part of importing GT_CALL, which gets in the way
+    // of fgMorphCall() on the forms of tail call nodes that we assert.
+    if (op1->IsCast() && !op1->gtOverflow())
+    {
+        op1 = op1->AsCast()->GetOp(0);
+    }
+
+    if (!op1->IsCall())
+    {
+        if ((op1->gtFlags & GTF_SIDE_EFFECT) != 0)
+        {
+            op1 = gtUnusedValNode(op1);
+        }
+        else
+        {
+            op1->gtBashToNOP();
+        }
+    }
+
+    return op1;
 }
