@@ -232,21 +232,49 @@ public:
 // all subsequent fields must be struct fields.
 struct FieldSeqNode
 {
+    friend class FieldSeqStore;
+
+private:
     CORINFO_FIELD_HANDLE m_fieldHnd;
     FieldSeqNode*        m_next;
 
+public:
     FieldSeqNode(CORINFO_FIELD_HANDLE fieldHnd, FieldSeqNode* next) : m_fieldHnd(fieldHnd), m_next(next)
     {
     }
 
-    bool IsBoxedValueField();
+    bool IsBoxedValueField() const;
 
-    bool IsPseudoField() const;
+    bool IsField() const;
+
+    bool IsArrayElement() const
+    {
+        return (reinterpret_cast<uintptr_t>(m_fieldHnd) & 1) != 0;
+    }
 
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
-        assert(!IsPseudoField() && (m_fieldHnd != nullptr));
+        assert(IsField());
         return m_fieldHnd;
+    }
+
+    unsigned GetArrayElementTypeNum() const
+    {
+        assert(IsArrayElement());
+
+        return static_cast<unsigned>((reinterpret_cast<uintptr_t>(m_fieldHnd) >> 9));
+    }
+
+    uint8_t GetArrayDataOffs() const
+    {
+        assert(IsArrayElement());
+
+        return static_cast<uint8_t>(reinterpret_cast<uintptr_t>(m_fieldHnd) >> 1);
+    }
+
+    FieldSeqNode* GetNext() const
+    {
+        return m_next;
     }
 
     FieldSeqNode* GetTail()
@@ -292,6 +320,8 @@ public:
     // Returns the (canonical in the store) singleton field sequence for the given handle.
     FieldSeqNode* CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd);
 
+    FieldSeqNode* GetArrayElement(unsigned elementTypeNum, uint8_t dataOffs);
+
     // This is a special distinguished FieldSeqNode indicating that a constant does *not*
     // represent a valid field sequence.  This is "infectious", in the sense that appending it
     // (on either side) to any field sequence yields the "NotAField()" sequence.
@@ -305,6 +335,8 @@ public:
     // they are the results of CreateSingleton, NotAField, or Append calls.  If either of the arguments
     // are the "NotAField" value, so is the result.
     FieldSeqNode* Append(FieldSeqNode* a, FieldSeqNode* b);
+
+    FieldSeqNode* FoldAdd(const struct GenTreeIntCon* i1, const struct GenTreeIntCon* i2);
 
     INDEBUG(void DebugCheck(FieldSeqNode* f);)
 
@@ -747,8 +779,8 @@ public:
 
     void SetSideEffects(unsigned sideEffects)
     {
-        assert((sideEffects & !GTF_ALL_EFFECT) == 0);
-        gtFlags = (gtFlags & !GTF_ALL_EFFECT) | sideEffects;
+        assert((sideEffects & ~GTF_ALL_EFFECT) == 0);
+        gtFlags = (gtFlags & ~GTF_ALL_EFFECT) | sideEffects;
     }
 
 // The extra flag GTF_IS_IN_CSE is used to tell the consumer of these flags
@@ -2934,36 +2966,37 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     */
     ssize_t gtCompileTimeHandle;
 
-    // TODO-Cleanup: It's not clear what characterizes the cases where the field
-    // above is used.  It may be that its uses and those of the "gtFieldSeq" field below
-    // are mutually exclusive, and they could be put in a union.  Or else we should separate
-    // this type into three subtypes.
-
-    // If this constant represents the offset of one or more fields, "gtFieldSeq" represents that
+    // If this constant represents the offset of one or more fields, "m_fieldSeq" represents that
     // sequence of fields.
-    FieldSeqNode* gtFieldSeq;
+    FieldSeqNode* m_fieldSeq;
 
-#ifdef DEBUG
     // If the value represents target address, holds the method handle to that target which is used
     // to fetch target method name and display in the disassembled code.
-    size_t gtTargetHandle = 0;
-#endif
+    INDEBUG(size_t gtTargetHandle = 0;)
 
-    GenTreeIntCon(var_types type, ssize_t value DEBUGARG(bool largeNode = false))
-        : GenTreeIntConCommon(GT_CNS_INT, type DEBUGARG(largeNode))
+    GenTreeIntCon(var_types type, ssize_t value)
+        : GenTreeIntConCommon(GT_CNS_INT, type)
         , gtIconVal(value)
         , gtCompileTimeHandle(0)
-        , gtFieldSeq(FieldSeqStore::NotAField())
+        , m_fieldSeq(FieldSeqStore::NotAField())
     {
     }
 
-    GenTreeIntCon(var_types type, ssize_t value, FieldSeqNode* fields DEBUGARG(bool largeNode = false))
-        : GenTreeIntConCommon(GT_CNS_INT, type DEBUGARG(largeNode))
-        , gtIconVal(value)
-        , gtCompileTimeHandle(0)
-        , gtFieldSeq(fields)
+    GenTreeIntCon(var_types type, ssize_t value, FieldSeqNode* fieldSeq)
+        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), gtCompileTimeHandle(0), m_fieldSeq(fieldSeq)
     {
-        assert(fields != nullptr);
+        assert(fieldSeq != nullptr);
+    }
+
+    GenTreeIntCon(const GenTreeIntCon* copyFrom)
+        : GenTreeIntConCommon(GT_CNS_INT, copyFrom->GetType())
+        , gtIconVal(copyFrom->gtIconVal)
+        , gtCompileTimeHandle(copyFrom->gtCompileTimeHandle)
+        , m_fieldSeq(copyFrom->m_fieldSeq)
+#ifdef DEBUG
+        , gtTargetHandle(copyFrom->gtTargetHandle)
+#endif
+    {
     }
 
     ssize_t GetValue() const
@@ -2979,23 +3012,23 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     void SetValue(ssize_t value)
     {
         gtIconVal  = value;
-        gtFieldSeq = FieldSeqStore::NotAField();
+        m_fieldSeq = FieldSeqStore::NotAField();
     }
 
     void SetValue(unsigned offset, FieldSeqNode* fieldSeq)
     {
         gtIconVal  = offset;
-        gtFieldSeq = fieldSeq;
+        m_fieldSeq = fieldSeq;
     }
 
     FieldSeqNode* GetFieldSeq() const
     {
-        return gtFieldSeq;
+        return m_fieldSeq;
     }
 
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
-        gtFieldSeq = fieldSeq;
+        m_fieldSeq = fieldSeq;
     }
 
     void FixupInitBlkValue(var_types asgType);
@@ -3465,6 +3498,7 @@ public:
 
     void SetFieldSeq(FieldSeqNode* fieldSeq)
     {
+        assert((fieldSeq == nullptr) || !fieldSeq->IsArrayElement());
         m_fieldSeq = fieldSeq;
     }
 
@@ -5716,16 +5750,13 @@ public:
 struct GenTreeIndex : public GenTreeOp
 {
 private:
-    CORINFO_CLASS_HANDLE m_elemClassHandle;
-    uint8_t              m_dataOffs;
-    unsigned             m_elemSize;
+    ClassLayout* m_layout;
+    uint8_t      m_dataOffs;
+    unsigned     m_elemSize;
 
 public:
     GenTreeIndex(var_types type, GenTree* arr, GenTree* ind, uint8_t lenOffs, uint8_t dataOffs)
-        : GenTreeOp(GT_INDEX, type, arr, ind)
-        , m_elemClassHandle(NO_CLASS_HANDLE)
-        , m_dataOffs(dataOffs)
-        , m_elemSize(varTypeSize(type))
+        : GenTreeOp(GT_INDEX, type, arr, ind), m_layout(nullptr), m_dataOffs(dataOffs), m_elemSize(varTypeSize(type))
     {
         // The offset of length is always the same for both strings and arrays.
         assert(lenOffs == TARGET_POINTER_SIZE);
@@ -5747,7 +5778,7 @@ public:
 
     GenTreeIndex(const GenTreeIndex* copyFrom)
         : GenTreeOp(GT_INDEX, copyFrom->GetType(), copyFrom->gtOp1, copyFrom->gtOp2)
-        , m_elemClassHandle(copyFrom->m_elemClassHandle)
+        , m_layout(copyFrom->m_layout)
         , m_dataOffs(copyFrom->m_dataOffs)
         , m_elemSize(copyFrom->m_elemSize)
     {
@@ -5775,14 +5806,16 @@ public:
         gtOp2 = index;
     }
 
-    CORINFO_CLASS_HANDLE GetElemClassHandle() const
+    ClassLayout* GetLayout() const
     {
-        return m_elemClassHandle;
+        assert((m_layout == nullptr) || varTypeIsStruct(GetType()));
+        return m_layout;
     }
 
-    void SetElemClassHandle(CORINFO_CLASS_HANDLE classHandle)
+    void SetLayout(ClassLayout* layout)
     {
-        m_elemClassHandle = classHandle;
+        assert((layout == nullptr) || varTypeIsStruct(GetType()));
+        m_layout = layout;
     }
 
     uint8_t GetLenOffs() const
@@ -5821,8 +5854,8 @@ private:
     unsigned    m_elemSize;
 
 public:
-    GenTreeIndexAddr(GenTree* arr, GenTree* ind, uint8_t lenOffs, uint8_t dataOffs, unsigned elemSize)
-        : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, arr, ind)
+    GenTreeIndexAddr(GenTree* array, GenTree* index, uint8_t lenOffs, uint8_t dataOffs, unsigned elemSize)
+        : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, array, index)
         , m_throwBlock(nullptr)
         , m_dataOffs(dataOffs)
         , m_elemSize(elemSize)
@@ -5830,7 +5863,7 @@ public:
         // The offset of length is always the same for both strings and arrays.
         assert(lenOffs == TARGET_POINTER_SIZE);
 
-        gtFlags |= GTF_EXCEPT | GTF_GLOB_REF | ((arr->gtFlags | ind->gtFlags) & GTF_ALL_EFFECT);
+        gtFlags |= array->GetSideEffects() | index->GetSideEffects();
     }
 
     GenTreeIndexAddr(const GenTreeIndexAddr* copyFrom)
@@ -5895,27 +5928,28 @@ public:
 #endif
 };
 
-/* gtArrLen -- array length (GT_ARR_LENGTH)
-   GT_ARR_LENGTH is used for "arr.length" */
-
 struct GenTreeArrLen : public GenTreeUnOp
 {
-    GenTree*& ArrRef()
-    {
-        return gtOp1;
-    } // the array address node
-private:
-    int gtArrLenOffset; // constant to add to "gtArrRef" to get the address of the array length.
+    static_assert_no_msg(GTF_ARRLEN_NONFAULTING == GTF_IND_NONFAULTING);
 
-public:
-    inline int ArrLenOffset()
+    GenTreeArrLen(GenTree* arr, uint8_t lenOffs) : GenTreeUnOp(GT_ARR_LENGTH, TYP_INT, arr)
     {
-        return gtArrLenOffset;
+        // The offset of length is always the same for both strings and arrays.
+        assert(lenOffs == TARGET_POINTER_SIZE);
     }
 
-    GenTreeArrLen(var_types type, GenTree* arrRef, int lenOffset)
-        : GenTreeUnOp(GT_ARR_LENGTH, type, arrRef), gtArrLenOffset(lenOffset)
+    GenTreeArrLen(const GenTreeArrLen* copyFrom) : GenTreeUnOp(GT_ARR_LENGTH, copyFrom->GetType(), copyFrom->GetArray())
     {
+    }
+
+    GenTree* GetArray() const
+    {
+        return gtOp1;
+    }
+
+    uint8_t GetLenOffs() const
+    {
+        return TARGET_POINTER_SIZE;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -5925,47 +5959,91 @@ public:
 #endif
 };
 
-// This takes:
-// - a comparison value (generally an array length),
-// - an index value, and
-// - the label to jump to if the index is out of range.
-// - the "kind" of the throw block to branch to on failure
-// It generates no result.
-
 struct GenTreeBoundsChk : public GenTree
 {
-    GenTree* gtIndex;  // The index expression.
-    GenTree* gtArrLen; // An expression for the length of the array being indexed.
+    GenTree*        gtIndex;
+    GenTree*        gtArrLen;
+    BasicBlock*     m_throwBlock;
+    SpecialCodeKind m_throwKind;
 
-    BasicBlock*     gtIndRngFailBB; // Basic block to jump to for array-index-out-of-range
-    SpecialCodeKind gtThrowKind;    // Kind of throw block to branch to on failure
-
-    GenTreeBoundsChk(genTreeOps oper, var_types type, GenTree* index, GenTree* arrLen, SpecialCodeKind kind)
-        : GenTree(oper, type), gtIndex(index), gtArrLen(arrLen), gtIndRngFailBB(nullptr), gtThrowKind(kind)
+    GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, SpecialCodeKind kind)
+        : GenTree(oper, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
     {
-        // Effects flags propagate upwards.
-        gtFlags |= (index->gtFlags & GTF_ALL_EFFECT);
-        gtFlags |= (arrLen->gtFlags & GTF_ALL_EFFECT);
-        gtFlags |= GTF_EXCEPT;
+        bool isValidOper = (oper == GT_ARR_BOUNDS_CHECK)
+#ifdef FEATURE_SIMD
+                           || (oper == GT_SIMD_CHK)
+#endif
+#ifdef FEATURE_HW_INTRINSICS
+                           || (oper == GT_HW_INTRINSIC_CHK)
+#endif
+            ;
+        assert(isValidOper);
+
+        gtFlags |= GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects();
     }
+
+    GenTreeBoundsChk(const GenTreeBoundsChk* copyFrom)
+        : GenTree(copyFrom->GetOper(), TYP_VOID)
+        , gtIndex(copyFrom->gtIndex)
+        , gtArrLen(copyFrom->gtArrLen)
+        , m_throwBlock(copyFrom->m_throwBlock)
+        , m_throwKind(copyFrom->m_throwKind)
+    {
+    }
+
+    GenTree* GetIndex() const
+    {
+        return gtIndex;
+    }
+
+    void SetIndex(GenTree* index)
+    {
+        assert(varTypeIsIntegral(index->GetType()));
+        gtIndex = index;
+    }
+
+    GenTree* GetLength() const
+    {
+        return gtArrLen;
+    }
+
+    void SetLength(GenTree* length)
+    {
+        assert(varTypeIsIntegral(length->GetType()));
+        gtArrLen = length;
+    }
+
+    GenTree* GetArray() const
+    {
+        return gtArrLen->IsArrLen() ? gtArrLen->AsArrLen()->GetArray() : nullptr;
+    }
+
+    SpecialCodeKind GetThrowKind() const
+    {
+        return m_throwKind;
+    }
+
+    BasicBlock* GetThrowBlock() const
+    {
+        return m_throwBlock;
+    }
+
+    void SetThrowBlock(BasicBlock* block)
+    {
+        m_throwBlock = block;
+    }
+
+    static bool Equals(const GenTreeBoundsChk* c1, const GenTreeBoundsChk* c2)
+    {
+        return (c1->GetOper() == c2->GetOper()) && (c1->m_throwKind == c2->m_throwKind) &&
+               Compare(c1->gtIndex, c2->gtIndex) && Compare(c1->gtArrLen, c2->gtArrLen);
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeBoundsChk() : GenTree()
     {
     }
 #endif
-
-    // If the gtArrLen is really an array length, returns array reference, else "NULL".
-    GenTree* GetArray()
-    {
-        if (gtArrLen->OperGet() == GT_ARR_LENGTH)
-        {
-            return gtArrLen->AsArrLen()->ArrRef();
-        }
-        else
-        {
-            return nullptr;
-        }
-    }
 };
 
 // gtArrElem -- general array element (GT_ARR_ELEM), for non "SZ_ARRAYS"
@@ -6867,17 +6945,11 @@ private:
     FieldSeqNode* m_fieldSeq;
 
 public:
-    GenTreeClsVar(var_types type, CORINFO_FIELD_HANDLE clsVarHnd, FieldSeqNode* fldSeq)
-        : GenTree(GT_CLS_VAR, type), gtClsVarHnd(clsVarHnd), m_fieldSeq(fldSeq)
+    GenTreeClsVar(genTreeOps oper, CORINFO_FIELD_HANDLE fieldHandle)
+        : GenTree(oper, TYP_I_IMPL), gtClsVarHnd(fieldHandle), m_fieldSeq(nullptr)
     {
-        gtFlags |= GTF_GLOB_REF;
-    }
-
-    GenTreeClsVar(genTreeOps oper, var_types type, CORINFO_FIELD_HANDLE clsVarHnd, FieldSeqNode* fldSeq)
-        : GenTree(oper, type), gtClsVarHnd(clsVarHnd), m_fieldSeq(fldSeq)
-    {
-        assert((oper == GT_CLS_VAR) || (oper == GT_CLS_VAR_ADDR));
-        gtFlags |= GTF_GLOB_REF;
+        // Currently this used only to create GT_CLS_VAR_ADDR nodes in LIR.
+        assert(oper == GT_CLS_VAR_ADDR);
     }
 
     GenTreeClsVar(const GenTreeClsVar* copyFrom)
@@ -6894,7 +6966,7 @@ public:
 
     FieldSeqNode* GetFieldSeq() const
     {
-        assert(m_fieldSeq->m_fieldHnd == gtClsVarHnd);
+        assert((m_fieldSeq == nullptr) || (m_fieldSeq->GetFieldHandle() == gtClsVarHnd));
         return m_fieldSeq;
     }
 
@@ -6906,8 +6978,8 @@ public:
         // field sequences.
 
         assert(fieldHandle != nullptr);
-        assert(fieldSeq->m_fieldHnd == fieldHandle);
-        assert(fieldSeq->m_next == nullptr);
+        assert(fieldSeq->GetFieldHandle() == fieldHandle);
+        assert(fieldSeq->GetNext() == nullptr);
 
         gtClsVarHnd = fieldHandle;
         m_fieldSeq  = fieldSeq;

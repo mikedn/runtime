@@ -654,7 +654,7 @@ GenTree* Compiler::optFindNullCheckToFold(GenTree* tree, LocalNumberToNullCheckT
 {
     assert(tree->OperIsIndirOrArrLength());
 
-    GenTree* addr = (tree->OperGet() == GT_ARR_LENGTH) ? tree->AsArrLen()->ArrRef() : tree->AsIndir()->Addr();
+    GenTree* addr = tree->IsArrLen() ? tree->AsArrLen()->GetArray() : tree->AsIndir()->GetAddr();
 
     ssize_t offsetValue = 0;
 

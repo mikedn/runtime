@@ -9642,8 +9642,7 @@ void Compiler::fgSimpleLowering()
 
     for (BasicBlock* block = fgFirstBB; block; block = block->bbNext)
     {
-        // Walk the statement trees in this basic block.
-        compCurBB = block; // Used in fgRngChkTarget.
+        compCurBB = block;
 
         LIR::Range& range = LIR::AsRange(block);
         for (GenTree* tree : range)
@@ -9652,54 +9651,46 @@ void Compiler::fgSimpleLowering()
             {
                 case GT_ARR_LENGTH:
                 {
-                    GenTreeArrLen* arrLen = tree->AsArrLen();
-                    GenTree*       arr    = arrLen->AsArrLen()->ArrRef();
-                    GenTree*       add;
-                    GenTree*       con;
-
-                    /* Create the expression "*(array_addr + ArrLenOffs)" */
+                    GenTree* arr = tree->AsArrLen()->GetArray();
 
                     noway_assert(arr->gtNext == tree);
 
-                    noway_assert(arrLen->ArrLenOffset() == OFFSETOF__CORINFO_Array__length ||
-                                 arrLen->ArrLenOffset() == OFFSETOF__CORINFO_String__stringLen);
+                    GenTree* addr;
 
-                    if ((arr->gtOper == GT_CNS_INT) && (arr->AsIntCon()->gtIconVal == 0))
+                    if (arr->IsIntegralConst(0))
                     {
                         // If the array is NULL, then we should get a NULL reference
                         // exception when computing its length.  We need to maintain
-                        // an invariant where there is no sum of two constants node, so
-                        // let's simply return an indirection of NULL.
+                        // an invariant where there is no sum of two constants node,
+                        // so let's simply return an indirection of NULL. Also change
+                        // the address to I_IMPL, there's no reason to keep the REF.
 
-                        add = arr;
+                        addr = arr;
+                        addr->SetType(TYP_I_IMPL);
                     }
                     else
                     {
-                        con = gtNewIconNode(arrLen->ArrLenOffset(), TYP_I_IMPL);
-                        add = gtNewOperNode(GT_ADD, TYP_REF, arr, con);
+                        GenTree* ofs = gtNewIconNode(tree->AsArrLen()->GetLenOffs(), TYP_I_IMPL);
+                        addr         = gtNewOperNode(GT_ADD, TYP_BYREF, arr, ofs);
 
-                        range.InsertAfter(arr, con, add);
+                        range.InsertAfter(arr, ofs, addr);
                     }
 
-                    // Change to a GT_IND.
-                    tree->ChangeOperUnchecked(GT_IND);
+                    tree->ChangeOper(GT_IND);
+                    tree->AsIndir()->SetAddr(addr);
 
-                    tree->AsOp()->gtOp1 = add;
                     break;
                 }
 
                 case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_SIMD
                 case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
                 case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-                {
-                    // Add in a call to an error routine.
-                    fgSetRngChkTarget(tree, false);
+#endif
+                    tree->AsBoundsChk()->SetThrowBlock(fgGetRngChkTarget(block, tree->AsBoundsChk()->GetThrowKind()));
                     break;
-                }
 
 #if FEATURE_FIXED_OUT_ARGS
                 case GT_CALL:
@@ -18690,24 +18681,23 @@ Compiler::AddCodeDsc* Compiler::fgFindExcptnTarget(SpecialCodeKind kind, unsigne
     return fgExcptnTargetCache[kind];
 }
 
-/*****************************************************************************
- *
- *  The given basic block contains an array range check; return the label this
- *  range check is to jump to upon failure.
- */
-
 //------------------------------------------------------------------------
-// fgRngChkTarget: Create/find the appropriate "range-fail" label for the block.
+// fgGetRngChkTarget: Create/find the appropriate throw block for a range check.
 //
 // Arguments:
-//   srcBlk  - the block that needs an entry;
-//   kind    - the kind of exception;
+//   block - the block that contains the range check
+//   kind  - the kind of exception
 //
 // Return Value:
 //   The target throw helper block this check jumps to upon failure.
 //
-BasicBlock* Compiler::fgRngChkTarget(BasicBlock* block, SpecialCodeKind kind)
+BasicBlock* Compiler::fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind)
 {
+    if (!fgUseThrowHelperBlocks() || compIsForInlining())
+    {
+        return nullptr;
+    }
+
 #ifdef DEBUG
     if (verbose)
     {
@@ -18717,10 +18707,9 @@ BasicBlock* Compiler::fgRngChkTarget(BasicBlock* block, SpecialCodeKind kind)
             gtDispStmt(compCurStmt);
         }
     }
-#endif // DEBUG
+#endif
 
-    /* We attach the target label to the containing try block (if any) */
-    noway_assert(!compIsForInlining());
+    // We attach the throw block to the containing try region (if any).
     return fgAddCodeRef(block, bbThrowIndex(block), kind);
 }
 

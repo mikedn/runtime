@@ -278,6 +278,15 @@ public:
     }
 #endif
 
+    ValueNum VNForUPtrSizeIntCon(target_size_t value)
+    {
+#ifdef TARGET_64BIT
+        return VNForLongCon(static_cast<int64_t>(value));
+#else
+        return VNForIntCon(static_cast<int32_t>(value));
+#endif
+    }
+
     ValueNum VNForBitCastOper(var_types castToType);
 
     ValueNum VNForCastOper(var_types castToType, bool srcIsUnsigned = false);
@@ -285,6 +294,7 @@ public:
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
     // that happens to be the same...
     ValueNum VNForHandle(ssize_t cnsVal, unsigned iconFlags);
+    ValueNum VNForTypeNum(unsigned typeNum);
 
     // And the single constant for an object reference type.
     static ValueNum VNForNull()
@@ -573,10 +583,12 @@ public:
 
     // If "opA" has a PtrToLoc, PtrToArrElem, or PtrToStatic application as its value numbers, and "opB" is an integer
     // with a "fieldSeq", returns the VN for the pointer form extended with the field sequence; or else NoVN.
-    ValueNum ExtendPtrVN(GenTree* opA, GenTree* opB);
+    ValueNum ExtendPtrVN(GenTreeOp* add);
     // If "opA" has a PtrToLoc, PtrToArrElem, or PtrToStatic application as its value numbers, returns the VN for the
     // pointer form extended with "fieldSeq"; or else NoVN.
     ValueNum ExtendPtrVN(GenTree* opA, FieldSeqNode* fieldSeq);
+
+    ValueNum ExtractArrayElementIndex(const struct ArrayInfo& arrayInfo);
 
     // Queries on value numbers.
     // All queries taking value numbers require that those value numbers are valid, that is, that

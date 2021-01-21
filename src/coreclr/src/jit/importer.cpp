@@ -1193,7 +1193,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     else if (src->OperIs(GT_INDEX))
     {
         assert(src->TypeIs(TYP_STRUCT));
-        assert(src->AsIndex()->GetElemClassHandle() == structHnd);
+        assert(src->AsIndex()->GetLayout()->GetClassHandle() == structHnd);
 
         // Currently INDEX type isn't normalized so we have to do it here.
         srcType = impNormStructType(structHnd);
@@ -1473,16 +1473,6 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
             makeTemp = true;
             break;
 
-        case GT_INDEX:
-            // TODO-MIKE-Cleanup: This is bogus. INDEX should have the correct handle already
-            // or the IL is invalid. And if we want to tolerate invalid IL then the correct
-            // way to do it is to wrap INDEX in an OBJ of the desired type, not the to change
-            // the element class handle, that also affects element offset computation...
-            structVal->AsIndex()->SetElemClassHandle(structHnd);
-            structVal->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(structHnd));
-            alreadyNormalized = true;
-            break;
-
         case GT_FIELD:
             structVal->SetType(structType);
 
@@ -1497,6 +1487,11 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
             structLcl = structVal->AsLclVarCommon();
             structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
             assert(structVal->GetType() == structType);
+            alreadyNormalized = true;
+            break;
+
+        case GT_INDEX:
+            assert(varTypeIsStruct(structVal->GetType()));
             alreadyNormalized = true;
             break;
 
@@ -3452,8 +3447,8 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                         break;
                     }
                 }
-                GenTreeArrLen* arrLen = gtNewArrLen(TYP_INT, op1, OFFSETOF__CORINFO_String__stringLen, compCurBB);
-                op1                   = arrLen;
+
+                op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen, compCurBB);
             }
             else
             {
@@ -3709,8 +3704,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             CORINFO_FIELD_HANDLE lengthHnd    = info.compCompHnd->getFieldInClass(clsHnd, 1);
             const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
             GenTree*             length       = gtNewFieldRef(TYP_INT, lengthHnd, ptrToSpan, lengthOffset);
-            GenTree*             boundsCheck  = new (this, GT_ARR_BOUNDS_CHECK)
-                GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, length, SCK_RNGCHK_FAIL);
+            GenTree*             boundsCheck  = gtNewArrBoundsChk(index, length, SCK_RNGCHK_FAIL);
 
             // Element access
             GenTree*             indexIntPtr = impImplicitIorI4Cast(indexClone, TYP_I_IMPL);
@@ -9519,8 +9513,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             }
         }
 
-        CORINFO_CLASS_HANDLE clsHnd       = DUMMY_INIT(NULL);
-        CORINFO_CLASS_HANDLE stelemClsHnd = DUMMY_INIT(NULL);
+        CORINFO_CLASS_HANDLE clsHnd = DUMMY_INIT(NULL);
 
         var_types lclTyp, ovflType = TYP_UNKNOWN;
         GenTree*  op1           = DUMMY_INIT(NULL);
@@ -10333,8 +10326,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     assert((opcode == CEE_LDELEM) || (opcode == CEE_LDELEMA));
 
-                    op1->AsIndex()->SetElemClassHandle(clsHnd);
-                    op1->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(clsHnd));
+                    op1->SetType(impNormStructType(clsHnd));
+
+                    ClassLayout* layout = typGetObjLayout(clsHnd);
+                    op1->AsIndex()->SetLayout(layout);
+                    op1->AsIndex()->SetElemSize(layout->GetSize());
                 }
 
                 if ((opcode == CEE_LDELEMA) || (lclTyp == TYP_STRUCT))
@@ -10342,10 +10338,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
                 }
 
-                if ((opcode == CEE_LDELEM) && (lclTyp == TYP_STRUCT))
+                if (opcode == CEE_LDELEM)
                 {
-                    op1 = gtNewObjNode(clsHnd, op1);
-                    op1->gtFlags |= GTF_EXCEPT;
+                    if (lclTyp == TYP_STRUCT)
+                    {
+                        op1 = gtNewObjNode(clsHnd, op1);
+                        op1->gtFlags |= GTF_EXCEPT;
+                    }
+
+                    if (varTypeUsesFloatReg(op1->GetType()))
+                    {
+                        compFloatingPointUsed = true;
+                    }
                 }
 
                 if ((opcode == CEE_LDELEM) &&
@@ -10365,23 +10369,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
-                stelemClsHnd = resolvedToken.hClass;
+                clsHnd = resolvedToken.hClass;
 
-                // If it's a reference type just behave as though it's a stelem.ref instruction
-                if (!eeIsValueClass(stelemClsHnd))
+                if (eeIsValueClass(clsHnd))
                 {
-                    goto STELEM_REF;
-                }
-
-                // Otherwise extract the type
-                {
-                    CorInfoType jitTyp = info.compCompHnd->asCorInfoType(stelemClsHnd);
-                    lclTyp             = JITtype2varType(jitTyp);
+                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
                     goto ARR_ST;
                 }
 
+                // If it's a reference type just behave as though it's a stelem.ref instruction
+                FALLTHROUGH;
+
             case CEE_STELEM_REF:
-            STELEM_REF:
                 if (opts.OptimizationEnabled())
                 {
                     GenTree* array = impStackTop(2).val;
@@ -10461,32 +10460,29 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /* Create the index node */
-
                 op1 = gtNewArrayIndex(lclTyp, op3, op1);
-
-                /* Create the assignment node and append it */
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    assert(stelemClsHnd != DUMMY_INIT(NULL));
+                    op1->SetType(impNormStructType(clsHnd));
 
-                    op1->AsIndex()->SetElemClassHandle(stelemClsHnd);
-                    op1->AsIndex()->SetElemSize(info.compCompHnd->getClassSize(stelemClsHnd));
-                }
-                if (varTypeIsStruct(op1))
-                {
-                    op1 = impAssignStruct(op1, op2, stelemClsHnd, (unsigned)CHECK_SPILL_ALL);
+                    ClassLayout* layout = typGetObjLayout(clsHnd);
+                    op1->AsIndex()->SetLayout(layout);
+                    op1->AsIndex()->SetElemSize(layout->GetSize());
+
+                    op1 = impAssignStruct(op1, op2, clsHnd, CHECK_SPILL_ALL);
                 }
                 else
                 {
-                    op2 = impImplicitR4orR8Cast(op2, op1->TypeGet());
+                    op2 = impImplicitR4orR8Cast(op2, op1->GetType());
+
                     op1 = gtNewAssignNode(op1, op2);
                 }
 
-                /* Mark the expression as containing an assignment */
-
-                op1->gtFlags |= GTF_ASG;
+                if (varTypeUsesFloatReg(op1->GetType()))
+                {
+                    compFloatingPointUsed = true;
+                }
 
                 goto SPILL_APPEND;
 
@@ -12674,10 +12670,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
 
                     op1 = gtNewAssignNode(op1, op2);
-
-                    /* Mark the expression as containing an assignment */
-
-                    op1->gtFlags |= GTF_ASG;
                 }
 
                 /* Check if the class needs explicit initialization */
@@ -13732,14 +13724,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val;
                 if (opts.OptimizationEnabled())
                 {
-                    /* Use GT_ARR_LENGTH operator so rng check opts see this */
-                    GenTreeArrLen* arrLen = gtNewArrLen(TYP_INT, op1, OFFSETOF__CORINFO_Array__length, block);
-
-                    op1 = arrLen;
+                    op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_Array__length, block);
                 }
                 else
                 {
-                    /* Create the expression "*(array_addr + ArrLenOffs)" */
                     op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1,
                                         gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL));
                     op1 = gtNewIndir(TYP_INT, op1);

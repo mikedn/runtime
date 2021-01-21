@@ -7729,9 +7729,9 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                                 funcApp.m_func == VNF_PtrToArrElem)
                             {
                                 assert(vnStore->IsVNHandle(funcApp.m_args[0]));
-                                CORINFO_CLASS_HANDLE elemType =
-                                    CORINFO_CLASS_HANDLE(vnStore->ConstantValue<size_t>(funcApp.m_args[0]));
-                                AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemType);
+                                unsigned elemTypeNum =
+                                    static_cast<unsigned>(vnStore->ConstantValue<ssize_t>(funcApp.m_args[0]));
+                                AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeNum);
                                 // Don't set memoryHavoc for GcHeap below.  Do set memoryHavoc for ByrefExposed
                                 // (conservatively assuming that a byref may alias the array element)
                                 memoryHavoc |= memoryKindSet(ByrefExposed);
@@ -7745,8 +7745,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                     {
                         // We actually ignore field sequences -- any modification to an S[], at any
                         // field of "S", will lose all information about the array type.
-                        CORINFO_CLASS_HANDLE elemTypeEq = EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
-                        AddModifiedElemTypeAllContainingLoops(mostNestedLoop, elemTypeEq);
+                        AddModifiedElemTypeAllContainingLoops(mostNestedLoop, arrInfo.m_elemTypeNum);
                         // Conservatively assume byrefs may alias this array element
                         memoryHavoc |= memoryKindSet(ByrefExposed);
                     }
@@ -7760,7 +7759,7 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
                         if (optIsFieldAddr(arg, &obj, &staticOffset, &fldSeq))
                         {
-                            AddModifiedFieldAllContainingLoops(mostNestedLoop, fldSeq->m_fieldHnd);
+                            AddModifiedFieldAllContainingLoops(mostNestedLoop, fldSeq->GetFieldHandle());
                             // Conservatively assume byrefs may alias this object.
                             memoryHavoc |= memoryKindSet(ByrefExposed);
                         }
@@ -7828,16 +7827,12 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
                             GenTree* addrArg = tree->AsOp()->gtOp1;
                             if (addrArg->OperGet() == GT_IND)
                             {
+                                ArrayInfo arrInfo;
+
                                 // Is the LHS an array index expression?
-                                if (addrArg->gtFlags & GTF_IND_ARR_INDEX)
+                                if (optIsArrayElemAddr(addrArg->AsIndir()->GetAddr(), &arrInfo))
                                 {
-                                    ArrayInfo arrInfo;
-                                    bool      b = GetArrayInfoMap()->Lookup(addrArg, &arrInfo);
-                                    assert(b);
-                                    CORINFO_CLASS_HANDLE elemTypeEq =
-                                        EncodeElemType(arrInfo.m_elemType, arrInfo.m_elemStructType);
-                                    ValueNum elemTypeEqVN =
-                                        vnStore->VNForHandle(ssize_t(elemTypeEq), GTF_ICON_CLASS_HDL);
+                                    ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
                                     ValueNum ptrToArrElemVN =
                                         vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
                                                            // The rest are dummy arguments.
@@ -7953,12 +7948,12 @@ void Compiler::AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_H
 }
 
 // Adds "elemType" to the set of modified array element types of "lnum" and any parent loops.
-void Compiler::AddModifiedElemTypeAllContainingLoops(unsigned lnum, CORINFO_CLASS_HANDLE elemClsHnd)
+void Compiler::AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned elemTypeNum)
 {
     assert(0 <= lnum && lnum < optLoopCount);
     while (lnum != BasicBlock::NOT_IN_LOOP)
     {
-        optLoopTable[lnum].AddModifiedElemType(this, elemClsHnd);
+        optLoopTable[lnum].AddModifiedElemType(this, elemTypeNum);
         lnum = optLoopTable[lnum].lpParent;
     }
 }

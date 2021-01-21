@@ -941,22 +941,16 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
  *  that may need to be fixed up).
  */
 
-inline GenTree* Compiler::gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fields)
+inline GenTree* Compiler::gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fieldSeq)
 {
-    GenTree* node;
     assert((flags & GTF_ICON_HDL_MASK) != 0);
 
-    // Interpret "fields == NULL" as "not a field."
-    if (fields == nullptr)
+    if (fieldSeq == nullptr)
     {
-        fields = FieldSeqStore::NotAField();
+        fieldSeq = FieldSeqStore::NotAField();
     }
 
-#if defined(LATE_DISASM)
-    node = new (this, LargeOpOpcode()) GenTreeIntCon(TYP_I_IMPL, value, fields DEBUGARG(/*largeNode*/ true));
-#else
-    node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fields);
-#endif
+    GenTree* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fieldSeq);
     node->gtFlags |= flags;
     return node;
 }
@@ -1177,35 +1171,23 @@ inline GenTreeIndex* Compiler::gtNewStringIndex(GenTree* arr, GenTree* ind)
         GenTreeIndex(TYP_USHORT, arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars);
 }
 
-//------------------------------------------------------------------------------
-// gtNewArrLen : Helper to create an array length node.
-//
-//
-// Arguments:
-//    typ      -  Type of the node
-//    arrayOp  -  Array node
-//    lenOffset - Offset of the length field
-//    block     - Basic block that will contain the result
-//
-// Return Value:
-//    New GT_ARR_LENGTH node
-
-inline GenTreeArrLen* Compiler::gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset, BasicBlock* block)
+inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block)
 {
-    GenTreeArrLen* arrLen = new (this, GT_ARR_LENGTH) GenTreeArrLen(typ, arrayOp, lenOffset);
-    static_assert_no_msg(GTF_ARRLEN_NONFAULTING == GTF_IND_NONFAULTING);
-    arrLen->SetIndirExceptionFlags(this);
     if (block != nullptr)
     {
         block->bbFlags |= BBF_HAS_IDX_LEN;
     }
+
     optMethodFlags |= OMF_HAS_ARRAYREF;
+
+    GenTreeArrLen* arrLen = new (this, GT_ARR_LENGTH) GenTreeArrLen(arr, lenOffs);
+    arrLen->SetIndirExceptionFlags(this);
     return arrLen;
 }
 
 inline GenTreeBoundsChk* Compiler::gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind)
 {
-    return new (this, GT_ARR_BOUNDS_CHECK) GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, length, kind);
+    return new (this, GT_ARR_BOUNDS_CHECK) GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, index, length, kind);
 }
 
 //------------------------------------------------------------------------------
@@ -1343,7 +1325,7 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
     if (oper == GT_CNS_INT)
     {
-        AsIntCon()->gtFieldSeq = nullptr;
+        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
     }
 
 #if defined(TARGET_ARM)
@@ -1391,7 +1373,7 @@ inline void GenTree::ChangeOperConst(genTreeOps oper)
     // Some constant subtypes have additional fields that must be initialized.
     if (oper == GT_CNS_INT)
     {
-        AsIntCon()->gtFieldSeq = FieldSeqStore::NotAField();
+        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
     }
 }
 
@@ -1423,25 +1405,11 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-        {
-            // The original GT_LCL_VAR might be annotated with a zeroOffset field.
-            FieldSeqNode* zeroFieldSeq = nullptr;
-            Compiler*     compiler     = JitTls::GetCompiler();
-            bool          isZeroOffset = compiler->GetZeroOffsetFieldMap()->Lookup(this, &zeroFieldSeq);
-
             AsLclFld()->SetLayoutNum(0);
             AsLclFld()->SetLclOffs(0);
             AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-
-            if (zeroFieldSeq != nullptr)
-            {
-                // Set the zeroFieldSeq in the GT_LCL_FLD node
-                AsLclFld()->SetFieldSeq(zeroFieldSeq);
-                // and remove the annotation from the ZeroOffsetFieldMap
-                compiler->GetZeroOffsetFieldMap()->Remove(this);
-            }
             break;
-        }
+
 #ifdef TARGET_ARM
         case GT_BITCAST:
             AsMultiRegOp()->gtOtherReg = REG_NA;
@@ -3306,14 +3274,14 @@ inline void Compiler::LoopDsc::AddModifiedField(Compiler* comp, CORINFO_FIELD_HA
     lpFieldsModified->Set(fldHnd, true, FieldHandleSet::Overwrite);
 }
 
-inline void Compiler::LoopDsc::AddModifiedElemType(Compiler* comp, CORINFO_CLASS_HANDLE structHnd)
+inline void Compiler::LoopDsc::AddModifiedElemType(Compiler* comp, unsigned elemTypeNum)
 {
     if (lpArrayElemTypesModified == nullptr)
     {
         lpArrayElemTypesModified =
-            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::ClassHandleSet(comp->getAllocatorLoopHoist());
+            new (comp->getAllocatorLoopHoist()) Compiler::LoopDsc::TypeNumSet(comp->getAllocatorLoopHoist());
     }
-    lpArrayElemTypesModified->Set(structHnd, true, ClassHandleSet::Overwrite);
+    lpArrayElemTypesModified->Set(elemTypeNum, true, TypeNumSet::Overwrite);
 }
 
 inline void Compiler::LoopDsc::VERIFY_lpIterTree()
@@ -3499,19 +3467,18 @@ inline bool Compiler::LoopDsc::lpArrLenLimit(Compiler* comp, ArrIndex* index)
     assert(lpFlags & LPFLG_ARRLEN_LIMIT);
 
     GenTree* limit = lpLimit();
-    assert(limit->OperGet() == GT_ARR_LENGTH);
 
     // Check if we have a.length or a[i][j].length
-    if (limit->AsArrLen()->ArrRef()->gtOper == GT_LCL_VAR)
+    if (limit->AsArrLen()->GetArray()->OperIs(GT_LCL_VAR))
     {
-        index->arrLcl = limit->AsArrLen()->ArrRef()->AsLclVarCommon()->GetLclNum();
+        index->arrLcl = limit->AsArrLen()->GetArray()->AsLclVar()->GetLclNum();
         index->rank   = 0;
         return true;
     }
     // We have a[i].length, extract a[i] pattern.
-    else if (limit->AsArrLen()->ArrRef()->gtOper == GT_COMMA)
+    else if (limit->AsArrLen()->GetArray()->OperIs(GT_COMMA))
     {
-        return comp->optReconstructArrIndex(limit->AsArrLen()->ArrRef(), index, BAD_VAR_NUM);
+        return comp->optReconstructArrIndex(limit->AsArrLen()->GetArray(), index, BAD_VAR_NUM);
     }
     return false;
 }

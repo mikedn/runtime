@@ -1212,27 +1212,15 @@ public:
 LinearScanInterface* getLinearScanAllocator(Compiler* comp);
 
 // Information about arrays: their element type and size, and the offset of the first element.
-// We label GT_IND's that are array indices with GTF_IND_ARR_INDEX, and, for such nodes,
-// associate an array info via the map retrieved by GetArrayInfoMap().  This information is used,
-// for example, in value numbering of array index expressions.
 struct ArrayInfo
 {
-    var_types            m_elemType;
-    uint8_t              m_elemOffset;
-    unsigned             m_elemSize;
-    CORINFO_CLASS_HANDLE m_elemStructType;
+    GenTree*       m_arrayExpr;
+    GenTree*       m_elemOffsetExpr;
+    GenTreeIntCon* m_elemOffsetConst;
+    unsigned       m_elemTypeNum;
 
-    ArrayInfo() : m_elemType(TYP_UNDEF), m_elemOffset(0), m_elemSize(0), m_elemStructType(nullptr)
+    ArrayInfo() : m_arrayExpr(nullptr), m_elemOffsetExpr(nullptr), m_elemOffsetConst(nullptr), m_elemTypeNum(0)
     {
-    }
-
-    ArrayInfo(var_types elemType, unsigned elemSize, unsigned elemOffset, CORINFO_CLASS_HANDLE elemStructType)
-        : m_elemType(elemType)
-        , m_elemOffset(static_cast<uint8_t>(elemOffset))
-        , m_elemSize(elemSize)
-        , m_elemStructType(elemStructType)
-    {
-        assert(elemOffset <= UINT8_MAX);
     }
 };
 
@@ -2168,7 +2156,7 @@ public:
     GenTreeIndex* gtNewArrayIndex(var_types type, GenTree* arr, GenTree* ind);
     GenTreeIndex* gtNewStringIndex(GenTree* arr, GenTree* ind);
 
-    GenTreeArrLen* gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset, BasicBlock* block);
+    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block);
     GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
 
     GenTree* gtNewIndir(var_types typ, GenTree* addr);
@@ -2241,7 +2229,7 @@ public:
     // is #of nodes in subtree) of "tree" is greater than "limit".
     // (This is somewhat redundant with the "GetCostEx()/GetCostSz()" fields, but can be used
     // before they have been set.)
-    bool gtComplexityExceeds(GenTree** tree, unsigned limit);
+    bool gtComplexityExceeds(GenTree* tree, unsigned limit);
 
     bool gtCompareTree(GenTree* op1, GenTree* op2);
 
@@ -2312,34 +2300,11 @@ public:
     // starting with an instance or static field, and optionally continuing with struct fields.
     bool optIsFieldAddr(GenTree* addr, GenTree** pObj, GenTree** pStatic, FieldSeqNode** pFldSeq);
 
-    // Requires "addr" to be the address of an array (the child of a GT_IND labeled with GTF_IND_ARR_INDEX).
-    // Sets "pArr" to the node representing the array (either an array object pointer, or perhaps a byref to the some
-    // element).
-    // Sets "*pArrayType" to the class handle for the array type.
-    // Sets "*inxVN" to the value number inferred for the array index.
-    // Sets "*pFldSeq" to the sequence, if any, of struct fields used to index into the array element.
-    bool optParseArrayAddress(
-        GenTree* addr, const ArrayInfo* arrayInfo, GenTree** pArr, ValueNum* pInxVN, FieldSeqNode** pFldSeq);
-
-    // Helper method for the above.
-    void optParseArrayAddressWork(GenTree*        addr,
-                                  target_ssize_t  scale,
-                                  GenTree**       pArr,
-                                  ValueNum*       pInxVN,
-                                  target_ssize_t* pOffset,
-                                  FieldSeqNode**  pFldSeq);
-
     // Requires "indir" to be a GT_IND.
     // Returns true if it is an array index expression. If it returns true, sets *arrayInfo to the
     // array information.
     bool optIsArrayElem(GenTreeIndir* indir, ArrayInfo* arrayInfo);
-
-    // Requires "addr" to be the address of a (possible) array element (or struct field within that).
-    // If it is, sets "*arrayInfo" to the array access info and returns true.  If not, returns "false".
     bool optIsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
-
-    // Requires "offset" to be an int expression.
-    bool optIsOffset(GenTree* offset) const;
 
     // Return true if call is a recursive call; return false otherwise.
     // Note when inlining, this looks for calls back to the root method.
@@ -4091,12 +4056,7 @@ public:
     // match the element type of the array or fldSeq.  When this type doesn't match
     // or if the fldSeq is 'NotAField' we invalidate the array contents H[elemTypeEq][arrVN]
     //
-    ValueNum fgValueNumberArrIndexAssign(CORINFO_CLASS_HANDLE elemTypeEq,
-                                         ValueNum             arrVN,
-                                         ValueNum             inxVN,
-                                         FieldSeqNode*        fldSeq,
-                                         ValueNum             rhsVN,
-                                         var_types            indType);
+    ValueNum fgValueNumberArrIndexAssign(const VNFuncApp& elemAddr, ValueNum rhsVN, var_types indType);
 
     // Requires that "tree" is a GT_IND marked as an array index, and that its address argument
     // has been parsed to yield the other input arguments.  If evaluation of the address
@@ -4106,19 +4066,12 @@ public:
     // VN for the conservative VN.)  Also marks the tree's argument as the address of an array element.
     // The type tree->TypeGet() will typically match the element type of the array or fldSeq.
     // When this type doesn't match or if the fldSeq is 'NotAField' we return a new unique VN
-    //
-    ValueNum fgValueNumberArrIndexVal(GenTree*             tree,
-                                      CORINFO_CLASS_HANDLE elemTypeEq,
-                                      ValueNum             arrVN,
-                                      ValueNum             inxVN,
-                                      ValueNum             excVN,
-                                      FieldSeqNode*        fldSeq);
 
     // Requires "funcApp" to be a VNF_PtrToArrElem, and "addrXvn" to represent the exception set thrown
     // by evaluating the array index expression "tree".  Returns the value number resulting from
     // dereferencing the array in the current GcHeap state.  If "tree" is non-null, it must be the
     // "GT_IND" that does the dereference, and it is given the returned value number.
-    ValueNum fgValueNumberArrIndexVal(GenTree* tree, struct VNFuncApp* funcApp, ValueNum addrXvn);
+    ValueNum fgValueNumberArrIndexVal(const VNFuncApp& elemAddr, ValueNum addrXvn, var_types indType);
 
     // Compute the value number for a byref-exposed load of the given type via the given pointerVN.
     ValueNum fgValueNumberByrefExposedLoad(var_types type, ValueNum pointerVN);
@@ -4223,41 +4176,6 @@ public:
     // of memory values; the "conservative" interpretation needs no VN, since every access of
     // memory yields an unknown value.
     ValueNum fgCurMemoryVN[MemoryKindCount];
-
-    // Return a "pseudo"-class handle for an array element type.  If "elemType" is TYP_STRUCT,
-    // requires "elemStructType" to be non-null (and to have a low-order zero).  Otherwise, low order bit
-    // is 1, and the rest is an encoding of "elemTyp".
-    static CORINFO_CLASS_HANDLE EncodeElemType(var_types elemTyp, CORINFO_CLASS_HANDLE elemStructType)
-    {
-        if (elemStructType != nullptr)
-        {
-            assert(varTypeIsStruct(elemTyp) || elemTyp == TYP_REF || elemTyp == TYP_BYREF ||
-                   varTypeIsIntegral(elemTyp));
-            assert((size_t(elemStructType) & 0x1) == 0x0); // Make sure the encoding below is valid.
-            return elemStructType;
-        }
-        else
-        {
-            assert(elemTyp != TYP_STRUCT);
-            elemTyp = varTypeUnsignedToSigned(elemTyp);
-            return CORINFO_CLASS_HANDLE(size_t(elemTyp) << 1 | 0x1);
-        }
-    }
-    // If "clsHnd" is the result of an "EncodePrim" call, returns true and sets "*pPrimType" to the
-    // var_types it represents.  Otherwise, returns TYP_STRUCT (on the assumption that "clsHnd" is
-    // the struct type of the element).
-    static var_types DecodeElemType(CORINFO_CLASS_HANDLE clsHnd)
-    {
-        size_t clsHndVal = size_t(clsHnd);
-        if (clsHndVal & 0x1)
-        {
-            return var_types(clsHndVal >> 1);
-        }
-        else
-        {
-            return TYP_STRUCT;
-        }
-    }
 
     // Convert a BYTE which represents the VM's CorInfoGCtype to the JIT's var_types
     var_types getJitGCType(BYTE gcType);
@@ -4845,10 +4763,6 @@ private:
     hashBv* m_abiStructArgTempsInUse;
 #endif
 
-    void fgSetRngChkTarget(GenTree* tree, bool delay = true);
-
-    BasicBlock* fgSetRngChkTargetInner(SpecialCodeKind kind, bool delay);
-
 #if REARRANGE_ADDS
     void fgMoveOpsLeft(GenTree* tree);
 #endif
@@ -4926,7 +4840,7 @@ private:
     SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
 #endif // FEATURE_SIMD
 
-    GenTree* fgMorphArrayIndex(GenTree* tree);
+    GenTree* fgMorphArrayIndex(GenTreeIndex* tree);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
     GenTreeCall* fgMorphArgs(GenTreeCall* call);
@@ -5002,7 +4916,7 @@ private:
     GenTree* fgMorphConst(GenTree* tree);
 
     GenTreeLclVar* fgMorphTryFoldObjAsLclVar(GenTreeObj* obj);
-    GenTree* fgMorphCommutative(GenTreeOp* tree);
+    GenTree* fgMorphAssociative(GenTreeOp* tree);
 
 public:
     GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
@@ -5073,7 +4987,7 @@ private:
     bool        fgRngChkThrowAdded;
     AddCodeDsc* fgExcptnTargetCache[SCK_COUNT];
 
-    BasicBlock* fgRngChkTarget(BasicBlock* block, SpecialCodeKind kind);
+    BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind);
 
     BasicBlock* fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind);
 
@@ -5409,19 +5323,15 @@ public:
                                           // instance fields modified
                                           // in the loop.
 
-        typedef JitHashTable<CORINFO_CLASS_HANDLE, JitPtrKeyFuncs<struct CORINFO_CLASS_STRUCT_>, bool> ClassHandleSet;
-        ClassHandleSet* lpArrayElemTypesModified; // Bits set indicate the set of sz array element types such that
-                                                  // arrays of that type are modified
-                                                  // in the loop.
+        // The set of array element types that are modified in the loop.
+        typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, bool> TypeNumSet;
+        TypeNumSet* lpArrayElemTypesModified;
 
         // Adds the variable liveness information for 'blk' to 'this' LoopDsc
         void AddVariableLiveness(Compiler* comp, BasicBlock* blk);
 
         inline void AddModifiedField(Compiler* comp, CORINFO_FIELD_HANDLE fldHnd);
-        // This doesn't *always* take a class handle -- it can also take primitive types, encoded as class handles
-        // (shifted left, with a low-order bit set to distinguish.)
-        // Use the {Encode/Decode}ElemType methods to construct/destruct these.
-        inline void AddModifiedElemType(Compiler* comp, CORINFO_CLASS_HANDLE structHnd);
+        inline void AddModifiedElemType(Compiler* comp, unsigned elemTypeNum);
 
         /* The following values are set only for iterator loops, i.e. has the flag LPFLG_ITER set */
 
@@ -5597,7 +5507,7 @@ protected:
     // Adds "fldHnd" to the set of modified fields of "lnum" and any parent loops.
     void AddModifiedFieldAllContainingLoops(unsigned lnum, CORINFO_FIELD_HANDLE fldHnd);
     // Adds "elemType" to the set of modified array element types of "lnum" and any parent loops.
-    void AddModifiedElemTypeAllContainingLoops(unsigned lnum, CORINFO_CLASS_HANDLE elemType);
+    void AddModifiedElemTypeAllContainingLoops(unsigned lnum, unsigned elemTypeNum);
 
     // Requires that "from" and "to" have the same "bbJumpKind" (perhaps because "to" is a clone
     // of "from".)  Copies the jump destination from "from" to "to".
@@ -8998,7 +8908,7 @@ public:
         Compiler* compRoot = impInlineRoot();
         if (compRoot->m_fieldSeqStore == nullptr)
         {
-            compRoot->m_fieldSeqStore = new (this, CMK_FieldSeqStore) FieldSeqStore(this);
+            compRoot->m_fieldSeqStore = new (this, CMK_FieldSeqStore) FieldSeqStore(compRoot);
         }
         return compRoot->m_fieldSeqStore;
     }
@@ -9036,44 +8946,6 @@ public:
     // CoreRT. Such case is handled same as the default case.
     void fgAddFieldSeqForZeroOffset(GenTree* op1, FieldSeqNode* fieldSeq);
 
-    typedef JitHashTable<const GenTree*, JitPtrKeyFuncs<GenTree>, ArrayInfo> NodeToArrayInfoMap;
-    NodeToArrayInfoMap* m_arrayInfoMap;
-
-    NodeToArrayInfoMap* GetArrayInfoMap()
-    {
-        Compiler* compRoot = impInlineRoot();
-        if (compRoot->m_arrayInfoMap == nullptr)
-        {
-            // Create a CompAllocator that labels sub-structure with CMK_ArrayInfoMap, and use that for allocation.
-            CompAllocator ialloc(getAllocator(CMK_ArrayInfoMap));
-            compRoot->m_arrayInfoMap = new (ialloc) NodeToArrayInfoMap(ialloc);
-        }
-        return compRoot->m_arrayInfoMap;
-    }
-
-    //-----------------------------------------------------------------------------------------------------------------
-    // Compiler::TryGetArrayInfo:
-    //    Given an indirection node, checks to see whether or not that indirection represents an array access, and
-    //    if so returns information about the array.
-    //
-    // Arguments:
-    //    indir           - The `GT_IND` node.
-    //    arrayInfo (out) - Information about the accessed array if this function returns true. Undefined otherwise.
-    //
-    // Returns:
-    //    True if the `GT_IND` node represents an array access; false otherwise.
-    bool TryGetArrayInfo(GenTreeIndir* indir, ArrayInfo* arrayInfo)
-    {
-        if ((indir->gtFlags & GTF_IND_ARR_INDEX) != 0)
-        {
-            bool found = GetArrayInfoMap()->Lookup(indir, arrayInfo);
-            assert(found);
-            return true;
-        }
-
-        return false;
-    }
-
     NodeToUnsignedMap* m_memorySsaMap[MemoryKindCount];
 
     // In some cases, we want to assign intermediate SSA #'s to memory states, and know what nodes create those memory
@@ -9091,8 +8963,7 @@ public:
         Compiler* compRoot = impInlineRoot();
         if (compRoot->m_memorySsaMap[memoryKind] == nullptr)
         {
-            // Create a CompAllocator that labels sub-structure with CMK_ArrayInfoMap, and use that for allocation.
-            CompAllocator ialloc(getAllocator(CMK_ArrayInfoMap));
+            CompAllocator ialloc(getAllocator(CMK_SSA));
             compRoot->m_memorySsaMap[memoryKind] = new (ialloc) NodeToUnsignedMap(ialloc);
         }
         return compRoot->m_memorySsaMap[memoryKind];

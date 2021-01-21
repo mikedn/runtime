@@ -1986,14 +1986,24 @@ C_ASSERT((RBM_INT_CALLEE_SAVED & RBM_FPBASE) == RBM_NONE);
 /*****************************************************************************/
 
 #ifdef TARGET_64BIT
-typedef unsigned __int64 target_size_t;
-typedef __int64          target_ssize_t;
+
+typedef uint64_t target_size_t;
+typedef int64_t  target_ssize_t;
 #define TARGET_SIGN_BIT (1ULL << 63)
+#define TARGET_SIZE_MIN UINT64_MIN
+#define TARGET_SIZE_MAX UINT64_MAX
+#define TARGET_SSIZE_MIN INT64_MIN
+#define TARGET_SSIZE_MAX INT64_MAX
 
 #else // !TARGET_64BIT
-typedef unsigned int   target_size_t;
-typedef int            target_ssize_t;
+
+typedef uint32_t       target_size_t;
+typedef int32_t        target_ssize_t;
 #define TARGET_SIGN_BIT (1ULL << 31)
+#define TARGET_SIZE_MIN UINT32_MIN
+#define TARGET_SIZE_MAX UINT32_MAX
+#define TARGET_SSIZE_MIN INT32_MIN
+#define TARGET_SSIZE_MAX INT32_MAX
 
 #endif // !TARGET_64BIT
 

@@ -132,15 +132,13 @@ void StackLevelSetter::SetThrowHelperBlocks(GenTree* node, BasicBlock* block)
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_SIMD
         case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-        {
-            GenTreeBoundsChk* bndsChk = node->AsBoundsChk();
-            SetThrowHelperBlock(bndsChk->gtThrowKind, block);
-        }
-        break;
+#endif
+            SetThrowHelperBlock(node->AsBoundsChk()->GetThrowKind(), block);
+            break;
+
         case GT_INDEX_ADDR:
         case GT_ARR_ELEM:
         case GT_ARR_INDEX:

@@ -4517,93 +4517,17 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
 
 #endif
 
-/*****************************************************************************/
-
-void Compiler::fgSetRngChkTarget(GenTree* tree, bool delay)
+GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
 {
-    if (tree->OperIsBoundsCheck())
-    {
-        GenTreeBoundsChk* const boundsChk = tree->AsBoundsChk();
-        BasicBlock* const       failBlock = fgSetRngChkTargetInner(boundsChk->gtThrowKind, delay);
-        if (failBlock != nullptr)
-        {
-            boundsChk->gtIndRngFailBB = failBlock;
-        }
-    }
-    else if (tree->OperIs(GT_INDEX_ADDR))
-    {
-        GenTreeIndexAddr* const indexAddr = tree->AsIndexAddr();
-        BasicBlock* const       failBlock = fgSetRngChkTargetInner(SCK_RNGCHK_FAIL, delay);
-        if (failBlock != nullptr)
-        {
-            indexAddr->SetThrowBlock(failBlock);
-        }
-    }
-    else
-    {
-        noway_assert(tree->OperIs(GT_ARR_ELEM, GT_ARR_INDEX));
-        fgSetRngChkTargetInner(SCK_RNGCHK_FAIL, delay);
-    }
-}
-
-BasicBlock* Compiler::fgSetRngChkTargetInner(SpecialCodeKind kind, bool delay)
-{
-    if (opts.MinOpts())
-    {
-        delay = false;
-    }
-
-    if (!opts.compDbgCode)
-    {
-        if (!delay && !compIsForInlining())
-        {
-            // Create/find the appropriate "range-fail" label
-            return fgRngChkTarget(compCurBB, kind);
-        }
-    }
-
-    return nullptr;
-}
-
-/*****************************************************************************
- *
- *  Expand a GT_INDEX node and fully morph the child operands
- *
- *  The orginal GT_INDEX node is bashed into the GT_IND node that accesses
- *  the array element.  We expand the GT_INDEX node into a larger tree that
- *  evaluates the array base and index.  The simplest expansion is a GT_COMMA
- *  with a GT_ARR_BOUND_CHK and a GT_IND with a GTF_INX_RNGCHK flag.
- *  For complex array or index expressions one or more GT_COMMA assignments
- *  are inserted so that we only evaluate the array or index expressions once.
- *
- *  The fully expanded tree is then morphed.  This causes gtFoldExpr to
- *  perform local constant prop and reorder the constants in the tree and
- *  fold them.
- */
-
-const int MAX_ARR_COMPLEXITY   = 4;
-const int MAX_INDEX_COMPLEXITY = 4;
-
-GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
-{
-    noway_assert(tree->gtOper == GT_INDEX);
-    GenTreeIndex*        asIndex        = tree->AsIndex();
-    var_types            elemTyp        = asIndex->TypeGet();
-    unsigned             elemSize       = asIndex->GetElemSize();
-    CORINFO_CLASS_HANDLE elemStructType = asIndex->GetElemClassHandle();
-
-    noway_assert(elemTyp != TYP_STRUCT || elemStructType != nullptr);
-
     // Fold "cns_str"[cns_index] to ushort constant
-    if (opts.OptimizationEnabled() && asIndex->GetArray()->OperIs(GT_CNS_STR) &&
-        asIndex->GetIndex()->IsIntCnsFitsInI32())
+    if (opts.OptimizationEnabled() && tree->GetArray()->IsStrCon() && tree->GetIndex()->IsIntCnsFitsInI32())
     {
-        const int cnsIndex = static_cast<int>(asIndex->GetIndex()->AsIntConCommon()->IconValue());
+        const int cnsIndex = static_cast<int>(tree->GetIndex()->AsIntCon()->GetValue());
         if (cnsIndex >= 0)
         {
             int     length;
-            LPCWSTR str = info.compCompHnd->getStringLiteral(asIndex->GetArray()->AsStrCon()->gtScpHnd,
-                                                             asIndex->GetArray()->AsStrCon()->gtSconCPX, &length);
+            LPCWSTR str = info.compCompHnd->getStringLiteral(tree->GetArray()->AsStrCon()->gtScpHnd,
+                                                             tree->GetArray()->AsStrCon()->gtSconCPX, &length);
             if ((cnsIndex < length) && (str != nullptr))
             {
                 assert(tree->TypeIs(TYP_USHORT));
@@ -4614,106 +4538,87 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         }
     }
 
-#ifdef FEATURE_SIMD
-    if (featureSIMD && varTypeIsStruct(elemTyp) && structSizeMightRepresentSIMDType(elemSize))
-    {
-        // If this is a SIMD type, this is the point at which we lose the type information,
-        // so we need to set the correct type on the GT_IND.
-        // (We don't care about the base type here, so we only check, but don't retain, the return value).
-        unsigned simdElemSize = 0;
-        if (getBaseTypeAndSizeOfSIMDType(elemStructType, &simdElemSize) != TYP_UNKNOWN)
-        {
-            assert(simdElemSize == elemSize);
-            elemTyp = getSIMDTypeForSize(elemSize);
-            // This is the new type of the node.
-            tree->gtType = elemTyp;
-            // Now set elemStructType to null so that we don't confuse value numbering.
-            elemStructType = nullptr;
-        }
-    }
-#endif // FEATURE_SIMD
+    var_types    elemType   = tree->GetType();
+    ClassLayout* elemLayout = tree->GetLayout();
+    unsigned     elemSize   = tree->GetElemSize();
 
-    // In minopts, we expand GT_INDEX to indir(GT_INDEX_ADDR) in order to minimize the size of the IR. As minopts
+    noway_assert((elemType != TYP_STRUCT) || (elemLayout != nullptr));
+
+    bool checkIndexRange = false;
+
+    if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
+    {
+        tree->gtFlags &= ~GTF_INX_RNGCHK;
+        checkIndexRange = true;
+    }
+
+    GenTree* array    = tree->GetArray();
+    GenTree* index    = tree->GetIndex();
+    uint8_t  lenOffs  = tree->GetLenOffs();
+    uint8_t  dataOffs = tree->GetDataOffs();
+    GenTree* indir    = tree;
+
+    unsigned elemTypeNum;
+
+    // TODO-MIKE-Review: It's not clear why the type information is discarded for SIMD types.
+    // This may have some CQ implications - all arrays having the same SIMD type are treated
+    // as aliased in VN (e.g. Vector128<float>[] & Vector128<int>[] & Vector4).
+    if (elemType == TYP_STRUCT)
+    {
+        elemTypeNum = typGetLayoutNum(elemLayout);
+
+        indir->ChangeOper(GT_OBJ);
+        indir->AsObj()->SetLayout(elemLayout);
+        indir->AsObj()->SetKind(StructStoreKind::Invalid);
+    }
+    else
+    {
+        elemTypeNum = static_cast<unsigned>(elemType);
+
+        indir->ChangeOper(GT_IND);
+    }
+
+    // In minopts, we expand GT_INDEX to IND(INDEX_ADDR) in order to minimize the size of the IR. As minopts
     // compilation time is roughly proportional to the size of the IR, this helps keep compilation times down.
     // Furthermore, this representation typically saves on code size in minopts w.r.t. the complete expansion
     // performed when optimizing, as it does not require LclVar nodes (which are always stack loads/stores in
     // minopts).
-    //
-    // When we *are* optimizing, we fully expand GT_INDEX to:
-    // 1. Evaluate the array address expression and store the result in a temp if the expression is complex or
-    //    side-effecting.
-    // 2. Evaluate the array index expression and store the result in a temp if the expression is complex or
-    //    side-effecting.
-    // 3. Perform an explicit bounds check: GT_ARR_BOUNDS_CHK(index, GT_ARR_LENGTH(array))
-    // 4. Compute the address of the element that will be accessed:
-    //    GT_ADD(GT_ADD(array, firstElementOffset), GT_MUL(index, elementSize))
-    // 5. Dereference the address with a GT_IND.
-    //
-    // This expansion explicitly exposes the bounds check and the address calculation to the optimizer, which allows
-    // for more straightforward bounds-check removal, CSE, etc.
+
     if (opts.MinOpts())
     {
-        GenTree* array = fgMorphTree(asIndex->GetArray());
-        GenTree* index = fgMorphTree(asIndex->GetIndex());
+        array = fgMorphTree(array);
+        index = fgMorphTree(index);
 
-        GenTreeIndexAddr* indexAddr = new (this, GT_INDEX_ADDR)
-            GenTreeIndexAddr(array, index, asIndex->GetLenOffs(), asIndex->GetDataOffs(), elemSize);
-        indexAddr->gtFlags |= asIndex->gtFlags & GTF_INX_RNGCHK;
-        INDEBUG(indexAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        GenTreeIndexAddr* addr = new (this, GT_INDEX_ADDR) GenTreeIndexAddr(array, index, lenOffs, dataOffs, elemSize);
+        INDEBUG(addr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
-        // Mark the indirection node as needing a range check if necessary.
-        // Note this will always be true unless JitSkipArrayBoundCheck() is used
-        if ((indexAddr->gtFlags & GTF_INX_RNGCHK) != 0)
+        if (checkIndexRange)
         {
-            fgSetRngChkTarget(indexAddr);
+            addr->gtFlags |= GTF_INX_RNGCHK | GTF_EXCEPT;
+            addr->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
         }
 
-        if (elemTyp == TYP_STRUCT)
-        {
-            tree->ChangeOper(GT_OBJ);
-            tree->AsObj()->SetLayout(typGetObjLayout(elemStructType));
-            tree->AsObj()->SetKind(StructStoreKind::Invalid);
-        }
-        else
-        {
-            tree->ChangeOper(GT_IND);
-        }
-
-        GenTreeIndir* indir = tree->AsIndir();
-        indir->SetAddr(indexAddr);
-
-        bool canCSE    = indir->CanCSE();
-        indir->gtFlags = indexAddr->gtFlags & GTF_ALL_EFFECT;
-        if (!canCSE)
-        {
-            indir->SetDoNotCSE();
-        }
+        indir->AsIndir()->SetAddr(addr);
+        indir->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
 
         return indir;
     }
 
-    GenTree* arrRef   = asIndex->GetArray();
-    GenTree* index    = asIndex->GetIndex();
-    uint8_t  lenOffs  = asIndex->GetLenOffs();
-    uint8_t  elemOffs = asIndex->GetDataOffs();
+    // When we are optimizing, we fully expand INDEX to something like:
+    //
+    //   COMMA(ARR_BOUNDS_CHK(index, ARR_LENGTH(array)), IND(ADD(array, ADD(MUL(index, elemSize), dataOffs))))
+    //
+    // This expansion explicitly exposes the bounds check and the address calculation to the optimizer, which allows
+    // for more straightforward bounds-check removal, CSE, etc.
 
-    bool chkd = ((tree->gtFlags & GTF_INX_RNGCHK) != 0); // if false, range checking will be disabled
-    bool nCSE = ((tree->gtFlags & GTF_DONT_CSE) != 0);
+    GenTreeOp*        arrayTmpAsg = nullptr;
+    GenTreeOp*        indexTmpAsg = nullptr;
+    GenTreeBoundsChk* boundsCheck = nullptr;
 
-    GenTree* arrRefDefn = nullptr; // non-NULL if we need to allocate a temp for the arrRef expression
-    GenTree* indexDefn  = nullptr; // non-NULL if we need to allocate a temp for the index expression
-    GenTree* bndsChk    = nullptr;
-
-    // If we're doing range checking, introduce a GT_ARR_BOUNDS_CHECK node for the address.
-    if (chkd)
+    if (checkIndexRange)
     {
-        GenTree* arrRef2 = nullptr; // The second copy will be used in array address expression
-        GenTree* index2  = nullptr;
-
-        // If the arrRef or index expressions involves an assignment, a call or reads from global memory,
-        // then we *must* allocate a temporary in which to "localize" those values, to ensure that the
-        // same values are used in the bounds check and the actual dereference.
-        // Also we allocate the temporary when the expresion is sufficiently complex/expensive.
+        // The array and index will have multiple uses so we need to assign them to temps, unless they're
+        // simple, side effect free expressions.
         //
         // Note that if the expression is a GT_FIELD, it has not yet been morphed so its true complexity is
         // not exposed. Without that condition there are cases of local struct fields that were previously,
@@ -4725,29 +4630,51 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         // perhaps a decision that should be left to CSE but FX diffs show that it is slightly better to
         // do this here.
 
-        if ((arrRef->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) ||
-            gtComplexityExceeds(&arrRef, MAX_ARR_COMPLEXITY) || arrRef->OperIs(GT_FIELD, GT_LCL_FLD))
+        constexpr int MAX_ARR_COMPLEXITY   = 4;
+        constexpr int MAX_INDEX_COMPLEXITY = 4;
+
+        GenTree* array2 = nullptr;
+
+        if (((array->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || array->OperIs(GT_FIELD, GT_LCL_FLD) ||
+            gtComplexityExceeds(array, MAX_ARR_COMPLEXITY))
         {
-            unsigned arrRefTmpNum = lvaGrabTemp(true DEBUGARG("arr expr"));
-            arrRefDefn            = gtNewTempAssign(arrRefTmpNum, arrRef);
-            arrRef                = gtNewLclvNode(arrRefTmpNum, arrRef->TypeGet());
-            arrRef2               = gtNewLclvNode(arrRefTmpNum, arrRef->TypeGet());
+            unsigned arrayTmpNum = lvaNewTemp(array->GetType(), true DEBUGARG("arr expr"));
+
+            arrayTmpAsg = gtNewAssignNode(gtNewLclvNode(arrayTmpNum, array->GetType()), array);
+
+            array  = gtNewLclvNode(arrayTmpNum, array->GetType());
+            array2 = gtNewLclvNode(arrayTmpNum, array->GetType());
         }
         else
         {
-            arrRef2 = gtCloneExpr(arrRef);
-            noway_assert(arrRef2 != nullptr);
+            array2 = gtCloneExpr(array);
+            noway_assert(array2 != nullptr);
         }
 
-        if ((index->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) || gtComplexityExceeds(&index, MAX_ARR_COMPLEXITY) ||
-            index->OperIs(GT_FIELD, GT_LCL_FLD))
+        GenTree* arrLen = gtNewArrLen(array2, lenOffs, compCurBB);
+
+#ifdef TARGET_64BIT
+        // The CLI Spec allows an array to be indexed by either an int32 or a native int.  In the case
+        // of a 64 bit architecture this means the array index can potentially be a TYP_LONG, so for this case,
+        // the comparison will have to be widen to 64 bits.
+        if (index->TypeIs(TYP_LONG))
+        {
+            arrLen = gtNewCastNode(TYP_LONG, arrLen, false, TYP_LONG);
+        }
+#endif
+
+        GenTree* index2 = nullptr;
+
+        if (((index->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || index->OperIs(GT_FIELD, GT_LCL_FLD) ||
+            gtComplexityExceeds(index, MAX_INDEX_COMPLEXITY))
         {
             var_types indexTmpType = varActualType(index->GetType());
             unsigned  indexTmpNum  = lvaNewTemp(indexTmpType, true DEBUGARG("index expr"));
 
-            indexDefn = gtNewAssignNode(gtNewLclvNode(indexTmpNum, indexTmpType), index);
-            index     = gtNewLclvNode(indexTmpNum, indexTmpType);
-            index2    = gtNewLclvNode(indexTmpNum, indexTmpType);
+            indexTmpAsg = gtNewAssignNode(gtNewLclvNode(indexTmpNum, indexTmpType), index);
+
+            index  = gtNewLclvNode(indexTmpNum, indexTmpType);
+            index2 = gtNewLclvNode(indexTmpNum, indexTmpType);
         }
         else
         {
@@ -4755,58 +4682,25 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
             noway_assert(index2 != nullptr);
         }
 
-        // Next introduce a GT_ARR_BOUNDS_CHECK node
-        var_types bndsChkType = TYP_INT; // By default, try to use 32-bit comparison for array bounds check.
-
-#ifdef TARGET_64BIT
-        // The CLI Spec allows an array to be indexed by either an int32 or a native int.  In the case
-        // of a 64 bit architecture this means the array index can potentially be a TYP_LONG, so for this case,
-        // the comparison will have to be widen to 64 bits.
-        if (index->TypeGet() == TYP_I_IMPL)
-        {
-            bndsChkType = TYP_I_IMPL;
-        }
-#endif // TARGET_64BIT
-
-        GenTree* arrLen = gtNewArrLen(TYP_INT, arrRef, (int)lenOffs, compCurBB);
-
-        if (bndsChkType != TYP_INT)
-        {
-            arrLen = gtNewCastNode(bndsChkType, arrLen, false, bndsChkType);
-        }
-
-        GenTreeBoundsChk* arrBndsChk = new (this, GT_ARR_BOUNDS_CHECK)
-            GenTreeBoundsChk(GT_ARR_BOUNDS_CHECK, TYP_VOID, index, arrLen, SCK_RNGCHK_FAIL);
-
-        bndsChk = arrBndsChk;
-
-        // Now we'll switch to using the second copies for arrRef and index
-        // to compute the address expression
-
-        arrRef = arrRef2;
-        index  = index2;
+        boundsCheck = gtNewArrBoundsChk(index2, arrLen, SCK_RNGCHK_FAIL);
     }
 
-    // Create the "addr" which is "*(arrRef + ((index * elemSize) + elemOffs))"
-
-    GenTree* addr;
+    GenTree* offset = index;
 
 #ifdef TARGET_64BIT
-    // Widen 'index' on 64-bit targets
-    if (index->TypeGet() != TYP_I_IMPL)
+    if (!offset->TypeIs(TYP_LONG))
     {
-        if (index->OperGet() == GT_CNS_INT)
+        if (offset->OperIs(GT_CNS_INT))
         {
-            index->gtType = TYP_I_IMPL;
+            offset->SetType(TYP_LONG);
         }
         else
         {
-            index = gtNewCastNode(TYP_I_IMPL, index, false, TYP_I_IMPL);
+            offset = gtNewCastNode(TYP_LONG, offset, false, TYP_LONG);
         }
     }
-#endif // TARGET_64BIT
+#endif
 
-    /* Scale the index value if necessary */
     if (elemSize > 1)
     {
         GenTree* size = gtNewIconNode(elemSize, TYP_I_IMPL);
@@ -4815,109 +4709,71 @@ GenTree* Compiler::fgMorphArrayIndex(GenTree* tree)
         //
         // During codegen optGetArrayRefScaleAndIndex() makes the assumption that op2 of a GT_MUL node
         // is a constant and is not capable of handling CSE'ing the elemSize constant into a lclvar.
-        // Hence to prevent the constant from becoming a CSE we mark it as NO_CSE.
-        //
-        size->gtFlags |= GTF_DONT_CSE;
 
-        /* Multiply by the array element size */
-        addr = gtNewOperNode(GT_MUL, TYP_I_IMPL, index, size);
+        // TODO-MIKE-Review: It's not clear what optGetArrayRefScaleAndIndex has to do with CSE. It's
+        // used to build address modes and of course that if the constant gets CSEd then address mode
+        // can't include the "constant". But was this a bug fix or a CQ fix? And why would the kind of
+        // constant that can participate in address modes get CSEd anyway?
+
+        size->SetDoNotCSE();
+
+        offset = gtNewOperNode(GT_MUL, TYP_I_IMPL, offset, size);
     }
-    else
+
+    // The element address is ADD(array, ADD(MUL(index, elemSize), dataOffs)). Compared to other possible
+    // associations this has the advantage that the offset computation depends only on the element size
+    // so it can be CSEd on its own (e.g. floatArray[i] and intArray[i] have the same offset expression
+    // even if the array and the element type are different). This also minimizes the number of byrefs
+    // since only the final ADD produces one.
+    // It does slightly complicate array element address pattern matching as done in optIsArrayElemAddr
+    // because we need to check the inner ADD to find the data offset constant. That would be simpler
+    // with ADD(ADD(array, MUL(index, elemSize)), dataOffs) but then the entire expression depends on
+    // "array" so CSEing is more limited.
+
+    FieldSeqNode* arrayElement = GetFieldSeqStore()->GetArrayElement(elemTypeNum, dataOffs);
+
+    offset = gtNewOperNode(GT_ADD, TYP_I_IMPL, offset, gtNewIconNode(dataOffs, arrayElement));
+
+    GenTree* addr = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
+
+    indir->gtFlags |= GTF_IND_ARR_INDEX;
+
+    if (boundsCheck == nullptr)
     {
-        addr = index;
+        addr = fgMorphTree(addr);
+
+        indir->AsIndir()->SetAddr(addr);
+        indir->SetSideEffects(GTF_GLOB_REF | GTF_EXCEPT | addr->GetSideEffects());
+
+        return indir;
     }
 
-    // Be careful to only create the byref pointer when the full index expression is added to the array reference.
-    // We don't want to create a partial byref address expression that doesn't include the full index offset:
-    // a byref must point within the containing object. It is dangerous (especially when optimizations come into
-    // play) to create a "partial" byref that doesn't point exactly to the correct object; there is risk that
-    // the partial byref will not point within the object, and thus not get updated correctly during a GC.
-    // This is mostly a risk in fully-interruptible code regions.
-    //
-    // NOTE: the tree form created here is pattern matched by optExtractArrIndex(), so changes here must
-    // be reflected there.
+    indir->AsIndir()->SetAddr(addr);
+    // If there's a bounds check, the indir itself won't fault since
+    // the bounds check ensures that the address is not null.
+    indir->gtFlags |= GTF_IND_NONFAULTING;
+    indir->SetSideEffects(GTF_GLOB_REF | addr->GetSideEffects());
 
-    /* Add the first element's offset */
+    // Note that the original INDEX node may have GTF_DONOT_CSE set, either
+    // because it's the LHS of an ASG or because it is used by an ADDR. We
+    // leave the setting of GTF_DONOT_CSE to ASG/ADDR post-order morphing
+    // because attempting to set it here causes other problems (e.g. ADDR
+    // morphing actually transforms ADDR(COMMA(_, x)) into COMMA(_, ADDR(x))
+    // and forgets to clear GTF_DONOT_CSE from the COMMA node).
 
-    GenTree* cns = gtNewIconNode(elemOffs, TYP_I_IMPL);
+    GenTreeOp* comma = gtNewOperNode(GT_COMMA, indir->GetType(), boundsCheck, indir);
 
-    addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, cns);
-
-    /* Add the object ref to the element's offset */
-
-    addr = gtNewOperNode(GT_ADD, TYP_BYREF, arrRef, addr);
-
-    assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0) ||
-           (GenTree::s_gtNodeSizes[GT_IND] == TREE_NODE_SZ_SMALL));
-
-    // Change the orginal GT_INDEX node into a GT_IND node
-    tree->SetOper(GT_IND);
-
-    // If the index node is a floating-point type, notify the compiler
-    // we'll potentially use floating point registers at the time of codegen.
-    if (varTypeUsesFloatReg(tree->gtType))
+    if (indexTmpAsg != nullptr)
     {
-        this->compFloatingPointUsed = true;
+        comma = gtNewOperNode(GT_COMMA, indir->GetType(), indexTmpAsg, comma);
     }
 
-    // We've now consumed the GTF_INX_RNGCHK, and the node
-    // is no longer a GT_INDEX node.
-    tree->gtFlags &= ~GTF_INX_RNGCHK;
-
-    tree->AsOp()->gtOp1 = addr;
-
-    // This is an array index expression.
-    tree->gtFlags |= GTF_IND_ARR_INDEX;
-
-    // If there's a bounds check, the indir won't fault.
-    if (bndsChk)
+    if (arrayTmpAsg != nullptr)
     {
-        tree->gtFlags |= GTF_IND_NONFAULTING;
-    }
-    else
-    {
-        tree->gtFlags |= GTF_EXCEPT;
+        comma = gtNewOperNode(GT_COMMA, indir->GetType(), arrayTmpAsg, comma);
     }
 
-    if (nCSE)
-    {
-        tree->gtFlags |= GTF_DONT_CSE;
-    }
-
-    // Store information about it.
-    GetArrayInfoMap()->Set(tree, ArrayInfo(elemTyp, elemSize, (int)elemOffs, elemStructType));
-
-    // Did we create a bndsChk tree?
-    if (bndsChk)
-    {
-        // Use a GT_COMMA node to prepend the array bound check
-        //
-        tree = gtNewOperNode(GT_COMMA, elemTyp, bndsChk, tree);
-
-        /* Mark the indirection node as needing a range check */
-        fgSetRngChkTarget(bndsChk);
-    }
-
-    if (indexDefn != nullptr)
-    {
-        // Use a GT_COMMA node to prepend the index assignment
-        //
-        tree = gtNewOperNode(GT_COMMA, tree->TypeGet(), indexDefn, tree);
-    }
-    if (arrRefDefn != nullptr)
-    {
-        // Use a GT_COMMA node to prepend the arRef assignment
-        //
-        tree = gtNewOperNode(GT_COMMA, tree->TypeGet(), arrRefDefn, tree);
-    }
-
-    fgMorphTree(tree);
-
-    INDEBUG(GenTree* arrElem = tree->gtEffectiveVal();)
-    assert(arrElem->AsIndir()->GetAddr()->TypeIs(TYP_BYREF));
-    assert(((arrElem->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) != 0) || !fgGlobalMorph);
-
-    return tree;
+    return fgMorphTree(comma);
 }
 
 /*****************************************************************************
@@ -8241,9 +8097,6 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
         if (dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
         {
-            // If it's a local address expression it cannot also be an array element.
-            assert((dest->gtFlags & GTF_IND_ARR_INDEX) == 0);
-
             destLclNum = destLclNode->GetLclNum();
             destLclVar = lvaGetDesc(destLclNum);
         }
@@ -8322,8 +8175,7 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             var_types initType     = TYP_UNDEF;
             var_types initBaseType = TYP_UNDEF;
 
-            if ((destFieldSeq != nullptr) && (destFieldSeq != FieldSeqStore::NotAField()) &&
-                !destFieldSeq->IsPseudoField())
+            if ((destFieldSeq != nullptr) && destFieldSeq->GetTail()->IsField())
             {
                 CORINFO_CLASS_HANDLE fieldClassHandle;
                 var_types            fieldBaseType = TYP_UNKNOWN;
@@ -8707,7 +8559,7 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         //   after: [3] comma byref <- [2] comma byref <- [4] addr byref <- [1] LCL_VAR struct
 
         ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
-        for (GenTree* comma = tree; (comma != nullptr) && comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
+        for (GenTree* comma = tree; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
         {
             commas.Push(comma->AsOp());
         }
@@ -8994,9 +8846,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         if (dest->OperIs(GT_IND, GT_OBJ) &&
             dest->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &destLclNode, &destLclOffs, &destFieldSeq))
         {
-            // If it's a local address expression it cannot also be an array element.
-            assert((dest->gtFlags & GTF_IND_ARR_INDEX) == 0);
-
             destLclNum = destLclNode->GetLclNum();
             destLclVar = lvaGetDesc(destLclNum);
         }
@@ -9033,9 +8882,6 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         if (destHasSize && src->OperIs(GT_IND, GT_OBJ) &&
             src->AsIndir()->GetAddr()->IsLocalAddrExpr(this, &srcLclNode, &srcLclOffs, &srcFieldSeq))
         {
-            // If it's a local address expression it cannot also be an array element.
-            assert((src->gtFlags & GTF_IND_ARR_INDEX) == 0);
-
             srcLclNum = srcLclNode->GetLclNum();
             srcLclVar = lvaGetDesc(srcLclNum);
         }
@@ -9485,14 +9331,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (srcLclVar == nullptr)
         {
-            if (src->OperIsIndir() && ((src->gtFlags & GTF_IND_ARR_INDEX) == 0))
-            {
-                addr = src->AsIndir()->GetAddr();
-            }
-            else
-            {
-                addr = gtNewOperNode(GT_ADDR, TYP_BYREF, src);
-            }
+            addr = src->AsIndir()->GetAddr();
         }
         else if (fieldCount > 1)
         {
@@ -9509,14 +9348,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (destLclVar == nullptr)
         {
-            if (dest->OperIsIndir() && (dest->gtFlags & GTF_IND_ARR_INDEX) == 0)
-            {
-                addr = dest->AsIndir()->GetAddr();
-            }
-            else
-            {
-                addr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
-            }
+            addr = dest->AsIndir()->GetAddr();
         }
         else if (fieldCount > 1)
         {
@@ -9824,8 +9656,8 @@ GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 }
 
 //------------------------------------------------------------------------------
-// fgMorphCommutative : Try to simplify "(X op C1) op C2" to "X op C3"
-//                      for commutative operators.
+// fgMorphAssociative : Try to simplify "(X op C1) op C2" to "X op C3"
+//                      for associative operators.
 //
 // Arguments:
 //       tree - node to fold
@@ -9834,7 +9666,7 @@ GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
 //       A folded GenTree* instance or nullptr if something prevents folding.
 //
 
-GenTree* Compiler::fgMorphCommutative(GenTreeOp* tree)
+GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
 {
     assert(varTypeIsIntegralOrI(tree->TypeGet()));
     assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR));
@@ -9870,12 +9702,8 @@ GenTree* Compiler::fgMorphCommutative(GenTreeOp* tree)
         return nullptr;
     }
 
-    cns1->gtIconVal = foldedCns->AsIntCon()->IconValue();
-    if ((oper == GT_ADD) && foldedCns->IsCnsIntOrI())
-    {
-        cns1->AsIntCon()->gtFieldSeq =
-            GetFieldSeqStore()->Append(cns1->AsIntCon()->gtFieldSeq, cns2->AsIntCon()->gtFieldSeq);
-    }
+    cns1->SetValue(foldedCns->AsIntCon()->GetValue());
+    cns1->SetFieldSeq(foldedCns->AsIntCon()->GetFieldSeq());
 
     GenTreeOp* newTree = tree->gtGetOp1()->AsOp();
     DEBUG_DESTROY_NODE(tree);
@@ -9998,7 +9826,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_INDEX:
-            return fgMorphArrayIndex(tree);
+            return fgMorphArrayIndex(tree->AsIndex());
 
         case GT_CAST:
             return fgMorphCast(tree->AsCast());
@@ -11552,14 +11380,13 @@ DONE_MORPHING_CHILDREN:
                 /* Check for "op1 - cns2" , we change it to "op1 + (-cns2)" */
 
                 noway_assert(op2);
-                if (op2->IsCnsIntOrI() && !op2->IsIconHandle())
+                if (op2->IsIntCon() && !op2->IsIconHandle())
                 {
                     // Negate the constant and change the node to be "+",
                     // except when `op2` is a const byref.
 
-                    op2->AsIntCon()->SetIconValue(-op2->AsIntConCommon()->IconValue());
-                    op2->AsIntCon()->gtFieldSeq = FieldSeqStore::NotAField();
-                    oper                        = GT_ADD;
+                    op2->AsIntCon()->SetValue(-op2->AsIntCon()->GetValue());
+                    oper = GT_ADD;
                     tree->ChangeOper(oper);
                     goto CM_ADD_OP;
                 }
@@ -11789,11 +11616,10 @@ DONE_MORPHING_CHILDREN:
                         if (!gtIsActiveCSE_Candidate(op2) &&
                             ((op1->TypeGet() == tree->TypeGet()) || (op1->TypeGet() != TYP_REF)))
                         {
-                            if (fgGlobalMorph && (op2->OperGet() == GT_CNS_INT) &&
-                                (op2->AsIntCon()->gtFieldSeq != nullptr) &&
-                                (op2->AsIntCon()->gtFieldSeq != FieldSeqStore::NotAField()))
+                            if (fgGlobalMorph && op2->IsIntCon() && (op2->AsIntCon()->GetFieldSeq() != nullptr) &&
+                                (op2->AsIntCon()->GetFieldSeq() != FieldSeqStore::NotAField()))
                             {
-                                fgAddFieldSeqForZeroOffset(op1, op2->AsIntCon()->gtFieldSeq);
+                                fgAddFieldSeqForZeroOffset(op1, op2->AsIntCon()->GetFieldSeq());
                             }
 
                             DEBUG_DESTROY_NODE(op2);
@@ -11967,7 +11793,7 @@ DONE_MORPHING_CHILDREN:
 
             if (varTypeIsIntegralOrI(tree->TypeGet()) && tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
             {
-                GenTree* foldedTree = fgMorphCommutative(tree->AsOp());
+                GenTree* foldedTree = fgMorphAssociative(tree->AsOp());
                 if (foldedTree != nullptr)
                 {
                     tree = foldedTree;
@@ -12179,8 +12005,8 @@ DONE_MORPHING_CHILDREN:
                             break;
                         }
 
-                        ival1    = op1->AsOp()->gtOp2->AsIntCon()->gtIconVal;
-                        fieldSeq = op1->AsOp()->gtOp2->AsIntCon()->gtFieldSeq;
+                        ival1    = op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+                        fieldSeq = op1->AsOp()->GetOp(1)->AsIntCon()->GetFieldSeq();
 
                         // Does the address have an associated zero-offset field sequence?
                         FieldSeqNode* addrFieldSeq = nullptr;
@@ -12255,9 +12081,11 @@ DONE_MORPHING_CHILDREN:
                     }
                     else // we have a GT_LCL_VAR
                     {
-                        assert(temp->OperGet() == GT_LCL_VAR);
-                        temp->ChangeOper(GT_LCL_FLD); // Note that this typically makes the gtFieldSeq "NotAField",
-                        // unless there is a zero filed offset associated with 'temp'.
+                        assert(temp->OperIs(GT_LCL_VAR));
+
+                        // Note that this typically sets the node's field sequence to "NotAField",
+                        // unless there is a zero field offset associated with 'temp'.
+                        temp->ChangeOper(GT_LCL_FLD);
                         lclFld = temp->AsLclFld();
                         lclFld->SetLclOffs(static_cast<unsigned>(ival1));
 
@@ -12335,9 +12163,9 @@ DONE_MORPHING_CHILDREN:
                 commaNode->gtFlags = (treeFlags & ~GTF_REVERSE_OPS); // Bashing the GT_COMMA flags here is
                                                                      // dangerous, clear the GTF_REVERSE_OPS at
                                                                      // least.
-#ifdef DEBUG
-                commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+
+                INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
                 while (commaNode->AsOp()->gtOp2->gtOper == GT_COMMA)
                 {
                     commaNode         = commaNode->AsOp()->gtOp2;
@@ -12348,18 +12176,10 @@ DONE_MORPHING_CHILDREN:
                     // least.
                     commaNode->gtFlags |= ((commaNode->AsOp()->gtOp1->gtFlags | commaNode->AsOp()->gtOp2->gtFlags) &
                                            (GTF_ASG | GTF_CALL));
-#ifdef DEBUG
-                    commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+
+                    INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
                 }
-                bool      wasArrIndex = (tree->gtFlags & GTF_IND_ARR_INDEX) != 0;
-                ArrayInfo arrInfo;
-                if (wasArrIndex)
-                {
-                    bool b = GetArrayInfoMap()->Lookup(tree, &arrInfo);
-                    assert(b);
-                    GetArrayInfoMap()->Remove(tree);
-                }
+
                 tree          = op1;
                 GenTree* addr = commaNode->AsOp()->gtOp2;
                 op1           = gtNewIndir(typ, addr);
@@ -12367,13 +12187,8 @@ DONE_MORPHING_CHILDREN:
                 op1->gtFlags |= treeFlags & ~GTF_ALL_EFFECT & ~GTF_IND_NONFAULTING;
                 op1->gtFlags |= (addr->gtFlags & GTF_ALL_EFFECT);
 
-                if (wasArrIndex)
-                {
-                    GetArrayInfoMap()->Set(op1, arrInfo);
-                }
-#ifdef DEBUG
-                op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
+                INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+
                 commaNode->AsOp()->gtOp2 = op1;
                 commaNode->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
                 return tree;
@@ -12390,7 +12205,7 @@ DONE_MORPHING_CHILDREN:
                 break;
             }
 
-            if (op1->OperGet() == GT_IND)
+            if (op1->OperIs(GT_IND, GT_OBJ))
             {
                 if ((op1->gtFlags & GTF_IND_ARR_INDEX) == 0)
                 {
@@ -12401,7 +12216,7 @@ DONE_MORPHING_CHILDREN:
                     }
 
                     // Perform the transform ADDR(IND(...)) == (...).
-                    GenTree* addr = op1->AsOp()->gtOp1;
+                    GenTree* addr = op1->AsIndir()->GetAddr();
 
                     // If tree has a zero field sequence annotation, update the annotation
                     // on addr node.
@@ -12419,94 +12234,80 @@ DONE_MORPHING_CHILDREN:
                     return addr;
                 }
             }
-            else if (op1->OperGet() == GT_OBJ)
-            {
-                // Can not remove a GT_ADDR if it is currently a CSE candidate.
-                if (gtIsActiveCSE_Candidate(tree))
-                {
-                    break;
-                }
-
-                // Perform the transform ADDR(OBJ(...)) == (...).
-                GenTree* addr = op1->AsObj()->Addr();
-
-                noway_assert(varTypeIsGC(addr->gtType) || addr->gtType == TYP_I_IMPL);
-
-                DEBUG_DESTROY_NODE(op1);
-                DEBUG_DESTROY_NODE(tree);
-
-                return addr;
-            }
-            else if (op1->gtOper == GT_CAST)
-            {
-                GenTree* casting = op1->AsCast()->CastOp();
-                if (casting->gtOper == GT_LCL_VAR || casting->gtOper == GT_CLS_VAR)
-                {
-                    DEBUG_DESTROY_NODE(op1);
-                    tree->AsOp()->gtOp1 = op1 = casting;
-                }
-            }
-            else if ((op1->gtOper == GT_COMMA) && !optValnumCSE_phase)
+            else if (op1->OperIs(GT_COMMA) && !optValnumCSE_phase)
             {
                 // Perform the transform ADDR(COMMA(x, ..., z)) == COMMA(x, ..., ADDR(z)).
-                // (Be sure to mark "z" as an l-value...)
 
-                GenTreePtrStack commas(getAllocator(CMK_ArrayStack));
-                for (GenTree* comma = op1; comma != nullptr && comma->gtOper == GT_COMMA; comma = comma->gtGetOp2())
+                ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
+                for (GenTree* comma = op1; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
                 {
-                    commas.Push(comma);
-                }
-                GenTree* commaNode = commas.Top();
-
-                // The top-level addr might be annotated with a zeroOffset field.
-                FieldSeqNode* zeroFieldSeq = nullptr;
-                bool          isZeroOffset = GetZeroOffsetFieldMap()->Lookup(tree, &zeroFieldSeq);
-                tree                       = op1;
-                commaNode->AsOp()->gtOp2->gtFlags |= GTF_DONT_CSE;
-
-                // If the node we're about to put under a GT_ADDR is an indirection, it
-                // doesn't need to be materialized, since we only want the addressing mode. Because
-                // of this, this GT_IND is not a faulting indirection and we don't have to extract it
-                // as a side effect.
-                GenTree* commaOp2 = commaNode->AsOp()->gtOp2;
-                if (commaOp2->OperIsBlk())
-                {
-                    commaOp2->SetOper(GT_IND);
-                }
-                if (commaOp2->gtOper == GT_IND)
-                {
-                    commaOp2->gtFlags |= GTF_IND_NONFAULTING;
-                    commaOp2->gtFlags &= ~GTF_EXCEPT;
-                    commaOp2->gtFlags |= (commaOp2->AsOp()->gtOp1->gtFlags & GTF_EXCEPT);
+                    commas.Push(comma->AsOp());
                 }
 
-                op1 = gtNewOperNode(GT_ADDR, TYP_BYREF, commaOp2);
+                GenTreeOp* lastComma = commas.Top();
+                GenTree*   location  = lastComma->GetOp(1);
+                GenTree*   addr      = nullptr;
 
-                if (isZeroOffset)
+                if (location->OperIs(GT_OBJ))
                 {
-                    // Transfer the annotation to the new GT_ADDR node.
-                    fgAddFieldSeqForZeroOffset(op1, zeroFieldSeq);
+                    location->SetOper(GT_IND);
                 }
-                commaNode->AsOp()->gtOp2 = op1;
-                // Originally, I gave all the comma nodes type "byref".  But the ADDR(IND(x)) == x transform
-                // might give op1 a type different from byref (like, say, native int).  So now go back and give
-                // all the comma nodes the type of op1.
-                // TODO: the comma flag update below is conservative and can be improved.
-                // For example, if we made the ADDR(IND(x)) == x transformation, we may be able to
-                // get rid of some of the IND flags on the COMMA nodes (e.g., GTF_GLOB_REF).
+
+                if (location->OperIs(GT_IND))
+                {
+                    if ((location->gtFlags & GTF_IND_ARR_INDEX) == 0)
+                    {
+                        addr = location->AsIndir()->GetAddr();
+
+                        // The morphed ADDR might be annotated with a zero offset field sequence.
+                        FieldSeqNode* zeroFieldSeq = nullptr;
+                        if (GetZeroOffsetFieldMap()->Lookup(tree, &zeroFieldSeq))
+                        {
+                            fgAddFieldSeqForZeroOffset(addr, zeroFieldSeq);
+                        }
+                    }
+                    else
+                    {
+                        // If the node we're about to put under a GT_ADDR is an indirection, it doesn't
+                        // need to be materialized, since we only want its address. Because of this, the
+                        // GT_IND is not a faulting indirection.
+
+                        // TODO: the flag update below is conservative and can be improved.
+                        // For example, if we made the ADDR(IND(x)) == x transformation, we may be able to
+                        // get rid of some other IND flags (e.g., GTF_GLOB_REF).
+
+                        location->gtFlags |= GTF_IND_NONFAULTING;
+                        location->gtFlags &= ~GTF_EXCEPT;
+                        location->gtFlags |= (location->AsIndir()->GetAddr()->gtFlags & GTF_EXCEPT);
+                    }
+                }
+
+                if (addr == nullptr)
+                {
+                    addr = tree;
+                    addr->AsUnOp()->SetOp(0, location);
+                    addr->SetSideEffects(location->GetSideEffects());
+
+                    location->SetDoNotCSE();
+                }
+
+                lastComma->SetOp(1, addr);
+
+                // TODO-MIKE-Cleanup: Like the similar transform in fgMorphBlkNode, this doesn't update
+                // value numbers on COMMAs. It's likely that this transform doesn't happen past global
+                // morph so probabily this doesn't matter too much.
+
+                // TODO-MIKE-CQ: The first COMMA has GTF_DONT_CSE set because it's under ADDR.
+                // GTF_DONT_CSE is no longer necessary and should be removed.
 
                 while (!commas.Empty())
                 {
-                    GenTree* comma = commas.Pop();
-                    comma->gtType  = op1->gtType;
-                    comma->gtFlags |= op1->gtFlags;
-#ifdef DEBUG
-                    comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
-                    gtUpdateNodeSideEffects(comma);
+                    GenTreeOp* comma = commas.Pop();
+                    comma->SetType(addr->GetType());
+                    comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
                 }
 
-                return tree;
+                return op1;
             }
             break;
 
@@ -13834,29 +13635,42 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_SIMD
         case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
         {
-            fgSetRngChkTarget(tree);
+            GenTreeBoundsChk* check  = tree->AsBoundsChk();
+            GenTree*          index  = check->GetIndex();
+            GenTree*          length = check->GetLength();
 
-            GenTreeBoundsChk* bndsChk = tree->AsBoundsChk();
-            bndsChk->gtIndex          = fgMorphTree(bndsChk->gtIndex);
-            bndsChk->gtArrLen         = fgMorphTree(bndsChk->gtArrLen);
-            // If the index is a comma(throw, x), just return that.
-            if (!optValnumCSE_phase && fgIsCommaThrow(bndsChk->gtIndex))
+            index  = fgMorphTree(index);
+            length = fgMorphTree(length);
+
+            // If the index is a COMMA(throw, x), just return that.
+            if (!optValnumCSE_phase && fgIsCommaThrow(index))
             {
-                tree = bndsChk->gtIndex;
+                tree = index;
             }
+            else
+            {
+                check->SetIndex(index);
+                check->SetLength(length);
+                check->SetSideEffects(GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects());
 
-            bndsChk->gtFlags &= ~GTF_CALL;
+                // TODO-MIKE-Review: This doesn't make a lot of sense. One way or another, fgSimpleLowering
+                // creates and sets the throw block (if throw helper blocks are used). Why would we do this
+                // here only in minopts? It probably makes sense to delay throw block creation to lowering
+                // so the optimizer has fewer blocks to process (throw blocks don't do anything interesting,
+                // they're just helper calls without any arguments). But if we delay when optimizations are
+                // enabled why not also delay in minopts? Is this a leftover from when the throw block stack
+                // level for x86 args was computed during morph?
 
-            // Propagate effects flags upwards
-            bndsChk->gtFlags |= (bndsChk->gtIndex->gtFlags & GTF_ALL_EFFECT);
-            bndsChk->gtFlags |= (bndsChk->gtArrLen->gtFlags & GTF_ALL_EFFECT);
-
-            // Otherwise, we don't change the tree.
+                if (opts.MinOpts())
+                {
+                    check->SetThrowBlock(fgGetRngChkTarget(compCurBB, check->GetThrowKind()));
+                }
+            }
         }
         break;
 
@@ -13880,11 +13694,14 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             if (fgGlobalMorph)
             {
-                fgSetRngChkTarget(tree, false);
+                fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL);
             }
             break;
 
         case GT_ARR_OFFSET:
+            // GT_ARR_OFFSET nodes are created during lowering.
+            noway_assert(!fgGlobalMorph);
+
             tree->AsArrOffs()->gtOffset = fgMorphTree(tree->AsArrOffs()->gtOffset);
             tree->AsArrOffs()->gtIndex  = fgMorphTree(tree->AsArrOffs()->gtIndex);
             tree->AsArrOffs()->gtArrObj = fgMorphTree(tree->AsArrOffs()->gtArrObj);
@@ -13893,10 +13710,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             tree->gtFlags |= tree->AsArrOffs()->gtOffset->gtFlags & GTF_ALL_EFFECT;
             tree->gtFlags |= tree->AsArrOffs()->gtIndex->gtFlags & GTF_ALL_EFFECT;
             tree->gtFlags |= tree->AsArrOffs()->gtArrObj->gtFlags & GTF_ALL_EFFECT;
-            if (fgGlobalMorph)
-            {
-                fgSetRngChkTarget(tree, false);
-            }
             break;
 
         case GT_PHI:
@@ -16286,14 +16099,19 @@ void Compiler::fgMarkDemotedImplicitByRefParams()
 //    fieldSeqZero - a fieldSeq (with a zero offset)
 //
 // Notes:
-//    Some GenTree nodes have internal fields that record the field sequence.
-//    If we have one of these nodes: GT_CNS_INT, GT_LCL_FLD
-//    we can append the field sequence using the gtFieldSeq
-//    If we have a GT_ADD of a GT_CNS_INT we can use the
-//    fieldSeq from child node.
-//    Otherwise we record 'fieldSeqZero' in the GenTree node using
-//    a Map:  GetFieldSeqStore()
-//    When doing so we take care to preserve any existing zero field sequence
+//    A sequence of FIELD nodes usually gets converted to a LCL_FLD or an indirection
+//    where the address is ADD(objRef, CNS_INT(fieldOffset)). In either case we can
+//    record the field sequence in the LCL_FLD/CNS_INT node, if one exists. If the
+//    field offset is 0 the ADD node may get folded to just objRef and then we have
+//    no place where to record the field sequence.
+//
+//    This can happen for local field accesses that haven't yet been converted to
+//    LCL_FLD in LocalAddressVisitor or for static fields (the first static field
+//    in an R2R compiled assembly hits this case so it's rather rare).
+//
+//    For now such a field sequence is recorded in a hash table where the key is the
+//    address tree node, usually an ADDR(LCL_VAR) tree for the first field of a local
+//    struct variable or a helper call for static field.
 //
 void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZero)
 {
@@ -16327,19 +16145,10 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
     switch (addr->OperGet())
     {
         case GT_CNS_INT:
-            fieldSeqUpdate               = GetFieldSeqStore()->Append(addr->AsIntCon()->gtFieldSeq, fieldSeqZero);
-            addr->AsIntCon()->gtFieldSeq = fieldSeqUpdate;
-            fieldSeqRecorded             = true;
-            break;
-
-        case GT_LCL_FLD:
-        {
-            GenTreeLclFld* lclFld = addr->AsLclFld();
-            fieldSeqUpdate        = GetFieldSeqStore()->Append(lclFld->GetFieldSeq(), fieldSeqZero);
-            lclFld->SetFieldSeq(fieldSeqUpdate);
+            fieldSeqUpdate = GetFieldSeqStore()->Append(addr->AsIntCon()->GetFieldSeq(), fieldSeqZero);
+            addr->AsIntCon()->SetFieldSeq(fieldSeqUpdate);
             fieldSeqRecorded = true;
             break;
-        }
 
         case GT_ADDR:
             if (addr->AsOp()->gtOp1->OperGet() == GT_LCL_FLD)
@@ -16354,21 +16163,21 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
             break;
 
         case GT_ADD:
-            if (addr->AsOp()->gtOp1->OperGet() == GT_CNS_INT)
+            if (addr->AsOp()->GetOp(0)->IsIntCon())
             {
-                fieldSeqNode = addr->AsOp()->gtOp1;
+                fieldSeqNode = addr->AsOp()->GetOp(0);
 
-                fieldSeqUpdate = GetFieldSeqStore()->Append(addr->AsOp()->gtOp1->AsIntCon()->gtFieldSeq, fieldSeqZero);
-                addr->AsOp()->gtOp1->AsIntCon()->gtFieldSeq = fieldSeqUpdate;
-                fieldSeqRecorded                            = true;
+                fieldSeqUpdate = GetFieldSeqStore()->Append(fieldSeqNode->AsIntCon()->GetFieldSeq(), fieldSeqZero);
+                fieldSeqNode->AsIntCon()->SetFieldSeq(fieldSeqUpdate);
+                fieldSeqRecorded = true;
             }
-            else if (addr->AsOp()->gtOp2->OperGet() == GT_CNS_INT)
+            else if (addr->AsOp()->GetOp(1)->IsIntCon())
             {
-                fieldSeqNode = addr->AsOp()->gtOp2;
+                fieldSeqNode = addr->AsOp()->GetOp(1);
 
-                fieldSeqUpdate = GetFieldSeqStore()->Append(addr->AsOp()->gtOp2->AsIntCon()->gtFieldSeq, fieldSeqZero);
-                addr->AsOp()->gtOp2->AsIntCon()->gtFieldSeq = fieldSeqUpdate;
-                fieldSeqRecorded                            = true;
+                fieldSeqUpdate = GetFieldSeqStore()->Append(fieldSeqNode->AsIntCon()->GetFieldSeq(), fieldSeqZero);
+                fieldSeqNode->AsIntCon()->SetFieldSeq(fieldSeqUpdate);
+                fieldSeqRecorded = true;
             }
             break;
 
@@ -16376,7 +16185,7 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
             break;
     }
 
-    if (fieldSeqRecorded == false)
+    if (!fieldSeqRecorded)
     {
         // Record in the general zero-offset map.
 
