@@ -2545,6 +2545,14 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         arg          = fgMorphTree(arg);
         argUse->SetNode(arg);
 
+        if (argInfo->HasLateUse())
+        {
+            assert(arg->OperIs(GT_ARGPLACE, GT_ASG) || (arg->OperIs(GT_COMMA) && arg->TypeIs(TYP_VOID)));
+
+            argsSideEffects |= arg->gtFlags;
+            continue;
+        }
+
         if (!varTypeIsStruct(arg->GetType()))
         {
             if (typIsLayoutNum(argUse->GetSigTypeNum()) && arg->IsCast() && !arg->gtOverflow() &&
