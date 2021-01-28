@@ -145,8 +145,12 @@ void Lowering::CombineNot(GenTreeInstr* instr)
 
         assert(IsLegalToMoveUseForward(shift, instr, op1));
 
-        instr->SetOption(opt);
-        instr->SetImmediate(shift->GetImmediate());
+        if (shift->GetImmediate() != 0)
+        {
+            instr->SetOption(opt);
+            instr->SetImmediate(shift->GetImmediate());
+        }
+
         instr->SetOp(0, op1);
 
         BlockRange().Remove(shift);
@@ -403,6 +407,11 @@ void Lowering::LowerLogical(GenTreeOp* logical)
         op2   = shift->GetOp(0);
         imm   = shift->GetImmediate();
 
+        if (imm == 0)
+        {
+            opt = INS_OPTS_NONE;
+        }
+
         assert(IsLegalToMoveUseForward(shift, logical, op2));
     }
     else if ((opt = GetEquivalentShiftOptionLogical(op1, size)) != INS_OPTS_NONE)
@@ -412,6 +421,11 @@ void Lowering::LowerLogical(GenTreeOp* logical)
         shift = op2->AsInstr();
         op2   = shift->GetOp(0);
         imm   = shift->GetImmediate();
+
+        if (imm == 0)
+        {
+            opt = INS_OPTS_NONE;
+        }
 
         assert(IsLegalToMoveUseForward(shift, logical, op2));
     }
@@ -601,6 +615,11 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
     unsigned shiftAmount = shift->GetImmediate();
 
     assert(shiftAmount < bitSize);
+
+    if (shiftAmount == 0)
+    {
+        return;
+    }
 
     if (GenTreeInstr* andInstr = IsInstr(op1, INS_and, size, 1))
     {
@@ -920,6 +939,11 @@ void Lowering::LowerNegate(GenTreeUnOp* neg)
         op1   = shift->GetOp(0);
         imm   = shift->GetImmediate();
 
+        if (imm == 0)
+        {
+            opt = INS_OPTS_NONE;
+        }
+
         assert(IsLegalToMoveUseForward(shift, neg, op1));
     }
 
@@ -1009,7 +1033,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
 
         assert(IsLegalToMoveUseForward(shift, arith, op2));
 
-        if ((opt == INS_OPTS_LSL) && (imm <= 4))
+        if (((opt == INS_OPTS_LSL) && (imm <= 4)) || (imm == 0))
         {
             insOpts extendOption = GetEquivalentExtendOption(op2);
 
@@ -1021,6 +1045,10 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
                 opt = extendOption;
 
                 assert(IsLegalToMoveUseForward(extend, arith, op2));
+            }
+            else if (imm == 0)
+            {
+                opt = INS_OPTS_NONE;
             }
         }
     }
@@ -1034,7 +1062,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
 
         assert(IsLegalToMoveUseForward(shift, arith, op2));
 
-        if ((opt == INS_OPTS_LSL) && (imm <= 4))
+        if (((opt == INS_OPTS_LSL) && (imm <= 4)) || (imm == 0))
         {
             insOpts extendOption = GetEquivalentExtendOption(op2);
 
@@ -1046,6 +1074,10 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
                 opt = extendOption;
 
                 assert(IsLegalToMoveUseForward(extend, arith, op2));
+            }
+            else if (imm == 0)
+            {
+                opt = INS_OPTS_NONE;
             }
         }
     }
@@ -1181,7 +1213,7 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             value &= UINT32_MAX;
         }
 
-        if ((value > 1) && isPow2(value - 1))
+        if ((value > 2) && isPow2(value - 1))
         {
             // MUL(x, C) where C is (2 ^ N + 1) can be transformed into ADD(x, x, LSL N)
             // This normally requires making x a LCL_VAR so it can have multiple uses,
