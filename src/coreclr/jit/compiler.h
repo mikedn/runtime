@@ -9298,8 +9298,6 @@ public:
 
     void SetNumOps(unsigned numOps)
     {
-        assert(m_numOps == 0);
-
         m_numOps = static_cast<uint16_t>(numOps);
         assert(HasInlineUses());
 

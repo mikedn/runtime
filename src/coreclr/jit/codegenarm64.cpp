@@ -4384,7 +4384,7 @@ void CodeGen::genStoreSIMD12(GenTree* store, GenTree* value)
 
     inst_AM_R(INS_str, EA_8BYTE, valueReg, dst, 0);
     GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);
-    inst_AM_R(INS_str, EA_8BYTE, tmpReg, dst, 8);
+    inst_AM_R(INS_str, EA_4BYTE, tmpReg, dst, 8);
 }
 
 //-----------------------------------------------------------------------------
