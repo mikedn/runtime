@@ -11298,6 +11298,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         op1->gtFlags |= (GTF_OVERFLOW | GTF_EXCEPT);
                     }
+
+                    if (op1->gtGetOp1()->OperIsConst() && opts.OptimizationEnabled())
+                    {
+                        // Try and fold the introduced cast
+                        op1 = gtFoldExprConst(op1);
+                    }
                 }
 
                 impPushOnStack(op1, typeInfo());
