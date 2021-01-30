@@ -760,7 +760,16 @@ struct BasicBlock : private LIR::Range
         flowList*               bbLastPred;   // last pred list entry
     };
 
-    ImportSpillCliqueState* bbExitState;
+
+    union {
+        ImportSpillCliqueState* bbExitState;
+
+        struct
+        {
+            int      bbCountSchemaIndex; // schema index for count instrumentation
+            int      bbClassSchemaIndex; // schema index for class instrumentation
+        };
+    };
 
 #define MAX_XCPTN_INDEX (USHRT_MAX - 1)
 
