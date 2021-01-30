@@ -4711,6 +4711,7 @@ private:
     //-------- Determine the order in which the trees will be evaluated -------
 
     GenTree* fgSetTreeSeq(GenTree* tree, bool isLIR = false);
+    void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
     void fgSetStmtSeq(Statement* stmt);
     void fgSetBlockOrder(BasicBlock* block);
 
