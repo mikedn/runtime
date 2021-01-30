@@ -375,11 +375,25 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                         // Don't try to optimize.
                         assert(!canPushCast);
                     }
-                    else if ((shiftAmountValue >= 32) && ((cast->gtFlags & GTF_ALL_EFFECT) == 0))
+                    else if (shiftAmountValue >= 32)
                     {
-                        // Result of the shift is zero.
-                        DEBUG_DESTROY_NODE(cast);
-                        return fgMorphTree(gtNewZeroConNode(TYP_INT));
+                        // We know that we have a narrowing cast ([u]long -> [u]int)
+                        // and that we are casting to a 32-bit value, which will result in zero.
+                        //
+                        // Check to see if we have any side-effects that we must keep
+                        //
+                        if ((cast->gtFlags & GTF_ALL_EFFECT) == 0)
+                        {
+                            // Result of the shift is zero.
+                            DEBUG_DESTROY_NODE(cast);
+                            return fgMorphTree(gtNewZeroConNode(TYP_INT));
+                        }
+                        else // We do have a side-effect
+                        {
+                            // We could create a GT_COMMA node here to keep the side-effect and return a zero
+                            // Instead we just don't try to optimize this case.
+                            canPushCast = false;
+                        }
                     }
                     else
                     {
