@@ -8729,16 +8729,12 @@ void Compiler::fgValueNumberIntrinsic(GenTree* tree)
                 vnStore->VNPWithExc(vnStore->EvalMathFuncUnary(tree->TypeGet(), intrinsic->gtIntrinsicName, arg0VNP),
                                     arg0VNPx);
         }
-        else if (!intrinsic->AsOp()->gtOp1->OperIsList())
+        else
         {
             ValueNumPair newVNP =
                 vnStore->EvalMathFuncBinary(tree->TypeGet(), intrinsic->gtIntrinsicName, arg0VNP, arg1VNP);
             ValueNumPair excSet = vnStore->VNPExcSetUnion(arg0VNPx, arg1VNPx);
             intrinsic->gtVNPair = vnStore->VNPWithExc(newVNP, excSet);
-        }
-        else
-        {
-            unreached();
         }
     }
     else
