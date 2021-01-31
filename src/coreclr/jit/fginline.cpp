@@ -522,18 +522,6 @@ void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO
 //    Looks for GT_RET_EXPR nodes that arose from tree splitting done
 //    during importation for inline candidates, and replaces them.
 //
-//    For successful inlines, substitutes the return value expression
-//    from the inline body for the GT_RET_EXPR.
-//
-//    For failed inlines, rejoins the original call into the tree from
-//    whence it was split during importation.
-//
-//    The code doesn't actually know if the corresponding inline
-//    succeeded or not; it relies on the fact that gtInlineCandidate
-//    initially points back at the call and is modified in place to
-//    the inlinee return expression if the inline is successful (see
-//    tail end of fgInsertInlineeBlocks for the update of iciCall).
-//
 //    If the return type is a struct type and we're on a platform
 //    where structs can be returned in multiple registers, ensure the
 //    call has a suitable parent.
@@ -706,8 +694,8 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
             value = value->SkipComma();
 
             bool isMultiRegCall = varTypeIsStruct(value->GetType()) && value->IsRetExpr() &&
-                                  value->AsRetExpr()->gtInlineCandidate->IsCall() &&
-                                  value->AsRetExpr()->gtInlineCandidate->AsCall()->HasMultiRegRetVal();
+                                  (value->AsRetExpr()->GetRetExpr() == nullptr) &&
+                                  value->AsRetExpr()->GetCall()->HasMultiRegRetVal();
 
             noway_assert(!isMultiRegCall);
         }
@@ -1457,15 +1445,8 @@ _Done:
         }
 #endif // DEBUG
 
-        // Replace the call with the return expression. Note that iciCall won't be part of the IR
-        // but may still be referenced from a GT_RET_EXPR node. We will replace GT_RET_EXPR node
-        // in fgUpdateInlineReturnExpressionPlaceHolder. At that time we will also update the flags
-        // on the basic block of GT_RET_EXPR node.
-
-        // Save the basic block flags from the retExpr basic block.
-        iciCall->gtInlineCandidateInfo->retExprPlaceholder->bbFlags = pInlineInfo->retBB->bbFlags;
-
-        iciCall->ReplaceWith(pInlineInfo->retExpr, this);
+        iciCall->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(pInlineInfo->retExpr,
+                                                                       pInlineInfo->retBB->bbFlags);
     }
 
     //

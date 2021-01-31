@@ -1559,7 +1559,7 @@ AGAIN:
         }
         else if (oper == GT_RET_EXPR)
         {
-            return gtHasRef(tree->AsRetExpr()->gtInlineCandidate, lclNum, defOnly);
+            return gtHasRef(tree->AsRetExpr()->GetValue(), lclNum, defOnly);
         }
 
         return false;
@@ -9709,7 +9709,7 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
 
         case GT_RET_EXPR:
             printf("(inl return from call ");
-            printTreeID(tree->AsRetExpr()->gtInlineCandidate);
+            printTreeID(tree->AsRetExpr()->GetCall());
             printf(")");
             break;
 
@@ -15932,13 +15932,8 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         }
 
         case GT_RET_EXPR:
-        {
-            // If we see a RET_EXPR, recurse through to examine the
-            // return value expression.
-            GenTree* retExpr = tree->AsRetExpr()->gtInlineCandidate;
-            objClass         = gtGetClassHandle(retExpr, pIsExact, pIsNonNull);
+            objClass = gtGetClassHandle(tree->AsRetExpr()->GetValue(), pIsExact, pIsNonNull);
             break;
-        }
 
         case GT_CALL:
         {

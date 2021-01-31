@@ -1159,10 +1159,11 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             return src;
         }
     }
-    else if (src->OperIs(GT_RET_EXPR))
+    else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
     {
-        GenTreeCall* call = src->AsRetExpr()->gtInlineCandidate->AsCall();
-        noway_assert(call->OperIs(GT_CALL));
+        assert(retExpr->GetRetExpr() == nullptr);
+
+        GenTreeCall* call = retExpr->GetCall();
 
         if (call->TreatAsHasRetBufArg())
         {
@@ -2115,12 +2116,12 @@ void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
 
         // If we're assigning a GT_RET_EXPR, note the temp over on the call,
         // so the inliner can use it in case it needs a return spill temp.
-        if (tree->OperGet() == GT_RET_EXPR)
+        if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
         {
             JITDUMP("\n*** see V%02u = GT_RET_EXPR, noting temp\n", tnum);
-            GenTree*             call = tree->AsRetExpr()->gtInlineCandidate;
-            InlineCandidateInfo* ici  = call->AsCall()->gtInlineCandidateInfo;
-            ici->preexistingSpillTemp = tnum;
+
+            assert(retExpr->GetRetExpr() == nullptr);
+            retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = tnum;
         }
     }
 
@@ -3901,13 +3902,15 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             }
 
             case NI_System_Threading_Thread_get_ManagedThreadId:
-            {
-                if (opts.OptimizationEnabled() && impStackTop().val->OperIs(GT_RET_EXPR))
+                if (opts.OptimizationEnabled())
                 {
-                    GenTreeCall* call = impStackTop().val->AsRetExpr()->gtInlineCandidate->AsCall();
-                    if (call->gtFlags & CORINFO_FLG_JIT_INTRINSIC)
+                    if (GenTreeRetExpr* retExpr = impStackTop().val->IsRetExpr())
                     {
-                        if (lookupNamedIntrinsic(call->gtCallMethHnd) == NI_System_Threading_Thread_get_CurrentThread)
+                        assert(retExpr->GetRetExpr() == nullptr);
+                        GenTreeCall* call = retExpr->GetCall();
+
+                        if (((call->gtFlags & CORINFO_FLG_JIT_INTRINSIC) != 0) &&
+                            (lookupNamedIntrinsic(call->gtCallMethHnd) == NI_System_Threading_Thread_get_CurrentThread))
                         {
                             // drop get_CurrentThread() call
                             impPopStack();
@@ -3917,7 +3920,6 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                     }
                 }
                 break;
-            }
 
 #ifdef FEATURE_HW_INTRINSICS
             case NI_System_Math_FusedMultiplyAdd:
@@ -13981,7 +13983,8 @@ bool Compiler::impInlineReturnInstruction()
             }
             else if (op2->IsRetExpr())
             {
-                returnType = op2->AsRetExpr()->gtInlineCandidate->AsCall()->GetRetSigType();
+                assert(op2->AsRetExpr()->GetRetExpr() == nullptr);
+                returnType = op2->AsRetExpr()->GetCall()->GetRetSigType();
             }
         }
 
