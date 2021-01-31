@@ -1019,8 +1019,7 @@ GenTree* Compiler::impSIMDPopStack(var_types type)
     {
         // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
 
-        ClassLayout* layout =
-            tree->OperIs(GT_RET_EXPR) ? tree->AsRetExpr()->GetRetLayout() : tree->AsCall()->GetRetLayout();
+        ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
 
         unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
         impAssignTempGen(tmpNum, tree, layout->GetClassHandle(), CHECK_SPILL_ALL);

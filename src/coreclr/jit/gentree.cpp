@@ -15784,7 +15784,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 structHnd = tree->AsCall()->GetRetLayout()->GetClassHandle();
                 break;
             case GT_RET_EXPR:
-                structHnd = tree->AsRetExpr()->GetRetLayout()->GetClassHandle();
+                structHnd = tree->AsRetExpr()->GetLayout()->GetClassHandle();
                 break;
             case GT_INDEX:
                 structHnd = tree->AsIndex()->GetLayout()->GetClassHandle();

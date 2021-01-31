@@ -568,7 +568,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
 #if FEATURE_MULTIREG_RET
             if (varTypeIsStruct(retExpr->GetType()))
             {
-                layout = retExpr->GetRetLayout();
+                layout = retExpr->GetLayout();
             }
 #endif
 

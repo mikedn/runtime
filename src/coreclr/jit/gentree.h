@@ -6708,17 +6708,12 @@ struct GenTreeRetExpr : public GenTree
 {
 private:
     GenTreeCall* m_call;
-    ClassLayout* m_retLayout;
     GenTree*     m_retExpr;
     uint64_t     m_retBlockFlags;
 
 public:
     GenTreeRetExpr(var_types type, GenTreeCall* call, uint64_t bbFlags)
-        : GenTree(GT_RET_EXPR, type)
-        , m_call(call)
-        , m_retLayout(call->m_retLayout)
-        , m_retExpr(nullptr)
-        , m_retBlockFlags(bbFlags)
+        : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(nullptr), m_retBlockFlags(bbFlags)
     {
         // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
         // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
@@ -6731,9 +6726,9 @@ public:
         return m_call;
     }
 
-    ClassLayout* GetRetLayout() const
+    ClassLayout* GetLayout() const
     {
-        return m_retLayout;
+        return m_call->GetRetLayout();
     }
 
     GenTree* GetRetExpr() const
@@ -6744,11 +6739,6 @@ public:
     uint64_t GetRetBlockFlags() const
     {
         return m_retBlockFlags;
-    }
-
-    GenTree* GetValue() const
-    {
-        return m_retExpr == nullptr ? m_call : m_retExpr;
     }
 
     void SetRetExpr(GenTree* expr)
@@ -6762,6 +6752,11 @@ public:
         assert(expr != nullptr);
         m_retExpr       = expr;
         m_retBlockFlags = blockFlags;
+    }
+
+    GenTree* GetValue() const
+    {
+        return m_retExpr == nullptr ? m_call : m_retExpr;
     }
 
 #if DEBUGGABLE_GENTREE
