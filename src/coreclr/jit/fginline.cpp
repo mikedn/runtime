@@ -351,20 +351,19 @@ GenTree* Compiler::inlGetStructAddress(GenTree* tree)
     }
 }
 
-GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, CORINFO_CLASS_HANDLE structHandle)
+GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, ClassLayout* layout)
 {
     if (dst->OperIs(GT_LCL_VAR))
     {
         LclVarDsc* lcl = lvaGetDesc(dst->AsLclVar());
 
-        if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
-            (lcl->GetLayout()->GetClassHandle() == structHandle))
+        if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
         {
             dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
             return dst;
         }
 
-        return gtNewObjNode(structHandle, gtNewOperNode(GT_ADDR, TYP_I_IMPL, dst));
+        return gtNewObjNode(layout, gtNewOperNode(GT_ADDR, TYP_I_IMPL, dst));
     }
 
     GenTree* dstAddr = inlGetStructAddress(dst);
@@ -377,8 +376,7 @@ GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, CORINFO_CLASS_HANDLE structH
         {
             LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
 
-            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
-                (lcl->GetLayout()->GetClassHandle() == structHandle))
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
             {
                 dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
                 return location;
@@ -386,12 +384,12 @@ GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, CORINFO_CLASS_HANDLE structH
         }
     }
 
-    GenTree* obj = gtNewObjNode(structHandle, dstAddr);
+    GenTree* obj = gtNewObjNode(layout, dstAddr);
     obj->gtFlags |= GTF_DONT_CSE;
     return obj;
 }
 
-GenTree* Compiler::inlGetStructAsgSrc(GenTree* src, CORINFO_CLASS_HANDLE structHandle)
+GenTree* Compiler::inlGetStructAsgSrc(GenTree* src, ClassLayout* layout)
 {
     if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsSimdOrHWintrinsic())
     {
@@ -403,7 +401,7 @@ GenTree* Compiler::inlGetStructAsgSrc(GenTree* src, CORINFO_CLASS_HANDLE structH
         }
         else
         {
-            src = gtNewObjNode(structHandle, srcAddr);
+            src = gtNewObjNode(layout, srcAddr);
         }
     }
 
@@ -415,12 +413,12 @@ GenTree* Compiler::inlGetStructAsgSrc(GenTree* src, CORINFO_CLASS_HANDLE structH
     return src;
 }
 
-GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HANDLE structHandle)
+GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, ClassLayout* layout)
 {
     assert(!src->OperIs(GT_RET_EXPR, GT_MKREFANY));
 
     unsigned tempLclNum = lvaGrabTemp(false DEBUGARG("RetBuf for struct inline return candidates."));
-    lvaSetStruct(tempLclNum, structHandle, false);
+    lvaSetStruct(tempLclNum, layout, false);
     LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
     GenTree*   dst     = gtNewLclvNode(tempLclNum, tempLcl->GetType());
 
@@ -462,7 +460,7 @@ GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HAND
     {
         // Inlinee is not a call, so just create a copy block to the tmp.
 
-        src = inlGetStructAsgSrc(src, structHandle);
+        src = inlGetStructAsgSrc(src, layout);
 
         newAsg = gtNewAssignNode(dst, src);
         gtInitStructCopyAsg(newAsg->AsOp());
@@ -471,7 +469,7 @@ GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HAND
     return gtNewOperNode(GT_COMMA, dst->GetType(), newAsg, gtNewLclvNode(tempLclNum, dst->GetType()));
 }
 
-void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO_CLASS_HANDLE structHandle)
+void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, ClassLayout* layout)
 {
     assert(asg->OperIs(GT_ASG));
 
@@ -491,11 +489,11 @@ void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO
         }
 
         // Struct calls can only be assigned to locals, in all other cases we need to introduce a temp.
-        src = inlAssignStructInlineeToTemp(src, structHandle);
+        src = inlAssignStructInlineeToTemp(src, layout);
     }
 
-    dst = inlGetStructAsgDst(dst, structHandle);
-    src = inlGetStructAsgSrc(src, structHandle);
+    dst = inlGetStructAsgDst(dst, layout);
+    src = inlGetStructAsgSrc(src, layout);
 
     asg->SetOp(0, dst);
     asg->SetOp(1, src);
@@ -558,19 +556,41 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
 
     if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
     {
-        GenTree* value = nullptr;
-#if FEATURE_MULTIREG_RET
-        ClassLayout* layout = nullptr;
+#ifdef DEBUG
+        if (comp->verbose)
+        {
+            printf("\nReplacing the return expression placeholder ");
+            printTreeID(retExpr);
+
+            if (data->parent != nullptr)
+            {
+                printf(" in\n");
+                comp->gtDispTree(data->parent);
+            }
+        }
 #endif
+
+        GenTree*     value = nullptr;
+        GenTreeCall* call  = nullptr;
 
         for (; retExpr != nullptr; retExpr = value->IsRetExpr())
         {
-#if FEATURE_MULTIREG_RET
-            if (varTypeIsStruct(retExpr->GetType()))
-            {
-                layout = retExpr->GetLayout();
-            }
-#endif
+            // TODO-MIKE-Cleanup: RET_EXPR chain handling is dubious. A chain of RET_EXPR is
+            // handled by gtRetExprVal and that gives us the block flags of the last RET_EXPR
+            // in the chain. And we get the call from the first RET_EXPR in the chanin.
+            // But if we run into foldable nodes then we get the block flags and call from
+            // other RET_EXPRs. The call it unlikely to matter, it's only needed to get the
+            // struct layout and struct aren't folded. But it's not clear what happens with
+            // the block flags, should gtRetExprVal actually OR the flags?
+            //
+            // Can we even get a chain of RET_EXPR? It may be obvious that the answer is yes,
+            // when we inline a method that just calls another method. But due to the way
+            // RET_EXPR are replaced it seems like the RET_EXPR associated with the inner
+            // call should have been already replaced when the outer RET_EXPR is encountered.
+            // But the replacement is actually done too late - for an inline candidate tree
+            // the replacement is actually done after inlining.
+
+            call = retExpr->GetCall();
 
             uint64_t bbFlags = 0;
             value            = retExpr->gtRetExprVal(&bbFlags);
@@ -592,23 +612,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
             }
         }
 
-#ifdef DEBUG
-        if (comp->verbose)
-        {
-            printf("\nReplacing the return expression placeholder ");
-            printTreeID(retExpr);
-
-            if (data->parent != nullptr)
-            {
-                printf(" in\n");
-                comp->gtDispTree(data->parent);
-            }
-
-            printf("with inline return expression\n");
-            comp->gtDispTree(value);
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(value, "with inline return expression\n");
 
         tree = *use = value;
 
@@ -627,39 +631,23 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         // that lvIsMultiRegRet is set to true. But this code doesn't even bother to
         // check if the return expression is still a call...
 
-        if (layout != nullptr)
+        if (call->GetRegCount() > 1)
         {
-            CORINFO_CLASS_HANDLE retClsHnd = layout->GetClassHandle();
-            structPassingKind    retKind;
-            comp->getReturnTypeForStruct(retClsHnd, CorInfoCallConvExtension::Managed, &retKind);
+            // Is this a type that is returned in multiple registers
+            // or a via a primitve type that is larger than the struct type?
+            // if so we need to force into into a form we accept.
+            // i.e. LclVar = call()
 
-            switch (retKind)
+            // See assert below, we only look one level above for an asg parent.
+            if (data->parent->OperIs(GT_ASG))
             {
-                // Is this a type that is returned in multiple registers
-                // or a via a primitve type that is larger than the struct type?
-                // if so we need to force into into a form we accept.
-                // i.e. LclVar = call()
-                case SPK_ByValue:
-                case SPK_ByValueAsHfa:
-                    // See assert below, we only look one level above for an asg parent.
-                    if (data->parent->OperIs(GT_ASG))
-                    {
-                        // Either lhs is a call V05 = call(); or lhs is addr, and asg becomes a copyBlk.
-                        comp->inlAttachStructInlineeToAsg(data->parent->AsOp(), tree, retClsHnd);
-                    }
-                    else
-                    {
-                        // Just assign the inlinee to a variable to keep it simple.
-                        tree = *use = comp->inlAssignStructInlineeToTemp(tree, retClsHnd);
-                    }
-                    break;
-
-                case SPK_PrimitiveType:
-                case SPK_ByReference:
-                    break;
-
-                default:
-                    unreached();
+                // Either lhs is a call V05 = call(); or lhs is addr, and asg becomes a copyBlk.
+                comp->inlAttachStructInlineeToAsg(data->parent->AsOp(), tree, call->GetRetLayout());
+            }
+            else
+            {
+                // Just assign the inlinee to a variable to keep it simple.
+                tree = *use = comp->inlAssignStructInlineeToTemp(tree, call->GetRetLayout());
             }
         }
 #endif

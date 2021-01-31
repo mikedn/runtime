@@ -5005,10 +5005,10 @@ private:
 
 #if FEATURE_MULTIREG_RET
     GenTree* inlGetStructAddress(GenTree* tree);
-    GenTree* inlGetStructAsgDst(GenTree* dst, CORINFO_CLASS_HANDLE structHandle);
-    GenTree* inlGetStructAsgSrc(GenTree* src, CORINFO_CLASS_HANDLE structHandle);
-    GenTree* inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HANDLE structHandle);
-    void inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO_CLASS_HANDLE structHandle);
+    GenTree* inlGetStructAsgDst(GenTree* dst, ClassLayout* layout);
+    GenTree* inlGetStructAsgSrc(GenTree* src, ClassLayout* layout);
+    GenTree* inlAssignStructInlineeToTemp(GenTree* src, ClassLayout* layout);
+    void inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, ClassLayout* layout);
 #endif // FEATURE_MULTIREG_RET
 
     static fgWalkPreFn  fgUpdateInlineReturnExpressionPlaceHolder;
