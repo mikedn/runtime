@@ -603,7 +603,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         // If we end up swapping type we may need to retype the tree:
         if (retType != newType)
         {
-            if ((retType == TYP_BYREF) && (tree->OperGet() == GT_IND))
+            if ((retType == TYP_BYREF) && (inlineCandidate->OperGet() == GT_IND))
             {
                 // - in an RVA static if we've reinterpreted it as a byref;
                 assert(newType == TYP_I_IMPL);
