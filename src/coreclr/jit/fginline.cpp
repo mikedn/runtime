@@ -631,7 +631,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         // that lvIsMultiRegRet is set to true. But this code doesn't even bother to
         // check if the return expression is still a call...
 
-        if (call->GetRegCount() > 1)
+        if (varTypeIsStruct(call->GetType()) && (call->GetRegCount() > 1))
         {
             // Is this a type that is returned in multiple registers
             // or a via a primitve type that is larger than the struct type?
@@ -1517,8 +1517,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
             const bool        argIsSingleDef = !argInfo.argHasLdargaOp && !argInfo.argHasStargOp;
             GenTree*          argNode        = inlArgInfo[argNum].argNode;
 
-            unsigned __int64 bbFlags = 0;
-            argNode                  = argNode->gtRetExprVal(&bbFlags);
+            uint64_t bbFlags = 0;
+            argNode          = argNode->gtRetExprVal(&bbFlags);
 
             if (argInfo.argHasTmp)
             {
@@ -1690,36 +1690,31 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                         // (2) NYI. If, after tunneling through GT_RET_VALs, we find that
                         // the actual arg expression has no side effects, we can skip
                         // appending all together. This will help jit TP a bit.
-                        //
-                        // Chase through any GT_RET_EXPRs to find the actual argument
-                        // expression.
-                        GenTree* actualArgNode = argNode->gtRetExprVal(&bbFlags);
 
                         // For case (1)
                         //
                         // Look for the following tree shapes
                         // prejit: (IND (ADD (CONST, CALL(special dce helper...))))
                         // jit   : (COMMA (CALL(special dce helper...), (FIELD ...)))
-                        if (actualArgNode->gtOper == GT_COMMA)
+                        if (argNode->OperIs(GT_COMMA))
                         {
                             // Look for (COMMA (CALL(special dce helper...), (FIELD ...)))
-                            GenTree* op1 = actualArgNode->AsOp()->gtOp1;
-                            GenTree* op2 = actualArgNode->AsOp()->gtOp2;
+                            GenTree* op1 = argNode->AsOp()->gtOp1;
+                            GenTree* op2 = argNode->AsOp()->gtOp2;
                             if (op1->IsCall() &&
                                 ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
                                 (op2->gtOper == GT_FIELD) && ((op2->gtFlags & GTF_EXCEPT) == 0))
                             {
-                                JITDUMP("\nPerforming special dce on unused arg [%06u]:"
-                                        " actual arg [%06u] helper call [%06u]\n",
-                                        argNode->gtTreeID, actualArgNode->gtTreeID, op1->gtTreeID);
+                                JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n",
+                                        argNode->gtTreeID, op1->gtTreeID);
                                 // Drop the whole tree
                                 append = false;
                             }
                         }
-                        else if (actualArgNode->gtOper == GT_IND)
+                        else if (argNode->OperIs(GT_IND))
                         {
                             // Look for (IND (ADD (CONST, CALL(special dce helper...))))
-                            GenTree* addr = actualArgNode->AsOp()->gtOp1;
+                            GenTree* addr = argNode->AsIndir()->GetAddr();
 
                             if (addr->gtOper == GT_ADD)
                             {
@@ -1730,9 +1725,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                                     op2->IsCnsIntOrI())
                                 {
                                     // Drop the whole tree
-                                    JITDUMP("\nPerforming special dce on unused arg [%06u]:"
-                                            " actual arg [%06u] helper call [%06u]\n",
-                                            argNode->gtTreeID, actualArgNode->gtTreeID, op1->gtTreeID);
+                                    JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n",
+                                            argNode->gtTreeID, op1->gtTreeID);
                                     append = false;
                                 }
                             }
