@@ -8842,9 +8842,11 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
     if (tree)
     {
-        printf(" %-6s", varTypeName(tree->GetType()));
-
-        if (varTypeIsStruct(tree->GetType()))
+        if (!varTypeIsStruct(tree->GetType()))
+        {
+            printf(" %-6s", varTypeName(tree->GetType()));
+        }
+        else
         {
             ClassLayout* layout = nullptr;
 
@@ -8869,6 +8871,16 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             {
                 layout = index->GetLayout();
             }
+            else if (GenTreeCall* call = tree->IsCall())
+            {
+                layout = call->GetRetLayout();
+            }
+            else if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
+            {
+                layout = retExpr->GetCall()->GetRetLayout();
+            }
+
+            printf(" %s", varTypeName(tree->GetType()));
 
             if (layout != nullptr)
             {
@@ -9687,9 +9699,7 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
             break;
 
         case GT_RET_EXPR:
-            printf("(inl return from call ");
-            printTreeID(tree->AsRetExpr()->GetCall());
-            printf(")");
+            printf(" (call " FMT_TREEID ")", tree->AsRetExpr()->GetCall()->GetID());
             break;
 
         case GT_PHYSREG:

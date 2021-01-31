@@ -1206,88 +1206,64 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
     // In all other cases we create and return a struct assignment node.
 
-    GenTree*  dest = nullptr;
-    var_types srcType;
+    GenTree* dest = nullptr;
 
     if (src->OperIs(GT_CALL))
     {
         if (destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            dest    = destAddr->AsUnOp()->GetOp(0)->AsLclVar();
-            srcType = TYP_UNDEF; // We don't care about srcType if we set dest.
-        }
-        else
-        {
-            srcType = src->AsCall()->GetRetSigType();
+            dest = destAddr->AsUnOp()->GetOp(0)->AsLclVar();
         }
     }
     else if (src->OperIs(GT_RET_EXPR))
     {
-        srcType = src->GetType();
     }
     else if (src->OperIs(GT_OBJ))
     {
         assert(src->GetType() == impNormStructType(structHnd));
         assert((src->AsObj()->GetLayout()->GetClassHandle() == structHnd) || varTypeIsSIMD(src->GetType()));
-
-        srcType = src->GetType();
     }
     else if (src->OperIs(GT_INDEX))
     {
-        assert(src->TypeIs(TYP_STRUCT));
+        assert(src->GetType() == impNormStructType(structHnd));
         assert(src->AsIndex()->GetLayout()->GetClassHandle() == structHnd);
-
-        // Currently INDEX type isn't normalized so we have to do it here.
-        srcType = impNormStructType(structHnd);
     }
     else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        srcType = src->GetType();
     }
     else
     {
         assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsSimdOrHWintrinsic());
         assert((structHnd == NO_CLASS_HANDLE) || (src->GetType() == impNormStructType(structHnd)));
-
-        srcType = src->GetType();
     }
+
+    var_types srcType = src->GetType();
 
     if ((dest == nullptr) && destAddr->OperIs(GT_ADDR))
     {
         GenTree*  destLocation = destAddr->AsUnOp()->GetOp(0);
         var_types destType     = destLocation->GetType();
 
-        // If the actual destination is a local, a GT_INDEX or a block node, or is a node that
-        // will be morphed, don't insert an OBJ(ADDR) if it already has the right type.
-
         if (destLocation->OperIs(GT_LCL_VAR, GT_INDEX, GT_OBJ))
         {
-            // If one or both types are TYP_STRUCT (one may not yet be normalized), they are compatible
-            // iff their handles are the same.
-            // Otherwise, they are compatible if their types are the same.
+            // If the actual destination is a local, a GT_INDEX or a block node, or is a node that
+            // will be morphed, don't insert an OBJ(ADDR) if it already has the right type.
 
-            bool typesAreCompatible =
-                ((destType == TYP_STRUCT) || (srcType == TYP_STRUCT))
-                    ? ((gtGetStructHandleIfPresent(destLocation) == structHnd) && varTypeIsStruct(srcType))
-                    : (destType == srcType);
-
-            if (typesAreCompatible)
+            if ((destType == srcType) &&
+                (varTypeIsSIMD(srcType) || (gtGetStructHandleIfPresent(destLocation) == structHnd)))
             {
                 dest = destLocation;
-
-                if (destType != TYP_STRUCT)
-                {
-                    // Use a normalized type if available. We know from above that they're equivalent.
-                    srcType = destType;
-                }
             }
         }
-        else if (destLocation->OperIs(GT_FIELD) && (destType == srcType) && varTypeIsSIMD(srcType))
+        else if (destLocation->OperIs(GT_FIELD))
         {
             // SIMD typed FIELDs can be used directly, STRUCT typed fields need to be wrapped into
             // an OBJ to avoid the sruct type getting lost due to single field struct promotion.
 
-            dest = destLocation;
+            if ((destType == srcType) && varTypeIsSIMD(srcType))
+            {
+                dest = destLocation;
+            }
         }
     }
 
@@ -7751,17 +7727,15 @@ DONE_INTRINSIC:
             sig = &callSiteSig;
         }
 
-        if (call->IsCall())
+        if (GenTreeCall* origCall = call->IsCall())
         {
             // Sometimes "call" is not a GT_CALL (if we imported an intrinsic that didn't turn into a call)
-
-            GenTreeCall* origCall = call->AsCall();
 
             const bool isFatPointerCandidate              = origCall->IsFatPointerCandidate();
             const bool isInlineCandidate                  = origCall->IsInlineCandidate();
             const bool isGuardedDevirtualizationCandidate = origCall->IsGuardedDevirtualizationCandidate();
 
-            if (varTypeIsStruct(call->GetType()))
+            if (varTypeIsStruct(origCall->GetType()))
             {
 #if FEATURE_MULTIREG_RET
                 if ((origCall->GetRegCount() > 1) && !origCall->CanTailCall() && !isInlineCandidate)
@@ -7790,7 +7764,7 @@ DONE_INTRINSIC:
                 impAppendTree(origCall, CHECK_SPILL_ALL, impCurStmtOffs);
 
                 // TODO: Still using the widened type.
-                GenTreeRetExpr* retExpr = gtNewRetExpr(origCall, varActualType(callRetTyp));
+                GenTreeRetExpr* retExpr = gtNewRetExpr(origCall, origCall->GetType());
 
                 // Link the retExpr to the call so if necessary we can manipulate it later.
                 origCall->gtInlineCandidateInfo->retExprPlaceholder = retExpr;
@@ -7890,8 +7864,10 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     assert(call->GetRetLayout() == nullptr);
 
     ClassLayout* layout = typGetObjLayout(retClass);
+    var_types    type   = impNormStructType(retClass);
 
-    call->SetRetSigType(impNormStructType(retClass));
+    call->SetType(type);
+    call->SetRetSigType(type);
     call->SetRetLayout(layout);
 
     structPassingKind retKind;
