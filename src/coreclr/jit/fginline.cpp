@@ -1445,7 +1445,8 @@ _Done:
     // so later it will be picked up by the GT_RET_EXPR node.
     if (pInlineInfo->iciCall->GetRetSigType() != TYP_VOID)
     {
-        noway_assert(pInlineInfo->retExpr);
+        noway_assert(pInlineInfo->retExpr != nullptr);
+
 #ifdef DEBUG
         if (verbose)
         {
@@ -1460,11 +1461,10 @@ _Done:
         // but may still be referenced from a GT_RET_EXPR node. We will replace GT_RET_EXPR node
         // in fgUpdateInlineReturnExpressionPlaceHolder. At that time we will also update the flags
         // on the basic block of GT_RET_EXPR node.
-        if (iciCall->gtInlineCandidateInfo->retExpr->OperGet() == GT_RET_EXPR)
-        {
-            // Save the basic block flags from the retExpr basic block.
-            iciCall->gtInlineCandidateInfo->retExpr->AsRetExpr()->bbFlags = pInlineInfo->retBB->bbFlags;
-        }
+
+        // Save the basic block flags from the retExpr basic block.
+        iciCall->gtInlineCandidateInfo->retExprPlaceholder->bbFlags = pInlineInfo->retBB->bbFlags;
+
         iciCall->ReplaceWith(pInlineInfo->retExpr, this);
     }
 

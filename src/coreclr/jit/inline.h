@@ -544,7 +544,7 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
     CORINFO_METHOD_HANDLE  ilCallerHandle; // the logical IL caller of this inlinee.
     CORINFO_CLASS_HANDLE   clsHandle;
     CORINFO_CONTEXT_HANDLE exactContextHnd;
-    GenTree*               retExpr;
+    GenTreeRetExpr*        retExprPlaceholder;
     DWORD                  dwRestrictions;
     unsigned               preexistingSpillTemp;
     unsigned               clsAttr;

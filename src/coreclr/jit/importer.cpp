@@ -7784,10 +7784,10 @@ DONE_INTRINSIC:
                 impAppendTree(origCall, CHECK_SPILL_ALL, impCurStmtOffs);
 
                 // TODO: Still using the widened type.
-                GenTree* retExpr = gtNewRetExpr(origCall, varActualType(callRetTyp), compCurBB);
+                GenTreeRetExpr* retExpr = gtNewRetExpr(origCall, varActualType(callRetTyp), compCurBB);
 
                 // Link the retExpr to the call so if necessary we can manipulate it later.
-                origCall->gtInlineCandidateInfo->retExpr = retExpr;
+                origCall->gtInlineCandidateInfo->retExprPlaceholder = retExpr;
 
                 // Propagate retExpr as the placeholder for the call.
                 call = retExpr;
@@ -15455,7 +15455,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             pInfo->ilCallerHandle                 = pParam->pThis->info.compMethodHnd;
             pInfo->clsHandle                      = clsHandle;
             pInfo->exactContextHnd                = pParam->exactContextHnd;
-            pInfo->retExpr                        = nullptr;
+            pInfo->retExprPlaceholder             = nullptr;
             pInfo->dwRestrictions                 = dwRestrictions;
             pInfo->preexistingSpillTemp           = BAD_VAR_NUM;
             pInfo->clsAttr                        = clsAttr;

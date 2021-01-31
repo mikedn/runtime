@@ -635,12 +635,12 @@ private:
             // Todo: make sure we understand how this interacts with return type
             // munging for small structs.
             InlineCandidateInfo* inlineInfo = origCall->gtInlineCandidateInfo;
-            GenTree*             retExpr    = inlineInfo->retExpr;
+            GenTreeRetExpr*      retExpr    = inlineInfo->retExprPlaceholder;
 
             // Sanity check the ret expr if non-null: it should refer to the original call.
             if (retExpr != nullptr)
             {
-                assert(retExpr->AsRetExpr()->gtInlineCandidate == origCall);
+                assert(retExpr->gtInlineCandidate == origCall);
             }
 
             if (origCall->TypeGet() != TYP_VOID)
@@ -657,7 +657,8 @@ private:
 
                 JITDUMP("Updating GT_RET_EXPR [%06u] to refer to temp V%02u\n", compiler->dspTreeID(retExpr),
                         returnTemp);
-                retExpr->AsRetExpr()->gtInlineCandidate = tempTree;
+
+                retExpr->gtInlineCandidate = tempTree;
             }
             else if (retExpr != nullptr)
             {
@@ -670,8 +671,8 @@ private:
                 // the benefit of a larger tree is unclear.
                 JITDUMP("Updating GT_RET_EXPR [%06u] for VOID return to refer to a NOP\n",
                         compiler->dspTreeID(retExpr));
-                GenTree* nopTree                        = compiler->gtNewNothingNode();
-                retExpr->AsRetExpr()->gtInlineCandidate = nopTree;
+
+                retExpr->gtInlineCandidate = compiler->gtNewNothingNode();
             }
             else
             {
@@ -721,7 +722,8 @@ private:
             assert(!call->IsVirtual());
 
             // Re-establish this call as an inline candidate.
-            GenTree* oldRetExpr = inlineInfo->retExpr;
+            GenTreeRetExpr* oldRetExpr = inlineInfo->retExprPlaceholder;
+
             // Todo -- pass this back from impdevirt...?
             inlineInfo->clsHandle       = compiler->info.compCompHnd->getMethodClass(methodHnd);
             inlineInfo->exactContextHnd = context;
@@ -738,8 +740,9 @@ private:
             // we set all this up in FixupRetExpr().
             if (oldRetExpr != nullptr)
             {
-                GenTree* retExpr    = compiler->gtNewRetExpr(call, call->GetType(), thenBlock);
-                inlineInfo->retExpr = retExpr;
+                inlineInfo->retExprPlaceholder = compiler->gtNewRetExpr(call, call->GetType(), thenBlock);
+
+                GenTree* retExpr = inlineInfo->retExprPlaceholder;
 
                 if (returnTemp != BAD_VAR_NUM)
                 {
@@ -750,6 +753,7 @@ private:
                     // We should always have a return temp if we return results by value
                     assert(origCall->TypeGet() == TYP_VOID);
                 }
+
                 compiler->fgNewStmtAtEnd(thenBlock, retExpr);
             }
         }
