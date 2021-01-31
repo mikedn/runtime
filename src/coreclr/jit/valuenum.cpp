@@ -7497,11 +7497,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     vnStore->VNForHandle(ssize_t(tree->AsFptrVal()->gtFptrMethod), GTF_ICON_METHOD_HDL));
                 break;
 
-            // This group passes through a value from a child node.
-            case GT_RET_EXPR:
-                tree->SetVNsFromNode(tree->AsRetExpr()->gtInlineCandidate);
-                break;
-
             case GT_LCL_FLD:
             {
                 GenTreeLclFld* lclFld = tree->AsLclFld();
