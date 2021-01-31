@@ -192,7 +192,7 @@ PhaseStatus Compiler::fgInline()
             // replacement may have enabled optimizations by providing more
             // specific types for trees or variables.
             fgWalkTree(stmt->GetRootNodePointer(), fgUpdateInlineReturnExpressionPlaceHolder, fgLateDevirtualization,
-                       (void*)this);
+                       this);
 
             // See if stmt is of the form GT_COMMA(call, nop)
             // If yes, we can get rid of GT_COMMA.
@@ -511,8 +511,8 @@ void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO
 // inline return expression placeholder.
 //
 // Arguments:
-//    pTree -- pointer to tree to examine for updates
-//    data  -- context data for the tree walk
+//    use - the use of a tree node
+//    data - context data for the tree walk
 //
 // Returns:
 //    fgWalkResult indicating the walk should continue; that
@@ -530,15 +530,17 @@ void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO
 //    the functions makes necessary updates. It could happen if there was
 //    an implicit conversion in the inlinee body.
 //
-Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTree** pTree, fgWalkData* data)
+Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTree** use, fgWalkData* data)
 {
+    Compiler* comp = data->compiler;
+    GenTree*  tree = *use;
+
     // All the operations here and in the corresponding postorder
     // callback (fgLateDevirtualization) are triggered by GT_CALL or
     // GT_RET_EXPR trees, and these (should) have the call side
     // effect flag.
     //
     // So bail out for any trees that don't have this flag.
-    GenTree* tree = *pTree;
 
     // TODO-MIKE-Fix: A change in master results in RET_EXPR appearing in trees without ancestors
     // having GTF_CALL set. It's not clear if the change in master is broken and hidden by the now
@@ -548,143 +550,129 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     //  - the RET_EXPR is still there in the IR and is yet to be replaced
     //  - being side effect free the return expression is used directly, ignoring an arg temp
     //  - this may happen recursively and another RET_EXPR sneaks in, in place of the temp
-    //
+
     // if ((tree->gtFlags & GTF_CALL) == 0)
     //{
     //    return WALK_SKIP_SUBTREES;
     //}
 
-    Compiler*    comp      = data->compiler;
-    ClassLayout* retLayout = nullptr;
-
-    while (tree->OperGet() == GT_RET_EXPR)
+    if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
     {
-        // We are going to copy the tree from the inlinee,
-        // so record the handle now.
-        //
-        if (varTypeIsStruct(tree))
-        {
-            retLayout = tree->AsRetExpr()->GetRetLayout();
-        }
+        GenTree* value = nullptr;
+#if FEATURE_MULTIREG_RET
+        ClassLayout* layout = nullptr;
+#endif
 
-        // Skip through chains of GT_RET_EXPRs (say from nested inlines)
-        // to the actual tree to use.
-        //
-        // Also we might as well try and fold the return value.
-        // Eg returns of constant bools will have CASTS.
-        // This folding may uncover more GT_RET_EXPRs, so we loop around
-        // until we've got something distinct.
-        //
-        unsigned __int64 bbFlags         = 0;
-        GenTree*         inlineCandidate = tree->gtRetExprVal(&bbFlags);
-        inlineCandidate                  = comp->gtFoldExpr(inlineCandidate);
-        var_types retType                = tree->TypeGet();
+        for (; retExpr != nullptr; retExpr = value->IsRetExpr())
+        {
+#if FEATURE_MULTIREG_RET
+            if (varTypeIsStruct(retExpr->GetType()))
+            {
+                layout = retExpr->GetRetLayout();
+            }
+#endif
+
+            uint64_t bbFlags = 0;
+            value            = retExpr->gtRetExprVal(&bbFlags);
+            comp->compCurBB->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
+
+            // Try to fold the return value (e.g. returns of constant bools or small integers
+            // will have widening casts). This folding may uncover more RET_EXPRs, so we loop
+            // around until we've got something distinct.
+
+            value = comp->gtFoldExpr(value);
+
+            if (retExpr->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
+            {
+                // An RVA static may have been reinterpreted as byref.
+                assert(value->TypeIs(TYP_I_IMPL));
+                JITDUMP("Updating type of the return GT_IND expression to TYP_BYREF\n");
+
+                value->SetType(TYP_BYREF);
+            }
+        }
 
 #ifdef DEBUG
         if (comp->verbose)
         {
             printf("\nReplacing the return expression placeholder ");
-            printTreeID(tree);
+            printTreeID(retExpr);
 
-            if (data->parent == nullptr)
-            {
-                comp->gtDispTree(tree);
-            }
-            else
+            if (data->parent != nullptr)
             {
                 printf(" in\n");
                 comp->gtDispTree(data->parent);
             }
-        }
-#endif // DEBUG
 
-        var_types newType = inlineCandidate->TypeGet();
-
-        // If we end up swapping type we may need to retype the tree:
-        if (retType != newType)
-        {
-            if ((retType == TYP_BYREF) && (inlineCandidate->OperGet() == GT_IND))
-            {
-                // - in an RVA static if we've reinterpreted it as a byref;
-                assert(newType == TYP_I_IMPL);
-                JITDUMP("Updating type of the return GT_IND expression to TYP_BYREF\n");
-                inlineCandidate->gtType = TYP_BYREF;
-            }
-        }
-
-        tree = *pTree = inlineCandidate;
-        comp->compCurBB->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
-
-#ifdef DEBUG
-        if (comp->verbose)
-        {
             printf("with inline return expression\n");
-            comp->gtDispTree(tree);
+            comp->gtDispTree(value);
             printf("\n");
         }
-#endif // DEBUG
-    }
+#endif
+
+        tree = *use = value;
 
 #if FEATURE_MULTIREG_RET
-    // If an inline was rejected and the call returns a struct, we may
-    // have deferred some work when importing call for cases where the
-    // struct is returned in register(s).
-    //
-    // See the bail-out clauses in impCanonicalizeMultiRegCall for inline
-    // candidates.
-    //
-    // Do the deferred work now.
+        // If an inline was rejected and the call returns a struct, we may
+        // have deferred some work when importing call for cases where the
+        // struct is returned in register(s).
+        //
+        // See the bail-out clauses in impCanonicalizeMultiRegCall for inline
+        // candidates.
+        //
+        // Do the deferred work now.
 
-    // TODO-MIKE-Cleanup: This seems to do more than impCanonicalizeMultiRegCall.
-    // That one simply ensures that multi-reg calls are spilled to a local and
-    // that lvIsMultiRegRet is set to true. But this code doesn't even bother to
-    // check if the return expression is still a call...
+        // TODO-MIKE-Cleanup: This seems to do more than impCanonicalizeMultiRegCall.
+        // That one simply ensures that multi-reg calls are spilled to a local and
+        // that lvIsMultiRegRet is set to true. But this code doesn't even bother to
+        // check if the return expression is still a call...
 
-    if (retLayout != nullptr)
-    {
-        CORINFO_CLASS_HANDLE retClsHnd = retLayout->GetClassHandle();
-        structPassingKind    retKind;
-        comp->getReturnTypeForStruct(retClsHnd, CorInfoCallConvExtension::Managed, &retKind);
-
-        switch (retKind)
+        if (layout != nullptr)
         {
-            // Is this a type that is returned in multiple registers
-            // or a via a primitve type that is larger than the struct type?
-            // if so we need to force into into a form we accept.
-            // i.e. LclVar = call()
-            case SPK_ByValue:
-            case SPK_ByValueAsHfa:
-                // See assert below, we only look one level above for an asg parent.
-                if (data->parent->OperIs(GT_ASG))
-                {
-                    // Either lhs is a call V05 = call(); or lhs is addr, and asg becomes a copyBlk.
-                    comp->inlAttachStructInlineeToAsg(data->parent->AsOp(), tree, retClsHnd);
-                }
-                else
-                {
-                    // Just assign the inlinee to a variable to keep it simple.
-                    tree = *pTree = comp->inlAssignStructInlineeToTemp(tree, retClsHnd);
-                }
-                break;
+            CORINFO_CLASS_HANDLE retClsHnd = layout->GetClassHandle();
+            structPassingKind    retKind;
+            comp->getReturnTypeForStruct(retClsHnd, CorInfoCallConvExtension::Managed, &retKind);
 
-            case SPK_PrimitiveType:
-            case SPK_ByReference:
-                break;
+            switch (retKind)
+            {
+                // Is this a type that is returned in multiple registers
+                // or a via a primitve type that is larger than the struct type?
+                // if so we need to force into into a form we accept.
+                // i.e. LclVar = call()
+                case SPK_ByValue:
+                case SPK_ByValueAsHfa:
+                    // See assert below, we only look one level above for an asg parent.
+                    if (data->parent->OperIs(GT_ASG))
+                    {
+                        // Either lhs is a call V05 = call(); or lhs is addr, and asg becomes a copyBlk.
+                        comp->inlAttachStructInlineeToAsg(data->parent->AsOp(), tree, retClsHnd);
+                    }
+                    else
+                    {
+                        // Just assign the inlinee to a variable to keep it simple.
+                        tree = *use = comp->inlAssignStructInlineeToTemp(tree, retClsHnd);
+                    }
+                    break;
 
-            default:
-                unreached();
+                case SPK_PrimitiveType:
+                case SPK_ByReference:
+                    break;
+
+                default:
+                    unreached();
+            }
         }
+#endif
     }
 
-#if defined(DEBUG)
-
+#if FEATURE_MULTIREG_RET && defined(DEBUG)
     // Make sure we don't have a tree like so: V05 = (, , , retExpr);
     // Since we only look one level above for the parent for '=' and
     // do not check if there is a series of COMMAs. See above.
     // Importer and FlowGraph will not generate such a tree, so just
     // leaving an assert in here. This can be fixed by looking ahead
     // when we visit GT_ASG similar to inlAttachStructInlineeToAsg.
-    //
+
     if (tree->OperIs(GT_ASG))
     {
         GenTree* value = tree->AsOp()->GetOp(1);
@@ -700,9 +688,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
             noway_assert(!isMultiRegCall);
         }
     }
-
-#endif // defined(DEBUG)
-#endif // FEATURE_MULTIREG_RET
+#endif
 
     return WALK_CONTINUE;
 }
