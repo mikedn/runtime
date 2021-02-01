@@ -104,14 +104,10 @@ PhaseStatus Compiler::fgInline()
                                                                         &info.compMethodInfo->args);
 #endif // DEBUG
 
-    BasicBlock* block       = fgFirstBB;
-    bool        madeChanges = false;
-    noway_assert(block != nullptr);
-
     // Set the root inline context on all statements
     InlineContext* rootContext = m_inlineStrategy->GetRootContext();
 
-    for (; block != nullptr; block = block->bbNext)
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
         for (Statement* stmt : block->Statements())
         {
@@ -119,12 +115,10 @@ PhaseStatus Compiler::fgInline()
         }
     }
 
-    // Reset block back to start for inlining
-    block = fgFirstBB;
+    bool madeChanges = false;
 
-    do
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
-        // Make the current basic block address available globally
         compCurBB = block;
 
         for (Statement* stmt : block->Statements())
@@ -134,32 +128,19 @@ PhaseStatus Compiler::fgInline()
             // candidate stage. So scan the tree looking for those early failures.
             INDEBUG(fgWalkTreePre(stmt->GetRootNodePointer(), fgFindNonInlineCandidate, stmt);)
 
+            // The importer ensures that all inline candidates are statement roots.
             GenTree* expr = stmt->GetRootNode();
 
-            // The importer ensures that all inline candidates are
-            // statement expressions.  So see if we have a call.
             if (GenTreeCall* call = expr->IsCall())
             {
-                // We do. Is it an inline candidate?
-                //
-                // Note we also process GuardeDevirtualizationCandidates here as we've
-                // split off GT_RET_EXPRs for them even when they are not inline candidates
-                // as we need similar processing to ensure they get patched back to where
-                // they belong.
                 if (call->IsInlineCandidate() || call->IsGuardedDevirtualizationCandidate())
                 {
-                    InlineResult inlineResult(this, call, stmt, "fgInline");
+                    bool inlined = fgMorphCallInline(stmt, call);
 
-                    fgMorphStmt = stmt;
-
-                    fgMorphCallInline(call, &inlineResult);
-
-                    // If there's a candidate to process, we will make changes
-                    madeChanges = true;
-
-                    if (inlineResult.IsSuccess() || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr))
+                    if (inlined || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr))
                     {
                         fgRemoveStmt(block, stmt DEBUGARG(/*dumpStmt */ false));
+                        madeChanges = true;
                         continue;
                     }
                 }
@@ -182,38 +163,24 @@ PhaseStatus Compiler::fgInline()
             fgWalkTree(stmt->GetRootNodePointer(), fgUpdateInlineReturnExpressionPlaceHolder, fgLateDevirtualization,
                        this);
 
-            // See if stmt is of the form GT_COMMA(call, nop)
-            // If yes, we can get rid of GT_COMMA.
-            if (expr->OperGet() == GT_COMMA && expr->AsOp()->gtOp1->OperGet() == GT_CALL &&
-                expr->AsOp()->gtOp2->OperGet() == GT_NOP)
+            // COMMA(CALL, NOP) => CALL
+            if (expr->OperIs(GT_COMMA) && expr->AsOp()->GetOp(0)->IsCall() && expr->AsOp()->GetOp(1)->OperIs(GT_NOP))
             {
+                stmt->SetRootNode(expr->AsOp()->GetOp(0));
                 madeChanges = true;
-                stmt->SetRootNode(expr->AsOp()->gtOp1);
             }
         }
-
-        block = block->bbNext;
-
-    } while (block);
+    }
 
 #ifdef DEBUG
-
     // Check that we should not have any inline candidate or return value place holder left.
-
-    block = fgFirstBB;
-    noway_assert(block);
-
-    do
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
         for (Statement* stmt : block->Statements())
         {
-            // Call Compiler::fgDebugCheckInlineCandidates on each node
             fgWalkTreePre(stmt->GetRootNodePointer(), fgDebugCheckInlineCandidates);
         }
-
-        block = block->bbNext;
-
-    } while (block);
+    }
 
     fgVerifyHandlerTab();
 
@@ -223,7 +190,6 @@ PhaseStatus Compiler::fgInline()
         printf("\n");
         m_inlineStrategy->Dump(verbose);
     }
-
 #endif // DEBUG
 
     // TODO-MIKE-Fix: Change detection is not reliable due to the problem described in
@@ -847,46 +813,45 @@ Compiler::fgWalkResult Compiler::fgDebugCheckInlineCandidates(GenTree** pTree, f
 //------------------------------------------------------------------------------
 // fgMorphCallInline: attempt to inline a call
 //
-// Arguments:
-//    call         - call expression to inline, inline candidate
-//    inlineResult - result tracking and reporting
+// If successful, callee's IR is inserted in place of the call, and
+// is marked with an InlineContext.
 //
-// Notes:
-//    Attempts to inline the call.
-//
-//    If successful, callee's IR is inserted in place of the call, and
-//    is marked with an InlineContext.
-//
-//    If unsuccessful, the transformations done in anticipation of a
-//    possible inline are undone, and the candidate flag on the call
-//    is cleared.
+// If unsuccessful, the transformations done in anticipation of a
+// possible inline are undone, and the candidate flag on the call
+// is cleared.
 
-void Compiler::fgMorphCallInline(GenTreeCall* call, InlineResult* inlineResult)
+bool Compiler::fgMorphCallInline(Statement* stmt, GenTreeCall* call)
 {
+    fgMorphStmt = stmt;
+
+    InlineResult inlineResult(this, call, stmt, "fgInline");
+
     if (call->IsInlineCandidate())
     {
-        fgMorphCallInlineHelper(call, inlineResult);
+        fgMorphCallInlineHelper(call, &inlineResult);
 
         // We should have made up our minds one way or another....
-        assert(inlineResult->IsDecided());
+        assert(inlineResult.IsDecided());
 
         // If we failed to inline, we have a bit of work to do to cleanup
-        if (inlineResult->IsFailure())
+        if (inlineResult.IsFailure())
         {
             // Before we do any cleanup, create a failing InlineContext to
             // capture details of the inlining attempt.
-            INDEBUG(m_inlineStrategy->NewFailure(fgMorphStmt, inlineResult);)
+            INDEBUG(m_inlineStrategy->NewFailure(stmt, &inlineResult);)
 
             // Clear the Inline Candidate flag so we can ensure later we tried
             // inlining all candidates.
             call->gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
         }
+
+        return inlineResult.IsSuccess();
     }
-    else
-    {
-        // This wasn't an inline candidate. So it must be a GDV candidate.
-        assert(call->IsGuardedDevirtualizationCandidate());
-    }
+
+    // This wasn't an inline candidate. So it must be a GDV candidate.
+    assert(call->IsGuardedDevirtualizationCandidate());
+
+    return false;
 }
 
 /*****************************************************************************

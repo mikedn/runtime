@@ -4871,7 +4871,7 @@ private:
                                                      Statement*     tmpAssignmentInsertionPoint,
                                                      Statement*     paramAssignmentInsertionPoint);
     GenTree* fgMorphCall(GenTreeCall* call);
-    void fgMorphCallInline(GenTreeCall* call, InlineResult* result);
+    bool fgMorphCallInline(Statement* stmt, GenTreeCall* call);
     void fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result);
 #if DEBUG
     void fgNoteNonInlineCandidate(Statement* stmt, GenTreeCall* call);
