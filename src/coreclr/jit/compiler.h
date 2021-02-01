@@ -4395,7 +4395,7 @@ public:
 
     void fgRemoveEmptyBlocks();
 
-    void fgRemoveStmt(BasicBlock* block, Statement* stmt);
+    void fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt = true));
 
     bool fgCheckRemoveStmt(BasicBlock* block, Statement* stmt);
 

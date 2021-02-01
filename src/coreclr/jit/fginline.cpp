@@ -129,22 +129,17 @@ PhaseStatus Compiler::fgInline()
 
         for (Statement* stmt : block->Statements())
         {
-
-#ifdef DEBUG
             // In debug builds we want the inline tree to show all failed
             // inlines. Some inlines may fail very early and never make it to
             // candidate stage. So scan the tree looking for those early failures.
-            fgWalkTreePre(stmt->GetRootNodePointer(), fgFindNonInlineCandidate, stmt);
-#endif
+            INDEBUG(fgWalkTreePre(stmt->GetRootNodePointer(), fgFindNonInlineCandidate, stmt);)
 
             GenTree* expr = stmt->GetRootNode();
 
             // The importer ensures that all inline candidates are
             // statement expressions.  So see if we have a call.
-            if (expr->IsCall())
+            if (GenTreeCall* call = expr->IsCall())
             {
-                GenTreeCall* call = expr->AsCall();
-
                 // We do. Is it an inline candidate?
                 //
                 // Note we also process GuardeDevirtualizationCandidates here as we've
@@ -162,16 +157,9 @@ PhaseStatus Compiler::fgInline()
                     // If there's a candidate to process, we will make changes
                     madeChanges = true;
 
-                    // fgMorphCallInline may have updated the
-                    // statement expression to a GT_NOP if the
-                    // call returned a value, regardless of
-                    // whether the inline succeeded or failed.
-                    //
-                    // If so, remove the GT_NOP and continue
-                    // on with the next statement.
-                    if (stmt->GetRootNode()->IsNothingNode())
+                    if (inlineResult.IsSuccess() || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr))
                     {
-                        fgRemoveStmt(block, stmt);
+                        fgRemoveStmt(block, stmt DEBUGARG(/*dumpStmt */ false));
                         continue;
                     }
                 }
@@ -875,12 +863,8 @@ Compiler::fgWalkResult Compiler::fgDebugCheckInlineCandidates(GenTree** pTree, f
 
 void Compiler::fgMorphCallInline(GenTreeCall* call, InlineResult* inlineResult)
 {
-    bool inliningFailed = false;
-
-    // Is this call an inline candidate?
     if (call->IsInlineCandidate())
     {
-        // Attempt the inline
         fgMorphCallInlineHelper(call, inlineResult);
 
         // We should have made up our minds one way or another....
@@ -889,20 +873,12 @@ void Compiler::fgMorphCallInline(GenTreeCall* call, InlineResult* inlineResult)
         // If we failed to inline, we have a bit of work to do to cleanup
         if (inlineResult->IsFailure())
         {
-
-#ifdef DEBUG
-
             // Before we do any cleanup, create a failing InlineContext to
             // capture details of the inlining attempt.
-            m_inlineStrategy->NewFailure(fgMorphStmt, inlineResult);
-
-#endif
-
-            inliningFailed = true;
+            INDEBUG(m_inlineStrategy->NewFailure(fgMorphStmt, inlineResult);)
 
             // Clear the Inline Candidate flag so we can ensure later we tried
             // inlining all candidates.
-            //
             call->gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
         }
     }
@@ -910,25 +886,6 @@ void Compiler::fgMorphCallInline(GenTreeCall* call, InlineResult* inlineResult)
     {
         // This wasn't an inline candidate. So it must be a GDV candidate.
         assert(call->IsGuardedDevirtualizationCandidate());
-
-        // We already know we can't inline this call, so don't even bother to try.
-        inliningFailed = true;
-    }
-
-    // If we failed to inline (or didn't even try), do some cleanup.
-    if (inliningFailed)
-    {
-        if (call->GetRetSigType() != TYP_VOID)
-        {
-            JITDUMP("Inlining [%06u] failed, so bashing " FMT_STMT " to NOP\n", dspTreeID(call), fgMorphStmt->GetID());
-
-            // Detach the GT_CALL tree from the original statement by
-            // hanging a "nothing" node to it. Later the "nothing" node will be removed
-            // and the original GT_CALL tree will be picked up by the GT_RET_EXPR node.
-
-            noway_assert(fgMorphStmt->GetRootNode() == call);
-            fgMorphStmt->SetRootNode(gtNewNothingNode());
-        }
     }
 }
 
@@ -1598,12 +1555,6 @@ _Done:
         iciCall->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(pInlineInfo->retExpr,
                                                                        pInlineInfo->retBB->bbFlags);
     }
-
-    //
-    // Detach the GT_CALL node from the original statement by hanging a "nothing" node under it,
-    // so that fgMorphStmts can remove the statement once we return from here.
-    //
-    iciStmt->SetRootNode(gtNewNothingNode());
 }
 
 //------------------------------------------------------------------------
