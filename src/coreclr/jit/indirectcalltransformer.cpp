@@ -587,26 +587,30 @@ private:
         {
             checkBlock = CreateAndInsertBasicBlock(BBJ_COND, currBlock);
 
-            // Fetch method table from object arg to call.
-            GenTree* thisTree = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
+            GenTree* thisTree = origCall->gtCallThisArg->GetNode();
+            unsigned thisLclNum;
 
-            // Create temp for this if the tree is costly.
-            if (!thisTree->IsLocal())
+            if (thisTree->OperIs(GT_LCL_VAR))
             {
-                const unsigned thisTempNum = compiler->lvaGrabTemp(true DEBUGARG("guarded devirt this temp"));
-                // lvaSetClass(thisTempNum, ...);
-                GenTree*   asgTree = compiler->gtNewTempAssign(thisTempNum, thisTree);
+                // TODO-MIKE-Review: Is it safe to use an existing LCL_VAR if it ends up being address
+                // exposed? An address exposed local could be modified by a different thread. That's
+                // extremely unusual but if it happens then type safety is compromised. And anyway,
+                // using a DNER local will result in poor codegen.
+
+                thisLclNum = thisTree->AsLclVar()->GetLclNum();
+            }
+            else
+            {
+                thisLclNum = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("guarded devirt this temp"));
+
+                GenTree*   asgTree = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF), thisTree);
                 Statement* asgStmt = compiler->fgNewStmtFromTree(asgTree, stmt->GetILOffsetX());
                 compiler->fgInsertStmtAtEnd(checkBlock, asgStmt);
 
-                thisTree = compiler->gtNewLclvNode(thisTempNum, TYP_REF);
-
-                // Propagate the new this to the call. Must be a new expr as the call
-                // will live on in the else block and thisTree is used below.
-                origCall->gtCallThisArg = compiler->gtNewCallArgs(compiler->gtNewLclvNode(thisTempNum, TYP_REF));
+                origCall->gtCallThisArg->SetNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF));
             }
 
-            GenTree* methodTable = compiler->gtNewMethodTableLookup(thisTree);
+            GenTree* methodTable = compiler->gtNewMethodTableLookup(compiler->gtNewLclvNode(thisLclNum, TYP_REF));
 
             // Find target method table
             GuardedDevirtualizationCandidateInfo* guardedInfo       = origCall->gtGuardedDevirtualizationCandidateInfo;
