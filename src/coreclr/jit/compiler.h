@@ -5001,7 +5001,7 @@ private:
     void fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* result);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
-    void fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
+    void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
 
     BasicBlock* inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter);
     void inlInsertInlineeBlocks(InlineInfo* inlineInfo,

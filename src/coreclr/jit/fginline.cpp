@@ -1246,7 +1246,7 @@ void Compiler::inlInsertInlineeCode(InlineInfo* pInlineInfo)
         callBlock->bbFlags |= (inlineeBlockFlags & ~BBF_RUN_RARELY);
 
         // Append statements to null out gc ref locals, if necessary.
-        fgInlineAppendStatements(pInlineInfo, callBlock, stmtAfter);
+        inlNullOutInlineeGCLocals(pInlineInfo, callBlock, stmtAfter);
     }
     else
     {
@@ -1263,7 +1263,7 @@ void Compiler::inlInsertInlineeCode(InlineInfo* pInlineInfo)
 #endif
 
         // Append statements to null out gc ref locals, if necessary.
-        fgInlineAppendStatements(pInlineInfo, bottomBlock, nullptr);
+        inlNullOutInlineeGCLocals(pInlineInfo, bottomBlock, nullptr);
     }
 
     inlPropagateInlineeCompilerState();
@@ -1903,89 +1903,68 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
     return afterStmt;
 }
 
-//------------------------------------------------------------------------
-// fgInlineAppendStatements: Append statements that are needed
-// after the inlined call.
+// Null out inlinee GC local variables to avoid keeping GC objects alive longer than necessary.
 //
-// Arguments:
-//    inlineInfo - information about the inline
-//    block      - basic block for the new statements
-//    stmtAfter  - (optional) insertion point for mid-block cases
-//
-// Notes:
-//    If the call we're inlining is in tail position then
-//    we skip nulling the locals, since it can interfere
-//    with tail calls introduced by the local.
-
-void Compiler::fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* block, Statement* stmtAfter)
+void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBlock* block, Statement* stmtAfter)
 {
-    // Null out any gc ref locals
+    JITDUMP("Null out inlinee GC locals:\n");
+    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
+
     if (!inlineInfo->HasGcRefLocals())
     {
-        // No ref locals, nothing to do.
-        JITDUMP("fgInlineAppendStatements: no gc ref inline locals.\n");
+        JITDUMP("\tInlinee doesn't contain GC locals.\n");
         return;
     }
 
     if (inlineInfo->iciCall->IsImplicitTailCall())
     {
-        JITDUMP("fgInlineAppendStatements: implicit tail call; skipping nulling.\n");
+        // If the call we're inlining is in tail position then
+        // we skip nulling the locals, since it can interfere
+        // with tail calls introduced by the local.
+
+        JITDUMP("Implicit tail call; skipping nulling.\n");
         return;
     }
 
-    JITDUMP("fgInlineAppendStatements: nulling out gc ref inlinee locals.\n");
+    const IL_OFFSETX ilOffset = inlineInfo->iciStmt->GetILOffsetX();
+    const unsigned   lclCount = InlineeCompiler->info.compMethodInfo->locals.numArgs;
+    const unsigned   argCount = inlineInfo->argCnt;
 
-    Statement*           callStmt          = inlineInfo->iciStmt;
-    IL_OFFSETX           callILOffset      = callStmt->GetILOffsetX();
-    CORINFO_METHOD_INFO* InlineeMethodInfo = InlineeCompiler->info.compMethodInfo;
-    const unsigned       lclCnt            = InlineeMethodInfo->locals.numArgs;
-    InlLclVarInfo*       lclVarInfo        = inlineInfo->lclVarInfo;
-    unsigned             gcRefLclCnt       = inlineInfo->numberOfGcRefLocals;
-    const unsigned       argCnt            = inlineInfo->argCnt;
+    INDEBUG(unsigned gcLclCount = 0;)
 
-    for (unsigned lclNum = 0; lclNum < lclCnt; lclNum++)
+    for (unsigned i = 0; i < lclCount; i++)
     {
-        // Is the local a gc ref type? Need to look at the
-        // inline info for this since we will not have local
-        // temps for unused inlinee locals.
-        const var_types lclTyp = lclVarInfo[argCnt + lclNum].lclType;
+        const var_types lclType = inlineInfo->lclVarInfo[argCount + i].lclType;
 
-        if (!varTypeIsGC(lclTyp))
+        if (!varTypeIsGC(lclType))
         {
-            // Nope, nothing to null out.
             continue;
         }
 
-        // Ensure we're examining just the right number of locals.
-        assert(gcRefLclCnt > 0);
-        gcRefLclCnt--;
+        assert(gcLclCount++ < inlineInfo->numberOfGcRefLocals);
 
-        // Fetch the temp for this inline local
-        const unsigned tmpNum = inlineInfo->lclTmpNum[lclNum];
+        const unsigned lclNum = inlineInfo->lclTmpNum[i];
 
-        // Is the local used at all?
-        if (tmpNum == BAD_VAR_NUM)
+        if (lclNum == BAD_VAR_NUM)
         {
-            // Nope, nothing to null out.
             continue;
         }
 
-        // Local was used, make sure the type is consistent.
-        assert(lvaTable[tmpNum].lvType == lclTyp);
+        assert(lvaGetDesc(lclNum)->GetType() == lclType);
 
-        // Does the local we're about to null out appear in the return
-        // expression?  If so we somehow messed up and didn't properly
-        // spill the return value. See impInlineFetchLocal.
-        GenTree* retExpr = inlineInfo->retExpr;
-        if (retExpr != nullptr)
+        if (inlineInfo->retExpr != nullptr)
         {
-            const bool interferesWithReturn = gtHasRef(inlineInfo->retExpr, tmpNum, false);
-            noway_assert(!interferesWithReturn);
+            // Does the local we're about to null out appear in the return
+            // expression? If so we somehow messed up and didn't properly
+            // spill the return value. See impInlineFetchLocal.
+
+            noway_assert(!gtHasRef(inlineInfo->retExpr, lclNum, false));
         }
 
-        // Assign null to the local.
-        GenTree*   nullExpr = gtNewTempAssign(tmpNum, gtNewZeroConNode(lclTyp));
-        Statement* nullStmt = gtNewStmt(nullExpr, callILOffset);
+        GenTreeOp* nullAsg  = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), gtNewZeroConNode(lclType));
+        Statement* nullStmt = gtNewStmt(nullAsg, ilOffset);
+
+        DBEXEC(verbose, gtDispStmt(nullStmt));
 
         if (stmtAfter == nullptr)
         {
@@ -1995,16 +1974,9 @@ void Compiler::fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* bloc
         {
             fgInsertStmtAfter(block, stmtAfter, nullStmt);
         }
-        stmtAfter = nullStmt;
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            gtDispStmt(nullStmt);
-        }
-#endif // DEBUG
+        stmtAfter = nullStmt;
     }
 
-    // There should not be any GC ref locals left to null out.
-    assert(gcRefLclCnt == 0);
+    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 }
