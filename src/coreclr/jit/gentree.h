@@ -373,6 +373,8 @@ struct Statement;
 #include <pshpack4.h>
 #endif
 
+#define FMT_TREEID "[%06u]"
+
 struct GenTree
 {
 // We use GT_STRUCT_0 only for the category of simple ops.
@@ -2105,6 +2107,10 @@ public:
 #endif
 
 #ifdef DEBUG
+    unsigned GetID() const
+    {
+        return gtTreeID;
+    }
 
 private:
     GenTree& operator=(const GenTree& gt)

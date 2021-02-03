@@ -1060,6 +1060,11 @@ struct BasicBlock : private LIR::Range
     Statement* firstStmt() const;
     Statement* lastStmt() const;
 
+    Statement* GetFirstStatement() const
+    {
+        return bbStmtList;
+    }
+
     StatementList Statements() const
     {
         return StatementList(firstStmt());

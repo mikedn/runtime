@@ -4999,7 +4999,7 @@ private:
 
     unsigned fgCheckInlineDepthAndRecursion(InlineInfo* inlineInfo);
     void fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* result);
-    void fgInsertInlineeBlocks(InlineInfo* pInlineInfo);
+    void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
     void fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
 

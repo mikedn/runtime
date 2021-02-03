@@ -1140,13 +1140,13 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
 
     // We've successfully obtain the list of inlinee's basic blocks.
     // Let's insert it to inliner's basic block list.
-    fgInsertInlineeBlocks(&inlineInfo);
+    inlInsertInlineeCode(&inlineInfo);
 
 #ifdef DEBUG
 
     if (verbose)
     {
-        printf("Successfully inlined %s (%d IL bytes) (depth %d) [%s]\n", eeGetMethodFullName(fncHandle),
+        printf("\nSuccessfully inlined %s (%d IL bytes) (depth %d) [%s]\n", eeGetMethodFullName(fncHandle),
                inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth, inlineResult->ReasonString());
     }
 
@@ -1165,7 +1165,7 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
 }
 
 //------------------------------------------------------------------------
-// fgInsertInlineeBlocks: incorporate statements for an inline into the
+// inlInsertInlineeCode: incorporate statements for an inline into the
 // root method.
 //
 // Arguments:
@@ -1186,132 +1186,96 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
 //
 //    Marks newly added statements with an appropriate inline context.
 
-void Compiler::fgInsertInlineeBlocks(InlineInfo* pInlineInfo)
+void Compiler::inlInsertInlineeCode(InlineInfo* pInlineInfo)
 {
-    GenTreeCall* iciCall  = pInlineInfo->iciCall;
-    Statement*   iciStmt  = pInlineInfo->iciStmt;
-    BasicBlock*  iciBlock = pInlineInfo->iciBlock;
-    BasicBlock*  block;
+    GenTreeCall* call = pInlineInfo->iciCall;
 
-    noway_assert(iciBlock->bbStmtList != nullptr);
-    noway_assert(iciStmt->GetRootNode() != nullptr);
-    assert(iciStmt->GetRootNode() == iciCall);
-    noway_assert(iciCall->gtOper == GT_CALL);
+    JITDUMP("\n---- Statements (and blocks) added due to the inlining of call " FMT_TREEID " ----\n", call->GetID());
 
-#ifdef DEBUG
+    Statement*  callStmt  = pInlineInfo->iciStmt;
+    BasicBlock* callBlock = pInlineInfo->iciBlock;
 
-    Statement* currentDumpStmt = nullptr;
-
-    if (verbose)
-    {
-        printf("\n\n----------- Statements (and blocks) added due to the inlining of call ");
-        printTreeID(iciCall);
-        printf(" -----------\n");
-    }
-
-#endif // DEBUG
+    noway_assert(callBlock->GetFirstStatement() != nullptr);
+    noway_assert(callStmt->GetRootNode() == call);
 
     // Create a new inline context and mark the inlined statements with it
-    InlineContext* calleeContext = m_inlineStrategy->NewSuccess(pInlineInfo);
+    InlineContext* inlineContext = m_inlineStrategy->NewSuccess(pInlineInfo);
 
-    for (block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
+    for (BasicBlock* block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
         for (Statement* stmt : block->Statements())
         {
-            stmt->SetInlineContext(calleeContext);
+            stmt->SetInlineContext(inlineContext);
         }
     }
 
-    // Prepend statements
     Statement* stmtAfter = fgInlinePrependStatements(pInlineInfo);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        currentDumpStmt = stmtAfter;
-        printf("\nInlinee method body:");
-    }
-#endif // DEBUG
+    JITDUMP("\nInlinee method body:\n");
 
     if ((InlineeCompiler->fgBBcount == 1) && (InlineeCompiler->fgFirstBB->bbJumpKind == BBJ_RETURN))
     {
         // Inlinee contains just one return block. So just insert its statement into the inliner block.
 
-        if (InlineeCompiler->fgFirstBB->bbStmtList != nullptr)
+        if (InlineeCompiler->fgFirstBB->GetFirstStatement() == nullptr)
         {
-            stmtAfter = fgInsertStmtListAfter(iciBlock, stmtAfter, InlineeCompiler->fgFirstBB->firstStmt());
+            JITDUMP("\tInlinee method has no statements.\n");
+        }
+        else
+        {
+#ifdef DEBUG
+            if (verbose)
+            {
+                for (Statement* stmt : InlineeCompiler->fgFirstBB->Statements())
+                {
+                    gtDispStmt(stmt);
+                }
+            }
+#endif
+
+            stmtAfter = fgInsertStmtListAfter(callBlock, stmtAfter, InlineeCompiler->fgFirstBB->GetFirstStatement());
         }
 
         // Copy inlinee bbFlags to caller bbFlags.
-        const unsigned __int64 inlineeBlockFlags = InlineeCompiler->fgFirstBB->bbFlags;
+        const uint64_t inlineeBlockFlags = InlineeCompiler->fgFirstBB->bbFlags;
+
         noway_assert((inlineeBlockFlags & BBF_HAS_JMP) == 0);
         noway_assert((inlineeBlockFlags & BBF_KEEP_BBJ_ALWAYS) == 0);
 
         // Todo: we may want to exclude other flags here.
-        iciBlock->bbFlags |= (inlineeBlockFlags & ~BBF_RUN_RARELY);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            noway_assert(currentDumpStmt);
-
-            if (currentDumpStmt != stmtAfter)
-            {
-                do
-                {
-                    currentDumpStmt = currentDumpStmt->GetNextStmt();
-
-                    printf("\n");
-
-                    gtDispStmt(currentDumpStmt);
-                    printf("\n");
-
-                } while (currentDumpStmt != stmtAfter);
-            }
-        }
-#endif // DEBUG
+        callBlock->bbFlags |= (inlineeBlockFlags & ~BBF_RUN_RARELY);
 
         // Append statements to null out gc ref locals, if necessary.
-        fgInlineAppendStatements(pInlineInfo, iciBlock, stmtAfter);
+        fgInlineAppendStatements(pInlineInfo, callBlock, stmtAfter);
     }
     else
     {
-        BasicBlock* topBlock    = iciBlock;
+        BasicBlock* topBlock    = callBlock;
         BasicBlock* bottomBlock = inlSplitInlinerBlock(topBlock, stmtAfter);
 
-        inlInsertInlineeBlocks(pInlineInfo, topBlock, bottomBlock, iciStmt->GetILOffsetX());
-
-        // Append statements to null out gc ref locals, if necessary.
-        fgInlineAppendStatements(pInlineInfo, bottomBlock, nullptr);
+        inlInsertInlineeBlocks(pInlineInfo, topBlock, bottomBlock, callStmt->GetILOffsetX());
 
 #ifdef DEBUG
         if (verbose)
         {
             fgDispBasicBlocks(InlineeCompiler->fgFirstBB, InlineeCompiler->fgLastBB, true);
         }
-#endif // DEBUG
+#endif
+
+        // Append statements to null out gc ref locals, if necessary.
+        fgInlineAppendStatements(pInlineInfo, bottomBlock, nullptr);
     }
 
     inlPropagateInlineeCompilerState();
 
-    // If there is non-NULL return, replace the GT_CALL with its return value expression,
-    // so later it will be picked up by the GT_RET_EXPR node.
+    // Record the return expression of non-void methods in the RET_EXPR node.
     if (pInlineInfo->iciCall->GetRetSigType() != TYP_VOID)
     {
         noway_assert(pInlineInfo->retExpr != nullptr);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nReturn expression for call at ");
-            printTreeID(iciCall);
-            printf(" is\n");
-            gtDispTree(pInlineInfo->retExpr);
-        }
-#endif // DEBUG
+        JITDUMPTREE(pInlineInfo->retExpr, "Return expression is:\n", call->GetID());
 
-        iciCall->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(pInlineInfo->retExpr,
-                                                                       pInlineInfo->retBB->bbFlags);
+        call->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(pInlineInfo->retExpr, pInlineInfo->retBB->bbFlags);
     }
 }
 
@@ -1498,11 +1462,8 @@ void Compiler::inlPropagateInlineeCompilerState()
     // Update unmanaged call details
     info.compUnmanagedCallCountWithGCTransition += InlineeCompiler->info.compUnmanagedCallCountWithGCTransition;
 
-// Update optMethodFlags
-
-#ifdef DEBUG
-    unsigned optMethodFlagsBefore = optMethodFlags;
-#endif
+    // Update optMethodFlags
+    INDEBUG(unsigned optMethodFlagsBefore = optMethodFlags;)
 
     optMethodFlags |= InlineeCompiler->optMethodFlags;
 
