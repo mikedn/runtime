@@ -1233,67 +1233,91 @@ void Compiler::fgInsertInlineeBlocks(InlineInfo* pInlineInfo)
     }
 #endif // DEBUG
 
-    BasicBlock* topBlock    = iciBlock;
-    BasicBlock* bottomBlock = nullptr;
-
-    if (InlineeCompiler->fgBBcount == 1)
+    if ((InlineeCompiler->fgBBcount == 1) && (InlineeCompiler->fgFirstBB->bbJumpKind == BBJ_RETURN))
     {
-        // When fgBBCount is 1 we will always have a non-NULL fgFirstBB
-        //
-        PREFAST_ASSUME(InlineeCompiler->fgFirstBB != nullptr);
+        // Inlinee contains just one return block. So just insert its statement into the inliner block.
 
-        // DDB 91389: Don't throw away the (only) inlinee block
-        // when its return type is not BBJ_RETURN.
-        // In other words, we need its BBJ_ to perform the right thing.
-        if (InlineeCompiler->fgFirstBB->bbJumpKind == BBJ_RETURN)
+        if (InlineeCompiler->fgFirstBB->bbStmtList != nullptr)
         {
-            // Inlinee contains just one BB. So just insert its statement list to topBlock.
-            if (InlineeCompiler->fgFirstBB->bbStmtList != nullptr)
-            {
-                stmtAfter = fgInsertStmtListAfter(iciBlock, stmtAfter, InlineeCompiler->fgFirstBB->firstStmt());
-            }
+            stmtAfter = fgInsertStmtListAfter(iciBlock, stmtAfter, InlineeCompiler->fgFirstBB->firstStmt());
+        }
 
-            // Copy inlinee bbFlags to caller bbFlags.
-            const unsigned __int64 inlineeBlockFlags = InlineeCompiler->fgFirstBB->bbFlags;
-            noway_assert((inlineeBlockFlags & BBF_HAS_JMP) == 0);
-            noway_assert((inlineeBlockFlags & BBF_KEEP_BBJ_ALWAYS) == 0);
+        // Copy inlinee bbFlags to caller bbFlags.
+        const unsigned __int64 inlineeBlockFlags = InlineeCompiler->fgFirstBB->bbFlags;
+        noway_assert((inlineeBlockFlags & BBF_HAS_JMP) == 0);
+        noway_assert((inlineeBlockFlags & BBF_KEEP_BBJ_ALWAYS) == 0);
 
-            // Todo: we may want to exclude other flags here.
-            iciBlock->bbFlags |= (inlineeBlockFlags & ~BBF_RUN_RARELY);
+        // Todo: we may want to exclude other flags here.
+        iciBlock->bbFlags |= (inlineeBlockFlags & ~BBF_RUN_RARELY);
 
 #ifdef DEBUG
-            if (verbose)
+        if (verbose)
+        {
+            noway_assert(currentDumpStmt);
+
+            if (currentDumpStmt != stmtAfter)
             {
-                noway_assert(currentDumpStmt);
-
-                if (currentDumpStmt != stmtAfter)
+                do
                 {
-                    do
-                    {
-                        currentDumpStmt = currentDumpStmt->GetNextStmt();
+                    currentDumpStmt = currentDumpStmt->GetNextStmt();
 
-                        printf("\n");
+                    printf("\n");
 
-                        gtDispStmt(currentDumpStmt);
-                        printf("\n");
+                    gtDispStmt(currentDumpStmt);
+                    printf("\n");
 
-                    } while (currentDumpStmt != stmtAfter);
-                }
+                } while (currentDumpStmt != stmtAfter);
             }
+        }
 #endif // DEBUG
 
-            // Append statements to null out gc ref locals, if necessary.
-            fgInlineAppendStatements(pInlineInfo, iciBlock, stmtAfter);
+        // Append statements to null out gc ref locals, if necessary.
+        fgInlineAppendStatements(pInlineInfo, iciBlock, stmtAfter);
+    }
+    else
+    {
+        BasicBlock* topBlock    = iciBlock;
+        BasicBlock* bottomBlock = inlSplitInlinerBlock(topBlock, stmtAfter);
 
-            goto _Done;
+        inlInsertInlineeBlocks(pInlineInfo, topBlock, bottomBlock, iciStmt->GetILOffsetX());
+
+        // Append statements to null out gc ref locals, if necessary.
+        fgInlineAppendStatements(pInlineInfo, bottomBlock, nullptr);
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            fgDispBasicBlocks(InlineeCompiler->fgFirstBB, InlineeCompiler->fgLastBB, true);
         }
+#endif // DEBUG
     }
 
-    //
-    // ======= Inserting inlinee's basic blocks ===============
-    //
+    inlPropagateInlineeCompilerState();
 
-    bottomBlock             = fgNewBBafter(topBlock->bbJumpKind, topBlock, true);
+    // If there is non-NULL return, replace the GT_CALL with its return value expression,
+    // so later it will be picked up by the GT_RET_EXPR node.
+    if (pInlineInfo->iciCall->GetRetSigType() != TYP_VOID)
+    {
+        noway_assert(pInlineInfo->retExpr != nullptr);
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("\nReturn expression for call at ");
+            printTreeID(iciCall);
+            printf(" is\n");
+            gtDispTree(pInlineInfo->retExpr);
+        }
+#endif // DEBUG
+
+        iciCall->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(pInlineInfo->retExpr,
+                                                                       pInlineInfo->retBB->bbFlags);
+    }
+}
+
+BasicBlock* Compiler::inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter)
+{
+    BasicBlock* bottomBlock = fgNewBBafter(topBlock->bbJumpKind, topBlock, true);
     bottomBlock->bbRefs     = 1;
     bottomBlock->bbJumpDest = topBlock->bbJumpDest;
     bottomBlock->inheritWeight(topBlock);
@@ -1365,23 +1389,28 @@ void Compiler::fgInsertInlineeBlocks(InlineInfo* pInlineInfo)
         bottomBlock->bbStmtList->SetPrevStmt(bottomBlock_End);
     }
 
-    //
-    // Set the try and handler index and fix the jump types of inlinee's blocks.
-    //
+    return bottomBlock;
+}
 
-    bool inheritWeight;
-    inheritWeight = true; // The firstBB does inherit the weight from the iciBlock
+void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo,
+                                      BasicBlock* topBlock,
+                                      BasicBlock* bottomBlock,
+                                      IL_OFFSETX  ilOffset)
+{
+    assert((InlineeCompiler->fgBBcount > 1) || (InlineeCompiler->fgFirstBB->bbJumpKind != BBJ_RETURN));
 
-    for (block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
+    bool inheritWeight = true; // The firstBB does inherit the weight from the iciBlock
+
+    for (BasicBlock* block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
         noway_assert(!block->hasTryIndex());
         noway_assert(!block->hasHndIndex());
-        block->copyEHRegion(iciBlock);
-        block->bbFlags |= iciBlock->bbFlags & BBF_BACKWARD_JUMP;
+        block->copyEHRegion(topBlock);
+        block->bbFlags |= topBlock->bbFlags & BBF_BACKWARD_JUMP;
 
-        if (iciStmt->GetILOffsetX() != BAD_IL_OFFSET)
+        if (ilOffset != BAD_IL_OFFSET)
         {
-            block->bbCodeOffs    = jitGetILoffs(iciStmt->GetILOffsetX());
+            block->bbCodeOffs    = jitGetILoffs(ilOffset);
             block->bbCodeOffsEnd = block->bbCodeOffs + 1; // TODO: is code size of 1 some magic number for inlining?
         }
         else
@@ -1420,19 +1449,19 @@ void Compiler::fgInsertInlineeBlocks(InlineInfo* pInlineInfo)
         }
 
         // Update profile weight for callee blocks, if we didn't do it already.
-        if (pInlineInfo->profileScaleState == InlineInfo::ProfileScaleState::KNOWN)
+        if (inlineInfo->profileScaleState == InlineInfo::ProfileScaleState::KNOWN)
         {
             continue;
         }
 
         if (inheritWeight)
         {
-            block->inheritWeight(iciBlock);
+            block->inheritWeight(topBlock);
             inheritWeight = false;
         }
         else
         {
-            block->modifyBBWeight(iciBlock->bbWeight / 2);
+            block->modifyBBWeight(topBlock->bbWeight / 2);
         }
     }
 
@@ -1444,26 +1473,10 @@ void Compiler::fgInsertInlineeBlocks(InlineInfo* pInlineInfo)
     // Add inlinee's block count to inliner's.
     //
     fgBBcount += InlineeCompiler->fgBBcount;
+}
 
-    // Append statements to null out gc ref locals, if necessary.
-    fgInlineAppendStatements(pInlineInfo, bottomBlock, nullptr);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        fgDispBasicBlocks(InlineeCompiler->fgFirstBB, InlineeCompiler->fgLastBB, true);
-    }
-#endif // DEBUG
-
-_Done:
-
-    //
-    // At this point, we have successully inserted inlinee's code.
-    //
-
-    //
-    // Copy out some flags
-    //
+void Compiler::inlPropagateInlineeCompilerState()
+{
     compLongUsed |= InlineeCompiler->compLongUsed;
     compFloatingPointUsed |= InlineeCompiler->compFloatingPointUsed;
     compLocallocUsed |= InlineeCompiler->compLocallocUsed;
@@ -1500,26 +1513,6 @@ _Done:
                 InlineeCompiler->optMethodFlags, optMethodFlags);
     }
 #endif
-
-    // If there is non-NULL return, replace the GT_CALL with its return value expression,
-    // so later it will be picked up by the GT_RET_EXPR node.
-    if (pInlineInfo->iciCall->GetRetSigType() != TYP_VOID)
-    {
-        noway_assert(pInlineInfo->retExpr != nullptr);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nReturn expression for call at ");
-            printTreeID(iciCall);
-            printf(" is\n");
-            gtDispTree(pInlineInfo->retExpr);
-        }
-#endif // DEBUG
-
-        iciCall->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(pInlineInfo->retExpr,
-                                                                       pInlineInfo->retBB->bbFlags);
-    }
 }
 
 //------------------------------------------------------------------------

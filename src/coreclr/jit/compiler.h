@@ -5003,6 +5003,13 @@ private:
     Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
     void fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
 
+    BasicBlock* inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter);
+    void inlInsertInlineeBlocks(InlineInfo* inlineInfo,
+                                BasicBlock* topBlock,
+                                BasicBlock* bottomBlock,
+                                IL_OFFSETX  ilOffset);
+    void inlPropagateInlineeCompilerState();
+
 #if FEATURE_MULTIREG_RET
     GenTree* inlGetStructAddress(GenTree* tree);
     GenTree* inlGetStructAsgDst(GenTree* dst, ClassLayout* layout);
