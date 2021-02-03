@@ -1356,6 +1356,8 @@ BasicBlock* Compiler::inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmt
     return bottomBlock;
 }
 
+// Insert the inlinee basic blocks into the inliner's flow graph.
+//
 void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo,
                                       BasicBlock* topBlock,
                                       BasicBlock* bottomBlock,
@@ -1363,12 +1365,14 @@ void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo,
 {
     assert((InlineeCompiler->fgBBcount > 1) || (InlineeCompiler->fgFirstBB->bbJumpKind != BBJ_RETURN));
 
-    bool inheritWeight = true; // The firstBB does inherit the weight from the iciBlock
+    bool inheritWeight = true; // The firstBB does inherit the weight from the call block
 
     for (BasicBlock* block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
+        // Methods that contain exception handling are never inlined.
         noway_assert(!block->hasTryIndex());
         noway_assert(!block->hasHndIndex());
+
         block->copyEHRegion(topBlock);
         block->bbFlags |= topBlock->bbFlags & BBF_BACKWARD_JUMP;
 
@@ -1386,56 +1390,45 @@ void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo,
 
         if (block->bbJumpKind == BBJ_RETURN)
         {
-            inheritWeight = true; // A return block does inherit the weight from the iciBlock
+            inheritWeight = true; // A return block does inherit the weight from the call block
+
             noway_assert((block->bbFlags & BBF_HAS_JMP) == 0);
-            if (block->bbNext)
+
+            if (block->bbNext != nullptr)
             {
+                JITDUMP("Convert return block " FMT_BB " to jump to the bottom block " FMT_BB "\n", block->bbNum,
+                        bottomBlock->bbNum);
+
                 block->bbJumpKind = BBJ_ALWAYS;
                 block->bbJumpDest = bottomBlock;
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\nConvert bbJumpKind of " FMT_BB " to BBJ_ALWAYS to bottomBlock " FMT_BB "\n", block->bbNum,
-                           bottomBlock->bbNum);
-                }
-#endif // DEBUG
             }
             else
             {
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\nConvert bbJumpKind of " FMT_BB " to BBJ_NONE\n", block->bbNum);
-                }
-#endif // DEBUG
+                JITDUMP("Convert return block " FMT_BB " to fall through to the bottom block " FMT_BB "\n",
+                        block->bbNum, bottomBlock->bbNum);
+
                 block->bbJumpKind = BBJ_NONE;
             }
         }
 
         // Update profile weight for callee blocks, if we didn't do it already.
-        if (inlineInfo->profileScaleState == InlineInfo::ProfileScaleState::KNOWN)
+        if (inlineInfo->profileScaleState != InlineInfo::ProfileScaleState::KNOWN)
         {
-            continue;
-        }
-
-        if (inheritWeight)
-        {
-            block->inheritWeight(topBlock);
-            inheritWeight = false;
-        }
-        else
-        {
-            block->modifyBBWeight(topBlock->bbWeight / 2);
+            if (inheritWeight)
+            {
+                block->inheritWeight(topBlock);
+                inheritWeight = false;
+            }
+            else
+            {
+                block->modifyBBWeight(topBlock->bbWeight / 2);
+            }
         }
     }
 
     // Insert inlinee's blocks into inliner's block list.
     topBlock->setNext(InlineeCompiler->fgFirstBB);
     InlineeCompiler->fgLastBB->setNext(bottomBlock);
-
-    //
-    // Add inlinee's block count to inliner's.
-    //
     fgBBcount += InlineeCompiler->fgBBcount;
 }
 
