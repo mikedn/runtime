@@ -1958,7 +1958,7 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBloc
             // expression? If so we somehow messed up and didn't properly
             // spill the return value. See impInlineFetchLocal.
 
-            noway_assert(!gtHasRef(inlineInfo->retExpr, lclNum, false));
+            noway_assert(!gtHasRef(inlineInfo->retExpr, lclNum));
         }
 
         GenTreeOp* nullAsg  = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), gtNewZeroConNode(lclType));

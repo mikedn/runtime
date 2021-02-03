@@ -383,7 +383,7 @@ inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
             unsigned lclNum = tree->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
             for (unsigned level = 0; level < chkLevel; level++)
             {
-                assert(!gtHasRef(verCurrentState.esStack[level].val, lclNum, false));
+                assert(!gtHasRef(verCurrentState.esStack[level].val, lclNum));
                 assert(!lvaTable[lclNum].lvAddrExposed ||
                        (verCurrentState.esStack[level].val->gtFlags & GTF_SIDE_EFFECT) == 0);
             }
@@ -2319,7 +2319,7 @@ void Compiler::impSpillLclRefs(ssize_t lclNum)
         /* Skip the tree if it doesn't have an affected reference,
            unless xcptnCaught */
 
-        if (xcptnCaught || gtHasRef(tree, lclNum, false))
+        if (xcptnCaught || gtHasRef(tree, lclNum))
         {
             impSpillStackEntry(level DEBUGARG("impSpillLclRefs"));
         }
@@ -14580,14 +14580,14 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 {
                     GenTreeOp* relOp = branch->GetOp(0)->AsOp();
 
-                    if (gtHasRef(relOp->GetOp(0), spillTempLclNum, false))
+                    if (gtHasRef(relOp->GetOp(0), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
                         impAssignTempGen(temp, relOp->GetOp(0), level);
                         relOp->SetOp(0, gtNewLclvNode(temp, lvaGetDesc(temp)->GetType()));
                     }
 
-                    if (gtHasRef(relOp->GetOp(1), spillTempLclNum, false))
+                    if (gtHasRef(relOp->GetOp(1), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
                         impAssignTempGen(temp, relOp->GetOp(1), level);
@@ -14598,7 +14598,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 {
                     assert(branch->OperIs(GT_SWITCH));
 
-                    if (gtHasRef(branch->GetOp(0), spillTempLclNum, false))
+                    if (gtHasRef(branch->GetOp(0), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
                         impAssignTempGen(temp, branch->GetOp(0), level);

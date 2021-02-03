@@ -2210,7 +2210,7 @@ public:
 
     GenTree* gtReverseCond(GenTree* tree);
 
-    bool gtHasRef(GenTree* tree, ssize_t lclNum, bool defOnly);
+    bool gtHasRef(GenTree* tree, ssize_t lclNum);
 
     bool gtHasLocalsWithAddrOp(GenTree* tree);
 

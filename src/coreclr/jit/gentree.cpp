@@ -1524,7 +1524,7 @@ AGAIN:
  *  Returns non-zero if the given tree contains a use of a local #lclNum.
  */
 
-bool Compiler::gtHasRef(GenTree* tree, ssize_t lclNum, bool defOnly)
+bool Compiler::gtHasRef(GenTree* tree, ssize_t lclNum)
 {
     genTreeOps oper;
     unsigned   kind;
@@ -1551,15 +1551,12 @@ AGAIN:
         {
             if (tree->AsLclVarCommon()->GetLclNum() == (unsigned)lclNum)
             {
-                if (!defOnly)
-                {
-                    return true;
-                }
+                return true;
             }
         }
         else if (oper == GT_RET_EXPR)
         {
-            return gtHasRef(tree->AsRetExpr()->GetValue(), lclNum, defOnly);
+            return gtHasRef(tree->AsRetExpr()->GetValue(), lclNum);
         }
 
         return false;
@@ -1571,7 +1568,7 @@ AGAIN:
     {
         if (tree->gtGetOp2IfPresent())
         {
-            if (gtHasRef(tree->AsOp()->gtOp1, lclNum, defOnly))
+            if (gtHasRef(tree->AsOp()->gtOp1, lclNum))
             {
                 return true;
             }
@@ -1614,10 +1611,7 @@ AGAIN:
         case GT_FIELD:
             if (lclNum == (ssize_t)tree->AsField()->gtFldHnd)
             {
-                if (!defOnly)
-                {
-                    return true;
-                }
+                return true;
             }
 
             tree = tree->AsField()->gtFldObj;
@@ -1630,7 +1624,7 @@ AGAIN:
         case GT_CALL:
             if (tree->AsCall()->gtCallThisArg != nullptr)
             {
-                if (gtHasRef(tree->AsCall()->gtCallThisArg->GetNode(), lclNum, defOnly))
+                if (gtHasRef(tree->AsCall()->gtCallThisArg->GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1638,7 +1632,7 @@ AGAIN:
 
             for (GenTreeCall::Use& use : tree->AsCall()->Args())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1646,7 +1640,7 @@ AGAIN:
 
             for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1654,7 +1648,7 @@ AGAIN:
 
             if (tree->AsCall()->gtControlExpr)
             {
-                if (gtHasRef(tree->AsCall()->gtControlExpr, lclNum, defOnly))
+                if (gtHasRef(tree->AsCall()->gtControlExpr, lclNum))
                 {
                     return true;
                 }
@@ -1681,7 +1675,7 @@ AGAIN:
             break;
 
         case GT_ARR_ELEM:
-            if (gtHasRef(tree->AsArrElem()->gtArrObj, lclNum, defOnly))
+            if (gtHasRef(tree->AsArrElem()->gtArrObj, lclNum))
             {
                 return true;
             }
@@ -1689,7 +1683,7 @@ AGAIN:
             unsigned dim;
             for (dim = 0; dim < tree->AsArrElem()->gtArrRank; dim++)
             {
-                if (gtHasRef(tree->AsArrElem()->gtArrInds[dim], lclNum, defOnly))
+                if (gtHasRef(tree->AsArrElem()->gtArrInds[dim], lclNum))
                 {
                     return true;
                 }
@@ -1698,9 +1692,8 @@ AGAIN:
             break;
 
         case GT_ARR_OFFSET:
-            if (gtHasRef(tree->AsArrOffs()->gtOffset, lclNum, defOnly) ||
-                gtHasRef(tree->AsArrOffs()->gtIndex, lclNum, defOnly) ||
-                gtHasRef(tree->AsArrOffs()->gtArrObj, lclNum, defOnly))
+            if (gtHasRef(tree->AsArrOffs()->gtOffset, lclNum) || gtHasRef(tree->AsArrOffs()->gtIndex, lclNum) ||
+                gtHasRef(tree->AsArrOffs()->gtArrObj, lclNum))
             {
                 return true;
             }
@@ -1709,7 +1702,7 @@ AGAIN:
         case GT_PHI:
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1719,7 +1712,7 @@ AGAIN:
         case GT_FIELD_LIST:
             for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1730,7 +1723,7 @@ AGAIN:
         case GT_SIMD:
             for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1742,7 +1735,7 @@ AGAIN:
         case GT_HWINTRINSIC:
             for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1753,7 +1746,7 @@ AGAIN:
         case GT_INSTR:
             for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1761,15 +1754,15 @@ AGAIN:
             break;
 
         case GT_CMPXCHG:
-            if (gtHasRef(tree->AsCmpXchg()->gtOpLocation, lclNum, defOnly))
+            if (gtHasRef(tree->AsCmpXchg()->gtOpLocation, lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsCmpXchg()->gtOpValue, lclNum, defOnly))
+            if (gtHasRef(tree->AsCmpXchg()->gtOpValue, lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsCmpXchg()->gtOpComparand, lclNum, defOnly))
+            if (gtHasRef(tree->AsCmpXchg()->gtOpComparand, lclNum))
             {
                 return true;
             }
@@ -1782,28 +1775,28 @@ AGAIN:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif // FEATURE_HW_INTRINSICS
-            if (gtHasRef(tree->AsBoundsChk()->gtIndex, lclNum, defOnly))
+            if (gtHasRef(tree->AsBoundsChk()->gtIndex, lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsBoundsChk()->gtArrLen, lclNum, defOnly))
+            if (gtHasRef(tree->AsBoundsChk()->gtArrLen, lclNum))
             {
                 return true;
             }
             break;
 
         case GT_STORE_DYN_BLK:
-            if (gtHasRef(tree->AsDynBlk()->Data(), lclNum, defOnly))
+            if (gtHasRef(tree->AsDynBlk()->Data(), lclNum))
             {
                 return true;
             }
             FALLTHROUGH;
         case GT_DYN_BLK:
-            if (gtHasRef(tree->AsDynBlk()->Addr(), lclNum, defOnly))
+            if (gtHasRef(tree->AsDynBlk()->Addr(), lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsDynBlk()->gtDynamicSize, lclNum, defOnly))
+            if (gtHasRef(tree->AsDynBlk()->gtDynamicSize, lclNum))
             {
                 return true;
             }
