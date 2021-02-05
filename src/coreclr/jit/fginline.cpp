@@ -1018,13 +1018,12 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
     bool success              = eeRunWithErrorTrap<Param>(
         [](Param* pParam) {
             // Init the local var info of the inlinee
-            pParam->pThis->impInlineInitVars(pParam->inlineInfo);
-
-            if (pParam->inlineInfo->inlineResult->IsCandidate())
+            if (!pParam->pThis->inlRecordInlineeArgsAndLocals(pParam->inlineInfo))
             {
-                /* Clear the temp table */
-                memset(pParam->inlineInfo->lclTmpNum, -1, sizeof(pParam->inlineInfo->lclTmpNum));
+                return;
+            }
 
+            {
                 //
                 // Prepare the call to jitNativeCode
                 //
@@ -1163,62 +1162,33 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
     inlineResult->NoteSuccess();
 }
 
-//------------------------------------------------------------------------
-// impInlineInitVars: setup inline information for inlinee args and locals
-//
-// Arguments:
-//    pInlineInfo - inline info for the inline candidate
-//
-// Notes:
-//    This method primarily adds caller-supplied info to the inlArgInfo
-//    and sets up the lclVarInfo table.
-//
-//    For args, the inlArgInfo records properties of the actual argument
-//    including the tree node that produces the arg value. This node is
-//    usually the tree node present at the call, but may also differ in
-//    various ways:
-//    - when the call arg is a GT_RET_EXPR, we search back through the ret
-//      expr chain for the actual node. Note this will either be the original
-//      call (which will be a failed inline by this point), or the return
-//      expression from some set of inlines.
-//    - when argument type casting is needed the necessary casts are added
-//      around the argument node.
-//    - if an argument can be simplified by folding then the node here is the
-//      folded value.
-//
-//   The method may make observations that lead to marking this candidate as
-//   a failed inline. If this happens the initialization is abandoned immediately
-//   to try and reduce the jit time cost for a failed inline.
-
-void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
+bool Compiler::inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo)
 {
     assert(!compIsForInlining());
 
-    InlineResult* inlineResult = pInlineInfo->inlineResult;
-
-    inlRecordInlineeArgs(pInlineInfo);
-
-    if (inlineResult->IsFailure())
+    if (!inlRecordInlineeArgs(inlineInfo))
     {
-        return;
+        return false;
     }
 
-    inlRecordInlineeLocals(pInlineInfo);
-
-    if (inlineResult->IsFailure())
+    if (!inlRecordInlineeLocals(inlineInfo))
     {
-        return;
+        return false;
     }
 
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(pInlineInfo->iciCall->GetRetSigType()))
+    if (varTypeIsSIMD(inlineInfo->iciCall->GetRetSigType()))
     {
-        pInlineInfo->hasSIMDTypeArgLocalOrReturn = true;
+        inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
     }
 #endif
+
+    memset(inlineInfo->lclTmpNum, -1, sizeof(inlineInfo->lclTmpNum));
+
+    return true;
 }
 
-void Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
+bool Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
 {
     GenTreeCall*         call         = pInlineInfo->iciCall;
     unsigned             clsAttr      = pInlineInfo->inlineCandidateInfo->clsAttr;
@@ -1243,7 +1213,7 @@ void Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
 
         if (inlineResult->IsFailure())
         {
-            return;
+            return false;
         }
 
         /* Increment the argument count */
@@ -1281,7 +1251,7 @@ void Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
 
         if (inlineResult->IsFailure())
         {
-            return;
+            return false;
         }
 
         /* Increment the argument count */
@@ -1347,7 +1317,7 @@ void Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
             {
                 // The argument cannot be bashed into a ref (see bug 750871)
                 inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
-                return;
+                return false;
             }
 
             // A native pointer can be passed as "this" to a method of a struct.
@@ -1435,7 +1405,7 @@ void Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
         if (!isPlausibleTypeMatch)
         {
             inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-            return;
+            return false;
         }
 
         // Is it a narrowing or widening cast?
@@ -1462,7 +1432,7 @@ void Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
                 {
                     // Arguments 'int <- byref' cannot be changed
                     inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
-                    return;
+                    return false;
                 }
             }
             else if (genTypeSize(argType) < EA_PTRSIZE)
@@ -1514,6 +1484,8 @@ void Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
     }
 
     pInlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
+
+    return true;
 }
 
 //------------------------------------------------------------------------
@@ -1652,7 +1624,7 @@ void Compiler::impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
 #endif
 }
 
-void Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
+bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
 {
     CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
     InlineResult*        inlineResult = pInlineInfo->inlineResult;
@@ -1682,7 +1654,7 @@ void Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
                 inlineResult->Note(InlineObservation::CALLEE_HAS_PINNED_LOCALS);
                 if (inlineResult->IsFailure())
                 {
-                    return;
+                    return false;
                 }
 
                 JITDUMP("Inlinee local #%02u is pinned\n", i);
@@ -1702,7 +1674,7 @@ void Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
                 inlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
                 if (inlineResult->IsFailure())
                 {
-                    return;
+                    return false;
                 }
 
                 // Do further notification in the case where the call site is rare; some policies do
@@ -1712,7 +1684,7 @@ void Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
                     inlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
                     if (inlineResult->IsFailure())
                     {
-                        return;
+                        return false;
                     }
                 }
             }
@@ -1750,6 +1722,8 @@ void Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
     }
 
     pInlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
+
+    return true;
 }
 
 //------------------------------------------------------------------------
@@ -1904,7 +1878,7 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
         // mismatches that block inlining.
         //
         // Note argument type mismatches that prevent inlining should
-        // have been caught in impInlineInitVars.
+        // have been caught in inlRecordInlineeArgsAndLocals.
         if (op1->TypeGet() != lclTyp)
         {
             op1->gtType = genActualType(lclTyp);
@@ -1922,7 +1896,7 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
         // use, or if we need to retype.
         //
         // Note argument type mismatches that prevent inlining should
-        // have been caught in impInlineInitVars.
+        // have been caught in inlRecordInlineeArgsAndLocals.
         if (argInfo.argIsUsed || (op1->TypeGet() != lclTyp))
         {
             assert(op1->gtOper == GT_LCL_VAR);
@@ -1947,7 +1921,7 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
            a subsequent "dereference" operation.
 
            From Dev11 bug #139955: Argument node can also be TYP_I_IMPL if we've bashed the tree
-           (in impInlineInitVars()), if the arg has argHasLdargaOp as well as argIsByRefToStructLocal.
+           (in inlRecordInlineeArgsAndLocals()), if the arg has argHasLdargaOp as well as argIsByRefToStructLocal.
            For example, if the caller is:
                 ldloca.s   V_1  // V_1 is a local struct
                 call       void Test.ILPart::RunLdargaOnPointerArg(int32*)

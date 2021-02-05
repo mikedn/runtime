@@ -3539,8 +3539,6 @@ private:
                                 unsigned      argNum,
                                 InlineResult* inlineResult);
 
-    void impInlineInitVars(InlineInfo* pInlineInfo);
-
     unsigned impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reason));
 
     GenTree* impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo);
@@ -5001,8 +4999,9 @@ private:
     void fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* result);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
-    void inlRecordInlineeArgs(InlineInfo* inlineInfo);
-    void inlRecordInlineeLocals(InlineInfo* inlineInfo);
+    bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);
+    bool inlRecordInlineeArgs(InlineInfo* inlineInfo);
+    bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(InlineInfo* inlineInfo,
                                   BasicBlock* block,
                                   Statement*  afterStmt,
