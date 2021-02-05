@@ -2418,16 +2418,62 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
         }
     }
 
-    /* Treat arguments that had to be assigned to temps */
-    if (inlineInfo->argCnt)
-    {
+    afterStmt = inlInitInlineeArgs(inlineInfo, block, afterStmt, callILOffset);
 
+    // Add the CCTOR check if asked for.
+    // Note: We no longer do the optimization that is done before by staticAccessedFirstUsingHelper in the old inliner.
+    //       Therefore we might prepend redundant call to HELPER.CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE
+    //       before the inlined method body, even if a static field of this type was accessed in the inlinee
+    //       using a helper before any other observable side-effect.
+
+    if (inlineInfo->inlineCandidateInfo->initClassResult & CORINFO_INITCLASS_USE_HELPER)
+    {
+        CORINFO_CLASS_HANDLE exactClass = eeGetClassFromContext(inlineInfo->inlineCandidateInfo->exactContextHnd);
+
+        GenTree* tree = fgGetSharedCCtor(exactClass);
+        newStmt       = gtNewStmt(tree, callILOffset);
+        fgInsertStmtAfter(block, afterStmt, newStmt);
+        afterStmt = newStmt;
+    }
+
+    // Insert the nullcheck statement now.
+    if (nullcheck)
+    {
+        newStmt = gtNewStmt(nullcheck, callILOffset);
+        fgInsertStmtAfter(block, afterStmt, newStmt);
+        afterStmt = newStmt;
+    }
+
+    afterStmt = inlInitInlineeLocals(inlineInfo, block, afterStmt, callILOffset);
+
+    // Update any newly added statements with the appropriate context.
+    InlineContext* context = callStmt->GetInlineContext();
+    assert(context != nullptr);
+    for (Statement* addedStmt = callStmt->GetNextStmt(); addedStmt != postStmt; addedStmt = addedStmt->GetNextStmt())
+    {
+        assert(addedStmt->GetInlineContext() == nullptr);
+        addedStmt->SetInlineContext(context);
+    }
+
+    return afterStmt;
+}
+
+Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo,
+                                        BasicBlock* block,
+                                        Statement*  afterStmt,
+                                        IL_OFFSETX  callILOffset)
+{
+    if (inlineInfo->argCnt != 0)
+    {
 #ifdef DEBUG
         if (verbose)
         {
             printf("\nArguments setup:\n");
         }
 #endif // DEBUG
+
+        InlArgInfo*    inlArgInfo = inlineInfo->inlArgInfo;
+        InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
 
         for (unsigned argNum = 0; argNum < inlineInfo->argCnt; argNum++)
         {
@@ -2584,8 +2630,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                 if (argInfo.argHasSideEff)
                 {
                     noway_assert(argInfo.argIsUsed == false);
-                    newStmt     = nullptr;
-                    bool append = true;
+                    Statement* newStmt = nullptr;
+                    bool       append  = true;
 
                     if (argNode->gtOper == GT_OBJ || argNode->gtOper == GT_MKREFANY)
                     {
@@ -2687,34 +2733,14 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
         }
     }
 
-    // Add the CCTOR check if asked for.
-    // Note: We no longer do the optimization that is done before by staticAccessedFirstUsingHelper in the old inliner.
-    //       Therefore we might prepend redundant call to HELPER.CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE
-    //       before the inlined method body, even if a static field of this type was accessed in the inlinee
-    //       using a helper before any other observable side-effect.
+    return afterStmt;
+}
 
-    if (inlineInfo->inlineCandidateInfo->initClassResult & CORINFO_INITCLASS_USE_HELPER)
-    {
-        CORINFO_CLASS_HANDLE exactClass = eeGetClassFromContext(inlineInfo->inlineCandidateInfo->exactContextHnd);
-
-        GenTree* tree = fgGetSharedCCtor(exactClass);
-        newStmt       = gtNewStmt(tree, callILOffset);
-        fgInsertStmtAfter(block, afterStmt, newStmt);
-        afterStmt = newStmt;
-    }
-
-    // Insert the nullcheck statement now.
-    if (nullcheck)
-    {
-        newStmt = gtNewStmt(nullcheck, callILOffset);
-        fgInsertStmtAfter(block, afterStmt, newStmt);
-        afterStmt = newStmt;
-    }
-
-    //
-    // Now zero-init inlinee locals
-    //
-
+Statement* Compiler::inlInitInlineeLocals(InlineInfo* inlineInfo,
+                                          BasicBlock* block,
+                                          Statement*  afterStmt,
+                                          IL_OFFSETX  callILOffset)
+{
     CORINFO_METHOD_INFO* InlineeMethodInfo = InlineeCompiler->info.compMethodInfo;
 
     unsigned lclCnt     = InlineeMethodInfo->locals.numArgs;
@@ -2734,6 +2760,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
             printf("\nZero init inlinee locals:\n");
         }
 #endif // DEBUG
+
+        InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
 
         for (unsigned lclNum = 0; lclNum < lclCnt; lclNum++)
         {
@@ -2761,15 +2789,6 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
                 afterStmt = stmt;
             }
         }
-    }
-
-    // Update any newly added statements with the appropriate context.
-    InlineContext* context = callStmt->GetInlineContext();
-    assert(context != nullptr);
-    for (Statement* addedStmt = callStmt->GetNextStmt(); addedStmt != postStmt; addedStmt = addedStmt->GetNextStmt())
-    {
-        assert(addedStmt->GetInlineContext() == nullptr);
-        addedStmt->SetInlineContext(context);
     }
 
     return afterStmt;
