@@ -5001,6 +5001,8 @@ private:
     void fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* result);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
+    unsigned inlRecordInlineeArgs(InlineInfo* inlineInfo);
+    void inlRecordInlineeLocals(InlineInfo* inlineInfo, int argCnt);
     Statement* inlInitInlineeArgs(InlineInfo* inlineInfo,
                                   BasicBlock* block,
                                   Statement*  afterStmt,

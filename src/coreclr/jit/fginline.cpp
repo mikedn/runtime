@@ -1195,14 +1195,38 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
 {
     assert(!compIsForInlining());
 
+    InlineResult* inlineResult = pInlineInfo->inlineResult;
+
+    unsigned argCnt = inlRecordInlineeArgs(pInlineInfo);
+
+    if (inlineResult->IsFailure())
+    {
+        return;
+    }
+
+    inlRecordInlineeLocals(pInlineInfo, argCnt);
+
+    if (inlineResult->IsFailure())
+    {
+        return;
+    }
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(pInlineInfo->iciCall->GetRetSigType()))
+    {
+        pInlineInfo->hasSIMDTypeArgLocalOrReturn = true;
+    }
+#endif
+}
+
+unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
+{
     GenTreeCall*         call         = pInlineInfo->iciCall;
-    CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
     unsigned             clsAttr      = pInlineInfo->inlineCandidateInfo->clsAttr;
     InlArgInfo*          inlArgInfo   = pInlineInfo->inlArgInfo;
-    InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
     InlineResult*        inlineResult = pInlineInfo->inlineResult;
-
-    /* init the argument stuct */
+    CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
+    InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
 
     memset(inlArgInfo, 0, (MAX_INL_ARGS + 1) * sizeof(inlArgInfo[0]));
 
@@ -1218,7 +1242,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
 
         if (inlineResult->IsFailure())
         {
-            return;
+            return 0;
         }
 
         /* Increment the argument count */
@@ -1256,7 +1280,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
 
         if (inlineResult->IsFailure())
         {
-            return;
+            return 0;
         }
 
         /* Increment the argument count */
@@ -1322,7 +1346,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
             {
                 // The argument cannot be bashed into a ref (see bug 750871)
                 inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
-                return;
+                return 0;
             }
 
             // A native pointer can be passed as "this" to a method of a struct.
@@ -1410,7 +1434,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
         if (!isPlausibleTypeMatch)
         {
             inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-            return;
+            return 0;
         }
 
         // Is it a narrowing or widening cast?
@@ -1437,7 +1461,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
                 {
                     // Arguments 'int <- byref' cannot be changed
                     inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
-                    return;
+                    return 0;
                 }
             }
             else if (genTypeSize(argType) < EA_PTRSIZE)
@@ -1488,104 +1512,9 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
         }
     }
 
-    // Init the types of the local variables
+    pInlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
 
-    argLst = methInfo->locals.args;
-
-    for (unsigned i = 0; i < methInfo->locals.numArgs; i++, argLst = info.compCompHnd->getArgNext(argLst))
-    {
-        CORINFO_CLASS_HANDLE lclClass;
-        CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&methInfo->locals, argLst, &lclClass);
-        var_types            lclType    = JITtype2varType(strip(lclCorType));
-        typeInfo             lclTypeInfo;
-
-        if (varTypeIsGC(lclType))
-        {
-            if (lclType == TYP_REF)
-            {
-                lclTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&methInfo->locals, argLst));
-            }
-
-            if ((lclCorType & CORINFO_TYPE_MOD_PINNED) != 0)
-            {
-                // Pinned locals may cause inlines to fail.
-                inlineResult->Note(InlineObservation::CALLEE_HAS_PINNED_LOCALS);
-                if (inlineResult->IsFailure())
-                {
-                    return;
-                }
-
-                JITDUMP("Inlinee local #%02u is pinned\n", i);
-
-                lclVarInfo[i + argCnt].lclIsPinned = true;
-            }
-
-            pInlineInfo->numberOfGcRefLocals++;
-        }
-        else if (lclType == TYP_STRUCT)
-        {
-            if ((info.compCompHnd->getClassAttribs(lclClass) & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
-            {
-                // If this local is a struct type with GC fields, inform the inliner.
-                // It may choose to bail out on the inline.
-
-                inlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
-                if (inlineResult->IsFailure())
-                {
-                    return;
-                }
-
-                // Do further notification in the case where the call site is rare; some policies do
-                // not track the relative hotness of call sites for "always" inline cases.
-                if (pInlineInfo->iciBlock->isRunRarely())
-                {
-                    inlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
-                    if (inlineResult->IsFailure())
-                    {
-                        return;
-                    }
-                }
-            }
-#ifdef FEATURE_SIMD
-            else if (isSIMDorHWSIMDClass(lclClass))
-            {
-                foundSIMDType = true;
-                lclType       = impNormStructType(lclClass);
-            }
-#endif
-
-            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
-        }
-        else if (lclClass != NO_CLASS_HANDLE)
-        {
-            assert(info.compCompHnd->isValueClass(lclClass));
-            assert(info.compCompHnd->getTypeForPrimitiveValueClass(lclClass) == CORINFO_TYPE_UNDEF);
-
-            // This is a "normed type" - a struct that contains a single primitive type field.
-            // See lvaInitVarDsc.
-            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
-        }
-        else if (strip(lclCorType) <= CORINFO_TYPE_DOUBLE)
-        {
-            // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
-            // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
-            // primitive type, and thus detects any primitive type local as being normed type.
-
-            lclTypeInfo = typeInfo(JITtype2tiType(strip(lclCorType)));
-        }
-
-        lclVarInfo[i + argCnt].lclType        = lclType;
-        lclVarInfo[i + argCnt].lclVerTypeInfo = lclTypeInfo;
-        lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
-    }
-
-#ifdef FEATURE_SIMD
-    if (!foundSIMDType && varTypeIsSIMD(call->AsCall()->GetRetSigType()))
-    {
-        foundSIMDType = true;
-    }
-    pInlineInfo->hasSIMDTypeArgLocalOrReturn = foundSIMDType;
-#endif // FEATURE_SIMD
+    return argCnt;
 }
 
 //------------------------------------------------------------------------
@@ -1722,6 +1651,105 @@ void Compiler::impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
         printf("\n");
     }
 #endif
+}
+
+void Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo, int argCnt)
+{
+    CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
+    InlineResult*        inlineResult = pInlineInfo->inlineResult;
+    InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
+
+    CORINFO_ARG_LIST_HANDLE argLst        = methInfo->locals.args;
+    bool                    foundSIMDType = false;
+
+    for (unsigned i = 0; i < methInfo->locals.numArgs; i++, argLst = info.compCompHnd->getArgNext(argLst))
+    {
+        CORINFO_CLASS_HANDLE lclClass;
+        CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&methInfo->locals, argLst, &lclClass);
+        var_types            lclType    = JITtype2varType(strip(lclCorType));
+        typeInfo             lclTypeInfo;
+
+        if (varTypeIsGC(lclType))
+        {
+            if (lclType == TYP_REF)
+            {
+                lclTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&methInfo->locals, argLst));
+            }
+
+            if ((lclCorType & CORINFO_TYPE_MOD_PINNED) != 0)
+            {
+                // Pinned locals may cause inlines to fail.
+                inlineResult->Note(InlineObservation::CALLEE_HAS_PINNED_LOCALS);
+                if (inlineResult->IsFailure())
+                {
+                    return;
+                }
+
+                JITDUMP("Inlinee local #%02u is pinned\n", i);
+
+                lclVarInfo[i + argCnt].lclIsPinned = true;
+            }
+
+            pInlineInfo->numberOfGcRefLocals++;
+        }
+        else if (lclType == TYP_STRUCT)
+        {
+            if ((info.compCompHnd->getClassAttribs(lclClass) & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
+            {
+                // If this local is a struct type with GC fields, inform the inliner.
+                // It may choose to bail out on the inline.
+
+                inlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
+                if (inlineResult->IsFailure())
+                {
+                    return;
+                }
+
+                // Do further notification in the case where the call site is rare; some policies do
+                // not track the relative hotness of call sites for "always" inline cases.
+                if (pInlineInfo->iciBlock->isRunRarely())
+                {
+                    inlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
+                    if (inlineResult->IsFailure())
+                    {
+                        return;
+                    }
+                }
+            }
+#ifdef FEATURE_SIMD
+            else if (isSIMDorHWSIMDClass(lclClass))
+            {
+                foundSIMDType = true;
+                lclType       = impNormStructType(lclClass);
+            }
+#endif
+
+            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
+        }
+        else if (lclClass != NO_CLASS_HANDLE)
+        {
+            assert(info.compCompHnd->isValueClass(lclClass));
+            assert(info.compCompHnd->getTypeForPrimitiveValueClass(lclClass) == CORINFO_TYPE_UNDEF);
+
+            // This is a "normed type" - a struct that contains a single primitive type field.
+            // See lvaInitVarDsc.
+            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
+        }
+        else if (strip(lclCorType) <= CORINFO_TYPE_DOUBLE)
+        {
+            // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
+            // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
+            // primitive type, and thus detects any primitive type local as being normed type.
+
+            lclTypeInfo = typeInfo(JITtype2tiType(strip(lclCorType)));
+        }
+
+        lclVarInfo[i + argCnt].lclType        = lclType;
+        lclVarInfo[i + argCnt].lclVerTypeInfo = lclTypeInfo;
+        lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
+    }
+
+    pInlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
 }
 
 //------------------------------------------------------------------------
