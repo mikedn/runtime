@@ -2465,6 +2465,9 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo,
             uint64_t bbFlags = 0;
             argNode          = argNode->gtRetExprVal(&bbFlags);
 
+            // MKREFANY args currently fail inlining.
+            assert(!argNode->OperIs(GT_MKREFANY));
+
             if (argInfo.argHasTmp)
             {
                 noway_assert(argInfo.argIsUsed);
@@ -2547,7 +2550,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo,
                             // This means that impAssignStructPtr won't have to add new statements,
                             // it cannot do that since we're not actually importing IL.
 
-                            assert(!argNode->OperIs(GT_COMMA, GT_MKREFANY));
+                            assert(!argNode->OperIs(GT_COMMA));
 
                             GenTree* dst     = gtNewLclvNode(tmpNum, tmpLcl->GetType());
                             GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
@@ -2614,7 +2617,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo,
                     Statement* newStmt = nullptr;
                     bool       append  = true;
 
-                    if (argNode->gtOper == GT_OBJ || argNode->gtOper == GT_MKREFANY)
+                    if (argNode->gtOper == GT_OBJ)
                     {
                         // Don't put GT_OBJ node under a GT_COMMA.
                         // Codegen can't deal with it.
