@@ -960,9 +960,9 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
     noway_assert((call->gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0);
     noway_assert(opts.OptEnabled(CLFLG_INLINING));
 
-    // This is the InlineInfo struct representing a method to be inlined.
     InlineInfo inlineInfo;
     memset(&inlineInfo, 0, sizeof(inlineInfo));
+
     CORINFO_METHOD_HANDLE fncHandle = call->gtCallMethHnd;
 
     inlineInfo.fncHandle              = fncHandle;
@@ -1198,8 +1198,6 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
     InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
 
     pInlineInfo->argCnt = methInfo->args.totalILArgs();
-
-    memset(inlArgInfo, 0, (MAX_INL_ARGS + 1) * sizeof(inlArgInfo[0]));
 
     GenTreeCall::Use* thisArg = call->gtCallThisArg;
     unsigned          argCnt  = 0; // Count of the arguments
