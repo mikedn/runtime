@@ -2617,12 +2617,18 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo,
                     Statement* newStmt = nullptr;
                     bool       append  = true;
 
-                    if (argNode->gtOper == GT_OBJ)
+                    if (argNode->OperIs(GT_OBJ))
                     {
-                        // Don't put GT_OBJ node under a GT_COMMA.
-                        // Codegen can't deal with it.
-                        // Just hang the address here in case there are side-effect.
-                        newStmt = gtNewStmt(gtUnusedValNode(argNode->AsOp()->gtOp1), callILOffset);
+                        GenTree* addr = argNode->AsObj()->GetAddr();
+
+                        if (fgAddrCouldBeNull(addr))
+                        {
+                            newStmt = gtNewStmt(gtNewNullCheck(addr, block), callILOffset);
+                        }
+                        else
+                        {
+                            newStmt = gtNewStmt(gtUnusedValNode(addr), callILOffset);
+                        }
                     }
                     else
                     {
