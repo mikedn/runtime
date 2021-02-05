@@ -1505,12 +1505,6 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         return false;
     }
 
-    if ((argNode->gtFlags & GTF_ALL_EFFECT) != 0)
-    {
-        argInfo.argHasGlobRef = (argNode->gtFlags & GTF_GLOB_REF) != 0;
-        argInfo.argHasSideEff = (argNode->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
-    }
-
     if (argNode->OperIsConst())
     {
         argInfo.argIsInvariant = true;
@@ -1539,12 +1533,21 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         }
     }
 
-    if (!argInfo.argIsInvariant && gtHasLocalsWithAddrOp(argNode))
+    if (!argInfo.argIsInvariant)
     {
-        // If the arg is a local that is address-taken, we can't safely
-        // directly substitute it into the inlinee.
+        if ((argNode->gtFlags & GTF_ALL_EFFECT) != 0)
+        {
+            argInfo.argHasGlobRef = (argNode->gtFlags & GTF_GLOB_REF) != 0;
+            argInfo.argHasSideEff = (argNode->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
+        }
 
-        argInfo.argHasCallerLocalRef = true;
+        if (gtHasLocalsWithAddrOp(argNode))
+        {
+            // If the arg is a local that is address-taken, we can't safely
+            // directly substitute it into the inlinee.
+
+            argInfo.argHasCallerLocalRef = true;
+        }
     }
 
 #ifdef DEBUG
