@@ -3534,11 +3534,6 @@ private:
                            InlineCandidateInfo**  ppInlineCandidateInfo,
                            InlineResult*          inlineResult);
 
-    void impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
-                                GenTree*      curArgVal,
-                                unsigned      argNum,
-                                InlineResult* inlineResult);
-
     unsigned impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reason));
 
     GenTree* impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo);
@@ -5001,6 +4996,7 @@ private:
     Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgs(InlineInfo* inlineInfo);
+    bool inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
     bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(InlineInfo* inlineInfo,
                                   BasicBlock* block,

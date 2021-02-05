@@ -498,7 +498,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     // having GTF_CALL set. It's not clear if the change in master is broken and hidden by the now
     // removed GT_PUTARG_TYPE or if there's a bad interaction with a change in mjit.
     // It could also be a pre-existing problem - RET_EXPR being replaced too late:
-    //  - impInlineRecordArgInfo itself skips RET_EXPR and sees a side effect free expression
+    //  - inlRecordInlineeArg itself skips RET_EXPR and sees a side effect free expression
     //  - the RET_EXPR is still there in the IR and is yet to be replaced
     //  - being side effect free the return expression is used directly, ignoring an arg temp
     //  - this may happen recursively and another RET_EXPR sneaks in, in place of the temp
@@ -1209,9 +1209,8 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
     if (thisArg != nullptr)
     {
         inlArgInfo[0].argIsThis = true;
-        impInlineRecordArgInfo(pInlineInfo, thisArg->GetNode(), argCnt, inlineResult);
 
-        if (inlineResult->IsFailure())
+        if (!inlRecordInlineeArg(pInlineInfo, thisArg->GetNode(), argCnt))
         {
             return false;
         }
@@ -1246,10 +1245,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
             continue;
         }
 
-        GenTree* actualArg = use.GetNode();
-        impInlineRecordArgInfo(pInlineInfo, actualArg, argCnt, inlineResult);
-
-        if (inlineResult->IsFailure())
+        if (!inlRecordInlineeArg(pInlineInfo, use.GetNode(), argCnt))
         {
             return false;
         }
@@ -1488,140 +1484,120 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
     return true;
 }
 
-//------------------------------------------------------------------------
-// impInlineRecordArgInfo: record information about an inline candidate argument
-//
-// Arguments:
-//   pInlineInfo - inline info for the inline candidate
-//   curArgVal - tree for the caller actual argument value
-//   argNum - logical index of this argument
-//   inlineResult - result of ongoing inline evaluation
-//
-// Notes:
-//
-//   Checks for various inline blocking conditions and makes notes in
-//   the inline info arg table about the properties of the actual. These
-//   properties are used later by impInlineFetchArg to determine how best to
-//   pass the argument into the inlinee.
-
-void Compiler::impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
-                                      GenTree*      curArgVal,
-                                      unsigned      argNum,
-                                      InlineResult* inlineResult)
+bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum)
 {
-    InlArgInfo* inlCurArgInfo = &pInlineInfo->inlArgInfo[argNum];
+    InlArgInfo& argInfo = inlineInfo->inlArgInfo[argNum];
 
-    inlCurArgInfo->argNode = curArgVal; // Save the original tree, might be a RET_EXPR.
+    // Save the original tree, might be a RET_EXPR and we need to keep it.
+    argInfo.argNode = argNode;
 
-    curArgVal = curArgVal->gtRetExprVal();
+    argNode = argNode->gtRetExprVal();
 
-    if (curArgVal->gtOper == GT_MKREFANY)
+    if (argNode->OperIs(GT_MKREFANY))
     {
-        inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_IS_MKREFANY);
-        return;
+        inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_IS_MKREFANY);
+        return false;
     }
 
-    GenTreeLclVarCommon* lclVarTree = impIsAddressInLocal(curArgVal);
-
-    if ((lclVarTree != nullptr) && varTypeIsStruct(lclVarTree))
+    if (argInfo.argIsThis && argNode->IsIntegralConst(0))
     {
-        inlCurArgInfo->argIsByRefToStructLocal = true;
+        inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_HAS_NULL_THIS);
+        return false;
+    }
+
+    if ((argNode->gtFlags & GTF_ALL_EFFECT) != 0)
+    {
+        argInfo.argHasGlobRef = (argNode->gtFlags & GTF_GLOB_REF) != 0;
+        argInfo.argHasSideEff = (argNode->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
+    }
+
+    if (argNode->OperIsConst())
+    {
+        argInfo.argIsInvariant = true;
+    }
+    else if (argNode->OperIs(GT_LCL_VAR))
+    {
+        argInfo.argIsLclVar = true;
+
+        // Remember the "original" argument number
+        INDEBUG(argNode->AsLclVar()->gtLclILoffs = argNum;)
+    }
+    else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argNode))
+    {
+        argInfo.argIsInvariant = true;
+
+        if (varTypeIsStruct(addrLclVar->GetType()))
+        {
+            argInfo.argIsByRefToStructLocal = true;
+
 #ifdef FEATURE_SIMD
-        if (lvaTable[lclVarTree->AsLclVarCommon()->GetLclNum()].lvSIMDType)
-        {
-            pInlineInfo->hasSIMDTypeArgLocalOrReturn = true;
-        }
-#endif // FEATURE_SIMD
-    }
-
-    if (curArgVal->gtFlags & GTF_ALL_EFFECT)
-    {
-        inlCurArgInfo->argHasGlobRef = (curArgVal->gtFlags & GTF_GLOB_REF) != 0;
-        inlCurArgInfo->argHasSideEff = (curArgVal->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
-    }
-
-    if (curArgVal->gtOper == GT_LCL_VAR)
-    {
-        inlCurArgInfo->argIsLclVar = true;
-
-        /* Remember the "original" argument number */
-        INDEBUG(curArgVal->AsLclVar()->gtLclILoffs = argNum;)
-    }
-
-    if ((curArgVal->OperKind() & GTK_CONST) || (lclVarTree != nullptr))
-    {
-        inlCurArgInfo->argIsInvariant = true;
-        if (inlCurArgInfo->argIsThis && (curArgVal->gtOper == GT_CNS_INT) && (curArgVal->AsIntCon()->gtIconVal == 0))
-        {
-            // Abort inlining at this call site
-            inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_HAS_NULL_THIS);
-            return;
+            if (lvaGetDesc(addrLclVar)->lvSIMDType)
+            {
+                inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
+            }
+#endif
         }
     }
 
-    // If the arg is a local that is address-taken, we can't safely
-    // directly substitute it into the inlinee.
-    //
-    // Previously we'd accomplish this by setting "argHasLdargaOp" but
-    // that has a stronger meaning: that the arg value can change in
-    // the method body. Using that flag prevents type propagation,
-    // which is safe in this case.
-    //
-    // Instead mark the arg as having a caller local ref.
-    if (!inlCurArgInfo->argIsInvariant && gtHasLocalsWithAddrOp(curArgVal))
+    if (!argInfo.argIsInvariant && gtHasLocalsWithAddrOp(argNode))
     {
-        inlCurArgInfo->argHasCallerLocalRef = true;
+        // If the arg is a local that is address-taken, we can't safely
+        // directly substitute it into the inlinee.
+
+        argInfo.argHasCallerLocalRef = true;
     }
 
 #ifdef DEBUG
     if (verbose)
     {
-        if (inlCurArgInfo->argIsThis)
+        if (argInfo.argIsThis)
         {
-            printf("thisArg:");
+            printf("this argument: ");
         }
         else
         {
-            printf("\nArgument #%u:", argNum);
+            printf("\nArgument #%u: ", argNum);
         }
-        if (inlCurArgInfo->argIsLclVar)
+        if (argInfo.argIsLclVar)
         {
-            printf(" is a local var");
+            printf("is a local var");
         }
-        if (inlCurArgInfo->argIsInvariant)
+        if (argInfo.argIsInvariant)
         {
-            printf(" is a constant");
+            printf("is invariant");
         }
-        if (inlCurArgInfo->argHasGlobRef)
+        if (argInfo.argHasGlobRef)
         {
-            printf(" has global refs");
+            printf("has global refs");
         }
-        if (inlCurArgInfo->argHasCallerLocalRef)
+        if (argInfo.argHasCallerLocalRef)
         {
-            printf(" has caller local ref");
+            printf("has caller local ref");
         }
-        if (inlCurArgInfo->argHasSideEff)
+        if (argInfo.argHasSideEff)
         {
-            printf(" has side effects");
+            printf("has side effects");
         }
-        if (inlCurArgInfo->argHasLdargaOp)
+        if (argInfo.argHasLdargaOp)
         {
-            printf(" has ldarga effect");
+            printf("has its address taken");
         }
-        if (inlCurArgInfo->argHasStargOp)
+        if (argInfo.argHasStargOp)
         {
-            printf(" has starg effect");
+            printf("is stored to");
         }
-        if (inlCurArgInfo->argIsByRefToStructLocal)
+        if (argInfo.argIsByRefToStructLocal)
         {
-            printf(" is byref to a struct local");
+            printf("is byref to a struct local");
         }
 
         printf("\n");
-        gtDispTree(curArgVal);
+        gtDispTree(argNode);
         printf("\n");
     }
-#endif
+#endif // DEBUG
+
+    return true;
 }
 
 bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
