@@ -14862,14 +14862,7 @@ unsigned BasicBlock::bbStackDepthOnEntry()
 
 Compiler* Compiler::impInlineRoot()
 {
-    if (impInlineInfo == nullptr)
-    {
-        return this;
-    }
-    else
-    {
-        return impInlineInfo->InlineRoot;
-    }
+    return (impInlineInfo == nullptr) ? this : impInlineInfo->InlinerCompiler;
 }
 
 bool Compiler::impIsSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)

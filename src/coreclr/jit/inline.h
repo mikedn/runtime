@@ -591,8 +591,6 @@ struct InlLclVarInfo
 struct InlineInfo
 {
     Compiler* InlinerCompiler; // The Compiler instance for the caller (i.e. the inliner)
-    Compiler* InlineRoot; // The Compiler instance that is the root of the inlining tree of which the owner of "this" is
-                          // a member.
 
     CORINFO_METHOD_HANDLE fncHandle;
     InlineCandidateInfo*  inlineCandidateInfo;

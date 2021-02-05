@@ -989,15 +989,6 @@ void Compiler::inlInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineR
                 return;
             }
 
-            if (inlinerCompiler->impInlineInfo == nullptr)
-            {
-                inlineInfo->InlineRoot = inlinerCompiler;
-            }
-            else
-            {
-                inlineInfo->InlineRoot = inlinerCompiler->impInlineInfo->InlineRoot;
-            }
-
             inlineInfo->tokenLookupContextHandle = inlineInfo->inlineCandidateInfo->exactContextHnd;
 
             JITLOG_THIS(inlinerCompiler,

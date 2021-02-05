@@ -137,12 +137,12 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
         {
             // Steal the inliner compiler's cache (create it if not available).
 
-            if (impInlineInfo->InlineRoot->m_simdHandleCache == nullptr)
+            if (impInlineInfo->InlinerCompiler->m_simdHandleCache == nullptr)
             {
-                impInlineInfo->InlineRoot->m_simdHandleCache = new (this, CMK_Generic) SIMDHandlesCache();
+                impInlineInfo->InlinerCompiler->m_simdHandleCache = new (this, CMK_Generic) SIMDHandlesCache();
             }
 
-            m_simdHandleCache = impInlineInfo->InlineRoot->m_simdHandleCache;
+            m_simdHandleCache = impInlineInfo->InlinerCompiler->m_simdHandleCache;
         }
     }
 
