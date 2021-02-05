@@ -921,7 +921,7 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
     // Invoke the compiler to inline the call.
     //
 
-    fgInvokeInlineeCompiler(call, result);
+    inlInvokeInlineeCompiler(call, result);
 
     if (result->IsFailure())
     {
@@ -954,145 +954,90 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
 #endif
 }
 
-void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineResult)
+void Compiler::inlInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineResult)
 {
-    noway_assert(call->gtOper == GT_CALL);
-    noway_assert((call->gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0);
+    noway_assert(call->IsInlineCandidate());
+    noway_assert(call->GetInlineCandidateInfo() != nullptr);
     noway_assert(opts.OptEnabled(CLFLG_INLINING));
 
     InlineInfo inlineInfo;
     memset(&inlineInfo, 0, sizeof(inlineInfo));
 
-    CORINFO_METHOD_HANDLE fncHandle = call->gtCallMethHnd;
-
-    inlineInfo.fncHandle              = fncHandle;
-    inlineInfo.iciCall                = call;
-    inlineInfo.iciStmt                = fgMorphStmt;
-    inlineInfo.iciBlock               = compCurBB;
-    inlineInfo.thisDereferencedFirst  = false;
-    inlineInfo.retExpr                = nullptr;
-    inlineInfo.retBB                  = nullptr;
-    inlineInfo.retExprClassHnd        = nullptr;
-    inlineInfo.retExprClassHndIsExact = false;
-    inlineInfo.inlineResult           = inlineResult;
-    inlineInfo.profileScaleState      = InlineInfo::ProfileScaleState::UNDETERMINED;
-    inlineInfo.profileScaleFactor     = 0.0;
-#ifdef FEATURE_SIMD
-    inlineInfo.hasSIMDTypeArgLocalOrReturn = false;
-#endif // FEATURE_SIMD
-
-    InlineCandidateInfo* inlineCandidateInfo = call->gtInlineCandidateInfo;
-    noway_assert(inlineCandidateInfo);
-    // Store the link to inlineCandidateInfo into inlineInfo
-    inlineInfo.inlineCandidateInfo = inlineCandidateInfo;
+    inlineInfo.InlinerCompiler     = this;
+    inlineInfo.iciBlock            = compCurBB;
+    inlineInfo.iciStmt             = fgMorphStmt;
+    inlineInfo.iciCall             = call;
+    inlineInfo.fncHandle           = call->GetMethodHandle();
+    inlineInfo.inlineCandidateInfo = call->GetInlineCandidateInfo();
+    inlineInfo.inlineResult        = inlineResult;
+    inlineInfo.profileScaleState   = InlineInfo::ProfileScaleState::UNDETERMINED;
 
     unsigned inlineDepth = fgCheckInlineDepthAndRecursion(&inlineInfo);
 
     if (inlineResult->IsFailure())
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Recursive or deep inline recursion detected. Will not expand this INLINECANDIDATE \n");
-        }
-#endif // DEBUG
+        JITDUMP("Recursive or deep inline recursion detected. Will not expand this INLINECANDIDATE \n");
         return;
     }
 
-    // Set the trap to catch all errors (including recoverable ones from the EE)
-    struct Param
-    {
-        Compiler*             pThis;
-        GenTree*              call;
-        CORINFO_METHOD_HANDLE fncHandle;
-        InlineCandidateInfo*  inlineCandidateInfo;
-        InlineInfo*           inlineInfo;
-    } param;
-    memset(&param, 0, sizeof(param));
+    bool success = eeRunWithErrorTrap<InlineInfo>(
+        [](InlineInfo* inlineInfo) {
+            Compiler* inlinerCompiler = inlineInfo->InlinerCompiler;
 
-    param.pThis               = this;
-    param.call                = call;
-    param.fncHandle           = fncHandle;
-    param.inlineCandidateInfo = inlineCandidateInfo;
-    param.inlineInfo          = &inlineInfo;
-    bool success              = eeRunWithErrorTrap<Param>(
-        [](Param* pParam) {
-            // Init the local var info of the inlinee
-            if (!pParam->pThis->inlRecordInlineeArgsAndLocals(pParam->inlineInfo))
+            if (!inlinerCompiler->inlRecordInlineeArgsAndLocals(inlineInfo))
             {
                 return;
             }
 
+            if (inlinerCompiler->impInlineInfo == nullptr)
             {
-                //
-                // Prepare the call to jitNativeCode
-                //
+                inlineInfo->InlineRoot = inlinerCompiler;
+            }
+            else
+            {
+                inlineInfo->InlineRoot = inlinerCompiler->impInlineInfo->InlineRoot;
+            }
 
-                pParam->inlineInfo->InlinerCompiler = pParam->pThis;
-                if (pParam->pThis->impInlineInfo == nullptr)
-                {
-                    pParam->inlineInfo->InlineRoot = pParam->pThis;
-                }
-                else
-                {
-                    pParam->inlineInfo->InlineRoot = pParam->pThis->impInlineInfo->InlineRoot;
-                }
-                pParam->inlineInfo->tokenLookupContextHandle = pParam->inlineCandidateInfo->exactContextHnd;
+            inlineInfo->tokenLookupContextHandle = inlineInfo->inlineCandidateInfo->exactContextHnd;
 
-                JITLOG_THIS(pParam->pThis,
-                            (LL_INFO100000, "INLINER: inlineInfo.tokenLookupContextHandle for %s set to 0x%p:\n",
-                             pParam->pThis->eeGetMethodFullName(pParam->fncHandle),
-                             pParam->pThis->dspPtr(pParam->inlineInfo->tokenLookupContextHandle)));
+            JITLOG_THIS(inlinerCompiler,
+                        (LL_INFO100000, "INLINER: inlineInfo.tokenLookupContextHandle for %s set to 0x%p:\n",
+                         inlinerCompiler->eeGetMethodFullName(inlineInfo->fncHandle),
+                         inlinerCompiler->dspPtr(inlineInfo->tokenLookupContextHandle)));
 
-                JitFlags compileFlagsForInlinee = *pParam->pThis->opts.jitFlags;
+            JitFlags compileFlags = *inlinerCompiler->opts.jitFlags;
+            // The following flags are lost when inlining.
+            // (This is checked in Compiler::compInitOptions().)
+            compileFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
+            compileFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
+            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
+            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
+            compileFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
+            compileFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
 
-                // The following flags are lost when inlining.
-                // (This is checked in Compiler::compInitOptions().)
-                compileFlagsForInlinee.Clear(JitFlags::JIT_FLAG_BBINSTR);
-                compileFlagsForInlinee.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
-                compileFlagsForInlinee.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
-                compileFlagsForInlinee.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
-                compileFlagsForInlinee.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
-                compileFlagsForInlinee.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
+            compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
 
-                compileFlagsForInlinee.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
+            JITDUMP("\nInvoking compiler for the inlinee method %s :\n",
+                    inlinerCompiler->eeGetMethodFullName(inlineInfo->fncHandle));
 
-#ifdef DEBUG
-                if (pParam->pThis->verbose)
-                {
-                    printf("\nInvoking compiler for the inlinee method %s :\n",
-                           pParam->pThis->eeGetMethodFullName(pParam->fncHandle));
-                }
-#endif // DEBUG
+            int result = jitNativeCode(inlineInfo->fncHandle, inlineInfo->inlineCandidateInfo->methInfo.scope,
+                                       inlinerCompiler->info.compCompHnd, &inlineInfo->inlineCandidateInfo->methInfo,
+                                       nullptr, nullptr, &compileFlags, inlineInfo);
 
-                int result =
-                    jitNativeCode(pParam->fncHandle, pParam->inlineCandidateInfo->methInfo.scope,
-                                  pParam->pThis->info.compCompHnd, &pParam->inlineCandidateInfo->methInfo,
-                                  (void**)pParam->inlineInfo, nullptr, &compileFlagsForInlinee, pParam->inlineInfo);
+            if ((result != CORJIT_OK) && !inlineInfo->inlineResult->IsFailure())
+            {
+                // If we haven't yet determined why this inline fails, use
+                // a catch-all something bad happened observation.
 
-                if (result != CORJIT_OK)
-                {
-                    // If we haven't yet determined why this inline fails, use
-                    // a catch-all something bad happened observation.
-                    InlineResult* innerInlineResult = pParam->inlineInfo->inlineResult;
-
-                    if (!innerInlineResult->IsFailure())
-                    {
-                        innerInlineResult->NoteFatal(InlineObservation::CALLSITE_COMPILATION_FAILURE);
-                    }
-                }
+                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_COMPILATION_FAILURE);
             }
         },
-        &param);
+        &inlineInfo);
+
     if (!success)
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nInlining failed due to an exception during invoking the compiler for the inlinee method %s.\n",
-                   eeGetMethodFullName(fncHandle));
-        }
-#endif // DEBUG
+        JITDUMP("\nInlining failed due to an exception during invoking the compiler for the inlinee method %s.\n",
+                eeGetMethodFullName(inlineInfo.fncHandle));
 
         // If we haven't yet determined why this inline fails, use
         // a catch-all something bad happened observation.
@@ -1107,13 +1052,6 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
         return;
     }
 
-#ifdef DEBUG
-    if (0 && verbose)
-    {
-        printf("\nDone invoking compiler for the inlinee method %s\n", eeGetMethodFullName(fncHandle));
-    }
-#endif // DEBUG
-
     // If there is non-NULL return, but we haven't set the pInlineInfo->retExpr,
     // That means we haven't imported any BB that contains CEE_RET opcode.
     // (This could happen for example for a BBJ_THROW block fall through a BBJ_RETURN block which
@@ -1121,14 +1059,11 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
     // Fail the inlining attempt
     if ((call->GetRetSigType() != TYP_VOID) && (inlineInfo.retExpr == nullptr))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nInlining failed because pInlineInfo->retExpr is not set in the inlinee method %s.\n",
-                   eeGetMethodFullName(fncHandle));
-        }
-#endif // DEBUG
+        JITDUMP("\nInlining failed because pInlineInfo->retExpr is not set in the inlinee method %s.\n",
+                eeGetMethodFullName(inlineInfo.fncHandle));
+
         inlineResult->NoteFatal(InlineObservation::CALLEE_LACKS_RETURN);
+
         return;
     }
 
@@ -1136,29 +1071,15 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
     // The inlining attempt cannot be failed starting from this point.
     // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-    // We've successfully obtain the list of inlinee's basic blocks.
-    // Let's insert it to inliner's basic block list.
     inlInsertInlineeCode(&inlineInfo);
 
-#ifdef DEBUG
+    JITDUMP("\nSuccessfully inlined %s (%d IL bytes) (depth %d) [%s]\n"
+            "--------------------------------------------------------------------------------------------\n",
+            eeGetMethodFullName(inlineInfo.fncHandle), inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth,
+            inlineResult->ReasonString());
 
-    if (verbose)
-    {
-        printf("\nSuccessfully inlined %s (%d IL bytes) (depth %d) [%s]\n", eeGetMethodFullName(fncHandle),
-               inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth, inlineResult->ReasonString());
-    }
+    INDEBUG(impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
 
-    if (verbose)
-    {
-        printf("--------------------------------------------------------------------------------------------\n");
-    }
-#endif // DEBUG
-
-#if defined(DEBUG)
-    impInlinedCodeSize += inlineCandidateInfo->methInfo.ILCodeSize;
-#endif
-
-    // We inlined...
     inlineResult->NoteSuccess();
 }
 

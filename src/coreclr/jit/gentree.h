@@ -4563,6 +4563,17 @@ public:
         return IsUnmanaged() ? unmgdCallConv : CorInfoCallConvExtension::Managed;
     }
 
+    CORINFO_METHOD_HANDLE GetMethodHandle() const
+    {
+        return gtCallMethHnd;
+    }
+
+    InlineCandidateInfo* GetInlineCandidateInfo() const
+    {
+        assert(IsInlineCandidate());
+        return gtInlineCandidateInfo;
+    }
+
     static bool Equals(GenTreeCall* c1, GenTreeCall* c2);
 
 #if DEBUGGABLE_GENTREE

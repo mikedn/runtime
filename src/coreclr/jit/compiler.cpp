@@ -2492,7 +2492,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     if (compIsForInlining())
     {
         // The following flags are lost when inlining. (They are removed in
-        // Compiler::fgInvokeInlineeCompiler().)
+        // Compiler::inlInvokeInlineeCompiler().)
         assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR));
         assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_PROF_ENTERLEAVE));
         assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_EnC));
