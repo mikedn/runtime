@@ -1038,7 +1038,6 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
                 {
                     pParam->inlineInfo->InlineRoot = pParam->pThis->impInlineInfo->InlineRoot;
                 }
-                pParam->inlineInfo->argCnt                   = pParam->inlineCandidateInfo->methInfo.args.totalILArgs();
                 pParam->inlineInfo->tokenLookupContextHandle = pParam->inlineCandidateInfo->exactContextHnd;
 
                 JITLOG_THIS(pParam->pThis,
@@ -1197,14 +1196,14 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
 
     InlineResult* inlineResult = pInlineInfo->inlineResult;
 
-    unsigned argCnt = inlRecordInlineeArgs(pInlineInfo);
+    inlRecordInlineeArgs(pInlineInfo);
 
     if (inlineResult->IsFailure())
     {
         return;
     }
 
-    inlRecordInlineeLocals(pInlineInfo, argCnt);
+    inlRecordInlineeLocals(pInlineInfo);
 
     if (inlineResult->IsFailure())
     {
@@ -1219,7 +1218,7 @@ void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
 #endif
 }
 
-unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
+void Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
 {
     GenTreeCall*         call         = pInlineInfo->iciCall;
     unsigned             clsAttr      = pInlineInfo->inlineCandidateInfo->clsAttr;
@@ -1227,6 +1226,8 @@ unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
     InlineResult*        inlineResult = pInlineInfo->inlineResult;
     CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
     InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
+
+    pInlineInfo->argCnt = methInfo->args.totalILArgs();
 
     memset(inlArgInfo, 0, (MAX_INL_ARGS + 1) * sizeof(inlArgInfo[0]));
 
@@ -1242,7 +1243,7 @@ unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
 
         if (inlineResult->IsFailure())
         {
-            return 0;
+            return;
         }
 
         /* Increment the argument count */
@@ -1280,7 +1281,7 @@ unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
 
         if (inlineResult->IsFailure())
         {
-            return 0;
+            return;
         }
 
         /* Increment the argument count */
@@ -1288,7 +1289,7 @@ unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
     }
 
     /* Make sure we got the arg number right */
-    assert(argCnt == methInfo->args.totalILArgs());
+    assert(argCnt == pInlineInfo->argCnt);
 
 #ifdef FEATURE_SIMD
     bool foundSIMDType = pInlineInfo->hasSIMDTypeArgLocalOrReturn;
@@ -1346,7 +1347,7 @@ unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
             {
                 // The argument cannot be bashed into a ref (see bug 750871)
                 inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
-                return 0;
+                return;
             }
 
             // A native pointer can be passed as "this" to a method of a struct.
@@ -1434,7 +1435,7 @@ unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
         if (!isPlausibleTypeMatch)
         {
             inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-            return 0;
+            return;
         }
 
         // Is it a narrowing or widening cast?
@@ -1461,7 +1462,7 @@ unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
                 {
                     // Arguments 'int <- byref' cannot be changed
                     inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
-                    return 0;
+                    return;
                 }
             }
             else if (genTypeSize(argType) < EA_PTRSIZE)
@@ -1513,8 +1514,6 @@ unsigned Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
     }
 
     pInlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
-
-    return argCnt;
 }
 
 //------------------------------------------------------------------------
@@ -1653,11 +1652,12 @@ void Compiler::impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
 #endif
 }
 
-void Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo, int argCnt)
+void Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
 {
     CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
     InlineResult*        inlineResult = pInlineInfo->inlineResult;
     InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
+    unsigned             argCnt       = pInlineInfo->argCnt;
 
     CORINFO_ARG_LIST_HANDLE argLst        = methInfo->locals.args;
     bool                    foundSIMDType = false;
