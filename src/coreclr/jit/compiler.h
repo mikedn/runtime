@@ -5011,6 +5011,7 @@ private:
                                 BasicBlock* bottomBlock,
                                 IL_OFFSETX  ilOffset);
     void inlPropagateInlineeCompilerState();
+    INDEBUG(void inlDebugCheckInlineCandidates();)
 
 #if FEATURE_MULTIREG_RET
     GenTree* inlGetStructAddress(GenTree* tree);
@@ -5024,8 +5025,6 @@ private:
     static fgWalkPostFn fgLateDevirtualization;
 
 #ifdef DEBUG
-    static fgWalkPreFn fgDebugCheckInlineCandidates;
-
     void               CheckNoTransformableIndirectCallsRemain();
     static fgWalkPreFn fgDebugCheckForTransformableIndirectCalls;
 #endif

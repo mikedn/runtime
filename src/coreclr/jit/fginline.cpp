@@ -128,15 +128,7 @@ PhaseStatus Compiler::fgInline()
     }
 
 #ifdef DEBUG
-    // Check that we should not have any inline candidate or return value place holder left.
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
-    {
-        for (Statement* stmt : block->Statements())
-        {
-            fgWalkTreePre(stmt->GetRootNodePointer(), fgDebugCheckInlineCandidates);
-        }
-    }
-
+    inlDebugCheckInlineCandidates();
     fgVerifyHandlerTab();
 
     if (verbose || fgPrintInlinedMethods)
@@ -708,24 +700,33 @@ Compiler::fgWalkResult Compiler::fgLateDevirtualization(GenTree** pTree, fgWalkD
 
 #ifdef DEBUG
 
-/*****************************************************************************
- * Callback to make sure there is no more GT_RET_EXPR and GTF_CALL_INLINE_CANDIDATE nodes.
- */
-
-/* static */
-Compiler::fgWalkResult Compiler::fgDebugCheckInlineCandidates(GenTree** pTree, fgWalkData* data)
+// Check that there are no more inline candidates or return expression
+// placeholders left in the method.
+//
+void Compiler::inlDebugCheckInlineCandidates()
 {
-    GenTree* tree = *pTree;
-    if (tree->gtOper == GT_CALL)
-    {
-        assert((tree->gtFlags & GTF_CALL_INLINE_CANDIDATE) == 0);
-    }
-    else
-    {
-        assert(tree->gtOper != GT_RET_EXPR);
-    }
+    auto visitor = [](GenTree** use, fgWalkData* data) {
+        GenTree* node = *use;
 
-    return WALK_CONTINUE;
+        if (GenTreeCall* call = node->IsCall())
+        {
+            assert(!call->IsInlineCandidate());
+        }
+        else
+        {
+            assert(!node->IsRetExpr());
+        }
+
+        return WALK_CONTINUE;
+    };
+
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
+    {
+        for (Statement* stmt : block->Statements())
+        {
+            fgWalkTreePre(stmt->GetRootNodePointer(), visitor);
+        }
+    }
 }
 
 #endif // DEBUG
