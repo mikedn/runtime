@@ -4310,9 +4310,15 @@ public:
     {
         return (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VIRT_VTABLE;
     }
+
     bool IsInlineCandidate() const
     {
         return (gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0;
+    }
+
+    void ClearInlineCandidate()
+    {
+        gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
     }
 
     bool IsR2ROrVirtualStubRelativeIndir()

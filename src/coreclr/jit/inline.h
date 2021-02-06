@@ -793,7 +793,7 @@ public:
     InlineContext* NewSuccess(InlineInfo* inlineInfo);
 
     // Create context for a failing inline.
-    InlineContext* NewFailure(Statement* stmt, InlineResult* inlineResult);
+    InlineContext* NewFailure(Statement* stmt, const InlineResult& inlineResult);
 
     // Compiler associated with this strategy
     Compiler* GetCompiler() const

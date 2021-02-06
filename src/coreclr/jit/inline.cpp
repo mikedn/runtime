@@ -660,21 +660,19 @@ InlineResult::InlineResult(Compiler* compiler, CORINFO_METHOD_HANDLE method, con
 
 void InlineResult::Report()
 {
-
-#ifdef DEBUG
-    // If this is a failure of a specific inline candidate and we haven't captured
-    // a failing observation yet, do so now.
     if (IsFailure() && (m_Call != nullptr))
     {
-        // compiler should have revoked candidacy on the call by now
-        assert((m_Call->gtFlags & GTF_CALL_INLINE_CANDIDATE) == 0);
+        m_Call->ClearInlineCandidate();
 
+#ifdef DEBUG
+        // If this is a failure of a specific inline candidate and we haven't captured
+        // a failing observation yet, do so now.
         if (m_Call->gtInlineObservation == InlineObservation::CALLEE_UNUSED_INITIAL)
         {
             m_Call->gtInlineObservation = m_Policy->GetObservation();
         }
+#endif
     }
-#endif // DEBUG
 
     // If we weren't actually inlining, user may have suppressed
     // reporting via setReported(). If so, do nothing.
@@ -1265,14 +1263,14 @@ InlineContext* InlineStrategy::NewSuccess(InlineInfo* inlineInfo)
 // Return Value:
 //    A new InlineContext for diagnostic purposes
 
-InlineContext* InlineStrategy::NewFailure(Statement* stmt, InlineResult* inlineResult)
+InlineContext* InlineStrategy::NewFailure(Statement* stmt, const InlineResult& inlineResult)
 {
     // Check for a parent context first. We should now have a parent
     // context for all statements.
     InlineContext* parentContext = stmt->GetInlineContext();
     assert(parentContext != nullptr);
     InlineContext* failedContext = new (m_Compiler, CMK_Inlining) InlineContext(this);
-    GenTreeCall*   originalCall  = inlineResult->GetCall();
+    GenTreeCall*   originalCall  = inlineResult.GetCall();
 
     // Pushing the new context on the front of the parent child list
     // will put siblings in reverse lexical order which we undo in the
@@ -1282,8 +1280,8 @@ InlineContext* InlineStrategy::NewFailure(Statement* stmt, InlineResult* inlineR
     parentContext->m_Child         = failedContext;
     failedContext->m_Child         = nullptr;
     failedContext->m_Offset        = stmt->GetILOffsetX();
-    failedContext->m_Observation   = inlineResult->GetObservation();
-    failedContext->m_Callee        = inlineResult->GetCallee();
+    failedContext->m_Observation   = inlineResult.GetObservation();
+    failedContext->m_Callee        = inlineResult.GetCallee();
     failedContext->m_Success       = false;
     failedContext->m_Devirtualized = originalCall->IsDevirtualized();
     failedContext->m_Guarded       = originalCall->IsGuarded();

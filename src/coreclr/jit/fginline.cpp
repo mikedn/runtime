@@ -81,16 +81,26 @@ PhaseStatus Compiler::fgInline()
 
             if (GenTreeCall* call = expr->IsCall())
             {
-                if (call->IsInlineCandidate() || call->IsGuardedDevirtualizationCandidate())
-                {
-                    bool inlined = fgMorphCallInline(stmt, call);
+                bool removeStmt = false;
 
-                    if (inlined || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr))
-                    {
-                        fgRemoveStmt(block, stmt DEBUGARG(/*dumpStmt */ false));
-                        madeChanges = true;
-                        continue;
-                    }
+                if (call->IsInlineCandidate())
+                {
+                    bool inlined = inlInlineCall(stmt, call);
+
+                    removeStmt = inlined || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr);
+                }
+                else if (call->IsGuardedDevirtualizationCandidate())
+                {
+                    // TODO-MIKE-Cleanup: Shouldn't IndirectCallTransformer take care of this?!
+
+                    removeStmt = (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr);
+                }
+
+                if (removeStmt)
+                {
+                    fgRemoveStmt(block, stmt DEBUGARG(/*dumpStmt */ false));
+                    madeChanges = true;
+                    continue;
                 }
             }
 
@@ -215,7 +225,7 @@ void Compiler::fgNoteNonInlineCandidate(Statement* stmt, GenTreeCall* call)
     if (call->gtCallType == CT_USER_FUNC)
     {
         // Create InlineContext for the failure
-        m_inlineStrategy->NewFailure(stmt, &inlineResult);
+        m_inlineStrategy->NewFailure(stmt, inlineResult);
     }
 }
 
@@ -758,61 +768,11 @@ Compiler::fgWalkResult Compiler::fgDebugCheckInlineCandidates(GenTree** pTree, f
 
 #endif // DEBUG
 
-//------------------------------------------------------------------------------
-// fgMorphCallInline: attempt to inline a call
-//
-// If successful, callee's IR is inserted in place of the call, and
-// is marked with an InlineContext.
-//
-// If unsuccessful, the transformations done in anticipation of a
-// possible inline are undone, and the candidate flag on the call
-// is cleared.
-
-bool Compiler::fgMorphCallInline(Statement* stmt, GenTreeCall* call)
+bool Compiler::inlInlineCall(Statement* stmt, GenTreeCall* call)
 {
-    fgMorphStmt = stmt;
+    assert(call->IsInlineCandidate());
 
-    InlineResult inlineResult(this, call, stmt, "fgInline");
-
-    if (call->IsInlineCandidate())
-    {
-        fgMorphCallInlineHelper(call, &inlineResult);
-
-        // We should have made up our minds one way or another....
-        assert(inlineResult.IsDecided());
-
-        // If we failed to inline, we have a bit of work to do to cleanup
-        if (inlineResult.IsFailure())
-        {
-            // Before we do any cleanup, create a failing InlineContext to
-            // capture details of the inlining attempt.
-            INDEBUG(m_inlineStrategy->NewFailure(stmt, &inlineResult);)
-
-            // Clear the Inline Candidate flag so we can ensure later we tried
-            // inlining all candidates.
-            call->gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
-        }
-
-        return inlineResult.IsSuccess();
-    }
-
-    // This wasn't an inline candidate. So it must be a GDV candidate.
-    assert(call->IsGuardedDevirtualizationCandidate());
-
-    return false;
-}
-
-/*****************************************************************************
- *  Helper to attempt to inline a call
- *  Sets success/failure in inline result
- *  If success, modifies current method's IR with inlinee's IR
- *  If failed, undoes any speculative modifications to current method
- */
-
-void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
-{
-    // Don't expect any surprises here.
-    assert(result->IsCandidate());
+    InlineResult result(this, call, stmt, "inlInlineCall");
 
     if (lvaCount >= MAX_LV_NUM_COUNT_FOR_INLINING)
     {
@@ -821,99 +781,76 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
         // caller and prospective callee locals). We still might be
         // able to inline other callees into this caller, or inline
         // this callee in other callers.
-        result->NoteFatal(InlineObservation::CALLSITE_TOO_MANY_LOCALS);
-        return;
+
+        // TODO-MIKE-CQ: This is kind of bogus. The inlinee may need no new locals,
+        // this simply prevents inlining of trivial methods into large methods.
+
+        result.NoteFatal(InlineObservation::CALLSITE_TOO_MANY_LOCALS);
+        return false;
     }
 
     if (call->IsVirtual())
     {
-        result->NoteFatal(InlineObservation::CALLSITE_IS_VIRTUAL);
-        return;
+        // TODO-MIKE-Cleanup: Why would we even reach here if the call is virtual?!
+        // Maybe due to GDV but if that's the case then the indirect call transformer
+        // should have cleared the candidate status.
+
+        result.NoteFatal(InlineObservation::CALLSITE_IS_VIRTUAL);
+        return false;
     }
 
     // Re-check this because guarded devirtualization may allow these through.
     if (gtIsRecursiveCall(call) && call->IsImplicitTailCall())
     {
-        result->NoteFatal(InlineObservation::CALLSITE_IMPLICIT_REC_TAIL_CALL);
-        return;
+        result.NoteFatal(InlineObservation::CALLSITE_IMPLICIT_REC_TAIL_CALL);
+        return false;
     }
 
-    // impMarkInlineCandidate() is expected not to mark tail prefixed calls
-    // and recursive tail calls as inline candidates.
+    // impMarkInlineCandidate is expected not to mark tail prefixed calls as inline candidates.
     noway_assert(!call->IsTailPrefixedCall());
-    noway_assert(!call->IsImplicitTailCall() || !gtIsRecursiveCall(call));
 
-    //
-    // Calling inlinee's compiler to inline the method.
-    //
+    JITDUMPTREE(call, "Expanding inline candidate " FMT_TREEID " in " FMT_BB ":\n%s", call->GetID(), compCurBB->bbNum,
+                call->IsImplicitTailCall() ? "Note: candidate is implicit tail call\n" : "");
 
-    unsigned startVars = lvaCount;
+    m_inlineStrategy->NoteAttempt(&result);
 
-#ifdef DEBUG
-    if (verbose)
+    unsigned initialLvaCount = lvaCount;
+
+    inlInvokeInlineeCompiler(stmt, call, &result);
+
+    assert(result.IsDecided());
+
+    if (result.IsFailure())
     {
-        printf("Expanding INLINE_CANDIDATE in statement ");
-        printStmtID(fgMorphStmt);
-        printf(" in " FMT_BB ":\n", compCurBB->bbNum);
-        gtDispStmt(fgMorphStmt);
-        if (call->IsImplicitTailCall())
+        memset(lvaTable + initialLvaCount, 0, (static_cast<size_t>(lvaCount) - initialLvaCount) * sizeof(*lvaTable));
+        for (unsigned i = initialLvaCount; i < lvaCount; i++)
         {
-            printf("Note: candidate is implicit tail call\n");
+            new (&lvaTable[i]) LclVarDsc();
         }
-    }
-#endif
+        lvaCount = initialLvaCount;
 
-    impInlineRoot()->m_inlineStrategy->NoteAttempt(result);
+        // Before we do any cleanup, create a failing InlineContext to
+        // capture details of the inlining attempt.
+        INDEBUG(m_inlineStrategy->NewFailure(stmt, result);)
 
-    //
-    // Invoke the compiler to inline the call.
-    //
-
-    inlInvokeInlineeCompiler(call, result);
-
-    if (result->IsFailure())
-    {
-        // Undo some changes made in anticipation of inlining...
-
-        // Zero out the used locals
-        memset(lvaTable + startVars, 0, (lvaCount - startVars) * sizeof(*lvaTable));
-        for (unsigned i = startVars; i < lvaCount; i++)
-        {
-            new (&lvaTable[i]) LclVarDsc(); // call the constructor.
-        }
-
-        lvaCount = startVars;
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            // printf("Inlining failed. Restore lvaCount to %d.\n", lvaCount);
-        }
-#endif
-
-        return;
+        // Clear the inline candidate flag so we can ensure later we tried
+        // inlining all candidates.
+        call->ClearInlineCandidate();
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        // printf("After inlining lvaCount=%d.\n", lvaCount);
-    }
-#endif
+    return result.IsSuccess();
 }
 
-void Compiler::inlInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineResult)
+void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
 {
-    noway_assert(call->IsInlineCandidate());
-    noway_assert(call->GetInlineCandidateInfo() != nullptr);
-    noway_assert(opts.OptEnabled(CLFLG_INLINING));
+    fgMorphStmt = stmt;
 
     InlineInfo inlineInfo;
     memset(&inlineInfo, 0, sizeof(inlineInfo));
 
     inlineInfo.InlinerCompiler     = this;
     inlineInfo.iciBlock            = compCurBB;
-    inlineInfo.iciStmt             = fgMorphStmt;
+    inlineInfo.iciStmt             = stmt;
     inlineInfo.iciCall             = call;
     inlineInfo.fncHandle           = call->GetMethodHandle();
     inlineInfo.inlineCandidateInfo = call->GetInlineCandidateInfo();
