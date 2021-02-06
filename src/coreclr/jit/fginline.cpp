@@ -71,10 +71,7 @@ PhaseStatus Compiler::fgInline()
 
         for (Statement* stmt : block->Statements())
         {
-            // In debug builds we want the inline tree to show all failed
-            // inlines. Some inlines may fail very early and never make it to
-            // candidate stage. So scan the tree looking for those early failures.
-            INDEBUG(fgWalkTreePre(stmt->GetRootNodePointer(), fgFindNonInlineCandidate, stmt);)
+            INDEBUG(inlReportNonCandidates(stmt);)
 
             // The importer ensures that all inline candidates are statement roots.
             GenTree* expr = stmt->GetRootNode();
@@ -159,77 +156,42 @@ PhaseStatus Compiler::fgInline()
 
 #ifdef DEBUG
 
-//------------------------------------------------------------------------
-// fgFindNonInlineCandidate: tree walk helper to ensure that a tree node
-// that is not an inline candidate is noted as a failed inline.
+// Some inlines may fail very early and never make it to candidate stage.
+// Walk a statment tree and report such failures so that they appear in
+// inline tree dumps.
 //
-// Arguments:
-//    pTree - pointer to pointer tree node being walked
-//    data  - contextual data for the walk
-//
-// Return Value:
-//    walk result
-//
-// Note:
-//    Invokes fgNoteNonInlineCandidate on the nodes it finds.
-
-Compiler::fgWalkResult Compiler::fgFindNonInlineCandidate(GenTree** pTree, fgWalkData* data)
+void Compiler::inlReportNonCandidates(Statement* stmt)
 {
-    GenTree* tree = *pTree;
-    if (tree->gtOper == GT_CALL)
-    {
-        Compiler*    compiler = data->compiler;
-        Statement*   stmt     = (Statement*)data->pCallbackData;
-        GenTreeCall* call     = tree->AsCall();
+    auto visitor = [](GenTree** use, fgWalkData* data) {
+        if (GenTreeCall* call = (*use)->IsCall())
+        {
+            if (!call->IsInlineCandidate() && !call->IsGuardedDevirtualizationCandidate())
+            {
+                InlineObservation observation = call->gtInlineObservation;
 
-        compiler->fgNoteNonInlineCandidate(stmt, call);
-    }
-    return WALK_CONTINUE;
+                if (!InlIsValidObservation(observation))
+                {
+                    observation = InlineObservation::CALLSITE_NOT_CANDIDATE;
+                }
+
+                InlineResult result(data->compiler, call, nullptr, "inlNoteNonCandidates");
+                result.NotePriorFailure(observation);
+                result.SetReported();
+
+                if (call->gtCallType == CT_USER_FUNC)
+                {
+                    data->compiler->m_inlineStrategy->NewFailure(static_cast<Statement*>(data->pCallbackData), result);
+                }
+            }
+        }
+
+        return WALK_CONTINUE;
+    };
+
+    fgWalkTreePre(stmt->GetRootNodePointer(), visitor, stmt);
 }
 
-//------------------------------------------------------------------------
-// fgNoteNonInlineCandidate: account for inlining failures in calls
-// not marked as inline candidates.
-//
-// Arguments:
-//    stmt  - statement containing the call
-//    call  - the call itself
-//
-// Notes:
-//    Used in debug only to try and place descriptions of inline failures
-//    into the proper context in the inline tree.
-
-void Compiler::fgNoteNonInlineCandidate(Statement* stmt, GenTreeCall* call)
-{
-    if (call->IsInlineCandidate() || call->IsGuardedDevirtualizationCandidate())
-    {
-        return;
-    }
-
-    InlineResult      inlineResult(this, call, nullptr, "fgNotInlineCandidate");
-    InlineObservation currentObservation = InlineObservation::CALLSITE_NOT_CANDIDATE;
-
-    // Try and recover the reason left behind when the jit decided
-    // this call was not a candidate.
-    InlineObservation priorObservation = call->gtInlineObservation;
-
-    if (InlIsValidObservation(priorObservation))
-    {
-        currentObservation = priorObservation;
-    }
-
-    // Propagate the prior failure observation to this result.
-    inlineResult.NotePriorFailure(currentObservation);
-    inlineResult.SetReported();
-
-    if (call->gtCallType == CT_USER_FUNC)
-    {
-        // Create InlineContext for the failure
-        m_inlineStrategy->NewFailure(stmt, inlineResult);
-    }
-}
-
-#endif
+#endif // DEBUG
 
 #if FEATURE_MULTIREG_RET
 

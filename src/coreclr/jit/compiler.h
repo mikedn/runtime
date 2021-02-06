@@ -4864,10 +4864,7 @@ private:
                                                      Statement*     tmpAssignmentInsertionPoint,
                                                      Statement*     paramAssignmentInsertionPoint);
     GenTree* fgMorphCall(GenTreeCall* call);
-#if DEBUG
-    void fgNoteNonInlineCandidate(Statement* stmt, GenTreeCall* call);
-    static fgWalkPreFn fgFindNonInlineCandidate;
-#endif
+
     GenTree* fgOptimizeDelegateConstructor(GenTreeCall*            call,
                                            CORINFO_CONTEXT_HANDLE* ExactContextHnd,
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
@@ -4988,6 +4985,7 @@ private:
 
     unsigned fgBigOffsetMorphingTemps[TYP_COUNT];
 
+    INDEBUG(void inlReportNonCandidates(Statement* stmt);)
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
