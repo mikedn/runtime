@@ -33,7 +33,7 @@
 //   we know the context for the newly supplied return value tree.
 //
 //   Inline arguments may be directly substituted into the body of the inlinee
-//   in some cases. See impInlineFetchArg.
+//   in some cases. See inlFetchInlineeArg.
 //
 PhaseStatus Compiler::fgInline()
 {
@@ -221,9 +221,9 @@ GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, ClassLayout* layout)
 {
     if (dst->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* lcl = lvaGetDesc(dst->AsLclVar());
+        LclVarDsc* tmpLcl = lvaGetDesc(dst->AsLclVar());
 
-        if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
+        if (varTypeIsStruct(tmpLcl->GetType()) && !tmpLcl->IsImplicitByRefParam() && (tmpLcl->GetLayout() == layout))
         {
             dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
             return dst;
@@ -240,9 +240,10 @@ GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, ClassLayout* layout)
 
         if (location->OperIs(GT_LCL_VAR))
         {
-            LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
+            LclVarDsc* tmpLcl = lvaGetDesc(location->AsLclVar());
 
-            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
+            if (varTypeIsStruct(tmpLcl->GetType()) && !tmpLcl->IsImplicitByRefParam() &&
+                (tmpLcl->GetLayout() == layout))
             {
                 dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
                 return location;
@@ -1502,7 +1503,7 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
 // impInlineFetchLocal: get a local var that represents an inlinee local
 //
 // Arguments:
-//    lclNum -- number of the inlinee local
+//    argNum -- number of the inlinee local
 //    reason -- debug string describing purpose of the local var
 //
 // Returns:
@@ -1586,52 +1587,14 @@ unsigned Compiler::impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reas
     return tmpNum;
 }
 
-//------------------------------------------------------------------------
-// impInlineFetchArg: return tree node for argument value in an inlinee
-//
-// Arguments:
-//    lclNum -- argument number in inlinee IL
-//    inlArgInfo -- argument info for inlinee
-//    lclVarInfo -- var info for inlinee
-//
-// Returns:
-//    Tree for the argument's value. Often an inlinee-scoped temp
-//    GT_LCL_VAR but can be other tree kinds, if the argument
-//    expression from the caller can be directly substituted into the
-//    inlinee body.
-//
-// Notes:
-//    Must be used only for arguments -- use impInlineFetchLocal for
-//    inlinee locals.
-//
-//    Direct substitution is performed when the formal argument cannot
-//    change value in the inlinee body (no starg or ldarga), and the
-//    actual argument expression's value cannot be changed if it is
-//    substituted it into the inlinee body.
-//
-//    Even if an inlinee-scoped temp is returned here, it may later be
-//    "bashed" to a caller-supplied tree when arguments are actually
-//    passed (see fgInlinePrependStatements). Bashing can happen if
-//    the argument ends up being single use and other conditions are
-//    met. So the contents of the tree returned here may not end up
-//    being the ones ultimately used for the argument.
-//
-//    This method will side effect inlArgInfo. It should only be called
-//    for actual uses of the argument in the inlinee.
-
-GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo)
+GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo)
 {
-    // Cache the relevant arg and lcl info for this argument.
-    // We will modify argInfo but not lclVarInfo.
-    InlArgInfo&          argInfo          = inlArgInfo[lclNum];
-    const InlLclVarInfo& lclInfo          = lclVarInfo[lclNum];
-    const bool           argCanBeModified = argInfo.argHasLdargaOp || argInfo.argHasStargOp;
-    const var_types      lclTyp           = lclInfo.lclType;
-    GenTree*             op1              = nullptr;
+    InlArgInfo& argInfo = inlArgInfo[argNum];
+    var_types   argType = lclVarInfo[argNum].lclType;
 
     GenTree* argNode = argInfo.argNode->gtRetExprVal();
 
-    if (argInfo.argIsInvariant && !argCanBeModified)
+    if (argInfo.argIsInvariant && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
     {
         // Directly substitute constants or addresses of locals
         //
@@ -1641,9 +1604,10 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
         // impInlineExpr. Then gtFoldExpr() could change it, causing
         // further references to the argument working off of the
         // bashed copy.
-        op1 = gtCloneExpr(argNode);
-        PREFIX_ASSUME(op1 != nullptr);
+
         argInfo.argTmpNum = BAD_VAR_NUM;
+
+        argNode = gtCloneExpr(argNode);
 
         // We may need to retype to ensure we match the callee's view of the type.
         // Otherwise callee-pass throughs of arguments can create return type
@@ -1651,170 +1615,171 @@ GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, In
         //
         // Note argument type mismatches that prevent inlining should
         // have been caught in inlRecordInlineeArgsAndLocals.
-        if (op1->TypeGet() != lclTyp)
+
+        if (argNode->GetType() != argType)
         {
-            op1->gtType = genActualType(lclTyp);
+            argNode->SetType(varActualType(argType));
         }
     }
-    else if (argInfo.argIsLclVar && !argCanBeModified && !argInfo.argHasCallerLocalRef)
+    else if (argInfo.argIsLclVar && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp && !argInfo.argHasCallerLocalRef)
     {
         // Directly substitute unaliased caller locals for args that cannot be modified
         //
         // Use the caller-supplied node if this is the first use.
-        op1               = argNode;
-        argInfo.argTmpNum = op1->AsLclVarCommon()->GetLclNum();
+
+        argInfo.argTmpNum = argNode->AsLclVar()->GetLclNum();
 
         // Use an equivalent copy if this is the second or subsequent
         // use, or if we need to retype.
         //
         // Note argument type mismatches that prevent inlining should
         // have been caught in inlRecordInlineeArgsAndLocals.
-        if (argInfo.argIsUsed || (op1->TypeGet() != lclTyp))
+
+        if (argInfo.argIsUsed || (argNode->GetType() != argType))
         {
-            assert(op1->gtOper == GT_LCL_VAR);
-            assert(lclNum == op1->AsLclVar()->gtLclILoffs);
+            assert(argNum == argNode->AsLclVar()->gtLclILoffs);
 
-            var_types newTyp = lclTyp;
-
-            if (!lvaTable[op1->AsLclVarCommon()->GetLclNum()].lvNormalizeOnLoad())
+            if (!lvaGetDesc(argInfo.argTmpNum)->lvNormalizeOnLoad())
             {
-                newTyp = genActualType(lclTyp);
+                argType = varActualType(argType);
             }
 
-            // Create a new lcl var node - remember the argument lclNum
-            op1 = gtNewLclvNode(op1->AsLclVarCommon()->GetLclNum(), newTyp DEBUGARG(op1->AsLclVar()->gtLclILoffs));
+            argNode = gtNewLclvNode(argInfo.argTmpNum, argType DEBUGARG(argNode->AsLclVar()->gtLclILoffs));
         }
     }
     else if (argInfo.argIsByRefToStructLocal && !argInfo.argHasStargOp)
     {
-        /* Argument is a by-ref address to a struct, a normed struct, or its field.
-           In these cases, don't spill the byref to a local, simply clone the tree and use it.
-           This way we will increase the chance for this byref to be optimized away by
-           a subsequent "dereference" operation.
+        // Argument is a by-ref address to a struct, a normed struct, or its field.
+        // In these cases, don't spill the byref to a local, simply clone the tree and use it.
+        // This way we will increase the chance for this byref to be optimized away by
+        // a subsequent "dereference" operation.
+        //
+        // From Dev11 bug #139955: Argument node can also be TYP_I_IMPL if we've bashed the tree
+        // (in inlRecordInlineeArgsAndLocals()), if the arg has argHasLdargaOp as well as argIsByRefToStructLocal.
+        // For example, if the caller is:
+        //      ldloca.s   V_1  // V_1 is a local struct
+        //      call       void Test.ILPart::RunLdargaOnPointerArg(int32*)
+        // and the callee being inlined has:
+        //      .method public static void  RunLdargaOnPointerArg(int32* ptrToInts) cil managed
+        //          ldarga.s   ptrToInts
+        //          call       void Test.FourInts::NotInlined_SetExpectedValuesThroughPointerToPointer(int32**)
+        // then we change the argument tree (of "ldloca.s V_1") to TYP_I_IMPL to match the callee signature. We'll
+        // soon afterwards reject the inlining anyway, since the tree we return isn't a GT_LCL_VAR.
 
-           From Dev11 bug #139955: Argument node can also be TYP_I_IMPL if we've bashed the tree
-           (in inlRecordInlineeArgsAndLocals()), if the arg has argHasLdargaOp as well as argIsByRefToStructLocal.
-           For example, if the caller is:
-                ldloca.s   V_1  // V_1 is a local struct
-                call       void Test.ILPart::RunLdargaOnPointerArg(int32*)
-           and the callee being inlined has:
-                .method public static void  RunLdargaOnPointerArg(int32* ptrToInts) cil managed
-                    ldarga.s   ptrToInts
-                    call       void Test.FourInts::NotInlined_SetExpectedValuesThroughPointerToPointer(int32**)
-           then we change the argument tree (of "ldloca.s V_1") to TYP_I_IMPL to match the callee signature. We'll
-           soon afterwards reject the inlining anyway, since the tree we return isn't a GT_LCL_VAR.
-        */
-        assert(argNode->TypeGet() == TYP_BYREF || argNode->TypeGet() == TYP_I_IMPL);
-        op1 = gtCloneExpr(argNode);
+        assert(argNode->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+        argNode = gtCloneExpr(argNode);
+    }
+    else if (argInfo.argHasTmp)
+    {
+        // We already allocated a temp for this argument, use it.
+
+        assert(argInfo.argIsUsed);
+        assert(argInfo.argTmpNum < lvaCount);
+
+        argNode = gtNewLclvNode(argInfo.argTmpNum, varActualType(argType));
+
+        // This is the second or later use of the this argument,
+        // so we have to use the temp (instead of the actual arg).
+
+        argInfo.argBashTmpNode = nullptr;
     }
     else
     {
-        /* Argument is a complex expression - it must be evaluated into a temp */
+        // Argument is a complex expression - it must be evaluated into a temp.
 
-        if (argInfo.argHasTmp)
+        assert(!argInfo.argIsUsed);
+
+        unsigned   tmpLclNum = lvaGrabTemp(true DEBUGARG("inlinee arg"));
+        LclVarDsc* tmpLcl    = lvaGetDesc(tmpLclNum);
+
+        if (argInfo.argHasLdargaOp)
         {
-            assert(argInfo.argIsUsed);
-            assert(argInfo.argTmpNum < lvaCount);
+            tmpLcl->lvHasLdAddrOp = 1;
+        }
 
-            /* Create a new lcl var node - remember the argument lclNum */
-            op1 = gtNewLclvNode(argInfo.argTmpNum, genActualType(lclTyp));
+        const InlLclVarInfo& lclInfo = lclVarInfo[argNum];
 
-            /* This is the second or later use of the this argument,
-            so we have to use the temp (instead of the actual arg) */
+        if (varTypeIsStruct(argType))
+        {
+            lvaSetStruct(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
+
+            if (info.compIsVarArgs)
+            {
+                lvaSetStructUsedAsVarArg(tmpLclNum);
+            }
+        }
+        else
+        {
+            tmpLcl->SetType(argType);
+
+            if (argType == TYP_REF)
+            {
+                if (!argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
+                {
+                    // If the arg can't be modified in the method body, use the type of the value,
+                    // if known. Otherwise, use the declared type.
+
+                    assert(tmpLcl->lvSingleDef == 0);
+                    tmpLcl->lvSingleDef = 1;
+
+                    JITDUMP("Marked V%02u as a single def temp\n", tmpLclNum);
+
+                    lvaSetClass(tmpLclNum, argInfo.argNode, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
+                }
+                else
+                {
+                    // Arg might be modified, use the declared type of the argument.
+
+                    lvaSetClass(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
+                }
+            }
+            else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
+            {
+                // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
+
+                tmpLcl->lvImpTypeInfo = lclInfo.lclVerTypeInfo;
+            }
+        }
+
+        argInfo.argHasTmp = true;
+        argInfo.argTmpNum = tmpLclNum;
+
+        // If we require strict exception order, then arguments must
+        // be evaluated in sequence before the body of the inlined method.
+        // So we need to evaluate them to a temp.
+        // Also, if arguments have global or local references, we need to
+        // evaluate them to a temp before the inlined body as the
+        // inlined body may be modifying the global ref.
+        // 
+        // TODO-1stClassStructs: We currently do not reuse an existing lclVar
+        // if it is a struct, because it requires some additional handling.
+
+        if (varTypeIsStruct(argType) || argInfo.argHasSideEff || argInfo.argHasGlobRef || argInfo.argHasCallerLocalRef)
+        {
+            argNode = gtNewLclvNode(tmpLclNum, varActualType(argType));
+
             argInfo.argBashTmpNode = nullptr;
         }
         else
         {
-            /* First time use */
-            assert(!argInfo.argIsUsed);
+            // Allocate a large LCL_VAR node so we can replace it with any
+            // other node if it turns out to be single use.
 
-            /* Reserve a temp for the expression.
-            * Use a large size node as we may change it later */
+            argNode = gtNewLclLNode(tmpLclNum, varActualType(argType) DEBUGARG(argNum));
 
-            const unsigned tmpNum = lvaGrabTemp(true DEBUGARG("Inlining Arg"));
+            // Record argNode as the very first use of this argument.
+            // If there are no further uses of the arg, we may be
+            // able to use the actual arg node instead of the temp.
+            // If we do see any further uses, we will clear this.
 
-            assert(lvaTable[tmpNum].lvAddrExposed == 0);
-            if (argInfo.argHasLdargaOp)
-            {
-                lvaTable[tmpNum].lvHasLdAddrOp = 1;
-            }
-
-            if (varTypeIsStruct(lclTyp))
-            {
-                lvaSetStruct(tmpNum, lclInfo.lclVerTypeInfo.GetClassHandle(), true /* unsafe value cls check */);
-                if (info.compIsVarArgs)
-                {
-                    lvaSetStructUsedAsVarArg(tmpNum);
-                }
-            }
-            else
-            {
-                lvaTable[tmpNum].SetType(lclTyp);
-
-                if (lclTyp == TYP_REF)
-                {
-                    if (!argCanBeModified)
-                    {
-                        // If the arg can't be modified in the method
-                        // body, use the type of the value, if
-                        // known. Otherwise, use the declared type.
-                        assert(lvaTable[tmpNum].lvSingleDef == 0);
-                        lvaTable[tmpNum].lvSingleDef = 1;
-                        JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
-                        lvaSetClass(tmpNum, argInfo.argNode, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
-                    }
-                    else
-                    {
-                        // Arg might be modified, use the declared type of
-                        // the argument.
-                        lvaSetClass(tmpNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
-                    }
-                }
-                else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
-                {
-                    // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
-                    lvaTable[tmpNum].lvImpTypeInfo = lclInfo.lclVerTypeInfo;
-                }
-            }
-
-            argInfo.argHasTmp = true;
-            argInfo.argTmpNum = tmpNum;
-
-            // If we require strict exception order, then arguments must
-            // be evaluated in sequence before the body of the inlined method.
-            // So we need to evaluate them to a temp.
-            // Also, if arguments have global or local references, we need to
-            // evaluate them to a temp before the inlined body as the
-            // inlined body may be modifying the global ref.
-            // TODO-1stClassStructs: We currently do not reuse an existing lclVar
-            // if it is a struct, because it requires some additional handling.
-
-            if (!varTypeIsStruct(lclTyp) && !argInfo.argHasSideEff && !argInfo.argHasGlobRef &&
-                !argInfo.argHasCallerLocalRef)
-            {
-                /* Get a *LARGE* LCL_VAR node */
-                op1 = gtNewLclLNode(tmpNum, genActualType(lclTyp) DEBUGARG(lclNum));
-
-                /* Record op1 as the very first use of this argument.
-                If there are no further uses of the arg, we may be
-                able to use the actual arg node instead of the temp.
-                If we do see any further uses, we will clear this. */
-                argInfo.argBashTmpNode = op1;
-            }
-            else
-            {
-                /* Get a small LCL_VAR node */
-                op1 = gtNewLclvNode(tmpNum, genActualType(lclTyp));
-                /* No bashing of this argument */
-                argInfo.argBashTmpNode = nullptr;
-            }
+            argInfo.argBashTmpNode = argNode;
         }
     }
 
-    // Mark this argument as used.
     argInfo.argIsUsed = true;
 
-    return op1;
+    return argNode;
 }
 
 //------------------------------------------------------------------------
@@ -2173,7 +2138,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
     // Create the null check statement (but not appending it to the statement list yet) for the 'this' pointer if
     // necessary.
     // The NULL check should be done after "argument setup statements".
-    // The only reason we move it here is for calling "impInlineFetchArg(0,..." to reserve a temp
+    // The only reason we move it here is for calling "inlFetchInlineeArg(0,..." to reserve a temp
     // for the "this" pointer.
     // Note: Here we no longer do the optimization that was done by thisDereferencedFirst in the old inliner.
     // However the assetionProp logic will remove any unecessary null checks that we may have added
@@ -2182,8 +2147,8 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
 
     if (call->gtFlags & GTF_CALL_NULLCHECK && !inlineInfo->thisDereferencedFirst)
     {
-        // Call impInlineFetchArg to "reserve" a temp for the "this" pointer.
-        GenTree* thisOp = impInlineFetchArg(0, inlArgInfo, lclVarInfo);
+        // Call inlFetchInlineeArg to "reserve" a temp for the "this" pointer.
+        GenTree* thisOp = inlFetchInlineeArg(0, inlArgInfo, lclVarInfo);
         if (fgAddrCouldBeNull(thisOp))
         {
             nullcheck = gtNewNullCheck(thisOp, block);
@@ -2370,7 +2335,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo,
 
                     // We used to refine the temp type here based on
                     // the actual arg, but we now do this up front, when
-                    // creating the temp, over in impInlineFetchArg.
+                    // creating the temp, over in inlFetchInlineeArg.
                     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
@@ -2389,7 +2354,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo,
             }
             else
             {
-                /* The argument is either not used or a const or lcl var */
+                /* The argument is either not used or a const or tmpLcl var */
 
                 noway_assert(!argInfo.argIsUsed || argInfo.argIsInvariant || argInfo.argIsLclVar);
 
