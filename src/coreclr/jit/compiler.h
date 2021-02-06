@@ -4990,8 +4990,8 @@ private:
 
     unsigned fgBigOffsetMorphingTemps[TYP_COUNT];
 
-    unsigned fgCheckInlineDepthAndRecursion(InlineInfo* inlineInfo);
     void inlInvokeInlineeCompiler(GenTreeCall* call, InlineResult* result);
+    unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);

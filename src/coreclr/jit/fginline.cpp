@@ -7,58 +7,6 @@
 #pragma hdrstop
 #endif
 
-// Flowgraph Inline Support
-
-/*****************************************************************************/
-
-//------------------------------------------------------------------------
-// fgCheckForInlineDepthAndRecursion: compute depth of the candidate, and
-// check for recursion.
-//
-// Return Value:
-//    The depth of the inline candidate. The root method is a depth 0, top-level
-//    candidates at depth 1, etc.
-//
-// Notes:
-//    We generally disallow recursive inlines by policy. However, they are
-//    supported by the underlying machinery.
-//
-//    Likewise the depth limit is a policy consideration, and serves mostly
-//    as a safeguard to prevent runaway inlining of small methods.
-//
-unsigned Compiler::fgCheckInlineDepthAndRecursion(InlineInfo* inlineInfo)
-{
-    BYTE*          candidateCode = inlineInfo->inlineCandidateInfo->methInfo.ILCode;
-    InlineContext* inlineContext = inlineInfo->iciStmt->GetInlineContext();
-    InlineResult*  inlineResult  = inlineInfo->inlineResult;
-
-    // There should be a context for all candidates.
-    assert(inlineContext != nullptr);
-    int depth = 0;
-
-    for (; inlineContext != nullptr; inlineContext = inlineContext->GetParent())
-    {
-        assert(inlineContext->GetCode() != nullptr);
-        depth++;
-
-        if (inlineContext->GetCode() == candidateCode)
-        {
-            // This inline candidate has the same IL code buffer as an already
-            // inlined method does.
-            inlineResult->NoteFatal(InlineObservation::CALLSITE_IS_RECURSIVE);
-            break;
-        }
-
-        if (depth > InlineStrategy::IMPLEMENTATION_MAX_INLINE_DEPTH)
-        {
-            break;
-        }
-    }
-
-    inlineResult->NoteInt(InlineObservation::CALLSITE_DEPTH, depth);
-    return depth;
-}
-
 //------------------------------------------------------------------------
 // fgInline - expand inline candidates
 //
@@ -972,7 +920,7 @@ void Compiler::inlInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineR
     inlineInfo.inlineResult        = inlineResult;
     inlineInfo.profileScaleState   = InlineInfo::ProfileScaleState::UNDETERMINED;
 
-    unsigned inlineDepth = fgCheckInlineDepthAndRecursion(&inlineInfo);
+    unsigned inlineDepth = inlCheckInlineDepthAndRecursion(&inlineInfo);
 
     if (inlineResult->IsFailure())
     {
@@ -1072,6 +1020,41 @@ void Compiler::inlInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineR
     INDEBUG(impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
 
     inlineResult->NoteSuccess();
+}
+
+// Compute depth of the candidate, and check for recursion.
+// We generally disallow recursive inlines by policy. However, they are
+// supported by the underlying machinery.
+// Likewise the depth limit is a policy consideration, and serves mostly
+// as a safeguard to prevent runaway inlining of small methods.
+//
+unsigned Compiler::inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo)
+{
+    InlineContext* inlineContext = inlineInfo->iciStmt->GetInlineContext();
+    assert(inlineContext != nullptr);
+
+    int depth = 0;
+
+    for (; inlineContext != nullptr; inlineContext = inlineContext->GetParent())
+    {
+        depth++;
+
+        assert(inlineContext->GetCode() != nullptr);
+
+        if (inlineContext->GetCode() == inlineInfo->inlineCandidateInfo->methInfo.ILCode)
+        {
+            inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_IS_RECURSIVE);
+            break;
+        }
+
+        if (depth > InlineStrategy::IMPLEMENTATION_MAX_INLINE_DEPTH)
+        {
+            break;
+        }
+    }
+
+    inlineInfo->inlineResult->NoteInt(InlineObservation::CALLSITE_DEPTH, depth);
+    return depth;
 }
 
 bool Compiler::inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo)
