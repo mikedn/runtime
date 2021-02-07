@@ -1167,41 +1167,32 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             continue;
         }
 
-        // In valid IL, this can only happen for short integer types or byrefs <-> [native] ints,
-        // but in bad IL cases with caller-callee signature mismatches we can see other types.
-        // Intentionally reject cases with mismatches so the jit is more flexible when
-        // encountering bad IL.
-
-        bool isPlausibleTypeMatch = (varActualType(paramType) == varActualType(argNode->GetType())) ||
-                                    (varActualTypeIsIntOrI(paramType) && argNode->TypeIs(TYP_BYREF)) ||
-                                    ((paramType == TYP_BYREF) && varActualTypeIsIntOrI(argNode->GetType()));
-
-        if (!isPlausibleTypeMatch)
-        {
-            inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-            return false;
-        }
-
-        // Is it a narrowing or widening cast?
-        // Widening casts are ok since the value computed is already
-        // normalized to an int (on the IL stack)
-
-        if (varTypeSize(argNode->GetType()) < varTypeSize(paramType))
-        {
-            continue;
-        }
-
         if (paramType == TYP_BYREF)
         {
-            assert(varTypeIsIntOrI(argNode->GetType()));
+            // Native int args can be coerced to BYREF.
+
+            if (!argNode->TypeIs(TYP_I_IMPL))
+            {
+                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
+                return false;
+            }
 
             lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
+
             continue;
         }
 
         if (argNode->TypeIs(TYP_BYREF))
         {
-            assert(varTypeIsIntOrI(paramType));
+            // BYREF args cannot be coerced to native int but the JIT ignores the spec.
+            // But this is done only if the arg represents a local address which is BYREF
+            // in spec but in reality is just a native pointer.
+
+            if (paramType != TYP_I_IMPL)
+            {
+                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
+                return false;
+            }
 
             if (argNode->IsLocalAddrExpr() == nullptr)
             {
@@ -1213,6 +1204,21 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             argNode->SetType(TYP_I_IMPL);
             lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
 
+            continue;
+        }
+
+        if (varActualType(paramType) != varActualType(argNode->GetType()))
+        {
+            inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
+            return false;
+        }
+
+        // Is it a narrowing or widening cast?
+        // Widening casts are ok since the value computed is already
+        // normalized to an int (on the IL stack)
+
+        if (varTypeSize(argNode->GetType()) < varTypeSize(paramType))
+        {
             continue;
         }
 
