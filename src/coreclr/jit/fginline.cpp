@@ -1162,9 +1162,20 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 
         GenTree* argNode = argInfo[i].argNode;
 
-        if (paramType == argNode->GetType())
+        if ((paramType == argNode->GetType()) || (paramType == varActualType(argNode->GetType())))
         {
             continue;
+        }
+
+        if (varTypeIsSmall(paramType))
+        {
+            // LCL_VARs associate with small int locals may have type INT so the above
+            // check isn't sufficient and we may end up adding an unnecessary cast.
+
+            if (argNode->OperIs(GT_LCL_VAR) && (paramType == lvaGetDesc(argNode->AsLclVar())->GetType()))
+            {
+                continue;
+            }
         }
 
         if (paramType == TYP_BYREF)
@@ -1224,15 +1235,6 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 
         if (varTypeSize(paramType) < varTypeSize(TYP_I_IMPL))
         {
-            if (argNode->OperIs(GT_LCL_VAR) && !lvaGetDesc(argNode->AsLclVar())->lvNormalizeOnLoad() &&
-                (paramType == lvaGetDesc(argNode->AsLclVar())->GetType()))
-            {
-                // We don't need to insert a cast here as the variable
-                // was assigned a normalized value of the right type
-
-                continue;
-            }
-
             argNode = gtNewCastNode(TYP_INT, argNode, false, paramType);
 
             if (argInfo[i].argIsInvariant)
