@@ -1176,6 +1176,19 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             {
                 continue;
             }
+
+            argNode = gtNewCastNode(TYP_INT, argNode, false, paramType);
+
+            if (argInfo[i].argIsInvariant)
+            {
+                argNode = gtFoldExprConst(argNode);
+                assert(argNode->OperIsConst());
+            }
+
+            argInfo[i].argNode     = argNode;
+            argInfo[i].argIsLclVar = false;
+
+            continue;
         }
 
         if (paramType == TYP_BYREF)
@@ -1218,56 +1231,9 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             continue;
         }
 
-        // TODO-MIKE-Cleanup: Doesn't the importer deal with most of this?
-        // The inliner should only care about small int params, those do require
-        // explicit narrowing to preserve semantics when inlining.
-
-        if (varTypeKind(paramType) != varTypeKind(argNode->GetType()))
-        {
-            inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-            return false;
-        }
-
-        // Only integral and floating point type can result in param/arg
-        // type mismatches that may require adding casts.
-
-        assert(varTypeIsIntegral(paramType) || varTypeIsFloating(argNode->GetType()));
-
-        // There are certain restrictions regarding integer arg coercion, for example
-        // an int64 arg isn't valid for a int8 param. But a native int arg is valid and
-        // we can't easily distinguish between native int and int64 on 64 bit targets,
-        // they're all LONG. However, we know the exact parameter type so we can reject
-        // invalid IL that attempts to pass an int32 arg to an int64 param, since it's
-        // invalid it's not specified how the int32 value should be widened.
-
-        if (((paramCorType == CORINFO_TYPE_LONG) || (paramCorType == CORINFO_TYPE_ULONG)) && !argNode->TypeIs(TYP_LONG))
-        {
-            inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-            return false;
-        }
-
-        if (varTypeSize(paramType) != varTypeSize(varActualType(argNode->GetType())))
-        {
-#ifdef TARGET_64BIT
-            // Widening occurs only on 64 bit targets, where we need to sign/zero extend
-            // an int32 arg passed to a native int/native unsigned int parameter.
-            bool fromUnsigned = paramCorType == CORINFO_TYPE_NATIVEINT;
-#else
-            assert(varTypeSize(paramType) < varTypeSize(varActualType(argNode->GetType())));
-            bool fromUnsigned = false;
-#endif
-
-            argNode = gtNewCastNode(varActualType(paramType), argNode, fromUnsigned, paramType);
-
-            if (argInfo[i].argIsInvariant)
-            {
-                argNode = gtFoldExprConst(argNode);
-                assert(argNode->OperIsConst());
-            }
-
-            argInfo[i].argNode     = argNode;
-            argInfo[i].argIsLclVar = false;
-        }
+        assert(!"importer's a mess");
+        inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
+        return false;
     }
 
     inlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;

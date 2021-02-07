@@ -787,6 +787,11 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
             // insert any widening or narrowing casts for backwards compatibility
 
+            // TODO-MIKE-Fix: This gets it wrong when the arg is int32 and the param is native uint,
+            // the spec requires zero extension but sign extension is done because JITtype2varType
+            // erases the signedness of the signature type. Probably doesn't really matter, at least
+            // the C# compiler has the habit of inserting its own casts.
+
             arg->SetNode(impImplicitIorI4Cast(arg->GetNode(), jitSigType));
 
             if ((corType != CORINFO_TYPE_CLASS) && (corType != CORINFO_TYPE_BYREF) && (corType != CORINFO_TYPE_PTR))
