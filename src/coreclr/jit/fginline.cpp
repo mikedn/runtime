@@ -1578,8 +1578,11 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
         {
             argNode->SetType(varActualType(argType));
         }
+
+        return argNode;
     }
-    else if (argInfo.argIsLclVar && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp && !argInfo.argHasCallerLocalRef)
+
+    if (argInfo.argIsLclVar && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp && !argInfo.argHasCallerLocalRef)
     {
         // Directly substitute unaliased caller locals for args that cannot be modified
         //
@@ -1602,8 +1605,13 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
 
             argNode = gtNewLclvNode(argInfo.argTmpNum, argType);
         }
+
+        argInfo.argIsUsed = true;
+
+        return argNode;
     }
-    else if (argInfo.argHasTmp)
+
+    if (argInfo.argHasTmp)
     {
         // We already allocated a temp for this argument, use it.
 
@@ -1614,98 +1622,94 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
 
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
-
         argInfo.argSingleUse = nullptr;
+
+        return argNode;
+    }
+
+    assert(!argInfo.argIsUsed);
+    argInfo.argIsUsed = true;
+
+    // Argument is a complex expression - it must be evaluated into a temp.
+
+    unsigned   tmpLclNum = lvaGrabTemp(true DEBUGARG("inlinee arg"));
+    LclVarDsc* tmpLcl    = lvaGetDesc(tmpLclNum);
+
+    if (argInfo.argHasLdargaOp)
+    {
+        tmpLcl->lvHasLdAddrOp = 1;
+    }
+
+    const InlLclVarInfo& lclInfo = lclVarInfo[argNum];
+
+    if (varTypeIsStruct(argType))
+    {
+        lvaSetStruct(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
     }
     else
     {
-        // Argument is a complex expression - it must be evaluated into a temp.
+        tmpLcl->SetType(argType);
 
-        assert(!argInfo.argIsUsed);
-
-        unsigned   tmpLclNum = lvaGrabTemp(true DEBUGARG("inlinee arg"));
-        LclVarDsc* tmpLcl    = lvaGetDesc(tmpLclNum);
-
-        if (argInfo.argHasLdargaOp)
+        if (argType == TYP_REF)
         {
-            tmpLcl->lvHasLdAddrOp = 1;
-        }
-
-        const InlLclVarInfo& lclInfo = lclVarInfo[argNum];
-
-        if (varTypeIsStruct(argType))
-        {
-            lvaSetStruct(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
-        }
-        else
-        {
-            tmpLcl->SetType(argType);
-
-            if (argType == TYP_REF)
+            if (!argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
             {
-                if (!argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
-                {
-                    // If the arg can't be modified in the method body, use the type of the value,
-                    // if known. Otherwise, use the declared type.
+                // If the arg can't be modified in the method body, use the type of the value,
+                // if known. Otherwise, use the declared type.
 
-                    assert(tmpLcl->lvSingleDef == 0);
-                    tmpLcl->lvSingleDef = 1;
+                assert(tmpLcl->lvSingleDef == 0);
+                tmpLcl->lvSingleDef = 1;
 
-                    JITDUMP("Marked V%02u as a single def temp\n", tmpLclNum);
+                JITDUMP("Marked V%02u as a single def temp\n", tmpLclNum);
 
-                    lvaSetClass(tmpLclNum, argInfo.argNode, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
-                }
-                else
-                {
-                    // Arg might be modified, use the declared type of the argument.
-
-                    lvaSetClass(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
-                }
+                lvaSetClass(tmpLclNum, argInfo.argNode, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
             }
-            else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
+            else
             {
-                // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
+                // Arg might be modified, use the declared type of the argument.
 
-                tmpLcl->lvImpTypeInfo = lclInfo.lclVerTypeInfo;
+                lvaSetClass(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
             }
         }
-
-        argInfo.argHasTmp = true;
-        argInfo.argTmpNum = tmpLclNum;
-
-        // If we require strict exception order, then arguments must
-        // be evaluated in sequence before the body of the inlined method.
-        // So we need to evaluate them to a temp.
-        // Also, if arguments have global or local references, we need to
-        // evaluate them to a temp before the inlined body as the
-        // inlined body may be modifying the global ref.
-        //
-        // TODO-1stClassStructs: We currently do not reuse an existing lclVar
-        // if it is a struct, because it requires some additional handling.
-
-        if (varTypeIsStruct(argType) || argInfo.argHasSideEff || argInfo.argHasGlobRef || argInfo.argHasCallerLocalRef)
+        else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
         {
-            argNode = gtNewLclvNode(tmpLclNum, varActualType(argType));
+            // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
 
-            argInfo.argSingleUse = nullptr;
-        }
-        else
-        {
-            // Allocate a large LCL_VAR node so we can replace it with any
-            // other node if it turns out to be single use.
-
-            argNode = gtNewLclLNode(tmpLclNum, varActualType(argType) DEBUGARG(argNum));
-
-            // Record argNode as the very first use of this argument.
-            // If there are no further uses of the arg, we may be
-            // able to use the actual arg node instead of the temp.
-            // If we do see any further uses, we will clear this.
-
-            argInfo.argSingleUse = argNode;
+            tmpLcl->lvImpTypeInfo = lclInfo.lclVerTypeInfo;
         }
     }
 
-    argInfo.argIsUsed = true;
+    argInfo.argHasTmp = true;
+    argInfo.argTmpNum = tmpLclNum;
+
+    // If we require strict exception order, then arguments must
+    // be evaluated in sequence before the body of the inlined method.
+    // So we need to evaluate them to a temp.
+    // Also, if arguments have global or local references, we need to
+    // evaluate them to a temp before the inlined body as the
+    // inlined body may be modifying the global ref.
+    //
+    // TODO-1stClassStructs: We currently do not reuse an existing lclVar
+    // if it is a struct, because it requires some additional handling.
+
+    if (varTypeIsStruct(argType) || argInfo.argHasSideEff || argInfo.argHasGlobRef || argInfo.argHasCallerLocalRef)
+    {
+        argNode = gtNewLclvNode(tmpLclNum, varActualType(argType));
+    }
+    else
+    {
+        // Allocate a large LCL_VAR node so we can replace it with any
+        // other node if it turns out to be single use.
+
+        argNode = gtNewLclLNode(tmpLclNum, varActualType(argType) DEBUGARG(argNum));
+
+        // Record argNode as the very first use of this argument.
+        // If there are no further uses of the arg, we may be
+        // able to use the actual arg node instead of the temp.
+        // If we do see any further uses, we will clear this.
+
+        argInfo.argSingleUse = argNode;
+    }
 
     return argNode;
 }
