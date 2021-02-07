@@ -1632,11 +1632,6 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
         if (varTypeIsStruct(argType))
         {
             lvaSetStruct(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
-
-            if (info.compIsVarArgs)
-            {
-                lvaSetStructUsedAsVarArg(tmpLclNum);
-            }
         }
         else
         {
