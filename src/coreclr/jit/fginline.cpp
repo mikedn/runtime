@@ -1236,7 +1236,9 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
         return false;
     }
 
+#ifdef FEATURE_SIMD
     inlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
+#endif
 
     return true;
 }
@@ -1448,7 +1450,9 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
         lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
     }
 
+#ifdef FEATURE_SIMD
     pInlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
+#endif
 
     return true;
 }
