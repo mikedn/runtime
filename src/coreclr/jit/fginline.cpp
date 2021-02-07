@@ -1701,7 +1701,7 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
         // Allocate a large LCL_VAR node so we can replace it with any
         // other node if it turns out to be single use.
 
-        argNode = gtNewLclLNode(tmpLclNum, varActualType(argType) DEBUGARG(argNum));
+        argNode = gtNewLclLNode(tmpLclNum, varActualType(argType));
 
         // Record argNode as the very first use of this argument.
         // If there are no further uses of the arg, we may be
