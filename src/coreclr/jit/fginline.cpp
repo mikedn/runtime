@@ -1276,8 +1276,6 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
 
         if (varTypeIsStruct(addrLclVar->GetType()))
         {
-            argInfo.argIsByRefToStructLocal = true;
-
 #ifdef FEATURE_SIMD
             if (lvaGetDesc(addrLclVar)->lvSIMDType)
             {
@@ -1342,10 +1340,6 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         if (argInfo.argHasStargOp)
         {
             printf("is stored to");
-        }
-        if (argInfo.argIsByRefToStructLocal)
-        {
-            printf("is byref to a struct local");
         }
 
         printf("\n");
@@ -1604,29 +1598,6 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
 
             argNode = gtNewLclvNode(argInfo.argTmpNum, argType);
         }
-    }
-    else if (argInfo.argIsByRefToStructLocal && !argInfo.argHasStargOp)
-    {
-        // Argument is a by-ref address to a struct, a normed struct, or its field.
-        // In these cases, don't spill the byref to a local, simply clone the tree and use it.
-        // This way we will increase the chance for this byref to be optimized away by
-        // a subsequent "dereference" operation.
-        //
-        // From Dev11 bug #139955: Argument node can also be TYP_I_IMPL if we've bashed the tree
-        // (in inlRecordInlineeArgsAndLocals()), if the arg has argHasLdargaOp as well as argIsByRefToStructLocal.
-        // For example, if the caller is:
-        //      ldloca.s   V_1  // V_1 is a local struct
-        //      call       void Test.ILPart::RunLdargaOnPointerArg(int32*)
-        // and the callee being inlined has:
-        //      .method public static void  RunLdargaOnPointerArg(int32* ptrToInts) cil managed
-        //          ldarga.s   ptrToInts
-        //          call       void Test.FourInts::NotInlined_SetExpectedValuesThroughPointerToPointer(int32**)
-        // then we change the argument tree (of "ldloca.s V_1") to TYP_I_IMPL to match the callee signature. We'll
-        // soon afterwards reject the inlining anyway, since the tree we return isn't a GT_LCL_VAR.
-
-        assert(argNode->TypeIs(TYP_BYREF, TYP_I_IMPL));
-
-        argNode = gtCloneExpr(argNode);
     }
     else if (argInfo.argHasTmp)
     {
@@ -2288,14 +2259,6 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             DBEXEC(verbose, gtDispStmt(afterStmt));
 
             inlineInfo->iciBlock->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
-
-            continue;
-        }
-
-        if (argInfo.argIsByRefToStructLocal)
-        {
-            // Do nothing. Arg was directly substituted as we read
-            // the inlinee.
 
             continue;
         }
