@@ -984,201 +984,185 @@ bool Compiler::inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo)
     return true;
 }
 
-bool Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
+bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 {
-    GenTreeCall*         call         = pInlineInfo->iciCall;
-    unsigned             clsAttr      = pInlineInfo->inlineCandidateInfo->clsAttr;
-    InlArgInfo*          inlArgInfo   = pInlineInfo->inlArgInfo;
-    InlineResult*        inlineResult = pInlineInfo->inlineResult;
-    CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
-    InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
+    CORINFO_SIG_INFO& argsSig = inlineInfo->inlineCandidateInfo->methInfo.args;
 
-    pInlineInfo->argCnt = methInfo->args.totalILArgs();
+    inlineInfo->argCnt = argsSig.totalILArgs();
 
+    GenTreeCall*      call    = inlineInfo->iciCall;
     GenTreeCall::Use* thisArg = call->gtCallThisArg;
-    unsigned          argCnt  = 0; // Count of the arguments
+    InlArgInfo*       argInfo = inlineInfo->inlArgInfo;
+    unsigned          argNum  = 0;
 
-    assert((methInfo->args.hasThis()) == (thisArg != nullptr));
+    assert((argsSig.hasThis()) == (thisArg != nullptr));
 
     if (thisArg != nullptr)
     {
-        inlArgInfo[0].argIsThis = true;
+        argInfo[0].argIsThis = true;
 
-        if (!inlRecordInlineeArg(pInlineInfo, thisArg->GetNode(), argCnt))
+        if (!inlRecordInlineeArg(inlineInfo, thisArg->GetNode(), argNum))
         {
             return false;
         }
 
-        /* Increment the argument count */
-        argCnt++;
+        argNum++;
     }
 
-    const bool hasRetBuffArg = call->HasRetBufArg();
+    unsigned typeCtxtArgNum = UINT32_MAX;
 
-    /* Record some information about each of the arguments */
-    bool hasTypeCtxtArg = (methInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0;
-
+    if ((argsSig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
+    {
 #if USER_ARGS_COME_LAST
-    unsigned typeCtxtArg = (thisArg != nullptr) ? 1 : 0;
-#else  // USER_ARGS_COME_LAST
-    unsigned typeCtxtArg = methInfo->args.totalILArgs();
-#endif // USER_ARGS_COME_LAST
+        typeCtxtArgNum = (thisArg != nullptr) ? 1 : 0;
+#else
+        typeCtxtArgNum = methInfo.args.totalILArgs();
+#endif
+    }
 
     for (GenTreeCall::Use& use : call->Args())
     {
-        if (hasRetBuffArg && (&use == call->gtCallArgs))
+        if (call->HasRetBufArg() && (&use == call->gtCallArgs))
         {
             continue;
         }
 
-        // Ignore the type context argument
-        if (hasTypeCtxtArg && (argCnt == typeCtxtArg))
+        if (argNum == typeCtxtArgNum)
         {
-            pInlineInfo->typeContextArg = typeCtxtArg;
-            typeCtxtArg                 = 0xFFFFFFFF;
+            inlineInfo->typeContextArg = typeCtxtArgNum;
+            typeCtxtArgNum             = UINT32_MAX;
             continue;
         }
 
-        if (!inlRecordInlineeArg(pInlineInfo, use.GetNode(), argCnt))
+        if (!inlRecordInlineeArg(inlineInfo, use.GetNode(), argNum))
         {
             return false;
         }
 
-        /* Increment the argument count */
-        argCnt++;
+        argNum++;
     }
 
-    /* Make sure we got the arg number right */
-    assert(argCnt == pInlineInfo->argCnt);
-
-#ifdef FEATURE_SIMD
-    bool foundSIMDType = pInlineInfo->hasSIMDTypeArgLocalOrReturn;
-#endif // FEATURE_SIMD
-
-    /* We have typeless opcodes, get type information from the signature */
-
-    if (thisArg != nullptr)
-    {
-        var_types argType;
-        typeInfo  argTypeInfo;
-
-        if ((clsAttr & CORINFO_FLG_VALUECLASS) == 0)
-        {
-            argType     = TYP_REF;
-            argTypeInfo = typeInfo(TI_REF, pInlineInfo->inlineCandidateInfo->clsHandle);
-        }
-        else
-        {
-            argType = TYP_BYREF;
-
-            if (info.compCompHnd->getTypeForPrimitiveValueClass(pInlineInfo->inlineCandidateInfo->clsHandle) ==
-                CORINFO_TYPE_UNDEF)
-            {
-                // TODO-MIKE-Cleanup: Like LDLOCA import, this generates incorrect type information,
-                // TI_STRUCT without marking it byref.
-
-                argTypeInfo = typeInfo(TI_STRUCT, pInlineInfo->inlineCandidateInfo->clsHandle);
-            }
-        }
-
-        lclVarInfo[0].lclType        = argType;
-        lclVarInfo[0].lclVerTypeInfo = argTypeInfo;
-        lclVarInfo[0].lclHasLdlocaOp = false;
-
-#ifdef FEATURE_SIMD
-        // We always want to check isSIMDClass, since we want to set foundSIMDType (to increase
-        // the inlining multiplier) for anything in that assembly.
-        // But we only need to normalize it if it is a TYP_STRUCT
-        // (which we need to do even if we have already set foundSIMDType).
-        if (!foundSIMDType && (argType == TYP_BYREF) &&
-            isSIMDorHWSIMDClass(pInlineInfo->inlineCandidateInfo->clsHandle))
-        {
-            foundSIMDType = true;
-        }
-#endif // FEATURE_SIMD
-
-        GenTree* thisArgNode = thisArg->GetNode();
-
-        assert(thisArgNode->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL));
-
-        if (thisArgNode->GetType() != argType)
-        {
-            if (argType == TYP_REF)
-            {
-                // The argument cannot be bashed into a ref (see bug 750871)
-                inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
-                return false;
-            }
-
-            // A native pointer can be passed as "this" to a method of a struct.
-            assert(thisArgNode->TypeIs(TYP_I_IMPL));
-
-            lclVarInfo[0].lclVerTypeInfo = typeInfo(TI_I_IMPL);
-        }
-    }
+    assert(argNum == inlineInfo->argCnt);
 
     // Init the types of the arguments and make sure the types
     // from the trees match the types in the signature
 
-    CORINFO_ARG_LIST_HANDLE argLst = methInfo->args.args;
+    InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
+#ifdef FEATURE_SIMD
+    bool foundSIMDType = inlineInfo->hasSIMDTypeArgLocalOrReturn;
+#endif
 
-    for (unsigned i = (thisArg ? 1 : 0); i < argCnt; i++, argLst = info.compCompHnd->getArgNext(argLst))
+    if (thisArg != nullptr)
     {
-        CORINFO_CLASS_HANDLE argClass;
-        CorInfoType          argCorType = strip(info.compCompHnd->getArgType(&methInfo->args, argLst, &argClass));
-        var_types            argType    = JITtype2varType(argCorType);
-        typeInfo             argTypeInfo;
+        var_types paramType;
+        typeInfo  paramTypeInfo;
 
-        if (argType == TYP_REF)
+        CORINFO_CLASS_HANDLE methodClass = inlineInfo->inlineCandidateInfo->clsHandle;
+        GenTree*             argNode     = thisArg->GetNode();
+
+        if ((inlineInfo->inlineCandidateInfo->clsAttr & CORINFO_FLG_VALUECLASS) == 0)
         {
-            argTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&methInfo->args, argLst));
+            if (argNode->GetType() != TYP_REF)
+            {
+                // The argument cannot be coerced to REF.
+                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
+                return false;
+            }
+
+            paramType     = TYP_REF;
+            paramTypeInfo = typeInfo(TI_REF, methodClass);
         }
-        else if (argType == TYP_BYREF)
+        else
+        {
+            // A native pointer can be passed as "this" to a method of a struct.
+            assert(argNode->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+            paramType = TYP_BYREF;
+
+            if (info.compCompHnd->getTypeForPrimitiveValueClass(methodClass) == CORINFO_TYPE_UNDEF)
+            {
+                // TODO-MIKE-Cleanup: Like LDLOCA import, this generates incorrect type information,
+                // TI_STRUCT without marking it byref. And then if the arg is a native pointer the
+                // type info is changed to I_IMPL?! This makes no sense.
+
+                paramTypeInfo = typeInfo(TI_STRUCT, methodClass);
+
+                if (argNode->TypeIs(TYP_I_IMPL))
+                {
+                    paramTypeInfo = typeInfo(TI_I_IMPL);
+                }
+
+#ifdef FEATURE_SIMD
+                if (!foundSIMDType && isSIMDorHWSIMDClass(methodClass))
+                {
+                    foundSIMDType = true;
+                }
+#endif
+            }
+        }
+
+        lclVarInfo[0].lclType        = paramType;
+        lclVarInfo[0].lclVerTypeInfo = paramTypeInfo;
+    }
+
+    CORINFO_ARG_LIST_HANDLE paramHandle = argsSig.args;
+
+    for (unsigned i = (thisArg ? 1 : 0); i < argNum; i++, paramHandle = info.compCompHnd->getArgNext(paramHandle))
+    {
+        CORINFO_CLASS_HANDLE paramClass;
+        CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(&argsSig, paramHandle, &paramClass));
+        var_types            paramType    = JITtype2varType(paramCorType);
+        typeInfo             paramTypeInfo;
+
+        if (paramType == TYP_REF)
+        {
+            paramTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&argsSig, paramHandle));
+        }
+        else if (paramType == TYP_BYREF)
         {
             // Don't generate typeInfo for byref, it's not needed and requires extra VM calls.
         }
-        else if (argType == TYP_STRUCT)
+        else if (paramType == TYP_STRUCT)
         {
 #ifdef FEATURE_SIMD
-            if (isSIMDorHWSIMDClass(argClass))
+            if (isSIMDorHWSIMDClass(paramClass))
             {
                 // If this is a SIMD class (i.e. in the SIMD assembly), then we will consider that we've
                 // found a SIMD type, even if this may not be a type we recognize (the assumption is that
                 // it is likely to use a SIMD type, and therefore we want to increase the inlining multiplier).
                 foundSIMDType = true;
-                argType       = impNormStructType(argClass);
+                paramType     = impNormStructType(paramClass);
             }
-#endif // FEATURE_SIMD
+#endif
 
-            argTypeInfo = typeInfo(TI_STRUCT, argClass);
+            paramTypeInfo = typeInfo(TI_STRUCT, paramClass);
         }
-        else if (argClass != NO_CLASS_HANDLE)
+        else if (paramClass != NO_CLASS_HANDLE)
         {
-            assert(info.compCompHnd->isValueClass(argClass));
-            assert(info.compCompHnd->getTypeForPrimitiveValueClass(argClass) == CORINFO_TYPE_UNDEF);
+            assert(info.compCompHnd->isValueClass(paramClass));
+            assert(info.compCompHnd->getTypeForPrimitiveValueClass(paramClass) == CORINFO_TYPE_UNDEF);
 
             // This is a "normed type" - a struct that contains a single primitive type field.
             // See lvaInitVarDsc.
-            argTypeInfo = typeInfo(TI_STRUCT, argClass);
+            paramTypeInfo = typeInfo(TI_STRUCT, paramClass);
         }
-        else if (argCorType <= CORINFO_TYPE_DOUBLE)
+        else if (paramCorType <= CORINFO_TYPE_DOUBLE)
         {
             // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
             // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
             // primitive type, and thus detects any primitive type local as being normed type.
 
-            argTypeInfo = typeInfo(JITtype2tiType(argCorType));
+            paramTypeInfo = typeInfo(JITtype2tiType(paramCorType));
         }
 
-        lclVarInfo[i].lclType        = argType;
-        lclVarInfo[i].lclVerTypeInfo = argTypeInfo;
-        lclVarInfo[i].lclHasLdlocaOp = false;
+        lclVarInfo[i].lclType        = paramType;
+        lclVarInfo[i].lclVerTypeInfo = paramTypeInfo;
 
         // Does the tree type match the signature type?
 
-        GenTree* inlArgNode = inlArgInfo[i].argNode;
+        GenTree* argNode = argInfo[i].argNode;
 
-        if (argType == inlArgNode->GetType())
+        if (paramType == argNode->GetType())
         {
             continue;
         }
@@ -1186,15 +1170,15 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
         // In valid IL, this can only happen for short integer types or byrefs <-> [native] ints,
         // but in bad IL cases with caller-callee signature mismatches we can see other types.
         // Intentionally reject cases with mismatches so the jit is more flexible when
-        // encountering bad IL. */
+        // encountering bad IL.
 
-        bool isPlausibleTypeMatch = (genActualType(argType) == genActualType(inlArgNode->gtType)) ||
-                                    (genActualTypeIsIntOrI(argType) && inlArgNode->gtType == TYP_BYREF) ||
-                                    (argType == TYP_BYREF && genActualTypeIsIntOrI(inlArgNode->gtType));
+        bool isPlausibleTypeMatch = (varActualType(paramType) == varActualType(argNode->GetType())) ||
+                                    (varActualTypeIsIntOrI(paramType) && argNode->TypeIs(TYP_BYREF)) ||
+                                    ((paramType == TYP_BYREF) && varActualTypeIsIntOrI(argNode->GetType()));
 
         if (!isPlausibleTypeMatch)
         {
-            inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
+            inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
             return false;
         }
 
@@ -1202,78 +1186,83 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* pInlineInfo)
         // Widening casts are ok since the value computed is already
         // normalized to an int (on the IL stack)
 
-        if (genTypeSize(inlArgNode->gtType) >= genTypeSize(argType))
+        if (varTypeSize(argNode->GetType()) < varTypeSize(paramType))
         {
-            if (argType == TYP_BYREF)
-            {
-                lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
-            }
-            else if (inlArgNode->gtType == TYP_BYREF)
-            {
-                assert(varTypeIsIntOrI(argType));
-
-                // If possible bash the BYREF to an int
-                if (inlArgNode->IsLocalAddrExpr() != nullptr)
-                {
-                    inlArgNode->gtType           = TYP_I_IMPL;
-                    lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
-                }
-                else
-                {
-                    // Arguments 'int <- byref' cannot be changed
-                    inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
-                    return false;
-                }
-            }
-            else if (genTypeSize(argType) < EA_PTRSIZE)
-            {
-                // Narrowing cast
-
-                if (inlArgNode->gtOper == GT_LCL_VAR &&
-                    !lvaTable[inlArgNode->AsLclVarCommon()->GetLclNum()].lvNormalizeOnLoad() &&
-                    argType == lvaGetRealType(inlArgNode->AsLclVarCommon()->GetLclNum()))
-                {
-                    // We don't need to insert a cast here as the variable
-                    // was assigned a normalized value of the right type
-
-                    continue;
-                }
-
-                inlArgNode = inlArgInfo[i].argNode = gtNewCastNode(TYP_INT, inlArgNode, false, argType);
-
-                inlArgInfo[i].argIsLclVar = false;
-
-                // Try to fold the node in case we have constant arguments
-
-                if (inlArgInfo[i].argIsInvariant)
-                {
-                    inlArgNode            = gtFoldExprConst(inlArgNode);
-                    inlArgInfo[i].argNode = inlArgNode;
-                    assert(inlArgNode->OperIsConst());
-                }
-            }
-#ifdef TARGET_64BIT
-            else if (genTypeSize(genActualType(inlArgNode->gtType)) < genTypeSize(argType))
-            {
-                // This should only happen for int -> native int widening
-                inlArgNode = inlArgInfo[i].argNode = gtNewCastNode(genActualType(argType), inlArgNode, false, argType);
-
-                inlArgInfo[i].argIsLclVar = false;
-
-                // Try to fold the node in case we have constant arguments
-
-                if (inlArgInfo[i].argIsInvariant)
-                {
-                    inlArgNode            = gtFoldExprConst(inlArgNode);
-                    inlArgInfo[i].argNode = inlArgNode;
-                    assert(inlArgNode->OperIsConst());
-                }
-            }
-#endif // TARGET_64BIT
+            continue;
         }
+
+        if (paramType == TYP_BYREF)
+        {
+            assert(varTypeIsIntOrI(argNode->GetType()));
+
+            lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
+            continue;
+        }
+
+        if (argNode->TypeIs(TYP_BYREF))
+        {
+            assert(varTypeIsIntOrI(paramType));
+
+            if (argNode->IsLocalAddrExpr() == nullptr)
+            {
+                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
+                return false;
+            }
+
+            assert(argNode->OperIs(GT_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+            argNode->SetType(TYP_I_IMPL);
+            lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
+
+            continue;
+        }
+
+        if (varTypeSize(paramType) < varTypeSize(TYP_I_IMPL))
+        {
+            if (argNode->OperIs(GT_LCL_VAR) && !lvaGetDesc(argNode->AsLclVar())->lvNormalizeOnLoad() &&
+                (paramType == lvaGetDesc(argNode->AsLclVar())->GetType()))
+            {
+                // We don't need to insert a cast here as the variable
+                // was assigned a normalized value of the right type
+
+                continue;
+            }
+
+            argNode = gtNewCastNode(TYP_INT, argNode, false, paramType);
+
+            if (argInfo[i].argIsInvariant)
+            {
+                argNode = gtFoldExprConst(argNode);
+                assert(argNode->OperIsConst());
+            }
+
+            argInfo[i].argNode     = argNode;
+            argInfo[i].argIsLclVar = false;
+
+            continue;
+        }
+
+#ifdef TARGET_64BIT
+        if (varTypeSize(varActualType(argNode->GetType())) < varTypeSize(paramType))
+        {
+            // This should only happen for int -> native int widening
+
+            argNode = gtNewCastNode(varActualType(paramType), argNode, false, paramType);
+
+            if (argInfo[i].argIsInvariant)
+            {
+                argNode = gtFoldExprConst(argNode);
+                assert(argNode->OperIsConst());
+            }
+
+            argInfo[i].argNode     = argNode;
+            argInfo[i].argIsLclVar = false;
+
+            continue;
+        }
+#endif // TARGET_64BIT
     }
 
-    pInlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
+    inlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
 
     return true;
 }
@@ -1751,7 +1740,7 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
         // Also, if arguments have global or local references, we need to
         // evaluate them to a temp before the inlined body as the
         // inlined body may be modifying the global ref.
-        // 
+        //
         // TODO-1stClassStructs: We currently do not reuse an existing lclVar
         // if it is a struct, because it requires some additional handling.
 
