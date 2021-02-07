@@ -2263,16 +2263,20 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             continue;
         }
 
-        // The argument is either not used or a const or tmpLcl var
-
-        noway_assert(!argInfo.argIsUsed || argInfo.argIsInvariant || argInfo.argIsLclVar);
-
-        // Make sure we didnt change argNode's along the way, or else
-        // subsequent uses of the arg would have worked with the bashed value
         if (argInfo.argIsInvariant)
         {
             assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR));
+            assert(!argInfo.argHasLdargaOp && !argInfo.argHasStargOp);
+
+            continue;
         }
+
+        // The argument is either not used or a local.
+
+        noway_assert(!argInfo.argIsUsed || argInfo.argIsLclVar);
+
+        // Make sure we didnt change argNode's along the way, or else
+        // subsequent uses of the arg would have worked with the bashed value
 
         noway_assert(!argInfo.argIsLclVar ==
                      (!argNode->OperIs(GT_LCL_VAR) || ((argNode->gtFlags & GTF_GLOB_REF) != 0)));
