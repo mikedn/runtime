@@ -2115,7 +2115,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
         }
     }
 
-    afterStmt = inlInitInlineeArgs(inlineInfo, block, afterStmt, callILOffset);
+    afterStmt = inlInitInlineeArgs(inlineInfo, afterStmt);
 
     // Add the CCTOR check if asked for.
     // Note: We no longer do the optimization that is done before by staticAccessedFirstUsingHelper in the old inliner.
@@ -2155,289 +2155,283 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
     return afterStmt;
 }
 
-Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo,
-                                        BasicBlock* block,
-                                        Statement*  afterStmt,
-                                        IL_OFFSETX  callILOffset)
+Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt)
 {
-    if (inlineInfo->argCnt != 0)
+    JITDUMP("\nInit inlinee args:\n");
+    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
+
+    if (inlineInfo->argCnt == 0)
     {
-#ifdef DEBUG
-        if (verbose)
+        JITDUMP("\tInlinee has no args.\n");
+        return afterStmt;
+    }
+
+    for (unsigned argNum = 0; argNum < inlineInfo->argCnt; argNum++)
+    {
+        const InlArgInfo& argInfo = inlineInfo->inlArgInfo[argNum];
+
+        GenTree* argNode = argInfo.argNode;
+        uint64_t bbFlags = 0;
+        argNode          = argNode->gtRetExprVal(&bbFlags);
+
+        // MKREFANY args currently fail inlining.
+        assert(!argNode->OperIs(GT_MKREFANY));
+
+        if (argInfo.argHasTmp)
         {
-            printf("\nArguments setup:\n");
-        }
-#endif // DEBUG
+            noway_assert(argInfo.argIsUsed);
 
-        InlArgInfo*    inlArgInfo = inlineInfo->inlArgInfo;
-        InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
+            // argBashTmpNode is non-NULL iff the argument's value was
+            // referenced exactly once by the original IL. This offers an
+            // opportunity to avoid an intermediate temp and just insert
+            // the original argument tree.
+            //
+            // However, if the temp node has been cloned somewhere while
+            // importing (e.g. when handling isinst or dup), or if the IL
+            // took the address of the argument, then argBashTmpNode will
+            // be set (because the value was only explicitly retrieved
+            // once) but the optimization cannot be applied.
 
-        for (unsigned argNum = 0; argNum < inlineInfo->argCnt; argNum++)
-        {
-            const InlArgInfo& argInfo        = inlArgInfo[argNum];
-            const bool        argIsSingleDef = !argInfo.argHasLdargaOp && !argInfo.argHasStargOp;
-            GenTree*          argNode        = inlArgInfo[argNum].argNode;
+            GenTree* argSingleUseNode = argInfo.argBashTmpNode;
 
-            uint64_t bbFlags = 0;
-            argNode          = argNode->gtRetExprVal(&bbFlags);
-
-            // MKREFANY args currently fail inlining.
-            assert(!argNode->OperIs(GT_MKREFANY));
-
-            if (argInfo.argHasTmp)
+            if ((argSingleUseNode != nullptr) && ((argSingleUseNode->gtFlags & GTF_VAR_CLONED) == 0) &&
+                !argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
             {
-                noway_assert(argInfo.argIsUsed);
+                // Change the temp in-place to the actual argument.
 
-                /* argBashTmpNode is non-NULL iff the argument's value was
-                   referenced exactly once by the original IL. This offers an
-                   opportunity to avoid an intermediate temp and just insert
-                   the original argument tree.
+                // We currently do not support this for struct arguments, so it must not be a GT_OBJ.
+                assert(!argNode->OperIs(GT_OBJ));
 
-                   However, if the temp node has been cloned somewhere while
-                   importing (e.g. when handling isinst or dup), or if the IL
-                   took the address of the argument, then argBashTmpNode will
-                   be set (because the value was only explicitly retrieved
-                   once) but the optimization cannot be applied.
-                 */
-
-                GenTree* argSingleUseNode = argInfo.argBashTmpNode;
-
-                if ((argSingleUseNode != nullptr) && !(argSingleUseNode->gtFlags & GTF_VAR_CLONED) && argIsSingleDef)
-                {
-                    // Change the temp in-place to the actual argument.
-                    // We currently do not support this for struct arguments, so it must not be a GT_OBJ.
-                    assert(argNode->gtOper != GT_OBJ);
-                    argSingleUseNode->ReplaceWith(argNode, this);
-                    continue;
-                }
-                else
-                {
-                    // We're going to assign the argument value to the
-                    // temp we use for it in the inline body.
-                    const unsigned  tmpNum  = argInfo.argTmpNum;
-                    const var_types argType = lclVarInfo[argNum].lclType;
-
-                    // Create the temp assignment for this argument
-
-                    GenTree* asg;
-
-                    if (varTypeIsStruct(argType))
-                    {
-                        CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(argNode);
-                        noway_assert((structHnd != NO_CLASS_HANDLE) || (argType != TYP_STRUCT));
-
-                        // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
-                        // lvaSetStruct - the temp may have type A<SomeRefClass> and argNode may
-                        // have type A<Canon>. In such a case, impAssignStructPtr wraps the dest
-                        // temp in an OBJ that then cannot be removed and causes CQ issues.
-                        // To avoid that, temporarily change the type of the temp to the argNode's
-                        // type.
-                        //
-                        // In general the JIT doesn't care if the 2 sides of a struct assignment
-                        // have the same type so perhaps we can just change impAssignStructPtr to
-                        // simply not add the OBJ. But for now it's safer to do this here because
-                        // we're 99.99% sure that the types are really the same. If they're not
-                        // then the IL is likely invalid (pushed a struct with a different type
-                        // than the parameter type).
-
-                        LclVarDsc*   tmpLcl        = lvaGetDesc(tmpNum);
-                        ClassLayout* tmpLayout     = tmpLcl->GetLayout();
-                        bool         restoreLayout = false;
-
-                        if ((argType == TYP_STRUCT) && (structHnd != tmpLayout->GetClassHandle()))
-                        {
-                            assert(info.compCompHnd->getClassSize(structHnd) == tmpLayout->GetSize());
-
-                            tmpLcl->SetLayout(typGetObjLayout(structHnd));
-                            restoreLayout = true;
-                        }
-
-                        assert(!argNode->TypeIs(TYP_STRUCT) || (structHnd != NO_CLASS_HANDLE));
-
-                        if (varTypeIsStruct(argNode->GetType()) && (structHnd != NO_CLASS_HANDLE))
-                        {
-                            lvaSetStruct(tmpNum, structHnd, false);
-
-                            // The argument cannot be a COMMA, impNormStructVal should have changed
-                            // it to OBJ(COMMA(...)).
-                            // It also cannot be MKREFANY because TypedReference parameters block
-                            // inlining. That's probably an unnecessary limitation but who cares
-                            // about TypedReference?
-                            // This means that impAssignStructPtr won't have to add new statements,
-                            // it cannot do that since we're not actually importing IL.
-
-                            assert(!argNode->OperIs(GT_COMMA));
-
-                            GenTree* dst     = gtNewLclvNode(tmpNum, tmpLcl->GetType());
-                            GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
-                            asg              = impAssignStructPtr(dstAddr, argNode, structHnd, CHECK_SPILL_NONE);
-                        }
-                        else
-                        {
-                            asg = gtNewTempAssign(tmpNum, argNode);
-                        }
-
-                        if (restoreLayout)
-                        {
-                            tmpLcl->SetLayout(tmpLayout);
-                        }
-                    }
-                    else
-                    {
-                        asg = gtNewTempAssign(tmpNum, argNode);
-                    }
-
-                    Statement* stmt = gtNewStmt(asg, callILOffset);
-                    fgInsertStmtAfter(block, afterStmt, stmt);
-                    afterStmt = stmt;
-
-                    // We used to refine the temp type here based on
-                    // the actual arg, but we now do this up front, when
-                    // creating the temp, over in inlFetchInlineeArg.
-                    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        gtDispStmt(afterStmt);
-                    }
-#endif // DEBUG
-                }
-                block->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
+                argSingleUseNode->ReplaceWith(argNode, this);
+                continue;
             }
-            else if (argInfo.argIsByRefToStructLocal)
+
+            // We're going to assign the argument value to the
+            // temp we use for it in the inline body.
+            const unsigned  tmpNum  = argInfo.argTmpNum;
+            const var_types argType = inlineInfo->lclVarInfo[argNum].lclType;
+
+            // Create the temp assignment for this argument
+
+            GenTree* asg;
+
+            if (!varTypeIsStruct(argType))
             {
-                // Do nothing. Arg was directly substituted as we read
-                // the inlinee.
+                asg = gtNewTempAssign(tmpNum, argNode);
             }
             else
             {
-                /* The argument is either not used or a const or tmpLcl var */
+                CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(argNode);
+                noway_assert((structHnd != NO_CLASS_HANDLE) || (argType != TYP_STRUCT));
 
-                noway_assert(!argInfo.argIsUsed || argInfo.argIsInvariant || argInfo.argIsLclVar);
+                // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
+                // lvaSetStruct - the temp may have type A<SomeRefClass> and argNode may
+                // have type A<Canon>. In such a case, impAssignStructPtr wraps the dest
+                // temp in an OBJ that then cannot be removed and causes CQ issues.
+                // To avoid that, temporarily change the type of the temp to the argNode's
+                // type.
+                //
+                // In general the JIT doesn't care if the 2 sides of a struct assignment
+                // have the same type so perhaps we can just change impAssignStructPtr to
+                // simply not add the OBJ. But for now it's safer to do this here because
+                // we're 99.99% sure that the types are really the same. If they're not
+                // then the IL is likely invalid (pushed a struct with a different type
+                // than the parameter type).
 
-                /* Make sure we didnt change argNode's along the way, or else
-                   subsequent uses of the arg would have worked with the bashed value */
-                if (argInfo.argIsInvariant)
+                LclVarDsc*   tmpLcl        = lvaGetDesc(tmpNum);
+                ClassLayout* tmpLayout     = tmpLcl->GetLayout();
+                bool         restoreLayout = false;
+
+                if ((argType == TYP_STRUCT) && (structHnd != tmpLayout->GetClassHandle()))
                 {
-                    assert(argNode->OperIsConst() || argNode->gtOper == GT_ADDR);
-                }
-                noway_assert((argInfo.argIsLclVar == 0) ==
-                             (argNode->gtOper != GT_LCL_VAR || (argNode->gtFlags & GTF_GLOB_REF)));
+                    assert(info.compCompHnd->getClassSize(structHnd) == tmpLayout->GetSize());
 
-                /* If the argument has side effects, append it */
-
-                if (argInfo.argHasSideEff)
-                {
-                    noway_assert(argInfo.argIsUsed == false);
-                    Statement* newStmt = nullptr;
-                    bool       append  = true;
-
-                    if (argNode->OperIs(GT_OBJ))
-                    {
-                        GenTree* addr = argNode->AsObj()->GetAddr();
-
-                        if (fgAddrCouldBeNull(addr))
-                        {
-                            newStmt = gtNewStmt(gtNewNullCheck(addr, block), callILOffset);
-                        }
-                        else
-                        {
-                            newStmt = gtNewStmt(gtUnusedValNode(addr), callILOffset);
-                        }
-                    }
-                    else
-                    {
-                        // In some special cases, unused args with side effects can
-                        // trigger further changes.
-                        //
-                        // (1) If the arg is a static field access and the field access
-                        // was produced by a call to EqualityComparer<T>.get_Default, the
-                        // helper call to ensure the field has a value can be suppressed.
-                        // This helper call is marked as a "Special DCE" helper during
-                        // importation, over in fgGetStaticsCCtorHelper.
-                        //
-                        // (2) NYI. If, after tunneling through GT_RET_VALs, we find that
-                        // the actual arg expression has no side effects, we can skip
-                        // appending all together. This will help jit TP a bit.
-
-                        // For case (1)
-                        //
-                        // Look for the following tree shapes
-                        // prejit: (IND (ADD (CONST, CALL(special dce helper...))))
-                        // jit   : (COMMA (CALL(special dce helper...), (FIELD ...)))
-                        if (argNode->OperIs(GT_COMMA))
-                        {
-                            // Look for (COMMA (CALL(special dce helper...), (FIELD ...)))
-                            GenTree* op1 = argNode->AsOp()->gtOp1;
-                            GenTree* op2 = argNode->AsOp()->gtOp2;
-                            if (op1->IsCall() &&
-                                ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
-                                (op2->gtOper == GT_FIELD) && ((op2->gtFlags & GTF_EXCEPT) == 0))
-                            {
-                                JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n",
-                                        argNode->gtTreeID, op1->gtTreeID);
-                                // Drop the whole tree
-                                append = false;
-                            }
-                        }
-                        else if (argNode->OperIs(GT_IND))
-                        {
-                            // Look for (IND (ADD (CONST, CALL(special dce helper...))))
-                            GenTree* addr = argNode->AsIndir()->GetAddr();
-
-                            if (addr->gtOper == GT_ADD)
-                            {
-                                GenTree* op1 = addr->AsOp()->gtOp1;
-                                GenTree* op2 = addr->AsOp()->gtOp2;
-                                if (op1->IsCall() &&
-                                    ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
-                                    op2->IsCnsIntOrI())
-                                {
-                                    // Drop the whole tree
-                                    JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n",
-                                            argNode->gtTreeID, op1->gtTreeID);
-                                    append = false;
-                                }
-                            }
-                        }
-                    }
-
-                    if (!append)
-                    {
-                        assert(newStmt == nullptr);
-                        JITDUMP("Arg tree side effects were discardable, not appending anything for arg\n");
-                    }
-                    else
-                    {
-                        // If we don't have something custom to append,
-                        // just append the arg node as an unused value.
-                        if (newStmt == nullptr)
-                        {
-                            newStmt = gtNewStmt(gtUnusedValNode(argNode), callILOffset);
-                        }
-
-                        fgInsertStmtAfter(block, afterStmt, newStmt);
-                        afterStmt = newStmt;
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            gtDispStmt(afterStmt);
-                        }
-#endif // DEBUG
-                    }
-                }
-                else if (argNode->IsBoxedValue())
-                {
-                    // Try to clean up any unnecessary boxing side effects
-                    // since the box itself will be ignored.
-                    gtTryRemoveBoxUpstreamEffects(argNode);
+                    tmpLcl->SetLayout(typGetObjLayout(structHnd));
+                    restoreLayout = true;
                 }
 
-                block->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
+                assert(!argNode->TypeIs(TYP_STRUCT) || (structHnd != NO_CLASS_HANDLE));
+
+                if (!varTypeIsStruct(argNode->GetType()) || (structHnd == NO_CLASS_HANDLE))
+                {
+                    asg = gtNewTempAssign(tmpNum, argNode);
+                }
+                else
+                {
+                    lvaSetStruct(tmpNum, structHnd, false);
+
+                    // The argument cannot be a COMMA, impNormStructVal should have changed
+                    // it to OBJ(COMMA(...)).
+                    // It also cannot be MKREFANY because TypedReference parameters block
+                    // inlining. That's probably an unnecessary limitation but who cares
+                    // about TypedReference?
+                    // This means that impAssignStructPtr won't have to add new statements,
+                    // it cannot do that since we're not actually importing IL.
+
+                    assert(!argNode->OperIs(GT_COMMA));
+
+                    GenTree* dst     = gtNewLclvNode(tmpNum, tmpLcl->GetType());
+                    GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
+                    asg              = impAssignStructPtr(dstAddr, argNode, structHnd, CHECK_SPILL_NONE);
+                }
+
+                if (restoreLayout)
+                {
+                    tmpLcl->SetLayout(tmpLayout);
+                }
+            }
+
+            Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+            fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
+            afterStmt = stmt;
+
+            DBEXEC(verbose, gtDispStmt(afterStmt));
+
+            inlineInfo->iciBlock->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
+
+            continue;
+        }
+
+        if (argInfo.argIsByRefToStructLocal)
+        {
+            // Do nothing. Arg was directly substituted as we read
+            // the inlinee.
+
+            continue;
+        }
+
+        // The argument is either not used or a const or tmpLcl var
+
+        noway_assert(!argInfo.argIsUsed || argInfo.argIsInvariant || argInfo.argIsLclVar);
+
+        // Make sure we didnt change argNode's along the way, or else
+        // subsequent uses of the arg would have worked with the bashed value
+        if (argInfo.argIsInvariant)
+        {
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR));
+        }
+
+        noway_assert(!argInfo.argIsLclVar ==
+                     (!argNode->OperIs(GT_LCL_VAR) || ((argNode->gtFlags & GTF_GLOB_REF) != 0)));
+
+        // If the argument has side effects, append it.
+
+        if (argInfo.argHasSideEff)
+        {
+            noway_assert(!argInfo.argIsUsed);
+
+            Statement* newStmt = nullptr;
+            bool       append  = true;
+
+            if (argNode->OperIs(GT_OBJ))
+            {
+                GenTree* addr = argNode->AsObj()->GetAddr();
+                GenTree* tree;
+
+                if (fgAddrCouldBeNull(addr))
+                {
+                    tree = gtNewNullCheck(addr, inlineInfo->iciBlock);
+                }
+                else
+                {
+                    tree = gtUnusedValNode(addr);
+                }
+
+                newStmt = gtNewStmt(tree, inlineInfo->iciStmt->GetILOffsetX());
+            }
+            else
+            {
+                // In some special cases, unused args with side effects can
+                // trigger further changes.
+                //
+                // (1) If the arg is a static field access and the field access
+                // was produced by a call to EqualityComparer<T>.get_Default, the
+                // helper call to ensure the field has a value can be suppressed.
+                // This helper call is marked as a "Special DCE" helper during
+                // importation, over in fgGetStaticsCCtorHelper.
+                //
+                // (2) NYI. If, after tunneling through GT_RET_VALs, we find that
+                // the actual arg expression has no side effects, we can skip
+                // appending all together. This will help jit TP a bit.
+
+                // For case (1)
+                //
+                // Look for the following tree shapes
+                // prejit: (IND (ADD (CONST, CALL(special dce helper...))))
+                // jit   : (COMMA (CALL(special dce helper...), (FIELD ...)))
+
+                if (argNode->OperIs(GT_COMMA))
+                {
+                    // Look for (COMMA (CALL(special dce helper...), (FIELD ...)))
+
+                    GenTree* op1 = argNode->AsOp()->GetOp(0);
+                    GenTree* op2 = argNode->AsOp()->GetOp(1);
+
+                    if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
+                        op2->OperIs(GT_FIELD) && ((op2->gtFlags & GTF_EXCEPT) == 0))
+                    {
+                        JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
+                                op1->GetID());
+
+                        append = false;
+                    }
+                }
+                else if (argNode->OperIs(GT_IND))
+                {
+                    // Look for (IND (ADD (CONST, CALL(special dce helper...))))
+
+                    GenTree* addr = argNode->AsIndir()->GetAddr();
+
+                    if (addr->OperIs(GT_ADD))
+                    {
+                        GenTree* op1 = addr->AsOp()->GetOp(0);
+                        GenTree* op2 = addr->AsOp()->GetOp(1);
+
+                        if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
+                            op2->IsIntCon())
+                        {
+                            JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n",
+                                    argNode->GetID(), op1->GetID());
+
+                            append = false;
+                        }
+                    }
+                }
+            }
+
+            if (!append)
+            {
+                assert(newStmt == nullptr);
+
+                JITDUMP("Arg tree side effects were discardable, not appending anything for arg\n");
+            }
+            else
+            {
+                // If we don't have something custom to append,
+                // just append the arg node as an unused value.
+
+                if (newStmt == nullptr)
+                {
+                    newStmt = gtNewStmt(gtUnusedValNode(argNode), inlineInfo->iciStmt->GetILOffsetX());
+                }
+
+                fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, newStmt);
+                afterStmt = newStmt;
+
+                DBEXEC(verbose, gtDispStmt(afterStmt));
             }
         }
+        else if (argNode->IsBoxedValue())
+        {
+            // Try to clean up any unnecessary boxing side effects
+            // since the box itself will be ignored.
+            gtTryRemoveBoxUpstreamEffects(argNode);
+        }
+
+        inlineInfo->iciBlock->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
     }
+
+    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 
     return afterStmt;
 }

@@ -4995,10 +4995,7 @@ private:
     bool inlRecordInlineeArgs(InlineInfo* inlineInfo);
     bool inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
     bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
-    Statement* inlInitInlineeArgs(InlineInfo* inlineInfo,
-                                  BasicBlock* block,
-                                  Statement*  afterStmt,
-                                  IL_OFFSETX  callILOffset);
+    Statement* inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt);
     Statement* inlInitInlineeLocals(InlineInfo* inlineInfo,
                                     BasicBlock* block,
                                     Statement*  afterStmt,
