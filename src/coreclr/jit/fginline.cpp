@@ -1269,9 +1269,6 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
     else if (argNode->OperIs(GT_LCL_VAR))
     {
         argInfo.argIsLclVar = true;
-
-        // Remember the "original" argument number
-        INDEBUG(argNode->AsLclVar()->gtLclILoffs = argNum;)
     }
     else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argNode))
     {
@@ -1600,14 +1597,12 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
 
         if (argInfo.argIsUsed || (argNode->GetType() != argType))
         {
-            assert(argNum == argNode->AsLclVar()->gtLclILoffs);
-
             if (!lvaGetDesc(argInfo.argTmpNum)->lvNormalizeOnLoad())
             {
                 argType = varActualType(argType);
             }
 
-            argNode = gtNewLclvNode(argInfo.argTmpNum, argType DEBUGARG(argNode->AsLclVar()->gtLclILoffs));
+            argNode = gtNewLclvNode(argInfo.argTmpNum, argType);
         }
     }
     else if (argInfo.argIsByRefToStructLocal && !argInfo.argHasStargOp)
