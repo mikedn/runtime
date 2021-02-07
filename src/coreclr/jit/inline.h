@@ -558,7 +558,7 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
 struct InlArgInfo
 {
     GenTree* argNode;                  // caller node for this argument
-    GenTree* argBashTmpNode;           // tmp node created, if it may be replaced with actual arg
+    GenTree* argSingleUse;             // the single use of this argument, if any
     unsigned argTmpNum;                // the argument tmp number
     unsigned argIsUsed : 1;            // is this arg used at all?
     unsigned argIsInvariant : 1;       // the argument is a constant or a local variable address

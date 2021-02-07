@@ -1615,7 +1615,7 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
 
-        argInfo.argBashTmpNode = nullptr;
+        argInfo.argSingleUse = nullptr;
     }
     else
     {
@@ -1687,7 +1687,7 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
         {
             argNode = gtNewLclvNode(tmpLclNum, varActualType(argType));
 
-            argInfo.argBashTmpNode = nullptr;
+            argInfo.argSingleUse = nullptr;
         }
         else
         {
@@ -1701,7 +1701,7 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
             // able to use the actual arg node instead of the temp.
             // If we do see any further uses, we will clear this.
 
-            argInfo.argBashTmpNode = argNode;
+            argInfo.argSingleUse = argNode;
         }
     }
 
@@ -2151,18 +2151,18 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
         {
             noway_assert(argInfo.argIsUsed);
 
-            // argBashTmpNode is non-NULL iff the argument's value was
+            // argSingleUse is non-NULL iff the argument's value was
             // referenced exactly once by the original IL. This offers an
             // opportunity to avoid an intermediate temp and just insert
             // the original argument tree.
             //
             // However, if the temp node has been cloned somewhere while
             // importing (e.g. when handling isinst or dup), or if the IL
-            // took the address of the argument, then argBashTmpNode will
+            // took the address of the argument, then argSingleUse will
             // be set (because the value was only explicitly retrieved
             // once) but the optimization cannot be applied.
 
-            GenTree* argSingleUseNode = argInfo.argBashTmpNode;
+            GenTree* argSingleUseNode = argInfo.argSingleUse;
 
             if ((argSingleUseNode != nullptr) && ((argSingleUseNode->gtFlags & GTF_VAR_CLONED) == 0) &&
                 !argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
