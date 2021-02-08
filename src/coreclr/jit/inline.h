@@ -557,19 +557,18 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
 
 struct InlArgInfo
 {
-    GenTree* argNode;                  // caller node for this argument
-    GenTree* argSingleUse;             // the single use of this argument, if any
-    unsigned argTmpNum;                // the argument tmp number
-    unsigned argIsUsed : 1;            // is this arg used at all?
-    unsigned argIsInvariant : 1;       // the argument is a constant or a local variable address
-    unsigned argIsLclVar : 1;          // the argument is a local variable
-    unsigned argIsThis : 1;            // the argument is the 'this' pointer
-    unsigned argHasSideEff : 1;        // the argument has side effects
-    unsigned argHasGlobRef : 1;        // the argument has a global ref
-    unsigned argHasCallerLocalRef : 1; // the argument value depends on an aliased caller local
-    unsigned argHasTmp : 1;            // the argument will be evaluated to a temp
-    unsigned argHasLdargaOp : 1;       // Is there LDARGA(s) operation on this argument?
-    unsigned argHasStargOp : 1;        // Is there STARG(s) operation on this argument?
+    GenTree* argNode;            // caller node for this argument
+    GenTree* argSingleUse;       // the single use of this argument, if any
+    unsigned argTmpNum;          // the argument tmp number
+    unsigned argIsUsed : 1;      // is this arg used at all?
+    unsigned argIsInvariant : 1; // the argument is a constant or a local variable address
+    unsigned argIsLclVar : 1;    // the argument is a local variable
+    unsigned argIsThis : 1;      // the argument is the 'this' pointer
+    unsigned argHasSideEff : 1;  // the argument has side effects
+    unsigned argHasGlobRef : 1;  // the argument has a global ref
+    unsigned argHasTmp : 1;      // the argument will be evaluated to a temp
+    unsigned argHasLdargaOp : 1; // Is there LDARGA(s) operation on this argument?
+    unsigned argHasStargOp : 1;  // Is there STARG(s) operation on this argument?
 };
 
 // InlLclVarInfo describes inline candidate argument and local variable properties.

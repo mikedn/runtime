@@ -1278,7 +1278,7 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         }
         else
         {
-            argInfo.argHasCallerLocalRef = true;
+            argInfo.argHasGlobRef = true;
         }
     }
     else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argNode))
@@ -1303,9 +1303,15 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
             argInfo.argHasSideEff = (argNode->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
         }
 
-        // If the arg depends on address-taken locals, we can't safely
-        // directly substitute it into the inlinee.
-        argInfo.argHasCallerLocalRef = gtHasLocalsWithAddrOp(argNode);
+        if (!argInfo.argHasGlobRef)
+        {
+            // Normally address exposed locals already have GTF_GLOB_REF but we haven't yet
+            // determined which locals are address exposed so we'll have to settle for less,
+            // if the expression contains any address taken locals then it's treated as if
+            // it has GTF_GLOB_REF.
+
+            argInfo.argHasGlobRef = gtHasLocalsWithAddrOp(argNode);
+        }
     }
 
 #ifdef DEBUG
@@ -1330,10 +1336,6 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         if (argInfo.argHasGlobRef)
         {
             printf("has global refs");
-        }
-        if (argInfo.argHasCallerLocalRef)
-        {
-            printf("has caller local ref");
         }
         if (argInfo.argHasSideEff)
         {
@@ -1586,8 +1588,10 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
         return argNode;
     }
 
-    if (argInfo.argIsLclVar && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp && !argInfo.argHasCallerLocalRef)
+    if (argInfo.argIsLclVar && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
     {
+        assert(!argInfo.argHasGlobRef);
+
         // Directly substitute unaliased caller locals for args that cannot be modified
         //
         // Use the caller-supplied node if this is the first use.
@@ -1696,7 +1700,7 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
     // TODO-1stClassStructs: We currently do not reuse an existing lclVar
     // if it is a struct, because it requires some additional handling.
 
-    if (varTypeIsStruct(argType) || argInfo.argHasSideEff || argInfo.argHasGlobRef || argInfo.argHasCallerLocalRef)
+    if (varTypeIsStruct(argType) || argInfo.argHasSideEff || argInfo.argHasGlobRef)
     {
         argNode = gtNewLclvNode(tmpLclNum, varActualType(argType));
     }
@@ -2273,7 +2277,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
         if (argInfo.argIsInvariant || argInfo.argIsLclVar)
         {
             assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR));
-            assert(!argInfo.argHasLdargaOp && !argInfo.argHasStargOp && !argInfo.argHasCallerLocalRef);
+            assert(!argInfo.argHasLdargaOp && !argInfo.argHasStargOp && !argInfo.argHasGlobRef);
 
             continue;
         }
