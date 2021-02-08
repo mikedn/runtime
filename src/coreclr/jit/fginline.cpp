@@ -1247,6 +1247,8 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
 {
     InlArgInfo& argInfo = inlineInfo->inlArgInfo[argNum];
 
+    JITDUMP("Argument %u%s ", argNum, argInfo.argIsThis ? " (this)" : "");
+
     // Save the original tree, might be a RET_EXPR and we need to keep it.
     argInfo.argNode = argNode;
 
@@ -1267,6 +1269,8 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
     if (argNode->OperIsConst())
     {
         argInfo.argIsInvariant = true;
+
+        JITDUMP("is constant");
     }
     else if (argNode->OperIs(GT_LCL_VAR))
     {
@@ -1275,10 +1279,14 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         if (!lcl->lvHasLdAddrOp && !lcl->lvAddrExposed)
         {
             argInfo.argIsLclVar = true;
+
+            JITDUMP("is unaliased local");
         }
         else
         {
             argInfo.argHasGlobRef = true;
+
+            JITDUMP("is aliased local");
         }
     }
     else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argNode))
@@ -1294,6 +1302,8 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
             }
 #endif
         }
+
+        JITDUMP("is local address");
     }
     else
     {
@@ -1312,41 +1322,14 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
 
             argInfo.argHasGlobRef = gtHasAddressTakenLocals(argNode);
         }
+
+        JITDUMP("%s%s%s%s", argInfo.argHasGlobRef || argInfo.argHasSideEff ? "has " : "is side effect free",
+                argInfo.argHasGlobRef ? "global refs" : "",
+                argInfo.argHasGlobRef && argInfo.argHasSideEff ? " and " : "",
+                argInfo.argHasSideEff ? "side effects" : "");
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        if (argInfo.argIsThis)
-        {
-            printf("this argument: ");
-        }
-        else
-        {
-            printf("\nArgument #%u: ", argNum);
-        }
-        if (argInfo.argIsLclVar)
-        {
-            printf("is a local var");
-        }
-        if (argInfo.argIsInvariant)
-        {
-            printf("is invariant");
-        }
-        if (argInfo.argHasGlobRef)
-        {
-            printf("has global refs");
-        }
-        if (argInfo.argHasSideEff)
-        {
-            printf("has side effects");
-        }
-
-        printf("\n");
-        gtDispTree(argNode);
-        printf("\n");
-    }
-#endif // DEBUG
+    JITDUMPTREE(argInfo.argNode, ":\n");
 
     return true;
 }
