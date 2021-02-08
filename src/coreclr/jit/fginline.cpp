@@ -892,7 +892,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
         return;
     }
 
-    // If there is non-NULL return, but we haven't set the pInlineInfo->retExpr,
+    // If there is non-NULL return, but we haven't set the inlineInfo->retExpr,
     // That means we haven't imported any BB that contains CEE_RET opcode.
     // (This could happen for example for a BBJ_THROW block fall through a BBJ_RETURN block which
     // causes the BBJ_RETURN block not to be imported at all.)
@@ -1334,20 +1334,17 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
     return true;
 }
 
-bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
+bool Compiler::inlRecordInlineeLocals(InlineInfo* inlineInfo)
 {
-    CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
-    InlineResult*        inlineResult = pInlineInfo->inlineResult;
-    InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
-    unsigned             argCnt       = pInlineInfo->argCnt;
-
-    CORINFO_ARG_LIST_HANDLE argLst        = methInfo->locals.args;
+    CORINFO_SIG_INFO&       localsSig     = inlineInfo->inlineCandidateInfo->methInfo.locals;
+    CORINFO_ARG_LIST_HANDLE localHandle   = localsSig.args;
     bool                    foundSIMDType = false;
 
-    for (unsigned i = 0; i < methInfo->locals.numArgs; i++, argLst = info.compCompHnd->getArgNext(argLst))
+    for (unsigned i = 0; i < localsSig.numArgs; i++, localHandle = info.compCompHnd->getArgNext(localHandle))
     {
+        InlLclVarInfo&       lclInfo = inlineInfo->lclVarInfo[inlineInfo->argCnt + i];
         CORINFO_CLASS_HANDLE lclClass;
-        CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&methInfo->locals, argLst, &lclClass);
+        CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
         var_types            lclType    = JITtype2varType(strip(lclCorType));
         typeInfo             lclTypeInfo;
 
@@ -1355,24 +1352,24 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
         {
             if (lclType == TYP_REF)
             {
-                lclTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&methInfo->locals, argLst));
+                lclTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&localsSig, localHandle));
             }
 
             if ((lclCorType & CORINFO_TYPE_MOD_PINNED) != 0)
             {
                 // Pinned locals may cause inlines to fail.
-                inlineResult->Note(InlineObservation::CALLEE_HAS_PINNED_LOCALS);
-                if (inlineResult->IsFailure())
+                inlineInfo->inlineResult->Note(InlineObservation::CALLEE_HAS_PINNED_LOCALS);
+                if (inlineInfo->inlineResult->IsFailure())
                 {
                     return false;
                 }
 
                 JITDUMP("Inlinee local #%02u is pinned\n", i);
 
-                lclVarInfo[i + argCnt].lclIsPinned = true;
+                lclInfo.lclIsPinned = true;
             }
 
-            pInlineInfo->numberOfGcRefLocals++;
+            inlineInfo->numberOfGcRefLocals++;
         }
         else if (lclType == TYP_STRUCT)
         {
@@ -1381,18 +1378,18 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
                 // If this local is a struct type with GC fields, inform the inliner.
                 // It may choose to bail out on the inline.
 
-                inlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
-                if (inlineResult->IsFailure())
+                inlineInfo->inlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
+                if (inlineInfo->inlineResult->IsFailure())
                 {
                     return false;
                 }
 
                 // Do further notification in the case where the call site is rare; some policies do
                 // not track the relative hotness of call sites for "always" inline cases.
-                if (pInlineInfo->iciBlock->isRunRarely())
+                if (inlineInfo->iciBlock->isRunRarely())
                 {
-                    inlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
-                    if (inlineResult->IsFailure())
+                    inlineInfo->inlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
+                    if (inlineInfo->inlineResult->IsFailure())
                     {
                         return false;
                     }
@@ -1426,13 +1423,13 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
             lclTypeInfo = typeInfo(JITtype2tiType(strip(lclCorType)));
         }
 
-        lclVarInfo[i + argCnt].lclType        = lclType;
-        lclVarInfo[i + argCnt].lclVerTypeInfo = lclTypeInfo;
-        lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
+        lclInfo.lclType        = lclType;
+        lclInfo.lclVerTypeInfo = lclTypeInfo;
+        lclInfo.lclHasLdlocaOp = false;
     }
 
 #ifdef FEATURE_SIMD
-    pInlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
+    inlineInfo->hasSIMDTypeArgLocalOrReturn |= foundSIMDType;
 #endif
 
     return true;
