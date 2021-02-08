@@ -3534,7 +3534,7 @@ private:
                            InlineCandidateInfo**  ppInlineCandidateInfo,
                            InlineResult*          inlineResult);
 
-    unsigned impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reason));
+    unsigned inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum DEBUGARG(const char* reason));
 
     GenTree* inlFetchInlineeArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo);
 

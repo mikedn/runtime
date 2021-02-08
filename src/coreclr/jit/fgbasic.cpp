@@ -1463,7 +1463,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
     // arguments are set by the caller and so we don't know anything
     // about the possible values or types.
     //
-    // For inlinees we do this over in impInlineFetchLocal and
+    // For inlinees we do this over in inlFetchInlineeLocal and
     // inlFetchInlineeArg (here args are included as we somtimes get
     // new information about the types of inlinee args).
     if (!isInlining)

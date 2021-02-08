@@ -9893,10 +9893,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 if (compIsForInlining())
                 {
                     lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclType;
-
-                    /* Have we allocated a temp for this local? */
-
-                    lclNum = impInlineFetchLocal(lclNum DEBUGARG("Inline stloc first use temp"));
+                    lclNum = inlFetchInlineeLocal(impInlineInfo, lclNum DEBUGARG("Inline stloc first use temp"));
 
                     goto _PopValue;
                 }
@@ -10069,7 +10066,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 if (compIsForInlining())
                 {
                     lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclType;
-                    lclNum = impInlineFetchLocal(lclNum DEBUGARG("Inline ldloca(s) first use temp"));
+                    lclNum = inlFetchInlineeLocal(impInlineInfo, lclNum DEBUGARG("Inline ldloca(s) first use temp"));
                     op1    = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
                     goto PUSH_ADRVAR;
                 }
@@ -13916,14 +13913,9 @@ void Compiler::impLoadLoc(unsigned ilLclNum, IL_OFFSET offset)
             return;
         }
 
-        // Get the local type
         var_types lclTyp = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclType;
-
-        typeInfo type = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclVerTypeInfo;
-
-        /* Have we allocated a temp for this local? */
-
-        unsigned lclNum = impInlineFetchLocal(ilLclNum DEBUGARG("Inline ldloc first use temp"));
+        typeInfo  type   = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclVerTypeInfo;
+        unsigned lclNum  = inlFetchInlineeLocal(impInlineInfo, ilLclNum DEBUGARG("Inline ldloc first use temp"));
 
         // All vars of inlined methods should be !lvNormalizeOnLoad()
 

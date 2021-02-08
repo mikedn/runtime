@@ -1371,7 +1371,7 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
             //   - The inliner state machine assigns special weights to LDLOCA/LDARGA used
             //     with normed type locals.
             //
-            // Note: inlFetchInlineeArg and impInlineFetchLocal have similar code.
+            // Note: inlFetchInlineeArg and inlFetchInlineeLocal have similar code.
 
             assert(info.compCompHnd->getTypeForPrimitiveValueClass(typeHnd) == CORINFO_TYPE_UNDEF);
 

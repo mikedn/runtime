@@ -1438,92 +1438,78 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* pInlineInfo)
     return true;
 }
 
-//------------------------------------------------------------------------
-// impInlineFetchLocal: get a local var that represents an inlinee local
-//
-// Arguments:
-//    argNum -- number of the inlinee local
-//    reason -- debug string describing purpose of the local var
-//
-// Returns:
-//    Number of the local to use
-//
-// Notes:
-//    This method is invoked only for locals actually used in the
-//    inlinee body.
-//
-//    Allocates a new temp if necessary, and copies key properties
-//    over from the inlinee local var info.
-
-unsigned Compiler::impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reason))
+unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum DEBUGARG(const char* reason))
 {
     assert(compIsForInlining());
 
-    unsigned tmpNum = impInlineInfo->lclTmpNum[lclNum];
-
-    if (tmpNum == BAD_VAR_NUM)
+    if (inlineInfo->lclTmpNum[ilLocNum] != BAD_VAR_NUM)
     {
-        const InlLclVarInfo& inlineeLocal = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt];
-        const var_types      lclTyp       = inlineeLocal.lclType;
-
-        // The lifetime of this local might span multiple BBs.
-        // So it is a long lifetime local.
-        impInlineInfo->lclTmpNum[lclNum] = tmpNum = lvaGrabTemp(false DEBUGARG(reason));
-
-        // Copy over key info
-        lvaTable[tmpNum].lvHasLdAddrOp          = inlineeLocal.lclHasLdlocaOp;
-        lvaTable[tmpNum].lvPinned               = inlineeLocal.lclIsPinned;
-        lvaTable[tmpNum].lvHasILStoreOp         = inlineeLocal.lclHasStlocOp;
-        lvaTable[tmpNum].lvHasMultipleILStoreOp = inlineeLocal.lclHasMultipleStlocOp;
-
-        if (varTypeIsStruct(lclTyp))
-        {
-            lvaSetStruct(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandle(), true /* unsafe value cls check */);
-        }
-        else
-        {
-            lvaTable[tmpNum].SetType(lclTyp);
-
-            // Copy over class handle for ref types. Note this may be a
-            // shared type -- someday perhaps we can get the exact
-            // signature and pass in a more precise type.
-            if (lclTyp == TYP_REF)
-            {
-                assert(lvaTable[tmpNum].lvSingleDef == 0);
-
-                lvaTable[tmpNum].lvSingleDef = !inlineeLocal.lclHasMultipleStlocOp && !inlineeLocal.lclHasLdlocaOp;
-                if (lvaTable[tmpNum].lvSingleDef)
-                {
-                    JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
-                }
-
-                lvaSetClass(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandleForObjRef());
-            }
-            else if (inlineeLocal.lclVerTypeInfo.IsType(TI_STRUCT))
-            {
-                // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
-                lvaTable[tmpNum].lvImpTypeInfo = inlineeLocal.lclVerTypeInfo;
-            }
-        }
-
-#ifdef DEBUG
-        // Sanity check that we're properly prepared for gc ref locals.
-        if (varTypeIsGC(lclTyp))
-        {
-            // Since there are gc locals we should have seen them earlier
-            // and if there was a return value, set up the spill temp.
-            assert(impInlineInfo->HasGcRefLocals());
-            assert((info.compRetType == TYP_VOID) || (lvaInlineeReturnSpillTemp != BAD_VAR_NUM));
-        }
-        else
-        {
-            // Make sure all pinned locals count as gc refs.
-            assert(!inlineeLocal.lclIsPinned);
-        }
-#endif // DEBUG
+        return inlineInfo->lclTmpNum[ilLocNum];
     }
 
-    return tmpNum;
+    const unsigned lclNum           = lvaGrabTemp(false DEBUGARG(reason));
+    inlineInfo->lclTmpNum[ilLocNum] = lclNum;
+
+    const InlLclVarInfo& lclInfo = inlineInfo->lclVarInfo[impInlineInfo->argCnt + ilLocNum];
+
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    lcl->lvPinned               = lclInfo.lclIsPinned;
+    lcl->lvHasLdAddrOp          = lclInfo.lclHasLdlocaOp;
+    lcl->lvHasILStoreOp         = lclInfo.lclHasStlocOp;
+    lcl->lvHasMultipleILStoreOp = lclInfo.lclHasMultipleStlocOp;
+
+    const var_types lclType = lclInfo.lclType;
+
+    if (varTypeIsStruct(lclType))
+    {
+        lvaSetStruct(lclNum, lclInfo.lclVerTypeInfo.GetClassHandle(), /* unsafeValueClsCheck */ true);
+    }
+    else
+    {
+        lcl->SetType(lclType);
+
+        // Copy over class handle for ref types. Note this may be a shared type, someday
+        // perhaps we can get the exact signature and pass in a more precise type.
+
+        if (lclType == TYP_REF)
+        {
+            assert(lcl->lvSingleDef == 0);
+
+            lcl->lvSingleDef = !lclInfo.lclHasMultipleStlocOp && !lclInfo.lclHasLdlocaOp;
+
+            if (lcl->lvSingleDef)
+            {
+                JITDUMP("Marked V%02u as a single def temp\n", lclNum);
+            }
+
+            lvaSetClass(lclNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
+        }
+        else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
+        {
+            // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
+
+            lcl->lvImpTypeInfo = lclInfo.lclVerTypeInfo;
+        }
+    }
+
+#ifdef DEBUG
+    // Sanity check that we're properly prepared for GC pointer locals.
+    if (varTypeIsGC(lclType))
+    {
+        // Since there are GC pointer locals we should have seen them earlier
+        // and if there was a return value, set up the spill temp.
+        assert(impInlineInfo->HasGcRefLocals());
+        assert((info.GetRetSigType() == TYP_VOID) || (lvaInlineeReturnSpillTemp != BAD_VAR_NUM));
+    }
+    else
+    {
+        // Make sure all pinned locals count as gc refs.
+        assert(!lclInfo.lclIsPinned);
+    }
+#endif
+
+    return lclNum;
 }
 
 GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo)
@@ -2481,7 +2467,7 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBloc
         {
             // Does the local we're about to null out appear in the return
             // expression? If so we somehow messed up and didn't properly
-            // spill the return value. See impInlineFetchLocal.
+            // spill the return value. See inlFetchInlineeLocal.
 
             noway_assert(!gtHasRef(inlineInfo->retExpr, lclNum));
         }
