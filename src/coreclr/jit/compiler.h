@@ -4996,6 +4996,7 @@ private:
     bool inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
     bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt);
+    bool inlCanDiscardArgSideEffects(GenTree* argNode);
     Statement* inlInitInlineeLocals(InlineInfo* inlineInfo,
                                     BasicBlock* block,
                                     Statement*  afterStmt,
