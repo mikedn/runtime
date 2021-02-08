@@ -1270,7 +1270,16 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
     }
     else if (argNode->OperIs(GT_LCL_VAR))
     {
-        argInfo.argIsLclVar = true;
+        LclVarDsc* lcl = lvaGetDesc(argNode->AsLclVar());
+
+        if (!lcl->lvHasLdAddrOp && !lcl->lvAddrExposed)
+        {
+            argInfo.argIsLclVar = true;
+        }
+        else
+        {
+            argInfo.argHasCallerLocalRef = true;
+        }
     }
     else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argNode))
     {
@@ -1286,8 +1295,7 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
 #endif
         }
     }
-
-    if (!argInfo.argIsInvariant)
+    else
     {
         if ((argNode->gtFlags & GTF_ALL_EFFECT) != 0)
         {
@@ -1295,13 +1303,9 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
             argInfo.argHasSideEff = (argNode->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
         }
 
-        if (gtHasLocalsWithAddrOp(argNode))
-        {
-            // If the arg is a local that is address-taken, we can't safely
-            // directly substitute it into the inlinee.
-
-            argInfo.argHasCallerLocalRef = true;
-        }
+        // If the arg depends on address-taken locals, we can't safely
+        // directly substitute it into the inlinee.
+        argInfo.argHasCallerLocalRef = gtHasLocalsWithAddrOp(argNode);
     }
 
 #ifdef DEBUG
@@ -2266,30 +2270,18 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             continue;
         }
 
-        if (argInfo.argIsInvariant)
+        if (argInfo.argIsInvariant || argInfo.argIsLclVar)
         {
-            assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR));
-            assert(!argInfo.argHasLdargaOp && !argInfo.argHasStargOp);
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR));
+            assert(!argInfo.argHasLdargaOp && !argInfo.argHasStargOp && !argInfo.argHasCallerLocalRef);
 
             continue;
         }
 
-        // The argument is either not used or a local.
-
-        noway_assert(!argInfo.argIsUsed || argInfo.argIsLclVar);
-
-        // Make sure we didnt change argNode's along the way, or else
-        // subsequent uses of the arg would have worked with the bashed value
-
-        noway_assert(!argInfo.argIsLclVar ==
-                     (!argNode->OperIs(GT_LCL_VAR) || ((argNode->gtFlags & GTF_GLOB_REF) != 0)));
-
-        // If the argument has side effects, append it.
+        noway_assert(!argInfo.argIsUsed);
 
         if (argInfo.argHasSideEff)
         {
-            noway_assert(!argInfo.argIsUsed);
-
             Statement* newStmt = nullptr;
             bool       append  = true;
 
