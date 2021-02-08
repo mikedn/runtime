@@ -1341,14 +1341,6 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         {
             printf("has side effects");
         }
-        if (argInfo.argHasLdargaOp)
-        {
-            printf("has its address taken");
-        }
-        if (argInfo.argHasStargOp)
-        {
-            printf("is stored to");
-        }
 
         printf("\n");
         gtDispTree(argNode);
