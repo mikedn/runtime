@@ -1812,49 +1812,33 @@ AGAIN:
     return false;
 }
 
-struct AddrTakenDsc
+// Check if the tree references any address taken locals.
+//
+// Note that "address taken" is far more conservative than "address exposed"
+// and as such this should only be used before we determine which locals are
+// address exposed - typically during IL import and inlining. Beyond that,
+// GTF_GLOB_REF should be used instead as it is set on any tree that uses
+// address exposed locals.
+//
+bool Compiler::gtHasAddressTakenLocals(GenTree* tree)
 {
-    Compiler* comp;
-    bool      hasAddrTakenLcl;
-};
+    auto visitor = [](GenTree** use, fgWalkData* data) {
+        GenTree* node = *use;
 
-/* static */
-Compiler::fgWalkResult Compiler::gtHasLocalsWithAddrOpCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree*  tree = *pTree;
-    Compiler* comp = data->compiler;
-
-    if (tree->gtOper == GT_LCL_VAR)
-    {
-        unsigned   lclNum = tree->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* varDsc = &comp->lvaTable[lclNum];
-
-        if (varDsc->lvHasLdAddrOp || varDsc->lvAddrExposed)
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            ((AddrTakenDsc*)data->pCallbackData)->hasAddrTakenLcl = true;
-            return WALK_ABORT;
+            LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclVarCommon());
+
+            if (lcl->lvHasLdAddrOp || lcl->lvAddrExposed)
+            {
+                return WALK_ABORT;
+            }
         }
-    }
 
-    return WALK_CONTINUE;
-}
+        return WALK_CONTINUE;
+    };
 
-/*****************************************************************************
- *
- *  Return true if this tree contains locals with lvHasLdAddrOp or lvAddrExposed
- *  flag(s) set.
- */
-
-bool Compiler::gtHasLocalsWithAddrOp(GenTree* tree)
-{
-    AddrTakenDsc desc;
-
-    desc.comp            = this;
-    desc.hasAddrTakenLcl = false;
-
-    fgWalkTreePre(&tree, gtHasLocalsWithAddrOpCB, &desc);
-
-    return desc.hasAddrTakenLcl;
+    return fgWalkTreePre(&tree, visitor) == WALK_ABORT;
 }
 
 #ifdef DEBUG

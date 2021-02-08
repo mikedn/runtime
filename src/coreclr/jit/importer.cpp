@@ -431,7 +431,7 @@ inline void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
         // be fine too.
 
         if ((expr->gtOper == GT_ASG) && (expr->AsOp()->gtOp1->gtOper == GT_LCL_VAR) &&
-            ((expr->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF) == 0) && !gtHasLocalsWithAddrOp(expr->AsOp()->gtOp2))
+            ((expr->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF) == 0) && !gtHasAddressTakenLocals(expr->AsOp()->gtOp2))
         {
             unsigned op2Flags = expr->AsOp()->gtOp2->gtFlags & GTF_GLOB_EFFECT;
             assert(flags == (op2Flags | GTF_ASG));
@@ -2221,8 +2221,8 @@ inline void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLev
         if ((tree->gtFlags & spillFlags) != 0 ||
             (spillGlobEffects &&                       // Only consider the following when  spillGlobEffects == TRUE
              (impIsAddressInLocal(tree) == nullptr) && // No need to spill the GT_ADDR node on a local.
-             gtHasLocalsWithAddrOp(tree))) // Spill if we still see GT_LCL_VAR that contains lvHasLdAddrOp or
-                                           // lvAddrTaken flag.
+             gtHasAddressTakenLocals(tree))) // Spill if we still see GT_LCL_VAR that contains lvHasLdAddrOp or
+                                             // lvAddrTaken flag.
         {
             impSpillStackEntry(i DEBUGARG(reason));
         }

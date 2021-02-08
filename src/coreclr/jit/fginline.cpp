@@ -1310,7 +1310,7 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
             // if the expression contains any address taken locals then it's treated as if
             // it has GTF_GLOB_REF.
 
-            argInfo.argHasGlobRef = gtHasLocalsWithAddrOp(argNode);
+            argInfo.argHasGlobRef = gtHasAddressTakenLocals(argNode);
         }
     }
 

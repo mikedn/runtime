@@ -2212,7 +2212,7 @@ public:
 
     bool gtHasRef(GenTree* tree, ssize_t lclNum);
 
-    bool gtHasLocalsWithAddrOp(GenTree* tree);
+    bool gtHasAddressTakenLocals(GenTree* tree);
 
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
 
@@ -5048,8 +5048,6 @@ private:
 
     static fgWalkPreFn  fgUpdateSideEffectsPre;
     static fgWalkPostFn fgUpdateSideEffectsPost;
-
-    static fgWalkPreFn gtHasLocalsWithAddrOpCB;
 
     enum TypeProducerKind
     {
