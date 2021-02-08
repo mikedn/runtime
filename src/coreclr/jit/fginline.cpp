@@ -2261,24 +2261,20 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
 
         if (argInfo.argHasSideEff)
         {
-            Statement* newStmt = nullptr;
-            bool       append  = true;
+            GenTree* sideEffects = nullptr;
 
             if (argNode->OperIs(GT_OBJ))
             {
                 GenTree* addr = argNode->AsObj()->GetAddr();
-                GenTree* tree;
 
                 if (fgAddrCouldBeNull(addr))
                 {
-                    tree = gtNewNullCheck(addr, inlineInfo->iciBlock);
+                    sideEffects = gtNewNullCheck(addr, inlineInfo->iciBlock);
                 }
                 else
                 {
-                    tree = gtUnusedValNode(addr);
+                    sideEffects = gtUnusedValNode(addr);
                 }
-
-                newStmt = gtNewStmt(tree, inlineInfo->iciStmt->GetILOffsetX());
             }
             else
             {
@@ -2301,6 +2297,8 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
                 // prejit: (IND (ADD (CONST, CALL(special dce helper...))))
                 // jit   : (COMMA (CALL(special dce helper...), (FIELD ...)))
 
+                bool discard = false;
+
                 if (argNode->OperIs(GT_COMMA))
                 {
                     // Look for (COMMA (CALL(special dce helper...), (FIELD ...)))
@@ -2314,7 +2312,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
                         JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
                                 op1->GetID());
 
-                        append = false;
+                        discard = true;
                     }
                 }
                 else if (argNode->OperIs(GT_IND))
@@ -2334,32 +2332,24 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
                             JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n",
                                     argNode->GetID(), op1->GetID());
 
-                            append = false;
+                            discard = true;
                         }
                     }
                 }
-            }
 
-            if (!append)
-            {
-                assert(newStmt == nullptr);
-
-                JITDUMP("Arg tree side effects were discardable, not appending anything for arg\n");
-            }
-            else
-            {
-                // If we don't have something custom to append,
-                // just append the arg node as an unused value.
-
-                if (newStmt == nullptr)
+                if (!discard)
                 {
-                    newStmt = gtNewStmt(gtUnusedValNode(argNode), inlineInfo->iciStmt->GetILOffsetX());
+                    sideEffects = gtUnusedValNode(argNode);
                 }
+            }
 
-                fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, newStmt);
-                afterStmt = newStmt;
+            if (sideEffects != nullptr)
+            {
+                Statement* stmt = gtNewStmt(sideEffects, inlineInfo->iciStmt->GetILOffsetX());
+                fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
+                afterStmt = stmt;
 
-                DBEXEC(verbose, gtDispStmt(afterStmt));
+                DBEXEC(verbose, gtDispStmt(stmt));
             }
         }
         else if (argNode->IsBoxedValue())
