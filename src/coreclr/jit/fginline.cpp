@@ -1512,10 +1512,10 @@ unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
     return lclNum;
 }
 
-GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo)
+GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 {
-    InlArgInfo& argInfo = inlArgInfo[argNum];
-    var_types   argType = lclVarInfo[argNum].lclType;
+    InlArgInfo& argInfo = inlineInfo->inlArgInfo[ilArgNum];
+    var_types   argType = inlineInfo->lclVarInfo[ilArgNum].lclType;
 
     GenTree* argNode = argInfo.argNode->gtRetExprVal();
 
@@ -1609,7 +1609,7 @@ GenTree* Compiler::inlFetchInlineeArg(unsigned argNum, InlArgInfo* inlArgInfo, I
         tmpLcl->lvHasLdAddrOp = 1;
     }
 
-    const InlLclVarInfo& lclInfo = lclVarInfo[argNum];
+    const InlLclVarInfo& lclInfo = inlineInfo->lclVarInfo[ilArgNum];
 
     if (varTypeIsStruct(argType))
     {
@@ -2033,9 +2033,6 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
 
     // Prepend statements for any initialization / side effects
 
-    InlArgInfo*    inlArgInfo = inlineInfo->inlArgInfo;
-    InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
-
     // Create the null check statement (but not appending it to the statement list yet) for the 'this' pointer if
     // necessary.
     // The NULL check should be done after "argument setup statements".
@@ -2049,7 +2046,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
     if (call->gtFlags & GTF_CALL_NULLCHECK && !inlineInfo->thisDereferencedFirst)
     {
         // Call inlFetchInlineeArg to "reserve" a temp for the "this" pointer.
-        GenTree* thisOp = inlFetchInlineeArg(0, inlArgInfo, lclVarInfo);
+        GenTree* thisOp = inlFetchInlineeArg(inlineInfo, 0);
         if (fgAddrCouldBeNull(thisOp))
         {
             nullcheck = gtNewNullCheck(thisOp, block);

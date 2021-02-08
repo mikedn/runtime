@@ -9849,8 +9849,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
-                    op1 = inlFetchInlineeArg(lclNum, impInlineInfo->inlArgInfo, impInlineInfo->lclVarInfo);
-                    noway_assert(op1->gtOper == GT_LCL_VAR);
+                    op1 = inlFetchInlineeArg(impInlineInfo, lclNum);
+                    noway_assert(op1->OperIs(GT_LCL_VAR));
                     lclNum = op1->AsLclVar()->GetLclNum();
 
                     goto VAR_ST_VALID;
@@ -10092,7 +10092,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // In IL, LDARGA(_S) is used to load the byref managed pointer of struct argument,
                     // followed by a ldfld to load the field.
 
-                    op1 = inlFetchInlineeArg(lclNum, impInlineInfo->inlArgInfo, impInlineInfo->lclVarInfo);
+                    op1 = inlFetchInlineeArg(impInlineInfo, lclNum);
                     if (op1->gtOper != GT_LCL_VAR)
                     {
                         compInlineResult->NoteFatal(InlineObservation::CALLSITE_LDARGA_NOT_LOCAL_VAR);
@@ -13878,8 +13878,7 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
             return;
         }
 
-        impPushOnStack(inlFetchInlineeArg(ilArgNum, impInlineInfo->inlArgInfo, impInlineInfo->lclVarInfo),
-                       impInlineInfo->lclVarInfo[ilArgNum].lclVerTypeInfo);
+        impPushOnStack(inlFetchInlineeArg(impInlineInfo, ilArgNum), impInlineInfo->lclVarInfo[ilArgNum].lclVerTypeInfo);
     }
     else
     {

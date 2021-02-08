@@ -3536,7 +3536,7 @@ private:
 
     unsigned inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum DEBUGARG(const char* reason));
 
-    GenTree* inlFetchInlineeArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo);
+    GenTree* inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum);
 
     BOOL impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo);
 
