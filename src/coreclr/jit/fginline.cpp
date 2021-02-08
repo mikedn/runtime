@@ -1016,7 +1016,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 #if USER_ARGS_COME_LAST
         typeCtxtArgNum = (thisArg != nullptr) ? 1 : 0;
 #else
-        typeCtxtArgNum = methInfo.args.totalILArgs();
+        typeCtxtArgNum = inlineInfo->argCnt;
 #endif
     }
 
