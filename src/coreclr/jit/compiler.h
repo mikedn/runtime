@@ -4990,7 +4990,7 @@ private:
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
-    Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
+    Statement* inlPrependStatements(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgs(InlineInfo* inlineInfo);
     bool inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);

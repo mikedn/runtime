@@ -1725,7 +1725,7 @@ void Compiler::inlInsertInlineeCode(InlineInfo* pInlineInfo)
         }
     }
 
-    Statement* stmtAfter = fgInlinePrependStatements(pInlineInfo);
+    Statement* stmtAfter = inlPrependStatements(pInlineInfo);
 
     JITDUMP("\nInlinee method body:\n");
 
@@ -1985,108 +1985,60 @@ void Compiler::inlPropagateInlineeCompilerState()
 #endif
 }
 
-//------------------------------------------------------------------------
-// fgInlinePrependStatements: prepend statements needed to match up
-// caller and inlined callee
-//
-// Arguments:
-//    inlineInfo -- info for the inline
-//
-// Return Value:
-//    The last statement that was added, or the original call if no
-//    statements were added.
-//
-// Notes:
-//    Statements prepended may include the following:
-//    * This pointer null check
-//    * Class initialization
-//    * Zeroing of must-init locals in the callee
-//    * Passing of call arguments via temps
-//
-//    Newly added statements are placed just after the original call
-//    and are are given the same inline context as the call any calls
-//    added here will appear to have been part of the immediate caller.
-
-Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
+Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
 {
-    BasicBlock*  block        = inlineInfo->iciBlock;
-    Statement*   callStmt     = inlineInfo->iciStmt;
-    IL_OFFSETX   callILOffset = callStmt->GetILOffsetX();
-    Statement*   postStmt     = callStmt->GetNextStmt();
-    Statement*   afterStmt    = callStmt; // afterStmt is the place where the new statements should be inserted after.
-    Statement*   newStmt      = nullptr;
-    GenTreeCall* call         = inlineInfo->iciCall->AsCall();
+    GenTree* nullCheckThisArg = nullptr;
 
-    noway_assert(call->gtOper == GT_CALL);
-
-#ifdef DEBUG
-    if (0 && verbose)
+    if (((inlineInfo->iciCall->gtFlags & GTF_CALL_NULLCHECK) != 0) && !inlineInfo->thisDereferencedFirst)
     {
-        printf("\nfgInlinePrependStatements for iciCall= ");
-        printTreeID(call);
-        printf(":\n");
-    }
-#endif
+        // We'll have to null check the "this" arg after inlinee args are initialized.
+        // But args initialization needs to know about arg uses so we have to get the
+        // "this" arg here, before calling inlInitInlineeArgs.
 
-    // Prepend statements for any initialization / side effects
+        nullCheckThisArg = inlFetchInlineeArg(inlineInfo, 0);
 
-    // Create the null check statement (but not appending it to the statement list yet) for the 'this' pointer if
-    // necessary.
-    // The NULL check should be done after "argument setup statements".
-    // The only reason we move it here is for calling "inlFetchInlineeArg(0,..." to reserve a temp
-    // for the "this" pointer.
-    // Note: Here we no longer do the optimization that was done by thisDereferencedFirst in the old inliner.
-    // However the assetionProp logic will remove any unecessary null checks that we may have added
-    //
-    GenTree* nullcheck = nullptr;
-
-    if (call->gtFlags & GTF_CALL_NULLCHECK && !inlineInfo->thisDereferencedFirst)
-    {
-        // Call inlFetchInlineeArg to "reserve" a temp for the "this" pointer.
-        GenTree* thisOp = inlFetchInlineeArg(inlineInfo, 0);
-        if (fgAddrCouldBeNull(thisOp))
+        if (!fgAddrCouldBeNull(nullCheckThisArg))
         {
-            nullcheck = gtNewNullCheck(thisOp, block);
-            // The NULL-check statement will be inserted to the statement list after those statements
-            // that assign arguments to temps and before the actual body of the inlinee method.
+            nullCheckThisArg = nullptr;
         }
     }
 
-    afterStmt = inlInitInlineeArgs(inlineInfo, afterStmt);
+    Statement* afterStmt = inlInitInlineeArgs(inlineInfo, inlineInfo->iciStmt);
 
-    // Add the CCTOR check if asked for.
-    // Note: We no longer do the optimization that is done before by staticAccessedFirstUsingHelper in the old inliner.
-    //       Therefore we might prepend redundant call to HELPER.CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE
-    //       before the inlined method body, even if a static field of this type was accessed in the inlinee
-    //       using a helper before any other observable side-effect.
-
-    if (inlineInfo->inlineCandidateInfo->initClassResult & CORINFO_INITCLASS_USE_HELPER)
+    if ((inlineInfo->inlineCandidateInfo->initClassResult & CORINFO_INITCLASS_USE_HELPER) != 0)
     {
+        // Add the static field initialization check if needed.
+        // This might be redundant, a static field of this type could be accessed
+        // in the inlinee body before any other observable side-effect.
+
         CORINFO_CLASS_HANDLE exactClass = eeGetClassFromContext(inlineInfo->inlineCandidateInfo->exactContextHnd);
 
-        GenTree* tree = fgGetSharedCCtor(exactClass);
-        newStmt       = gtNewStmt(tree, callILOffset);
-        fgInsertStmtAfter(block, afterStmt, newStmt);
-        afterStmt = newStmt;
+        GenTree*   tree = fgGetSharedCCtor(exactClass);
+        Statement* stmt = gtNewStmt(tree, inlineInfo->iciStmt->GetILOffsetX());
+        fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
+        afterStmt = stmt;
     }
 
-    // Insert the nullcheck statement now.
-    if (nullcheck)
+    if (nullCheckThisArg != nullptr)
     {
-        newStmt = gtNewStmt(nullcheck, callILOffset);
-        fgInsertStmtAfter(block, afterStmt, newStmt);
-        afterStmt = newStmt;
+        GenTree*   tree = gtNewNullCheck(nullCheckThisArg, inlineInfo->iciBlock);
+        Statement* stmt = gtNewStmt(tree, inlineInfo->iciStmt->GetILOffsetX());
+        fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
+        afterStmt = stmt;
     }
 
     afterStmt = inlInitInlineeLocals(inlineInfo, afterStmt);
 
     // Update any newly added statements with the appropriate context.
-    InlineContext* context = callStmt->GetInlineContext();
+
+    InlineContext* context = inlineInfo->iciStmt->GetInlineContext();
     assert(context != nullptr);
-    for (Statement* addedStmt = callStmt->GetNextStmt(); addedStmt != postStmt; addedStmt = addedStmt->GetNextStmt())
+
+    for (Statement* stmt = inlineInfo->iciStmt->GetNextStmt(); stmt != afterStmt->GetNextStmt();
+         stmt            = stmt->GetNextStmt())
     {
-        assert(addedStmt->GetInlineContext() == nullptr);
-        addedStmt->SetInlineContext(context);
+        assert(stmt->GetInlineContext() == nullptr);
+        stmt->SetInlineContext(context);
     }
 
     return afterStmt;

@@ -13851,7 +13851,7 @@ GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
     }
 
     // Floating Point assignments can be created during inlining
-    // see "Zero init inlinee locals:" in fgInlinePrependStatements
+    // see "Zero init inlinee locals:" in inlPrependStatements
     // thus we may need to set compFloatingPointUsed to true here.
     //
     if (varTypeUsesFloatReg(dstTyp) && (compFloatingPointUsed == false))

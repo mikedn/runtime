@@ -2675,7 +2675,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
         // already has struct type. Some trivial cases have been fixed but there are a at least
         // 2 more:
         //   - Spill clique temps may be assigned multiple times via impAssignTempGen.
-        //   - fgInlinePrependStatements initializes inlinee parameters also using impAssignTempGen.
+        //   - inlPrependStatements initializes inlinee parameters also using impAssignTempGen.
         //     Inlinee parameters (temps really) have already been created and assigned a type when
         //     inlining started.
         //

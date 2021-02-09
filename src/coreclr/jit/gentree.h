@@ -877,7 +877,7 @@ public:
 // where 'typ' is a small type and 'lclVar' corresponds to a normalized-on-store local variable.
 // This flag identifies such nodes in order to make sure that fgDoNormalizeOnStore() is called on their parents in post-order morph.
 
-                                       // Relevant for inlining optimizations (see fgInlinePrependStatements)
+                                       // Relevant for inlining optimizations (see inlPrependStatements)
 
                                                // For additional flags for GT_CALL node see GTF_CALL_M_*
 
