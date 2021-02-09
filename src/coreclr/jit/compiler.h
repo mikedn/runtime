@@ -3481,7 +3481,7 @@ private:
     bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
     bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
 
-    void impLoadVar(unsigned lclNum, IL_OFFSET offset);
+    void impPushLclVar(unsigned lclNum, IL_OFFSET offset);
     void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
     void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
     bool impInlineReturnInstruction();

@@ -9892,8 +9892,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             LOC_ST:
                 if (compIsForInlining())
                 {
-                    lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclType;
                     lclNum = inlFetchInlineeLocal(impInlineInfo, lclNum DEBUGARG("Inline stloc first use temp"));
+                    lclTyp = lvaGetDesc(lclNum)->GetType();
 
                     goto _PopValue;
                 }
@@ -10065,7 +10065,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
-                    lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclType;
                     lclNum = inlFetchInlineeLocal(impInlineInfo, lclNum DEBUGARG("Inline ldloca(s) first use temp"));
                     op1    = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
                     goto PUSH_ADRVAR;
@@ -13841,24 +13840,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #pragma warning(pop)
 #endif
 
-// Load a local/argument on the operand stack
-// lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
-void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset)
-{
-    var_types lclTyp;
-
-    if (lvaTable[lclNum].lvNormalizeOnLoad())
-    {
-        lclTyp = lvaGetRealType(lclNum);
-    }
-    else
-    {
-        lclTyp = lvaGetActualType(lclNum);
-    }
-
-    impPushOnStack(gtNewLclvNode(lclNum, lclTyp DEBUGARG(offset)), lvaTable[lclNum].lvImpTypeInfo);
-}
-
 // Load an argument on the operand stack
 // Shared by the various CEE_LDARG opcodes
 // ilArgNum is the argument index as specified in IL.
@@ -13894,46 +13875,55 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
             lclNum = lvaArg0Var;
         }
 
-        impLoadVar(lclNum, offset);
+        impPushLclVar(lclNum, offset);
     }
 }
 
 // Load a local on the operand stack
 // Shared by the various CEE_LDLOC opcodes
-// ilLclNum is the local index as specified in IL.
+// ilLocNum is the local index as specified in IL.
 // It will be mapped to the correct lvaTable index
-void Compiler::impLoadLoc(unsigned ilLclNum, IL_OFFSET offset)
+void Compiler::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
 {
+    unsigned lclNum;
+
     if (compIsForInlining())
     {
-        if (ilLclNum >= info.compMethodInfo->locals.numArgs)
+        if (ilLocNum >= info.compMethodInfo->locals.numArgs)
         {
             compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
             return;
         }
 
-        var_types lclTyp = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclType;
-        typeInfo  type   = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclVerTypeInfo;
-        unsigned lclNum  = inlFetchInlineeLocal(impInlineInfo, ilLclNum DEBUGARG("Inline ldloc first use temp"));
-
-        // All vars of inlined methods should be !lvNormalizeOnLoad()
-
-        assert(!lvaTable[lclNum].lvNormalizeOnLoad());
-        lclTyp = genActualType(lclTyp);
-
-        impPushOnStack(gtNewLclvNode(lclNum, lclTyp), type);
+        lclNum = inlFetchInlineeLocal(impInlineInfo, ilLocNum DEBUGARG("Inline ldloc first use temp"));
+        offset = BAD_IL_OFFSET;
     }
     else
     {
-        if (ilLclNum >= info.compMethodInfo->locals.numArgs)
+        if (ilLocNum >= info.compMethodInfo->locals.numArgs)
         {
             BADCODE("Bad IL");
         }
 
-        unsigned lclNum = info.compArgsCount + ilLclNum;
-
-        impLoadVar(lclNum, offset);
+        lclNum = info.compArgsCount + ilLocNum;
     }
+
+    impPushLclVar(lclNum, offset);
+}
+
+// Load a local/argument on the operand stack
+// lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
+void Compiler::impPushLclVar(unsigned lclNum, IL_OFFSET offset)
+{
+    LclVarDsc* lcl  = lvaGetDesc(lclNum);
+    var_types  type = lcl->GetType();
+
+    if (!lcl->lvNormalizeOnLoad())
+    {
+        type = varActualType(type);
+    }
+
+    impPushOnStack(gtNewLclvNode(lclNum, type DEBUGARG(offset)), lcl->lvImpTypeInfo);
 }
 
 //------------------------------------------------------------------------
