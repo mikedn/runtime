@@ -125,6 +125,18 @@ PhaseStatus Compiler::fgInline()
                 madeChanges = true;
             }
         }
+
+        if ((block->bbJumpKind == BBJ_COND) && block->lastStmt()->GetRootNode()->AsUnOp()->GetOp(0)->IsIntCon())
+        {
+            // Inlining may have created new constants so we may be able to eliminate some conditional branches.
+
+            // TODO-MIKE-Cleanup: Why bother? If done right this would avoid unnecessary inlining
+            // in dead code. But it's not done right - the conditional branch is eliminated but
+            // if a successor becomes unreachable then it is not eliminated from the block list
+            // so we're still going to inline in it.
+
+            inlFoldJTrue(block);
+        }
     }
 
 #ifdef DEBUG
@@ -645,58 +657,43 @@ Compiler::fgWalkResult Compiler::fgLateDevirtualization(GenTree** pTree, fgWalkD
             }
         }
     }
-    else if (tree->OperGet() == GT_JTRUE)
+    else if (!tree->OperIs(GT_JTRUE))
     {
-        // See if this jtrue is now foldable.
-        BasicBlock* block    = comp->compCurBB;
-        GenTree*    condTree = tree->AsOp()->gtOp1;
-        assert(tree == block->lastStmt()->GetRootNode());
-
-        if (condTree->OperGet() == GT_CNS_INT)
-        {
-            JITDUMP(" ... found foldable jtrue at [%06u] in BB%02u\n", dspTreeID(tree), block->bbNum);
-            noway_assert((block->bbNext->countOfInEdges() > 0) && (block->bbJumpDest->countOfInEdges() > 0));
-
-            // We have a constant operand, and should have the all clear to optimize.
-            // Update side effects on the tree, assert there aren't any, and bash to nop.
-            comp->gtUpdateNodeSideEffects(tree);
-            assert((tree->gtFlags & GTF_SIDE_EFFECT) == 0);
-            tree->gtBashToNOP();
-
-            BasicBlock* bTaken    = nullptr;
-            BasicBlock* bNotTaken = nullptr;
-
-            if (condTree->AsIntCon()->gtIconVal != 0)
-            {
-                block->bbJumpKind = BBJ_ALWAYS;
-                bTaken            = block->bbJumpDest;
-                bNotTaken         = block->bbNext;
-            }
-            else
-            {
-                block->bbJumpKind = BBJ_NONE;
-                bTaken            = block->bbNext;
-                bNotTaken         = block->bbJumpDest;
-            }
-
-            comp->fgRemoveRefPred(bNotTaken, block);
-
-            // If that was the last ref, a subsequent flow-opt pass
-            // will clean up the now-unreachable bNotTaken, and any
-            // other transitively unreachable blocks.
-            if (bNotTaken->bbRefs == 0)
-            {
-                JITDUMP("... it looks like BB%02u is now unreachable!\n", bNotTaken->bbNum);
-            }
-        }
-    }
-    else
-    {
-        GenTree* foldedTree = comp->gtFoldExpr(tree);
-        *pTree              = foldedTree;
+        *pTree = comp->gtFoldExpr(tree);
     }
 
     return WALK_CONTINUE;
+}
+
+void Compiler::inlFoldJTrue(BasicBlock* block)
+{
+    JITDUMP("Found foldable JTRUE in " FMT_BB "\n", block->bbNum);
+    noway_assert((block->bbNext->countOfInEdges() > 0) && (block->bbJumpDest->countOfInEdges() > 0));
+
+    GenTreeUnOp* jtrue = block->lastStmt()->GetRootNode()->AsUnOp();
+    assert(jtrue->OperIs(GT_JTRUE));
+
+    BasicBlock* removedSuccessor = nullptr;
+
+    if (jtrue->GetOp(0)->AsIntCon()->GetValue() != 0)
+    {
+        block->bbJumpKind = BBJ_ALWAYS;
+        removedSuccessor  = block->bbNext;
+    }
+    else
+    {
+        block->bbJumpKind = BBJ_NONE;
+        removedSuccessor  = block->bbJumpDest;
+    }
+
+    fgRemoveRefPred(removedSuccessor, block);
+
+    if (removedSuccessor->bbRefs == 0)
+    {
+        JITDUMP(FMT_BB " is now unreachable\n", removedSuccessor->bbNum);
+    }
+
+    fgRemoveStmt(block, block->lastStmt());
 }
 
 #ifdef DEBUG

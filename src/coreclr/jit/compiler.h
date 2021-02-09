@@ -4985,6 +4985,7 @@ private:
 
     unsigned fgBigOffsetMorphingTemps[TYP_COUNT];
 
+    void inlFoldJTrue(BasicBlock* block);
     INDEBUG(void inlReportNonCandidates(Statement* stmt);)
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
