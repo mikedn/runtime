@@ -4997,10 +4997,7 @@ private:
     bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
-    Statement* inlInitInlineeLocals(InlineInfo* inlineInfo,
-                                    BasicBlock* block,
-                                    Statement*  afterStmt,
-                                    IL_OFFSETX  callILOffset);
+    Statement* inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* afterStmt);
     void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
 
     BasicBlock* inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter);

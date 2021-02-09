@@ -2078,7 +2078,7 @@ Statement* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
         afterStmt = newStmt;
     }
 
-    afterStmt = inlInitInlineeLocals(inlineInfo, block, afterStmt, callILOffset);
+    afterStmt = inlInitInlineeLocals(inlineInfo, afterStmt);
 
     // Update any newly added statements with the appropriate context.
     InlineContext* context = callStmt->GetInlineContext();
@@ -2350,60 +2350,66 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
     return false;
 }
 
-Statement* Compiler::inlInitInlineeLocals(InlineInfo* inlineInfo,
-                                          BasicBlock* block,
-                                          Statement*  afterStmt,
-                                          IL_OFFSETX  callILOffset)
+Statement* Compiler::inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* afterStmt)
 {
-    CORINFO_METHOD_INFO* InlineeMethodInfo = InlineeCompiler->info.compMethodInfo;
+    JITDUMP("Init inlinee locals:\n");
+    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 
-    unsigned lclCnt     = InlineeMethodInfo->locals.numArgs;
-    bool     bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
-    bool     bbIsReturn = block->bbJumpKind == BBJ_RETURN;
+    if (inlineInfo->inlineCandidateInfo->methInfo.locals.numArgs == 0)
+    {
+        JITDUMP("Inlinee has no locals.\n");
+        return afterStmt;
+    }
+
+    if ((inlineInfo->inlineCandidateInfo->methInfo.options & CORINFO_OPT_INIT_LOCALS) == 0)
+    {
+        JITDUMP("Inlinee does not require locals initialization.\n");
+        return afterStmt;
+    }
 
     // If the callee contains zero-init locals, we need to explicitly initialize them if we are
     // in a loop or if the caller doesn't have compInitMem set. Otherwise we can rely on the
     // normal logic in the caller to insert zero-init in the prolog if necessary.
-    if ((lclCnt != 0) && ((InlineeMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0) &&
-        ((bbInALoop && !bbIsReturn) || !info.compInitMem))
+
+    bool blockIsInLoop = (inlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP) != 0;
+    bool blockIsReturn = inlineInfo->iciBlock->bbJumpKind == BBJ_RETURN;
+
+    if (info.compInitMem && (!blockIsInLoop || blockIsReturn))
     {
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nZero init inlinee locals:\n");
-        }
-#endif // DEBUG
-
-        InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
-
-        for (unsigned lclNum = 0; lclNum < lclCnt; lclNum++)
-        {
-            unsigned tmpNum = inlineInfo->lclTmpNum[lclNum];
-
-            // If the local is used check whether we need to insert explicit zero initialization.
-            if (tmpNum != BAD_VAR_NUM)
-            {
-                LclVarDsc* const tmpDsc = lvaGetDesc(tmpNum);
-                if (!fgVarNeedsExplicitZeroInit(tmpNum, bbInALoop, bbIsReturn))
-                {
-                    JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", tmpNum);
-                    tmpDsc->lvSuppressedZeroInit = 1;
-                    compSuppressedZeroInit       = true;
-                    continue;
-                }
-
-                var_types lclTyp = tmpDsc->GetType();
-                noway_assert(lclTyp == lclVarInfo[lclNum + inlineInfo->argCnt].lclType);
-
-                GenTree*   zero = varTypeIsStruct(lclTyp) ? gtNewIconNode(0) : gtNewZeroConNode(lclTyp);
-                GenTreeOp* asg  = gtNewAssignNode(gtNewLclvNode(tmpNum, lclTyp), zero);
-                Statement* stmt = gtNewStmt(asg, callILOffset);
-                fgInsertStmtAfter(block, afterStmt, stmt);
-                afterStmt = stmt;
-            }
-        }
+        JITDUMP("Skipping, inliner will initialize inlinee locals.\n");
+        return afterStmt;
     }
+
+    for (unsigned i = 0; i < inlineInfo->inlineCandidateInfo->methInfo.locals.numArgs; i++)
+    {
+        unsigned lclNum = inlineInfo->lclTmpNum[i];
+
+        if (lclNum == BAD_VAR_NUM)
+        {
+            continue;
+        }
+
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (!fgVarNeedsExplicitZeroInit(lclNum, blockIsInLoop, blockIsReturn))
+        {
+            JITDUMP("Suppressing zero-init for V%02u, expect to zero in inliner's prolog\n", lclNum);
+            lcl->lvSuppressedZeroInit = 1;
+            compSuppressedZeroInit    = true;
+            continue;
+        }
+
+        var_types  lclType = lcl->GetType();
+        GenTree*   zero    = varTypeIsStruct(lclType) ? gtNewIconNode(0) : gtNewZeroConNode(lclType);
+        GenTreeOp* asg     = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), zero);
+        Statement* stmt    = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+        fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
+        afterStmt = stmt;
+
+        DBEXEC(verbose, gtDispStmt(stmt));
+    }
+
+    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 
     return afterStmt;
 }
