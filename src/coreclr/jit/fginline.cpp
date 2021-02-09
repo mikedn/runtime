@@ -1769,7 +1769,7 @@ void Compiler::inlInsertInlineeCode(InlineInfo* pInlineInfo)
         BasicBlock* topBlock    = callBlock;
         BasicBlock* bottomBlock = inlSplitInlinerBlock(topBlock, stmtAfter);
 
-        inlInsertInlineeBlocks(pInlineInfo, topBlock, bottomBlock, callStmt->GetILOffsetX());
+        inlInsertInlineeBlocks(pInlineInfo, topBlock, bottomBlock);
 
 #ifdef DEBUG
         if (verbose)
@@ -1874,14 +1874,12 @@ BasicBlock* Compiler::inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmt
 
 // Insert the inlinee basic blocks into the inliner's flow graph.
 //
-void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo,
-                                      BasicBlock* topBlock,
-                                      BasicBlock* bottomBlock,
-                                      IL_OFFSETX  ilOffset)
+void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlock, BasicBlock* bottomBlock)
 {
     assert((InlineeCompiler->fgBBcount > 1) || (InlineeCompiler->fgFirstBB->bbJumpKind != BBJ_RETURN));
 
-    bool inheritWeight = true; // The firstBB does inherit the weight from the call block
+    IL_OFFSETX ilOffset      = inlineInfo->iciStmt->GetILOffsetX();
+    bool       inheritWeight = true; // The firstBB does inherit the weight from the call block
 
     for (BasicBlock* block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {

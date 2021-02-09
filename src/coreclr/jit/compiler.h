@@ -5001,10 +5001,7 @@ private:
     void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
 
     BasicBlock* inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter);
-    void inlInsertInlineeBlocks(InlineInfo* inlineInfo,
-                                BasicBlock* topBlock,
-                                BasicBlock* bottomBlock,
-                                IL_OFFSETX  ilOffset);
+    void inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlock, BasicBlock* bottomBlock);
     void inlPropagateInlineeCompilerState();
     INDEBUG(void inlDebugCheckInlineCandidates();)
 
