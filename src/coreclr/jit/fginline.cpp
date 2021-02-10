@@ -983,31 +983,32 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
     }
 }
 
-bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd)
+bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO_CLASS_HANDLE retExprClass)
 {
-    JITDUMPTREE(op2, "\nInlinee RETURN expression:\n");
+    JITDUMPTREE(retExpr, "\nInlinee return expression:\n");
 
-    // If we are importing an inlinee and have GC ref locals we always
-    // need to have a spill temp for the return value.  This temp
-    // should have been set up in advance, over in fgFindBasicBlocks.
+    // If the inlinee has GC ref locals we always need to have a spill temp
+    // for the return value. This temp should have been set up in advance,
+    // over in inlAnalyzeInlineeReturn.
+
     assert(!inlineInfo->HasGcRefLocals() || (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM));
 
     // Make sure the return value type matches the return signature type.
     {
         var_types callType   = info.GetRetSigType();
-        var_types returnType = op2->GetType();
+        var_types returnType = retExpr->GetType();
 
         if (returnType == TYP_STRUCT)
         {
             // Currently call nodes do not have normalized type, use the signature type instead.
-            if (op2->IsCall())
+            if (GenTreeCall* call = retExpr->IsCall())
             {
-                returnType = op2->AsCall()->GetRetSigType();
+                returnType = call->GetRetSigType();
             }
-            else if (op2->IsRetExpr())
+            else if (GenTreeRetExpr* placeholder = retExpr->IsRetExpr())
             {
-                assert(op2->AsRetExpr()->GetRetExpr() == nullptr);
-                returnType = op2->AsRetExpr()->GetCall()->GetRetSigType();
+                assert(placeholder->GetRetExpr() == nullptr);
+                returnType = placeholder->GetCall()->GetRetSigType();
             }
         }
 
@@ -1032,16 +1033,16 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
         }
     }
 
-    if (varTypeIsSmall(info.compRetType))
+    if (varTypeIsSmall(info.GetRetSigType()))
     {
         // Small-typed return values are normalized by the callee
 
-        if (fgCastNeeded(op2, info.compRetType))
+        if (fgCastNeeded(retExpr, info.GetRetSigType()))
         {
-            op2 = gtNewCastNode(TYP_INT, op2, false, info.compRetType);
+            retExpr = gtNewCastNode(TYP_INT, retExpr, false, info.GetRetSigType());
         }
     }
-    else if (info.compRetType == TYP_REF)
+    else if (info.GetRetSigType() == TYP_REF)
     {
         if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
         {
@@ -1050,7 +1051,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
 
             bool                 isExact      = false;
             bool                 isNonNull    = false;
-            CORINFO_CLASS_HANDLE returnClsHnd = gtGetClassHandle(op2, &isExact, &isNonNull);
+            CORINFO_CLASS_HANDLE returnClsHnd = gtGetClassHandle(retExpr, &isExact, &isNonNull);
 
             if (inlineInfo->retExpr == nullptr)
             {
@@ -1069,49 +1070,45 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
             }
         }
     }
-    else if (info.compRetType == TYP_BYREF)
+    else if (info.GetRetSigType() == TYP_BYREF)
     {
-        // If we are inlining a method that returns a struct byref, check whether we are "reinterpreting" the
-        // struct.
+        // If we are inlining a method that returns a struct byref, check whether
+        // we are "reinterpreting" the struct.
 
-        GenTree* effectiveRetVal = op2->gtEffectiveVal();
-        if (op2->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
+        GenTree* effectiveRetVal = retExpr->gtEffectiveVal();
+        if (retExpr->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
         {
             GenTree* location = effectiveRetVal->AsUnOp()->GetOp(0);
             if (location->OperIs(GT_LCL_VAR))
             {
-                LclVarDsc* varDsc = lvaGetDesc(location->AsLclVar());
+                LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
 
-                if (varTypeIsStruct(location->GetType()) && !isOpaqueSIMDLclVar(varDsc))
+                if (varTypeIsStruct(location->GetType()) && !isOpaqueSIMDLclVar(lcl))
                 {
-                    CORINFO_CLASS_HANDLE referentClassHandle;
-                    CorInfoType          referentType =
-                        info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &referentClassHandle);
+                    CORINFO_CLASS_HANDLE byrefClass;
+                    var_types            byrefType = JITtype2varType(
+                        info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &byrefClass));
 
-                    if (varTypeIsStruct(JITtype2varType(referentType)) &&
-                        (varDsc->GetLayout()->GetClassHandle() != referentClassHandle))
+                    if (varTypeIsStruct(byrefType) && (lcl->GetLayout()->GetClassHandle() != byrefClass))
                     {
                         // We are returning a byref to struct1; the method signature specifies return type as
-                        // byref
-                        // to struct2. struct1 and struct2 are different so we are "reinterpreting" the struct.
-                        // This may happen in, for example, System.Runtime.CompilerServices.Unsafe.As<TFrom,
-                        // TTo>.
+                        // byref to struct2. struct1 and struct2 are different so we are "reinterpreting" the
+                        // struct (e.g. System.Runtime.CompilerServices.Unsafe.As<TFrom, TTo>).
                         // We need to mark the source struct variable as having overlapping fields because its
                         // fields may be accessed using field handles of a different type, which may confuse
                         // optimizations, in particular, value numbering.
 
-                        JITDUMP("\nSetting lvOverlappingFields to true on V%02u because of struct "
-                                "reinterpretation\n",
+                        JITDUMP("\nSetting lvOverlappingFields on V%02u due to struct reinterpretation\n",
                                 location->AsLclVar()->GetLclNum());
 
-                        varDsc->lvOverlappingFields = true;
+                        lcl->lvOverlappingFields = true;
                     }
                 }
             }
         }
     }
 
-    if (op2->IsCall() && op2->AsCall()->TreatAsHasRetBufArg() && (info.retDesc.GetRegCount() > 1))
+    if (retExpr->IsCall() && retExpr->AsCall()->TreatAsHasRetBufArg() && (info.retDesc.GetRegCount() > 1))
     {
         // The multi reg case is currently handled during unbox import.
         assert(info.retDesc.GetRegCount() == 1);
@@ -1124,34 +1121,27 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
         // lack of optimizations caused by address exposed.
         // No FX diffs if done so it's probably very rare so not worth the trouble now.
 
-        op2 = impSpillPseudoReturnBufferCall(op2, retClsHnd);
+        retExpr = impSpillPseudoReturnBufferCall(retExpr, retExprClass);
     }
 
     if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
     {
-        assert(fgMoreThanOneReturnBlock() || inlineInfo->HasGcRefLocals());
+        unsigned lclNum = inlineInfo->retSpillTempLclNum;
 
-        impAssignTempGen(inlineInfo->retSpillTempLclNum, op2, retClsHnd, CHECK_SPILL_NONE);
+        impAssignTempGen(lclNum, retExpr, retExprClass, CHECK_SPILL_NONE);
 
         if (inlineInfo->retExpr == nullptr)
         {
-            op2 = gtNewLclvNode(inlineInfo->retSpillTempLclNum, lvaGetDesc(inlineInfo->retSpillTempLclNum)->GetType());
+            retExpr = gtNewLclvNode(lclNum, lvaGetDesc(lclNum)->GetType());
+        }
+        else if (inlineInfo->iciCall->HasRetBufArg())
+        {
+            assert(inlineInfo->retExpr->OperIs(GT_ASG));
+            assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLclNum() == lclNum);
         }
         else
         {
-            // Some other block(s) have seen the CEE_RET first. They should have spilled to the same temp.
-
-            if (inlineInfo->iciCall->HasRetBufArg())
-            {
-                // If the inlined call has a return buffer then the return expression is really
-                // an assignment that stores into the buffer.
-                assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLclNum() ==
-                       inlineInfo->retSpillTempLclNum);
-            }
-            else
-            {
-                assert(inlineInfo->retExpr->AsLclVar()->GetLclNum() == inlineInfo->retSpillTempLclNum);
-            }
+            assert(inlineInfo->retExpr->AsLclVar()->GetLclNum() == lclNum);
         }
     }
 
@@ -1162,15 +1152,16 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
             // TODO-MIKE-CQ: Why do we have an inlinee return spill temp when we also
             // have a return buffer? We first spill to the temp and then copy the temp
             // to the return buffer, that seems like an unnecessary copy.
+            // Also, what happens if the return address arg has side effects?
 
             GenTree* retBufAddr = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
 
-            op2 = impAssignStructPtr(retBufAddr, op2, retClsHnd, CHECK_SPILL_ALL);
+            retExpr = impAssignStructPtr(retBufAddr, retExpr, retExprClass, CHECK_SPILL_ALL);
         }
 
-        JITDUMPTREE(op2, "Inline return expression:\n");
+        JITDUMPTREE(retExpr, "Inliner return expression:\n");
 
-        inlineInfo->retExpr = op2;
+        inlineInfo->retExpr = retExpr;
     }
 
     if (inlineInfo->retExpr != nullptr)
