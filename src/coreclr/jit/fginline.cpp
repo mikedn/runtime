@@ -909,61 +909,76 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
 
 void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount)
 {
-    // Use a spill temp for the return value if there are multiple return blocks,
-    // or if the inlinee has GC ref locals.
-    if ((info.compRetType != TYP_VOID) && ((returnBlockCount > 1) || inlineInfo->HasGcRefLocals()))
+    if (info.GetRetSigType() == TYP_VOID)
     {
-        // If we've spilled the ret expr to a temp we can reuse the temp
-        // as the inlinee return spill temp.
+        return;
+    }
+
+    if ((returnBlockCount <= 1) && !inlineInfo->HasGcRefLocals())
+    {
+        // We need a spill temp only if there are multiple return blocks or if there
+        // are GC locals (they need to be nulled out at the end of the inlinee and
+        // doing so may interfere with the return expression).
+
+        return;
+    }
+
+    if (inlineInfo->inlineCandidateInfo->preexistingSpillTemp != BAD_VAR_NUM)
+    {
+        // If we've spilled the ret expr to a temp we can reuse the temp as the
+        // inlinee return spill temp.
         //
-        // Todo: see if it is even better to always use this existing temp
-        // for return values, even if we otherwise wouldn't need a return spill temp...
+        // TODO: see if it is even better to always use this existing temp for
+        // return values, even if we otherwise wouldn't need a return spill temp...
+
         inlineInfo->retSpillTempLclNum = inlineInfo->inlineCandidateInfo->preexistingSpillTemp;
 
-        if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
-        {
-            // This temp should already have the type of the return value.
-            JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", inlineInfo->retSpillTempLclNum);
+        JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", inlineInfo->retSpillTempLclNum);
 
-            if (info.compRetType == TYP_REF)
+        if (info.GetRetSigType() == TYP_REF)
+        {
+            // We may have co-opted an existing temp for the return spill.
+            // We likely assumed it was single-def at the time, but now
+            // we can see it has multiple definitions.
+
+            LclVarDsc* lcl = lvaGetDesc(inlineInfo->retSpillTempLclNum);
+
+            if ((returnBlockCount > 1) && lcl->lvSingleDef)
             {
-                // We may have co-opted an existing temp for the return spill.
-                // We likely assumed it was single-def at the time, but now
-                // we can see it has multiple definitions.
-                if ((returnBlockCount > 1) && (lvaTable[inlineInfo->retSpillTempLclNum].lvSingleDef == 1))
-                {
-                    // Make sure it is no longer marked single def. This is only safe
-                    // to do if we haven't ever updated the type.
-                    assert(!lvaTable[inlineInfo->retSpillTempLclNum].lvClassInfoUpdated);
-                    JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", inlineInfo->retSpillTempLclNum);
-                    lvaTable[inlineInfo->retSpillTempLclNum].lvSingleDef = 0;
-                }
+                // Make sure it is no longer marked single def. This is only safe
+                // to do if we haven't ever updated the type.
+
+                assert(!lcl->lvClassInfoUpdated);
+                JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", inlineInfo->retSpillTempLclNum);
+                lcl->lvSingleDef = false;
             }
         }
-        else
+
+        return;
+    }
+
+    inlineInfo->retSpillTempLclNum = lvaGrabTemp(false DEBUGARG("inlinee return spill temp"));
+
+    LclVarDsc* lcl = lvaGetDesc(inlineInfo->retSpillTempLclNum);
+    // TODO-MIKE-Review: This doesn't seem correct for struct returns...
+    lcl->lvType = info.GetRetSigType();
+
+    // If the method returns a ref class, set the class of the spill temp
+    // to the method's return value. We may update this later if it turns
+    // out we can prove the method returns a more specific type.
+    if (info.GetRetSigType() == TYP_REF)
+    {
+        if (returnBlockCount == 1)
         {
-            // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
-            inlineInfo->retSpillTempLclNum = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
-            lvaTable[inlineInfo->retSpillTempLclNum].lvType = info.compRetType;
+            lcl->lvSingleDef = true;
+            JITDUMP("Marked return spill temp V%02u as a single def temp\n", inlineInfo->retSpillTempLclNum);
+        }
 
-            // If the method returns a ref class, set the class of the spill temp
-            // to the method's return value. We may update this later if it turns
-            // out we can prove the method returns a more specific type.
-            if (info.compRetType == TYP_REF)
-            {
-                // The return spill temp is single def only if the method has a single return block.
-                if (returnBlockCount == 1)
-                {
-                    lvaTable[inlineInfo->retSpillTempLclNum].lvSingleDef = 1;
-                    JITDUMP("Marked return spill temp V%02u as a single def temp\n", inlineInfo->retSpillTempLclNum);
-                }
+        CORINFO_CLASS_HANDLE retTypeClass = inlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
 
-                CORINFO_CLASS_HANDLE retClassHnd = inlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
-                if (retClassHnd != nullptr)
-                {
-                    lvaSetClass(inlineInfo->retSpillTempLclNum, retClassHnd);
-                }
-            }
+        if (retTypeClass != nullptr)
+        {
+            lvaSetClass(inlineInfo->retSpillTempLclNum, retTypeClass);
         }
     }
 }
