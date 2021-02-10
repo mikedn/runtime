@@ -4989,6 +4989,8 @@ private:
     INDEBUG(void inlReportNonCandidates(Statement* stmt);)
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
+    void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);
+    bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);

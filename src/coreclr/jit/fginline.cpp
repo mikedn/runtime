@@ -906,6 +906,267 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     inlineResult->NoteSuccess();
 }
 
+void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount)
+{
+    // Use a spill temp for the return value if there are multiple return blocks,
+    // or if the inlinee has GC ref locals.
+    if ((info.compRetType != TYP_VOID) && ((returnBlockCount > 1) || inlineInfo->HasGcRefLocals()))
+    {
+        // If we've spilled the ret expr to a temp we can reuse the temp
+        // as the inlinee return spill temp.
+        //
+        // Todo: see if it is even better to always use this existing temp
+        // for return values, even if we otherwise wouldn't need a return spill temp...
+        lvaInlineeReturnSpillTemp = inlineInfo->inlineCandidateInfo->preexistingSpillTemp;
+
+        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+        {
+            // This temp should already have the type of the return value.
+            JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", lvaInlineeReturnSpillTemp);
+
+            if (info.compRetType == TYP_REF)
+            {
+                // We may have co-opted an existing temp for the return spill.
+                // We likely assumed it was single-def at the time, but now
+                // we can see it has multiple definitions.
+                if ((returnBlockCount > 1) && (lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef == 1))
+                {
+                    // Make sure it is no longer marked single def. This is only safe
+                    // to do if we haven't ever updated the type.
+                    assert(!lvaTable[lvaInlineeReturnSpillTemp].lvClassInfoUpdated);
+                    JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", lvaInlineeReturnSpillTemp);
+                    lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef = 0;
+                }
+            }
+        }
+        else
+        {
+            // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
+            lvaInlineeReturnSpillTemp                  = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
+            lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetType;
+
+            // If the method returns a ref class, set the class of the spill temp
+            // to the method's return value. We may update this later if it turns
+            // out we can prove the method returns a more specific type.
+            if (info.compRetType == TYP_REF)
+            {
+                // The return spill temp is single def only if the method has a single return block.
+                if (returnBlockCount == 1)
+                {
+                    lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef = 1;
+                    JITDUMP("Marked return spill temp V%02u as a single def temp\n", lvaInlineeReturnSpillTemp);
+                }
+
+                CORINFO_CLASS_HANDLE retClassHnd = inlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
+                if (retClassHnd != nullptr)
+                {
+                    lvaSetClass(lvaInlineeReturnSpillTemp, retClassHnd);
+                }
+            }
+        }
+    }
+}
+
+bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd)
+{
+    JITDUMPTREE(op2, "\nInlinee RETURN expression:\n");
+
+    // If we are importing an inlinee and have GC ref locals we always
+    // need to have a spill temp for the return value.  This temp
+    // should have been set up in advance, over in fgFindBasicBlocks.
+    assert(!impInlineInfo->HasGcRefLocals() || (lvaInlineeReturnSpillTemp != BAD_VAR_NUM));
+
+    // Make sure the return value type matches the return signature type.
+    {
+        var_types callType   = info.GetRetSigType();
+        var_types returnType = op2->GetType();
+
+        if (returnType == TYP_STRUCT)
+        {
+            // Currently call nodes do not have normalized type, use the signature type instead.
+            if (op2->IsCall())
+            {
+                returnType = op2->AsCall()->GetRetSigType();
+            }
+            else if (op2->IsRetExpr())
+            {
+                assert(op2->AsRetExpr()->GetRetExpr() == nullptr);
+                returnType = op2->AsRetExpr()->GetCall()->GetRetSigType();
+            }
+        }
+
+        callType   = varActualType(callType);
+        returnType = varActualType(returnType);
+
+        if (returnType != callType)
+        {
+            // Allow TYP_BYREF to be returned as TYP_I_IMPL and vice versa
+            if (((returnType == TYP_BYREF) && (callType == TYP_I_IMPL)) ||
+                ((returnType == TYP_I_IMPL) && (callType == TYP_BYREF)))
+            {
+                JITDUMP("Allowing return type mismatch: have %s, needed %s\n", varTypeName(returnType),
+                        varTypeName(callType));
+            }
+            else
+            {
+                JITDUMP("Return type mismatch: have %s, needed %s\n", varTypeName(returnType), varTypeName(callType));
+                compInlineResult->NoteFatal(InlineObservation::CALLSITE_RETURN_TYPE_MISMATCH);
+                return false;
+            }
+        }
+    }
+
+    if (varTypeIsSmall(info.compRetType))
+    {
+        // Small-typed return values are normalized by the callee
+
+        if (fgCastNeeded(op2, info.compRetType))
+        {
+            op2 = gtNewCastNode(TYP_INT, op2, false, info.compRetType);
+        }
+    }
+    else if (info.compRetType == TYP_REF)
+    {
+        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+        {
+            // If this method returns a REF type and we have a spill temp, track the actual types
+            // seen in the returns so we can update the spill temp class when inlining is done.
+
+            bool                 isExact      = false;
+            bool                 isNonNull    = false;
+            CORINFO_CLASS_HANDLE returnClsHnd = gtGetClassHandle(op2, &isExact, &isNonNull);
+
+            if (inlineInfo->retExpr == nullptr)
+            {
+                // This is the first return, so best known type is the type
+                // of this return value.
+                inlineInfo->retExprClassHnd        = returnClsHnd;
+                inlineInfo->retExprClassHndIsExact = isExact;
+            }
+            else if (inlineInfo->retExprClassHnd != returnClsHnd)
+            {
+                // This return site type differs from earlier seen sites,
+                // so reset the info and we'll fall back to using the method's
+                // declared return type for the return spill temp.
+                inlineInfo->retExprClassHnd        = nullptr;
+                inlineInfo->retExprClassHndIsExact = false;
+            }
+        }
+    }
+    else if (info.compRetType == TYP_BYREF)
+    {
+        // If we are inlining a method that returns a struct byref, check whether we are "reinterpreting" the
+        // struct.
+
+        GenTree* effectiveRetVal = op2->gtEffectiveVal();
+        if (op2->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
+        {
+            GenTree* location = effectiveRetVal->AsUnOp()->GetOp(0);
+            if (location->OperIs(GT_LCL_VAR))
+            {
+                LclVarDsc* varDsc = lvaGetDesc(location->AsLclVar());
+
+                if (varTypeIsStruct(location->GetType()) && !isOpaqueSIMDLclVar(varDsc))
+                {
+                    CORINFO_CLASS_HANDLE referentClassHandle;
+                    CorInfoType          referentType =
+                        info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &referentClassHandle);
+
+                    if (varTypeIsStruct(JITtype2varType(referentType)) &&
+                        (varDsc->GetLayout()->GetClassHandle() != referentClassHandle))
+                    {
+                        // We are returning a byref to struct1; the method signature specifies return type as
+                        // byref
+                        // to struct2. struct1 and struct2 are different so we are "reinterpreting" the struct.
+                        // This may happen in, for example, System.Runtime.CompilerServices.Unsafe.As<TFrom,
+                        // TTo>.
+                        // We need to mark the source struct variable as having overlapping fields because its
+                        // fields may be accessed using field handles of a different type, which may confuse
+                        // optimizations, in particular, value numbering.
+
+                        JITDUMP("\nSetting lvOverlappingFields to true on V%02u because of struct "
+                                "reinterpretation\n",
+                                location->AsLclVar()->GetLclNum());
+
+                        varDsc->lvOverlappingFields = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if (op2->IsCall() && op2->AsCall()->TreatAsHasRetBufArg() && (info.retDesc.GetRegCount() > 1))
+    {
+        // The multi reg case is currently handled during unbox import.
+        assert(info.retDesc.GetRegCount() == 1);
+
+        // TODO-MIKE-CQ: If there's an inlinee spill temp we could use that as pseudo
+        // return buffer instead of creating another temp. But that would leave the
+        // inlinee spill temp address exposed so it's perhaps not such a good idea to
+        // do it unconditionally. The inlinee spill temp should probably be used only
+        // if the struct is large, when copying is likely to be more costly than the
+        // lack of optimizations caused by address exposed.
+        // No FX diffs if done so it's probably very rare so not worth the trouble now.
+
+        op2 = impSpillPseudoReturnBufferCall(op2, retClsHnd);
+    }
+
+    if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+    {
+        assert(fgMoreThanOneReturnBlock() || inlineInfo->HasGcRefLocals());
+
+        impAssignTempGen(lvaInlineeReturnSpillTemp, op2, retClsHnd, CHECK_SPILL_NONE);
+
+        if (inlineInfo->retExpr == nullptr)
+        {
+            op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
+        }
+        else
+        {
+            // Some other block(s) have seen the CEE_RET first. They should have spilled to the same temp.
+
+            if (inlineInfo->iciCall->HasRetBufArg())
+            {
+                // If the inlined call has a return buffer then the return expression is really
+                // an assignment that stores into the buffer.
+                assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLclNum() == lvaInlineeReturnSpillTemp);
+            }
+            else
+            {
+                assert(inlineInfo->retExpr->AsLclVar()->GetLclNum() == lvaInlineeReturnSpillTemp);
+            }
+        }
+    }
+
+    if (inlineInfo->retExpr == nullptr)
+    {
+        if (inlineInfo->iciCall->HasRetBufArg())
+        {
+            // TODO-MIKE-CQ: Why do we have an inlinee return spill temp when we also
+            // have a return buffer? We first spill to the temp and then copy the temp
+            // to the return buffer, that seems like an unnecessary copy.
+
+            GenTree* retBufAddr = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
+
+            op2 = impAssignStructPtr(retBufAddr, op2, retClsHnd, CHECK_SPILL_ALL);
+        }
+
+        JITDUMPTREE(op2, "Inline return expression:\n");
+
+        inlineInfo->retExpr = op2;
+    }
+
+    if (inlineInfo->retExpr != nullptr)
+    {
+        // TODO-MIKE-Review: retBB is used to get the flags so we're basically keeping
+        // only the flags of the last inlinee basic block. Is that correct?
+
+        inlineInfo->retBB = compCurBB;
+    }
+
+    return true;
+}
+
 // Compute depth of the candidate, and check for recursion.
 // We generally disallow recursive inlines by policy. However, they are
 // supported by the underlying machinery.

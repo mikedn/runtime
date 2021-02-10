@@ -2398,63 +2398,7 @@ void Compiler::fgFindBasicBlocks()
         compHndBBtabCount    = impInlineInfo->InlinerCompiler->compHndBBtabCount;
         info.compXcptnsCount = impInlineInfo->InlinerCompiler->info.compXcptnsCount;
 
-        // Use a spill temp for the return value if there are multiple return blocks,
-        // or if the inlinee has GC ref locals.
-        if ((info.compRetType != TYP_VOID) && ((retBlocks > 1) || impInlineInfo->HasGcRefLocals()))
-        {
-            // If we've spilled the ret expr to a temp we can reuse the temp
-            // as the inlinee return spill temp.
-            //
-            // Todo: see if it is even better to always use this existing temp
-            // for return values, even if we otherwise wouldn't need a return spill temp...
-            lvaInlineeReturnSpillTemp = impInlineInfo->inlineCandidateInfo->preexistingSpillTemp;
-
-            if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
-            {
-                // This temp should already have the type of the return value.
-                JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", lvaInlineeReturnSpillTemp);
-
-                if (info.compRetType == TYP_REF)
-                {
-                    // We may have co-opted an existing temp for the return spill.
-                    // We likely assumed it was single-def at the time, but now
-                    // we can see it has multiple definitions.
-                    if ((retBlocks > 1) && (lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef == 1))
-                    {
-                        // Make sure it is no longer marked single def. This is only safe
-                        // to do if we haven't ever updated the type.
-                        assert(!lvaTable[lvaInlineeReturnSpillTemp].lvClassInfoUpdated);
-                        JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", lvaInlineeReturnSpillTemp);
-                        lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef = 0;
-                    }
-                }
-            }
-            else
-            {
-                // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
-                lvaInlineeReturnSpillTemp = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
-                lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetType;
-
-                // If the method returns a ref class, set the class of the spill temp
-                // to the method's return value. We may update this later if it turns
-                // out we can prove the method returns a more specific type.
-                if (info.compRetType == TYP_REF)
-                {
-                    // The return spill temp is single def only if the method has a single return block.
-                    if (retBlocks == 1)
-                    {
-                        lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef = 1;
-                        JITDUMP("Marked return spill temp V%02u as a single def temp\n", lvaInlineeReturnSpillTemp);
-                    }
-
-                    CORINFO_CLASS_HANDLE retClassHnd = impInlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
-                    if (retClassHnd != nullptr)
-                    {
-                        lvaSetClass(lvaInlineeReturnSpillTemp, retClassHnd);
-                    }
-                }
-            }
-        }
+        inlAnalyzeInlineeReturn(impInlineInfo, retBlocks);
 
         return;
     }
