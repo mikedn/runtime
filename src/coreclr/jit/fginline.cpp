@@ -1931,42 +1931,13 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     return argNode;
 }
 
-//------------------------------------------------------------------------
-// inlInsertInlineeCode: incorporate statements for an inline into the
-// root method.
-//
-// Arguments:
-//    inlineInfo -- info for the inline
-//
-// Notes:
-//    The inlining attempt cannot be failed once this method is called.
-//
-//    Adds all inlinee statements, plus any glue statements needed
-//    either before or after the inlined call.
-//
-//    Updates flow graph and assigns weights to inlinee
-//    blocks. Currently does not attempt to read IBC data for the
-//    inlinee.
-//
-//    Updates relevant root method status flags (eg optMethodFlags) to
-//    include information from the inlinee.
-//
-//    Marks newly added statements with an appropriate inline context.
-
-void Compiler::inlInsertInlineeCode(InlineInfo* pInlineInfo)
+void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
 {
-    GenTreeCall* call = pInlineInfo->iciCall;
+    GenTreeCall* call = inlineInfo->iciCall;
 
     JITDUMP("\n---- Statements (and blocks) added due to the inlining of call " FMT_TREEID " ----\n", call->GetID());
 
-    Statement*  callStmt  = pInlineInfo->iciStmt;
-    BasicBlock* callBlock = pInlineInfo->iciBlock;
-
-    noway_assert(callBlock->GetFirstStatement() != nullptr);
-    noway_assert(callStmt->GetRootNode() == call);
-
-    // Create a new inline context and mark the inlined statements with it
-    InlineContext* inlineContext = m_inlineStrategy->NewSuccess(pInlineInfo);
+    InlineContext* inlineContext = m_inlineStrategy->NewSuccess(inlineInfo);
 
     for (BasicBlock* block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
@@ -1976,74 +1947,70 @@ void Compiler::inlInsertInlineeCode(InlineInfo* pInlineInfo)
         }
     }
 
-    Statement* stmtAfter = inlPrependStatements(pInlineInfo);
+    Statement* stmtAfter = inlPrependStatements(inlineInfo);
 
     JITDUMP("\nInlinee method body:\n");
 
-    if ((InlineeCompiler->fgBBcount == 1) && (InlineeCompiler->fgFirstBB->bbJumpKind == BBJ_RETURN))
+    if ((InlineeCompiler->fgFirstBB->bbJumpKind == BBJ_RETURN) && (InlineeCompiler->fgFirstBB->bbNext == nullptr))
     {
-        // Inlinee contains just one return block. So just insert its statement into the inliner block.
-
-        if (InlineeCompiler->fgFirstBB->GetFirstStatement() == nullptr)
-        {
-            JITDUMP("\tInlinee method has no statements.\n");
-        }
-        else
-        {
-#ifdef DEBUG
-            if (verbose)
-            {
-                for (Statement* stmt : InlineeCompiler->fgFirstBB->Statements())
-                {
-                    gtDispStmt(stmt);
-                }
-            }
-#endif
-
-            stmtAfter = fgInsertStmtListAfter(callBlock, stmtAfter, InlineeCompiler->fgFirstBB->GetFirstStatement());
-        }
-
-        // Copy inlinee bbFlags to caller bbFlags.
-        const uint64_t inlineeBlockFlags = InlineeCompiler->fgFirstBB->bbFlags;
-
-        noway_assert((inlineeBlockFlags & BBF_HAS_JMP) == 0);
-        noway_assert((inlineeBlockFlags & BBF_KEEP_BBJ_ALWAYS) == 0);
-
-        // Todo: we may want to exclude other flags here.
-        callBlock->bbFlags |= (inlineeBlockFlags & ~BBF_RUN_RARELY);
-
-        // Append statements to null out gc ref locals, if necessary.
-        inlNullOutInlineeGCLocals(pInlineInfo, callBlock, stmtAfter);
+        stmtAfter = inlInsertSingleBlockInlineeStatements(inlineInfo, stmtAfter);
+        inlNullOutInlineeGCLocals(inlineInfo, inlineInfo->iciBlock, stmtAfter);
     }
     else
     {
-        BasicBlock* topBlock    = callBlock;
+        BasicBlock* topBlock    = inlineInfo->iciBlock;
         BasicBlock* bottomBlock = inlSplitInlinerBlock(topBlock, stmtAfter);
 
-        inlInsertInlineeBlocks(pInlineInfo, topBlock, bottomBlock);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            fgDispBasicBlocks(InlineeCompiler->fgFirstBB, InlineeCompiler->fgLastBB, true);
-        }
-#endif
-
-        // Append statements to null out gc ref locals, if necessary.
-        inlNullOutInlineeGCLocals(pInlineInfo, bottomBlock, nullptr);
+        inlInsertInlineeBlocks(inlineInfo, topBlock, bottomBlock);
+        inlNullOutInlineeGCLocals(inlineInfo, bottomBlock, nullptr);
     }
 
     inlPropagateInlineeCompilerState();
 
     // Record the return expression of non-void methods in the RET_EXPR node.
-    if (pInlineInfo->iciCall->GetRetSigType() != TYP_VOID)
+    if (inlineInfo->iciCall->GetRetSigType() != TYP_VOID)
     {
-        noway_assert(pInlineInfo->retExpr != nullptr);
+        noway_assert(inlineInfo->retExpr != nullptr);
+        JITDUMPTREE(inlineInfo->retExpr, "Return expression is:\n", call->GetID());
 
-        JITDUMPTREE(pInlineInfo->retExpr, "Return expression is:\n", call->GetID());
-
-        call->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(pInlineInfo->retExpr, pInlineInfo->retBB->bbFlags);
+        call->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(inlineInfo->retExpr, inlineInfo->retBB->bbFlags);
     }
+}
+
+Statement* Compiler::inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInfo, Statement* stmtAfter)
+{
+    BasicBlock* block        = inlineInfo->iciBlock;
+    BasicBlock* inlineeBlock = InlineeCompiler->fgFirstBB;
+
+    assert(inlineeBlock->bbJumpKind == BBJ_RETURN);
+    assert(inlineeBlock->bbNext == nullptr);
+
+    if (inlineeBlock->GetFirstStatement() == nullptr)
+    {
+        JITDUMP("\tInlinee method has no statements.\n");
+    }
+    else
+    {
+#ifdef DEBUG
+        if (verbose)
+        {
+            for (Statement* stmt : inlineeBlock->Statements())
+            {
+                gtDispStmt(stmt);
+            }
+        }
+#endif
+
+        stmtAfter = fgInsertStmtListAfter(block, stmtAfter, inlineeBlock->GetFirstStatement());
+    }
+
+    uint64_t inlineeBlockFlags = inlineeBlock->bbFlags;
+    noway_assert((inlineeBlockFlags & BBF_HAS_JMP) == 0);
+    noway_assert((inlineeBlockFlags & BBF_KEEP_BBJ_ALWAYS) == 0);
+    // TODO: we may want to exclude other flags here.
+    block->bbFlags |= (inlineeBlockFlags & ~BBF_RUN_RARELY);
+
+    return stmtAfter;
 }
 
 BasicBlock* Compiler::inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter)
@@ -2123,8 +2090,6 @@ BasicBlock* Compiler::inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmt
     return bottomBlock;
 }
 
-// Insert the inlinee basic blocks into the inliner's flow graph.
-//
 void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlock, BasicBlock* bottomBlock)
 {
     assert((InlineeCompiler->fgBBcount > 1) || (InlineeCompiler->fgFirstBB->bbJumpKind != BBJ_RETURN));
@@ -2195,6 +2160,8 @@ void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlo
     topBlock->setNext(InlineeCompiler->fgFirstBB);
     InlineeCompiler->fgLastBB->setNext(bottomBlock);
     fgBBcount += InlineeCompiler->fgBBcount;
+
+    DBEXEC(verbose, fgDispBasicBlocks(InlineeCompiler->fgFirstBB, InlineeCompiler->fgLastBB, true));
 }
 
 void Compiler::inlPropagateInlineeCompilerState()

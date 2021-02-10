@@ -4989,6 +4989,7 @@ private:
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
+    Statement* inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgs(InlineInfo* inlineInfo);
