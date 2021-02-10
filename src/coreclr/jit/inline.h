@@ -598,6 +598,7 @@ struct InlineInfo
     BasicBlock*          retBB;   // The basic block of the return expression of the inlined candidate.
     CORINFO_CLASS_HANDLE retExprClassHnd;
     bool                 retExprClassHndIsExact;
+    unsigned             retSpillTempLclNum;
 
     CORINFO_CONTEXT_HANDLE tokenLookupContextHandle; // The context handle that will be passed to
                                                      // impTokenLookupContextHandle in Inlinee's Compiler.

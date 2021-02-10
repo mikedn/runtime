@@ -2591,10 +2591,6 @@ public:
                          // However, if there is a "ldarga 0" or "starg 0" in the IL,
                          // we will redirect all "ldarg(a) 0" and "starg 0" to this temp.
 
-    unsigned lvaInlineeReturnSpillTemp; // The temp to spill the non-VOID return expression
-                                        // in case there are multiple BBJ_RETURN blocks in the inlinee
-                                        // or if the inlinee has GC ref locals.
-
 #if FEATURE_FIXED_OUT_ARGS
     unsigned            lvaOutgoingArgSpaceVar;  // dummy TYP_LCLBLK var for fixed outgoing argument space
     PhasedVar<unsigned> lvaOutgoingArgSpaceSize; // size of fixed outgoing argument space

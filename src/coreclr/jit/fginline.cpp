@@ -802,6 +802,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     inlineInfo.fncHandle           = call->GetMethodHandle();
     inlineInfo.inlineCandidateInfo = call->GetInlineCandidateInfo();
     inlineInfo.inlineResult        = inlineResult;
+    inlineInfo.retSpillTempLclNum  = BAD_VAR_NUM;
     inlineInfo.profileScaleState   = InlineInfo::ProfileScaleState::UNDETERMINED;
 
     unsigned inlineDepth = inlCheckInlineDepthAndRecursion(&inlineInfo);
@@ -917,33 +918,33 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
         //
         // Todo: see if it is even better to always use this existing temp
         // for return values, even if we otherwise wouldn't need a return spill temp...
-        lvaInlineeReturnSpillTemp = inlineInfo->inlineCandidateInfo->preexistingSpillTemp;
+        inlineInfo->retSpillTempLclNum = inlineInfo->inlineCandidateInfo->preexistingSpillTemp;
 
-        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+        if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
         {
             // This temp should already have the type of the return value.
-            JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", lvaInlineeReturnSpillTemp);
+            JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", inlineInfo->retSpillTempLclNum);
 
             if (info.compRetType == TYP_REF)
             {
                 // We may have co-opted an existing temp for the return spill.
                 // We likely assumed it was single-def at the time, but now
                 // we can see it has multiple definitions.
-                if ((returnBlockCount > 1) && (lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef == 1))
+                if ((returnBlockCount > 1) && (lvaTable[inlineInfo->retSpillTempLclNum].lvSingleDef == 1))
                 {
                     // Make sure it is no longer marked single def. This is only safe
                     // to do if we haven't ever updated the type.
-                    assert(!lvaTable[lvaInlineeReturnSpillTemp].lvClassInfoUpdated);
-                    JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", lvaInlineeReturnSpillTemp);
-                    lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef = 0;
+                    assert(!lvaTable[inlineInfo->retSpillTempLclNum].lvClassInfoUpdated);
+                    JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", inlineInfo->retSpillTempLclNum);
+                    lvaTable[inlineInfo->retSpillTempLclNum].lvSingleDef = 0;
                 }
             }
         }
         else
         {
             // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
-            lvaInlineeReturnSpillTemp                  = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
-            lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetType;
+            inlineInfo->retSpillTempLclNum = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
+            lvaTable[inlineInfo->retSpillTempLclNum].lvType = info.compRetType;
 
             // If the method returns a ref class, set the class of the spill temp
             // to the method's return value. We may update this later if it turns
@@ -953,14 +954,14 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
                 // The return spill temp is single def only if the method has a single return block.
                 if (returnBlockCount == 1)
                 {
-                    lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef = 1;
-                    JITDUMP("Marked return spill temp V%02u as a single def temp\n", lvaInlineeReturnSpillTemp);
+                    lvaTable[inlineInfo->retSpillTempLclNum].lvSingleDef = 1;
+                    JITDUMP("Marked return spill temp V%02u as a single def temp\n", inlineInfo->retSpillTempLclNum);
                 }
 
                 CORINFO_CLASS_HANDLE retClassHnd = inlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
                 if (retClassHnd != nullptr)
                 {
-                    lvaSetClass(lvaInlineeReturnSpillTemp, retClassHnd);
+                    lvaSetClass(inlineInfo->retSpillTempLclNum, retClassHnd);
                 }
             }
         }
@@ -974,7 +975,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
     // If we are importing an inlinee and have GC ref locals we always
     // need to have a spill temp for the return value.  This temp
     // should have been set up in advance, over in fgFindBasicBlocks.
-    assert(!impInlineInfo->HasGcRefLocals() || (lvaInlineeReturnSpillTemp != BAD_VAR_NUM));
+    assert(!inlineInfo->HasGcRefLocals() || (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM));
 
     // Make sure the return value type matches the return signature type.
     {
@@ -1027,7 +1028,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
     }
     else if (info.compRetType == TYP_REF)
     {
-        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+        if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
         {
             // If this method returns a REF type and we have a spill temp, track the actual types
             // seen in the returns so we can update the spill temp class when inlining is done.
@@ -1111,15 +1112,15 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
         op2 = impSpillPseudoReturnBufferCall(op2, retClsHnd);
     }
 
-    if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
+    if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
     {
         assert(fgMoreThanOneReturnBlock() || inlineInfo->HasGcRefLocals());
 
-        impAssignTempGen(lvaInlineeReturnSpillTemp, op2, retClsHnd, CHECK_SPILL_NONE);
+        impAssignTempGen(inlineInfo->retSpillTempLclNum, op2, retClsHnd, CHECK_SPILL_NONE);
 
         if (inlineInfo->retExpr == nullptr)
         {
-            op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
+            op2 = gtNewLclvNode(inlineInfo->retSpillTempLclNum, lvaGetDesc(inlineInfo->retSpillTempLclNum)->GetType());
         }
         else
         {
@@ -1129,11 +1130,12 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLA
             {
                 // If the inlined call has a return buffer then the return expression is really
                 // an assignment that stores into the buffer.
-                assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLclNum() == lvaInlineeReturnSpillTemp);
+                assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLclNum() ==
+                       inlineInfo->retSpillTempLclNum);
             }
             else
             {
-                assert(inlineInfo->retExpr->AsLclVar()->GetLclNum() == lvaInlineeReturnSpillTemp);
+                assert(inlineInfo->retExpr->AsLclVar()->GetLclNum() == inlineInfo->retSpillTempLclNum);
             }
         }
     }
@@ -1739,7 +1741,7 @@ unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
         // Since there are GC pointer locals we should have seen them earlier
         // and if there was a return value, set up the spill temp.
         assert(impInlineInfo->HasGcRefLocals());
-        assert((info.GetRetSigType() == TYP_VOID) || (lvaInlineeReturnSpillTemp != BAD_VAR_NUM));
+        assert((info.GetRetSigType() == TYP_VOID) || (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM));
     }
     else
     {

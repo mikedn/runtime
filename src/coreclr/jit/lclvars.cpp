@@ -70,8 +70,6 @@ void Compiler::lvaInit()
     lvaMonAcquired      = BAD_VAR_NUM;
     lvaRetAddrVar       = BAD_VAR_NUM;
 
-    lvaInlineeReturnSpillTemp = BAD_VAR_NUM;
-
     gsShadowVarInfo = nullptr;
 #if defined(FEATURE_EH_FUNCLETS)
     lvaPSPSym = BAD_VAR_NUM;
