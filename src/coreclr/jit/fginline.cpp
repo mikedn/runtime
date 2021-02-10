@@ -71,6 +71,9 @@ PhaseStatus Compiler::fgInline()
 
         for (Statement* stmt : block->Statements())
         {
+            fgWalkTree(stmt->GetRootNodePointer(), fgUpdateInlineReturnExpressionPlaceHolder, fgLateDevirtualization,
+                       this);
+
             INDEBUG(inlReportNonCandidates(stmt);)
 
             // The importer ensures that all inline candidates are statement roots.
@@ -100,23 +103,6 @@ PhaseStatus Compiler::fgInline()
                     continue;
                 }
             }
-
-            // See if we need to replace some return value place holders.
-            // Also, see if this replacement enables further devirtualization.
-            //
-            // Note we have both preorder and postorder callbacks here.
-            //
-            // The preorder callback is responsible for replacing GT_RET_EXPRs
-            // with the appropriate expansion (call or inline result).
-            // Replacement may introduce subtrees with GT_RET_EXPR and so
-            // we rely on the preorder to recursively process those as well.
-            //
-            // On the way back up, the postorder callback then re-examines nodes for
-            // possible further optimization, as the (now complete) GT_RET_EXPR
-            // replacement may have enabled optimizations by providing more
-            // specific types for trees or variables.
-            fgWalkTree(stmt->GetRootNodePointer(), fgUpdateInlineReturnExpressionPlaceHolder, fgLateDevirtualization,
-                       this);
 
             // COMMA(CALL, NOP) => CALL
             if (expr->OperIs(GT_COMMA) && expr->AsOp()->GetOp(0)->IsCall() && expr->AsOp()->GetOp(1)->OperIs(GT_NOP))
@@ -1242,14 +1228,12 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 
 bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum)
 {
+    assert(!argNode->IsRetExpr());
+
     InlArgInfo& argInfo = inlineInfo->inlArgInfo[argNum];
+    argInfo.argNode     = argNode;
 
     JITDUMP("Argument %u%s ", argNum, argInfo.argIsThis ? " (this)" : "");
-
-    // Save the original tree, might be a RET_EXPR and we need to keep it.
-    argInfo.argNode = argNode;
-
-    argNode = argNode->gtRetExprVal();
 
     if (argNode->OperIs(GT_MKREFANY))
     {
@@ -1510,8 +1494,9 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 {
     InlArgInfo& argInfo = inlineInfo->inlArgInfo[ilArgNum];
     var_types   argType = inlineInfo->lclVarInfo[ilArgNum].lclType;
+    GenTree*    argNode = argInfo.argNode;
 
-    GenTree* argNode = argInfo.argNode->gtRetExprVal();
+    assert(!argNode->IsRetExpr());
 
     if (argInfo.argIsInvariant && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
     {
@@ -2053,10 +2038,9 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
     for (unsigned argNum = 0; argNum < inlineInfo->argCnt; argNum++)
     {
         const InlArgInfo& argInfo = inlineInfo->inlArgInfo[argNum];
+        GenTree*          argNode = argInfo.argNode;
 
-        GenTree* argNode = argInfo.argNode;
-        uint64_t bbFlags = 0;
-        argNode          = argNode->gtRetExprVal(&bbFlags);
+        assert(!argNode->IsRetExpr());
 
         // MKREFANY args currently fail inlining.
         assert(!argNode->OperIs(GT_MKREFANY));
@@ -2087,6 +2071,18 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
                 assert(!argNode->OperIs(GT_OBJ));
 
                 argSingleUseNode->ReplaceWith(argNode, this);
+
+                // TODO-MIKE-Fix: This moves the argument tree to some inlinee block,
+                // it should copy BBF_IR_SUMMARY flags from the inliner call block.
+                // However, we don't know which inlinee block the arg is moved to.
+                // It doesn't seem worthwhile tracking the inlinee block just for
+                // this - most of the BBF_IR_SUMMARY flags are associated with trees
+                // that have side effects and we don't move those. BBF_HAS_NEWOBJ
+                // is associated with ALLOCOBJ and this node doesn't have side effects
+                // but then it's unlikely for an ALLOCOBJ to be an argument to a call.
+                // Normally the result of ALLOCOBJ is stored to a temp because it has
+                // to be passed to the constructor.
+
                 continue;
             }
 
@@ -2171,8 +2167,6 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
 
             DBEXEC(verbose, gtDispStmt(afterStmt));
 
-            inlineInfo->iciBlock->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
-
             continue;
         }
 
@@ -2226,8 +2220,6 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             // since the box itself will be ignored.
             gtTryRemoveBoxUpstreamEffects(argNode);
         }
-
-        inlineInfo->iciBlock->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
     }
 
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");
