@@ -5714,9 +5714,9 @@ GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned
     return new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
 }
 
-GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call, var_types type, BasicBlock* block)
+GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call, var_types type)
 {
-    return new (this, GT_RET_EXPR) GenTreeRetExpr(type, call, block->bbFlags);
+    return new (this, GT_RET_EXPR) GenTreeRetExpr(type, call);
 }
 
 GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)

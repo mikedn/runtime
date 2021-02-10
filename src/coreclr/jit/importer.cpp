@@ -7791,7 +7791,7 @@ DONE_INTRINSIC:
                 impAppendTree(origCall, CHECK_SPILL_ALL, impCurStmtOffs);
 
                 // TODO: Still using the widened type.
-                GenTreeRetExpr* retExpr = gtNewRetExpr(origCall, varActualType(callRetTyp), compCurBB);
+                GenTreeRetExpr* retExpr = gtNewRetExpr(origCall, varActualType(callRetTyp));
 
                 // Link the retExpr to the call so if necessary we can manipulate it later.
                 origCall->gtInlineCandidateInfo->retExprPlaceholder = retExpr;

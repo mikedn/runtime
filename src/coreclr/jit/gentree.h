@@ -6735,8 +6735,8 @@ private:
     uint64_t     m_retBlockFlags;
 
 public:
-    GenTreeRetExpr(var_types type, GenTreeCall* call, uint64_t bbFlags)
-        : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(nullptr), m_retBlockFlags(bbFlags)
+    GenTreeRetExpr(var_types type, GenTreeCall* call)
+        : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(nullptr), m_retBlockFlags(0)
     {
         // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
         // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.

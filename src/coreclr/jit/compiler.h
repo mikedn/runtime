@@ -2122,7 +2122,7 @@ public:
     GenTree* gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
 
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
-    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type, BasicBlock* block);
+    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
     GenTreeField* gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj = nullptr, DWORD offset = 0);
 
