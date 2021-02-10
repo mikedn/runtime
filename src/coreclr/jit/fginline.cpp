@@ -473,7 +473,7 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
 
             uint64_t bbFlags = 0;
             value            = retExpr->gtRetExprVal(&bbFlags);
-            comp->compCurBB->bbFlags |= (bbFlags & BBF_SPLIT_GAINED);
+            comp->compCurBB->bbFlags |= (bbFlags & BBF_IR_SUMMARY);
 
             // Try to fold the return value (e.g. returns of constant bools or small integers
             // will have widening casts). This folding may uncover more RET_EXPRs, so we loop
