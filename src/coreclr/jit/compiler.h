@@ -3534,12 +3534,11 @@ private:
 
     GenTree* inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum);
 
-    BOOL impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo);
+    bool impInlineIsThis(GenTree* tree);
 
-    BOOL impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
+    bool impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
                                                             GenTreeCall::Use* additionalCallArgs,
-                                                            GenTree*          dereferencedAddress,
-                                                            InlArgInfo*       inlArgInfo);
+                                                            GenTree*          dereferencedAddress);
 
     void impMarkInlineCandidate(GenTreeCall*           call,
                                 CORINFO_CONTEXT_HANDLE exactContextHnd,

@@ -7707,8 +7707,7 @@ DONE:
         GenTree* callObj = call->AsCall()->gtCallThisArg->GetNode();
 
         if ((call->AsCall()->IsVirtual() || (call->gtFlags & GTF_CALL_NULLCHECK)) &&
-            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->AsCall()->gtCallArgs, callObj,
-                                                               impInlineInfo->ilArgInfo))
+            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->AsCall()->gtCallArgs, callObj))
         {
             impInlineInfo->thisDereferencedFirst = true;
         }
@@ -12309,8 +12308,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         else
                         {
                             if (compIsForInlining() &&
-                                impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj,
-                                                                                   impInlineInfo->ilArgInfo))
+                                impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
                             {
                                 impInlineInfo->thisDereferencedFirst = true;
                             }
@@ -12609,8 +12607,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         }
 
                         if (compIsForInlining() &&
-                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj,
-                                                                               impInlineInfo->ilArgInfo))
+                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj))
                         {
                             impInlineInfo->thisDereferencedFirst = true;
                         }
@@ -15269,10 +15266,10 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
  worry about it.
 */
 
-BOOL Compiler::impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo)
+bool Compiler::impInlineIsThis(GenTree* tree)
 {
     assert(compIsForInlining());
-    return (tree->gtOper == GT_LCL_VAR && tree->AsLclVarCommon()->GetLclNum() == inlArgInfo[0].argTmpNum);
+    return tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLclNum() == impInlineInfo->ilArgInfo[0].argTmpNum);
 }
 
 //-----------------------------------------------------------------------------
@@ -15283,7 +15280,6 @@ BOOL Compiler::impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo)
 //    additionalTree - a tree to check for side effects
 //    additionalCallArgs - a list of call args to check for side effects
 //    dereferencedAddress - address expression being dereferenced
-//    inlArgInfo - inlinee argument information
 //
 // Notes:
 //    If we haven't hit a branch or a side effect, and we are dereferencing
@@ -15295,10 +15291,9 @@ BOOL Compiler::impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo)
 //    statement list and have to be checked for side effects may be provided via
 //    additionalTree and additionalCallArgs.
 //
-BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
+bool Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
                                                                   GenTreeCall::Use* additionalCallArgs,
-                                                                  GenTree*          dereferencedAddress,
-                                                                  InlArgInfo*       inlArgInfo)
+                                                                  GenTree*          dereferencedAddress)
 {
     assert(compIsForInlining());
     assert(opts.OptEnabled(CLFLG_INLINING));
@@ -15307,17 +15302,17 @@ BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
 
     if (block != fgFirstBB)
     {
-        return FALSE;
+        return false;
     }
 
-    if (!impInlineIsThis(dereferencedAddress, inlArgInfo))
+    if (!impInlineIsThis(dereferencedAddress))
     {
-        return FALSE;
+        return false;
     }
 
     if ((additionalTree != nullptr) && GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(additionalTree->gtFlags))
     {
-        return FALSE;
+        return false;
     }
 
     for (GenTreeCall::Use& use : GenTreeCall::UseList(additionalCallArgs))
@@ -15333,7 +15328,7 @@ BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
         GenTree* expr = stmt->GetRootNode();
         if (GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(expr->gtFlags))
         {
-            return FALSE;
+            return false;
         }
     }
 
@@ -15342,11 +15337,11 @@ BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
         unsigned stackTreeFlags = verCurrentState.esStack[level].val->gtFlags;
         if (GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(stackTreeFlags))
         {
-            return FALSE;
+            return false;
         }
     }
 
-    return TRUE;
+    return true;
 }
 
 //------------------------------------------------------------------------
