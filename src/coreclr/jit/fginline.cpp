@@ -1682,18 +1682,23 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* inlineInfo)
     return true;
 }
 
-unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum DEBUGARG(const char* reason))
+unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
-    assert(compIsForInlining());
-
-    InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[ilLocNum];
-
-    if (lclInfo.lclIsUsed)
+    if (inlineInfo->ilLocInfo[ilLocNum].lclIsUsed)
     {
-        return lclInfo.lclNum;
+        return inlineInfo->ilLocInfo[ilLocNum].lclNum;
     }
 
-    const unsigned lclNum = lvaGrabTemp(false DEBUGARG(reason));
+    return inlAllocInlineeLocal(inlineInfo, ilLocNum);
+}
+
+unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+{
+    InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[ilLocNum];
+
+    assert(!lclInfo.lclIsUsed);
+
+    const unsigned lclNum = lvaGrabTemp(false DEBUGARG("inlinee local"));
 
     lclInfo.lclNum    = lclNum;
     lclInfo.lclIsUsed = true;

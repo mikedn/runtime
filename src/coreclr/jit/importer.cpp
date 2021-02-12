@@ -9891,7 +9891,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             LOC_ST:
                 if (compIsForInlining())
                 {
-                    lclNum = inlFetchInlineeLocal(impInlineInfo, lclNum DEBUGARG("Inline stloc first use temp"));
+                    lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
                     lclTyp = lvaGetDesc(lclNum)->GetType();
 
                     goto _PopValue;
@@ -10064,7 +10064,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
-                    lclNum = inlFetchInlineeLocal(impInlineInfo, lclNum DEBUGARG("Inline ldloca(s) first use temp"));
+                    lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
                     op1    = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
                     goto PUSH_ADRVAR;
                 }
@@ -13892,7 +13892,7 @@ void Compiler::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
             return;
         }
 
-        lclNum = inlFetchInlineeLocal(impInlineInfo, ilLocNum DEBUGARG("Inline ldloc first use temp"));
+        lclNum = inlGetInlineeLocal(impInlineInfo, ilLocNum);
         offset = BAD_IL_OFFSET;
     }
     else

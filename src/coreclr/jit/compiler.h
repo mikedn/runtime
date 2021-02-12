@@ -3530,10 +3530,6 @@ private:
                            InlineCandidateInfo**  ppInlineCandidateInfo,
                            InlineResult*          inlineResult);
 
-    unsigned inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum DEBUGARG(const char* reason));
-
-    GenTree* inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum);
-
     bool impInlineIsThis(GenTree* tree);
 
     bool impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
@@ -4993,7 +4989,10 @@ private:
     bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgs(InlineInfo* inlineInfo);
     bool inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
+    GenTree* inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
+    unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    unsigned inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     Statement* inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
     Statement* inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* afterStmt);
