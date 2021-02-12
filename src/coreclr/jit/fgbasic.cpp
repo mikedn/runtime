@@ -1079,9 +1079,9 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (isInlining)
                 {
-                    if (varNum < impInlineInfo->argCnt)
+                    if (varNum < impInlineInfo->ilArgCount)
                     {
-                        impInlineInfo->inlArgInfo[varNum].argHasStargOp = true;
+                        impInlineInfo->ilArgInfo[varNum].argHasStargOp = true;
                     }
                 }
                 else
@@ -1122,7 +1122,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             STLOC:
                 if (isInlining)
                 {
-                    InlLclVarInfo& lclInfo = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt];
+                    InlLclVarInfo& lclInfo = impInlineInfo->ilLocInfo[varNum];
 
                     if (lclInfo.lclHasStlocOp)
                     {
@@ -1177,19 +1177,19 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                     if (opcode == CEE_LDLOCA || opcode == CEE_LDLOCA_S)
                     {
-                        lclType = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclType;
-                        ti      = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclVerTypeInfo;
+                        lclType = impInlineInfo->ilLocInfo[varNum].lclType;
+                        ti      = impInlineInfo->ilLocInfo[varNum].lclTypeInfo;
 
-                        impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclHasLdlocaOp = true;
+                        impInlineInfo->ilLocInfo[varNum].lclHasLdlocaOp = true;
                     }
                     else
                     {
                         noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
 
-                        lclType = impInlineInfo->lclVarInfo[varNum].lclType;
-                        ti      = impInlineInfo->lclVarInfo[varNum].lclVerTypeInfo;
+                        lclType = impInlineInfo->ilArgInfo[varNum].argType;
+                        ti      = impInlineInfo->ilArgInfo[varNum].argTypeInfo;
 
-                        impInlineInfo->inlArgInfo[varNum].argHasLdargaOp = true;
+                        impInlineInfo->ilArgInfo[varNum].argHasLdargaOp = true;
 
                         pushedStack.PushArgument(varNum);
                     }
@@ -1570,7 +1570,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
                     // Check for the double whammy of an incoming constant argument
                     // feeding a constant test.
                     unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-                    if (impInlineInfo->inlArgInfo[varNum].argIsInvariant)
+                    if (impInlineInfo->ilArgInfo[varNum].argIsInvariant)
                     {
                         compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                     }
@@ -1612,7 +1612,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-            if (impInlineInfo->inlArgInfo[varNum].argIsInvariant)
+            if (impInlineInfo->ilArgInfo[varNum].argIsInvariant)
             {
                 compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
@@ -1623,7 +1623,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot1);
-            if (impInlineInfo->inlArgInfo[varNum].argIsInvariant)
+            if (impInlineInfo->ilArgInfo[varNum].argIsInvariant)
             {
                 compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }

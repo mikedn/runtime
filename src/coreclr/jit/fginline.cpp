@@ -1231,8 +1231,6 @@ bool Compiler::inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo)
     }
 #endif
 
-    memset(inlineInfo->lclTmpNum, -1, sizeof(inlineInfo->lclTmpNum));
-
     return true;
 }
 
@@ -1240,11 +1238,11 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 {
     CORINFO_SIG_INFO& argsSig = inlineInfo->inlineCandidateInfo->methInfo.args;
 
-    inlineInfo->argCnt = argsSig.totalILArgs();
+    inlineInfo->ilArgCount = argsSig.totalILArgs();
 
     GenTreeCall*      call    = inlineInfo->iciCall;
     GenTreeCall::Use* thisArg = call->gtCallThisArg;
-    InlArgInfo*       argInfo = inlineInfo->inlArgInfo;
+    InlArgInfo*       argInfo = inlineInfo->ilArgInfo;
     unsigned          argNum  = 0;
 
     assert((argsSig.hasThis()) == (thisArg != nullptr));
@@ -1268,7 +1266,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 #if USER_ARGS_COME_LAST
         typeCtxtArgNum = (thisArg != nullptr) ? 1 : 0;
 #else
-        typeCtxtArgNum = inlineInfo->argCnt;
+        typeCtxtArgNum = inlineInfo->ilArgCount;
 #endif
     }
 
@@ -1294,12 +1292,11 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
         argNum++;
     }
 
-    assert(argNum == inlineInfo->argCnt);
+    assert(argNum == inlineInfo->ilArgCount);
 
-    // Init the types of the arguments and make sure the types
-    // from the trees match the types in the signature
+// Init the types of the arguments and make sure the types
+// from the trees match the types in the signature
 
-    InlLclVarInfo* lclVarInfo = inlineInfo->lclVarInfo;
 #ifdef FEATURE_SIMD
     bool foundSIMDType = inlineInfo->hasSIMDTypeArgLocalOrReturn;
 #endif
@@ -1353,8 +1350,8 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             }
         }
 
-        lclVarInfo[0].lclType        = paramType;
-        lclVarInfo[0].lclVerTypeInfo = paramTypeInfo;
+        argInfo[0].argType     = paramType;
+        argInfo[0].argTypeInfo = paramTypeInfo;
     }
 
     CORINFO_ARG_LIST_HANDLE paramHandle = argsSig.args;
@@ -1407,8 +1404,8 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             paramTypeInfo = typeInfo(JITtype2tiType(paramCorType));
         }
 
-        lclVarInfo[i].lclType        = paramType;
-        lclVarInfo[i].lclVerTypeInfo = paramTypeInfo;
+        argInfo[i].argType     = paramType;
+        argInfo[i].argTypeInfo = paramTypeInfo;
 
         // Does the tree type match the signature type?
 
@@ -1453,7 +1450,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
                 return false;
             }
 
-            lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
+            argInfo[i].argTypeInfo = typeInfo(TI_I_IMPL);
 
             continue;
         }
@@ -1478,7 +1475,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 
             assert(argNode->OperIs(GT_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
             argNode->SetType(TYP_I_IMPL);
-            lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
+            argInfo[i].argTypeInfo = typeInfo(TI_I_IMPL);
 
             continue;
         }
@@ -1499,7 +1496,7 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
 {
     assert(!argNode->IsRetExpr());
 
-    InlArgInfo& argInfo = inlineInfo->inlArgInfo[argNum];
+    InlArgInfo& argInfo = inlineInfo->ilArgInfo[argNum];
     argInfo.argNode     = argNode;
 
     JITDUMP("Argument %u%s ", argNum, argInfo.argIsThis ? " (this)" : "");
@@ -1590,9 +1587,11 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* inlineInfo)
     CORINFO_ARG_LIST_HANDLE localHandle   = localsSig.args;
     bool                    foundSIMDType = false;
 
+    inlineInfo->ilLocCount = localsSig.numArgs;
+
     for (unsigned i = 0; i < localsSig.numArgs; i++, localHandle = info.compCompHnd->getArgNext(localHandle))
     {
-        InlLclVarInfo&       lclInfo = inlineInfo->lclVarInfo[inlineInfo->argCnt + i];
+        InlLclVarInfo&       lclInfo = inlineInfo->ilLocInfo[i];
         CORINFO_CLASS_HANDLE lclClass;
         CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
         var_types            lclType    = JITtype2varType(strip(lclCorType));
@@ -1673,9 +1672,8 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* inlineInfo)
             lclTypeInfo = typeInfo(JITtype2tiType(strip(lclCorType)));
         }
 
-        lclInfo.lclType        = lclType;
-        lclInfo.lclVerTypeInfo = lclTypeInfo;
-        lclInfo.lclHasLdlocaOp = false;
+        lclInfo.lclType     = lclType;
+        lclInfo.lclTypeInfo = lclTypeInfo;
     }
 
 #ifdef FEATURE_SIMD
@@ -1689,15 +1687,17 @@ unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 {
     assert(compIsForInlining());
 
-    if (inlineInfo->lclTmpNum[ilLocNum] != BAD_VAR_NUM)
+    InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[ilLocNum];
+
+    if (lclInfo.lclIsUsed)
     {
-        return inlineInfo->lclTmpNum[ilLocNum];
+        return lclInfo.lclNum;
     }
 
-    const unsigned lclNum           = lvaGrabTemp(false DEBUGARG(reason));
-    inlineInfo->lclTmpNum[ilLocNum] = lclNum;
+    const unsigned lclNum = lvaGrabTemp(false DEBUGARG(reason));
 
-    const InlLclVarInfo& lclInfo = inlineInfo->lclVarInfo[impInlineInfo->argCnt + ilLocNum];
+    lclInfo.lclNum    = lclNum;
+    lclInfo.lclIsUsed = true;
 
     LclVarDsc* lcl = lvaGetDesc(lclNum);
 
@@ -1706,20 +1706,18 @@ unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
     lcl->lvHasILStoreOp         = lclInfo.lclHasStlocOp;
     lcl->lvHasMultipleILStoreOp = lclInfo.lclHasMultipleStlocOp;
 
-    const var_types lclType = lclInfo.lclType;
-
-    if (varTypeIsStruct(lclType))
+    if (varTypeIsStruct(lclInfo.lclType))
     {
-        lvaSetStruct(lclNum, lclInfo.lclVerTypeInfo.GetClassHandle(), /* unsafeValueClsCheck */ true);
+        lvaSetStruct(lclNum, lclInfo.lclTypeInfo.GetClassHandle(), /* unsafeValueClsCheck */ true);
     }
     else
     {
-        lcl->SetType(lclType);
+        lcl->SetType(lclInfo.lclType);
 
         // Copy over class handle for ref types. Note this may be a shared type, someday
         // perhaps we can get the exact signature and pass in a more precise type.
 
-        if (lclType == TYP_REF)
+        if (lclInfo.lclType == TYP_REF)
         {
             assert(lcl->lvSingleDef == 0);
 
@@ -1730,19 +1728,19 @@ unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
                 JITDUMP("Marked V%02u as a single def temp\n", lclNum);
             }
 
-            lvaSetClass(lclNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
+            lvaSetClass(lclNum, lclInfo.lclTypeInfo.GetClassHandleForObjRef());
         }
-        else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
+        else if (lclInfo.lclTypeInfo.IsType(TI_STRUCT))
         {
             // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
 
-            lcl->lvImpTypeInfo = lclInfo.lclVerTypeInfo;
+            lcl->lvImpTypeInfo = lclInfo.lclTypeInfo;
         }
     }
 
 #ifdef DEBUG
     // Sanity check that we're properly prepared for GC pointer locals.
-    if (varTypeIsGC(lclType))
+    if (varTypeIsGC(lclInfo.lclType))
     {
         // Since there are GC pointer locals we should have seen them earlier
         // and if there was a return value, set up the spill temp.
@@ -1761,8 +1759,8 @@ unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
 GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 {
-    InlArgInfo& argInfo = inlineInfo->inlArgInfo[ilArgNum];
-    var_types   argType = inlineInfo->lclVarInfo[ilArgNum].lclType;
+    InlArgInfo& argInfo = inlineInfo->ilArgInfo[ilArgNum];
+    var_types   argType = argInfo.argType;
     GenTree*    argNode = argInfo.argNode;
 
     assert(!argNode->IsRetExpr());
@@ -1857,11 +1855,9 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         tmpLcl->lvHasLdAddrOp = 1;
     }
 
-    const InlLclVarInfo& lclInfo = inlineInfo->lclVarInfo[ilArgNum];
-
     if (varTypeIsStruct(argType))
     {
-        lvaSetStruct(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
+        lvaSetStruct(tmpLclNum, argInfo.argTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
     }
     else
     {
@@ -1879,20 +1875,20 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
                 JITDUMP("Marked V%02u as a single def temp\n", tmpLclNum);
 
-                lvaSetClass(tmpLclNum, argInfo.argNode, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
+                lvaSetClass(tmpLclNum, argInfo.argNode, argInfo.argTypeInfo.GetClassHandleForObjRef());
             }
             else
             {
                 // Arg might be modified, use the declared type of the argument.
 
-                lvaSetClass(tmpLclNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
+                lvaSetClass(tmpLclNum, argInfo.argTypeInfo.GetClassHandleForObjRef());
             }
         }
-        else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
+        else if (argInfo.argTypeInfo.IsType(TI_STRUCT))
         {
             // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
 
-            tmpLcl->lvImpTypeInfo = lclInfo.lclVerTypeInfo;
+            tmpLcl->lvImpTypeInfo = argInfo.argTypeInfo;
         }
     }
 
@@ -2265,15 +2261,15 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
     JITDUMP("\nInit inlinee args:\n");
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 
-    if (inlineInfo->argCnt == 0)
+    if (inlineInfo->ilArgCount == 0)
     {
         JITDUMP("\tInlinee has no args.\n");
         return afterStmt;
     }
 
-    for (unsigned argNum = 0; argNum < inlineInfo->argCnt; argNum++)
+    for (unsigned argNum = 0; argNum < inlineInfo->ilArgCount; argNum++)
     {
-        const InlArgInfo& argInfo = inlineInfo->inlArgInfo[argNum];
+        const InlArgInfo& argInfo = inlineInfo->ilArgInfo[argNum];
         GenTree*          argNode = argInfo.argNode;
 
         assert(!argNode->IsRetExpr());
@@ -2325,7 +2321,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             // We're going to assign the argument value to the
             // temp we use for it in the inline body.
             const unsigned  tmpNum  = argInfo.argTmpNum;
-            const var_types argType = inlineInfo->lclVarInfo[argNum].lclType;
+            const var_types argType = inlineInfo->ilArgInfo[argNum].argType;
 
             // Create the temp assignment for this argument
 
@@ -2530,7 +2526,7 @@ Statement* Compiler::inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* aft
     JITDUMP("Init inlinee locals:\n");
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 
-    if (inlineInfo->inlineCandidateInfo->methInfo.locals.numArgs == 0)
+    if (inlineInfo->ilLocCount == 0)
     {
         JITDUMP("Inlinee has no locals.\n");
         return afterStmt;
@@ -2555,20 +2551,20 @@ Statement* Compiler::inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* aft
         return afterStmt;
     }
 
-    for (unsigned i = 0; i < inlineInfo->inlineCandidateInfo->methInfo.locals.numArgs; i++)
+    for (unsigned i = 0; i < inlineInfo->ilLocCount; i++)
     {
-        unsigned lclNum = inlineInfo->lclTmpNum[i];
+        const InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[i];
 
-        if (lclNum == BAD_VAR_NUM)
+        if (!lclInfo.lclIsUsed)
         {
             continue;
         }
 
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = lvaGetDesc(lclInfo.lclNum);
 
-        if (!fgVarNeedsExplicitZeroInit(lclNum, blockIsInLoop, blockIsReturn))
+        if (!fgVarNeedsExplicitZeroInit(lclInfo.lclNum, blockIsInLoop, blockIsReturn))
         {
-            JITDUMP("Suppressing zero-init for V%02u, expect to zero in inliner's prolog\n", lclNum);
+            JITDUMP("Suppressing zero-init for V%02u, expect to zero in inliner's prolog\n", lclInfo.lclNum);
             lcl->lvSuppressedZeroInit = 1;
             compSuppressedZeroInit    = true;
             continue;
@@ -2576,7 +2572,7 @@ Statement* Compiler::inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* aft
 
         var_types  lclType = lcl->GetType();
         GenTree*   zero    = varTypeIsStruct(lclType) ? gtNewIconNode(0) : gtNewZeroConNode(lclType);
-        GenTreeOp* asg     = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), zero);
+        GenTreeOp* asg     = gtNewAssignNode(gtNewLclvNode(lclInfo.lclNum, lclType), zero);
         Statement* stmt    = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
@@ -2612,31 +2608,25 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBloc
         return;
     }
 
-    const IL_OFFSETX ilOffset = inlineInfo->iciStmt->GetILOffsetX();
-    const unsigned   lclCount = InlineeCompiler->info.compMethodInfo->locals.numArgs;
-    const unsigned   argCount = inlineInfo->argCnt;
-
     INDEBUG(unsigned gcLclCount = 0;)
 
-    for (unsigned i = 0; i < lclCount; i++)
+    for (unsigned i = 0; i < inlineInfo->ilLocCount; i++)
     {
-        const var_types lclType = inlineInfo->lclVarInfo[argCount + i].lclType;
+        const InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[i];
 
-        if (!varTypeIsGC(lclType))
+        if (!varTypeIsGC(lclInfo.lclType))
         {
             continue;
         }
 
         assert(gcLclCount++ < inlineInfo->numberOfGcRefLocals);
 
-        const unsigned lclNum = inlineInfo->lclTmpNum[i];
-
-        if (lclNum == BAD_VAR_NUM)
+        if (!lclInfo.lclIsUsed)
         {
             continue;
         }
 
-        assert(lvaGetDesc(lclNum)->GetType() == lclType);
+        assert(lvaGetDesc(lclInfo.lclNum)->GetType() == lclInfo.lclType);
 
         if (inlineInfo->retExpr != nullptr)
         {
@@ -2644,24 +2634,25 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBloc
             // expression? If so we somehow messed up and didn't properly
             // spill the return value. See inlFetchInlineeLocal.
 
-            noway_assert(!gtHasRef(inlineInfo->retExpr, lclNum));
+            noway_assert(!gtHasRef(inlineInfo->retExpr, lclInfo.lclNum));
         }
 
-        GenTreeOp* nullAsg  = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), gtNewZeroConNode(lclType));
-        Statement* nullStmt = gtNewStmt(nullAsg, ilOffset);
+        GenTree*   zero = gtNewZeroConNode(lclInfo.lclType);
+        GenTree*   asg  = gtNewAssignNode(gtNewLclvNode(lclInfo.lclNum, lclInfo.lclType), zero);
+        Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
 
-        DBEXEC(verbose, gtDispStmt(nullStmt));
+        DBEXEC(verbose, gtDispStmt(stmt));
 
         if (stmtAfter == nullptr)
         {
-            fgInsertStmtAtBeg(block, nullStmt);
+            fgInsertStmtAtBeg(block, stmt);
         }
         else
         {
-            fgInsertStmtAfter(block, stmtAfter, nullStmt);
+            fgInsertStmtAfter(block, stmtAfter, stmt);
         }
 
-        stmtAfter = nullStmt;
+        stmtAfter = stmt;
     }
 
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");

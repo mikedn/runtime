@@ -7708,7 +7708,7 @@ DONE:
 
         if ((call->AsCall()->IsVirtual() || (call->gtFlags & GTF_CALL_NULLCHECK)) &&
             impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->AsCall()->gtCallArgs, callObj,
-                                                               impInlineInfo->inlArgInfo))
+                                                               impInlineInfo->ilArgInfo))
         {
             impInlineInfo->thisDereferencedFirst = true;
         }
@@ -12310,7 +12310,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         {
                             if (compIsForInlining() &&
                                 impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj,
-                                                                                   impInlineInfo->inlArgInfo))
+                                                                                   impInlineInfo->ilArgInfo))
                             {
                                 impInlineInfo->thisDereferencedFirst = true;
                             }
@@ -12610,7 +12610,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         if (compIsForInlining() &&
                             impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj,
-                                                                               impInlineInfo->inlArgInfo))
+                                                                               impInlineInfo->ilArgInfo))
                         {
                             impInlineInfo->thisDereferencedFirst = true;
                         }
@@ -13859,7 +13859,7 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
             return;
         }
 
-        impPushOnStack(inlFetchInlineeArg(impInlineInfo, ilArgNum), impInlineInfo->lclVarInfo[ilArgNum].lclVerTypeInfo);
+        impPushOnStack(inlFetchInlineeArg(impInlineInfo, ilArgNum), impInlineInfo->ilArgInfo[ilArgNum].argTypeInfo);
     }
     else
     {

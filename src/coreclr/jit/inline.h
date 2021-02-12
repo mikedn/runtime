@@ -557,30 +557,36 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
 
 struct InlArgInfo
 {
-    GenTree* argNode;            // caller node for this argument
-    GenTree* argSingleUse;       // the single use of this argument, if any
-    unsigned argTmpNum;          // the argument tmp number
-    unsigned argIsUsed : 1;      // is this arg used at all?
-    unsigned argIsInvariant : 1; // the argument is a constant or a local variable address
-    unsigned argIsLclVar : 1;    // the argument is a local variable
-    unsigned argIsThis : 1;      // the argument is the 'this' pointer
-    unsigned argHasSideEff : 1;  // the argument has side effects
-    unsigned argHasGlobRef : 1;  // the argument has a global ref
-    unsigned argHasTmp : 1;      // the argument will be evaluated to a temp
-    unsigned argHasLdargaOp : 1; // Is there LDARGA(s) operation on this argument?
-    unsigned argHasStargOp : 1;  // Is there STARG(s) operation on this argument?
+    GenTree*  argNode;      // caller node for this argument
+    GenTree*  argSingleUse; // the single use of this argument, if any
+    typeInfo  argTypeInfo;
+    unsigned  argTmpNum; // the argument tmp number
+    var_types argType;
+
+    bool argIsUsed : 1;      // is this arg used at all?
+    bool argIsInvariant : 1; // the argument is a constant or a local variable address
+    bool argIsLclVar : 1;    // the argument is a local variable
+    bool argIsThis : 1;      // the argument is the 'this' pointer
+    bool argHasSideEff : 1;  // the argument has side effects
+    bool argHasGlobRef : 1;  // the argument has a global ref
+    bool argHasTmp : 1;      // the argument will be evaluated to a temp
+    bool argHasLdargaOp : 1; // Is there LDARGA(s) operation on this argument?
+    bool argHasStargOp : 1;  // Is there STARG(s) operation on this argument?
 };
 
 // InlLclVarInfo describes inline candidate argument and local variable properties.
 
 struct InlLclVarInfo
 {
-    typeInfo  lclVerTypeInfo;
+    typeInfo  lclTypeInfo;
+    unsigned  lclNum;
     var_types lclType;
-    unsigned  lclHasLdlocaOp : 1;        // Is there LDLOCA(s) operation on this local?
-    unsigned  lclHasStlocOp : 1;         // Is there a STLOC on this local?
-    unsigned  lclHasMultipleStlocOp : 1; // Is there more than one STLOC on this local
-    unsigned  lclIsPinned : 1;
+
+    bool lclIsUsed : 1;
+    bool lclHasLdlocaOp : 1;        // Is there LDLOCA(s) operation on this local?
+    bool lclHasStlocOp : 1;         // Is there a STLOC on this local?
+    bool lclHasMultipleStlocOp : 1; // Is there more than one STLOC on this local
+    bool lclIsPinned : 1;
 };
 
 // InlineInfo provides detailed information about a particular inline candidate.
@@ -603,10 +609,10 @@ struct InlineInfo
     CORINFO_CONTEXT_HANDLE tokenLookupContextHandle; // The context handle that will be passed to
                                                      // impTokenLookupContextHandle in Inlinee's Compiler.
 
-    unsigned      argCnt;
-    InlArgInfo    inlArgInfo[MAX_INL_ARGS + 1];
-    int           lclTmpNum[MAX_INL_LCLS];                     // map local# -> temp# (-1 if unused)
-    InlLclVarInfo lclVarInfo[MAX_INL_LCLS + MAX_INL_ARGS + 1]; // type information from local sig
+    unsigned      ilArgCount;
+    unsigned      ilLocCount;
+    InlArgInfo    ilArgInfo[MAX_INL_ARGS];
+    InlLclVarInfo ilLocInfo[MAX_INL_LCLS];
 
     unsigned numberOfGcRefLocals; // Number of TYP_REF and TYP_BYREF locals
 
