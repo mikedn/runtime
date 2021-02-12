@@ -1279,8 +1279,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 
         if (argNum == typeCtxtArgNum)
         {
-            inlineInfo->typeContextArg = typeCtxtArgNum;
-            typeCtxtArgNum             = UINT32_MAX;
+            typeCtxtArgNum = UINT32_MAX;
             continue;
         }
 

@@ -621,12 +621,10 @@ struct InlineInfo
         return numberOfGcRefLocals > 0;
     }
 
-    bool     thisDereferencedFirst;
-    unsigned typeContextArg;
-
+    bool thisDereferencedFirst;
 #ifdef FEATURE_SIMD
     bool hasSIMDTypeArgLocalOrReturn;
-#endif // FEATURE_SIMD
+#endif
 
     GenTreeCall* iciCall;  // The GT_CALL node to be inlined.
     Statement*   iciStmt;  // The statement iciCall is in.
