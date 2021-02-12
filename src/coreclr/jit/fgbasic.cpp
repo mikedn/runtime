@@ -1081,7 +1081,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                 {
                     if (varNum < impInlineInfo->ilArgCount)
                     {
-                        impInlineInfo->ilArgInfo[varNum].argHasStargOp = true;
+                        impInlineInfo->ilArgInfo[varNum].paramHasStores = true;
                     }
                 }
                 else
@@ -1186,10 +1186,10 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     {
                         noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
 
-                        lclType = impInlineInfo->ilArgInfo[varNum].argType;
-                        ti      = impInlineInfo->ilArgInfo[varNum].argTypeInfo;
+                        lclType = impInlineInfo->ilArgInfo[varNum].paramType;
+                        ti      = impInlineInfo->ilArgInfo[varNum].paramTypeInfo;
 
-                        impInlineInfo->ilArgInfo[varNum].argHasLdargaOp = true;
+                        impInlineInfo->ilArgInfo[varNum].paramIsAddressTaken = true;
 
                         pushedStack.PushArgument(varNum);
                     }

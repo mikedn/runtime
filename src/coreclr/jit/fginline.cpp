@@ -1249,7 +1249,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 
     if (thisArg != nullptr)
     {
-        argInfo[0].argIsThis = true;
+        argInfo[0].paramIsThis = true;
 
         if (!inlRecordInlineeArg(inlineInfo, thisArg->GetNode(), argNum))
         {
@@ -1349,8 +1349,8 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             }
         }
 
-        argInfo[0].argType     = paramType;
-        argInfo[0].argTypeInfo = paramTypeInfo;
+        argInfo[0].paramType     = paramType;
+        argInfo[0].paramTypeInfo = paramTypeInfo;
     }
 
     CORINFO_ARG_LIST_HANDLE paramHandle = argsSig.args;
@@ -1403,8 +1403,8 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             paramTypeInfo = typeInfo(JITtype2tiType(paramCorType));
         }
 
-        argInfo[i].argType     = paramType;
-        argInfo[i].argTypeInfo = paramTypeInfo;
+        argInfo[i].paramType     = paramType;
+        argInfo[i].paramTypeInfo = paramTypeInfo;
 
         // Does the tree type match the signature type?
 
@@ -1449,7 +1449,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
                 return false;
             }
 
-            argInfo[i].argTypeInfo = typeInfo(TI_I_IMPL);
+            argInfo[i].paramTypeInfo = typeInfo(TI_I_IMPL);
 
             continue;
         }
@@ -1474,7 +1474,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
 
             assert(argNode->OperIs(GT_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
             argNode->SetType(TYP_I_IMPL);
-            argInfo[i].argTypeInfo = typeInfo(TI_I_IMPL);
+            argInfo[i].paramTypeInfo = typeInfo(TI_I_IMPL);
 
             continue;
         }
@@ -1498,7 +1498,7 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
     InlArgInfo& argInfo = inlineInfo->ilArgInfo[argNum];
     argInfo.argNode     = argNode;
 
-    JITDUMP("Argument %u%s ", argNum, argInfo.argIsThis ? " (this)" : "");
+    JITDUMP("Argument %u%s ", argNum, argInfo.paramIsThis ? " (this)" : "");
 
     if (argNode->OperIs(GT_MKREFANY))
     {
@@ -1506,7 +1506,7 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         return false;
     }
 
-    if (argInfo.argIsThis && argNode->IsIntegralConst(0))
+    if (argInfo.paramIsThis && argNode->IsIntegralConst(0))
     {
         inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_HAS_NULL_THIS);
         return false;
@@ -1759,12 +1759,12 @@ unsigned Compiler::inlFetchInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 {
     InlArgInfo& argInfo = inlineInfo->ilArgInfo[ilArgNum];
-    var_types   argType = argInfo.argType;
+    var_types   argType = argInfo.paramType;
     GenTree*    argNode = argInfo.argNode;
 
     assert(!argNode->IsRetExpr());
 
-    if (argInfo.argIsInvariant && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
+    if (argInfo.argIsInvariant && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
     {
         // Directly substitute constants or addresses of locals
         //
@@ -1775,7 +1775,7 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         // further references to the argument working off of the
         // bashed copy.
 
-        argInfo.argTmpNum = BAD_VAR_NUM;
+        argInfo.paramLclNum = BAD_VAR_NUM;
 
         argNode = gtCloneExpr(argNode);
 
@@ -1794,7 +1794,7 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         return argNode;
     }
 
-    if (argInfo.argIsLclVar && !argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
+    if (argInfo.argIsLclVar && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
     {
         assert(!argInfo.argHasGlobRef);
 
@@ -1802,7 +1802,7 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         //
         // Use the caller-supplied node if this is the first use.
 
-        argInfo.argTmpNum = argNode->AsLclVar()->GetLclNum();
+        argInfo.paramLclNum = argNode->AsLclVar()->GetLclNum();
 
         // Use an equivalent copy if this is the second or subsequent
         // use, or if we need to retype.
@@ -1810,53 +1810,53 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         // Note argument type mismatches that prevent inlining should
         // have been caught in inlRecordInlineeArgsAndLocals.
 
-        if (argInfo.argIsUsed || (argNode->GetType() != argType))
+        if (argInfo.paramIsUsed || (argNode->GetType() != argType))
         {
-            if (!lvaGetDesc(argInfo.argTmpNum)->lvNormalizeOnLoad())
+            if (!lvaGetDesc(argInfo.paramLclNum)->lvNormalizeOnLoad())
             {
                 argType = varActualType(argType);
             }
 
-            argNode = gtNewLclvNode(argInfo.argTmpNum, argType);
+            argNode = gtNewLclvNode(argInfo.paramLclNum, argType);
         }
 
-        argInfo.argIsUsed = true;
+        argInfo.paramIsUsed = true;
 
         return argNode;
     }
 
-    if (argInfo.argHasTmp)
+    if (argInfo.paramHasLcl)
     {
         // We already allocated a temp for this argument, use it.
 
-        assert(argInfo.argIsUsed);
-        assert(argInfo.argTmpNum < lvaCount);
+        assert(argInfo.paramIsUsed);
+        assert(argInfo.paramLclNum < lvaCount);
 
-        argNode = gtNewLclvNode(argInfo.argTmpNum, varActualType(argType));
+        argNode = gtNewLclvNode(argInfo.paramLclNum, varActualType(argType));
 
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
-        argInfo.argSingleUse = nullptr;
+        argInfo.paramSingleUse = nullptr;
 
         return argNode;
     }
 
-    assert(!argInfo.argIsUsed);
-    argInfo.argIsUsed = true;
+    assert(!argInfo.paramIsUsed);
+    argInfo.paramIsUsed = true;
 
     // Argument is a complex expression - it must be evaluated into a temp.
 
     unsigned   tmpLclNum = lvaGrabTemp(true DEBUGARG("inlinee arg"));
     LclVarDsc* tmpLcl    = lvaGetDesc(tmpLclNum);
 
-    if (argInfo.argHasLdargaOp)
+    if (argInfo.paramIsAddressTaken)
     {
         tmpLcl->lvHasLdAddrOp = 1;
     }
 
     if (varTypeIsStruct(argType))
     {
-        lvaSetStruct(tmpLclNum, argInfo.argTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
+        lvaSetStruct(tmpLclNum, argInfo.paramTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
     }
     else
     {
@@ -1864,7 +1864,7 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
         if (argType == TYP_REF)
         {
-            if (!argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
+            if (!argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
             {
                 // If the arg can't be modified in the method body, use the type of the value,
                 // if known. Otherwise, use the declared type.
@@ -1874,25 +1874,25 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
                 JITDUMP("Marked V%02u as a single def temp\n", tmpLclNum);
 
-                lvaSetClass(tmpLclNum, argInfo.argNode, argInfo.argTypeInfo.GetClassHandleForObjRef());
+                lvaSetClass(tmpLclNum, argInfo.argNode, argInfo.paramTypeInfo.GetClassHandleForObjRef());
             }
             else
             {
                 // Arg might be modified, use the declared type of the argument.
 
-                lvaSetClass(tmpLclNum, argInfo.argTypeInfo.GetClassHandleForObjRef());
+                lvaSetClass(tmpLclNum, argInfo.paramTypeInfo.GetClassHandleForObjRef());
             }
         }
-        else if (argInfo.argTypeInfo.IsType(TI_STRUCT))
+        else if (argInfo.paramTypeInfo.IsType(TI_STRUCT))
         {
             // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
 
-            tmpLcl->lvImpTypeInfo = argInfo.argTypeInfo;
+            tmpLcl->lvImpTypeInfo = argInfo.paramTypeInfo;
         }
     }
 
-    argInfo.argHasTmp = true;
-    argInfo.argTmpNum = tmpLclNum;
+    argInfo.paramHasLcl = true;
+    argInfo.paramLclNum = tmpLclNum;
 
     // If we require strict exception order, then arguments must
     // be evaluated in sequence before the body of the inlined method.
@@ -1920,7 +1920,7 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         // able to use the actual arg node instead of the temp.
         // If we do see any further uses, we will clear this.
 
-        argInfo.argSingleUse = argNode;
+        argInfo.paramSingleUse = argNode;
     }
 
     return argNode;
@@ -2276,9 +2276,9 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
         // MKREFANY args currently fail inlining.
         assert(!argNode->OperIs(GT_MKREFANY));
 
-        if (argInfo.argHasTmp)
+        if (argInfo.paramHasLcl)
         {
-            noway_assert(argInfo.argIsUsed);
+            noway_assert(argInfo.paramIsUsed);
 
             // argSingleUse is non-NULL iff the argument's value was
             // referenced exactly once by the original IL. This offers an
@@ -2291,10 +2291,10 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             // be set (because the value was only explicitly retrieved
             // once) but the optimization cannot be applied.
 
-            GenTree* argSingleUseNode = argInfo.argSingleUse;
+            GenTree* argSingleUseNode = argInfo.paramSingleUse;
 
             if ((argSingleUseNode != nullptr) && ((argSingleUseNode->gtFlags & GTF_VAR_CLONED) == 0) &&
-                !argInfo.argHasLdargaOp && !argInfo.argHasStargOp)
+                !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
             {
                 // Change the temp in-place to the actual argument.
 
@@ -2319,8 +2319,8 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
 
             // We're going to assign the argument value to the
             // temp we use for it in the inline body.
-            const unsigned  tmpNum  = argInfo.argTmpNum;
-            const var_types argType = inlineInfo->ilArgInfo[argNum].argType;
+            const unsigned  tmpNum  = argInfo.paramLclNum;
+            const var_types argType = inlineInfo->ilArgInfo[argNum].paramType;
 
             // Create the temp assignment for this argument
 
@@ -2404,12 +2404,12 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
         if (argInfo.argIsInvariant || argInfo.argIsLclVar)
         {
             assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR));
-            assert(!argInfo.argHasLdargaOp && !argInfo.argHasStargOp && !argInfo.argHasGlobRef);
+            assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
             continue;
         }
 
-        noway_assert(!argInfo.argIsUsed);
+        noway_assert(!argInfo.paramIsUsed);
 
         if (argInfo.argHasSideEff)
         {

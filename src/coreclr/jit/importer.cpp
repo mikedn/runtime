@@ -13856,7 +13856,7 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
             return;
         }
 
-        impPushOnStack(inlFetchInlineeArg(impInlineInfo, ilArgNum), impInlineInfo->ilArgInfo[ilArgNum].argTypeInfo);
+        impPushOnStack(inlFetchInlineeArg(impInlineInfo, ilArgNum), impInlineInfo->ilArgInfo[ilArgNum].paramTypeInfo);
     }
     else
     {
@@ -15269,7 +15269,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
 bool Compiler::impInlineIsThis(GenTree* tree)
 {
     assert(compIsForInlining());
-    return tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLclNum() == impInlineInfo->ilArgInfo[0].argTmpNum);
+    return tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLclNum() == impInlineInfo->ilArgInfo[0].paramLclNum);
 }
 
 //-----------------------------------------------------------------------------

@@ -557,21 +557,21 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
 
 struct InlArgInfo
 {
-    GenTree*  argNode;      // caller node for this argument
-    GenTree*  argSingleUse; // the single use of this argument, if any
-    typeInfo  argTypeInfo;
-    unsigned  argTmpNum; // the argument tmp number
-    var_types argType;
+    GenTree*  argNode;
+    GenTree*  paramSingleUse;
+    typeInfo  paramTypeInfo;
+    unsigned  paramLclNum;
+    var_types paramType;
 
-    bool argIsUsed : 1;      // is this arg used at all?
-    bool argIsInvariant : 1; // the argument is a constant or a local variable address
-    bool argIsLclVar : 1;    // the argument is a local variable
-    bool argIsThis : 1;      // the argument is the 'this' pointer
-    bool argHasSideEff : 1;  // the argument has side effects
-    bool argHasGlobRef : 1;  // the argument has a global ref
-    bool argHasTmp : 1;      // the argument will be evaluated to a temp
-    bool argHasLdargaOp : 1; // Is there LDARGA(s) operation on this argument?
-    bool argHasStargOp : 1;  // Is there STARG(s) operation on this argument?
+    bool argIsInvariant : 1;
+    bool argIsLclVar : 1;
+    bool argHasSideEff : 1;
+    bool argHasGlobRef : 1;
+    bool paramIsUsed : 1;
+    bool paramIsThis : 1;
+    bool paramHasLcl : 1;
+    bool paramIsAddressTaken : 1;
+    bool paramHasStores : 1;
 };
 
 // InlLclVarInfo describes inline candidate argument and local variable properties.
