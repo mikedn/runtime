@@ -10379,6 +10379,10 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum,
         {
             sprintf_s(buf, bufLength, "this");
         }
+        else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (arg == call->gtCallArgs->GetNode()))
+        {
+            sprintf_s(buf, bufLength, "retbuf");
+        }
         else
         {
             sprintf_s(buf, bufLength, "arg%d", argNum);
@@ -10395,6 +10399,12 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
     if (argInfo->use == call->gtCallThisArg)
     {
         int len = sprintf_s(buf, bufLength, "this");
+        buf += len;
+        bufLength -= len;
+    }
+    else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (argInfo->use == call->gtCallArgs))
+    {
+        int len = sprintf_s(buf, bufLength, "retbuf");
         buf += len;
         bufLength -= len;
     }
