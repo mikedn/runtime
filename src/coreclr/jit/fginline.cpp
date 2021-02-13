@@ -1169,7 +1169,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
         // TODO-MIKE-Review: retBB is used to get the flags so we're basically keeping
         // only the flags of the last inlinee basic block. Is that correct?
 
-        inlineInfo->retBB = compCurBB;
+        inlineInfo->retBlockIRSummary = compCurBB->bbFlags & BBF_IR_SUMMARY;
     }
 
     return true;
@@ -1973,7 +1973,7 @@ void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
         noway_assert(inlineInfo->retExpr != nullptr);
         JITDUMPTREE(inlineInfo->retExpr, "Return expression is:\n", call->GetID());
 
-        call->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(inlineInfo->retExpr, inlineInfo->retBB->bbFlags);
+        call->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(inlineInfo->retExpr, inlineInfo->retBlockIRSummary);
     }
 }
 
