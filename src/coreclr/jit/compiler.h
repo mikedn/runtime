@@ -3422,7 +3422,7 @@ private:
     void impPushPendingBlock(BasicBlock* block);
     BasicBlock* impPopPendingBlock();
 
-    var_types impGetByRefResultType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
+    var_types impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
 
     void impImportBlock(BasicBlock* block);
     bool impSpillStackAtBlockEnd(BasicBlock* block);

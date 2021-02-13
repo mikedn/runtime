@@ -246,9 +246,15 @@ inline bool varTypeIsIntOrI(T vt)
 }
 
 template <class T>
-inline bool genActualTypeIsIntOrI(T vt)
+inline bool varActualTypeIsIntOrI(T vt)
 {
     return ((TypeGet(vt) >= TYP_BOOL) && (TypeGet(vt) <= TYP_U_IMPL));
+}
+
+template <class T>
+inline bool genActualTypeIsIntOrI(T vt)
+{
+    return varActualTypeIsIntOrI(vt);
 }
 
 template <class T>
