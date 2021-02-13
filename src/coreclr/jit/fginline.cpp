@@ -1162,14 +1162,16 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
         JITDUMPTREE(retExpr, "Inliner return expression:\n");
 
         inlineInfo->retExpr = retExpr;
-    }
 
-    if (inlineInfo->retExpr != nullptr)
-    {
-        // TODO-MIKE-Review: retBB is used to get the flags so we're basically keeping
-        // only the flags of the last inlinee basic block. Is that correct?
+        // If the inlinee has multiple blocks but a single return block then we'll insert
+        // the inlinee blocks in the inliner and move the return expression to an existing
+        // inliner block. The return expression may contain nodes such as INDEX so the
+        // inliner block needs to "inherit" the IR summary from inlinee's return block.
 
-        inlineInfo->retBlockIRSummary = compCurBB->bbFlags & BBF_IR_SUMMARY;
+        if ((inlineInfo->retSpillTempLclNum == BAD_VAR_NUM) && (fgFirstBB->bbNext != nullptr))
+        {
+            inlineInfo->retBlockIRSummary = compCurBB->bbFlags & BBF_IR_SUMMARY;
+        }
     }
 
     return true;
@@ -2007,7 +2009,7 @@ Statement* Compiler::inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInf
     uint64_t inlineeBlockFlags = inlineeBlock->bbFlags;
     noway_assert((inlineeBlockFlags & BBF_HAS_JMP) == 0);
     noway_assert((inlineeBlockFlags & BBF_KEEP_BBJ_ALWAYS) == 0);
-    // TODO: we may want to exclude other flags here.
+    // TODO-MIKE-Fix: This should only add BBF_IR_SUMMARY flags.
     block->bbFlags |= (inlineeBlockFlags & ~BBF_RUN_RARELY);
 
     return stmtAfter;
