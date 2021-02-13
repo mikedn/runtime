@@ -9591,7 +9591,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
         CORINFO_CLASS_HANDLE clsHnd = DUMMY_INIT(NULL);
 
-        var_types lclTyp, ovflType = TYP_UNKNOWN;
+        var_types lclTyp        = TYP_UNKNOWN;
         GenTree*  op1           = DUMMY_INIT(NULL);
         GenTree*  op2           = DUMMY_INIT(NULL);
         GenTree*  newObjThisPtr = DUMMY_INIT(NULL);
@@ -10687,25 +10687,27 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewOperNode(oper, type, op1, op2);
                 }
 
-                /* Special case: integer/long division may throw an exception */
-
-                if (varTypeIsIntegral(op1->TypeGet()) && op1->OperMayThrow(this))
-                {
-                    op1->gtFlags |= GTF_EXCEPT;
-                }
-
                 if (ovfl)
                 {
-                    assert(oper == GT_ADD || oper == GT_SUB || oper == GT_MUL);
-                    if (ovflType != TYP_UNKNOWN)
-                    {
-                        op1->gtType = ovflType;
-                    }
+                    assert(op1->OperIs(GT_ADD, GT_SUB, GT_MUL));
+
                     op1->gtFlags |= (GTF_EXCEPT | GTF_OVERFLOW);
+
                     if (uns)
                     {
                         op1->gtFlags |= GTF_UNSIGNED;
                     }
+                }
+                else if (varTypeIsIntegral(op1->GetType()) && op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
+                {
+                    if (op1->OperMayThrow(this))
+                    {
+                        op1->gtFlags |= GTF_EXCEPT;
+                    }
+                }
+                else
+                {
+                    assert(!op1->OperMayThrow(this));
                 }
 
                 impPushOnStack(op1, typeInfo());
