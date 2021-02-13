@@ -8987,7 +8987,10 @@ var_types Compiler::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
     if (op1->TypeIs(TYP_LONG) || op2->TypeIs(TYP_LONG))
     {
 #ifndef TARGET_64BIT
-        assert(op1->GetType() == op2->GetType());
+        // TODO-MIKE-Cleanup: Both operands should be LONG but
+        // JIT\Methodical\Boxing\morph\sin3double\sin3double.cmd
+        // contains invalid IL - it adds native int and int64.
+        assert(varTypeIsIntegral(op1->GetType()) && varTypeIsIntegral(op2->GetType()));
 #else
         // int32 + native int = native int
         // native int + int32 = native int
