@@ -8878,156 +8878,163 @@ static void impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* code
     }
 }
 
-/*****************************************************************************
- *  Determine the result type of an arithemetic operation
- *  On 64-bit inserts upcasts when native int is mixed with int32
- */
-var_types Compiler::impGetByRefResultType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2)
+var_types Compiler::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2)
 {
-    var_types type = TYP_UNDEF;
-    GenTree*  op1  = *pOp1;
-    GenTree*  op2  = *pOp2;
+    GenTree* op1 = *pOp1;
+    GenTree* op2 = *pOp2;
 
-    // Arithemetic operations are generally only allowed with
-    // primitive types, but certain operations are allowed
-    // with byrefs
-
-    if ((oper == GT_SUB) && (genActualType(op1->TypeGet()) == TYP_BYREF || genActualType(op2->TypeGet()) == TYP_BYREF))
-    {
-        if ((genActualType(op1->TypeGet()) == TYP_BYREF) && (genActualType(op2->TypeGet()) == TYP_BYREF))
-        {
-            // byref1-byref2 => gives a native int
-            type = TYP_I_IMPL;
-        }
-        else if (genActualTypeIsIntOrI(op1->TypeGet()) && (genActualType(op2->TypeGet()) == TYP_BYREF))
-        {
-            // [native] int - byref => gives a native int
-
-            //
-            // The reason is that it is possible, in managed C++,
-            // to have a tree like this:
-            //
-            //              -
-            //             / \.
-            //            /   \.
-            //           /     \.
-            //          /       \.
-            // const(h) int     addr byref
-            //
-            // <BUGNUM> VSW 318822 </BUGNUM>
-            //
-            // So here we decide to make the resulting type to be a native int.
-            CLANG_FORMAT_COMMENT_ANCHOR;
+    impBashVarAddrsToI(op1, op2);
 
 #ifdef TARGET_64BIT
-            if (genActualType(op1->TypeGet()) != TYP_I_IMPL)
-            {
-                // insert an explicit upcast
-                op1 = *pOp1 = gtNewCastNode(TYP_I_IMPL, op1, fUnsigned, fUnsigned ? TYP_U_IMPL : TYP_I_IMPL);
-            }
-#endif // TARGET_64BIT
+    auto WidenToNativeInt = [this](GenTree* op, bool fromUnsigned) -> GenTree* {
+        if (GenTreeIntCon* con = op->IsIntCon())
+        {
+            // There are no IL instructions that load a native int constant so the C# compiler
+            // emits ldc.i4 and takes advantage of the implicit int32 - native int widening.
 
-            type = TYP_I_IMPL;
+            assert(con->TypeIs(TYP_INT));
+            con->SetType(TYP_LONG);
+
+            if (fromUnsigned)
+            {
+                con->SetValue(con->GetUInt32Value());
+            }
+            else
+            {
+                con->SetValue(con->GetInt32Value());
+            }
+
+            return con;
         }
         else
         {
-            // byref - [native] int => gives a byref
-            assert(genActualType(op1->TypeGet()) == TYP_BYREF && genActualTypeIsIntOrI(op2->TypeGet()));
+            assert(varTypeIsIntegralOrI(op->GetType()));
 
-#ifdef TARGET_64BIT
-            if ((genActualType(op2->TypeGet()) != TYP_I_IMPL))
+            return gtNewCastNode(TYP_LONG, op, fromUnsigned, TYP_LONG);
+        }
+    };
+#endif
+
+    assert(!op1->TypeIs(TYP_REF) && !op2->TypeIs(TYP_REF));
+
+    if (op1->TypeIs(TYP_BYREF) || op2->TypeIs(TYP_BYREF))
+    {
+        if (oper == GT_SUB)
+        {
+            if (op1->TypeIs(TYP_BYREF) && op2->TypeIs(TYP_BYREF))
             {
-                // insert an explicit upcast
-                op2 = *pOp2 = gtNewCastNode(TYP_I_IMPL, op2, fUnsigned, fUnsigned ? TYP_U_IMPL : TYP_I_IMPL);
+                // byref - byref = native int
+
+                return TYP_I_IMPL;
             }
-#endif // TARGET_64BIT
 
-            type = TYP_BYREF;
-        }
-    }
-    else if ((oper == GT_ADD) &&
-             (genActualType(op1->TypeGet()) == TYP_BYREF || genActualType(op2->TypeGet()) == TYP_BYREF))
-    {
-        // byref + [native] int => gives a byref
-        // (or)
-        // [native] int + byref => gives a byref
-
-        // only one can be a byref : byref op byref not allowed
-        assert(genActualType(op1->TypeGet()) != TYP_BYREF || genActualType(op2->TypeGet()) != TYP_BYREF);
-        assert(genActualTypeIsIntOrI(op1->TypeGet()) || genActualTypeIsIntOrI(op2->TypeGet()));
-
-#ifdef TARGET_64BIT
-        if (genActualType(op2->TypeGet()) == TYP_BYREF)
-        {
-            if (genActualType(op1->TypeGet()) != TYP_I_IMPL)
+            if (varActualTypeIsIntOrI(op1->GetType()) && op2->TypeIs(TYP_BYREF))
             {
-                // insert an explicit upcast
-                op1 = *pOp1 = gtNewCastNode(TYP_I_IMPL, op1, fUnsigned, fUnsigned ? TYP_U_IMPL : TYP_I_IMPL);
+#ifdef TARGET_64BIT
+                if (!op1->TypeIs(TYP_LONG))
+                {
+                    *pOp1 = WidenToNativeInt(op1, fUnsigned);
+                }
+#endif
+
+                // [native] int - byref = native int.
+                // This isn't valid but apparently VC++ produced such IL.
+
+                return TYP_I_IMPL;
+            }
+
+            // byref - [native] int = byref
+
+            assert(op1->TypeIs(TYP_BYREF) && varActualTypeIsIntOrI(op2->GetType()));
+
+#ifdef TARGET_64BIT
+            if (!op2->TypeIs(TYP_LONG))
+            {
+                *pOp2 = WidenToNativeInt(op2, fUnsigned);
+            }
+#endif
+
+            return TYP_BYREF;
+        }
+
+        // byref + [native] int = byref
+        // [native] int + byref = byref
+
+        assert(oper == GT_ADD);
+        assert(!op1->TypeIs(TYP_BYREF) || !op2->TypeIs(TYP_BYREF));
+        assert(varActualTypeIsIntOrI(op1->GetType()) || varActualTypeIsIntOrI(op2->GetType()));
+
+#ifdef TARGET_64BIT
+        if (op2->TypeIs(TYP_BYREF))
+        {
+            if (!op1->TypeIs(TYP_LONG))
+            {
+                *pOp1 = WidenToNativeInt(op1, fUnsigned);
             }
         }
-        else if (genActualType(op2->TypeGet()) != TYP_I_IMPL)
+        else
         {
-            // insert an explicit upcast
-            op2 = *pOp2 = gtNewCastNode(TYP_I_IMPL, op2, fUnsigned, fUnsigned ? TYP_U_IMPL : TYP_I_IMPL);
+            if (!op2->TypeIs(TYP_LONG))
+            {
+                *pOp2 = WidenToNativeInt(op2, fUnsigned);
+            }
         }
-#endif // TARGET_64BIT
+#endif
 
-        type = TYP_BYREF;
+        return TYP_BYREF;
     }
-#ifdef TARGET_64BIT
-    else if (genActualType(op1->TypeGet()) == TYP_I_IMPL || genActualType(op2->TypeGet()) == TYP_I_IMPL)
+
+    if (op1->TypeIs(TYP_LONG) || op2->TypeIs(TYP_LONG))
     {
-        assert(!varTypeIsFloating(op1->gtType) && !varTypeIsFloating(op2->gtType));
+#ifndef TARGET_64BIT
+        // TODO-MIKE-Cleanup: Both operands should be LONG but
+        // JIT\Methodical\Boxing\morph\sin3double\sin3double.cmd
+        // contains invalid IL - it adds native int and int64.
+        assert(varTypeIsIntegral(op1->GetType()) && varTypeIsIntegral(op2->GetType()));
+#else
+        // int32 + native int = native int
+        // native int + int32 = native int
+        // On 64 bit targets the JIT doesn't distinguish between native int and int64
+        // so this is extended to int32 + int64 = int64 which is invalid in ECMA-335.
 
-        // int + long => gives long
-        // long + int => gives long
-        // we get this because in the IL the long isn't Int64, it's just IntPtr
-
-        if (genActualType(op1->TypeGet()) != TYP_I_IMPL)
+        if (!op1->TypeIs(TYP_LONG))
         {
-            // insert an explicit upcast
-            op1 = *pOp1 = gtNewCastNode(TYP_I_IMPL, op1, fUnsigned, fUnsigned ? TYP_U_IMPL : TYP_I_IMPL);
+            *pOp1 = WidenToNativeInt(op1, fUnsigned);
         }
-        else if (genActualType(op2->TypeGet()) != TYP_I_IMPL)
+        else if (!op2->TypeIs(TYP_LONG))
         {
-            // insert an explicit upcast
-            op2 = *pOp2 = gtNewCastNode(TYP_I_IMPL, op2, fUnsigned, fUnsigned ? TYP_U_IMPL : TYP_I_IMPL);
+            *pOp2 = WidenToNativeInt(op2, fUnsigned);
         }
+#endif
 
-        type = TYP_I_IMPL;
+        return TYP_LONG;
     }
-#else  // 32-bit TARGET
-    else if (genActualType(op1->TypeGet()) == TYP_LONG || genActualType(op2->TypeGet()) == TYP_LONG)
+
+    if (op1->TypeIs(TYP_FLOAT) && !op2->TypeIs(TYP_FLOAT))
     {
-        assert(!varTypeIsFloating(op1->gtType) && !varTypeIsFloating(op2->gtType));
+        // float + double = double
 
-        // int + long => gives long
-        // long + int => gives long
-
-        type = TYP_LONG;
+        assert(op2->TypeIs(TYP_DOUBLE));
+        *pOp1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+        return TYP_DOUBLE;
     }
-#endif // TARGET_64BIT
-    else
+
+    if (op1->TypeIs(TYP_DOUBLE) && !op2->TypeIs(TYP_DOUBLE))
     {
-        // int + int => gives an int
-        assert(genActualType(op1->TypeGet()) != TYP_BYREF && genActualType(op2->TypeGet()) != TYP_BYREF);
+        // double + float = double
 
-        assert(genActualType(op1->TypeGet()) == genActualType(op2->TypeGet()) ||
-               (varTypeIsFloating(op1->gtType) && varTypeIsFloating(op2->gtType)));
-
-        type = genActualType(op1->gtType);
-
-        // If both operands are TYP_FLOAT, then leave it as TYP_FLOAT.
-        // Otherwise, turn floats into doubles
-        if ((type == TYP_FLOAT) && (genActualType(op2->gtType) != TYP_FLOAT))
-        {
-            assert(genActualType(op2->gtType) == TYP_DOUBLE);
-            type = TYP_DOUBLE;
-        }
+        assert(op2->TypeIs(TYP_FLOAT));
+        *pOp2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+        return TYP_DOUBLE;
     }
 
-    assert(type == TYP_BYREF || type == TYP_DOUBLE || type == TYP_FLOAT || type == TYP_LONG || type == TYP_INT);
-    return type;
+    // int + int = int
+    // float + float = float
+    // double + double = double
+
+    assert(varActualType(op1->GetType()) == varActualType(op2->GetType()));
+
+    return varActualType(op1->GetType());
 }
 
 //------------------------------------------------------------------------
@@ -9587,7 +9594,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
         CORINFO_CLASS_HANDLE clsHnd = DUMMY_INIT(NULL);
 
-        var_types lclTyp, ovflType = TYP_UNKNOWN;
+        var_types lclTyp        = TYP_UNKNOWN;
         GenTree*  op1           = DUMMY_INIT(NULL);
         GenTree*  op2           = DUMMY_INIT(NULL);
         GenTree*  newObjThisPtr = DUMMY_INIT(NULL);
@@ -10646,44 +10653,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     callNode = true;
                 }
 #endif
-                /* Can't do arithmetic with references */
-                assertImp(genActualType(op1->TypeGet()) != TYP_REF && genActualType(op2->TypeGet()) != TYP_REF);
 
-                // Change both to TYP_I_IMPL (impBashVarAddrsToI won't change if its a true byref, only
-                // if it is in the stack)
-                impBashVarAddrsToI(op1, op2);
+                type = impGetNumericBinaryOpType(oper, uns, &op1, &op2);
 
-                type = impGetByRefResultType(oper, uns, &op1, &op2);
+                assert(!ovfl || !varTypeIsFloating(type));
 
-                assert(!ovfl || !varTypeIsFloating(op1->gtType));
-
-                /* Special case: "int+0", "int-0", "int*1", "int/1" */
-
-                if (op2->gtOper == GT_CNS_INT)
+                if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_SUB)) ||
+                    (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
                 {
-                    if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_SUB)) ||
-                        (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
-
-                    {
-                        impPushOnStack(op1, typeInfo());
-                        break;
-                    }
-                }
-
-                // We can generate a TYP_FLOAT operation that has a TYP_DOUBLE operand
-                //
-                if (varTypeIsFloating(type) && varTypeIsFloating(op1->gtType) && varTypeIsFloating(op2->gtType))
-                {
-                    if (op1->TypeGet() != type)
-                    {
-                        // We insert a cast of op1 to 'type'
-                        op1 = gtNewCastNode(type, op1, false, type);
-                    }
-                    if (op2->TypeGet() != type)
-                    {
-                        // We insert a cast of op2 to 'type'
-                        op2 = gtNewCastNode(type, op2, false, type);
-                    }
+                    impPushOnStack(op1, typeInfo());
+                    break;
                 }
 
                 if (callNode)
@@ -10711,25 +10690,27 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewOperNode(oper, type, op1, op2);
                 }
 
-                /* Special case: integer/long division may throw an exception */
-
-                if (varTypeIsIntegral(op1->TypeGet()) && op1->OperMayThrow(this))
-                {
-                    op1->gtFlags |= GTF_EXCEPT;
-                }
-
                 if (ovfl)
                 {
-                    assert(oper == GT_ADD || oper == GT_SUB || oper == GT_MUL);
-                    if (ovflType != TYP_UNKNOWN)
-                    {
-                        op1->gtType = ovflType;
-                    }
+                    assert(op1->OperIs(GT_ADD, GT_SUB, GT_MUL));
+
                     op1->gtFlags |= (GTF_EXCEPT | GTF_OVERFLOW);
+
                     if (uns)
                     {
                         op1->gtFlags |= GTF_UNSIGNED;
                     }
+                }
+                else if (varTypeIsIntegral(op1->GetType()) && op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
+                {
+                    if (op1->OperMayThrow(this))
+                    {
+                        op1->gtFlags |= GTF_EXCEPT;
+                    }
+                }
+                else
+                {
+                    assert(!op1->OperMayThrow(this));
                 }
 
                 impPushOnStack(op1, typeInfo());
