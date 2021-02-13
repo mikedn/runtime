@@ -8974,39 +8974,69 @@ var_types Compiler::impGetByRefResultType(genTreeOps oper, bool fUnsigned, GenTr
 
         type = TYP_BYREF;
     }
-#ifdef TARGET_64BIT
-    else if (genActualType(op1->TypeGet()) == TYP_I_IMPL || genActualType(op2->TypeGet()) == TYP_I_IMPL)
+    else if (op1->TypeIs(TYP_LONG) || op2->TypeIs(TYP_LONG))
     {
-        assert(!varTypeIsFloating(op1->gtType) && !varTypeIsFloating(op2->gtType));
+#ifndef TARGET_64BIT
+        assert(op1->GetType() == op2->GetType());
+#else
+        // int32 + native int = native int
+        // native int + int32 = native int
+        // On 64 bit targets the JIT doesn't distinguish between native int and int64 so
+        // this is extended to int32 + int64 = int64 which is invalid in ECMA-335.
 
-        // int + long => gives long
-        // long + int => gives long
-        // we get this because in the IL the long isn't Int64, it's just IntPtr
-
-        if (genActualType(op1->TypeGet()) != TYP_I_IMPL)
+        if (!op1->TypeIs(TYP_LONG))
         {
-            // insert an explicit upcast
-            op1 = *pOp1 = gtNewCastNode(TYP_I_IMPL, op1, fUnsigned, fUnsigned ? TYP_U_IMPL : TYP_I_IMPL);
+            assert(varTypeIsIntegralOrI(op1->GetType()));
+
+            if (GenTreeIntCon* con = op1->IsIntCon())
+            {
+                // There are no IL instructions that load a native int constant so the C# compiler
+                // emits ldc.i4 and takes advantage of the implicit int32 - native int widening.
+
+                assert(con->TypeIs(TYP_INT));
+                con->SetType(TYP_LONG);
+
+                if (fUnsigned)
+                {
+                    con->SetValue(con->GetUInt32Value());
+                }
+                else
+                {
+                    con->SetValue(con->GetInt32Value());
+                }
+            }
+            else
+            {
+                op1 = *pOp1 = gtNewCastNode(TYP_LONG, op1, fUnsigned, TYP_LONG);
+            }
         }
-        else if (genActualType(op2->TypeGet()) != TYP_I_IMPL)
+        else if (!op2->TypeIs(TYP_LONG))
         {
-            // insert an explicit upcast
-            op2 = *pOp2 = gtNewCastNode(TYP_I_IMPL, op2, fUnsigned, fUnsigned ? TYP_U_IMPL : TYP_I_IMPL);
+            assert(varTypeIsIntegralOrI(op2->GetType()));
+
+            if (GenTreeIntCon* con = op2->IsIntCon())
+            {
+                assert(con->TypeIs(TYP_INT));
+                con->SetType(TYP_LONG);
+
+                if (fUnsigned)
+                {
+                    con->SetValue(con->GetUInt32Value());
+                }
+                else
+                {
+                    con->SetValue(con->GetInt32Value());
+                }
+            }
+            else
+            {
+                op2 = *pOp2 = gtNewCastNode(TYP_LONG, op2, fUnsigned, TYP_LONG);
+            }
         }
-
-        type = TYP_I_IMPL;
-    }
-#else  // 32-bit TARGET
-    else if (genActualType(op1->TypeGet()) == TYP_LONG || genActualType(op2->TypeGet()) == TYP_LONG)
-    {
-        assert(!varTypeIsFloating(op1->gtType) && !varTypeIsFloating(op2->gtType));
-
-        // int + long => gives long
-        // long + int => gives long
+#endif // TARGET_64BIT
 
         type = TYP_LONG;
     }
-#endif // TARGET_64BIT
     else
     {
         // int + int => gives an int
