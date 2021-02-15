@@ -435,40 +435,19 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         }
 #endif
 
-        GenTree*     value = nullptr;
-        GenTreeCall* call  = nullptr;
+        GenTreeCall* call = retExpr->GetCall();
 
-        for (; retExpr != nullptr; retExpr = value->IsRetExpr())
+        uint64_t bbFlags = 0;
+        GenTree* value   = retExpr->gtRetExprVal(&bbFlags);
+        comp->compCurBB->bbFlags |= (bbFlags & BBF_IR_SUMMARY);
+
+        if (tree->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
         {
-            // TODO-MIKE-Cleanup: RET_EXPR chain handling is dubious. A chain of RET_EXPR is
-            // handled by gtRetExprVal and that gives us the block flags of the last RET_EXPR
-            // in the chain. And we get the call from the first RET_EXPR in the chanin.
-            // But if we run into foldable nodes then we get the block flags and call from
-            // other RET_EXPRs. The call it unlikely to matter, it's only needed to get the
-            // struct layout and struct aren't folded. But it's not clear what happens with
-            // the block flags, should gtRetExprVal actually OR the flags?
-            //
-            // Can we even get a chain of RET_EXPR? It may be obvious that the answer is yes,
-            // when we inline a method that just calls another method. But due to the way
-            // RET_EXPR are replaced it seems like the RET_EXPR associated with the inner
-            // call should have been already replaced when the outer RET_EXPR is encountered.
-            // But the replacement is actually done too late - for an inline candidate tree
-            // the replacement is actually done after inlining.
+            // An RVA static may have been reinterpreted as byref.
+            assert(value->TypeIs(TYP_I_IMPL));
+            JITDUMP("Updating type of the return GT_IND expression to TYP_BYREF\n");
 
-            call = retExpr->GetCall();
-
-            uint64_t bbFlags = 0;
-            value            = retExpr->gtRetExprVal(&bbFlags);
-            comp->compCurBB->bbFlags |= (bbFlags & BBF_IR_SUMMARY);
-
-            if (retExpr->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
-            {
-                // An RVA static may have been reinterpreted as byref.
-                assert(value->TypeIs(TYP_I_IMPL));
-                JITDUMP("Updating type of the return GT_IND expression to TYP_BYREF\n");
-
-                value->SetType(TYP_BYREF);
-            }
+            value->SetType(TYP_BYREF);
         }
 
         JITDUMPTREE(value, "with inline return expression\n");
