@@ -5649,10 +5649,9 @@ GenTreeCall* Compiler::gtNewCallNode(
 
 GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
-// Cannot have this assert because the inliner uses this function to add temporaries
-// assert(lnum < lvaCount);
-
 #ifdef DEBUG
+    LclVarDsc* lcl = lvaGetDesc(lnum);
+
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
@@ -5666,10 +5665,9 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL
         // TODO-1stClassStructs: When we stop "lying" about the types for ABI purposes, we
         // should be able to remove this exception and handle the assignment mismatch in
         // Lowering.
-        LclVarDsc* varDsc = lvaGetDesc(lnum);
-        assert((type == varDsc->lvType) ||
-               (lvaIsImplicitByRefLocal(lnum) && fgGlobalMorph && (varDsc->lvType == TYP_BYREF)) ||
-               ((varDsc->lvType == TYP_STRUCT) && (genTypeSize(type) == varDsc->lvExactSize)));
+        assert((type == lcl->GetType()) ||
+               (lcl->IsImplicitByRefParam() && fgGlobalMorph && (lcl->GetType() == TYP_BYREF)) ||
+               ((lcl->GetType() == TYP_STRUCT) && (varTypeSize(type) == lcl->lvExactSize)));
     }
 #endif
 
@@ -5678,6 +5676,9 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL
 
 GenTreeLclVar* Compiler::gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
+#ifdef DEBUG
+    LclVarDsc* lcl = lvaGetDesc(lnum);
+
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
@@ -5685,9 +5686,10 @@ GenTreeLclVar* Compiler::gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL
         // Make an exception for implicit by-ref parameters during global morph, since
         // their lvType has been updated to byref but their appearances have not yet all
         // been rewritten and so may have struct type still.
-        assert(type == lvaTable[lnum].lvType ||
-               (lvaIsImplicitByRefLocal(lnum) && fgGlobalMorph && (lvaTable[lnum].lvType == TYP_BYREF)));
+        assert((type == lcl->GetType()) ||
+               (lcl->IsImplicitByRefParam() && fgGlobalMorph && (lcl->GetType() == TYP_BYREF)));
     }
+#endif
 
     // This local variable node may later get transformed into a large node
     assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_VAR]);
