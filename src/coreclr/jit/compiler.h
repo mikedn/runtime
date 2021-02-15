@@ -4976,8 +4976,8 @@ private:
 
     unsigned fgBigOffsetMorphingTemps[TYP_COUNT];
 
+    void inlReplaceRetExpr(Statement* stmt);
     void inlFoldJTrue(BasicBlock* block);
-    INDEBUG(void inlReportNonCandidates(Statement* stmt);)
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
     void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);
@@ -5010,9 +5010,6 @@ private:
     GenTree* inlAssignStructInlineeToTemp(GenTree* src, ClassLayout* layout);
     void inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, ClassLayout* layout);
 #endif // FEATURE_MULTIREG_RET
-
-    static fgWalkPreFn  fgUpdateInlineReturnExpressionPlaceHolder;
-    static fgWalkPostFn fgLateDevirtualization;
 
 #ifdef DEBUG
     void               CheckNoTransformableIndirectCallsRemain();
