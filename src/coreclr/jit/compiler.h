@@ -1974,10 +1974,8 @@ public:
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
-protected:
     void gtInitStructCopyAsg(GenTreeOp* asg);
 
-public:
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
     GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);

@@ -141,192 +141,6 @@ PhaseStatus Compiler::fgInline()
     return madeChanges ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 
-#if FEATURE_MULTIREG_RET
-
-GenTree* Compiler::inlGetStructAddress(GenTree* tree)
-{
-    switch (tree->GetOper())
-    {
-        case GT_BLK:
-        case GT_OBJ:
-        case GT_IND:
-            return tree->AsIndir()->GetAddr();
-
-        case GT_COMMA:
-            tree->AsOp()->SetOp(1, inlGetStructAddress(tree->AsOp()->GetOp(1)));
-            tree->SetType(TYP_BYREF);
-            return tree;
-
-        case GT_LCL_VAR:
-        case GT_FIELD:
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-#endif
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-#endif
-            // TODO-MIKE-Cleanup: Bleah, more ADDR(SIMD|HWINTRINSIC) nonsense...
-            return gtNewOperNode(GT_ADDR, TYP_BYREF, tree);
-
-        default:
-            unreached();
-    }
-}
-
-GenTree* Compiler::inlGetStructAsgDst(GenTree* dst, ClassLayout* layout)
-{
-    if (dst->OperIs(GT_LCL_VAR))
-    {
-        LclVarDsc* tmpLcl = lvaGetDesc(dst->AsLclVar());
-
-        if (varTypeIsStruct(tmpLcl->GetType()) && !tmpLcl->IsImplicitByRefParam() && (tmpLcl->GetLayout() == layout))
-        {
-            dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
-            return dst;
-        }
-
-        return gtNewObjNode(layout, gtNewOperNode(GT_ADDR, TYP_I_IMPL, dst));
-    }
-
-    GenTree* dstAddr = inlGetStructAddress(dst);
-
-    if (dstAddr->OperIs(GT_ADDR))
-    {
-        GenTree* location = dstAddr->AsUnOp()->GetOp(0);
-
-        if (location->OperIs(GT_LCL_VAR))
-        {
-            LclVarDsc* tmpLcl = lvaGetDesc(location->AsLclVar());
-
-            if (varTypeIsStruct(tmpLcl->GetType()) && !tmpLcl->IsImplicitByRefParam() &&
-                (tmpLcl->GetLayout() == layout))
-            {
-                dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
-                return location;
-            }
-        }
-    }
-
-    GenTree* obj = gtNewObjNode(layout, dstAddr);
-    obj->gtFlags |= GTF_DONT_CSE;
-    return obj;
-}
-
-GenTree* Compiler::inlGetStructAsgSrc(GenTree* src, ClassLayout* layout)
-{
-    if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsSimdOrHWintrinsic())
-    {
-        GenTree* srcAddr = inlGetStructAddress(src);
-
-        if (srcAddr->OperIs(GT_ADDR))
-        {
-            src = srcAddr->AsUnOp()->GetOp(0);
-        }
-        else
-        {
-            src = gtNewObjNode(layout, srcAddr);
-        }
-    }
-
-    // TODO-MIKE-CQ: This should probably be removed, it's here only because
-    // a previous implementation (gtNewBlkOpNode) was setting it. And it
-    // probably blocks SIMD tree CSEing.
-    src->gtFlags |= GTF_DONT_CSE;
-
-    return src;
-}
-
-GenTree* Compiler::inlAssignStructInlineeToTemp(GenTree* src, ClassLayout* layout)
-{
-    assert(!src->OperIs(GT_RET_EXPR, GT_MKREFANY));
-
-    unsigned tempLclNum = lvaGrabTemp(false DEBUGARG("RetBuf for struct inline return candidates."));
-    lvaSetStruct(tempLclNum, layout, false);
-    LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
-    GenTree*   dst     = gtNewLclvNode(tempLclNum, tempLcl->GetType());
-
-    // If we have a call, we'd like it to be: V00 = call(), but first check if
-    // we have a ", , , call()" -- this is very defensive as we may never get
-    // an inlinee that is made of commas. If the inlinee is not a call, then
-    // we use a copy block to do the assignment.
-    GenTree*   actualSrc = src;
-    GenTreeOp* lastComma = nullptr;
-
-    while (actualSrc->OperIs(GT_COMMA))
-    {
-        lastComma = actualSrc->AsOp();
-        actualSrc = lastComma->GetOp(1);
-    }
-
-    GenTree* newAsg = nullptr;
-
-    if (actualSrc->IsCall())
-    {
-        // When returning a multi-register value in a local var, make sure the variable is
-        // marked as lvIsMultiRegRet, so it does not get promoted.
-        if (actualSrc->AsCall()->HasMultiRegRetVal())
-        {
-            tempLcl->lvIsMultiRegRet = true;
-        }
-
-        // If inlinee was just a call, newAsg is v05 = call()
-        newAsg = gtNewAssignNode(dst, actualSrc);
-
-        // If inlinee was comma, but a deeper call, newAsg is (, , , v05 = call())
-        if (lastComma != nullptr)
-        {
-            lastComma->SetOp(1, newAsg);
-            newAsg = src;
-        }
-    }
-    else
-    {
-        // Inlinee is not a call, so just create a copy block to the tmp.
-
-        src = inlGetStructAsgSrc(src, layout);
-
-        newAsg = gtNewAssignNode(dst, src);
-        gtInitStructCopyAsg(newAsg->AsOp());
-    }
-
-    return gtNewOperNode(GT_COMMA, dst->GetType(), newAsg, gtNewLclvNode(tempLclNum, dst->GetType()));
-}
-
-void Compiler::inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, ClassLayout* layout)
-{
-    assert(asg->OperIs(GT_ASG));
-
-    GenTree* dst = asg->GetOp(0);
-
-    if (src->IsCall())
-    {
-        if (dst->OperIs(GT_LCL_VAR))
-        {
-            // If it is a multireg return on x64/ux, the local variable should be marked as lvIsMultiRegRet
-            if (src->AsCall()->HasMultiRegRetVal())
-            {
-                lvaGetDesc(dst->AsLclVar())->lvIsMultiRegRet = true;
-            }
-
-            return;
-        }
-
-        // Struct calls can only be assigned to locals, in all other cases we need to introduce a temp.
-        src = inlAssignStructInlineeToTemp(src, layout);
-    }
-
-    dst = inlGetStructAsgDst(dst, layout);
-    src = inlGetStructAsgSrc(src, layout);
-
-    asg->SetOp(0, dst);
-    asg->SetOp(1, src);
-    asg->gtFlags = (GTF_ASG | src->gtFlags | dst->gtFlags) & GTF_ALL_EFFECT;
-
-    gtInitStructCopyAsg(asg);
-}
-
-#endif // FEATURE_MULTIREG_RET
-
 class RetExprReplaceVisitor : public GenTreeVisitor<RetExprReplaceVisitor>
 {
     Statement* m_stmt;
@@ -347,8 +161,7 @@ public:
 
     fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
-        Compiler* comp = m_compiler;
-        GenTree*  tree = *use;
+        GenTree* tree = *use;
 
         // All the operations here and in the corresponding postorder
         // callback (fgLateDevirtualization) are triggered by GT_CALL or
@@ -402,7 +215,7 @@ public:
                 value   = retExpr->GetRetExpr();
             }
 
-            comp->compCurBB->bbFlags |= retExpr->GetRetBlockIRSummary();
+            m_compiler->compCurBB->bbFlags |= retExpr->GetRetBlockIRSummary();
 
             if (tree->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
             {
@@ -445,12 +258,12 @@ public:
                 if (user->OperIs(GT_ASG))
                 {
                     // Either lhs is a call V05 = call(); or lhs is addr, and asg becomes a copyBlk.
-                    comp->inlAttachStructInlineeToAsg(user->AsOp(), tree, call->GetRetLayout());
+                    AttachStructInlineeToAsg(user->AsOp(), tree, call->GetRetLayout());
                 }
                 else
                 {
                     // Just assign the inlinee to a variable to keep it simple.
-                    tree = *use = comp->inlAssignStructInlineeToTemp(tree, call->GetRetLayout());
+                    tree = *use = AssignStructInlineeToTemp(tree, call->GetRetLayout());
                 }
             }
 #endif
@@ -491,7 +304,7 @@ public:
         Compiler* comp   = m_compiler;
 
         // In some (rare) cases the parent node of tree will be smashed to a NOP during
-        // the preorder by fgAttachStructToInlineeArg.
+        // the preorder by AttachStructInlineeToAsg.
         //
         // jit\Methodical\VT\callconv\_il_reljumper3 for x64 linux
         //
@@ -575,6 +388,193 @@ public:
 
         return Compiler::WALK_CONTINUE;
     }
+
+#if FEATURE_MULTIREG_RET
+private:
+    GenTree* GetStructAddress(GenTree* tree)
+    {
+        switch (tree->GetOper())
+        {
+            case GT_BLK:
+            case GT_OBJ:
+            case GT_IND:
+                return tree->AsIndir()->GetAddr();
+
+            case GT_COMMA:
+                tree->AsOp()->SetOp(1, GetStructAddress(tree->AsOp()->GetOp(1)));
+                tree->SetType(TYP_BYREF);
+                return tree;
+
+            case GT_LCL_VAR:
+            case GT_FIELD:
+#ifdef FEATURE_SIMD
+            case GT_SIMD:
+#endif
+#ifdef FEATURE_HW_INTRINSICS
+            case GT_HWINTRINSIC:
+#endif
+                // TODO-MIKE-Cleanup: Bleah, more ADDR(SIMD|HWINTRINSIC) nonsense...
+                return m_compiler->gtNewOperNode(GT_ADDR, TYP_BYREF, tree);
+
+            default:
+                unreached();
+        }
+    }
+
+    GenTree* GetStructAsgDst(GenTree* dst, ClassLayout* layout)
+    {
+        if (dst->OperIs(GT_LCL_VAR))
+        {
+            LclVarDsc* tmpLcl = m_compiler->lvaGetDesc(dst->AsLclVar());
+
+            if (varTypeIsStruct(tmpLcl->GetType()) && !tmpLcl->IsImplicitByRefParam() &&
+                (tmpLcl->GetLayout() == layout))
+            {
+                dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
+                return dst;
+            }
+
+            return m_compiler->gtNewObjNode(layout, m_compiler->gtNewOperNode(GT_ADDR, TYP_I_IMPL, dst));
+        }
+
+        GenTree* dstAddr = GetStructAddress(dst);
+
+        if (dstAddr->OperIs(GT_ADDR))
+        {
+            GenTree* location = dstAddr->AsUnOp()->GetOp(0);
+
+            if (location->OperIs(GT_LCL_VAR))
+            {
+                LclVarDsc* tmpLcl = m_compiler->lvaGetDesc(location->AsLclVar());
+
+                if (varTypeIsStruct(tmpLcl->GetType()) && !tmpLcl->IsImplicitByRefParam() &&
+                    (tmpLcl->GetLayout() == layout))
+                {
+                    dst->gtFlags |= GTF_DONT_CSE | GTF_VAR_DEF;
+                    return location;
+                }
+            }
+        }
+
+        GenTree* obj = m_compiler->gtNewObjNode(layout, dstAddr);
+        obj->gtFlags |= GTF_DONT_CSE;
+        return obj;
+    }
+
+    GenTree* GetStructAsgSrc(GenTree* src, ClassLayout* layout)
+    {
+        if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsSimdOrHWintrinsic())
+        {
+            GenTree* srcAddr = GetStructAddress(src);
+
+            if (srcAddr->OperIs(GT_ADDR))
+            {
+                src = srcAddr->AsUnOp()->GetOp(0);
+            }
+            else
+            {
+                src = m_compiler->gtNewObjNode(layout, srcAddr);
+            }
+        }
+
+        // TODO-MIKE-CQ: This should probably be removed, it's here only because
+        // a previous implementation (gtNewBlkOpNode) was setting it. And it
+        // probably blocks SIMD tree CSEing.
+        src->gtFlags |= GTF_DONT_CSE;
+
+        return src;
+    }
+
+    GenTree* AssignStructInlineeToTemp(GenTree* src, ClassLayout* layout)
+    {
+        assert(!src->OperIs(GT_RET_EXPR, GT_MKREFANY));
+
+        unsigned tempLclNum = m_compiler->lvaGrabTemp(false DEBUGARG("RetBuf for struct inline return candidates."));
+        m_compiler->lvaSetStruct(tempLclNum, layout, false);
+        LclVarDsc* tempLcl = m_compiler->lvaGetDesc(tempLclNum);
+        GenTree*   dst     = m_compiler->gtNewLclvNode(tempLclNum, tempLcl->GetType());
+
+        // If we have a call, we'd like it to be: V00 = call(), but first check if
+        // we have a ", , , call()" -- this is very defensive as we may never get
+        // an inlinee that is made of commas. If the inlinee is not a call, then
+        // we use a copy block to do the assignment.
+        GenTree*   actualSrc = src;
+        GenTreeOp* lastComma = nullptr;
+
+        while (actualSrc->OperIs(GT_COMMA))
+        {
+            lastComma = actualSrc->AsOp();
+            actualSrc = lastComma->GetOp(1);
+        }
+
+        GenTree* newAsg = nullptr;
+
+        if (actualSrc->IsCall())
+        {
+            // When returning a multi-register value in a local var, make sure the variable is
+            // marked as lvIsMultiRegRet, so it does not get promoted.
+            if (actualSrc->AsCall()->HasMultiRegRetVal())
+            {
+                tempLcl->lvIsMultiRegRet = true;
+            }
+
+            // If inlinee was just a call, newAsg is v05 = call()
+            newAsg = m_compiler->gtNewAssignNode(dst, actualSrc);
+
+            // If inlinee was comma, but a deeper call, newAsg is (, , , v05 = call())
+            if (lastComma != nullptr)
+            {
+                lastComma->SetOp(1, newAsg);
+                newAsg = src;
+            }
+        }
+        else
+        {
+            // Inlinee is not a call, so just create a copy block to the tmp.
+
+            src = GetStructAsgSrc(src, layout);
+
+            newAsg = m_compiler->gtNewAssignNode(dst, src);
+            m_compiler->gtInitStructCopyAsg(newAsg->AsOp());
+        }
+
+        return m_compiler->gtNewOperNode(GT_COMMA, dst->GetType(), newAsg,
+                                         m_compiler->gtNewLclvNode(tempLclNum, dst->GetType()));
+    }
+
+    void AttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, ClassLayout* layout)
+    {
+        assert(asg->OperIs(GT_ASG));
+
+        GenTree* dst = asg->GetOp(0);
+
+        if (src->IsCall())
+        {
+            if (dst->OperIs(GT_LCL_VAR))
+            {
+                // If it is a multireg return on x64/ux, the local variable should be marked as lvIsMultiRegRet
+                if (src->AsCall()->HasMultiRegRetVal())
+                {
+                    m_compiler->lvaGetDesc(dst->AsLclVar())->lvIsMultiRegRet = true;
+                }
+
+                return;
+            }
+
+            // Struct calls can only be assigned to locals, in all other cases we need to introduce a temp.
+            src = AssignStructInlineeToTemp(src, layout);
+        }
+
+        dst = GetStructAsgDst(dst, layout);
+        src = GetStructAsgSrc(src, layout);
+
+        asg->SetOp(0, dst);
+        asg->SetOp(1, src);
+        asg->gtFlags = (GTF_ASG | src->gtFlags | dst->gtFlags) & GTF_ALL_EFFECT;
+
+        m_compiler->gtInitStructCopyAsg(asg);
+    }
+#endif // FEATURE_MULTIREG_RET
 };
 
 void Compiler::inlReplaceRetExpr(Statement* stmt)
