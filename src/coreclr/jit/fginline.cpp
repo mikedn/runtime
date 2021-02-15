@@ -461,12 +461,6 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
             value            = retExpr->gtRetExprVal(&bbFlags);
             comp->compCurBB->bbFlags |= (bbFlags & BBF_IR_SUMMARY);
 
-            // Try to fold the return value (e.g. returns of constant bools or small integers
-            // will have widening casts). This folding may uncover more RET_EXPRs, so we loop
-            // around until we've got something distinct.
-
-            value = comp->gtFoldExpr(value);
-
             if (retExpr->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
             {
                 // An RVA static may have been reinterpreted as byref.
