@@ -1166,9 +1166,9 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     }
     else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
     {
-        assert(retExpr->GetRetExpr() == nullptr);
-
         GenTreeCall* call = retExpr->GetCall();
+
+        assert(retExpr->GetRetExpr() == call);
 
         if (call->TreatAsHasRetBufArg())
         {
@@ -2125,7 +2125,7 @@ void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
         {
             JITDUMP("\n*** see V%02u = GT_RET_EXPR, noting temp\n", tnum);
 
-            assert(retExpr->GetRetExpr() == nullptr);
+            assert(retExpr->GetRetExpr() == retExpr->GetCall());
             retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = tnum;
         }
     }
@@ -15936,7 +15936,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     if ((objClass == nullptr) || !isExact)
     {
         // Walk back through any return expression placeholders
-        actualThisObj = thisObj->gtRetExprVal();
+        actualThisObj = thisObj->SkipRetExpr();
 
         // See if we landed on a call to a special intrinsic method
         if (actualThisObj->IsCall())

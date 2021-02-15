@@ -1699,7 +1699,7 @@ public:
     GenTree* SkipComma();
 
     // Tunnel through any GT_RET_EXPRs
-    inline GenTree* gtRetExprVal(uint64_t* pbbFlags = nullptr);
+    inline GenTree* SkipRetExpr();
 
     // Return the child of this node if it is a GT_RELOAD or GT_COPY; otherwise simply return the node itself
     inline GenTree* gtSkipReloadOrCopy();
@@ -6732,11 +6732,11 @@ struct GenTreeRetExpr : public GenTree
 private:
     GenTreeCall* m_call;
     GenTree*     m_retExpr;
-    uint64_t     m_retBlockFlags;
+    uint64_t     m_retBlockIRSummary;
 
 public:
     GenTreeRetExpr(var_types type, GenTreeCall* call)
-        : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(nullptr), m_retBlockFlags(0)
+        : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(call), m_retBlockIRSummary(0)
     {
         // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
         // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
@@ -6759,9 +6759,9 @@ public:
         return m_retExpr;
     }
 
-    uint64_t GetRetBlockFlags() const
+    uint64_t GetRetBlockIRSummary() const
     {
-        return m_retBlockFlags;
+        return m_retBlockIRSummary;
     }
 
     void SetRetExpr(GenTree* expr)
@@ -6770,16 +6770,11 @@ public:
         m_retExpr = expr;
     }
 
-    void SetRetExpr(GenTree* expr, uint64_t blockFlags)
+    void SetRetExpr(GenTree* expr, uint64_t blockIRSummary)
     {
         assert(expr != nullptr);
-        m_retExpr       = expr;
-        m_retBlockFlags = blockFlags;
-    }
-
-    GenTree* GetValue() const
-    {
-        return m_retExpr == nullptr ? m_call : m_retExpr;
+        m_retExpr           = expr;
+        m_retBlockIRSummary = blockIRSummary;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -8134,36 +8129,13 @@ inline GenTree* GenTree::gtCommaAssignVal()
     return result;
 }
 
-//-------------------------------------------------------------------------
-// gtRetExprVal - walk back through GT_RET_EXPRs
-//
-// Arguments:
-//    pbbFlags - out-parameter that is set to the flags of the basic block
-//               containing the inlinee return value. The value is 0
-//               for unsuccessful inlines.
-//
-// Returns:
-//    tree representing return value from a successful inline,
-//    or original call for failed or yet to be determined inline.
-//
-// Notes:
-//    Multi-level inlines can form chains of GT_RET_EXPRs.
-//    This method walks back to the root of the chain.
-
-inline GenTree* GenTree::gtRetExprVal(uint64_t* pbbFlags /* = nullptr */)
+inline GenTree* GenTree::SkipRetExpr()
 {
-    GenTree* value   = this;
-    uint64_t bbFlags = 0;
+    GenTree* value = this;
 
     while (GenTreeRetExpr* retExpr = value->IsRetExpr())
     {
-        value   = retExpr->GetValue();
-        bbFlags = retExpr->GetRetBlockFlags();
-    }
-
-    if (pbbFlags != nullptr)
-    {
-        *pbbFlags = bbFlags;
+        value = retExpr->GetRetExpr();
     }
 
     return value;

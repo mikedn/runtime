@@ -435,11 +435,29 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         }
 #endif
 
-        GenTreeCall* call = retExpr->GetCall();
+        GenTree* value = retExpr->GetRetExpr();
 
-        uint64_t bbFlags = 0;
-        GenTree* value   = retExpr->gtRetExprVal(&bbFlags);
-        comp->compCurBB->bbFlags |= (bbFlags & BBF_IR_SUMMARY);
+        // We may get a chain of RET_EXPR, if inlinees return calls that are also inline
+        // candidates. fgInline replaces RET_EXPRs as it traverses the statements but the
+        // return expression of an inlinee isn't appended as a statement, it's referenced
+        // only from InlineInfo.
+        //
+        // We need to find the last RET_EXPR in the chain to get the block IR summary. The
+        // rest of the RET_EXPRs are basically empty return expressions so the IR summary
+        // of their blocks isn't relevant.
+        //
+        // We may also have cases like RET_EXPR-ADD(RET_EXPR, INDEX...), the first RET_EXPR
+        // is replaced now while the next one will be replaced in a subsequent call to
+        // fgUpdateInlineReturnExpressionPlaceHolder. Each RET_EXPR will contribute its own
+        // IR summary.
+
+        while (value->IsRetExpr())
+        {
+            retExpr = value->AsRetExpr();
+            value   = retExpr->GetRetExpr();
+        }
+
+        comp->compCurBB->bbFlags |= retExpr->GetRetBlockIRSummary();
 
         if (tree->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
         {
@@ -455,6 +473,8 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
         tree = *use = value;
 
 #if FEATURE_MULTIREG_RET
+        GenTreeCall* call = retExpr->GetCall();
+
         // If an inline was rejected and the call returns a struct, we may
         // have deferred some work when importing call for cases where the
         // struct is returned in register(s).
@@ -980,7 +1000,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
             }
             else if (GenTreeRetExpr* placeholder = retExpr->IsRetExpr())
             {
-                assert(placeholder->GetRetExpr() == nullptr);
+                assert(placeholder->GetRetExpr() == placeholder->GetCall());
                 returnType = placeholder->GetCall()->GetRetSigType();
             }
         }

@@ -1556,7 +1556,7 @@ AGAIN:
         }
         else if (oper == GT_RET_EXPR)
         {
-            return gtHasRef(tree->AsRetExpr()->GetValue(), lclNum);
+            return gtHasRef(tree->AsRetExpr()->GetRetExpr(), lclNum);
         }
 
         return false;
@@ -15921,7 +15921,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         }
 
         case GT_RET_EXPR:
-            objClass = gtGetClassHandle(tree->AsRetExpr()->GetValue(), pIsExact, pIsNonNull);
+            objClass = gtGetClassHandle(tree->AsRetExpr()->GetRetExpr(), pIsExact, pIsNonNull);
             break;
 
         case GT_CALL:
