@@ -395,7 +395,6 @@ private:
     {
         switch (tree->GetOper())
         {
-            case GT_BLK:
             case GT_OBJ:
             case GT_IND:
                 return tree->AsIndir()->GetAddr();
