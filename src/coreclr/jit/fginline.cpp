@@ -1544,6 +1544,13 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, un
     return true;
 }
 
+bool Compiler::inlIsThisParam(InlineInfo* inlineInfo, GenTree* tree)
+{
+    return tree->OperIs(GT_LCL_VAR) && (inlineInfo->ilArgCount > 0) &&
+           (tree->AsLclVar()->GetLclNum() == inlineInfo->ilArgInfo[0].paramLclNum) &&
+           inlineInfo->ilArgInfo[0].paramIsThis;
+}
+
 bool Compiler::inlRecordInlineeLocals(InlineInfo* inlineInfo)
 {
     CORINFO_SIG_INFO&       localsSig     = inlineInfo->inlineCandidateInfo->methInfo.locals;

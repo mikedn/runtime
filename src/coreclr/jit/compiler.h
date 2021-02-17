@@ -3528,8 +3528,6 @@ private:
                            InlineCandidateInfo**  ppInlineCandidateInfo,
                            InlineResult*          inlineResult);
 
-    bool impInlineIsThis(GenTree* tree);
-
     bool impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
                                                             GenTreeCall::Use* additionalCallArgs,
                                                             GenTree*          dereferencedAddress);
@@ -4988,6 +4986,7 @@ private:
     bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArgs(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
+    bool inlIsThisParam(InlineInfo* inlineInfo, GenTree* tree);
     GenTree* inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
     unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);

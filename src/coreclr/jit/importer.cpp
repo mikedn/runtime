@@ -15259,19 +15259,6 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
     }
 }
 
-/******************************************************************************
- Is this the original "this" argument to the call being inlined?
-
- Note that we do not inline methods with "starg 0", and so we do not need to
- worry about it.
-*/
-
-bool Compiler::impInlineIsThis(GenTree* tree)
-{
-    assert(compIsForInlining());
-    return tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLclNum() == impInlineInfo->ilArgInfo[0].paramLclNum);
-}
-
 //-----------------------------------------------------------------------------
 // impInlineIsGuaranteedThisDerefBeforeAnySideEffects: Check if a dereference in
 // the inlinee can guarantee that the "this" pointer is non-NULL.
@@ -15305,7 +15292,7 @@ bool Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
         return false;
     }
 
-    if (!impInlineIsThis(dereferencedAddress))
+    if (!inlIsThisParam(impInlineInfo, dereferencedAddress))
     {
         return false;
     }
