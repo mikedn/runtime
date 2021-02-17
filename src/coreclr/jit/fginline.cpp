@@ -1065,13 +1065,27 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
 
     if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
     {
-        unsigned lclNum = inlineInfo->retSpillTempLclNum;
+        unsigned  lclNum  = inlineInfo->retSpillTempLclNum;
+        var_types lclType = lvaGetDesc(lclNum)->GetType();
+        GenTree*  lclVar  = gtNewLclvNode(lclNum, lclType);
+        GenTree*  asg;
 
-        impAssignTempGen(lclNum, retExpr, retExprClass, CHECK_SPILL_NONE);
+        if (varTypeIsStruct(retExpr->GetType()))
+        {
+            GenTree* lclAddr = gtNewOperNode(GT_ADDR, TYP_I_IMPL, lclVar);
+
+            asg = impAssignStructPtr(lclAddr, retExpr, retExprClass, CHECK_SPILL_NONE);
+        }
+        else
+        {
+            asg = gtNewAssignNode(lclVar, retExpr);
+        }
+
+        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
 
         if (inlineInfo->retExpr == nullptr)
         {
-            retExpr = gtNewLclvNode(lclNum, lvaGetDesc(lclNum)->GetType());
+            retExpr = gtNewLclvNode(lclNum, lclType);
         }
         else if (inlineInfo->iciCall->HasRetBufArg())
         {
