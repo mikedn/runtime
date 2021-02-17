@@ -4983,31 +4983,30 @@ private:
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
-    bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);
+    bool inlAnalyzeInlineeArgsAndLocals(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArgs(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
+    void inlNoteParamStore(InlineInfo* inlineInfo, unsigned ilArgNum);
+    void inlNoteAddressTakenParam(InlineInfo* inlineInfo, unsigned ilArgNum);
+    bool inlIsNormedTypeParam(InlineInfo* inlineInfo, unsigned ilArgNum);
+    bool inlIsInvariantArg(InlineInfo* inlineInfo, unsigned ilArgNum);
+    typeInfo inlGetParamTypeInfo(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlIsThisParam(InlineInfo* inlineInfo, GenTree* tree);
-    GenTree* inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum);
-    bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
+    GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
+    bool inlAnalyzeInlineeLocals(InlineInfo* inlineInfo);
+    void inlNoteLocalStore(InlineInfo* inlineInfo, unsigned ilLocNum);
+    void inlNoteAddressTakenLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    bool inlIsNormedTypeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     unsigned inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     Statement* inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
     Statement* inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* afterStmt);
     void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
-
     BasicBlock* inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter);
     void inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlock, BasicBlock* bottomBlock);
     void inlPropagateInlineeCompilerState();
     INDEBUG(void inlDebugCheckInlineCandidates();)
-
-#if FEATURE_MULTIREG_RET
-    GenTree* inlGetStructAddress(GenTree* tree);
-    GenTree* inlGetStructAsgDst(GenTree* dst, ClassLayout* layout);
-    GenTree* inlGetStructAsgSrc(GenTree* src, ClassLayout* layout);
-    GenTree* inlAssignStructInlineeToTemp(GenTree* src, ClassLayout* layout);
-    void inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, ClassLayout* layout);
-#endif // FEATURE_MULTIREG_RET
 
 #ifdef DEBUG
     void               CheckNoTransformableIndirectCallsRemain();

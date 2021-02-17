@@ -1079,10 +1079,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (isInlining)
                 {
-                    if (varNum < impInlineInfo->ilArgCount)
-                    {
-                        impInlineInfo->ilArgInfo[varNum].paramHasStores = true;
-                    }
+                    inlNoteParamStore(impInlineInfo, varNum);
                 }
                 else
                 {
@@ -1122,16 +1119,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             STLOC:
                 if (isInlining)
                 {
-                    InlLclVarInfo& lclInfo = impInlineInfo->ilLocInfo[varNum];
-
-                    if (lclInfo.lclHasStlocOp)
-                    {
-                        lclInfo.lclHasMultipleStlocOp = 1;
-                    }
-                    else
-                    {
-                        lclInfo.lclHasStlocOp = 1;
-                    }
+                    inlNoteLocalStore(impInlineInfo, varNum);
                 }
                 else
                 {
@@ -1172,42 +1160,22 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (isInlining)
                 {
-                    var_types lclType;
-                    typeInfo  ti;
-
-                    if (opcode == CEE_LDLOCA || opcode == CEE_LDLOCA_S)
+                    if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
-                        lclType = impInlineInfo->ilLocInfo[varNum].lclType;
-                        ti      = impInlineInfo->ilLocInfo[varNum].lclTypeInfo;
-
-                        impInlineInfo->ilLocInfo[varNum].lclHasLdlocaOp = true;
+                        inlNoteAddressTakenLocal(impInlineInfo, varNum);
+                        typeIsNormed = inlIsNormedTypeLocal(impInlineInfo, varNum);
                     }
                     else
                     {
-                        noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
-
-                        lclType = impInlineInfo->ilArgInfo[varNum].paramType;
-                        ti      = impInlineInfo->ilArgInfo[varNum].paramTypeInfo;
-
-                        impInlineInfo->ilArgInfo[varNum].paramIsAddressTaken = true;
+                        inlNoteAddressTakenParam(impInlineInfo, varNum);
+                        typeIsNormed = inlIsNormedTypeParam(impInlineInfo, varNum);
 
                         pushedStack.PushArgument(varNum);
                     }
-
-                    // TODO-MIKE-Cleanup: The below IsValueClass check is incorrect, it also includes
-                    // primitive types so any primitive type local is treated as "normed type". The
-                    // correct check is IsType(TI_STRUCT) but changing this affects inlining decisions
-                    // and causes a few diffs.
-                    //
-                    // Note that in the non-inlining case the check was also incorrect but because
-                    // lvImpTypeInfo is not normally set on true primitive locals the mistake had no
-                    // observable effects.
-
-                    typeIsNormed = !varTypeIsStruct(lclType) && ti.IsValueClass();
                 }
                 else
                 {
-                    if (opcode == CEE_LDLOCA || opcode == CEE_LDLOCA_S)
+                    if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
                         if (varNum >= info.compMethodInfo->locals.numArgs)
                         {
@@ -1218,8 +1186,6 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     }
                     else
                     {
-                        noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
-
                         if (varNum >= info.compILargsCount)
                         {
                             BADCODE("bad argument number");
@@ -1464,7 +1430,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
     // about the possible values or types.
     //
     // For inlinees we do this over in inlFetchInlineeLocal and
-    // inlFetchInlineeArg (here args are included as we somtimes get
+    // inlUseArg (here args are included as we somtimes get
     // new information about the types of inlinee args).
     if (!isInlining)
     {
@@ -1570,7 +1536,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
                     // Check for the double whammy of an incoming constant argument
                     // feeding a constant test.
                     unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-                    if (impInlineInfo->ilArgInfo[varNum].argIsInvariant)
+                    if (inlIsInvariantArg(impInlineInfo, varNum))
                     {
                         compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                     }
@@ -1612,7 +1578,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-            if (impInlineInfo->ilArgInfo[varNum].argIsInvariant)
+            if (inlIsInvariantArg(impInlineInfo, varNum))
             {
                 compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
@@ -1623,7 +1589,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot1);
-            if (impInlineInfo->ilArgInfo[varNum].argIsInvariant)
+            if (inlIsInvariantArg(impInlineInfo, varNum))
             {
                 compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }

@@ -33,7 +33,7 @@
 //   we know the context for the newly supplied return value tree.
 //
 //   Inline arguments may be directly substituted into the body of the inlinee
-//   in some cases. See inlFetchInlineeArg.
+//   in some cases. See inlUseArg.
 //
 PhaseStatus Compiler::fgInline()
 {
@@ -749,7 +749,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
         [](InlineInfo* inlineInfo) {
             Compiler* inlinerCompiler = inlineInfo->InlinerCompiler;
 
-            if (!inlinerCompiler->inlRecordInlineeArgsAndLocals(inlineInfo))
+            if (!inlinerCompiler->inlAnalyzeInlineeArgsAndLocals(inlineInfo))
             {
                 return;
             }
@@ -1172,7 +1172,7 @@ unsigned Compiler::inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo)
     return depth;
 }
 
-bool Compiler::inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo)
+bool Compiler::inlAnalyzeInlineeArgsAndLocals(InlineInfo* inlineInfo)
 {
     assert(!compIsForInlining());
 
@@ -1181,7 +1181,7 @@ bool Compiler::inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo)
         return false;
     }
 
-    if (!inlRecordInlineeLocals(inlineInfo))
+    if (!inlAnalyzeInlineeLocals(inlineInfo))
     {
         return false;
     }
@@ -1358,9 +1358,9 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
         }
         else if (paramCorType <= CORINFO_TYPE_DOUBLE)
         {
-            // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
-            // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
-            // primitive type, and thus detects any primitive type local as being normed type.
+            // TODO-MIKE-Cleanup: This shouldn't be necessary but inlIsNormedTypeParam
+            // is broken - it uses typeInfo::IsValueClass(), which returns true for any
+            // primitive type, and thus detects any primitive type as being normed type.
 
             paramTypeInfo = typeInfo(JITtype2tiType(paramCorType));
         }
@@ -1544,6 +1544,51 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, un
     return true;
 }
 
+void Compiler::inlNoteParamStore(InlineInfo* inlineInfo, unsigned ilArgNum)
+{
+    if (ilArgNum < inlineInfo->ilArgCount)
+    {
+        inlineInfo->ilArgInfo[ilArgNum].paramHasStores = true;
+    }
+}
+
+void Compiler::inlNoteAddressTakenParam(InlineInfo* inlineInfo, unsigned ilArgNum)
+{
+    if (ilArgNum < inlineInfo->ilArgCount)
+    {
+        inlineInfo->ilArgInfo[ilArgNum].paramIsAddressTaken = true;
+    }
+}
+
+bool Compiler::inlIsNormedTypeParam(InlineInfo* inlineInfo, unsigned ilArgNum)
+{
+    // TODO-MIKE-Cleanup: The below IsValueClass check is incorrect, it also includes
+    // primitive types so any primitive type local is treated as "normed type". The
+    // correct check is IsType(TI_STRUCT) but changing this affects inlining decisions
+    // and causes a few diffs.
+    //
+    // Note that in the non-inlining case the check was also incorrect but because
+    // lvImpTypeInfo is not normally set on true primitive locals the mistake had no
+    // observable effects.
+    //
+    // inlIsNormedTypeLocal has the same issue.
+
+    return (ilArgNum < inlineInfo->ilArgCount) && !varTypeIsStruct(inlineInfo->ilArgInfo[ilArgNum].paramType) &&
+           inlineInfo->ilArgInfo[ilArgNum].paramTypeInfo.IsValueClass();
+}
+
+bool Compiler::inlIsInvariantArg(InlineInfo* inlineInfo, unsigned ilArgNum)
+{
+    return (ilArgNum < inlineInfo->ilArgCount) && inlineInfo->ilArgInfo[ilArgNum].argIsInvariant;
+}
+
+typeInfo Compiler::inlGetParamTypeInfo(InlineInfo* inlineInfo, unsigned ilArgNum)
+{
+    assert(ilArgNum < inlineInfo->ilArgCount);
+
+    return inlineInfo->ilArgInfo[ilArgNum].paramTypeInfo;
+}
+
 bool Compiler::inlIsThisParam(InlineInfo* inlineInfo, GenTree* tree)
 {
     return tree->OperIs(GT_LCL_VAR) && (inlineInfo->ilArgCount > 0) &&
@@ -1551,7 +1596,7 @@ bool Compiler::inlIsThisParam(InlineInfo* inlineInfo, GenTree* tree)
            inlineInfo->ilArgInfo[0].paramIsThis;
 }
 
-bool Compiler::inlRecordInlineeLocals(InlineInfo* inlineInfo)
+bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
 {
     CORINFO_SIG_INFO&       localsSig     = inlineInfo->inlineCandidateInfo->methInfo.locals;
     CORINFO_ARG_LIST_HANDLE localHandle   = localsSig.args;
@@ -1635,9 +1680,9 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* inlineInfo)
         }
         else if (strip(lclCorType) <= CORINFO_TYPE_DOUBLE)
         {
-            // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
-            // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
-            // primitive type, and thus detects any primitive type local as being normed type.
+            // TODO-MIKE-Cleanup: This shouldn't be necessary but inlIsNormedTypeLocal
+            // is broken - it uses typeInfo::IsValueClass(), which returns true for any
+            // primitive type, and thus detects any primitive type as being normed type.
 
             lclTypeInfo = typeInfo(JITtype2tiType(strip(lclCorType)));
         }
@@ -1651,6 +1696,37 @@ bool Compiler::inlRecordInlineeLocals(InlineInfo* inlineInfo)
 #endif
 
     return true;
+}
+
+void Compiler::inlNoteLocalStore(InlineInfo* inlineInfo, unsigned ilLocNum)
+{
+    if (ilLocNum < inlineInfo->ilLocCount)
+    {
+        InlLclVarInfo& info = inlineInfo->ilLocInfo[ilLocNum];
+
+        if (info.lclHasStlocOp)
+        {
+            info.lclHasMultipleStlocOp = 1;
+        }
+        else
+        {
+            info.lclHasStlocOp = 1;
+        }
+    }
+}
+
+void Compiler::inlNoteAddressTakenLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+{
+    if (ilLocNum < inlineInfo->ilLocCount)
+    {
+        inlineInfo->ilLocInfo[ilLocNum].lclHasLdlocaOp = true;
+    }
+}
+
+bool Compiler::inlIsNormedTypeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+{
+    return (ilLocNum < inlineInfo->ilLocCount) && !varTypeIsStruct(inlineInfo->ilLocInfo[ilLocNum].lclType) &&
+           inlineInfo->ilLocInfo[ilLocNum].lclTypeInfo.IsValueClass();
 }
 
 unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
@@ -1732,8 +1808,10 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
     return lclNum;
 }
 
-GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
+GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 {
+    assert(ilArgNum < inlineInfo->ilArgCount);
+
     InlArgInfo& argInfo = inlineInfo->ilArgInfo[ilArgNum];
     GenTree*    argNode = argInfo.argNode;
 
@@ -2172,7 +2250,7 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
         // But args initialization needs to know about arg uses so we have to get the
         // "this" arg here, before calling inlInitInlineeArgs.
 
-        nullCheckThisArg = inlFetchInlineeArg(inlineInfo, 0);
+        nullCheckThisArg = inlUseArg(inlineInfo, 0);
 
         if (!fgAddrCouldBeNull(nullCheckThisArg))
         {
