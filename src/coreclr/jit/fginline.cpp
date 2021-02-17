@@ -1109,6 +1109,27 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
     return true;
 }
 
+void Compiler::inlUpdateRetSpillTempClass(InlineInfo* inlineInfo)
+{
+    // Update type of return spill temp if we have gathered
+    // better info when importing the inlinee, and the return
+    // spill temp is single def.
+
+    if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
+    {
+        CORINFO_CLASS_HANDLE retExprClassHnd = inlineInfo->retExprClassHnd;
+        if (retExprClassHnd != nullptr)
+        {
+            LclVarDsc* returnSpillVarDsc = lvaGetDesc(inlineInfo->retSpillTempLclNum);
+
+            if (returnSpillVarDsc->lvSingleDef)
+            {
+                lvaUpdateClass(inlineInfo->retSpillTempLclNum, retExprClassHnd, inlineInfo->retExprClassHndIsExact);
+            }
+        }
+    }
+}
+
 // Compute depth of the candidate, and check for recursion.
 // We generally disallow recursive inlines by policy. However, they are
 // supported by the underlying machinery.

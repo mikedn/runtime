@@ -4313,40 +4313,15 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
     //
     DoPhase(this, PHASE_PATCHPOINTS, &Compiler::fgTransformPatchpoints);
 
-    // PostImportPhase: cleanup inlinees
-    //
-    auto postImportPhase = [this]() {
-
-        // If this is a viable inline candidate
-        if (compIsForInlining() && !compDonotInline())
-        {
-            // Filter out unimported BBs
-            fgRemoveEmptyBlocks();
-
-            // Update type of return spill temp if we have gathered
-            // better info when importing the inlinee, and the return
-            // spill temp is single def.
-            if (impInlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
-            {
-                CORINFO_CLASS_HANDLE retExprClassHnd = impInlineInfo->retExprClassHnd;
-                if (retExprClassHnd != nullptr)
-                {
-                    LclVarDsc* returnSpillVarDsc = lvaGetDesc(impInlineInfo->retSpillTempLclNum);
-
-                    if (returnSpillVarDsc->lvSingleDef)
-                    {
-                        lvaUpdateClass(impInlineInfo->retSpillTempLclNum, retExprClassHnd,
-                                       impInlineInfo->retExprClassHndIsExact);
-                    }
-                }
-            }
-        }
-    };
-    DoPhase(this, PHASE_POST_IMPORT, postImportPhase);
-
-    // If we're importing for inlining, we're done.
     if (compIsForInlining())
     {
+        if (!compInlineResult->IsFailure())
+        {
+            DoPhase(this, PHASE_POST_IMPORT, [this]() {
+                fgRemoveEmptyBlocks();
+                inlUpdateRetSpillTempClass(impInlineInfo);
+            });
+        }
 
 #ifdef FEATURE_JIT_METHOD_PERF
         if (pCompJitTimer != nullptr)

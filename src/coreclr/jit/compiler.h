@@ -4980,6 +4980,7 @@ private:
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
     void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
+    void inlUpdateRetSpillTempClass(InlineInfo* inlineInfo);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInfo, Statement* stmtAfter);
