@@ -4985,8 +4985,8 @@ private:
     Statement* inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
     bool inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo);
-    bool inlRecordInlineeArgs(InlineInfo* inlineInfo);
-    bool inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
+    bool inlAnalyzeInlineeArgs(InlineInfo* inlineInfo);
+    bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
     GenTree* inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlRecordInlineeLocals(InlineInfo* inlineInfo);
     unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);

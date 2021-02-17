@@ -564,10 +564,9 @@ struct InlArgInfo
     var_types paramType;
 
     bool argIsInvariant : 1;
-    bool argIsLclVar : 1;
+    bool argIsUnaliasedLclVar : 1;
     bool argHasSideEff : 1;
     bool argHasGlobRef : 1;
-    bool paramIsUsed : 1;
     bool paramIsThis : 1;
     bool paramHasLcl : 1;
     bool paramIsAddressTaken : 1;

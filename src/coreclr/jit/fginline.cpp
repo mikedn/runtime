@@ -174,7 +174,7 @@ public:
         // having GTF_CALL set. It's not clear if the change in master is broken and hidden by the now
         // removed GT_PUTARG_TYPE or if there's a bad interaction with a change in mjit.
         // It could also be a pre-existing problem - RET_EXPR being replaced too late:
-        //  - inlRecordInlineeArg itself skips RET_EXPR and sees a side effect free expression
+        //  - inlAnalyzeInlineeArg itself skips RET_EXPR and sees a side effect free expression
         //  - the RET_EXPR is still there in the IR and is yet to be replaced
         //  - being side effect free the return expression is used directly, ignoring an arg temp
         //  - this may happen recursively and another RET_EXPR sneaks in, in place of the temp
@@ -1148,7 +1148,7 @@ bool Compiler::inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo)
 {
     assert(!compIsForInlining());
 
-    if (!inlRecordInlineeArgs(inlineInfo))
+    if (!inlAnalyzeInlineeArgs(inlineInfo))
     {
         return false;
     }
@@ -1168,7 +1168,7 @@ bool Compiler::inlRecordInlineeArgsAndLocals(InlineInfo* inlineInfo)
     return true;
 }
 
-bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
+bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
 {
     CORINFO_SIG_INFO& argsSig = inlineInfo->inlineCandidateInfo->methInfo.args;
 
@@ -1185,7 +1185,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
     {
         argInfo[0].paramIsThis = true;
 
-        if (!inlRecordInlineeArg(inlineInfo, thisArg->GetNode(), argNum))
+        if (!inlAnalyzeInlineeArg(inlineInfo, thisArg->GetNode(), argNum))
         {
             return false;
         }
@@ -1217,7 +1217,7 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
             continue;
         }
 
-        if (!inlRecordInlineeArg(inlineInfo, use.GetNode(), argNum))
+        if (!inlAnalyzeInlineeArg(inlineInfo, use.GetNode(), argNum))
         {
             return false;
         }
@@ -1367,8 +1367,8 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
                 assert(argNode->OperIsConst());
             }
 
-            argInfo[i].argNode     = argNode;
-            argInfo[i].argIsLclVar = false;
+            argInfo[i].argNode              = argNode;
+            argInfo[i].argIsUnaliasedLclVar = false;
 
             continue;
         }
@@ -1425,12 +1425,11 @@ bool Compiler::inlRecordInlineeArgs(InlineInfo* inlineInfo)
     return true;
 }
 
-bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum)
+bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum)
 {
     assert(!argNode->IsRetExpr());
 
     InlArgInfo& argInfo = inlineInfo->ilArgInfo[argNum];
-    argInfo.argNode     = argNode;
 
     JITDUMP("Argument %u%s ", argNum, argInfo.paramIsThis ? " (this)" : "");
 
@@ -1446,6 +1445,9 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
         return false;
     }
 
+    argInfo.argNode     = argNode;
+    argInfo.paramLclNum = BAD_VAR_NUM;
+
     if (argNode->OperIsConst())
     {
         argInfo.argIsInvariant = true;
@@ -1458,7 +1460,7 @@ bool Compiler::inlRecordInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, uns
 
         if (!lcl->lvHasLdAddrOp && !lcl->lvAddrExposed)
         {
-            argInfo.argIsLclVar = true;
+            argInfo.argIsUnaliasedLclVar = true;
 
             JITDUMP("is unaliased local");
         }
@@ -1698,7 +1700,6 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 {
     InlArgInfo& argInfo = inlineInfo->ilArgInfo[ilArgNum];
-    var_types   argType = argInfo.paramType;
     GenTree*    argNode = argInfo.argNode;
 
     assert(!argNode->IsRetExpr());
@@ -1707,14 +1708,11 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     {
         // Directly substitute constants or addresses of locals
         //
-        // Clone the constant. Note that we cannot directly use
-        // argNode in the trees even if !argInfo.argIsUsed as this
-        // would introduce aliasing between inlArgInfo[].argNode and
-        // impInlineExpr. Then gtFoldExpr() could change it, causing
-        // further references to the argument working off of the
-        // bashed copy.
-
-        argInfo.paramLclNum = BAD_VAR_NUM;
+        // Clone the argument expression. Note that we cannot use the original
+        // argument the first time we encounter a use of the parameter, it may
+        // get changed during import and then subsequent uses would clone the
+        // changed tree instead of the original one, or we abort inlining and
+        // the original call will use the changed tree.
 
         argNode = gtCloneExpr(argNode);
 
@@ -1723,43 +1721,43 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         // mismatches that block inlining.
         //
         // Note argument type mismatches that prevent inlining should
-        // have been caught in inlRecordInlineeArgsAndLocals.
+        // have been caught in inlAnalyzeInlineeArgs.
 
-        if (argNode->GetType() != argType)
+        if (argNode->GetType() != argInfo.paramType)
         {
-            argNode->SetType(varActualType(argType));
+            argNode->SetType(varActualType(argInfo.paramType));
         }
 
         return argNode;
     }
 
-    if (argInfo.argIsLclVar && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
+    if (argInfo.argIsUnaliasedLclVar && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
     {
-        assert(!argInfo.argHasGlobRef);
-
         // Directly substitute unaliased caller locals for args that cannot be modified
         //
         // Use the caller-supplied node if this is the first use.
 
-        argInfo.paramLclNum = argNode->AsLclVar()->GetLclNum();
+        unsigned lclNum = argNode->AsLclVar()->GetLclNum();
 
         // Use an equivalent copy if this is the second or subsequent
         // use, or if we need to retype.
         //
         // Note argument type mismatches that prevent inlining should
-        // have been caught in inlRecordInlineeArgsAndLocals.
+        // have been caught in inlAnalyzeInlineeArgs.
 
-        if (argInfo.paramIsUsed || (argNode->GetType() != argType))
+        if ((argInfo.paramLclNum != BAD_VAR_NUM) || (argNode->GetType() != argInfo.paramType))
         {
-            if (!lvaGetDesc(argInfo.paramLclNum)->lvNormalizeOnLoad())
+            var_types paramType = argInfo.paramType;
+
+            if (!lvaGetDesc(lclNum)->lvNormalizeOnLoad())
             {
-                argType = varActualType(argType);
+                paramType = varActualType(paramType);
             }
 
-            argNode = gtNewLclvNode(argInfo.paramLclNum, argType);
+            argNode = gtNewLclvNode(lclNum, paramType);
         }
 
-        argInfo.paramIsUsed = true;
+        argInfo.paramLclNum = lclNum;
 
         return argNode;
     }
@@ -1768,10 +1766,7 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     {
         // We already allocated a temp for this argument, use it.
 
-        assert(argInfo.paramIsUsed);
-        assert(argInfo.paramLclNum < lvaCount);
-
-        argNode = gtNewLclvNode(argInfo.paramLclNum, varActualType(argType));
+        argNode = gtNewLclvNode(argInfo.paramLclNum, varActualType(argInfo.paramType));
 
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
@@ -1779,9 +1774,6 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
         return argNode;
     }
-
-    assert(!argInfo.paramIsUsed);
-    argInfo.paramIsUsed = true;
 
     // Argument is a complex expression - it must be evaluated into a temp.
 
@@ -1793,15 +1785,15 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         tmpLcl->lvHasLdAddrOp = 1;
     }
 
-    if (varTypeIsStruct(argType))
+    if (varTypeIsStruct(argInfo.paramType))
     {
         lvaSetStruct(tmpLclNum, argInfo.paramTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
     }
     else
     {
-        tmpLcl->SetType(argType);
+        tmpLcl->SetType(argInfo.paramType);
 
-        if (argType == TYP_REF)
+        if (argInfo.paramType == TYP_REF)
         {
             if (!argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
             {
@@ -1843,16 +1835,16 @@ GenTree* Compiler::inlFetchInlineeArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     // TODO-1stClassStructs: We currently do not reuse an existing lclVar
     // if it is a struct, because it requires some additional handling.
 
-    if (varTypeIsStruct(argType) || argInfo.argHasSideEff || argInfo.argHasGlobRef)
+    if (varTypeIsStruct(argInfo.paramType) || argInfo.argHasSideEff || argInfo.argHasGlobRef)
     {
-        argNode = gtNewLclvNode(tmpLclNum, varActualType(argType));
+        argNode = gtNewLclvNode(tmpLclNum, varActualType(argInfo.paramType));
     }
     else
     {
         // Allocate a large LCL_VAR node so we can replace it with any
         // other node if it turns out to be single use.
 
-        argNode = gtNewLclLNode(tmpLclNum, varActualType(argType));
+        argNode = gtNewLclLNode(tmpLclNum, varActualType(argInfo.paramType));
 
         // Record argNode as the very first use of this argument.
         // If there are no further uses of the arg, we may be
@@ -2210,15 +2202,11 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
         const InlArgInfo& argInfo = inlineInfo->ilArgInfo[argNum];
         GenTree*          argNode = argInfo.argNode;
 
-        assert(!argNode->IsRetExpr());
-
-        // MKREFANY args currently fail inlining.
-        assert(!argNode->OperIs(GT_MKREFANY));
+        // MKREFANY args currently fail inlining, RET_EXPR should have been replaced already.
+        assert(!argNode->OperIs(GT_MKREFANY, GT_RET_EXPR));
 
         if (argInfo.paramHasLcl)
         {
-            noway_assert(argInfo.paramIsUsed);
-
             // argSingleUse is non-NULL iff the argument's value was
             // referenced exactly once by the original IL. This offers an
             // opportunity to avoid an intermediate temp and just insert
@@ -2340,7 +2328,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             continue;
         }
 
-        if (argInfo.argIsInvariant || argInfo.argIsLclVar)
+        if (argInfo.argIsInvariant || argInfo.argIsUnaliasedLclVar)
         {
             assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
@@ -2348,7 +2336,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             continue;
         }
 
-        noway_assert(!argInfo.paramIsUsed);
+        // This parameter isn't used. We need to preserve argument side effects though.
 
         if (argInfo.argHasSideEff)
         {
