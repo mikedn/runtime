@@ -889,30 +889,37 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
         return;
     }
 
-    inlineInfo->retSpillTempLclNum = lvaGrabTemp(false DEBUGARG("inlinee return spill temp"));
+    unsigned   spillLclNum = lvaGrabTemp(false DEBUGARG("inlinee return spill temp"));
+    LclVarDsc* spillLcl    = lvaGetDesc(spillLclNum);
 
-    LclVarDsc* lcl = lvaGetDesc(inlineInfo->retSpillTempLclNum);
-    // TODO-MIKE-Review: This doesn't seem correct for struct returns...
-    lcl->lvType = info.GetRetSigType();
-
-    // If the method returns a ref class, set the class of the spill temp
-    // to the method's return value. We may update this later if it turns
-    // out we can prove the method returns a more specific type.
-    if (info.GetRetSigType() == TYP_REF)
+    if (varTypeIsStruct(info.GetRetSigType()))
     {
-        if (returnBlockCount == 1)
-        {
-            lcl->lvSingleDef = true;
-            JITDUMP("Marked return spill temp V%02u as a single def temp\n", inlineInfo->retSpillTempLclNum);
-        }
+        lvaSetStruct(spillLclNum, info.compMethodInfo->args.retTypeClass, false);
+    }
+    else
+    {
+        spillLcl->SetType(info.GetRetSigType());
 
-        CORINFO_CLASS_HANDLE retTypeClass = inlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
-
-        if (retTypeClass != nullptr)
+        if (info.GetRetSigType() == TYP_REF)
         {
-            lvaSetClass(inlineInfo->retSpillTempLclNum, retTypeClass);
+            // If the method returns a ref class, set the class of the spill temp
+            // to the method's return value. We may update this later if it turns
+            // out we can prove the method returns a more specific type.
+
+            if (returnBlockCount == 1)
+            {
+                spillLcl->lvSingleDef = true;
+                JITDUMP("Marked return spill temp V%02u as a single def temp\n", spillLclNum);
+            }
+
+            if (info.compMethodInfo->args.retTypeClass != nullptr)
+            {
+                lvaSetClass(spillLclNum, info.compMethodInfo->args.retTypeClass);
+            }
         }
     }
+
+    inlineInfo->retSpillTempLclNum = spillLclNum;
 }
 
 bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO_CLASS_HANDLE retExprClass)
