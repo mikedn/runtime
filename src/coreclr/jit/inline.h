@@ -613,13 +613,7 @@ struct InlineInfo
     InlArgInfo    ilArgInfo[MAX_INL_ARGS];
     InlLclVarInfo ilLocInfo[MAX_INL_LCLS];
 
-    unsigned numberOfGcRefLocals; // Number of TYP_REF and TYP_BYREF locals
-
-    bool HasGcRefLocals() const
-    {
-        return numberOfGcRefLocals > 0;
-    }
-
+    bool hasGCRefLocals;
     bool thisDereferencedFirst;
 #ifdef FEATURE_SIMD
     bool hasSIMDTypeArgLocalOrReturn;

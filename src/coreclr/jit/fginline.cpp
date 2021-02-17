@@ -846,7 +846,7 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
         return;
     }
 
-    if ((returnBlockCount <= 1) && !inlineInfo->HasGcRefLocals())
+    if ((returnBlockCount <= 1) && !inlineInfo->hasGCRefLocals)
     {
         // We need a spill temp only if there are multiple return blocks or if there
         // are GC locals (they need to be nulled out at the end of the inlinee and
@@ -930,7 +930,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
     // for the return value. This temp should have been set up in advance,
     // over in inlAnalyzeInlineeReturn.
 
-    assert(!inlineInfo->HasGcRefLocals() || (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM));
+    assert(!inlineInfo->hasGCRefLocals || (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM));
 
     // Make sure the return value type matches the return signature type.
     {
@@ -1633,7 +1633,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
                 lclInfo.lclIsPinned = true;
             }
 
-            inlineInfo->numberOfGcRefLocals++;
+            inlineInfo->hasGCRefLocals = true;
         }
         else if (lclType == TYP_STRUCT)
         {
@@ -1795,7 +1795,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
     {
         // Since there are GC pointer locals we should have seen them earlier
         // and if there was a return value, set up the spill temp.
-        assert(impInlineInfo->HasGcRefLocals());
+        assert(impInlineInfo->hasGCRefLocals);
         assert((info.GetRetSigType() == TYP_VOID) || (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM));
     }
     else
@@ -2631,7 +2631,7 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBloc
     JITDUMP("Null out inlinee GC locals:\n");
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 
-    if (!inlineInfo->HasGcRefLocals())
+    if (!inlineInfo->hasGCRefLocals)
     {
         JITDUMP("\tInlinee doesn't contain GC locals.\n");
         return;
@@ -2647,20 +2647,11 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBloc
         return;
     }
 
-    INDEBUG(unsigned gcLclCount = 0;)
-
     for (unsigned i = 0; i < inlineInfo->ilLocCount; i++)
     {
         const InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[i];
 
-        if (!varTypeIsGC(lclInfo.lclType))
-        {
-            continue;
-        }
-
-        assert(gcLclCount++ < inlineInfo->numberOfGcRefLocals);
-
-        if (!lclInfo.lclIsUsed)
+        if (!varTypeIsGC(lclInfo.lclType) || !lclInfo.lclIsUsed)
         {
             continue;
         }
