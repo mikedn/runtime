@@ -1391,10 +1391,11 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
             continue;
         }
 
-        if (varTypeIsSmall(paramType))
+        if (varTypeIsSmall(paramType) && varTypeIsIntegral(argNode->GetType()))
         {
-            // LCL_VARs associate with small int locals may have type INT so the above
-            // check isn't sufficient and we may end up adding an unnecessary cast.
+            // LCL_VARs associated with small int locals may have type INT, check
+            // the local type to avoid adding an unncessary cast. Morph will add
+            // one as needed (normalized on store vs. normalize on load).
 
             if (argNode->OperIs(GT_LCL_VAR) && (paramType == lvaGetDesc(argNode->AsLclVar())->GetType()))
             {
