@@ -1963,7 +1963,8 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     // TODO-1stClassStructs: We currently do not reuse an existing lclVar
     // if it is a struct, because it requires some additional handling.
 
-    if (varTypeIsStruct(argInfo.paramType) || argInfo.argHasSideEff || argInfo.argHasGlobRef)
+    if (varTypeIsStruct(argInfo.paramType) || argInfo.argHasSideEff || argInfo.argHasGlobRef ||
+        argInfo.paramIsAddressTaken || argInfo.paramHasStores)
     {
         argNode = gtNewLclvNode(tmpLclNum, varActualType(argInfo.paramType));
     }
@@ -2333,45 +2334,39 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
         // MKREFANY args currently fail inlining, RET_EXPR should have been replaced already.
         assert(!argNode->OperIs(GT_MKREFANY, GT_RET_EXPR));
 
+        if ((argInfo.paramSingleUse != nullptr) && ((argInfo.paramSingleUse->gtFlags & GTF_VAR_CLONED) == 0))
+        {
+            // paramSingleUse is set iff the argument's value was referenced exactly once
+            // in the inlinee. This offers an opportunity to avoid a temp and just use the
+            // original argument tree.
+            //
+            // It's possible for additional uses of the agument to appear without inlUseArg
+            // being called (e.g. when handling isinst or dup) in which case this replacement
+            // cannot be done. This relies on GTF_VAR_CLONED being set on LCL_VARs when they
+            // are cloned to detect such cases, that means the importer is expected to not
+            // "manually" clone LCL_VARs by doing gtNewLclvNode(existingLcl->GetLclNum()...).
+
+            assert(!varTypeIsStruct(argNode->GetType()) && !argInfo.argHasGlobRef && !argInfo.argHasSideEff &&
+                   !argInfo.paramIsAddressTaken && !argInfo.paramHasStores);
+
+            argInfo.paramSingleUse->ReplaceWith(argNode, this);
+
+            // TODO-MIKE-Fix: This moves the argument tree to some inlinee block,
+            // it should copy BBF_IR_SUMMARY flags from the inliner call block.
+            // However, we don't know which inlinee block the arg is moved to.
+            // It doesn't seem worthwhile tracking the inlinee block just for
+            // this - most of the BBF_IR_SUMMARY flags are associated with trees
+            // that have side effects and we don't move those. BBF_HAS_NEWOBJ
+            // is associated with ALLOCOBJ and this node doesn't have side effects
+            // but then it's unlikely for an ALLOCOBJ to be an argument to a call.
+            // Normally the result of ALLOCOBJ is stored to a temp because it has
+            // to be passed to the constructor.
+
+            continue;
+        }
+
         if (argInfo.paramHasLcl)
         {
-            // argSingleUse is non-NULL iff the argument's value was
-            // referenced exactly once by the original IL. This offers an
-            // opportunity to avoid an intermediate temp and just insert
-            // the original argument tree.
-            //
-            // However, if the temp node has been cloned somewhere while
-            // importing (e.g. when handling isinst or dup), or if the IL
-            // took the address of the argument, then argSingleUse will
-            // be set (because the value was only explicitly retrieved
-            // once) but the optimization cannot be applied.
-
-            GenTree* argSingleUseNode = argInfo.paramSingleUse;
-
-            if ((argSingleUseNode != nullptr) && ((argSingleUseNode->gtFlags & GTF_VAR_CLONED) == 0) &&
-                !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
-            {
-                // Change the temp in-place to the actual argument.
-
-                // We currently do not support this for struct arguments, so it must not be a GT_OBJ.
-                assert(!argNode->OperIs(GT_OBJ));
-
-                argSingleUseNode->ReplaceWith(argNode, this);
-
-                // TODO-MIKE-Fix: This moves the argument tree to some inlinee block,
-                // it should copy BBF_IR_SUMMARY flags from the inliner call block.
-                // However, we don't know which inlinee block the arg is moved to.
-                // It doesn't seem worthwhile tracking the inlinee block just for
-                // this - most of the BBF_IR_SUMMARY flags are associated with trees
-                // that have side effects and we don't move those. BBF_HAS_NEWOBJ
-                // is associated with ALLOCOBJ and this node doesn't have side effects
-                // but then it's unlikely for an ALLOCOBJ to be an argument to a call.
-                // Normally the result of ALLOCOBJ is stored to a temp because it has
-                // to be passed to the constructor.
-
-                continue;
-            }
-
             GenTree* asg;
 
             if (!varTypeIsStruct(argInfo.paramType))
