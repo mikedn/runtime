@@ -714,32 +714,19 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
     while (count--)
     {
-        StackEntry se   = impPopStack();
-        GenTree*   temp = se.val;
+        StackEntry se  = impPopStack();
+        GenTree*   val = se.val;
 
-        if (varTypeIsStruct(temp->GetType()))
+        if (varTypeIsStruct(val->GetType()))
         {
             CORINFO_CLASS_HANDLE structType = se.seTypeInfo.GetClassHandleForValueClass();
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Calling impNormStructVal(%s) on:\n", eeGetClassName(structType));
-                gtDispTree(temp);
-            }
-#endif
-            temp = impNormStructVal(temp, structType, CHECK_SPILL_ALL);
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("resulting tree:\n");
-                gtDispTree(temp);
-            }
-#endif
+            JITDUMPTREE(val, "Calling impNormStructVal(%s) on:\n", eeGetClassName(structType));
+            val = impCanonicalizeStructCallArg(val, structType, CHECK_SPILL_ALL);
+            JITDUMPTREE(val, "resulting tree:\n");
         }
 
-        /* NOTE: we defer bashing the type for I_IMPL to fgMorphArgs */
-        argList = gtPrependNewCallArg(temp, argList);
+        // NOTE: we defer bashing the type for I_IMPL to fgMorphArgs
+        argList = gtPrependNewCallArg(val, argList);
     }
 
     if (sig != nullptr)
@@ -1395,7 +1382,7 @@ GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
 // impNormStructType: Normalize the type of a (known to be) struct class handle.
 //
 // Arguments:
-//    structHnd       - The class handle for the struct type of interest.
+//    argClass       - The class handle for the struct type of interest.
 //    pSimdBaseType   - (optional, default nullptr) - if non-null, and the struct is a SIMD
 //                      type, set to the SIMD base type
 //
@@ -1448,80 +1435,51 @@ var_types Compiler::impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types*
     return structType;
 }
 
-//------------------------------------------------------------------------
-//  Compiler::impNormStructVal: Normalize a struct value
-//
-//  Arguments:
-//     structVal - the node we are going to normalize
-//     structHnd - the class handle for the node
-//     curLevel  - the current stack level
-//
-// Notes:
-//     Given struct value 'structVal', make sure it is 'canonical', that is
-//     it is either:
-//     - a known struct type (non-TYP_STRUCT, e.g. TYP_SIMD8)
-//     - an OBJ or a MKREFANY node, or
-//     - a node (e.g. GT_INDEX) that will be morphed.
-//    If the node is a CALL or RET_EXPR, a copy will be made to a new temp.
-//
-GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel)
+GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HANDLE argClass, unsigned curLevel)
 {
-    assert(varTypeIsStruct(structVal->GetType()));
-    assert(structHnd != NO_CLASS_HANDLE);
+    assert(argClass != NO_CLASS_HANDLE);
+    assert(arg->GetType() == impNormStructType(argClass));
 
-    var_types structType = structVal->GetType();
+    unsigned argLclNum = BAD_VAR_NUM;
+    bool     isCanonical;
 
-    if (structType == TYP_STRUCT)
+    switch (arg->GetOper())
     {
-        structType = impNormStructType(structHnd);
-    }
-
-    bool                 makeTemp          = false;
-    bool                 alreadyNormalized = false;
-    GenTreeLclVarCommon* structLcl         = nullptr;
-
-    switch (structVal->GetOper())
-    {
-        case GT_MKREFANY:
-            alreadyNormalized = true;
-            break;
-
         case GT_CALL:
         case GT_RET_EXPR:
-            makeTemp = true;
-            break;
-
-        case GT_FIELD:
-            structVal->SetType(structType);
-
-            if (structType == TYP_STRUCT)
+            // TODO-MIKE-Cleanup: We do need a local temp for calls that return structs via
+            // a return buffer. Do we also need a temp if structs are returned in registers?
             {
-                structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
+                argLclNum          = lvaNewTemp(argClass, true DEBUGARG("struct arg temp"));
+                GenTree* argLclVar = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
+                GenTree* asg       = impAssignStruct(argLclVar, arg, argClass, curLevel);
+
+                impAppendTree(asg, curLevel, impCurStmtOffs);
+
+                arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
             }
+
+            isCanonical = false;
             break;
 
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            structLcl = structVal->AsLclVarCommon();
-            structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
-            assert(structVal->GetType() == structType);
-            alreadyNormalized = true;
+            argLclNum = arg->AsLclVarCommon()->GetLclNum();
+            arg       = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, arg));
+            assert(arg->GetType() == lvaGetDesc(argLclNum)->GetType());
+            isCanonical = true;
             break;
 
-        case GT_INDEX:
-            assert(varTypeIsStruct(structVal->GetType()));
-            alreadyNormalized = true;
-            break;
-
-        case GT_OBJ:
-            assert(structVal->GetType() == structType);
-            alreadyNormalized = true;
+        case GT_FIELD:
+            // FIELDs need to be wrapped in OBJs because FIELD morphing code produces INDs
+            // instead of OBJs so we lose the struct type. They can also be turned into
+            // primitive type LCL_VARs due to single field struct promotion.
+            isCanonical = false;
             break;
 
         case GT_IND:
-            assert(structVal->GetType() == structType);
-            structVal         = gtNewObjNode(structHnd, structVal->AsIndir()->GetAddr());
-            alreadyNormalized = true;
+            arg         = gtNewObjNode(argClass, arg->AsIndir()->GetAddr());
+            isCanonical = true;
             break;
 
 #if defined(FEATURE_SIMD) || defined(FEATURE_HW_INTRINSICS)
@@ -1531,34 +1489,39 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
 #endif
-            assert(varTypeIsSIMD(structVal->GetType()) && (structVal->GetType() == structType));
-            break;
+            assert(varTypeIsSIMD(arg->GetType()));
+            FALLTHROUGH;
 #endif
+        case GT_MKREFANY:
+        case GT_INDEX:
+        case GT_OBJ:
+            isCanonical = true;
+            break;
 
         case GT_COMMA:
         {
-            GenTree* lastComma  = structVal;
-            GenTree* commaValue = structVal->AsOp()->GetOp(1);
+            GenTree* lastComma  = arg;
+            GenTree* commaValue = arg->AsOp()->GetOp(1);
 
             while (commaValue->OperIs(GT_COMMA))
             {
-                assert(commaValue->GetType() == structType);
+                assert(commaValue->GetType() == arg->GetType());
 
                 lastComma  = commaValue;
                 commaValue = commaValue->AsOp()->GetOp(1);
             }
 
-            assert(commaValue->GetType() == structType);
+            assert(commaValue->GetType() == arg->GetType());
 
             if (commaValue->OperIs(GT_FIELD))
             {
-                commaValue = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, commaValue));
+                commaValue = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, commaValue));
             }
 
 #ifdef FEATURE_SIMD
             if (commaValue->OperIsSimdOrHWintrinsic())
             {
-                lastComma->AsOp()->SetOp(1, impNormStructVal(commaValue, structHnd, curLevel));
+                lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argClass, curLevel));
             }
             else
 #endif
@@ -1580,13 +1543,13 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
 
                 commaValue->AsObj()->SetAddr(lastComma);
 
-                if (lastComma == structVal)
+                if (lastComma == arg)
                 {
-                    structVal = commaValue;
+                    arg = commaValue;
                 }
             }
 
-            alreadyNormalized = true;
+            isCanonical = true;
         }
         break;
 
@@ -1594,44 +1557,29 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
             unreached();
     }
 
-    structVal->SetType(structType);
-
-    if (!alreadyNormalized)
+    if (!isCanonical && arg->TypeIs(TYP_STRUCT) && !arg->OperIs(GT_OBJ))
     {
-        if (makeTemp)
-        {
-            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("norm struct val temp"));
-
-            impAssignTempGen(tempLclNum, structVal, structHnd, curLevel);
-
-            structLcl = gtNewLclvNode(tempLclNum, structType);
-            structVal = structLcl;
-        }
-
-        if ((structType == TYP_STRUCT) && !structVal->OperIs(GT_OBJ))
-        {
-            structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
-        }
+        arg = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, arg));
     }
 
-    if (structVal->OperIs(GT_OBJ))
+    if (arg->OperIs(GT_OBJ))
     {
-        if (structLcl != nullptr)
+        if (argLclNum != BAD_VAR_NUM)
         {
             // A OBJ on a ADDR(LCL_VAR) can never raise an exception so we don't set GTF_EXCEPT here.
-            if (!lvaIsImplicitByRefLocal(structLcl->GetLclNum()))
+            if (!lvaGetDesc(argLclNum)->IsImplicitByRefParam())
             {
-                structVal->gtFlags &= ~GTF_GLOB_REF;
+                arg->gtFlags &= ~GTF_GLOB_REF;
             }
         }
         else
         {
             // In general a OBJ is an indirection and could raise an exception.
-            structVal->gtFlags |= GTF_EXCEPT;
+            arg->gtFlags |= GTF_EXCEPT;
         }
     }
 
-    return structVal;
+    return arg;
 }
 
 /******************************************************************************/
@@ -12436,8 +12384,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (helperNode != nullptr)
                     {
                         // TDOO-MIKE-Cleanup: This appears to be the only case where the importer creates
-                        // a struct typed COMMA. Subsequently (impNormStructValue, impAssignStructPtr etc.)
-                        // this is transformed into OBJ(COMMA(...)).
+                        // a struct typed COMMA. Subsequently this is transformed into OBJ(COMMA(...))
+                        // (see impCanonicalizeStructCallArg and impAssignStructPtr).
                         // We could do that here but let's keep it as is for now for testing purposes.
 
                         op1 = gtNewOperNode(GT_COMMA, op1->TypeGet(), helperNode, op1);

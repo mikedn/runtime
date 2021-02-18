@@ -2417,7 +2417,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
                 {
                     lvaSetStruct(tmpNum, structHnd, false);
 
-                    // The argument cannot be a COMMA, impNormStructVal should have changed
+                    // The argument cannot be a COMMA, impCanonicalizeStructCallArg should have changed
                     // it to OBJ(COMMA(...)).
                     // It also cannot be MKREFANY because TypedReference parameters block
                     // inlining. That's probably an unnecessary limitation but who cares
