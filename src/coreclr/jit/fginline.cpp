@@ -2369,17 +2369,19 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
         {
             GenTree* asg;
 
-            if (!varTypeIsStruct(argInfo.paramType))
+            if (argInfo.paramType != TYP_STRUCT)
             {
                 asg = gtNewAssignNode(gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType), argNode);
+
+                if (varTypeIsSIMD(argInfo.paramType))
+                {
+                    gtInitStructCopyAsg(asg->AsOp());
+                }
             }
             else
             {
-                const unsigned  tmpNum  = argInfo.paramLclNum;
-                const var_types argType = argInfo.paramType;
-
-                CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(argNode);
-                noway_assert((structHnd != NO_CLASS_HANDLE) || (argType != TYP_STRUCT));
+                CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(argNode);
+                noway_assert(argClass != NO_CLASS_HANDLE);
 
                 // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
                 // lvaSetStruct - the temp may have type A<SomeRefClass> and argNode may
@@ -2395,46 +2397,35 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
                 // then the IL is likely invalid (pushed a struct with a different type
                 // than the parameter type).
 
-                LclVarDsc*   tmpLcl        = lvaGetDesc(tmpNum);
-                ClassLayout* tmpLayout     = tmpLcl->GetLayout();
+                LclVarDsc*   paramLcl      = lvaGetDesc(argInfo.paramLclNum);
+                ClassLayout* paramLayout   = paramLcl->GetLayout();
                 bool         restoreLayout = false;
 
-                if ((argType == TYP_STRUCT) && (structHnd != tmpLayout->GetClassHandle()))
+                if (argClass != paramLayout->GetClassHandle())
                 {
-                    assert(info.compCompHnd->getClassSize(structHnd) == tmpLayout->GetSize());
+                    assert(info.compCompHnd->getClassSize(argClass) == paramLayout->GetSize());
 
-                    tmpLcl->SetLayout(typGetObjLayout(structHnd));
+                    paramLcl->SetLayout(typGetObjLayout(argClass));
                     restoreLayout = true;
                 }
 
-                assert(!argNode->TypeIs(TYP_STRUCT) || (structHnd != NO_CLASS_HANDLE));
+                // The argument cannot be a COMMA, impCanonicalizeStructCallArg should have changed
+                // it to OBJ(COMMA(...)).
+                // It also cannot be MKREFANY because TypedReference parameters block
+                // inlining. That's probably an unnecessary limitation but who cares
+                // about TypedReference?
+                // This means that impAssignStructPtr won't have to add new statements,
+                // it cannot do that since we're not actually importing IL.
 
-                if (!varTypeIsStruct(argNode->GetType()) || (structHnd == NO_CLASS_HANDLE))
-                {
-                    asg = gtNewTempAssign(tmpNum, argNode);
-                }
-                else
-                {
-                    lvaSetStruct(tmpNum, structHnd, false);
+                assert(!argNode->OperIs(GT_COMMA));
 
-                    // The argument cannot be a COMMA, impCanonicalizeStructCallArg should have changed
-                    // it to OBJ(COMMA(...)).
-                    // It also cannot be MKREFANY because TypedReference parameters block
-                    // inlining. That's probably an unnecessary limitation but who cares
-                    // about TypedReference?
-                    // This means that impAssignStructPtr won't have to add new statements,
-                    // it cannot do that since we're not actually importing IL.
-
-                    assert(!argNode->OperIs(GT_COMMA));
-
-                    GenTree* dst     = gtNewLclvNode(tmpNum, tmpLcl->GetType());
-                    GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
-                    asg              = impAssignStructPtr(dstAddr, argNode, structHnd, CHECK_SPILL_NONE);
-                }
+                GenTree* dst     = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
+                GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
+                asg              = impAssignStructPtr(dstAddr, argNode, argClass, CHECK_SPILL_NONE);
 
                 if (restoreLayout)
                 {
-                    tmpLcl->SetLayout(tmpLayout);
+                    paramLcl->SetLayout(paramLayout);
                 }
             }
 

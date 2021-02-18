@@ -6121,10 +6121,7 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     GenTree* dst = asg->GetOp(0);
     GenTree* src = asg->GetOp(1);
 
-    if (!varTypeIsStruct(dst->GetType()))
-    {
-        return;
-    }
+    assert(varTypeIsStruct(dst->GetType()));
 
     if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
