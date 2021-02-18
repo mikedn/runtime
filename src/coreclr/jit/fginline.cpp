@@ -2372,21 +2372,17 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
                 continue;
             }
 
-            // We're going to assign the argument value to the
-            // temp we use for it in the inline body.
-            const unsigned  tmpNum  = argInfo.paramLclNum;
-            const var_types argType = inlineInfo->ilArgInfo[argNum].paramType;
-
-            // Create the temp assignment for this argument
-
             GenTree* asg;
 
-            if (!varTypeIsStruct(argType))
+            if (!varTypeIsStruct(argInfo.paramType))
             {
-                asg = gtNewTempAssign(tmpNum, argNode);
+                asg = gtNewAssignNode(gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType), argNode);
             }
             else
             {
+                const unsigned  tmpNum  = argInfo.paramLclNum;
+                const var_types argType = argInfo.paramType;
+
                 CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(argNode);
                 noway_assert((structHnd != NO_CLASS_HANDLE) || (argType != TYP_STRUCT));
 
