@@ -63,8 +63,6 @@ PhaseStatus Compiler::fgInline()
         }
     }
 
-    bool madeChanges = false;
-
     for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
         compCurBB = block;
@@ -96,7 +94,6 @@ PhaseStatus Compiler::fgInline()
                 if (removeStmt)
                 {
                     fgRemoveStmt(block, stmt DEBUGARG(/*dumpStmt */ false));
-                    madeChanges = true;
                     continue;
                 }
             }
@@ -105,7 +102,6 @@ PhaseStatus Compiler::fgInline()
             if (expr->OperIs(GT_COMMA) && expr->AsOp()->GetOp(0)->IsCall() && expr->AsOp()->GetOp(1)->OperIs(GT_NOP))
             {
                 stmt->SetRootNode(expr->AsOp()->GetOp(0));
-                madeChanges = true;
             }
         }
 
@@ -134,11 +130,7 @@ PhaseStatus Compiler::fgInline()
     }
 #endif // DEBUG
 
-    // TODO-MIKE-Fix: Change detection is not reliable due to the problem described in
-    // fgUpdateInlineReturnExpressionPlaceHolder.
-    madeChanges = true;
-
-    return madeChanges ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
 class RetExprReplaceVisitor : public GenTreeVisitor<RetExprReplaceVisitor>
