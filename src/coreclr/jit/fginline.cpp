@@ -2438,10 +2438,10 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             continue;
         }
 
-        // This parameter isn't used. We need to preserve argument side effects though.
-
         if (argInfo.argHasSideEff)
         {
+            // This parameter isn't used. We need to preserve argument side effects though.
+
             GenTree* sideEffects = nullptr;
 
             if (argNode->OperIs(GT_OBJ))
@@ -2473,12 +2473,17 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
 
                 DBEXEC(verbose, gtDispStmt(stmt));
             }
+
+            continue;
         }
-        else if (argNode->IsBoxedValue())
+
+        if (argNode->IsBox())
         {
-            // Try to clean up any unnecessary boxing side effects
-            // since the box itself will be ignored.
+            // BOX doesn't have side effects and can be removed and there's
+            // more code associated with it that could be removed as well.
             gtTryRemoveBoxUpstreamEffects(argNode);
+
+            continue;
         }
     }
 

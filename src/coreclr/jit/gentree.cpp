@@ -11524,7 +11524,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
             // Optimize boxed value classes; these are always false.  This IL is
             // generated when a generic value is tested against null:
             //     <T> ... foo(T x) { ... if ((object)x == null) ...
-            if ((val == 0) && op->IsBoxedValue())
+            if ((val == 0) && op->IsBox())
             {
                 JITDUMP("\nAttempting to optimize BOX(valueType) %s null [%06u]\n", GenTree::OpName(oper),
                         dspTreeID(tree));
@@ -11878,7 +11878,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
 GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions options)
 {
-    assert(op->IsBoxedValue());
+    assert(op->IsBox());
 
     // grab related parts for the optimization
     GenTreeBox* box      = op->AsBox();
@@ -12166,7 +12166,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     JITDUMP("Considering optimizing call to Enum.HasFlag....\n");
 
     // Operands must be boxes
-    if (!thisOp->IsBoxedValue() || !flagOp->IsBoxedValue())
+    if (!thisOp->IsBox() || !flagOp->IsBox())
     {
         JITDUMP("bailing, need both inputs to be BOXes\n");
         return nullptr;

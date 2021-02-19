@@ -949,8 +949,6 @@ public:
 #define GTF_QMARK_CAST_INSTOF       0x80000000 // GT_QMARK -- Is this a top (not nested) level qmark created for
                                                //             castclass or instanceof?
 
-#define GTF_BOX_VALUE               0x80000000 // GT_BOX -- "box" is on a value type
-
 #define GTF_ICON_HDL_MASK           0xF0000000 // Bits used by handle types below
 #define GTF_ICON_SCOPE_HDL          0x10000000 // GT_CNS_INT -- constant is a scope handle
 #define GTF_ICON_CLASS_HDL          0x20000000 // GT_CNS_INT -- constant is a class handle
@@ -1672,8 +1670,6 @@ public:
     bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal);
     bool IsIntegralConstVector(ssize_t constVal);
-
-    inline bool IsBoxedValue();
 
     inline GenTree* gtGetOp1() const;
 
@@ -7987,12 +7983,6 @@ inline bool GenTree::IsIntegralConstVector(ssize_t constVal)
 #endif // FEATURE_HW_INTRINSICS
 
     return false;
-}
-
-inline bool GenTree::IsBoxedValue()
-{
-    assert(gtOper != GT_BOX || AsBox()->BoxOp() != nullptr);
-    return (gtOper == GT_BOX) && (gtFlags & GTF_BOX_VALUE);
 }
 
 inline GenTree* GenTree::gtGetOp1() const

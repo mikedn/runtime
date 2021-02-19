@@ -3501,7 +3501,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             op1 = impStackTop(0).val;
 
             // If we're calling GetType on a boxed value, just get the type directly.
-            if (op1->IsBoxedValue())
+            if (op1->IsBox())
             {
                 JITDUMP("Attempting to optimize box(...).getType() to direct type construction\n");
 
@@ -5231,8 +5231,6 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         //    "(box(x)).CallAnInterfaceMethod(...)" --> "(&x).CallAValueTypeMethod"
         //    "(box(x)).CallAnObjectMethod(...)" --> "(&x).CallAValueTypeMethod"
 
-        op1->gtFlags |= GTF_BOX_VALUE;
-        assert(op1->IsBoxedValue());
         assert(asg->gtOper == GT_ASG);
     }
     else
@@ -9027,7 +9025,7 @@ GenTree* Compiler::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
                 GenTree* result = gtNewIconNode(0, TYP_REF);
 
                 // If the cast was fed by a box, we can remove that too.
-                if (op1->IsBoxedValue())
+                if (op1->IsBox())
                 {
                     JITDUMP("Also removing upstream box\n");
                     gtTryRemoveBoxUpstreamEffects(op1);
@@ -16222,7 +16220,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #endif // defined(DEBUG)
 
     // If the 'this' object is a box, see if we can find the unboxed entry point for the call.
-    if (thisObj->IsBoxedValue())
+    if (thisObj->IsBox())
     {
         JITDUMP("Now have direct call to boxed entry point, looking for unboxed entry point\n");
 

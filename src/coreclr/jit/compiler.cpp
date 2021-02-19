@@ -8825,14 +8825,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
                 break;
 
-            case GT_BOX:
-
-                if (tree->gtFlags & GTF_BOX_VALUE)
-                {
-                    chars += printf("[BOX_VALUE]");
-                }
-                break;
-
             case GT_CNS_INT:
 
             {
