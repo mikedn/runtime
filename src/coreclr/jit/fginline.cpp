@@ -1299,9 +1299,7 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
             paramType = TYP_BYREF;
 
 #ifdef FEATURE_SIMD
-            if (!foundSIMDType &&
-                (info.compCompHnd->getTypeForPrimitiveValueClass(methodClass) == CORINFO_TYPE_UNDEF) &&
-                isSIMDorHWSIMDClass(methodClass))
+            if (!foundSIMDType && isSIMDorHWSIMDClass(methodClass))
             {
                 foundSIMDType = true;
             }

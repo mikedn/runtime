@@ -7323,31 +7323,32 @@ private:
 
     bool isSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
-        if (isIntrinsicType(clsHnd))
+        if (!isIntrinsicType(clsHnd))
         {
-            const char* namespaceName = nullptr;
-            (void)getClassNameFromMetadata(clsHnd, &namespaceName);
-            return strcmp(namespaceName, "System.Numerics") == 0;
+            return false;
         }
-        return false;
-    }
 
-    bool isHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
-    {
-#ifdef FEATURE_HW_INTRINSICS
-        if (isIntrinsicType(clsHnd))
-        {
-            const char* namespaceName = nullptr;
-            (void)getClassNameFromMetadata(clsHnd, &namespaceName);
-            return strcmp(namespaceName, "System.Runtime.Intrinsics") == 0;
-        }
-#endif // FEATURE_HW_INTRINSICS
-        return false;
+        const char* namespaceName = nullptr;
+        getClassNameFromMetadata(clsHnd, &namespaceName);
+
+        return strcmp(namespaceName, "System.Numerics") == 0;
     }
 
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
-        return isSIMDClass(clsHnd) || isHWSIMDClass(clsHnd);
+        if (!isIntrinsicType(clsHnd))
+        {
+            return false;
+        }
+
+        const char* namespaceName = nullptr;
+        getClassNameFromMetadata(clsHnd, &namespaceName);
+
+        return
+#ifdef FEATURE_HW_INTRINSICS
+            (strcmp(namespaceName, "System.Runtime.Intrinsics") == 0) ||
+#endif
+            (strcmp(namespaceName, "System.Numerics") == 0);
     }
 
     // Get the base (element) type and size in bytes for a SIMD type. Returns TYP_UNKNOWN
