@@ -723,7 +723,6 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     inlineInfo.iciBlock            = compCurBB;
     inlineInfo.iciStmt             = stmt;
     inlineInfo.iciCall             = call;
-    inlineInfo.fncHandle           = call->GetMethodHandle();
     inlineInfo.inlineCandidateInfo = call->GetInlineCandidateInfo();
     inlineInfo.inlineResult        = inlineResult;
     inlineInfo.retSpillTempLclNum  = BAD_VAR_NUM;
@@ -748,9 +747,11 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
 
             inlineInfo->tokenLookupContextHandle = inlineInfo->inlineCandidateInfo->exactContextHnd;
 
+            CORINFO_METHOD_HANDLE methodHandle = inlineInfo->iciCall->GetMethodHandle();
+
             JITLOG_THIS(inlinerCompiler,
                         (LL_INFO100000, "INLINER: inlineInfo.tokenLookupContextHandle for %s set to 0x%p:\n",
-                         inlinerCompiler->eeGetMethodFullName(inlineInfo->fncHandle),
+                         inlinerCompiler->eeGetMethodFullName(methodHandle),
                          inlinerCompiler->dspPtr(inlineInfo->tokenLookupContextHandle)));
 
             JitFlags compileFlags = *inlinerCompiler->opts.jitFlags;
@@ -766,9 +767,9 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
             compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
 
             JITDUMP("\nInvoking compiler for the inlinee method %s :\n",
-                    inlinerCompiler->eeGetMethodFullName(inlineInfo->fncHandle));
+                    inlinerCompiler->eeGetMethodFullName(methodHandle));
 
-            int result = jitNativeCode(inlineInfo->fncHandle, inlineInfo->inlineCandidateInfo->methInfo.scope,
+            int result = jitNativeCode(methodHandle, inlineInfo->inlineCandidateInfo->methInfo.scope,
                                        inlinerCompiler->info.compCompHnd, &inlineInfo->inlineCandidateInfo->methInfo,
                                        nullptr, nullptr, &compileFlags, inlineInfo);
 
@@ -782,10 +783,12 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
         },
         &inlineInfo);
 
+    CORINFO_METHOD_HANDLE methodHandle = inlineInfo.iciCall->GetMethodHandle();
+
     if (!success)
     {
         JITDUMP("\nInlining failed due to an exception during invoking the compiler for the inlinee method %s.\n",
-                eeGetMethodFullName(inlineInfo.fncHandle));
+                eeGetMethodFullName(methodHandle));
 
         // If we haven't yet determined why this inline fails, use
         // a catch-all something bad happened observation.
@@ -808,7 +811,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     if ((call->GetRetSigType() != TYP_VOID) && (inlineInfo.retExpr == nullptr))
     {
         JITDUMP("\nInlining failed because pInlineInfo->retExpr is not set in the inlinee method %s.\n",
-                eeGetMethodFullName(inlineInfo.fncHandle));
+                eeGetMethodFullName(methodHandle));
 
         inlineResult->NoteFatal(InlineObservation::CALLEE_LACKS_RETURN);
 
@@ -823,7 +826,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
 
     JITDUMP("\nSuccessfully inlined %s (%d IL bytes) (depth %d) [%s]\n"
             "--------------------------------------------------------------------------------------------\n",
-            eeGetMethodFullName(inlineInfo.fncHandle), inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth,
+            eeGetMethodFullName(methodHandle), inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth,
             inlineResult->ReasonString());
 
     INDEBUG(impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)

@@ -1231,7 +1231,7 @@ InlineContext* InlineStrategy::NewSuccess(InlineInfo* inlineInfo)
 
     calleeContext->m_Policy           = policy;
     calleeContext->m_CodeSizeEstimate = policy->CodeSizeEstimate();
-    calleeContext->m_Callee           = inlineInfo->fncHandle;
+    calleeContext->m_Callee           = inlineInfo->iciCall->GetMethodHandle();
     // +1 here since we set this before calling NoteOutcome.
     calleeContext->m_Ordinal = m_InlineCount + 1;
     // Update offset with more accurate info

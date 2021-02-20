@@ -594,8 +594,7 @@ struct InlineInfo
 {
     Compiler* InlinerCompiler; // The Compiler instance for the caller (i.e. the inliner)
 
-    CORINFO_METHOD_HANDLE fncHandle;
-    InlineCandidateInfo*  inlineCandidateInfo;
+    InlineCandidateInfo* inlineCandidateInfo;
 
     InlineResult* inlineResult;
 
