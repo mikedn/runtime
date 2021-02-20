@@ -592,25 +592,19 @@ struct InlLclVarInfo
 
 struct InlineInfo
 {
-    Compiler* InlinerCompiler; // The Compiler instance for the caller (i.e. the inliner)
+    Compiler*              InlinerCompiler;
+    BasicBlock*            iciBlock; // The call block
+    Statement*             iciStmt;  // The call statement
+    GenTreeCall*           iciCall;  // The call node
+    InlineCandidateInfo*   inlineCandidateInfo;
+    CORINFO_CONTEXT_HANDLE tokenLookupContextHandle;
+    InlineResult*          inlineResult;
 
-    InlineCandidateInfo* inlineCandidateInfo;
-
-    InlineResult* inlineResult;
-
-    GenTree*             retExpr; // The return expression of the inlined candidate.
+    GenTree*             retExpr;
     uint64_t             retBlockIRSummary;
     CORINFO_CLASS_HANDLE retExprClassHnd;
     bool                 retExprClassHndIsExact;
     unsigned             retSpillTempLclNum;
-
-    CORINFO_CONTEXT_HANDLE tokenLookupContextHandle; // The context handle that will be passed to
-                                                     // impTokenLookupContextHandle in Inlinee's Compiler.
-
-    unsigned      ilArgCount;
-    unsigned      ilLocCount;
-    InlArgInfo    ilArgInfo[MAX_INL_ARGS];
-    InlLclVarInfo ilLocInfo[MAX_INL_LCLS];
 
     bool hasGCRefLocals;
     bool thisDereferencedFirst;
@@ -618,11 +612,6 @@ struct InlineInfo
     bool hasSIMDTypeArgLocalOrReturn;
 #endif
 
-    GenTreeCall* iciCall;  // The GT_CALL node to be inlined.
-    Statement*   iciStmt;  // The statement iciCall is in.
-    BasicBlock*  iciBlock; // The basic block iciStmt is in.
-
-    // Profile support
     enum class ProfileScaleState
     {
         UNDETERMINED,
@@ -632,6 +621,11 @@ struct InlineInfo
 
     ProfileScaleState profileScaleState;
     double            profileScaleFactor;
+
+    unsigned      ilArgCount;
+    unsigned      ilLocCount;
+    InlArgInfo    ilArgInfo[MAX_INL_ARGS];
+    InlLclVarInfo ilLocInfo[MAX_INL_LCLS];
 };
 
 // InlineContext tracks the inline history in a method.

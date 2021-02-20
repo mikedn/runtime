@@ -719,14 +719,15 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     InlineInfo inlineInfo;
     memset(&inlineInfo, 0, sizeof(inlineInfo));
 
-    inlineInfo.InlinerCompiler     = this;
-    inlineInfo.iciBlock            = compCurBB;
-    inlineInfo.iciStmt             = stmt;
-    inlineInfo.iciCall             = call;
-    inlineInfo.inlineCandidateInfo = call->GetInlineCandidateInfo();
-    inlineInfo.inlineResult        = inlineResult;
-    inlineInfo.retSpillTempLclNum  = BAD_VAR_NUM;
-    inlineInfo.profileScaleState   = InlineInfo::ProfileScaleState::UNDETERMINED;
+    inlineInfo.InlinerCompiler          = this;
+    inlineInfo.iciBlock                 = compCurBB;
+    inlineInfo.iciStmt                  = stmt;
+    inlineInfo.iciCall                  = call;
+    inlineInfo.inlineCandidateInfo      = call->GetInlineCandidateInfo();
+    inlineInfo.tokenLookupContextHandle = inlineInfo.inlineCandidateInfo->exactContextHnd;
+    inlineInfo.inlineResult             = inlineResult;
+    inlineInfo.retSpillTempLclNum       = BAD_VAR_NUM;
+    inlineInfo.profileScaleState        = InlineInfo::ProfileScaleState::UNDETERMINED;
 
     unsigned inlineDepth = inlCheckInlineDepthAndRecursion(&inlineInfo);
 
@@ -744,8 +745,6 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
             {
                 return;
             }
-
-            inlineInfo->tokenLookupContextHandle = inlineInfo->inlineCandidateInfo->exactContextHnd;
 
             CORINFO_METHOD_HANDLE methodHandle = inlineInfo->iciCall->GetMethodHandle();
 
