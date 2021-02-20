@@ -740,7 +740,12 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
         [](InlineInfo* inlineInfo) {
             Compiler* inlinerCompiler = inlineInfo->InlinerCompiler;
 
-            if (!inlinerCompiler->inlAnalyzeInlineeArgsAndLocals(inlineInfo))
+            if (!inlinerCompiler->inlAnalyzeInlineeSignature(inlineInfo))
+            {
+                return;
+            }
+
+            if (!inlinerCompiler->inlAnalyzeInlineeLocals(inlineInfo))
             {
                 return;
             }
@@ -1178,31 +1183,7 @@ unsigned Compiler::inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo)
     return depth;
 }
 
-bool Compiler::inlAnalyzeInlineeArgsAndLocals(InlineInfo* inlineInfo)
-{
-    assert(!compIsForInlining());
-
-    if (!inlAnalyzeInlineeArgs(inlineInfo))
-    {
-        return false;
-    }
-
-    if (!inlAnalyzeInlineeLocals(inlineInfo))
-    {
-        return false;
-    }
-
-#ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(inlineInfo->iciCall->GetRetSigType()))
-    {
-        inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
-    }
-#endif
-
-    return true;
-}
-
-bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
+bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 {
     CORINFO_SIG_INFO& argsSig = inlineInfo->inlineCandidateInfo->methInfo.args;
 
@@ -1261,11 +1242,13 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
 
     assert(argNum == inlineInfo->ilArgCount);
 
-// Init the types of the arguments and make sure the types
-// from the trees match the types in the signature
-
 #ifdef FEATURE_SIMD
     bool foundSIMDType = inlineInfo->hasSIMDTypeArgLocalOrReturn;
+
+    if (varTypeIsSIMD(inlineInfo->iciCall->GetRetSigType()))
+    {
+        foundSIMDType = true;
+    }
 #endif
 
     if (thisArg != nullptr)

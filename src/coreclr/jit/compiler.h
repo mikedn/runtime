@@ -4983,8 +4983,7 @@ private:
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
-    bool inlAnalyzeInlineeArgsAndLocals(InlineInfo* inlineInfo);
-    bool inlAnalyzeInlineeArgs(InlineInfo* inlineInfo);
+    bool inlAnalyzeInlineeSignature(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
     void inlNoteParamStore(InlineInfo* inlineInfo, unsigned ilArgNum);
     void inlNoteAddressTakenParam(InlineInfo* inlineInfo, unsigned ilArgNum);
