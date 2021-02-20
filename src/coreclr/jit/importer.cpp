@@ -13778,7 +13778,7 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
             return;
         }
 
-        impPushOnStack(inlUseArg(impInlineInfo, ilArgNum), inlGetParamTypeInfo(impInlineInfo, ilArgNum));
+        impPushOnStack(inlUseArg(impInlineInfo, ilArgNum), impInlineInfo->GetParamTypeInfo(ilArgNum));
     }
     else
     {
@@ -15214,7 +15214,7 @@ bool Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
         return false;
     }
 
-    if (!inlIsThisParam(impInlineInfo, dereferencedAddress))
+    if (!impInlineInfo->IsThisParam(dereferencedAddress))
     {
         return false;
     }

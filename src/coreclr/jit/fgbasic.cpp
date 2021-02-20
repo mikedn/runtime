@@ -1079,7 +1079,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (isInlining)
                 {
-                    inlNoteParamStore(impInlineInfo, varNum);
+                    impInlineInfo->NoteParamStore(varNum);
                 }
                 else
                 {
@@ -1119,7 +1119,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             STLOC:
                 if (isInlining)
                 {
-                    inlNoteLocalStore(impInlineInfo, varNum);
+                    impInlineInfo->NoteLocalStore(varNum);
                 }
                 else
                 {
@@ -1162,13 +1162,13 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                 {
                     if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
-                        inlNoteAddressTakenLocal(impInlineInfo, varNum);
-                        typeIsNormed = inlIsNormedTypeLocal(impInlineInfo, varNum);
+                        impInlineInfo->NoteAddressTakenLocal(varNum);
+                        typeIsNormed = impInlineInfo->IsNormedTypeLocal(varNum);
                     }
                     else
                     {
-                        inlNoteAddressTakenParam(impInlineInfo, varNum);
-                        typeIsNormed = inlIsNormedTypeParam(impInlineInfo, varNum);
+                        impInlineInfo->NoteAddressTakenParam(varNum);
+                        typeIsNormed = impInlineInfo->IsNormedTypeParam(varNum);
 
                         pushedStack.PushArgument(varNum);
                     }
@@ -1536,7 +1536,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
                     // Check for the double whammy of an incoming constant argument
                     // feeding a constant test.
                     unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-                    if (inlIsInvariantArg(impInlineInfo, varNum))
+                    if (impInlineInfo->IsInvariantArg(varNum))
                     {
                         compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                     }
@@ -1578,7 +1578,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-            if (inlIsInvariantArg(impInlineInfo, varNum))
+            if (impInlineInfo->IsInvariantArg(varNum))
             {
                 compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
@@ -1589,7 +1589,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot1);
-            if (inlIsInvariantArg(impInlineInfo, varNum))
+            if (impInlineInfo->IsInvariantArg(varNum))
             {
                 compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }

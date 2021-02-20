@@ -4985,17 +4985,8 @@ private:
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeSignature(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
-    void inlNoteParamStore(InlineInfo* inlineInfo, unsigned ilArgNum);
-    void inlNoteAddressTakenParam(InlineInfo* inlineInfo, unsigned ilArgNum);
-    bool inlIsNormedTypeParam(InlineInfo* inlineInfo, unsigned ilArgNum);
-    bool inlIsInvariantArg(InlineInfo* inlineInfo, unsigned ilArgNum);
-    typeInfo inlGetParamTypeInfo(InlineInfo* inlineInfo, unsigned ilArgNum);
-    bool inlIsThisParam(InlineInfo* inlineInfo, GenTree* tree);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlAnalyzeInlineeLocals(InlineInfo* inlineInfo);
-    void inlNoteLocalStore(InlineInfo* inlineInfo, unsigned ilLocNum);
-    void inlNoteAddressTakenLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
-    bool inlIsNormedTypeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     unsigned inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     Statement* inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt);

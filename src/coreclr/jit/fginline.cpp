@@ -1488,41 +1488,41 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, un
     return true;
 }
 
-void Compiler::inlNoteParamStore(InlineInfo* inlineInfo, unsigned ilArgNum)
+void InlineInfo::NoteParamStore(unsigned ilArgNum)
 {
-    if (ilArgNum < inlineInfo->ilArgCount)
+    if (ilArgNum < ilArgCount)
     {
-        inlineInfo->ilArgInfo[ilArgNum].paramHasStores = true;
+        ilArgInfo[ilArgNum].paramHasStores = true;
     }
 }
 
-void Compiler::inlNoteAddressTakenParam(InlineInfo* inlineInfo, unsigned ilArgNum)
+void InlineInfo::NoteAddressTakenParam(unsigned ilArgNum)
 {
-    if (ilArgNum < inlineInfo->ilArgCount)
+    if (ilArgNum < ilArgCount)
     {
-        inlineInfo->ilArgInfo[ilArgNum].paramIsAddressTaken = true;
+        ilArgInfo[ilArgNum].paramIsAddressTaken = true;
     }
 }
 
-bool Compiler::inlIsNormedTypeParam(InlineInfo* inlineInfo, unsigned ilArgNum)
+bool InlineInfo::IsNormedTypeParam(unsigned ilArgNum) const
 {
     // TODO-MIKE-Cleanup: The below check is incorrect, it classifies all primitive
     // types as "normed". It is based on old code that used typeInfo's IsValueClass
     // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
 
-    return (ilArgNum < inlineInfo->ilArgCount) && (inlineInfo->ilArgInfo[ilArgNum].paramType <= TYP_DOUBLE);
+    return (ilArgNum < ilArgCount) && (ilArgInfo[ilArgNum].paramType <= TYP_DOUBLE);
 }
 
-bool Compiler::inlIsInvariantArg(InlineInfo* inlineInfo, unsigned ilArgNum)
+bool InlineInfo::IsInvariantArg(unsigned ilArgNum) const
 {
-    return (ilArgNum < inlineInfo->ilArgCount) && inlineInfo->ilArgInfo[ilArgNum].argIsInvariant;
+    return (ilArgNum < ilArgCount) && ilArgInfo[ilArgNum].argIsInvariant;
 }
 
-typeInfo Compiler::inlGetParamTypeInfo(InlineInfo* inlineInfo, unsigned ilArgNum)
+typeInfo InlineInfo::GetParamTypeInfo(unsigned ilArgNum) const
 {
-    assert(ilArgNum < inlineInfo->ilArgCount);
+    assert(ilArgNum < ilArgCount);
 
-    const InlArgInfo& argInfo = inlineInfo->ilArgInfo[ilArgNum];
+    const InlArgInfo& argInfo = ilArgInfo[ilArgNum];
 
     if (argInfo.paramType == TYP_REF)
     {
@@ -1540,11 +1540,10 @@ typeInfo Compiler::inlGetParamTypeInfo(InlineInfo* inlineInfo, unsigned ilArgNum
     return typeInfo();
 }
 
-bool Compiler::inlIsThisParam(InlineInfo* inlineInfo, GenTree* tree)
+bool InlineInfo::IsThisParam(GenTree* tree) const
 {
-    return tree->OperIs(GT_LCL_VAR) && (inlineInfo->ilArgCount > 0) &&
-           (tree->AsLclVar()->GetLclNum() == inlineInfo->ilArgInfo[0].paramLclNum) &&
-           inlineInfo->ilArgInfo[0].paramIsThis;
+    return tree->OperIs(GT_LCL_VAR) && (ilArgCount > 0) &&
+           (tree->AsLclVar()->GetLclNum() == ilArgInfo[0].paramLclNum) && ilArgInfo[0].paramIsThis;
 }
 
 bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
@@ -1642,11 +1641,11 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
     return true;
 }
 
-void Compiler::inlNoteLocalStore(InlineInfo* inlineInfo, unsigned ilLocNum)
+void InlineInfo::NoteLocalStore(unsigned ilLocNum)
 {
-    if (ilLocNum < inlineInfo->ilLocCount)
+    if (ilLocNum < ilLocCount)
     {
-        InlLclVarInfo& info = inlineInfo->ilLocInfo[ilLocNum];
+        InlLclVarInfo& info = ilLocInfo[ilLocNum];
 
         if (info.lclHasStlocOp)
         {
@@ -1659,21 +1658,21 @@ void Compiler::inlNoteLocalStore(InlineInfo* inlineInfo, unsigned ilLocNum)
     }
 }
 
-void Compiler::inlNoteAddressTakenLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+void InlineInfo::NoteAddressTakenLocal(unsigned ilLocNum)
 {
-    if (ilLocNum < inlineInfo->ilLocCount)
+    if (ilLocNum < ilLocCount)
     {
-        inlineInfo->ilLocInfo[ilLocNum].lclHasLdlocaOp = true;
+        ilLocInfo[ilLocNum].lclHasLdlocaOp = true;
     }
 }
 
-bool Compiler::inlIsNormedTypeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+bool InlineInfo::IsNormedTypeLocal(unsigned ilLocNum) const
 {
     // TODO-MIKE-Cleanup: The below check is incorrect, it classifies all primitive
     // types as "normed". It is based on old code that used typeInfo's IsValueClass
     // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
 
-    return (ilLocNum < inlineInfo->ilLocCount) && (inlineInfo->ilLocInfo[ilLocNum].lclType <= TYP_DOUBLE);
+    return (ilLocNum < ilLocCount) && (ilLocInfo[ilLocNum].lclType <= TYP_DOUBLE);
 }
 
 unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)

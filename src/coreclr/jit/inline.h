@@ -625,6 +625,17 @@ struct InlineInfo
     unsigned      ilLocCount;
     InlArgInfo    ilArgInfo[MAX_INL_ARGS];
     InlLclVarInfo ilLocInfo[MAX_INL_LCLS];
+
+    void NoteParamStore(unsigned ilArgNum);
+    void NoteAddressTakenParam(unsigned ilArgNum);
+    bool IsNormedTypeParam(unsigned ilArgNum) const;
+    bool IsInvariantArg(unsigned ilArgNum) const;
+    typeInfo GetParamTypeInfo(unsigned ilArgNum) const;
+    bool IsThisParam(GenTree* tree) const;
+
+    void NoteLocalStore(unsigned ilLocNum);
+    void NoteAddressTakenLocal(unsigned ilLocNum);
+    bool IsNormedTypeLocal(unsigned ilLocNum) const;
 };
 
 // InlineContext tracks the inline history in a method.
