@@ -2233,19 +2233,6 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
 
     afterStmt = inlInitInlineeLocals(inlineInfo, afterStmt);
 
-    // Update any newly added statements with the appropriate context.
-
-    InlineContext* context = inlineInfo->iciStmt->GetInlineContext();
-
-    if (context != nullptr)
-    {
-        for (Statement* stmt = inlineInfo->iciStmt->GetNextStmt(); stmt != afterStmt->GetNextStmt();
-             stmt            = stmt->GetNextStmt())
-        {
-            stmt->SetInlineContext(context);
-        }
-    }
-
     return afterStmt;
 }
 
@@ -2364,6 +2351,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             }
 
             Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+            stmt->SetInlineContext(inlineInfo->iciStmt->GetInlineContext());
             fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
             afterStmt = stmt;
 
@@ -2410,6 +2398,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             if (sideEffects != nullptr)
             {
                 Statement* stmt = gtNewStmt(sideEffects, inlineInfo->iciStmt->GetILOffsetX());
+                stmt->SetInlineContext(inlineInfo->iciStmt->GetInlineContext());
                 fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
                 afterStmt = stmt;
 
