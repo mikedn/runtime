@@ -469,6 +469,11 @@ public:
         return m_Policy;
     }
 
+    Compiler* GetRootCompiler() const
+    {
+        return m_RootCompiler;
+    }
+
     // SetReported indicates that this particular result doesn't need
     // to be reported back to the runtime, either because the runtime
     // already knows, or we aren't actually inlining yet.
@@ -747,6 +752,8 @@ public:
         return m_ImportedILSize;
     }
 
+    void AddChild(InlineContext* child);
+
 private:
     InlineContext(InlineStrategy* strategy);
 
@@ -787,6 +794,8 @@ public:
     // Construct a new inline strategy.
     InlineStrategy(Compiler* compiler);
 
+    void BeginInlining();
+
     // Create context for a successful inline.
     InlineContext* NewSuccess(InlineInfo* inlineInfo);
 
@@ -799,8 +808,10 @@ public:
         return m_Compiler;
     }
 
-    // Root context
-    InlineContext* GetRootContext();
+    InlineContext* GetRootContext()
+    {
+        return m_RootContext;
+    }
 
     // Context for the last sucessful inline
     // (or root if no inlines)

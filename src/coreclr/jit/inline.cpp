@@ -349,6 +349,18 @@ InlineContext::InlineContext(InlineStrategy* strategy)
     // Empty
 }
 
+void InlineContext::AddChild(InlineContext* child)
+{
+    assert(child->m_Parent == nullptr);
+
+    // Pushing the new context on the front of the parent child list will
+    // put siblings in reverse lexical order which we undo in the dumper.
+
+    child->m_Parent  = this;
+    child->m_Sibling = m_Child;
+    m_Child          = child;
+}
+
 #if defined(DEBUG) || defined(INLINE_DATA)
 
 //------------------------------------------------------------------------
@@ -589,6 +601,12 @@ InlineResult::InlineResult(Compiler* compiler, GenTreeCall* call, Statement* stm
     if (stmt != nullptr)
     {
         m_InlineContext = stmt->GetInlineContext();
+
+        if (m_InlineContext == nullptr)
+        {
+            m_InlineContext = compiler->m_inlineStrategy->GetRootContext();
+        }
+
         m_Policy->NoteContext(m_InlineContext);
 
 #if defined(DEBUG) || defined(INLINE_DATA)
@@ -820,46 +838,33 @@ InlineStrategy::InlineStrategy(Compiler* compiler)
 #endif // DEBUG
 }
 
-//------------------------------------------------------------------------
-// GetRootContext: get the InlineContext for the root method
-//
-// Return Value:
-//    Root context; describes the method being jitted.
-//
-// Note:
-//    Also initializes the jit time estimate and budget.
-
-InlineContext* InlineStrategy::GetRootContext()
+void InlineStrategy::BeginInlining()
 {
-    if (m_RootContext == nullptr)
-    {
-        // Allocate on first demand.
-        m_RootContext = NewRoot();
+    assert(m_RootContext == nullptr);
 
-        // Estimate how long the jit will take if there's no inlining
-        // done to this method.
-        m_InitialTimeEstimate = EstimateTime(m_RootContext);
-        m_CurrentTimeEstimate = m_InitialTimeEstimate;
+    m_RootContext = NewRoot();
 
-        // Set the initial budget for inlining. Note this is
-        // deliberately set very high and is intended to catch
-        // only pathological runaway inline cases.
-        m_InitialTimeBudget = BUDGET * m_InitialTimeEstimate;
-        m_CurrentTimeBudget = m_InitialTimeBudget;
+    // Estimate how long the jit will take if there's no inlining
+    // done to this method.
+    m_InitialTimeEstimate = EstimateTime(m_RootContext);
+    m_CurrentTimeEstimate = m_InitialTimeEstimate;
 
-        // Estimate the code size  if there's no inlining
-        m_InitialSizeEstimate = EstimateSize(m_RootContext);
-        m_CurrentSizeEstimate = m_InitialSizeEstimate;
+    // Set the initial budget for inlining. Note this is
+    // deliberately set very high and is intended to catch
+    // only pathological runaway inline cases.
+    m_InitialTimeBudget = BUDGET * m_InitialTimeEstimate;
+    m_CurrentTimeBudget = m_InitialTimeBudget;
 
-        // Sanity check
-        assert(m_CurrentTimeEstimate > 0);
-        assert(m_CurrentSizeEstimate > 0);
+    // Estimate the code size  if there's no inlining
+    m_InitialSizeEstimate = EstimateSize(m_RootContext);
+    m_CurrentSizeEstimate = m_InitialSizeEstimate;
 
-        // Cache as the "last" context created
-        m_LastContext = m_RootContext;
-    }
+    // Sanity check
+    assert(m_CurrentTimeEstimate > 0);
+    assert(m_CurrentSizeEstimate > 0);
 
-    return m_RootContext;
+    // Cache as the "last" context created
+    m_LastContext = m_RootContext;
 }
 
 //------------------------------------------------------------------------
@@ -1200,54 +1205,46 @@ InlineContext* InlineStrategy::NewRoot()
 
 InlineContext* InlineStrategy::NewSuccess(InlineInfo* inlineInfo)
 {
-    InlineContext* calleeContext = new (m_Compiler, CMK_Inlining) InlineContext(this);
-    Statement*     stmt          = inlineInfo->iciStmt;
-    BYTE*          calleeIL      = inlineInfo->inlineCandidateInfo->methInfo.ILCode;
-    unsigned       calleeILSize  = inlineInfo->inlineCandidateInfo->methInfo.ILCodeSize;
-    InlineContext* parentContext = stmt->GetInlineContext();
-    GenTreeCall*   originalCall  = inlineInfo->inlineResult->GetCall();
+    InlineContext* context = new (m_Compiler, CMK_Inlining) InlineContext(this);
 
-    noway_assert(parentContext != nullptr);
+    InlineContext* callerContext = inlineInfo->iciStmt->GetInlineContext();
+    if (callerContext == nullptr)
+    {
+        callerContext = inlineInfo->InlinerCompiler->m_inlineStrategy->GetRootContext();
+    }
+    callerContext->AddChild(context);
 
-    calleeContext->m_Code   = calleeIL;
-    calleeContext->m_ILSize = calleeILSize;
-    calleeContext->m_Parent = parentContext;
-    // Push on front here will put siblings in reverse lexical
-    // order which we undo in the dumper
-    calleeContext->m_Sibling        = parentContext->m_Child;
-    parentContext->m_Child          = calleeContext;
-    calleeContext->m_Child          = nullptr;
-    calleeContext->m_Offset         = stmt->GetILOffsetX();
-    calleeContext->m_Observation    = inlineInfo->inlineResult->GetObservation();
-    calleeContext->m_Success        = true;
-    calleeContext->m_Devirtualized  = originalCall->IsDevirtualized();
-    calleeContext->m_Guarded        = originalCall->IsGuarded();
-    calleeContext->m_Unboxed        = originalCall->IsUnboxed();
-    calleeContext->m_ImportedILSize = inlineInfo->inlineResult->GetImportedILSize();
+    GenTreeCall* call = inlineInfo->inlineResult->GetCall();
+
+    context->m_Code           = inlineInfo->inlineCandidateInfo->methInfo.ILCode;
+    context->m_ILSize         = inlineInfo->inlineCandidateInfo->methInfo.ILCodeSize;
+    context->m_Offset         = inlineInfo->iciStmt->GetILOffsetX();
+    context->m_Observation    = inlineInfo->inlineResult->GetObservation();
+    context->m_Success        = true;
+    context->m_Devirtualized  = call->IsDevirtualized();
+    context->m_Guarded        = call->IsGuarded();
+    context->m_Unboxed        = call->IsUnboxed();
+    context->m_ImportedILSize = inlineInfo->inlineResult->GetImportedILSize();
 
 #if defined(DEBUG) || defined(INLINE_DATA)
 
     InlinePolicy* policy = inlineInfo->inlineResult->GetPolicy();
 
-    calleeContext->m_Policy           = policy;
-    calleeContext->m_CodeSizeEstimate = policy->CodeSizeEstimate();
-    calleeContext->m_Callee           = inlineInfo->iciCall->GetMethodHandle();
+    context->m_Policy           = policy;
+    context->m_CodeSizeEstimate = policy->CodeSizeEstimate();
+    context->m_Callee           = inlineInfo->iciCall->GetMethodHandle();
     // +1 here since we set this before calling NoteOutcome.
-    calleeContext->m_Ordinal = m_InlineCount + 1;
+    context->m_Ordinal = m_InlineCount + 1;
     // Update offset with more accurate info
-    calleeContext->m_Offset = originalCall->gtRawILOffset;
+    context->m_Offset = call->gtRawILOffset;
 
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-#if defined(DEBUG)
+    INDEBUG(context->m_TreeID = call->GetID();)
 
-    calleeContext->m_TreeID = originalCall->gtTreeID;
+    NoteOutcome(context);
 
-#endif // defined(DEBUG)
-
-    NoteOutcome(calleeContext);
-
-    return calleeContext;
+    return context;
 }
 
 #if defined(DEBUG) || defined(INLINE_DATA)
@@ -1265,46 +1262,43 @@ InlineContext* InlineStrategy::NewSuccess(InlineInfo* inlineInfo)
 
 InlineContext* InlineStrategy::NewFailure(Statement* stmt, const InlineResult& inlineResult)
 {
-    // Check for a parent context first. We should now have a parent
-    // context for all statements.
-    InlineContext* parentContext = stmt->GetInlineContext();
-    assert(parentContext != nullptr);
-    InlineContext* failedContext = new (m_Compiler, CMK_Inlining) InlineContext(this);
-    GenTreeCall*   originalCall  = inlineResult.GetCall();
+    InlineContext* context = new (m_Compiler, CMK_Inlining) InlineContext(this);
 
-    // Pushing the new context on the front of the parent child list
-    // will put siblings in reverse lexical order which we undo in the
-    // dumper.
-    failedContext->m_Parent        = parentContext;
-    failedContext->m_Sibling       = parentContext->m_Child;
-    parentContext->m_Child         = failedContext;
-    failedContext->m_Child         = nullptr;
-    failedContext->m_Offset        = stmt->GetILOffsetX();
-    failedContext->m_Observation   = inlineResult.GetObservation();
-    failedContext->m_Callee        = inlineResult.GetCallee();
-    failedContext->m_Success       = false;
-    failedContext->m_Devirtualized = originalCall->IsDevirtualized();
-    failedContext->m_Guarded       = originalCall->IsGuarded();
-    failedContext->m_Unboxed       = originalCall->IsUnboxed();
+    // TODO-MIKE-Cleanup: This isn't always correct - a failed candidate that is part
+    // of a return expression will end up in some ancestor's statement instead of the
+    // immediate caller's statement. Only affects inline tree dumps.
 
-    assert(InlIsValidObservation(failedContext->m_Observation));
+    InlineContext* callerContext = stmt->GetInlineContext();
+    if (callerContext == nullptr)
+    {
+        callerContext = inlineResult.GetRootCompiler()->m_inlineStrategy->GetRootContext();
+    }
+    callerContext->AddChild(context);
+
+    GenTreeCall* call = inlineResult.GetCall();
+
+    context->m_Offset        = stmt->GetILOffsetX();
+    context->m_Observation   = inlineResult.GetObservation();
+    context->m_Callee        = inlineResult.GetCallee();
+    context->m_Success       = false;
+    context->m_Devirtualized = call->IsDevirtualized();
+    context->m_Guarded       = call->IsGuarded();
+    context->m_Unboxed       = call->IsUnboxed();
+
+    assert(InlIsValidObservation(context->m_Observation));
 
 #if defined(DEBUG) || defined(INLINE_DATA)
 
     // Update offset with more accurate info
-    failedContext->m_Offset = originalCall->gtRawILOffset;
+    context->m_Offset = call->gtRawILOffset;
 
 #endif // #if defined(DEBUG) || defined(INLINE_DATA)
 
-#if defined(DEBUG)
+    INDEBUG(context->m_TreeID = call->GetID();)
 
-    failedContext->m_TreeID = originalCall->gtTreeID;
+    NoteOutcome(context);
 
-#endif // defined(DEBUG)
-
-    NoteOutcome(failedContext);
-
-    return failedContext;
+    return context;
 }
 
 //------------------------------------------------------------------------

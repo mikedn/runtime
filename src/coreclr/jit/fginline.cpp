@@ -52,16 +52,7 @@ PhaseStatus Compiler::fgInline()
                                                                         &info.compMethodInfo->args);
 #endif // DEBUG
 
-    // Set the root inline context on all statements
-    InlineContext* rootContext = m_inlineStrategy->GetRootContext();
-
-    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
-    {
-        for (Statement* stmt : block->Statements())
-        {
-            stmt->SetInlineContext(rootContext);
-        }
-    }
+    m_inlineStrategy->BeginInlining();
 
     for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
@@ -1148,16 +1139,20 @@ void Compiler::inlUpdateRetSpillTempClass(InlineInfo* inlineInfo)
     }
 }
 
-// Compute depth of the candidate, and check for recursion.
-// We generally disallow recursive inlines by policy. However, they are
-// supported by the underlying machinery.
-// Likewise the depth limit is a policy consideration, and serves mostly
-// as a safeguard to prevent runaway inlining of small methods.
-//
 unsigned Compiler::inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo)
 {
+    // Compute depth of the candidate, and check for recursion.
+    // We generally disallow recursive inlines by policy. However, they are
+    // supported by the underlying machinery.
+    // Likewise the depth limit is a policy consideration, and serves mostly
+    // as a safeguard to prevent runaway inlining of small methods.
+
     InlineContext* inlineContext = inlineInfo->iciStmt->GetInlineContext();
-    assert(inlineContext != nullptr);
+
+    if (inlineContext == nullptr)
+    {
+        inlineContext = m_inlineStrategy->GetRootContext();
+    }
 
     int depth = 0;
 
@@ -1180,6 +1175,7 @@ unsigned Compiler::inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo)
     }
 
     inlineInfo->inlineResult->NoteInt(InlineObservation::CALLSITE_DEPTH, depth);
+
     return depth;
 }
 
@@ -2240,13 +2236,14 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
     // Update any newly added statements with the appropriate context.
 
     InlineContext* context = inlineInfo->iciStmt->GetInlineContext();
-    assert(context != nullptr);
 
-    for (Statement* stmt = inlineInfo->iciStmt->GetNextStmt(); stmt != afterStmt->GetNextStmt();
-         stmt            = stmt->GetNextStmt())
+    if (context != nullptr)
     {
-        assert(stmt->GetInlineContext() == nullptr);
-        stmt->SetInlineContext(context);
+        for (Statement* stmt = inlineInfo->iciStmt->GetNextStmt(); stmt != afterStmt->GetNextStmt();
+             stmt            = stmt->GetNextStmt())
+        {
+            stmt->SetInlineContext(context);
+        }
     }
 
     return afterStmt;
