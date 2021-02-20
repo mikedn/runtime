@@ -1543,19 +1543,11 @@ void Compiler::inlNoteAddressTakenParam(InlineInfo* inlineInfo, unsigned ilArgNu
 
 bool Compiler::inlIsNormedTypeParam(InlineInfo* inlineInfo, unsigned ilArgNum)
 {
-    // TODO-MIKE-Cleanup: The below IsValueClass check is incorrect, it also includes
-    // primitive types so any primitive type local is treated as "normed type". The
-    // correct check is IsType(TI_STRUCT) but changing this affects inlining decisions
-    // and causes a few diffs.
-    //
-    // Note that in the non-inlining case the check was also incorrect but because
-    // lvImpTypeInfo is not normally set on true primitive locals the mistake had no
-    // observable effects.
-    //
-    // inlIsNormedTypeLocal has the same issue.
+    // TODO-MIKE-Cleanup: The below check is incorrect, it classifies all primitive
+    // types as "normed". It is based on old code that used typeInfo's IsValueClass
+    // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
 
-    return (ilArgNum < inlineInfo->ilArgCount) && !varTypeIsStruct(inlineInfo->ilArgInfo[ilArgNum].paramType) &&
-           inlineInfo->ilArgInfo[ilArgNum].paramTypeInfo.IsValueClass();
+    return (ilArgNum < inlineInfo->ilArgCount) && (inlineInfo->ilArgInfo[ilArgNum].paramType <= TYP_DOUBLE);
 }
 
 bool Compiler::inlIsInvariantArg(InlineInfo* inlineInfo, unsigned ilArgNum)
@@ -1706,8 +1698,11 @@ void Compiler::inlNoteAddressTakenLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
 bool Compiler::inlIsNormedTypeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
-    return (ilLocNum < inlineInfo->ilLocCount) && !varTypeIsStruct(inlineInfo->ilLocInfo[ilLocNum].lclType) &&
-           inlineInfo->ilLocInfo[ilLocNum].lclTypeInfo.IsValueClass();
+    // TODO-MIKE-Cleanup: The below check is incorrect, it classifies all primitive
+    // types as "normed". It is based on old code that used typeInfo's IsValueClass
+    // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
+
+    return (ilLocNum < inlineInfo->ilLocCount) && (inlineInfo->ilLocInfo[ilLocNum].lclType <= TYP_DOUBLE);
 }
 
 unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
