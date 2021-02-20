@@ -1407,8 +1407,6 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
                 return false;
             }
 
-            argInfo[i].paramTypeInfo = typeInfo(TI_I_IMPL);
-
             continue;
         }
 
@@ -1432,7 +1430,6 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
 
             assert(argNode->OperIs(GT_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
             argNode->SetType(TYP_I_IMPL);
-            argInfo[i].paramTypeInfo = typeInfo(TI_I_IMPL);
 
             continue;
         }
