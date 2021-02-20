@@ -1397,30 +1397,18 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
             continue;
         }
 
-        if (paramType == TYP_BYREF)
+        if ((paramType == TYP_BYREF) && argNode->TypeIs(TYP_I_IMPL))
         {
             // Native int args can be coerced to BYREF.
-
-            if (!argNode->TypeIs(TYP_I_IMPL))
-            {
-                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-                return false;
-            }
 
             continue;
         }
 
-        if (argNode->TypeIs(TYP_BYREF))
+        if ((paramType == TYP_I_IMPL) && argNode->TypeIs(TYP_BYREF))
         {
             // BYREF args cannot be coerced to native int but the JIT ignores the spec.
             // But this is done only if the arg represents a local address which is BYREF
             // in spec but in reality is just a native pointer.
-
-            if (paramType != TYP_I_IMPL)
-            {
-                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-                return false;
-            }
 
             if (argNode->IsLocalAddrExpr() == nullptr)
             {
