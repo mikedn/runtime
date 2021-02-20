@@ -592,13 +592,12 @@ struct InlLclVarInfo
 
 struct InlineInfo
 {
-    Compiler*              InlinerCompiler;
-    BasicBlock*            iciBlock; // The call block
-    Statement*             iciStmt;  // The call statement
-    GenTreeCall*           iciCall;  // The call node
-    InlineCandidateInfo*   inlineCandidateInfo;
-    CORINFO_CONTEXT_HANDLE tokenLookupContextHandle;
-    InlineResult*          inlineResult;
+    Compiler*            InlinerCompiler;
+    BasicBlock*          iciBlock; // The call block
+    Statement*           iciStmt;  // The call statement
+    GenTreeCall*         iciCall;  // The call node
+    InlineCandidateInfo* inlineCandidateInfo;
+    InlineResult*        inlineResult;
 
     GenTree*             retExpr;
     uint64_t             retBlockIRSummary;

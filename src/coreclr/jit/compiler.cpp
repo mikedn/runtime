@@ -5402,7 +5402,7 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
     // Set the context for token lookup.
     if (compIsForInlining())
     {
-        impTokenLookupContextHandle = impInlineInfo->tokenLookupContextHandle;
+        impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
 
         assert(impInlineInfo->inlineCandidateInfo->clsHandle == info.compCompHnd->getMethodClass(info.compMethodHnd));
         info.compClassHnd = impInlineInfo->inlineCandidateInfo->clsHandle;
