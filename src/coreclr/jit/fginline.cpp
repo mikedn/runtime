@@ -1298,26 +1298,14 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
 
             paramType = TYP_BYREF;
 
-            if (info.compCompHnd->getTypeForPrimitiveValueClass(methodClass) == CORINFO_TYPE_UNDEF)
-            {
-                // TODO-MIKE-Cleanup: Like LDLOCA import, this generates incorrect type information,
-                // TI_STRUCT without marking it byref. And then if the arg is a native pointer the
-                // type info is changed to I_IMPL?! This makes no sense.
-
-                paramTypeInfo = typeInfo(TI_STRUCT, methodClass);
-
-                if (argNode->TypeIs(TYP_I_IMPL))
-                {
-                    paramTypeInfo = typeInfo(TI_I_IMPL);
-                }
-
 #ifdef FEATURE_SIMD
-                if (!foundSIMDType && isSIMDorHWSIMDClass(methodClass))
-                {
-                    foundSIMDType = true;
-                }
-#endif
+            if (!foundSIMDType &&
+                (info.compCompHnd->getTypeForPrimitiveValueClass(methodClass) == CORINFO_TYPE_UNDEF) &&
+                isSIMDorHWSIMDClass(methodClass))
+            {
+                foundSIMDType = true;
             }
+#endif
         }
 
         argInfo[0].paramType     = paramType;
