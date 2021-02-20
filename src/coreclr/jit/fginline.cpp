@@ -1273,30 +1273,24 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
 
     if (thisArg != nullptr)
     {
-        var_types paramType;
-        typeInfo  paramTypeInfo;
-
         CORINFO_CLASS_HANDLE methodClass = inlineInfo->inlineCandidateInfo->clsHandle;
         GenTree*             argNode     = thisArg->GetNode();
 
         if ((inlineInfo->inlineCandidateInfo->clsAttr & CORINFO_FLG_VALUECLASS) == 0)
         {
-            if (argNode->GetType() != TYP_REF)
+            if (!argNode->TypeIs(TYP_REF))
             {
-                // The argument cannot be coerced to REF.
                 inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
                 return false;
             }
 
-            paramType     = TYP_REF;
-            paramTypeInfo = typeInfo(TI_REF, methodClass);
+            argInfo[0].paramType  = TYP_REF;
+            argInfo[0].paramClass = methodClass;
         }
         else
         {
             // A native pointer can be passed as "this" to a method of a struct.
             assert(argNode->TypeIs(TYP_BYREF, TYP_I_IMPL));
-
-            paramType = TYP_BYREF;
 
 #ifdef FEATURE_SIMD
             if (!foundSIMDType && isSIMDorHWSIMDClass(methodClass))
@@ -1304,10 +1298,10 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
                 foundSIMDType = true;
             }
 #endif
-        }
 
-        argInfo[0].paramType     = paramType;
-        argInfo[0].paramTypeInfo = paramTypeInfo;
+            argInfo[0].paramType  = TYP_BYREF;
+            argInfo[0].paramClass = NO_CLASS_HANDLE;
+        }
     }
 
     CORINFO_ARG_LIST_HANDLE paramHandle = argsSig.args;
@@ -1317,15 +1311,15 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
         CORINFO_CLASS_HANDLE paramClass;
         CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(&argsSig, paramHandle, &paramClass));
         var_types            paramType    = JITtype2varType(paramCorType);
-        typeInfo             paramTypeInfo;
 
         if (paramType == TYP_REF)
         {
-            paramTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&argsSig, paramHandle));
+            paramClass = info.compCompHnd->getArgClass(&argsSig, paramHandle);
         }
         else if (paramType == TYP_BYREF)
         {
-            // Don't generate typeInfo for byref, it's not needed and requires extra VM calls.
+            // Ignore whatever class the runtime may have returned, we don't need it.
+            paramClass = NO_CLASS_HANDLE;
         }
         else if (paramType == TYP_STRUCT)
         {
@@ -1339,21 +1333,18 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
                 paramType     = impNormStructType(paramClass);
             }
 #endif
-
-            paramTypeInfo = typeInfo(TI_STRUCT, paramClass);
         }
         else if (paramClass != NO_CLASS_HANDLE)
         {
-            assert(info.compCompHnd->isValueClass(paramClass));
-            assert(info.compCompHnd->getTypeForPrimitiveValueClass(paramClass) == CORINFO_TYPE_UNDEF);
-
             // This is a "normed type" - a struct that contains a single primitive type field.
             // See lvaInitVarDsc.
-            paramTypeInfo = typeInfo(TI_STRUCT, paramClass);
+
+            assert(info.compCompHnd->isValueClass(paramClass));
+            assert(info.compCompHnd->getTypeForPrimitiveValueClass(paramClass) == CORINFO_TYPE_UNDEF);
         }
 
-        argInfo[i].paramType     = paramType;
-        argInfo[i].paramTypeInfo = paramTypeInfo;
+        argInfo[i].paramType  = paramType;
+        argInfo[i].paramClass = paramClass;
 
         // Does the tree type match the signature type?
 
@@ -1551,7 +1542,22 @@ typeInfo Compiler::inlGetParamTypeInfo(InlineInfo* inlineInfo, unsigned ilArgNum
 {
     assert(ilArgNum < inlineInfo->ilArgCount);
 
-    return inlineInfo->ilArgInfo[ilArgNum].paramTypeInfo;
+    const InlArgInfo& argInfo = inlineInfo->ilArgInfo[ilArgNum];
+
+    if (argInfo.paramType == TYP_REF)
+    {
+        return typeInfo(TI_REF, argInfo.paramClass);
+    }
+
+    if (argInfo.paramClass != NO_CLASS_HANDLE)
+    {
+        // Make sure we didn't get a handle for a BYREF, it wouldn't be a normed/struct type.
+        assert(argInfo.paramType != TYP_BYREF);
+
+        return typeInfo(TI_STRUCT, argInfo.paramClass);
+    }
+
+    return typeInfo();
 }
 
 bool Compiler::inlIsThisParam(InlineInfo* inlineInfo, GenTree* tree)
@@ -1575,13 +1581,17 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
         CORINFO_CLASS_HANDLE lclClass;
         CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
         var_types            lclType    = JITtype2varType(strip(lclCorType));
-        typeInfo             lclTypeInfo;
 
         if (varTypeIsGC(lclType))
         {
             if (lclType == TYP_REF)
             {
-                lclTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&localsSig, localHandle));
+                lclClass = info.compCompHnd->getArgClass(&localsSig, localHandle);
+            }
+            else
+            {
+                // Make sure we don't have a class handle for a BYREF so we don't mistake it for a normed type.
+                lclClass = NO_CLASS_HANDLE;
             }
 
             if ((lclCorType & CORINFO_TYPE_MOD_PINNED) != 0)
@@ -1631,21 +1641,18 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
                 lclType       = impNormStructType(lclClass);
             }
 #endif
-
-            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
         }
         else if (lclClass != NO_CLASS_HANDLE)
         {
-            assert(info.compCompHnd->isValueClass(lclClass));
-            assert(info.compCompHnd->getTypeForPrimitiveValueClass(lclClass) == CORINFO_TYPE_UNDEF);
-
             // This is a "normed type" - a struct that contains a single primitive type field.
             // See lvaInitVarDsc.
-            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
+
+            assert(info.compCompHnd->isValueClass(lclClass));
+            assert(info.compCompHnd->getTypeForPrimitiveValueClass(lclClass) == CORINFO_TYPE_UNDEF);
         }
 
-        lclInfo.lclType     = lclType;
-        lclInfo.lclTypeInfo = lclTypeInfo;
+        lclInfo.lclType  = lclType;
+        lclInfo.lclClass = lclClass;
     }
 
 #ifdef FEATURE_SIMD
@@ -1719,7 +1726,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
     if (varTypeIsStruct(lclInfo.lclType))
     {
-        lvaSetStruct(lclNum, lclInfo.lclTypeInfo.GetClassHandle(), /* unsafeValueClsCheck */ true);
+        lvaSetStruct(lclNum, lclInfo.lclClass, /* unsafeValueClsCheck */ true);
     }
     else
     {
@@ -1739,13 +1746,16 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
                 JITDUMP("Marked V%02u as a single def temp\n", lclNum);
             }
 
-            lvaSetClass(lclNum, lclInfo.lclTypeInfo.GetClassHandleForObjRef());
+            lvaSetClass(lclNum, lclInfo.lclClass);
         }
-        else if (lclInfo.lclTypeInfo.IsType(TI_STRUCT))
+        else if (lclInfo.lclClass != NO_CLASS_HANDLE)
         {
-            // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
+            // This is a "normed type", we need to set lvImpTypeInfo to preserve the struct handle.
 
-            lcl->lvImpTypeInfo = lclInfo.lclTypeInfo;
+            // Make sure we didn't get a handle for a BYREF, it wouldn't be a normed type.
+            assert(lclInfo.lclType != TYP_BYREF);
+
+            lcl->lvImpTypeInfo = typeInfo(TI_STRUCT, lclInfo.lclClass);
         }
     }
 
@@ -1860,7 +1870,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     if (varTypeIsStruct(argInfo.paramType))
     {
-        lvaSetStruct(tmpLclNum, argInfo.paramTypeInfo.GetClassHandle(), /* unsafe value cls check */ true);
+        lvaSetStruct(tmpLclNum, argInfo.paramClass, /* unsafeValueClsCheck */ true);
     }
     else
     {
@@ -1878,20 +1888,23 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
                 JITDUMP("Marked V%02u as a single def temp\n", tmpLclNum);
 
-                lvaSetClass(tmpLclNum, argInfo.argNode, argInfo.paramTypeInfo.GetClassHandleForObjRef());
+                lvaSetClass(tmpLclNum, argInfo.argNode, argInfo.paramClass);
             }
             else
             {
                 // Arg might be modified, use the declared type of the argument.
 
-                lvaSetClass(tmpLclNum, argInfo.paramTypeInfo.GetClassHandleForObjRef());
+                lvaSetClass(tmpLclNum, argInfo.paramClass);
             }
         }
-        else if (argInfo.paramTypeInfo.IsType(TI_STRUCT))
+        else if (argInfo.paramClass != NO_CLASS_HANDLE)
         {
-            // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
+            // This is a "normed type", we need to set lvImpTypeInfo to preserve the struct handle.
 
-            tmpLcl->lvImpTypeInfo = argInfo.paramTypeInfo;
+            // Make sure we didn't get a handle for a BYREF, it wouldn't be a normed type.
+            assert(argInfo.paramType != TYP_BYREF);
+
+            tmpLcl->lvImpTypeInfo = typeInfo(TI_STRUCT, argInfo.paramClass);
         }
     }
 

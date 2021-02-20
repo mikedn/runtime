@@ -557,11 +557,11 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
 
 struct InlArgInfo
 {
-    GenTree*  argNode;
-    GenTree*  paramSingleUse;
-    typeInfo  paramTypeInfo;
-    unsigned  paramLclNum;
-    var_types paramType;
+    GenTree*             argNode;
+    GenTree*             paramSingleUse;
+    CORINFO_CLASS_HANDLE paramClass;
+    unsigned             paramLclNum;
+    var_types            paramType;
 
     bool argIsInvariant : 1;
     bool argIsUnaliasedLclVar : 1;
@@ -577,9 +577,9 @@ struct InlArgInfo
 
 struct InlLclVarInfo
 {
-    typeInfo  lclTypeInfo;
-    unsigned  lclNum;
-    var_types lclType;
+    CORINFO_CLASS_HANDLE lclClass;
+    unsigned             lclNum;
+    var_types            lclType;
 
     bool lclIsUsed : 1;
     bool lclHasLdlocaOp : 1;        // Is there LDLOCA(s) operation on this local?

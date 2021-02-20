@@ -10051,9 +10051,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // was transformed into a byref.
                 //
                 // In general we do not need typeInfo for non-struct values but LDFLD import code depends
-                // on this because of the "normed type" mess. LDFLD accepts pretty all sorts of types as
-                // source - REF, I_IMPL, STRUCT - and the generated IR is different for STRUCT because in
-                // that case we really need the address of the struct value.
+                // on this because of the "normed type" mess. LDFLD accepts pretty much all sorts of types
+                // as source - REF, I_IMPL, STRUCT - and the generated IR is different for STRUCT because
+                // in that case we really need the address of the struct value.
                 // But with the "normed type" thing we can end up with INT/LONG instead of STRUCT on the
                 // stack and then the LDFLD import code can no longer figure out if it needs the address.
                 // So it checks if lvImpTypeInfo contains a handle, set by lvaInitVarDsc and others.
