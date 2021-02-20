@@ -1351,14 +1351,6 @@ bool Compiler::inlAnalyzeInlineeArgs(InlineInfo* inlineInfo)
             // See lvaInitVarDsc.
             paramTypeInfo = typeInfo(TI_STRUCT, paramClass);
         }
-        else if (paramCorType <= CORINFO_TYPE_DOUBLE)
-        {
-            // TODO-MIKE-Cleanup: This shouldn't be necessary but inlIsNormedTypeParam
-            // is broken - it uses typeInfo::IsValueClass(), which returns true for any
-            // primitive type, and thus detects any primitive type as being normed type.
-
-            paramTypeInfo = typeInfo(JITtype2tiType(paramCorType));
-        }
 
         argInfo[i].paramType     = paramType;
         argInfo[i].paramTypeInfo = paramTypeInfo;
@@ -1650,14 +1642,6 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
             // This is a "normed type" - a struct that contains a single primitive type field.
             // See lvaInitVarDsc.
             lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
-        }
-        else if (strip(lclCorType) <= CORINFO_TYPE_DOUBLE)
-        {
-            // TODO-MIKE-Cleanup: This shouldn't be necessary but inlIsNormedTypeLocal
-            // is broken - it uses typeInfo::IsValueClass(), which returns true for any
-            // primitive type, and thus detects any primitive type as being normed type.
-
-            lclTypeInfo = typeInfo(JITtype2tiType(strip(lclCorType)));
         }
 
         lclInfo.lclType     = lclType;
