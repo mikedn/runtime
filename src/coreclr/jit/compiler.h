@@ -4981,7 +4981,7 @@ private:
     void inlUpdateRetSpillTempClass(InlineInfo* inlineInfo);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeSignature(InlineInfo* inlineInfo);
-    bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
+    bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlAnalyzeInlineeLocals(InlineInfo* inlineInfo);
     unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);

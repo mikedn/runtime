@@ -707,7 +707,6 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     fgMorphStmt = stmt;
 
     InlineInfo inlineInfo;
-    memset(&inlineInfo, 0, sizeof(inlineInfo));
 
     inlineInfo.InlinerCompiler     = this;
     inlineInfo.iciBlock            = compCurBB;
@@ -715,8 +714,24 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     inlineInfo.iciCall             = call;
     inlineInfo.inlineCandidateInfo = call->GetInlineCandidateInfo();
     inlineInfo.inlineResult        = inlineResult;
-    inlineInfo.retSpillTempLclNum  = BAD_VAR_NUM;
-    inlineInfo.profileScaleState   = InlineInfo::ProfileScaleState::UNDETERMINED;
+
+    inlineInfo.retExpr                = nullptr;
+    inlineInfo.retBlockIRSummary      = 0;
+    inlineInfo.retExprClassHnd        = NO_CLASS_HANDLE;
+    inlineInfo.retExprClassHndIsExact = false;
+    inlineInfo.retSpillTempLclNum     = BAD_VAR_NUM;
+
+    inlineInfo.hasGCRefLocals        = false;
+    inlineInfo.thisDereferencedFirst = false;
+#ifdef FEATURE_SIMD
+    inlineInfo.hasSIMDTypeArgLocalOrReturn = false;
+#endif
+
+    inlineInfo.profileScaleState  = InlineInfo::ProfileScaleState::UNDETERMINED;
+    inlineInfo.profileScaleFactor = 0;
+
+    inlineInfo.ilArgCount = 0;
+    inlineInfo.ilLocCount = 0;
 
     unsigned inlineDepth = inlCheckInlineDepthAndRecursion(&inlineInfo);
 
@@ -1175,14 +1190,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     if (thisArg != nullptr)
     {
-        argInfo[0].paramIsThis = true;
-
-        if (!inlAnalyzeInlineeArg(inlineInfo, thisArg->GetNode(), argNum))
-        {
-            return false;
-        }
-
-        argNum++;
+        new (&argInfo[argNum++]) InlArgInfo(thisArg->GetNode(), true);
     }
 
     unsigned typeCtxtArgNum = UINT32_MAX;
@@ -1190,7 +1198,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
     if ((argsSig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
     {
 #if USER_ARGS_COME_LAST
-        typeCtxtArgNum = (thisArg != nullptr) ? 1 : 0;
+        typeCtxtArgNum = argNum;
 #else
         typeCtxtArgNum = inlineInfo->ilArgCount;
 #endif
@@ -1209,15 +1217,18 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
             continue;
         }
 
-        if (!inlAnalyzeInlineeArg(inlineInfo, use.GetNode(), argNum))
-        {
-            return false;
-        }
-
-        argNum++;
+        new (&argInfo[argNum++]) InlArgInfo(use.GetNode());
     }
 
     assert(argNum == inlineInfo->ilArgCount);
+
+    for (unsigned i = 0; i < argNum; i++)
+    {
+        if (!inlAnalyzeInlineeArg(inlineInfo, i))
+        {
+            return false;
+        }
+    }
 
 #ifdef FEATURE_SIMD
     bool foundSIMDType = inlineInfo->hasSIMDTypeArgLocalOrReturn;
@@ -1235,6 +1246,12 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
         if ((inlineInfo->inlineCandidateInfo->clsAttr & CORINFO_FLG_VALUECLASS) == 0)
         {
+            if (argNode->IsIntegralConst(0))
+            {
+                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_HAS_NULL_THIS);
+                return false;
+            }
+
             if (!argNode->TypeIs(TYP_REF))
             {
                 inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
@@ -1374,38 +1391,29 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
     return true;
 }
 
-bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum)
+bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
 {
-    assert(!argNode->IsRetExpr());
-
     InlArgInfo& argInfo = inlineInfo->ilArgInfo[argNum];
 
     JITDUMP("Argument %u%s ", argNum, argInfo.paramIsThis ? " (this)" : "");
 
-    if (argNode->OperIs(GT_MKREFANY))
+    if (argInfo.argNode->OperIs(GT_MKREFANY))
     {
         inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_IS_MKREFANY);
         return false;
     }
 
-    if (argInfo.paramIsThis && argNode->IsIntegralConst(0))
-    {
-        inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_HAS_NULL_THIS);
-        return false;
-    }
+    assert(!argInfo.argNode->IsRetExpr());
 
-    argInfo.argNode     = argNode;
-    argInfo.paramLclNum = BAD_VAR_NUM;
-
-    if (argNode->OperIsConst())
+    if (argInfo.argNode->OperIsConst())
     {
         argInfo.argIsInvariant = true;
 
         JITDUMP("is constant");
     }
-    else if (argNode->OperIs(GT_LCL_VAR))
+    else if (argInfo.argNode->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* lcl = lvaGetDesc(argNode->AsLclVar());
+        LclVarDsc* lcl = lvaGetDesc(argInfo.argNode->AsLclVar());
 
         if (!lcl->lvHasLdAddrOp && !lcl->lvAddrExposed)
         {
@@ -1420,28 +1428,25 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, un
             JITDUMP("is aliased local");
         }
     }
-    else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argNode))
+    else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argInfo.argNode))
     {
         argInfo.argIsInvariant = true;
 
-        if (varTypeIsStruct(addrLclVar->GetType()))
-        {
 #ifdef FEATURE_SIMD
-            if (lvaGetDesc(addrLclVar)->lvSIMDType)
-            {
-                inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
-            }
-#endif
+        if (varTypeIsStruct(addrLclVar->GetType()) && lvaGetDesc(addrLclVar)->lvSIMDType)
+        {
+            inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
         }
+#endif
 
         JITDUMP("is local address");
     }
     else
     {
-        if ((argNode->gtFlags & GTF_ALL_EFFECT) != 0)
+        if ((argInfo.argNode->gtFlags & GTF_ALL_EFFECT) != 0)
         {
-            argInfo.argHasGlobRef = (argNode->gtFlags & GTF_GLOB_REF) != 0;
-            argInfo.argHasSideEff = (argNode->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
+            argInfo.argHasGlobRef = (argInfo.argNode->gtFlags & GTF_GLOB_REF) != 0;
+            argInfo.argHasSideEff = (argInfo.argNode->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
         }
 
         if (!argInfo.argHasGlobRef)
@@ -1451,7 +1456,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, un
             // if the expression contains any address taken locals then it's treated as if
             // it has GTF_GLOB_REF.
 
-            argInfo.argHasGlobRef = gtHasAddressTakenLocals(argNode);
+            argInfo.argHasGlobRef = gtHasAddressTakenLocals(argInfo.argNode);
         }
 
         JITDUMP("%s%s%s%s", argInfo.argHasGlobRef || argInfo.argHasSideEff ? "has " : "is side effect free",
@@ -1533,10 +1538,10 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
 
     for (unsigned i = 0; i < localsSig.numArgs; i++, localHandle = info.compCompHnd->getArgNext(localHandle))
     {
-        InlLclVarInfo&       lclInfo = inlineInfo->ilLocInfo[i];
         CORINFO_CLASS_HANDLE lclClass;
-        CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
-        var_types            lclType    = JITtype2varType(strip(lclCorType));
+        CorInfoTypeWithMod   lclCorType  = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
+        var_types            lclType     = JITtype2varType(strip(lclCorType));
+        bool                 lclIsPinned = false;
 
         if (varTypeIsGC(lclType))
         {
@@ -1546,7 +1551,6 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
             }
             else
             {
-                // Make sure we don't have a class handle for a BYREF so we don't mistake it for a normed type.
                 lclClass = NO_CLASS_HANDLE;
             }
 
@@ -1561,7 +1565,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
 
                 JITDUMP("Inlinee local #%02u is pinned\n", i);
 
-                lclInfo.lclIsPinned = true;
+                lclIsPinned = true;
             }
 
             inlineInfo->hasGCRefLocals = true;
@@ -1607,8 +1611,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
             assert(info.compCompHnd->getTypeForPrimitiveValueClass(lclClass) == CORINFO_TYPE_UNDEF);
         }
 
-        lclInfo.lclType  = lclType;
-        lclInfo.lclClass = lclClass;
+        new (&inlineInfo->ilLocInfo[i]) InlLocInfo(lclType, lclClass, lclIsPinned);
     }
 
 #ifdef FEATURE_SIMD
@@ -1622,7 +1625,7 @@ void InlineInfo::NoteLocalStore(unsigned ilLocNum)
 {
     if (ilLocNum < ilLocCount)
     {
-        InlLclVarInfo& info = ilLocInfo[ilLocNum];
+        InlLocInfo& info = ilLocInfo[ilLocNum];
 
         if (info.lclHasStlocOp)
         {
@@ -1664,7 +1667,7 @@ unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 
 unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
-    InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[ilLocNum];
+    InlLocInfo& lclInfo = inlineInfo->ilLocInfo[ilLocNum];
 
     assert(!lclInfo.lclIsUsed);
 
@@ -2472,7 +2475,7 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
 
     for (unsigned i = 0; i < inlineInfo->ilLocCount; i++)
     {
-        const InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[i];
+        const InlLocInfo& lclInfo = inlineInfo->ilLocInfo[i];
 
         if (!lclInfo.lclIsUsed)
         {
@@ -2525,7 +2528,7 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
 
     for (unsigned i = 0; i < inlineInfo->ilLocCount; i++)
     {
-        const InlLclVarInfo& lclInfo = inlineInfo->ilLocInfo[i];
+        const InlLocInfo& lclInfo = inlineInfo->ilLocInfo[i];
 
         if (!varTypeIsGC(lclInfo.lclType) || !lclInfo.lclIsUsed)
         {

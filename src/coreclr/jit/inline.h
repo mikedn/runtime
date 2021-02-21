@@ -558,7 +558,7 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
     bool                   exactContextNeedsRuntimeLookup;
 };
 
-// InlArgInfo describes inline candidate argument properties.
+// InlArgInfo describes inline candidate IL argument properties.
 
 struct InlArgInfo
 {
@@ -576,21 +576,60 @@ struct InlArgInfo
     bool paramHasLcl : 1;
     bool paramIsAddressTaken : 1;
     bool paramHasStores : 1;
+
+    InlArgInfo()
+    {
+        // Keep empty to avoid unnecessary initialization of InlineInfo::ilArgInfo array.
+    }
+
+    InlArgInfo(GenTree* argNode, bool isThis = false)
+        : argNode(argNode)
+        , paramSingleUse(nullptr)
+        , paramClass(NO_CLASS_HANDLE)
+        , paramLclNum(BAD_VAR_NUM)
+        , paramType(TYP_UNDEF)
+        , argIsInvariant(false)
+        , argIsUnaliasedLclVar(false)
+        , argHasSideEff(false)
+        , argHasGlobRef(false)
+        , paramIsThis(isThis)
+        , paramHasLcl(false)
+        , paramIsAddressTaken(false)
+        , paramHasStores(false)
+    {
+    }
 };
 
-// InlLclVarInfo describes inline candidate argument and local variable properties.
+// InlLocInfo describes inline candidate IL local properties.
 
-struct InlLclVarInfo
+struct InlLocInfo
 {
     CORINFO_CLASS_HANDLE lclClass;
     unsigned             lclNum;
     var_types            lclType;
 
+    bool lclIsPinned : 1;
     bool lclIsUsed : 1;
     bool lclHasLdlocaOp : 1;        // Is there LDLOCA(s) operation on this local?
     bool lclHasStlocOp : 1;         // Is there a STLOC on this local?
     bool lclHasMultipleStlocOp : 1; // Is there more than one STLOC on this local
-    bool lclIsPinned : 1;
+
+    InlLocInfo()
+    {
+        // Keep empty to avoid unnecessary initialization of InlineInfo::ilLocInfo array.
+    }
+
+    InlLocInfo(var_types lclType, CORINFO_CLASS_HANDLE lclClass, bool lclIsPinned)
+        : lclClass(lclClass)
+        , lclNum(BAD_VAR_NUM)
+        , lclType(lclType)
+        , lclIsPinned(lclIsPinned)
+        , lclIsUsed(false)
+        , lclHasLdlocaOp(false)
+        , lclHasStlocOp(false)
+        , lclHasMultipleStlocOp(false)
+    {
+    }
 };
 
 // InlineInfo provides detailed information about a particular inline candidate.
@@ -626,10 +665,10 @@ struct InlineInfo
     ProfileScaleState profileScaleState;
     double            profileScaleFactor;
 
-    unsigned      ilArgCount;
-    unsigned      ilLocCount;
-    InlArgInfo    ilArgInfo[MAX_INL_ARGS];
-    InlLclVarInfo ilLocInfo[MAX_INL_LCLS];
+    unsigned   ilArgCount;
+    unsigned   ilLocCount;
+    InlArgInfo ilArgInfo[MAX_INL_ARGS + 1];
+    InlLocInfo ilLocInfo[MAX_INL_LCLS];
 
     void NoteParamStore(unsigned ilArgNum);
     void NoteAddressTakenParam(unsigned ilArgNum);
