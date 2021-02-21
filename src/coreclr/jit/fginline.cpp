@@ -115,11 +115,10 @@ PhaseStatus Compiler::fgInline()
 
     if (verbose || fgPrintInlinedMethods)
     {
-        JITDUMP("**************** Inline Tree");
-        printf("\n");
+        JITDUMP("\n---- Inline Tree ----\n");
         m_inlineStrategy->Dump(verbose);
     }
-#endif // DEBUG
+#endif
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
@@ -169,11 +168,11 @@ public:
 
         if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
         {
-            JITDUMP("\nReplacing the return expression placeholder " FMT_TREEID, retExpr->GetID());
+            JITDUMP("---- Return expression placeholder " FMT_TREEID " ----\n", retExpr->GetID());
 
             if (user != nullptr)
             {
-                JITDUMPTREE(user, " in\n");
+                JITDUMPTREE(user, "User:\n");
             }
 
             GenTree* value = retExpr->GetRetExpr();
@@ -209,7 +208,7 @@ public:
                 value->SetType(TYP_BYREF);
             }
 
-            JITDUMPTREE(value, "with inline return expression\n");
+            JITDUMPTREE(value, "Return expression:\n");
 
             tree = *use = value;
 
@@ -1919,8 +1918,6 @@ void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
 
     Statement* stmtAfter = inlPrependStatements(inlineInfo);
 
-    JITDUMP("\nInlinee method body:\n");
-
     if ((InlineeCompiler->fgFirstBB->bbJumpKind == BBJ_RETURN) && (InlineeCompiler->fgFirstBB->bbNext == nullptr))
     {
         stmtAfter = inlInsertSingleBlockInlineeStatements(inlineInfo, stmtAfter);
@@ -1939,7 +1936,9 @@ void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
     if (inlineInfo->iciCall->GetRetSigType() != TYP_VOID)
     {
         noway_assert(inlineInfo->retExpr != nullptr);
-        JITDUMPTREE(inlineInfo->retExpr, "Return expression is:\n", call->GetID());
+
+        JITDUMPTREE(inlineInfo->retExpr, "---- Return expression for placeholder " FMT_TREEID " ----\n",
+                    call->gtInlineCandidateInfo->retExprPlaceholder->GetID());
 
         call->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(inlineInfo->retExpr, inlineInfo->retBlockIRSummary);
     }
@@ -1947,6 +1946,8 @@ void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
 
 Statement* Compiler::inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter)
 {
+    JITDUMP("---- Single block inlinee statements ----\n");
+
     BasicBlock* block        = inlineInfo->iciBlock;
     BasicBlock* inlineeBlock = InlineeCompiler->fgFirstBB;
 
@@ -1955,7 +1956,7 @@ Statement* Compiler::inlInsertSingleBlockInlineeStatements(const InlineInfo* inl
 
     if (inlineeBlock->GetFirstStatement() == nullptr)
     {
-        JITDUMP("\tInlinee method has no statements.\n");
+        JITDUMP("Inlinee method has no statements.\n");
     }
     else
     {
@@ -2019,6 +2020,8 @@ BasicBlock* Compiler::inlSplitInlinerBlock(const InlineInfo* inlineInfo, Stateme
 
 void Compiler::inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* stmtAfter)
 {
+    JITDUMP("---- Inlinee basic blocks ----\n");
+
     assert((InlineeCompiler->fgBBcount > 1) || (InlineeCompiler->fgFirstBB->bbJumpKind != BBJ_RETURN));
 
     BasicBlock* returnTargetBlock = inlSplitInlinerBlock(inlineInfo, stmtAfter);
@@ -2182,12 +2185,11 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
 
 Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt)
 {
-    JITDUMP("\nInit inlinee args:\n");
-    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
+    JITDUMP("---- Init inlinee args ----\n");
 
     if (inlineInfo->ilArgCount == 0)
     {
-        JITDUMP("\tInlinee has no args.\n");
+        JITDUMP("Inlinee has no args.\n");
         return afterStmt;
     }
 
@@ -2201,6 +2203,8 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if ((argInfo.paramSingleUse != nullptr) && ((argInfo.paramSingleUse->gtFlags & GTF_VAR_CLONED) == 0))
         {
+            JITDUMP("Argument %u is single use\n", argNum);
+
             // paramSingleUse is set iff the argument's value was referenced exactly once
             // in the inlinee. This offers an opportunity to avoid a temp and just use the
             // original argument tree.
@@ -2299,6 +2303,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
             afterStmt = stmt;
 
+            JITDUMP("Argument %u init\n", argNum);
             DBEXEC(verbose, gtDispStmt(stmt));
 
             continue;
@@ -2306,6 +2311,8 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.argIsInvariant || argInfo.argIsUnaliasedLclVar)
         {
+            JITDUMP("Argument %u is invariant/unaliased local\n", argNum);
+
             assert(argNode->OperIsConst() || argNode->OperIs(GT_ADDR, GT_LCL_VAR));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
@@ -2346,11 +2353,18 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
                 fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
                 afterStmt = stmt;
 
+                JITDUMP("Argument %u is not used, keeping side effects\n", argNum);
                 DBEXEC(verbose, gtDispStmt(stmt));
+            }
+            else
+            {
+                JITDUMP("Argument %u is not used, discarding side effects\n", argNum);
             }
 
             continue;
         }
+
+        JITDUMP("Argument %u is not used\n", argNum);
 
         if (argNode->IsBox())
         {
@@ -2361,8 +2375,6 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             continue;
         }
     }
-
-    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 
     return afterStmt;
 }
@@ -2431,8 +2443,7 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
 
 Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt)
 {
-    JITDUMP("Init inlinee locals:\n");
-    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
+    JITDUMP("---- Init inlinee locals ----\n");
 
     if (inlineInfo->ilLocCount == 0)
     {
@@ -2485,22 +2496,20 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
 
+        JITDUMP("Init inlinee local %u\n", i);
         DBEXEC(verbose, gtDispStmt(stmt));
     }
-
-    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 
     return afterStmt;
 }
 
 void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmtAfter)
 {
-    JITDUMP("Null out inlinee GC locals:\n");
-    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
+    JITDUMP("---- Null out inlinee GC locals ----\n");
 
     if (!inlineInfo->hasGCRefLocals)
     {
-        JITDUMP("\tInlinee doesn't contain GC locals.\n");
+        JITDUMP("Inlinee has no GC locals.\n");
         return;
     }
 
@@ -2540,8 +2549,7 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
         fgInsertStmtAfter(inlineInfo->iciBlock, stmtAfter, stmt);
         stmtAfter = stmt;
 
+        JITDUMP("Null out inlinee local %u\n", i);
         DBEXEC(verbose, gtDispStmt(stmt));
     }
-
-    JITDUMP("-----------------------------------------------------------------------------------------------------\n");
 }
