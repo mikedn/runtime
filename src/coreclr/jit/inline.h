@@ -576,6 +576,7 @@ struct InlArgInfo
     bool paramHasLcl : 1;
     bool paramIsAddressTaken : 1;
     bool paramHasStores : 1;
+    bool paramHasNormedType : 1;
 
     InlArgInfo()
     {
@@ -596,6 +597,7 @@ struct InlArgInfo
         , paramHasLcl(false)
         , paramIsAddressTaken(false)
         , paramHasStores(false)
+        , paramHasNormedType(false)
     {
     }
 };
@@ -613,13 +615,14 @@ struct InlLocInfo
     bool lclHasLdlocaOp : 1;        // Is there LDLOCA(s) operation on this local?
     bool lclHasStlocOp : 1;         // Is there a STLOC on this local?
     bool lclHasMultipleStlocOp : 1; // Is there more than one STLOC on this local
+    bool lclHasNormedType : 1;
 
     InlLocInfo()
     {
         // Keep empty to avoid unnecessary initialization of InlineInfo::ilLocInfo array.
     }
 
-    InlLocInfo(var_types lclType, CORINFO_CLASS_HANDLE lclClass, bool lclIsPinned)
+    InlLocInfo(var_types lclType, CORINFO_CLASS_HANDLE lclClass, bool lclIsPinned, bool lclHasNormedType)
         : lclClass(lclClass)
         , lclNum(BAD_VAR_NUM)
         , lclType(lclType)
@@ -628,6 +631,7 @@ struct InlLocInfo
         , lclHasLdlocaOp(false)
         , lclHasStlocOp(false)
         , lclHasMultipleStlocOp(false)
+        , lclHasNormedType(lclHasNormedType)
     {
     }
 };

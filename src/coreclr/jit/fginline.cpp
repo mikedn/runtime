@@ -1315,6 +1315,16 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
             assert(info.compCompHnd->isValueClass(paramClass));
             assert(info.compCompHnd->getTypeForPrimitiveValueClass(paramClass) == CORINFO_TYPE_UNDEF);
+
+            argInfo[i].paramHasNormedType = true;
+        }
+        else if (paramCorType <= CORINFO_TYPE_DOUBLE)
+        {
+            // TODO-MIKE-Cleanup: This is incorrect, it classifies all primitive types
+            // as "normed". It is based on old code that used typeInfo's IsValueClass
+            // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
+
+            argInfo[i].paramHasNormedType = true;
         }
 
         argInfo[i].paramType  = paramType;
@@ -1488,11 +1498,7 @@ void InlineInfo::NoteAddressTakenParam(unsigned ilArgNum)
 
 bool InlineInfo::IsNormedTypeParam(unsigned ilArgNum) const
 {
-    // TODO-MIKE-Cleanup: The below check is incorrect, it classifies all primitive
-    // types as "normed". It is based on old code that used typeInfo's IsValueClass
-    // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
-
-    return (ilArgNum < ilArgCount) && (ilArgInfo[ilArgNum].paramType <= TYP_DOUBLE);
+    return (ilArgNum < ilArgCount) && ilArgInfo[ilArgNum].paramHasNormedType;
 }
 
 bool InlineInfo::IsInvariantArg(unsigned ilArgNum) const
@@ -1539,9 +1545,10 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
     for (unsigned i = 0; i < localsSig.numArgs; i++, localHandle = info.compCompHnd->getArgNext(localHandle))
     {
         CORINFO_CLASS_HANDLE lclClass;
-        CorInfoTypeWithMod   lclCorType  = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
-        var_types            lclType     = JITtype2varType(strip(lclCorType));
-        bool                 lclIsPinned = false;
+        CorInfoTypeWithMod   lclCorType       = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
+        var_types            lclType          = JITtype2varType(strip(lclCorType));
+        bool                 lclIsPinned      = false;
+        bool                 lclHasNormedType = false;
 
         if (varTypeIsGC(lclType))
         {
@@ -1609,9 +1616,19 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
 
             assert(info.compCompHnd->isValueClass(lclClass));
             assert(info.compCompHnd->getTypeForPrimitiveValueClass(lclClass) == CORINFO_TYPE_UNDEF);
+
+            lclHasNormedType = true;
+        }
+        else if (strip(lclCorType) <= CORINFO_TYPE_DOUBLE)
+        {
+            // TODO-MIKE-Cleanup: This is incorrect, it classifies all primitive types
+            // as "normed". It is based on old code that used typeInfo's IsValueClass
+            // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
+
+            lclHasNormedType = true;
         }
 
-        new (&inlineInfo->ilLocInfo[i]) InlLocInfo(lclType, lclClass, lclIsPinned);
+        new (&inlineInfo->ilLocInfo[i]) InlLocInfo(lclType, lclClass, lclIsPinned, lclHasNormedType);
     }
 
 #ifdef FEATURE_SIMD
@@ -1648,11 +1665,7 @@ void InlineInfo::NoteAddressTakenLocal(unsigned ilLocNum)
 
 bool InlineInfo::IsNormedTypeLocal(unsigned ilLocNum) const
 {
-    // TODO-MIKE-Cleanup: The below check is incorrect, it classifies all primitive
-    // types as "normed". It is based on old code that used typeInfo's IsValueClass
-    // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
-
-    return (ilLocNum < ilLocCount) && (ilLocInfo[ilLocNum].lclType <= TYP_DOUBLE);
+    return (ilLocNum < ilLocCount) && ilLocInfo[ilLocNum].lclHasNormedType;
 }
 
 unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
