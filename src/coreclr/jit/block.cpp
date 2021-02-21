@@ -822,6 +822,43 @@ Statement* BasicBlock::lastStmt() const
     return result;
 }
 
+void BasicBlock::SetLastStatement(Statement* last)
+{
+#ifdef DEBUG
+    Statement* s = bbStmtList;
+    while ((s != nullptr) && (s != last))
+    {
+        s = s->GetNextStmt();
+    }
+    assert(s == last);
+
+    assert(last->GetNextStmt() == nullptr);
+#endif
+
+    bbStmtList->SetPrevStmt(last);
+}
+
+void BasicBlock::SetStatements(Statement* first, Statement* last)
+{
+#ifdef DEBUG
+    assert(first->GetPrevStmt() == nullptr);
+
+    Statement* s = first;
+    while ((s != nullptr) && (s != last))
+    {
+        Statement* n = s->GetNextStmt();
+        assert((n == nullptr) || (n->GetPrevStmt() == s));
+        s = n;
+    }
+    assert(s == last);
+
+    assert(last->GetNextStmt() == nullptr);
+#endif
+
+    bbStmtList = first;
+    first->SetPrevStmt(last);
+}
+
 //------------------------------------------------------------------------
 // BasicBlock::firstNode: Returns the first node in the block.
 //
