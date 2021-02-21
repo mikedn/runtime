@@ -797,7 +797,7 @@ public:
     void BeginInlining();
 
     // Create context for a successful inline.
-    InlineContext* NewSuccess(InlineInfo* inlineInfo);
+    InlineContext* NewSuccess(const InlineInfo* inlineInfo);
 
     // Create context for a failing inline.
     InlineContext* NewFailure(Statement* stmt, const InlineResult& inlineResult);

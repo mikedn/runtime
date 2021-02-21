@@ -4980,21 +4980,21 @@ private:
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
     void inlUpdateRetSpillTempClass(InlineInfo* inlineInfo);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
-    void inlInsertInlineeCode(InlineInfo* pInlineInfo);
-    Statement* inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInfo, Statement* stmtAfter);
-    Statement* inlPrependStatements(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeSignature(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, GenTree* argNode, unsigned argNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlAnalyzeInlineeLocals(InlineInfo* inlineInfo);
     unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     unsigned inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
-    Statement* inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt);
+    void inlInsertInlineeCode(InlineInfo* pInlineInfo);
+    Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
+    Statement* inlPrependStatements(InlineInfo* inlineInfo);
+    Statement* inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
-    Statement* inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* afterStmt);
-    void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
-    BasicBlock* inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter);
-    void inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlock, BasicBlock* bottomBlock);
+    Statement* inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt);
+    void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmt);
+    BasicBlock* inlSplitInlinerBlock(const InlineInfo* inlineInfo, Statement* stmtAfter);
+    void inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* stmtAfter);
     void inlPropagateInlineeCompilerState();
     INDEBUG(void inlDebugCheckInlineCandidates();)
 

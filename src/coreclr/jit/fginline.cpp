@@ -1924,15 +1924,13 @@ void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
     if ((InlineeCompiler->fgFirstBB->bbJumpKind == BBJ_RETURN) && (InlineeCompiler->fgFirstBB->bbNext == nullptr))
     {
         stmtAfter = inlInsertSingleBlockInlineeStatements(inlineInfo, stmtAfter);
-        inlNullOutInlineeGCLocals(inlineInfo, inlineInfo->iciBlock, stmtAfter);
+        inlNullOutInlineeGCLocals(inlineInfo, stmtAfter);
     }
     else
     {
-        BasicBlock* topBlock    = inlineInfo->iciBlock;
-        BasicBlock* bottomBlock = inlSplitInlinerBlock(topBlock, stmtAfter);
-
-        inlInsertInlineeBlocks(inlineInfo, topBlock, bottomBlock);
-        inlNullOutInlineeGCLocals(inlineInfo, bottomBlock, nullptr);
+        Statement* insertAfter = stmtAfter;
+        inlNullOutInlineeGCLocals(inlineInfo, stmtAfter);
+        inlInsertInlineeBlocks(inlineInfo, insertAfter);
     }
 
     inlPropagateInlineeCompilerState();
@@ -1947,7 +1945,7 @@ void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
     }
 }
 
-Statement* Compiler::inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInfo, Statement* stmtAfter)
+Statement* Compiler::inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter)
 {
     BasicBlock* block        = inlineInfo->iciBlock;
     BasicBlock* inlineeBlock = InlineeCompiler->fgFirstBB;
@@ -1983,46 +1981,49 @@ Statement* Compiler::inlInsertSingleBlockInlineeStatements(InlineInfo* inlineInf
     return stmtAfter;
 }
 
-BasicBlock* Compiler::inlSplitInlinerBlock(BasicBlock* topBlock, Statement* stmtAfter)
+BasicBlock* Compiler::inlSplitInlinerBlock(const InlineInfo* inlineInfo, Statement* stmtAfter)
 {
-    BasicBlock* bottomBlock = fgNewBBafter(topBlock->bbJumpKind, topBlock, true);
-    bottomBlock->bbRefs     = 1;
-    bottomBlock->bbJumpDest = topBlock->bbJumpDest;
-    bottomBlock->inheritWeight(topBlock);
+    BasicBlock* callBlock = inlineInfo->iciBlock;
 
-    topBlock->bbJumpKind = BBJ_NONE;
+    BasicBlock* returnTargetBlock = fgNewBBafter(callBlock->bbJumpKind, callBlock, true);
+    returnTargetBlock->bbRefs     = 1;
+    returnTargetBlock->bbJumpDest = callBlock->bbJumpDest;
+    returnTargetBlock->inheritWeight(callBlock);
+
+    callBlock->bbJumpKind = BBJ_NONE;
 
     // Update block flags
     {
-        const uint64_t originalFlags = topBlock->bbFlags;
+        const uint64_t originalFlags = callBlock->bbFlags;
         noway_assert((originalFlags & BBF_SPLIT_NONEXIST) == 0);
-        topBlock->bbFlags &= ~BBF_SPLIT_LOST;
-        bottomBlock->bbFlags |= originalFlags & BBF_SPLIT_GAINED;
+        callBlock->bbFlags &= ~BBF_SPLIT_LOST;
+        returnTargetBlock->bbFlags |= originalFlags & BBF_SPLIT_GAINED;
     }
 
     if (stmtAfter->GetNextStmt() != nullptr)
     {
-        Statement* topBlockFirstStmt    = topBlock->GetFirstStatement();
+        Statement* topBlockFirstStmt    = callBlock->GetFirstStatement();
         Statement* topBlockLastStmt     = stmtAfter;
         Statement* bottomBlockFirstStmt = stmtAfter->GetNextStmt();
-        Statement* bottomBlockLastStmt  = topBlock->GetLastStatement();
+        Statement* bottomBlockLastStmt  = callBlock->GetLastStatement();
 
         topBlockLastStmt->SetNextStmt(nullptr);
         bottomBlockFirstStmt->SetPrevStmt(nullptr);
 
-        topBlock->SetLastStatement(topBlockLastStmt);
-        bottomBlock->SetStatements(bottomBlockFirstStmt, bottomBlockLastStmt);
+        callBlock->SetLastStatement(topBlockLastStmt);
+        returnTargetBlock->SetStatements(bottomBlockFirstStmt, bottomBlockLastStmt);
     }
 
-    return bottomBlock;
+    return returnTargetBlock;
 }
 
-void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlock, BasicBlock* bottomBlock)
+void Compiler::inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* stmtAfter)
 {
     assert((InlineeCompiler->fgBBcount > 1) || (InlineeCompiler->fgFirstBB->bbJumpKind != BBJ_RETURN));
 
-    IL_OFFSETX ilOffset      = inlineInfo->iciStmt->GetILOffsetX();
-    bool       inheritWeight = true; // The firstBB does inherit the weight from the call block
+    BasicBlock* returnTargetBlock = inlSplitInlinerBlock(inlineInfo, stmtAfter);
+    IL_OFFSETX  ilOffset          = inlineInfo->iciStmt->GetILOffsetX();
+    bool        inheritWeight     = true; // The firstBB does inherit the weight from the call block
 
     for (BasicBlock* block = InlineeCompiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
@@ -2030,8 +2031,8 @@ void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlo
         noway_assert(!block->hasTryIndex());
         noway_assert(!block->hasHndIndex());
 
-        block->copyEHRegion(topBlock);
-        block->bbFlags |= topBlock->bbFlags & BBF_BACKWARD_JUMP;
+        block->copyEHRegion(inlineInfo->iciBlock);
+        block->bbFlags |= inlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP;
 
         if (ilOffset != BAD_IL_OFFSET)
         {
@@ -2053,16 +2054,16 @@ void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlo
 
             if (block->bbNext != nullptr)
             {
-                JITDUMP("Convert return block " FMT_BB " to jump to the bottom block " FMT_BB "\n", block->bbNum,
-                        bottomBlock->bbNum);
+                JITDUMP("Convert return block " FMT_BB " to jump to " FMT_BB "\n", block->bbNum,
+                        returnTargetBlock->bbNum);
 
                 block->bbJumpKind = BBJ_ALWAYS;
-                block->bbJumpDest = bottomBlock;
+                block->bbJumpDest = returnTargetBlock;
             }
             else
             {
-                JITDUMP("Convert return block " FMT_BB " to fall through to the bottom block " FMT_BB "\n",
-                        block->bbNum, bottomBlock->bbNum);
+                JITDUMP("Convert return block " FMT_BB " to fall through to " FMT_BB "\n", block->bbNum,
+                        returnTargetBlock->bbNum);
 
                 block->bbJumpKind = BBJ_NONE;
             }
@@ -2073,19 +2074,19 @@ void Compiler::inlInsertInlineeBlocks(InlineInfo* inlineInfo, BasicBlock* topBlo
         {
             if (inheritWeight)
             {
-                block->inheritWeight(topBlock);
+                block->inheritWeight(inlineInfo->iciBlock);
                 inheritWeight = false;
             }
             else
             {
-                block->modifyBBWeight(topBlock->bbWeight / 2);
+                block->modifyBBWeight(inlineInfo->iciBlock->bbWeight / 2);
             }
         }
     }
 
     // Insert inlinee's blocks into inliner's block list.
-    topBlock->setNext(InlineeCompiler->fgFirstBB);
-    InlineeCompiler->fgLastBB->setNext(bottomBlock);
+    inlineInfo->iciBlock->setNext(InlineeCompiler->fgFirstBB);
+    InlineeCompiler->fgLastBB->setNext(returnTargetBlock);
     fgBBcount += InlineeCompiler->fgBBcount;
 
     DBEXEC(verbose, fgDispBasicBlocks(InlineeCompiler->fgFirstBB, InlineeCompiler->fgLastBB, true));
@@ -2160,6 +2161,8 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
         Statement* stmt = gtNewStmt(tree, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
+
+        DBEXEC(verbose, gtDispStmt(stmt));
     }
 
     if (nullCheckThisArg != nullptr)
@@ -2168,6 +2171,8 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
         Statement* stmt = gtNewStmt(tree, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
+
+        DBEXEC(verbose, gtDispStmt(stmt));
     }
 
     afterStmt = inlInitInlineeLocals(inlineInfo, afterStmt);
@@ -2175,7 +2180,7 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
     return afterStmt;
 }
 
-Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* afterStmt)
+Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt)
 {
     JITDUMP("\nInit inlinee args:\n");
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");
@@ -2294,7 +2299,7 @@ Statement* Compiler::inlInitInlineeArgs(InlineInfo* inlineInfo, Statement* after
             fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
             afterStmt = stmt;
 
-            DBEXEC(verbose, gtDispStmt(afterStmt));
+            DBEXEC(verbose, gtDispStmt(stmt));
 
             continue;
         }
@@ -2424,7 +2429,7 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
     return false;
 }
 
-Statement* Compiler::inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* afterStmt)
+Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt)
 {
     JITDUMP("Init inlinee locals:\n");
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");
@@ -2488,9 +2493,7 @@ Statement* Compiler::inlInitInlineeLocals(InlineInfo* inlineInfo, Statement* aft
     return afterStmt;
 }
 
-// Null out inlinee GC local variables to avoid keeping GC objects alive longer than necessary.
-//
-void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBlock* block, Statement* stmtAfter)
+void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmtAfter)
 {
     JITDUMP("Null out inlinee GC locals:\n");
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");
@@ -2534,19 +2537,10 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, BasicBloc
         GenTree*   zero = gtNewZeroConNode(lclInfo.lclType);
         GenTree*   asg  = gtNewAssignNode(gtNewLclvNode(lclInfo.lclNum, lclInfo.lclType), zero);
         Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+        fgInsertStmtAfter(inlineInfo->iciBlock, stmtAfter, stmt);
+        stmtAfter = stmt;
 
         DBEXEC(verbose, gtDispStmt(stmt));
-
-        if (stmtAfter == nullptr)
-        {
-            fgInsertStmtAtBeg(block, stmt);
-        }
-        else
-        {
-            fgInsertStmtAfter(block, stmtAfter, stmt);
-        }
-
-        stmtAfter = stmt;
     }
 
     JITDUMP("-----------------------------------------------------------------------------------------------------\n");

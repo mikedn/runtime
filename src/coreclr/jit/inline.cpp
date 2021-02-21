@@ -1203,7 +1203,7 @@ InlineContext* InlineStrategy::NewRoot()
 //    A new InlineContext for statements brought into the method by
 //    this inline.
 
-InlineContext* InlineStrategy::NewSuccess(InlineInfo* inlineInfo)
+InlineContext* InlineStrategy::NewSuccess(const InlineInfo* inlineInfo)
 {
     InlineContext* context = new (m_Compiler, CMK_Inlining) InlineContext(this);
 
