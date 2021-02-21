@@ -922,41 +922,23 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
 
     // Make sure the return value type matches the return signature type.
     {
-        var_types callType   = info.GetRetSigType();
-        var_types returnType = retExpr->GetType();
-
-        if (returnType == TYP_STRUCT)
-        {
-            // Currently call nodes do not have normalized type, use the signature type instead.
-            if (GenTreeCall* call = retExpr->IsCall())
-            {
-                returnType = call->GetRetSigType();
-            }
-            else if (GenTreeRetExpr* placeholder = retExpr->IsRetExpr())
-            {
-                assert(placeholder->GetRetExpr() == placeholder->GetCall());
-                returnType = placeholder->GetCall()->GetRetSigType();
-            }
-        }
-
-        callType   = varActualType(callType);
-        returnType = varActualType(returnType);
+        var_types callType   = varActualType(info.GetRetSigType());
+        var_types returnType = varActualType(retExpr->GetType());
 
         if (returnType != callType)
         {
-            // Allow TYP_BYREF to be returned as TYP_I_IMPL and vice versa
-            if (((returnType == TYP_BYREF) && (callType == TYP_I_IMPL)) ||
-                ((returnType == TYP_I_IMPL) && (callType == TYP_BYREF)))
-            {
-                JITDUMP("Allowing return type mismatch: have %s, needed %s\n", varTypeName(returnType),
-                        varTypeName(callType));
-            }
-            else
+            // Allow TYP_BYREF to be returned as TYP_I_IMPL and vice versa.
+
+            if (!((returnType == TYP_BYREF) && (callType == TYP_I_IMPL)) &&
+                !((returnType == TYP_I_IMPL) && (callType == TYP_BYREF)))
             {
                 JITDUMP("Return type mismatch: have %s, needed %s\n", varTypeName(returnType), varTypeName(callType));
                 compInlineResult->NoteFatal(InlineObservation::CALLSITE_RETURN_TYPE_MISMATCH);
                 return false;
             }
+
+            JITDUMP("Allowing return type mismatch: have %s, needed %s\n", varTypeName(returnType),
+                    varTypeName(callType));
         }
     }
 
