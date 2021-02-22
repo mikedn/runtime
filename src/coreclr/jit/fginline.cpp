@@ -702,17 +702,31 @@ bool Compiler::inlInlineCall(Statement* stmt, GenTreeCall* call)
     return result.IsSuccess();
 }
 
-int jitInlineCode(InlineInfo* inlineInfo, JitFlags* compileFlags)
+void jitInlineCode(InlineInfo* inlineInfo)
 {
+    Compiler* inlinerCompiler = inlineInfo->InlinerCompiler;
+
+    if (!inlinerCompiler->inlAnalyzeInlineeSignature(inlineInfo))
+    {
+        return;
+    }
+
+    if (!inlinerCompiler->inlAnalyzeInlineeLocals(inlineInfo))
+    {
+        return;
+    }
+
+    JITLOG_THIS(inlinerCompiler, (LL_INFO100000, "INLINER: tokenLookupContextHandle for %s is 0x%p:\n",
+                                  inlinerCompiler->eeGetMethodFullName(inlineInfo->iciCall->GetMethodHandle()),
+                                  inlinerCompiler->dspPtr(inlineInfo->inlineCandidateInfo->exactContextHnd)));
+
     struct Param
     {
         InlineInfo* inlineInfo;
-        JitFlags*   compileFlags;
-        Compiler*   inlineeCompiler;
         int         result;
-    } param{inlineInfo, compileFlags, nullptr, CORJIT_INTERNALERROR};
+    } param{inlineInfo, CORJIT_INTERNALERROR};
 
-    setErrorTrap(inlineInfo->InlinerCompiler->info.compCompHnd, Param*, pParamOuter, &param)
+    setErrorTrap(inlinerCompiler->info.compCompHnd, Param*, pParamOuter, &param)
     {
         setErrorTrap(nullptr, Param*, pParam, pParamOuter)
         {
@@ -725,16 +739,28 @@ int jitInlineCode(InlineInfo* inlineInfo, JitFlags* compileFlags)
                 inlinerCompiler->InlineeCompiler = static_cast<Compiler*>(allocator->allocateMemory(sizeof(Compiler)));
             }
 
-            pParam->inlineeCompiler = inlinerCompiler->InlineeCompiler;
+            Compiler* inlineeCompiler = inlinerCompiler->InlineeCompiler;
 
-            JitTls::SetCompiler(pParam->inlineeCompiler);
+            JitTls::SetCompiler(inlineeCompiler);
 
-            pParam->inlineeCompiler->compInit(allocator, inlineInfo->iciCall->GetMethodHandle(),
-                                              inlinerCompiler->info.compCompHnd,
-                                              &inlineInfo->inlineCandidateInfo->methInfo, inlineInfo);
+            inlineeCompiler->compInit(allocator, inlineInfo->iciCall->GetMethodHandle(),
+                                      inlinerCompiler->info.compCompHnd, &inlineInfo->inlineCandidateInfo->methInfo,
+                                      inlineInfo);
 
-            pParam->result = pParam->inlineeCompiler->compCompile(inlineInfo->inlineCandidateInfo->methInfo.scope,
-                                                                  nullptr, nullptr, pParam->compileFlags);
+            JitFlags compileFlags = *inlinerCompiler->opts.jitFlags;
+            // The following flags are lost when inlining.
+            // (This is checked in Compiler::compInitOptions().)
+            compileFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
+            compileFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
+            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
+            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
+            compileFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
+            compileFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
+
+            compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
+
+            pParam->result = inlineeCompiler->compCompile(inlineInfo->inlineCandidateInfo->methInfo.scope, nullptr,
+                                                          nullptr, &compileFlags);
         }
         finallyErrorTrap()
         {
@@ -752,7 +778,10 @@ int jitInlineCode(InlineInfo* inlineInfo, JitFlags* compileFlags)
     }
     endErrorTrap()
 
-        return param.result;
+        if ((param.result != CORJIT_OK) && !inlineInfo->inlineResult->IsFailure())
+    {
+        inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_COMPILATION_FAILURE);
+    }
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
@@ -794,62 +823,13 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
         return;
     }
 
-    bool success = eeRunWithErrorTrap<InlineInfo>(
-        [](InlineInfo* inlineInfo) {
-            Compiler* inlinerCompiler = inlineInfo->InlinerCompiler;
+    JITDUMP("\nInvoking compiler for the inlinee method %s :\n", eeGetMethodFullName(call->GetMethodHandle()));
 
-            if (!inlinerCompiler->inlAnalyzeInlineeSignature(inlineInfo))
-            {
-                return;
-            }
-
-            if (!inlinerCompiler->inlAnalyzeInlineeLocals(inlineInfo))
-            {
-                return;
-            }
-
-            CORINFO_METHOD_HANDLE methodHandle = inlineInfo->iciCall->GetMethodHandle();
-
-            JITLOG_THIS(inlinerCompiler, (LL_INFO100000, "INLINER: tokenLookupContextHandle for %s is 0x%p:\n",
-                                          inlinerCompiler->eeGetMethodFullName(methodHandle),
-                                          inlinerCompiler->dspPtr(inlineInfo->inlineCandidateInfo->exactContextHnd)));
-
-            JitFlags compileFlags = *inlinerCompiler->opts.jitFlags;
-            // The following flags are lost when inlining.
-            // (This is checked in Compiler::compInitOptions().)
-            compileFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
-            compileFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
-            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
-            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
-            compileFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
-            compileFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
-
-            compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
-
-            JITDUMP("\nInvoking compiler for the inlinee method %s :\n",
-                    inlinerCompiler->eeGetMethodFullName(methodHandle));
-
-            int result = jitInlineCode(inlineInfo, &compileFlags);
-
-            if ((result != CORJIT_OK) && !inlineInfo->inlineResult->IsFailure())
-            {
-                // If we haven't yet determined why this inline fails, use
-                // a catch-all something bad happened observation.
-
-                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_COMPILATION_FAILURE);
-            }
-        },
-        &inlineInfo);
-
-    CORINFO_METHOD_HANDLE methodHandle = inlineInfo.iciCall->GetMethodHandle();
-
-    if (!success)
+    if (!eeRunWithErrorTrap<InlineInfo>(jitInlineCode, &inlineInfo))
     {
         JITDUMP("\nInlining failed due to an exception during invoking the compiler for the inlinee method %s.\n",
-                eeGetMethodFullName(methodHandle));
+                eeGetMethodFullName(inlineInfo.iciCall->GetMethodHandle()));
 
-        // If we haven't yet determined why this inline fails, use
-        // a catch-all something bad happened observation.
         if (!inlineResult->IsFailure())
         {
             inlineResult->NoteFatal(InlineObservation::CALLSITE_COMPILATION_ERROR);
@@ -869,7 +849,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     if ((call->GetRetSigType() != TYP_VOID) && (inlineInfo.retExpr == nullptr))
     {
         JITDUMP("\nInlining failed because pInlineInfo->retExpr is not set in the inlinee method %s.\n",
-                eeGetMethodFullName(methodHandle));
+                eeGetMethodFullName(inlineInfo.iciCall->GetMethodHandle()));
 
         inlineResult->NoteFatal(InlineObservation::CALLEE_LACKS_RETURN);
 
@@ -884,8 +864,8 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
 
     JITDUMP("\nSuccessfully inlined %s (%d IL bytes) (depth %d) [%s]\n"
             "--------------------------------------------------------------------------------------------\n",
-            eeGetMethodFullName(methodHandle), inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth,
-            inlineResult->ReasonString());
+            eeGetMethodFullName(inlineInfo.iciCall->GetMethodHandle()),
+            inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth, inlineResult->ReasonString());
 
     INDEBUG(impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
 

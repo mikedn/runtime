@@ -4961,17 +4961,6 @@ public:
         return fgAddCodeList;
     }
 
-private:
-    bool fgIsCodeAdded();
-
-    bool fgIsThrowHlpBlk(BasicBlock* block);
-
-#if !FEATURE_FIXED_OUT_ARGS
-    unsigned fgThrowHlpBlkStkLevel(BasicBlock* block);
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-    unsigned fgBigOffsetMorphingTemps[TYP_COUNT];
-
     void inlReplaceRetExpr(Statement* stmt);
     void inlFoldJTrue(BasicBlock* block);
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
@@ -4997,6 +4986,17 @@ private:
     void inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* stmtAfter);
     void inlPropagateInlineeCompilerState();
     INDEBUG(void inlDebugCheckInlineCandidates();)
+
+private:
+    bool fgIsCodeAdded();
+
+    bool fgIsThrowHlpBlk(BasicBlock* block);
+
+#if !FEATURE_FIXED_OUT_ARGS
+    unsigned fgThrowHlpBlkStkLevel(BasicBlock* block);
+#endif // !FEATURE_FIXED_OUT_ARGS
+
+    unsigned fgBigOffsetMorphingTemps[TYP_COUNT];
 
 #ifdef DEBUG
     void               CheckNoTransformableIndirectCallsRemain();
