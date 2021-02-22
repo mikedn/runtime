@@ -702,6 +702,59 @@ bool Compiler::inlInlineCall(Statement* stmt, GenTreeCall* call)
     return result.IsSuccess();
 }
 
+int jitInlineCode(InlineInfo* inlineInfo, JitFlags* compileFlags)
+{
+    struct Param
+    {
+        InlineInfo* inlineInfo;
+        JitFlags*   compileFlags;
+        Compiler*   inlineeCompiler;
+        int         result;
+    } param{inlineInfo, compileFlags, nullptr, CORJIT_INTERNALERROR};
+
+    setErrorTrap(inlineInfo->InlinerCompiler->info.compCompHnd, Param*, pParamOuter, &param)
+    {
+        setErrorTrap(nullptr, Param*, pParam, pParamOuter)
+        {
+            InlineInfo*     inlineInfo      = pParam->inlineInfo;
+            Compiler*       inlinerCompiler = inlineInfo->InlinerCompiler;
+            ArenaAllocator* allocator       = inlinerCompiler->compGetArenaAllocator();
+
+            if (inlinerCompiler->InlineeCompiler == nullptr)
+            {
+                inlinerCompiler->InlineeCompiler = static_cast<Compiler*>(allocator->allocateMemory(sizeof(Compiler)));
+            }
+
+            pParam->inlineeCompiler = inlinerCompiler->InlineeCompiler;
+
+            JitTls::SetCompiler(pParam->inlineeCompiler);
+
+            pParam->inlineeCompiler->compInit(allocator, inlineInfo->iciCall->GetMethodHandle(),
+                                              inlinerCompiler->info.compCompHnd,
+                                              &inlineInfo->inlineCandidateInfo->methInfo, inlineInfo);
+
+            pParam->result = pParam->inlineeCompiler->compCompile(inlineInfo->inlineCandidateInfo->methInfo.scope,
+                                                                  nullptr, nullptr, pParam->compileFlags);
+        }
+        finallyErrorTrap()
+        {
+            JitTls::SetCompiler(pParamOuter->inlineInfo->InlinerCompiler);
+        }
+        endErrorTrap()
+    }
+    impJitErrorTrap()
+    {
+        // Note that we failed to compile the inlinee, and that
+        // there's no point trying to inline it again anywhere else.
+        inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLEE_COMPILATION_ERROR);
+
+        param.result = __errc;
+    }
+    endErrorTrap()
+
+        return param.result;
+}
+
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
 {
     fgMorphStmt = stmt;
@@ -776,9 +829,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
             JITDUMP("\nInvoking compiler for the inlinee method %s :\n",
                     inlinerCompiler->eeGetMethodFullName(methodHandle));
 
-            int result = jitNativeCode(methodHandle, inlineInfo->inlineCandidateInfo->methInfo.scope,
-                                       inlinerCompiler->info.compCompHnd, &inlineInfo->inlineCandidateInfo->methInfo,
-                                       nullptr, nullptr, &compileFlags, inlineInfo);
+            int result = jitInlineCode(inlineInfo, &compileFlags);
 
             if ((result != CORJIT_OK) && !inlineInfo->inlineResult->IsFailure())
             {
