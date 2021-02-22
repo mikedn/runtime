@@ -271,7 +271,7 @@ CorJitResult CILJit::compileMethod(
     assert(methodInfo->ILCode);
 
     result = jitNativeCode(methodHandle, methodInfo->scope, compHnd, methodInfo, &methodCodePtr, nativeSizeOfCode,
-                           &jitFlags, nullptr);
+                           &jitFlags);
 
     if (result == CORJIT_OK)
     {

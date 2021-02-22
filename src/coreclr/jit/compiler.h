@@ -8541,7 +8541,7 @@ public:
                   CORINFO_METHOD_HANDLE methodHnd,
                   COMP_HANDLE           compHnd,
                   CORINFO_METHOD_INFO*  methodInfo,
-                  InlineInfo*           inlineInfo);
+                  InlineInfo*           inlineInfo = nullptr);
     void compDone();
 
     static void compDisplayStaticSizes(FILE* fout);
@@ -8922,8 +8922,6 @@ public:
                                             // filename to write it to.
     static FILE* compJitFuncInfoFile;       // And this is the actual FILE* to write to.
 #endif                                      // FUNC_INFO_LOGGING
-
-    Compiler* prevCompiler; // Previous compiler on stack for TLS Compiler* linked list for reentrant compilers.
 
 #if MEASURE_NOWAY
     void RecordNowayAssert(const char* filename, unsigned line, const char* condStr);
