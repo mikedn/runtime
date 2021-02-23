@@ -4544,6 +4544,11 @@ public:
         return (gtFlags & GTF_CALL_M_EXP_RUNTIME_LOOKUP) != 0;
     }
 
+    bool IsUserCall() const
+    {
+        return gtCallType == CT_USER_FUNC;
+    }
+
     bool IsHelperCall() const
     {
         return gtCallType == CT_HELPER;

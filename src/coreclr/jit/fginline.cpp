@@ -299,20 +299,9 @@ public:
 
         if (GenTreeCall* call = tree->IsCall())
         {
-            bool tryLateDevirt = call->IsVirtual() && (call->gtCallType == CT_USER_FUNC);
-            INDEBUG(tryLateDevirt = tryLateDevirt && (JitConfig.JitEnableLateDevirtualization() == 1);)
-
-            if (tryLateDevirt)
+            if (call->IsVirtual() && call->IsUserCall() INDEBUG(&&(JitConfig.JitEnableLateDevirtualization() == 1)))
             {
-                JITDUMPTREE(call, "**** Late devirt opportunity\n");
-
-                CORINFO_METHOD_HANDLE  method                 = call->gtCallMethHnd;
-                unsigned               methodFlags            = 0;
-                CORINFO_CONTEXT_HANDLE context                = nullptr;
-                const bool             isLateDevirtualization = true;
-                bool explicitTailCall = (call->AsCall()->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
-                comp->impDevirtualizeCall(call, &method, &methodFlags, &context, nullptr, isLateDevirtualization,
-                                          explicitTailCall);
+                comp->impLateDevirtualizeCall(call);
             }
 
 #ifdef DEBUG
@@ -331,7 +320,7 @@ public:
                 result.NotePriorFailure(observation);
                 result.SetReported();
 
-                if (call->gtCallType == CT_USER_FUNC)
+                if (call->IsUserCall())
                 {
                     m_compiler->m_inlineStrategy->NewFailure(m_stmt, result);
                 }

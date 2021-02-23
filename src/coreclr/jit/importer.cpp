@@ -16386,6 +16386,19 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #endif // FEATURE_READYTORUN_COMPILER
 }
 
+void Compiler::impLateDevirtualizeCall(GenTreeCall* call)
+{
+    JITDUMPTREE(call, "**** Late devirt opportunity\n");
+
+    CORINFO_METHOD_HANDLE  method                 = call->gtCallMethHnd;
+    unsigned               methodFlags            = 0;
+    CORINFO_CONTEXT_HANDLE context                = nullptr;
+    const bool             isLateDevirtualization = true;
+    bool                   explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+
+    impDevirtualizeCall(call, &method, &methodFlags, &context, nullptr, isLateDevirtualization, explicitTailCall);
+}
+
 //------------------------------------------------------------------------
 // impGetSpecialIntrinsicExactReturnType: Look for special cases where a call
 //   to an intrinsic returns an exact type

@@ -3046,6 +3046,8 @@ public:
                              bool                    isExplicitTailCall,
                              IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
 
+    void impLateDevirtualizeCall(GenTreeCall* call);
+
     //=========================================================================
     //                          PROTECTED
     //=========================================================================
