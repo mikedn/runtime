@@ -152,19 +152,10 @@ public:
         //
         // So bail out for any trees that don't have this flag.
 
-        // TODO-MIKE-Fix: A change in master results in RET_EXPR appearing in trees without ancestors
-        // having GTF_CALL set. It's not clear if the change in master is broken and hidden by the now
-        // removed GT_PUTARG_TYPE or if there's a bad interaction with a change in mjit.
-        // It could also be a pre-existing problem - RET_EXPR being replaced too late:
-        //  - inlAnalyzeInlineeArg itself skips RET_EXPR and sees a side effect free expression
-        //  - the RET_EXPR is still there in the IR and is yet to be replaced
-        //  - being side effect free the return expression is used directly, ignoring an arg temp
-        //  - this may happen recursively and another RET_EXPR sneaks in, in place of the temp
-
-        // if ((tree->gtFlags & GTF_CALL) == 0)
-        //{
-        //    return WALK_SKIP_SUBTREES;
-        //}
+        if ((tree->gtFlags & GTF_CALL) == 0)
+        {
+            return Compiler::WALK_SKIP_SUBTREES;
+        }
 
         if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
         {
