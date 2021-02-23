@@ -281,19 +281,18 @@ public:
 
     fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
-        GenTree*  tree   = *use;
-        GenTree*  parent = user;
-        Compiler* comp   = m_compiler;
+        GenTree* tree = *use;
 
-        // In some (rare) cases the parent node of tree will be smashed to a NOP during
-        // the preorder by AttachStructInlineeToAsg.
-        //
-        // jit\Methodical\VT\callconv\_il_reljumper3 for x64 linux
-        //
-        // If so, just bail out here.
         if (tree == nullptr)
         {
-            assert((parent != nullptr) && parent->OperGet() == GT_NOP);
+            // In some (rare) cases the parent node of tree will be changed to NOP during
+            // the preorder by AttachStructInlineeToAsg because it's a self assignment of
+            // a local (e.g. JIT\Methodical\VT\callconv\_il_reljumper3 for x64 linux).
+
+            // TODO-MIKE-Cleanup: This is basically a hack. Can we return "skip subtrees"
+            // from PreOrderVisit so we don't reach this case?
+
+            assert((user != nullptr) && user->OperIs(GT_NOP));
             return Compiler::WALK_CONTINUE;
         }
 
@@ -301,7 +300,7 @@ public:
         {
             if (call->IsVirtual() && call->IsUserCall() INDEBUG(&&(JitConfig.JitEnableLateDevirtualization() == 1)))
             {
-                comp->impLateDevirtualizeCall(call);
+                m_compiler->impLateDevirtualizeCall(call);
             }
 
 #ifdef DEBUG
@@ -327,34 +326,29 @@ public:
             }
 #endif
         }
-        else if (tree->OperGet() == GT_ASG)
+        else if (tree->OperIs(GT_ASG))
         {
             // If we're assigning to a ref typed local that has one definition,
             // we may be able to sharpen the type for the local.
-            GenTree* lhs = tree->gtGetOp1()->gtEffectiveVal();
 
-            if ((lhs->OperGet() == GT_LCL_VAR) && (lhs->TypeGet() == TYP_REF))
+            GenTree* lhs = tree->AsOp()->GetOp(0)->gtEffectiveVal();
+
+            if (lhs->OperIs(GT_LCL_VAR) && lhs->TypeIs(TYP_REF) && m_compiler->lvaGetDesc(lhs->AsLclVar())->lvSingleDef)
             {
-                const unsigned lclNum = lhs->AsLclVarCommon()->GetLclNum();
-                LclVarDsc*     lcl    = comp->lvaGetDesc(lclNum);
+                bool                 isExact   = false;
+                bool                 isNonNull = false;
+                CORINFO_CLASS_HANDLE newClass =
+                    m_compiler->gtGetClassHandle(tree->AsOp()->GetOp(1), &isExact, &isNonNull);
 
-                if (lcl->lvSingleDef)
+                if (newClass != NO_CLASS_HANDLE)
                 {
-                    GenTree*             rhs       = tree->gtGetOp2();
-                    bool                 isExact   = false;
-                    bool                 isNonNull = false;
-                    CORINFO_CLASS_HANDLE newClass  = comp->gtGetClassHandle(rhs, &isExact, &isNonNull);
-
-                    if (newClass != NO_CLASS_HANDLE)
-                    {
-                        comp->lvaUpdateClass(lclNum, newClass, isExact);
-                    }
+                    m_compiler->lvaUpdateClass(lhs->AsLclVar()->GetLclNum(), newClass, isExact);
                 }
             }
         }
         else if (!tree->OperIs(GT_JTRUE))
         {
-            *use = comp->gtFoldExpr(tree);
+            *use = m_compiler->gtFoldExpr(tree);
         }
 
         return Compiler::WALK_CONTINUE;
