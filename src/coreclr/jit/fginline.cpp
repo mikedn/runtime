@@ -1684,6 +1684,8 @@ bool InlineInfo::IsNormedTypeLocal(unsigned ilLocNum) const
 
 unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
+    assert(ilLocNum < inlineInfo->ilLocCount);
+
     if (inlineInfo->ilLocInfo[ilLocNum].lclIsUsed)
     {
         return inlineInfo->ilLocInfo[ilLocNum].lclNum;

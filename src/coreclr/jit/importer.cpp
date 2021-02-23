@@ -9357,10 +9357,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
     int  prefixFlags = 0;
     bool explicitTailCall, constraintCall, readonlyCall;
 
-    unsigned numArgs = info.compArgsCount;
-
-    /* Now process all the opcodes in the block */
-
     var_types callTyp    = TYP_COUNT;
     OPCODE    prevOpcode = CEE_ILLEGAL;
 
@@ -9734,7 +9730,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDARG_2:
             case CEE_LDARG_3:
                 lclNum = (opcode - CEE_LDARG_0);
-                assert(lclNum >= 0 && lclNum < 4);
                 impLoadArg(lclNum, opcodeOffs + sz + 1);
                 break;
 
@@ -9762,7 +9757,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_STARG:
                 lclNum = getU2LittleEndian(codeAddr);
                 goto STARG;
-
             case CEE_STARG_S:
                 lclNum = getU1LittleEndian(codeAddr);
             STARG:
@@ -9770,75 +9764,82 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
+                    if (lclNum >= impInlineInfo->ilArgCount)
+                    {
+                        compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_ARGUMENT_NUMBER);
+                        return;
+                    }
+
                     op1 = inlUseArg(impInlineInfo, lclNum);
                     noway_assert(op1->OperIs(GT_LCL_VAR));
                     lclNum = op1->AsLclVar()->GetLclNum();
-
-                    goto VAR_ST_VALID;
                 }
-
-                lclNum = compMapILargNum(lclNum); // account for possible hidden param
-                assertImp(lclNum < numArgs);
-
-                if (lclNum == info.compThisArg)
+                else
                 {
-                    lclNum = lvaArg0Var;
+                    if (lclNum >= info.compILargsCount)
+                    {
+                        BADCODE("Bad IL arg num");
+                    }
+
+                    lclNum = compMapILargNum(lclNum);
+
+                    if (lclNum == info.compThisArg)
+                    {
+                        lclNum = lvaArg0Var;
+                    }
+
+                    assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
                 }
 
-                // We should have seen this arg write in the prescan
-                assert(lvaTable[lclNum].lvHasILStoreOp);
-
-                goto VAR_ST;
+                goto ST_ARG;
 
             case CEE_STLOC:
                 lclNum  = getU2LittleEndian(codeAddr);
                 isLocal = true;
                 JITDUMP(" %u", lclNum);
-                goto LOC_ST;
-
+                goto ST_LOC;
             case CEE_STLOC_S:
                 lclNum  = getU1LittleEndian(codeAddr);
                 isLocal = true;
                 JITDUMP(" %u", lclNum);
-                goto LOC_ST;
-
+                goto ST_LOC;
             case CEE_STLOC_0:
             case CEE_STLOC_1:
             case CEE_STLOC_2:
             case CEE_STLOC_3:
                 isLocal = true;
                 lclNum  = (opcode - CEE_STLOC_0);
-                assert(lclNum >= 0 && lclNum < 4);
-
-            LOC_ST:
+            ST_LOC:
                 if (compIsForInlining())
                 {
+                    if (lclNum >= impInlineInfo->ilLocCount)
+                    {
+                        impInlineInfo->inlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
+                        return;
+                    }
+
                     lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
                     lclTyp = lvaGetDesc(lclNum)->GetType();
-
-                    goto _PopValue;
-                }
-
-                lclNum += numArgs;
-
-            VAR_ST:
-                if (lclNum >= info.compLocalsCount && lclNum != lvaArg0Var)
-                {
-                    BADCODE("Bad IL");
-                }
-
-            VAR_ST_VALID:
-                if (lvaTable[lclNum].lvNormalizeOnLoad())
-                {
-                    lclTyp = lvaGetRealType(lclNum);
                 }
                 else
                 {
-                    lclTyp = lvaGetActualType(lclNum);
+                    if (lclNum >= info.compMethodInfo->locals.numArgs)
+                    {
+                        BADCODE("Bad IL loc num");
+                    }
+
+                    lclNum += info.compArgsCount;
+
+                ST_ARG:
+                    LclVarDsc* lcl = lvaGetDesc(lclNum);
+                    lclTyp         = lcl->GetType();
+
+                    if (!lcl->lvNormalizeOnLoad())
+                    {
+                        lclTyp = varActualType(lclTyp);
+                    }
                 }
 
-            _PopValue:
-                // Pop the value being assigned
                 {
                     StackEntry se = impPopStack();
                     clsHnd        = se.seTypeInfo.GetClassHandle();
@@ -9986,13 +9987,23 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
+                    if (lclNum >= impInlineInfo->ilLocCount)
+                    {
+                        compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
+                        return;
+                    }
+
                     lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
                     op1    = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
                     goto PUSH_ADRVAR;
                 }
 
-                lclNum += numArgs;
-                assertImp(lclNum < info.compLocalsCount);
+                if (lclNum >= info.compMethodInfo->locals.numArgs)
+                {
+                    BADCODE("Bad IL loc num");
+                }
+
+                lclNum += info.compArgsCount;
                 goto ADRVAR;
 
             case CEE_LDARGA:
@@ -10002,28 +10013,26 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 lclNum = getU1LittleEndian(codeAddr);
             LDARGA:
                 JITDUMP(" %u", lclNum);
-                if (lclNum >= info.compILargsCount)
-                {
-                    BADCODE("bad arg num");
-                }
 
                 if (compIsForInlining())
                 {
-                    // In IL, LDARGA(_S) is used to load the byref managed pointer of struct argument,
-                    // followed by a ldfld to load the field.
-
-                    op1 = inlUseArg(impInlineInfo, lclNum);
-                    if (op1->gtOper != GT_LCL_VAR)
+                    if (lclNum >= impInlineInfo->ilArgCount)
                     {
-                        compInlineResult->NoteFatal(InlineObservation::CALLSITE_LDARGA_NOT_LOCAL_VAR);
+                        compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_ARGUMENT_NUMBER);
                         return;
                     }
 
+                    op1 = inlUseArg(impInlineInfo, lclNum);
+                    noway_assert(op1->OperIs(GT_LCL_VAR));
                     goto PUSH_ADRVAR;
                 }
 
+                if (lclNum >= info.compILargsCount)
+                {
+                    BADCODE("Bad IL arg num");
+                }
+
                 lclNum = compMapILargNum(lclNum); // account for possible hidden param
-                assertImp(lclNum < numArgs);
 
                 if (lclNum == info.compThisArg)
                 {
@@ -10073,10 +10082,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assertImp((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG);
 
-                /* The ARGLIST cookie is a hidden 'last' parameter, we have already
-                   adjusted the arg count cos this is like fetching the last param */
-                assertImp(0 < numArgs);
-                assert(lvaTable[lvaVarargsHandleArg].lvAddrExposed);
+                // The ARGLIST cookie is a hidden 'last' parameter, we have already
+                // adjusted the arg count cos this is like fetching the last param
+                assertImp(info.compArgsCount > 0);
+                assert(lvaGetDesc(lvaVarargsHandleArg)->lvAddrExposed);
+
                 lclNum = lvaVarargsHandleArg;
                 op1    = gtNewLclvNode(lclNum, TYP_I_IMPL DEBUGARG(opcodeOffs + sz + 1));
                 op1    = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
@@ -13765,14 +13775,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 // It will be mapped to the correct lvaTable index
 void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
 {
-    if (ilArgNum >= info.compILargsCount)
-    {
-        BADCODE("bad arg num");
-    }
-
     if (compIsForInlining())
     {
-        if (ilArgNum >= info.compArgsCount)
+        if (ilArgNum >= impInlineInfo->ilArgCount)
         {
             compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_ARGUMENT_NUMBER);
             return;
@@ -13782,9 +13787,9 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
     }
     else
     {
-        if (ilArgNum >= info.compArgsCount)
+        if (ilArgNum >= info.compILargsCount)
         {
-            BADCODE("Bad IL");
+            BADCODE("Bad IL arg num");
         }
 
         unsigned lclNum = compMapILargNum(ilArgNum); // account for possible hidden param
@@ -13808,7 +13813,7 @@ void Compiler::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
 
     if (compIsForInlining())
     {
-        if (ilLocNum >= info.compMethodInfo->locals.numArgs)
+        if (ilLocNum >= impInlineInfo->ilLocCount)
         {
             compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
             return;
@@ -13821,7 +13826,7 @@ void Compiler::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
     {
         if (ilLocNum >= info.compMethodInfo->locals.numArgs)
         {
-            BADCODE("Bad IL");
+            BADCODE("Bad IL loc num");
         }
 
         lclNum = info.compArgsCount + ilLocNum;
