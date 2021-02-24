@@ -1346,18 +1346,36 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
         if (varTypeIsSmall(paramType) && varTypeIsIntegral(argNode->GetType()))
         {
-            // LCL_VARs associated with small int locals may have type INT, check
-            // the local type to avoid adding an unncessary cast. Morph will add
-            // one as needed (normalized on store vs. normalize on load).
+            var_types argType = argNode->GetType();
 
-            if (argNode->OperIs(GT_LCL_VAR) && (paramType == lvaGetDesc(argNode->AsLclVar())->GetType()))
+            if (argNode->OperIs(GT_LCL_VAR))
+            {
+                // LCL_VARs associated with small int locals may have type INT, check
+                // the local type to avoid adding an unncessary cast. Morph will add
+                // one as needed (normalized on store vs. normalize on load).
+
+                argType = lvaGetDesc(argNode->AsLclVar())->GetType();
+            }
+
+            // TODO-MIKE-Cleanup: This misses some cases (e.g. calls, relops) and should
+            // use fgCastNeeded. On the other hand, fgCastNeeded seems to be missing at
+            // least one case - no cast is needed for the UBYTE - SHORT.
+
+            if (paramType == argType)
+            {
+                continue;
+            }
+
+            if (varTypeIsSmall(argType) && ((varTypeSize(argType) < varTypeSize(paramType))
+                                                ? (varTypeIsUnsigned(argType) || !varTypeIsUnsigned(paramType))
+                                                : (varTypeIsUnsigned(argType) == varTypeIsUnsigned(paramType))))
             {
                 continue;
             }
 
             argNode = gtNewCastNode(TYP_INT, argNode, false, paramType);
 
-            if (argInfo[i].argIsInvariant)
+            if (argInfo[i].argNode->OperIsConst())
             {
                 argNode = gtFoldExprConst(argNode);
                 assert(argNode->OperIsConst());
