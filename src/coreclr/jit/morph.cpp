@@ -10786,7 +10786,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             /* If we are storing a small type, we might be able to omit a cast */
-            if ((effectiveOp1->gtOper == GT_IND) && varTypeIsSmall(effectiveOp1->TypeGet()))
+            if (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) && varTypeIsSmall(effectiveOp1->TypeGet()))
             {
                 if (!gtIsActiveCSE_Candidate(op2) && (op2->gtOper == GT_CAST) && !op2->gtOverflow())
                 {
