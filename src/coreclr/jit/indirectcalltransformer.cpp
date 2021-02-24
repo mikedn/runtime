@@ -587,26 +587,30 @@ private:
         {
             checkBlock = CreateAndInsertBasicBlock(BBJ_COND, currBlock);
 
-            // Fetch method table from object arg to call.
-            GenTree* thisTree = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
+            GenTree* thisTree = origCall->gtCallThisArg->GetNode();
+            unsigned thisLclNum;
 
-            // Create temp for this if the tree is costly.
-            if (!thisTree->IsLocal())
+            if (thisTree->OperIs(GT_LCL_VAR))
             {
-                const unsigned thisTempNum = compiler->lvaGrabTemp(true DEBUGARG("guarded devirt this temp"));
-                // lvaSetClass(thisTempNum, ...);
-                GenTree*   asgTree = compiler->gtNewTempAssign(thisTempNum, thisTree);
+                // TODO-MIKE-Review: Is it safe to use an existing LCL_VAR if it ends up being address
+                // exposed? An address exposed local could be modified by a different thread. That's
+                // extremely unusual but if it happens then type safety is compromised. And anyway,
+                // using a DNER local will result in poor codegen.
+
+                thisLclNum = thisTree->AsLclVar()->GetLclNum();
+            }
+            else
+            {
+                thisLclNum = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("guarded devirt this temp"));
+
+                GenTree*   asgTree = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF), thisTree);
                 Statement* asgStmt = compiler->fgNewStmtFromTree(asgTree, stmt->GetILOffsetX());
                 compiler->fgInsertStmtAtEnd(checkBlock, asgStmt);
 
-                thisTree = compiler->gtNewLclvNode(thisTempNum, TYP_REF);
-
-                // Propagate the new this to the call. Must be a new expr as the call
-                // will live on in the else block and thisTree is used below.
-                origCall->gtCallThisArg = compiler->gtNewCallArgs(compiler->gtNewLclvNode(thisTempNum, TYP_REF));
+                origCall->gtCallThisArg->SetNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF));
             }
 
-            GenTree* methodTable = compiler->gtNewMethodTableLookup(thisTree);
+            GenTree* methodTable = compiler->gtNewMethodTableLookup(compiler->gtNewLclvNode(thisLclNum, TYP_REF));
 
             // Find target method table
             GuardedDevirtualizationCandidateInfo* guardedInfo       = origCall->gtGuardedDevirtualizationCandidateInfo;
@@ -635,12 +639,12 @@ private:
             // Todo: make sure we understand how this interacts with return type
             // munging for small structs.
             InlineCandidateInfo* inlineInfo = origCall->gtInlineCandidateInfo;
-            GenTree*             retExpr    = inlineInfo->retExpr;
+            GenTreeRetExpr*      retExpr    = inlineInfo->retExprPlaceholder;
 
             // Sanity check the ret expr if non-null: it should refer to the original call.
             if (retExpr != nullptr)
             {
-                assert(retExpr->AsRetExpr()->gtInlineCandidate == origCall);
+                assert(retExpr->GetCall() == origCall);
             }
 
             if (origCall->TypeGet() != TYP_VOID)
@@ -657,7 +661,8 @@ private:
 
                 JITDUMP("Updating GT_RET_EXPR [%06u] to refer to temp V%02u\n", compiler->dspTreeID(retExpr),
                         returnTemp);
-                retExpr->AsRetExpr()->gtInlineCandidate = tempTree;
+
+                retExpr->SetRetExpr(tempTree);
             }
             else if (retExpr != nullptr)
             {
@@ -670,8 +675,8 @@ private:
                 // the benefit of a larger tree is unclear.
                 JITDUMP("Updating GT_RET_EXPR [%06u] for VOID return to refer to a NOP\n",
                         compiler->dspTreeID(retExpr));
-                GenTree* nopTree                        = compiler->gtNewNothingNode();
-                retExpr->AsRetExpr()->gtInlineCandidate = nopTree;
+
+                retExpr->SetRetExpr(compiler->gtNewNothingNode());
             }
             else
             {
@@ -721,7 +726,8 @@ private:
             assert(!call->IsVirtual());
 
             // Re-establish this call as an inline candidate.
-            GenTree* oldRetExpr = inlineInfo->retExpr;
+            GenTreeRetExpr* oldRetExpr = inlineInfo->retExprPlaceholder;
+
             // Todo -- pass this back from impdevirt...?
             inlineInfo->clsHandle       = compiler->info.compCompHnd->getMethodClass(methodHnd);
             inlineInfo->exactContextHnd = context;
@@ -738,8 +744,9 @@ private:
             // we set all this up in FixupRetExpr().
             if (oldRetExpr != nullptr)
             {
-                GenTree* retExpr    = compiler->gtNewRetExpr(call, call->GetType(), thenBlock);
-                inlineInfo->retExpr = retExpr;
+                inlineInfo->retExprPlaceholder = compiler->gtNewRetExpr(call, call->GetType());
+
+                GenTree* retExpr = inlineInfo->retExprPlaceholder;
 
                 if (returnTemp != BAD_VAR_NUM)
                 {
@@ -750,6 +757,7 @@ private:
                     // We should always have a return temp if we return results by value
                     assert(origCall->TypeGet() == TYP_VOID);
                 }
+
                 compiler->fgNewStmtAtEnd(thenBlock, retExpr);
             }
         }

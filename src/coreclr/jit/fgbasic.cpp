@@ -1079,10 +1079,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (isInlining)
                 {
-                    if (varNum < impInlineInfo->argCnt)
-                    {
-                        impInlineInfo->inlArgInfo[varNum].argHasStargOp = true;
-                    }
+                    impInlineInfo->NoteParamStore(varNum);
                 }
                 else
                 {
@@ -1122,16 +1119,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             STLOC:
                 if (isInlining)
                 {
-                    InlLclVarInfo& lclInfo = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt];
-
-                    if (lclInfo.lclHasStlocOp)
-                    {
-                        lclInfo.lclHasMultipleStlocOp = 1;
-                    }
-                    else
-                    {
-                        lclInfo.lclHasStlocOp = 1;
-                    }
+                    impInlineInfo->NoteLocalStore(varNum);
                 }
                 else
                 {
@@ -1172,42 +1160,22 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (isInlining)
                 {
-                    var_types lclType;
-                    typeInfo  ti;
-
-                    if (opcode == CEE_LDLOCA || opcode == CEE_LDLOCA_S)
+                    if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
-                        lclType = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclType;
-                        ti      = impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclVerTypeInfo;
-
-                        impInlineInfo->lclVarInfo[varNum + impInlineInfo->argCnt].lclHasLdlocaOp = true;
+                        impInlineInfo->NoteAddressTakenLocal(varNum);
+                        typeIsNormed = impInlineInfo->IsNormedTypeLocal(varNum);
                     }
                     else
                     {
-                        noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
-
-                        lclType = impInlineInfo->lclVarInfo[varNum].lclType;
-                        ti      = impInlineInfo->lclVarInfo[varNum].lclVerTypeInfo;
-
-                        impInlineInfo->inlArgInfo[varNum].argHasLdargaOp = true;
+                        impInlineInfo->NoteAddressTakenParam(varNum);
+                        typeIsNormed = impInlineInfo->IsNormedTypeParam(varNum);
 
                         pushedStack.PushArgument(varNum);
                     }
-
-                    // TODO-MIKE-Cleanup: The below IsValueClass check is incorrect, it also includes
-                    // primitive types so any primitive type local is treated as "normed type". The
-                    // correct check is IsType(TI_STRUCT) but changing this affects inlining decisions
-                    // and causes a few diffs.
-                    //
-                    // Note that in the non-inlining case the check was also incorrect but because
-                    // lvImpTypeInfo is not normally set on true primitive locals the mistake had no
-                    // observable effects.
-
-                    typeIsNormed = !varTypeIsStruct(lclType) && ti.IsValueClass();
                 }
                 else
                 {
-                    if (opcode == CEE_LDLOCA || opcode == CEE_LDLOCA_S)
+                    if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
                         if (varNum >= info.compMethodInfo->locals.numArgs)
                         {
@@ -1218,8 +1186,6 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     }
                     else
                     {
-                        noway_assert(opcode == CEE_LDARGA || opcode == CEE_LDARGA_S);
-
                         if (varNum >= info.compILargsCount)
                         {
                             BADCODE("bad argument number");
@@ -1463,8 +1429,8 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
     // arguments are set by the caller and so we don't know anything
     // about the possible values or types.
     //
-    // For inlinees we do this over in impInlineFetchLocal and
-    // impInlineFetchArg (here args are included as we somtimes get
+    // For inlinees we do this over in inlFetchInlineeLocal and
+    // inlUseArg (here args are included as we somtimes get
     // new information about the types of inlinee args).
     if (!isInlining)
     {
@@ -1570,7 +1536,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
                     // Check for the double whammy of an incoming constant argument
                     // feeding a constant test.
                     unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-                    if (impInlineInfo->inlArgInfo[varNum].argIsInvariant)
+                    if (impInlineInfo->IsInvariantArg(varNum))
                     {
                         compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                     }
@@ -1612,7 +1578,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-            if (impInlineInfo->inlArgInfo[varNum].argIsInvariant)
+            if (impInlineInfo->IsInvariantArg(varNum))
             {
                 compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
@@ -1623,7 +1589,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot1);
-            if (impInlineInfo->inlArgInfo[varNum].argIsInvariant)
+            if (impInlineInfo->IsInvariantArg(varNum))
             {
                 compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
@@ -2398,63 +2364,7 @@ void Compiler::fgFindBasicBlocks()
         compHndBBtabCount    = impInlineInfo->InlinerCompiler->compHndBBtabCount;
         info.compXcptnsCount = impInlineInfo->InlinerCompiler->info.compXcptnsCount;
 
-        // Use a spill temp for the return value if there are multiple return blocks,
-        // or if the inlinee has GC ref locals.
-        if ((info.compRetType != TYP_VOID) && ((retBlocks > 1) || impInlineInfo->HasGcRefLocals()))
-        {
-            // If we've spilled the ret expr to a temp we can reuse the temp
-            // as the inlinee return spill temp.
-            //
-            // Todo: see if it is even better to always use this existing temp
-            // for return values, even if we otherwise wouldn't need a return spill temp...
-            lvaInlineeReturnSpillTemp = impInlineInfo->inlineCandidateInfo->preexistingSpillTemp;
-
-            if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
-            {
-                // This temp should already have the type of the return value.
-                JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", lvaInlineeReturnSpillTemp);
-
-                if (info.compRetType == TYP_REF)
-                {
-                    // We may have co-opted an existing temp for the return spill.
-                    // We likely assumed it was single-def at the time, but now
-                    // we can see it has multiple definitions.
-                    if ((retBlocks > 1) && (lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef == 1))
-                    {
-                        // Make sure it is no longer marked single def. This is only safe
-                        // to do if we haven't ever updated the type.
-                        assert(!lvaTable[lvaInlineeReturnSpillTemp].lvClassInfoUpdated);
-                        JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", lvaInlineeReturnSpillTemp);
-                        lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef = 0;
-                    }
-                }
-            }
-            else
-            {
-                // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
-                lvaInlineeReturnSpillTemp = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
-                lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetType;
-
-                // If the method returns a ref class, set the class of the spill temp
-                // to the method's return value. We may update this later if it turns
-                // out we can prove the method returns a more specific type.
-                if (info.compRetType == TYP_REF)
-                {
-                    // The return spill temp is single def only if the method has a single return block.
-                    if (retBlocks == 1)
-                    {
-                        lvaTable[lvaInlineeReturnSpillTemp].lvSingleDef = 1;
-                        JITDUMP("Marked return spill temp V%02u as a single def temp\n", lvaInlineeReturnSpillTemp);
-                    }
-
-                    CORINFO_CLASS_HANDLE retClassHnd = impInlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
-                    if (retClassHnd != nullptr)
-                    {
-                        lvaSetClass(lvaInlineeReturnSpillTemp, retClassHnd);
-                    }
-                }
-            }
-        }
+        inlAnalyzeInlineeReturn(impInlineInfo, retBlocks);
 
         return;
     }

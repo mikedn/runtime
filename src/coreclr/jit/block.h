@@ -522,6 +522,14 @@ struct BasicBlock : private LIR::Range
 
 #define BBF_SPLIT_LOST (BBF_GC_SAFE_POINT | BBF_HAS_JMP | BBF_KEEP_BBJ_ALWAYS | BBF_CLONED_FINALLY_END)
 
+// Flags that record the presence of certain IR patterns in the block. If the block is split,
+// the new block should "inherit" these flags from the existing block, unless the IR in the
+// new block is known not to contain these patterns.
+// Likewise, when moving statements between blocks, these flags should be copied to the destination
+// block if the statements may contain these patterns.
+// Adding unnecessary flags may be a throughput issue but is not a correctness issue.
+#define BBF_IR_SUMMARY (BBF_HAS_NEWOBJ | BBF_HAS_IDX_LEN | BBF_HAS_NEWARRAY | BBF_HAS_NULLCHECK)
+
 // Flags gained by the bottom block when a block is split.
 // Note, this is a conservative guess.
 // For example, the bottom block might or might not have BBF_HAS_NEWARRAY or BBF_HAS_NULLCHECK,
@@ -530,9 +538,8 @@ struct BasicBlock : private LIR::Range
 // TODO: Should BBF_RUN_RARELY be added to BBF_SPLIT_GAINED ?
 
 #define BBF_SPLIT_GAINED                                                                                               \
-    (BBF_DONT_REMOVE | BBF_HAS_LABEL | BBF_HAS_JMP | BBF_BACKWARD_JUMP | BBF_HAS_IDX_LEN | BBF_HAS_NEWARRAY |          \
-     BBF_PROF_WEIGHT | BBF_HAS_NEWOBJ | BBF_KEEP_BBJ_ALWAYS | BBF_CLONED_FINALLY_END | BBF_HAS_NULLCHECK |             \
-     BBF_HAS_CLASS_PROFILE)
+    (BBF_DONT_REMOVE | BBF_HAS_LABEL | BBF_HAS_JMP | BBF_BACKWARD_JUMP | BBF_PROF_WEIGHT | BBF_KEEP_BBJ_ALWAYS |       \
+     BBF_CLONED_FINALLY_END | BBF_HAS_CLASS_PROFILE | BBF_IR_SUMMARY)
 
 #ifndef __GNUC__ // GCC doesn't like C_ASSERT at global scope
     static_assert_no_msg((BBF_SPLIT_NONEXIST & BBF_SPLIT_LOST) == 0);
@@ -1059,6 +1066,19 @@ struct BasicBlock : private LIR::Range
 
     Statement* firstStmt() const;
     Statement* lastStmt() const;
+
+    Statement* GetFirstStatement() const
+    {
+        return bbStmtList;
+    }
+
+    Statement* GetLastStatement() const
+    {
+        return lastStmt();
+    }
+
+    void SetLastStatement(Statement* stmt);
+    void SetStatements(Statement* first, Statement* last);
 
     StatementList Statements() const
     {

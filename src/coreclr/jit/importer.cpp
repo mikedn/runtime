@@ -383,7 +383,7 @@ inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
             unsigned lclNum = tree->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
             for (unsigned level = 0; level < chkLevel; level++)
             {
-                assert(!gtHasRef(verCurrentState.esStack[level].val, lclNum, false));
+                assert(!gtHasRef(verCurrentState.esStack[level].val, lclNum));
                 assert(!lvaTable[lclNum].lvAddrExposed ||
                        (verCurrentState.esStack[level].val->gtFlags & GTF_SIDE_EFFECT) == 0);
             }
@@ -431,7 +431,7 @@ inline void Compiler::impAppendStmt(Statement* stmt, unsigned chkLevel)
         // be fine too.
 
         if ((expr->gtOper == GT_ASG) && (expr->AsOp()->gtOp1->gtOper == GT_LCL_VAR) &&
-            ((expr->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF) == 0) && !gtHasLocalsWithAddrOp(expr->AsOp()->gtOp2))
+            ((expr->AsOp()->gtOp1->gtFlags & GTF_GLOB_REF) == 0) && !gtHasAddressTakenLocals(expr->AsOp()->gtOp2))
         {
             unsigned op2Flags = expr->AsOp()->gtOp2->gtFlags & GTF_GLOB_EFFECT;
             assert(flags == (op2Flags | GTF_ASG));
@@ -714,32 +714,19 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
     while (count--)
     {
-        StackEntry se   = impPopStack();
-        GenTree*   temp = se.val;
+        StackEntry se  = impPopStack();
+        GenTree*   val = se.val;
 
-        if (varTypeIsStruct(temp->GetType()))
+        if (varTypeIsStruct(val->GetType()))
         {
             CORINFO_CLASS_HANDLE structType = se.seTypeInfo.GetClassHandleForValueClass();
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Calling impNormStructVal(%s) on:\n", eeGetClassName(structType));
-                gtDispTree(temp);
-            }
-#endif
-            temp = impNormStructVal(temp, structType, CHECK_SPILL_ALL);
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("resulting tree:\n");
-                gtDispTree(temp);
-            }
-#endif
+            JITDUMPTREE(val, "Calling impNormStructVal(%s) on:\n", eeGetClassName(structType));
+            val = impCanonicalizeStructCallArg(val, structType, CHECK_SPILL_ALL);
+            JITDUMPTREE(val, "resulting tree:\n");
         }
 
-        /* NOTE: we defer bashing the type for I_IMPL to fgMorphArgs */
-        argList = gtPrependNewCallArg(temp, argList);
+        // NOTE: we defer bashing the type for I_IMPL to fgMorphArgs
+        argList = gtPrependNewCallArg(val, argList);
     }
 
     if (sig != nullptr)
@@ -786,6 +773,11 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
             }
 
             // insert any widening or narrowing casts for backwards compatibility
+
+            // TODO-MIKE-Fix: This gets it wrong when the arg is int32 and the param is native uint,
+            // the spec requires zero extension but sign extension is done because JITtype2varType
+            // erases the signedness of the signature type. Probably doesn't really matter, at least
+            // the C# compiler has the habit of inserting its own casts.
 
             arg->SetNode(impImplicitIorI4Cast(arg->GetNode(), jitSigType));
 
@@ -1159,10 +1151,11 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             return src;
         }
     }
-    else if (src->OperIs(GT_RET_EXPR))
+    else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
     {
-        GenTreeCall* call = src->AsRetExpr()->gtInlineCandidate->AsCall();
-        noway_assert(call->OperIs(GT_CALL));
+        GenTreeCall* call = retExpr->GetCall();
+
+        assert(retExpr->GetRetExpr() == call);
 
         if (call->TreatAsHasRetBufArg())
         {
@@ -1200,88 +1193,64 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
     // In all other cases we create and return a struct assignment node.
 
-    GenTree*  dest = nullptr;
-    var_types srcType;
+    GenTree* dest = nullptr;
 
     if (src->OperIs(GT_CALL))
     {
         if (destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            dest    = destAddr->AsUnOp()->GetOp(0)->AsLclVar();
-            srcType = TYP_UNDEF; // We don't care about srcType if we set dest.
-        }
-        else
-        {
-            srcType = src->AsCall()->GetRetSigType();
+            dest = destAddr->AsUnOp()->GetOp(0)->AsLclVar();
         }
     }
     else if (src->OperIs(GT_RET_EXPR))
     {
-        srcType = src->GetType();
     }
     else if (src->OperIs(GT_OBJ))
     {
         assert(src->GetType() == impNormStructType(structHnd));
         assert((src->AsObj()->GetLayout()->GetClassHandle() == structHnd) || varTypeIsSIMD(src->GetType()));
-
-        srcType = src->GetType();
     }
     else if (src->OperIs(GT_INDEX))
     {
-        assert(src->TypeIs(TYP_STRUCT));
+        assert(src->GetType() == impNormStructType(structHnd));
         assert(src->AsIndex()->GetLayout()->GetClassHandle() == structHnd);
-
-        // Currently INDEX type isn't normalized so we have to do it here.
-        srcType = impNormStructType(structHnd);
     }
     else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        srcType = src->GetType();
     }
     else
     {
         assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsSimdOrHWintrinsic());
         assert((structHnd == NO_CLASS_HANDLE) || (src->GetType() == impNormStructType(structHnd)));
-
-        srcType = src->GetType();
     }
+
+    var_types srcType = src->GetType();
 
     if ((dest == nullptr) && destAddr->OperIs(GT_ADDR))
     {
         GenTree*  destLocation = destAddr->AsUnOp()->GetOp(0);
         var_types destType     = destLocation->GetType();
 
-        // If the actual destination is a local, a GT_INDEX or a block node, or is a node that
-        // will be morphed, don't insert an OBJ(ADDR) if it already has the right type.
-
         if (destLocation->OperIs(GT_LCL_VAR, GT_INDEX, GT_OBJ))
         {
-            // If one or both types are TYP_STRUCT (one may not yet be normalized), they are compatible
-            // iff their handles are the same.
-            // Otherwise, they are compatible if their types are the same.
+            // If the actual destination is a local, a GT_INDEX or a block node, or is a node that
+            // will be morphed, don't insert an OBJ(ADDR) if it already has the right type.
 
-            bool typesAreCompatible =
-                ((destType == TYP_STRUCT) || (srcType == TYP_STRUCT))
-                    ? ((gtGetStructHandleIfPresent(destLocation) == structHnd) && varTypeIsStruct(srcType))
-                    : (destType == srcType);
-
-            if (typesAreCompatible)
+            if ((destType == srcType) &&
+                (varTypeIsSIMD(srcType) || (gtGetStructHandleIfPresent(destLocation) == structHnd)))
             {
                 dest = destLocation;
-
-                if (destType != TYP_STRUCT)
-                {
-                    // Use a normalized type if available. We know from above that they're equivalent.
-                    srcType = destType;
-                }
             }
         }
-        else if (destLocation->OperIs(GT_FIELD) && (destType == srcType) && varTypeIsSIMD(srcType))
+        else if (destLocation->OperIs(GT_FIELD))
         {
             // SIMD typed FIELDs can be used directly, STRUCT typed fields need to be wrapped into
             // an OBJ to avoid the sruct type getting lost due to single field struct promotion.
 
-            dest = destLocation;
+            if ((destType == srcType) && varTypeIsSIMD(srcType))
+            {
+                dest = destLocation;
+            }
         }
     }
 
@@ -1413,7 +1382,7 @@ GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
 // impNormStructType: Normalize the type of a (known to be) struct class handle.
 //
 // Arguments:
-//    structHnd       - The class handle for the struct type of interest.
+//    argClass       - The class handle for the struct type of interest.
 //    pSimdBaseType   - (optional, default nullptr) - if non-null, and the struct is a SIMD
 //                      type, set to the SIMD base type
 //
@@ -1466,80 +1435,51 @@ var_types Compiler::impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types*
     return structType;
 }
 
-//------------------------------------------------------------------------
-//  Compiler::impNormStructVal: Normalize a struct value
-//
-//  Arguments:
-//     structVal - the node we are going to normalize
-//     structHnd - the class handle for the node
-//     curLevel  - the current stack level
-//
-// Notes:
-//     Given struct value 'structVal', make sure it is 'canonical', that is
-//     it is either:
-//     - a known struct type (non-TYP_STRUCT, e.g. TYP_SIMD8)
-//     - an OBJ or a MKREFANY node, or
-//     - a node (e.g. GT_INDEX) that will be morphed.
-//    If the node is a CALL or RET_EXPR, a copy will be made to a new temp.
-//
-GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel)
+GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HANDLE argClass, unsigned curLevel)
 {
-    assert(varTypeIsStruct(structVal->GetType()));
-    assert(structHnd != NO_CLASS_HANDLE);
+    assert(argClass != NO_CLASS_HANDLE);
+    assert(arg->GetType() == impNormStructType(argClass));
 
-    var_types structType = structVal->GetType();
+    unsigned argLclNum = BAD_VAR_NUM;
+    bool     isCanonical;
 
-    if (structType == TYP_STRUCT)
+    switch (arg->GetOper())
     {
-        structType = impNormStructType(structHnd);
-    }
-
-    bool                 makeTemp          = false;
-    bool                 alreadyNormalized = false;
-    GenTreeLclVarCommon* structLcl         = nullptr;
-
-    switch (structVal->GetOper())
-    {
-        case GT_MKREFANY:
-            alreadyNormalized = true;
-            break;
-
         case GT_CALL:
         case GT_RET_EXPR:
-            makeTemp = true;
-            break;
-
-        case GT_FIELD:
-            structVal->SetType(structType);
-
-            if (structType == TYP_STRUCT)
+            // TODO-MIKE-Cleanup: We do need a local temp for calls that return structs via
+            // a return buffer. Do we also need a temp if structs are returned in registers?
             {
-                structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
+                argLclNum          = lvaNewTemp(argClass, true DEBUGARG("struct arg temp"));
+                GenTree* argLclVar = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
+                GenTree* asg       = impAssignStruct(argLclVar, arg, argClass, curLevel);
+
+                impAppendTree(asg, curLevel, impCurStmtOffs);
+
+                arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
             }
+
+            isCanonical = false;
             break;
 
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            structLcl = structVal->AsLclVarCommon();
-            structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
-            assert(structVal->GetType() == structType);
-            alreadyNormalized = true;
+            argLclNum = arg->AsLclVarCommon()->GetLclNum();
+            arg       = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, arg));
+            assert(arg->GetType() == lvaGetDesc(argLclNum)->GetType());
+            isCanonical = true;
             break;
 
-        case GT_INDEX:
-            assert(varTypeIsStruct(structVal->GetType()));
-            alreadyNormalized = true;
-            break;
-
-        case GT_OBJ:
-            assert(structVal->GetType() == structType);
-            alreadyNormalized = true;
+        case GT_FIELD:
+            // FIELDs need to be wrapped in OBJs because FIELD morphing code produces INDs
+            // instead of OBJs so we lose the struct type. They can also be turned into
+            // primitive type LCL_VARs due to single field struct promotion.
+            isCanonical = false;
             break;
 
         case GT_IND:
-            assert(structVal->GetType() == structType);
-            structVal         = gtNewObjNode(structHnd, structVal->AsIndir()->GetAddr());
-            alreadyNormalized = true;
+            arg         = gtNewObjNode(argClass, arg->AsIndir()->GetAddr());
+            isCanonical = true;
             break;
 
 #if defined(FEATURE_SIMD) || defined(FEATURE_HW_INTRINSICS)
@@ -1549,34 +1489,39 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
 #endif
-            assert(varTypeIsSIMD(structVal->GetType()) && (structVal->GetType() == structType));
-            break;
+            assert(varTypeIsSIMD(arg->GetType()));
+            FALLTHROUGH;
 #endif
+        case GT_MKREFANY:
+        case GT_INDEX:
+        case GT_OBJ:
+            isCanonical = true;
+            break;
 
         case GT_COMMA:
         {
-            GenTree* lastComma  = structVal;
-            GenTree* commaValue = structVal->AsOp()->GetOp(1);
+            GenTree* lastComma  = arg;
+            GenTree* commaValue = arg->AsOp()->GetOp(1);
 
             while (commaValue->OperIs(GT_COMMA))
             {
-                assert(commaValue->GetType() == structType);
+                assert(commaValue->GetType() == arg->GetType());
 
                 lastComma  = commaValue;
                 commaValue = commaValue->AsOp()->GetOp(1);
             }
 
-            assert(commaValue->GetType() == structType);
+            assert(commaValue->GetType() == arg->GetType());
 
             if (commaValue->OperIs(GT_FIELD))
             {
-                commaValue = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, commaValue));
+                commaValue = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, commaValue));
             }
 
 #ifdef FEATURE_SIMD
             if (commaValue->OperIsSimdOrHWintrinsic())
             {
-                lastComma->AsOp()->SetOp(1, impNormStructVal(commaValue, structHnd, curLevel));
+                lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argClass, curLevel));
             }
             else
 #endif
@@ -1598,13 +1543,13 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
 
                 commaValue->AsObj()->SetAddr(lastComma);
 
-                if (lastComma == structVal)
+                if (lastComma == arg)
                 {
-                    structVal = commaValue;
+                    arg = commaValue;
                 }
             }
 
-            alreadyNormalized = true;
+            isCanonical = true;
         }
         break;
 
@@ -1612,44 +1557,29 @@ GenTree* Compiler::impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE str
             unreached();
     }
 
-    structVal->SetType(structType);
-
-    if (!alreadyNormalized)
+    if (!isCanonical && arg->TypeIs(TYP_STRUCT) && !arg->OperIs(GT_OBJ))
     {
-        if (makeTemp)
-        {
-            unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("norm struct val temp"));
-
-            impAssignTempGen(tempLclNum, structVal, structHnd, curLevel);
-
-            structLcl = gtNewLclvNode(tempLclNum, structType);
-            structVal = structLcl;
-        }
-
-        if ((structType == TYP_STRUCT) && !structVal->OperIs(GT_OBJ))
-        {
-            structVal = gtNewObjNode(structHnd, gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
-        }
+        arg = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, arg));
     }
 
-    if (structVal->OperIs(GT_OBJ))
+    if (arg->OperIs(GT_OBJ))
     {
-        if (structLcl != nullptr)
+        if (argLclNum != BAD_VAR_NUM)
         {
             // A OBJ on a ADDR(LCL_VAR) can never raise an exception so we don't set GTF_EXCEPT here.
-            if (!lvaIsImplicitByRefLocal(structLcl->GetLclNum()))
+            if (!lvaGetDesc(argLclNum)->IsImplicitByRefParam())
             {
-                structVal->gtFlags &= ~GTF_GLOB_REF;
+                arg->gtFlags &= ~GTF_GLOB_REF;
             }
         }
         else
         {
             // In general a OBJ is an indirection and could raise an exception.
-            structVal->gtFlags |= GTF_EXCEPT;
+            arg->gtFlags |= GTF_EXCEPT;
         }
     }
 
-    return structVal;
+    return arg;
 }
 
 /******************************************************************************/
@@ -2115,12 +2045,12 @@ void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
 
         // If we're assigning a GT_RET_EXPR, note the temp over on the call,
         // so the inliner can use it in case it needs a return spill temp.
-        if (tree->OperGet() == GT_RET_EXPR)
+        if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
         {
             JITDUMP("\n*** see V%02u = GT_RET_EXPR, noting temp\n", tnum);
-            GenTree*             call = tree->AsRetExpr()->gtInlineCandidate;
-            InlineCandidateInfo* ici  = call->AsCall()->gtInlineCandidateInfo;
-            ici->preexistingSpillTemp = tnum;
+
+            assert(retExpr->GetRetExpr() == retExpr->GetCall());
+            retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = tnum;
         }
     }
 
@@ -2215,8 +2145,8 @@ inline void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLev
         if ((tree->gtFlags & spillFlags) != 0 ||
             (spillGlobEffects &&                       // Only consider the following when  spillGlobEffects == TRUE
              (impIsAddressInLocal(tree) == nullptr) && // No need to spill the GT_ADDR node on a local.
-             gtHasLocalsWithAddrOp(tree))) // Spill if we still see GT_LCL_VAR that contains lvHasLdAddrOp or
-                                           // lvAddrTaken flag.
+             gtHasAddressTakenLocals(tree))) // Spill if we still see GT_LCL_VAR that contains lvHasLdAddrOp or
+                                             // lvAddrTaken flag.
         {
             impSpillStackEntry(i DEBUGARG(reason));
         }
@@ -2318,7 +2248,7 @@ void Compiler::impSpillLclRefs(ssize_t lclNum)
         /* Skip the tree if it doesn't have an affected reference,
            unless xcptnCaught */
 
-        if (xcptnCaught || gtHasRef(tree, lclNum, false))
+        if (xcptnCaught || gtHasRef(tree, lclNum))
         {
             impSpillStackEntry(level DEBUGARG("impSpillLclRefs"));
         }
@@ -3571,7 +3501,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             op1 = impStackTop(0).val;
 
             // If we're calling GetType on a boxed value, just get the type directly.
-            if (op1->IsBoxedValue())
+            if (op1->IsBox())
             {
                 JITDUMP("Attempting to optimize box(...).getType() to direct type construction\n");
 
@@ -3901,13 +3831,15 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             }
 
             case NI_System_Threading_Thread_get_ManagedThreadId:
-            {
-                if (opts.OptimizationEnabled() && impStackTop().val->OperIs(GT_RET_EXPR))
+                if (opts.OptimizationEnabled())
                 {
-                    GenTreeCall* call = impStackTop().val->AsRetExpr()->gtInlineCandidate->AsCall();
-                    if (call->gtFlags & CORINFO_FLG_JIT_INTRINSIC)
+                    if (GenTreeRetExpr* retExpr = impStackTop().val->IsRetExpr())
                     {
-                        if (lookupNamedIntrinsic(call->gtCallMethHnd) == NI_System_Threading_Thread_get_CurrentThread)
+                        assert(retExpr->GetRetExpr() == nullptr);
+                        GenTreeCall* call = retExpr->GetCall();
+
+                        if (((call->gtFlags & CORINFO_FLG_JIT_INTRINSIC) != 0) &&
+                            (lookupNamedIntrinsic(call->gtCallMethHnd) == NI_System_Threading_Thread_get_CurrentThread))
                         {
                             // drop get_CurrentThread() call
                             impPopStack();
@@ -3917,7 +3849,6 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                     }
                 }
                 break;
-            }
 
 #ifdef FEATURE_HW_INTRINSICS
             case NI_System_Math_FusedMultiplyAdd:
@@ -5300,8 +5231,6 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         //    "(box(x)).CallAnInterfaceMethod(...)" --> "(&x).CallAValueTypeMethod"
         //    "(box(x)).CallAnObjectMethod(...)" --> "(&x).CallAValueTypeMethod"
 
-        op1->gtFlags |= GTF_BOX_VALUE;
-        assert(op1->IsBoxedValue());
         assert(asg->gtOper == GT_ASG);
     }
     else
@@ -7700,8 +7629,7 @@ DONE:
         GenTree* callObj = call->AsCall()->gtCallThisArg->GetNode();
 
         if ((call->AsCall()->IsVirtual() || (call->gtFlags & GTF_CALL_NULLCHECK)) &&
-            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->AsCall()->gtCallArgs, callObj,
-                                                               impInlineInfo->inlArgInfo))
+            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->AsCall()->gtCallArgs, callObj))
         {
             impInlineInfo->thisDereferencedFirst = true;
         }
@@ -7745,17 +7673,15 @@ DONE_INTRINSIC:
             sig = &callSiteSig;
         }
 
-        if (call->IsCall())
+        if (GenTreeCall* origCall = call->IsCall())
         {
             // Sometimes "call" is not a GT_CALL (if we imported an intrinsic that didn't turn into a call)
-
-            GenTreeCall* origCall = call->AsCall();
 
             const bool isFatPointerCandidate              = origCall->IsFatPointerCandidate();
             const bool isInlineCandidate                  = origCall->IsInlineCandidate();
             const bool isGuardedDevirtualizationCandidate = origCall->IsGuardedDevirtualizationCandidate();
 
-            if (varTypeIsStruct(call->GetType()))
+            if (varTypeIsStruct(origCall->GetType()))
             {
 #if FEATURE_MULTIREG_RET
                 if ((origCall->GetRegCount() > 1) && !origCall->CanTailCall() && !isInlineCandidate)
@@ -7784,10 +7710,10 @@ DONE_INTRINSIC:
                 impAppendTree(origCall, CHECK_SPILL_ALL, impCurStmtOffs);
 
                 // TODO: Still using the widened type.
-                GenTree* retExpr = gtNewRetExpr(origCall, varActualType(callRetTyp), compCurBB);
+                GenTreeRetExpr* retExpr = gtNewRetExpr(origCall, origCall->GetType());
 
                 // Link the retExpr to the call so if necessary we can manipulate it later.
-                origCall->gtInlineCandidateInfo->retExpr = retExpr;
+                origCall->gtInlineCandidateInfo->retExprPlaceholder = retExpr;
 
                 // Propagate retExpr as the placeholder for the call.
                 call = retExpr;
@@ -7884,8 +7810,10 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     assert(call->GetRetLayout() == nullptr);
 
     ClassLayout* layout = typGetObjLayout(retClass);
+    var_types    type   = impNormStructType(retClass);
 
-    call->SetRetSigType(impNormStructType(retClass));
+    call->SetType(type);
+    call->SetRetSigType(type);
     call->SetRetLayout(layout);
 
     structPassingKind retKind;
@@ -9097,7 +9025,7 @@ GenTree* Compiler::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
                 GenTree* result = gtNewIconNode(0, TYP_REF);
 
                 // If the cast was fed by a box, we can remove that too.
-                if (op1->IsBoxedValue())
+                if (op1->IsBox())
                 {
                     JITDUMP("Also removing upstream box\n");
                     gtTryRemoveBoxUpstreamEffects(op1);
@@ -9428,10 +9356,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
     int  prefixFlags = 0;
     bool explicitTailCall, constraintCall, readonlyCall;
-
-    unsigned numArgs = info.compArgsCount;
-
-    /* Now process all the opcodes in the block */
 
     var_types callTyp    = TYP_COUNT;
     OPCODE    prevOpcode = CEE_ILLEGAL;
@@ -9806,7 +9730,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_LDARG_2:
             case CEE_LDARG_3:
                 lclNum = (opcode - CEE_LDARG_0);
-                assert(lclNum >= 0 && lclNum < 4);
                 impLoadArg(lclNum, opcodeOffs + sz + 1);
                 break;
 
@@ -9834,7 +9757,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_STARG:
                 lclNum = getU2LittleEndian(codeAddr);
                 goto STARG;
-
             case CEE_STARG_S:
                 lclNum = getU1LittleEndian(codeAddr);
             STARG:
@@ -9842,78 +9764,82 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
-                    op1 = impInlineFetchArg(lclNum, impInlineInfo->inlArgInfo, impInlineInfo->lclVarInfo);
-                    noway_assert(op1->gtOper == GT_LCL_VAR);
+                    if (lclNum >= impInlineInfo->ilArgCount)
+                    {
+                        compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_ARGUMENT_NUMBER);
+                        return;
+                    }
+
+                    op1 = inlUseArg(impInlineInfo, lclNum);
+                    noway_assert(op1->OperIs(GT_LCL_VAR));
                     lclNum = op1->AsLclVar()->GetLclNum();
-
-                    goto VAR_ST_VALID;
                 }
-
-                lclNum = compMapILargNum(lclNum); // account for possible hidden param
-                assertImp(lclNum < numArgs);
-
-                if (lclNum == info.compThisArg)
+                else
                 {
-                    lclNum = lvaArg0Var;
+                    if (lclNum >= info.compILargsCount)
+                    {
+                        BADCODE("Bad IL arg num");
+                    }
+
+                    lclNum = compMapILargNum(lclNum);
+
+                    if (lclNum == info.compThisArg)
+                    {
+                        lclNum = lvaArg0Var;
+                    }
+
+                    assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
                 }
 
-                // We should have seen this arg write in the prescan
-                assert(lvaTable[lclNum].lvHasILStoreOp);
-
-                goto VAR_ST;
+                goto ST_ARG;
 
             case CEE_STLOC:
                 lclNum  = getU2LittleEndian(codeAddr);
                 isLocal = true;
                 JITDUMP(" %u", lclNum);
-                goto LOC_ST;
-
+                goto ST_LOC;
             case CEE_STLOC_S:
                 lclNum  = getU1LittleEndian(codeAddr);
                 isLocal = true;
                 JITDUMP(" %u", lclNum);
-                goto LOC_ST;
-
+                goto ST_LOC;
             case CEE_STLOC_0:
             case CEE_STLOC_1:
             case CEE_STLOC_2:
             case CEE_STLOC_3:
                 isLocal = true;
                 lclNum  = (opcode - CEE_STLOC_0);
-                assert(lclNum >= 0 && lclNum < 4);
-
-            LOC_ST:
+            ST_LOC:
                 if (compIsForInlining())
                 {
-                    lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclType;
+                    if (lclNum >= impInlineInfo->ilLocCount)
+                    {
+                        impInlineInfo->inlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
+                        return;
+                    }
 
-                    /* Have we allocated a temp for this local? */
-
-                    lclNum = impInlineFetchLocal(lclNum DEBUGARG("Inline stloc first use temp"));
-
-                    goto _PopValue;
-                }
-
-                lclNum += numArgs;
-
-            VAR_ST:
-                if (lclNum >= info.compLocalsCount && lclNum != lvaArg0Var)
-                {
-                    BADCODE("Bad IL");
-                }
-
-            VAR_ST_VALID:
-                if (lvaTable[lclNum].lvNormalizeOnLoad())
-                {
-                    lclTyp = lvaGetRealType(lclNum);
+                    lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
+                    lclTyp = lvaGetDesc(lclNum)->GetType();
                 }
                 else
                 {
-                    lclTyp = lvaGetActualType(lclNum);
+                    if (lclNum >= info.compMethodInfo->locals.numArgs)
+                    {
+                        BADCODE("Bad IL loc num");
+                    }
+
+                    lclNum += info.compArgsCount;
+
+                ST_ARG:
+                    LclVarDsc* lcl = lvaGetDesc(lclNum);
+                    lclTyp         = lcl->GetType();
+
+                    if (!lcl->lvNormalizeOnLoad())
+                    {
+                        lclTyp = varActualType(lclTyp);
+                    }
                 }
 
-            _PopValue:
-                // Pop the value being assigned
                 {
                     StackEntry se = impPopStack();
                     clsHnd        = se.seTypeInfo.GetClassHandle();
@@ -10061,14 +9987,23 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
-                    lclTyp = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt].lclType;
-                    lclNum = impInlineFetchLocal(lclNum DEBUGARG("Inline ldloca(s) first use temp"));
+                    if (lclNum >= impInlineInfo->ilLocCount)
+                    {
+                        compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
+                        return;
+                    }
+
+                    lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
                     op1    = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
                     goto PUSH_ADRVAR;
                 }
 
-                lclNum += numArgs;
-                assertImp(lclNum < info.compLocalsCount);
+                if (lclNum >= info.compMethodInfo->locals.numArgs)
+                {
+                    BADCODE("Bad IL loc num");
+                }
+
+                lclNum += info.compArgsCount;
                 goto ADRVAR;
 
             case CEE_LDARGA:
@@ -10078,28 +10013,26 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 lclNum = getU1LittleEndian(codeAddr);
             LDARGA:
                 JITDUMP(" %u", lclNum);
-                if (lclNum >= info.compILargsCount)
-                {
-                    BADCODE("bad arg num");
-                }
 
                 if (compIsForInlining())
                 {
-                    // In IL, LDARGA(_S) is used to load the byref managed pointer of struct argument,
-                    // followed by a ldfld to load the field.
-
-                    op1 = impInlineFetchArg(lclNum, impInlineInfo->inlArgInfo, impInlineInfo->lclVarInfo);
-                    if (op1->gtOper != GT_LCL_VAR)
+                    if (lclNum >= impInlineInfo->ilArgCount)
                     {
-                        compInlineResult->NoteFatal(InlineObservation::CALLSITE_LDARGA_NOT_LOCAL_VAR);
+                        compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_ARGUMENT_NUMBER);
                         return;
                     }
 
+                    op1 = inlUseArg(impInlineInfo, lclNum);
+                    noway_assert(op1->OperIs(GT_LCL_VAR));
                     goto PUSH_ADRVAR;
                 }
 
+                if (lclNum >= info.compILargsCount)
+                {
+                    BADCODE("Bad IL arg num");
+                }
+
                 lclNum = compMapILargNum(lclNum); // account for possible hidden param
-                assertImp(lclNum < numArgs);
 
                 if (lclNum == info.compThisArg)
                 {
@@ -10127,9 +10060,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // was transformed into a byref.
                 //
                 // In general we do not need typeInfo for non-struct values but LDFLD import code depends
-                // on this because of the "normed type" mess. LDFLD accepts pretty all sorts of types as
-                // source - REF, I_IMPL, STRUCT - and the generated IR is different for STRUCT because in
-                // that case we really need the address of the struct value.
+                // on this because of the "normed type" mess. LDFLD accepts pretty much all sorts of types
+                // as source - REF, I_IMPL, STRUCT - and the generated IR is different for STRUCT because
+                // in that case we really need the address of the struct value.
                 // But with the "normed type" thing we can end up with INT/LONG instead of STRUCT on the
                 // stack and then the LDFLD import code can no longer figure out if it needs the address.
                 // So it checks if lvImpTypeInfo contains a handle, set by lvaInitVarDsc and others.
@@ -10149,10 +10082,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assertImp((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG);
 
-                /* The ARGLIST cookie is a hidden 'last' parameter, we have already
-                   adjusted the arg count cos this is like fetching the last param */
-                assertImp(0 < numArgs);
-                assert(lvaTable[lvaVarargsHandleArg].lvAddrExposed);
+                // The ARGLIST cookie is a hidden 'last' parameter, we have already
+                // adjusted the arg count cos this is like fetching the last param
+                assertImp(info.compArgsCount > 0);
+                assert(lvaGetDesc(lvaVarargsHandleArg)->lvAddrExposed);
+
                 lclNum = lvaVarargsHandleArg;
                 op1    = gtNewLclvNode(lclNum, TYP_I_IMPL DEBUGARG(opcodeOffs + sz + 1));
                 op1    = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
@@ -12306,8 +12240,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         else
                         {
                             if (compIsForInlining() &&
-                                impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj,
-                                                                                   impInlineInfo->inlArgInfo))
+                                impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, nullptr, obj))
                             {
                                 impInlineInfo->thisDereferencedFirst = true;
                             }
@@ -12459,8 +12392,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (helperNode != nullptr)
                     {
                         // TDOO-MIKE-Cleanup: This appears to be the only case where the importer creates
-                        // a struct typed COMMA. Subsequently (impNormStructValue, impAssignStructPtr etc.)
-                        // this is transformed into OBJ(COMMA(...)).
+                        // a struct typed COMMA. Subsequently this is transformed into OBJ(COMMA(...))
+                        // (see impCanonicalizeStructCallArg and impAssignStructPtr).
                         // We could do that here but let's keep it as is for now for testing purposes.
 
                         op1 = gtNewOperNode(GT_COMMA, op1->TypeGet(), helperNode, op1);
@@ -12606,8 +12539,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         }
 
                         if (compIsForInlining() &&
-                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj,
-                                                                               impInlineInfo->inlArgInfo))
+                            impInlineIsGuaranteedThisDerefBeforeAnySideEffects(op2, nullptr, obj))
                         {
                             impInlineInfo->thisDereferencedFirst = true;
                         }
@@ -13837,51 +13769,27 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #pragma warning(pop)
 #endif
 
-// Load a local/argument on the operand stack
-// lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
-void Compiler::impLoadVar(unsigned lclNum, IL_OFFSET offset)
-{
-    var_types lclTyp;
-
-    if (lvaTable[lclNum].lvNormalizeOnLoad())
-    {
-        lclTyp = lvaGetRealType(lclNum);
-    }
-    else
-    {
-        lclTyp = lvaGetActualType(lclNum);
-    }
-
-    impPushOnStack(gtNewLclvNode(lclNum, lclTyp DEBUGARG(offset)), lvaTable[lclNum].lvImpTypeInfo);
-}
-
 // Load an argument on the operand stack
 // Shared by the various CEE_LDARG opcodes
 // ilArgNum is the argument index as specified in IL.
 // It will be mapped to the correct lvaTable index
 void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
 {
-    if (ilArgNum >= info.compILargsCount)
-    {
-        BADCODE("bad arg num");
-    }
-
     if (compIsForInlining())
     {
-        if (ilArgNum >= info.compArgsCount)
+        if (ilArgNum >= impInlineInfo->ilArgCount)
         {
             compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_ARGUMENT_NUMBER);
             return;
         }
 
-        impPushOnStack(impInlineFetchArg(ilArgNum, impInlineInfo->inlArgInfo, impInlineInfo->lclVarInfo),
-                       impInlineInfo->lclVarInfo[ilArgNum].lclVerTypeInfo);
+        impPushOnStack(inlUseArg(impInlineInfo, ilArgNum), impInlineInfo->GetParamTypeInfo(ilArgNum));
     }
     else
     {
-        if (ilArgNum >= info.compArgsCount)
+        if (ilArgNum >= info.compILargsCount)
         {
-            BADCODE("Bad IL");
+            BADCODE("Bad IL arg num");
         }
 
         unsigned lclNum = compMapILargNum(ilArgNum); // account for possible hidden param
@@ -13891,51 +13799,55 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
             lclNum = lvaArg0Var;
         }
 
-        impLoadVar(lclNum, offset);
+        impPushLclVar(lclNum, offset);
     }
 }
 
 // Load a local on the operand stack
 // Shared by the various CEE_LDLOC opcodes
-// ilLclNum is the local index as specified in IL.
+// ilLocNum is the local index as specified in IL.
 // It will be mapped to the correct lvaTable index
-void Compiler::impLoadLoc(unsigned ilLclNum, IL_OFFSET offset)
+void Compiler::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
 {
+    unsigned lclNum;
+
     if (compIsForInlining())
     {
-        if (ilLclNum >= info.compMethodInfo->locals.numArgs)
+        if (ilLocNum >= impInlineInfo->ilLocCount)
         {
             compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
             return;
         }
 
-        // Get the local type
-        var_types lclTyp = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclType;
-
-        typeInfo type = impInlineInfo->lclVarInfo[ilLclNum + impInlineInfo->argCnt].lclVerTypeInfo;
-
-        /* Have we allocated a temp for this local? */
-
-        unsigned lclNum = impInlineFetchLocal(ilLclNum DEBUGARG("Inline ldloc first use temp"));
-
-        // All vars of inlined methods should be !lvNormalizeOnLoad()
-
-        assert(!lvaTable[lclNum].lvNormalizeOnLoad());
-        lclTyp = genActualType(lclTyp);
-
-        impPushOnStack(gtNewLclvNode(lclNum, lclTyp), type);
+        lclNum = inlGetInlineeLocal(impInlineInfo, ilLocNum);
+        offset = BAD_IL_OFFSET;
     }
     else
     {
-        if (ilLclNum >= info.compMethodInfo->locals.numArgs)
+        if (ilLocNum >= info.compMethodInfo->locals.numArgs)
         {
-            BADCODE("Bad IL");
+            BADCODE("Bad IL loc num");
         }
 
-        unsigned lclNum = info.compArgsCount + ilLclNum;
-
-        impLoadVar(lclNum, offset);
+        lclNum = info.compArgsCount + ilLocNum;
     }
+
+    impPushLclVar(lclNum, offset);
+}
+
+// Load a local/argument on the operand stack
+// lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
+void Compiler::impPushLclVar(unsigned lclNum, IL_OFFSET offset)
+{
+    LclVarDsc* lcl  = lvaGetDesc(lclNum);
+    var_types  type = lcl->GetType();
+
+    if (!lcl->lvNormalizeOnLoad())
+    {
+        type = varActualType(type);
+    }
+
+    impPushOnStack(gtNewLclvNode(lclNum, type DEBUGARG(offset)), lcl->lvImpTypeInfo);
 }
 
 //------------------------------------------------------------------------
@@ -13953,11 +13865,6 @@ bool Compiler::impInlineReturnInstruction()
         return true;
     }
 
-    // If we are importing an inlinee and have GC ref locals we always
-    // need to have a spill temp for the return value.  This temp
-    // should have been set up in advance, over in fgFindBasicBlocks.
-    assert(!impInlineInfo->HasGcRefLocals() || (lvaInlineeReturnSpillTemp != BAD_VAR_NUM));
-
     StackEntry           se        = impPopStack();
     CORINFO_CLASS_HANDLE retClsHnd = se.seTypeInfo.GetClassHandle();
     GenTree*             op2       = se.val;
@@ -13965,196 +13872,7 @@ bool Compiler::impInlineReturnInstruction()
     // inlinee's stack should be empty now.
     assert(verCurrentState.esStackDepth == 0);
 
-    JITDUMPTREE(op2, "\nInlinee RETURN expression:\n");
-
-    // Make sure the return value type matches the return signature type.
-    {
-        var_types callType   = info.GetRetSigType();
-        var_types returnType = op2->GetType();
-
-        if (returnType == TYP_STRUCT)
-        {
-            // Currently call nodes do not have normalized type, use the signature type instead.
-            if (op2->IsCall())
-            {
-                returnType = op2->AsCall()->GetRetSigType();
-            }
-            else if (op2->IsRetExpr())
-            {
-                returnType = op2->AsRetExpr()->gtInlineCandidate->AsCall()->GetRetSigType();
-            }
-        }
-
-        callType   = varActualType(callType);
-        returnType = varActualType(returnType);
-
-        if (returnType != callType)
-        {
-            // Allow TYP_BYREF to be returned as TYP_I_IMPL and vice versa
-            if (((returnType == TYP_BYREF) && (callType == TYP_I_IMPL)) ||
-                ((returnType == TYP_I_IMPL) && (callType == TYP_BYREF)))
-            {
-                JITDUMP("Allowing return type mismatch: have %s, needed %s\n", varTypeName(returnType),
-                        varTypeName(callType));
-            }
-            else
-            {
-                JITDUMP("Return type mismatch: have %s, needed %s\n", varTypeName(returnType), varTypeName(callType));
-                compInlineResult->NoteFatal(InlineObservation::CALLSITE_RETURN_TYPE_MISMATCH);
-                return false;
-            }
-        }
-    }
-
-    if (varTypeIsSmall(info.compRetType))
-    {
-        // Small-typed return values are normalized by the callee
-
-        if (fgCastNeeded(op2, info.compRetType))
-        {
-            op2 = gtNewCastNode(TYP_INT, op2, false, info.compRetType);
-        }
-    }
-    else if (info.compRetType == TYP_REF)
-    {
-        if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
-        {
-            // If this method returns a REF type and we have a spill temp, track the actual types
-            // seen in the returns so we can update the spill temp class when inlining is done.
-
-            bool                 isExact      = false;
-            bool                 isNonNull    = false;
-            CORINFO_CLASS_HANDLE returnClsHnd = gtGetClassHandle(op2, &isExact, &isNonNull);
-
-            if (impInlineInfo->retExpr == nullptr)
-            {
-                // This is the first return, so best known type is the type
-                // of this return value.
-                impInlineInfo->retExprClassHnd        = returnClsHnd;
-                impInlineInfo->retExprClassHndIsExact = isExact;
-            }
-            else if (impInlineInfo->retExprClassHnd != returnClsHnd)
-            {
-                // This return site type differs from earlier seen sites,
-                // so reset the info and we'll fall back to using the method's
-                // declared return type for the return spill temp.
-                impInlineInfo->retExprClassHnd        = nullptr;
-                impInlineInfo->retExprClassHndIsExact = false;
-            }
-        }
-    }
-    else if (info.compRetType == TYP_BYREF)
-    {
-        // If we are inlining a method that returns a struct byref, check whether we are "reinterpreting" the
-        // struct.
-
-        GenTree* effectiveRetVal = op2->gtEffectiveVal();
-        if (op2->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_ADDR))
-        {
-            GenTree* location = effectiveRetVal->AsUnOp()->GetOp(0);
-            if (location->OperIs(GT_LCL_VAR))
-            {
-                LclVarDsc* varDsc = lvaGetDesc(location->AsLclVar());
-
-                if (varTypeIsStruct(location->GetType()) && !isOpaqueSIMDLclVar(varDsc))
-                {
-                    CORINFO_CLASS_HANDLE referentClassHandle;
-                    CorInfoType          referentType =
-                        info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &referentClassHandle);
-
-                    if (varTypeIsStruct(JITtype2varType(referentType)) &&
-                        (varDsc->GetLayout()->GetClassHandle() != referentClassHandle))
-                    {
-                        // We are returning a byref to struct1; the method signature specifies return type as
-                        // byref
-                        // to struct2. struct1 and struct2 are different so we are "reinterpreting" the struct.
-                        // This may happen in, for example, System.Runtime.CompilerServices.Unsafe.As<TFrom,
-                        // TTo>.
-                        // We need to mark the source struct variable as having overlapping fields because its
-                        // fields may be accessed using field handles of a different type, which may confuse
-                        // optimizations, in particular, value numbering.
-
-                        JITDUMP("\nSetting lvOverlappingFields to true on V%02u because of struct "
-                                "reinterpretation\n",
-                                location->AsLclVar()->GetLclNum());
-
-                        varDsc->lvOverlappingFields = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if (op2->IsCall() && op2->AsCall()->TreatAsHasRetBufArg() && (info.retDesc.GetRegCount() > 1))
-    {
-        // The multi reg case is currently handled during unbox import.
-        assert(info.retDesc.GetRegCount() == 1);
-
-        // TODO-MIKE-CQ: If there's an inlinee spill temp we could use that as pseudo
-        // return buffer instead of creating another temp. But that would leave the
-        // inlinee spill temp address exposed so it's perhaps not such a good idea to
-        // do it unconditionally. The inlinee spill temp should probably be used only
-        // if the struct is large, when copying is likely to be more costly than the
-        // lack of optimizations caused by address exposed.
-        // No FX diffs if done so it's probably very rare so not worth the trouble now.
-
-        op2 = impSpillPseudoReturnBufferCall(op2, retClsHnd);
-    }
-
-    if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
-    {
-        assert(fgMoreThanOneReturnBlock() || impInlineInfo->HasGcRefLocals());
-
-        impAssignTempGen(lvaInlineeReturnSpillTemp, op2, retClsHnd, CHECK_SPILL_NONE);
-
-        if (impInlineInfo->retExpr == nullptr)
-        {
-            op2 = gtNewLclvNode(lvaInlineeReturnSpillTemp, lvaGetDesc(lvaInlineeReturnSpillTemp)->GetType());
-        }
-        else
-        {
-            // Some other block(s) have seen the CEE_RET first. They should have spilled to the same temp.
-
-            if (impInlineInfo->iciCall->HasRetBufArg())
-            {
-                // If the inlined call has a return buffer then the return expression is really
-                // an assignment that stores into the buffer.
-                assert(impInlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLclNum() == lvaInlineeReturnSpillTemp);
-            }
-            else
-            {
-                assert(impInlineInfo->retExpr->AsLclVar()->GetLclNum() == lvaInlineeReturnSpillTemp);
-            }
-        }
-    }
-
-    if (impInlineInfo->retExpr == nullptr)
-    {
-        if (impInlineInfo->iciCall->HasRetBufArg())
-        {
-            // TODO-MIKE-CQ: Why do we have an inlinee return spill temp when we also
-            // have a return buffer? We first spill to the temp and then copy the temp
-            // to the return buffer, that seems like an unnecessary copy.
-
-            GenTree* retBufAddr = gtCloneExpr(impInlineInfo->iciCall->gtCallArgs->GetNode());
-
-            op2 = impAssignStructPtr(retBufAddr, op2, retClsHnd, CHECK_SPILL_ALL);
-        }
-
-        JITDUMPTREE(op2, "Inline return expression:\n");
-
-        impInlineInfo->retExpr = op2;
-    }
-
-    if (impInlineInfo->retExpr != nullptr)
-    {
-        // TODO-MIKE-Review: retBB is used to get the flags so we're basically keeping
-        // only the flags of the last inlinee basic block. Is that correct?
-
-        impInlineInfo->retBB = compCurBB;
-    }
-
-    return true;
+    return inlImportReturn(impInlineInfo, op2, retClsHnd);
 }
 
 void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
@@ -14577,14 +14295,14 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 {
                     GenTreeOp* relOp = branch->GetOp(0)->AsOp();
 
-                    if (gtHasRef(relOp->GetOp(0), spillTempLclNum, false))
+                    if (gtHasRef(relOp->GetOp(0), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
                         impAssignTempGen(temp, relOp->GetOp(0), level);
                         relOp->SetOp(0, gtNewLclvNode(temp, lvaGetDesc(temp)->GetType()));
                     }
 
-                    if (gtHasRef(relOp->GetOp(1), spillTempLclNum, false))
+                    if (gtHasRef(relOp->GetOp(1), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
                         impAssignTempGen(temp, relOp->GetOp(1), level);
@@ -14595,7 +14313,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 {
                     assert(branch->OperIs(GT_SWITCH));
 
-                    if (gtHasRef(branch->GetOp(0), spillTempLclNum, false))
+                    if (gtHasRef(branch->GetOp(0), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
                         impAssignTempGen(temp, branch->GetOp(0), level);
@@ -14859,14 +14577,7 @@ unsigned BasicBlock::bbStackDepthOnEntry()
 
 Compiler* Compiler::impInlineRoot()
 {
-    if (impInlineInfo == nullptr)
-    {
-        return this;
-    }
-    else
-    {
-        return impInlineInfo->InlineRoot;
-    }
+    return (impInlineInfo == nullptr) ? this : impInlineInfo->InlinerCompiler;
 }
 
 bool Compiler::impIsSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
@@ -15152,7 +14863,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     // We consider a recursive call loop-like.  Do not give the inlining boost to the method itself.
     // However, give it to things nearby.
     else if ((pInlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP) &&
-             (pInlineInfo->fncHandle != pInlineInfo->inlineCandidateInfo->ilCallerHandle))
+             (info.compMethodHnd != pInlineInfo->inlineCandidateInfo->ilCallerHandle))
     {
         frequency = InlineCallsiteFrequency::LOOP;
     }
@@ -15455,7 +15166,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             pInfo->ilCallerHandle                 = pParam->pThis->info.compMethodHnd;
             pInfo->clsHandle                      = clsHandle;
             pInfo->exactContextHnd                = pParam->exactContextHnd;
-            pInfo->retExpr                        = nullptr;
+            pInfo->retExprPlaceholder             = nullptr;
             pInfo->dwRestrictions                 = dwRestrictions;
             pInfo->preexistingSpillTemp           = BAD_VAR_NUM;
             pInfo->clsAttr                        = clsAttr;
@@ -15475,898 +15186,6 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
     }
 }
 
-//------------------------------------------------------------------------
-// impInlineRecordArgInfo: record information about an inline candidate argument
-//
-// Arguments:
-//   pInlineInfo - inline info for the inline candidate
-//   curArgVal - tree for the caller actual argument value
-//   argNum - logical index of this argument
-//   inlineResult - result of ongoing inline evaluation
-//
-// Notes:
-//
-//   Checks for various inline blocking conditions and makes notes in
-//   the inline info arg table about the properties of the actual. These
-//   properties are used later by impInlineFetchArg to determine how best to
-//   pass the argument into the inlinee.
-
-void Compiler::impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
-                                      GenTree*      curArgVal,
-                                      unsigned      argNum,
-                                      InlineResult* inlineResult)
-{
-    InlArgInfo* inlCurArgInfo = &pInlineInfo->inlArgInfo[argNum];
-
-    inlCurArgInfo->argNode = curArgVal; // Save the original tree, might be a RET_EXPR.
-
-    curArgVal = curArgVal->gtRetExprVal();
-
-    if (curArgVal->gtOper == GT_MKREFANY)
-    {
-        inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_IS_MKREFANY);
-        return;
-    }
-
-    GenTreeLclVarCommon* lclVarTree = impIsAddressInLocal(curArgVal);
-
-    if ((lclVarTree != nullptr) && varTypeIsStruct(lclVarTree))
-    {
-        inlCurArgInfo->argIsByRefToStructLocal = true;
-#ifdef FEATURE_SIMD
-        if (lvaTable[lclVarTree->AsLclVarCommon()->GetLclNum()].lvSIMDType)
-        {
-            pInlineInfo->hasSIMDTypeArgLocalOrReturn = true;
-        }
-#endif // FEATURE_SIMD
-    }
-
-    if (curArgVal->gtFlags & GTF_ALL_EFFECT)
-    {
-        inlCurArgInfo->argHasGlobRef = (curArgVal->gtFlags & GTF_GLOB_REF) != 0;
-        inlCurArgInfo->argHasSideEff = (curArgVal->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;
-    }
-
-    if (curArgVal->gtOper == GT_LCL_VAR)
-    {
-        inlCurArgInfo->argIsLclVar = true;
-
-        /* Remember the "original" argument number */
-        INDEBUG(curArgVal->AsLclVar()->gtLclILoffs = argNum;)
-    }
-
-    if ((curArgVal->OperKind() & GTK_CONST) || (lclVarTree != nullptr))
-    {
-        inlCurArgInfo->argIsInvariant = true;
-        if (inlCurArgInfo->argIsThis && (curArgVal->gtOper == GT_CNS_INT) && (curArgVal->AsIntCon()->gtIconVal == 0))
-        {
-            // Abort inlining at this call site
-            inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_HAS_NULL_THIS);
-            return;
-        }
-    }
-
-    // If the arg is a local that is address-taken, we can't safely
-    // directly substitute it into the inlinee.
-    //
-    // Previously we'd accomplish this by setting "argHasLdargaOp" but
-    // that has a stronger meaning: that the arg value can change in
-    // the method body. Using that flag prevents type propagation,
-    // which is safe in this case.
-    //
-    // Instead mark the arg as having a caller local ref.
-    if (!inlCurArgInfo->argIsInvariant && gtHasLocalsWithAddrOp(curArgVal))
-    {
-        inlCurArgInfo->argHasCallerLocalRef = true;
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        if (inlCurArgInfo->argIsThis)
-        {
-            printf("thisArg:");
-        }
-        else
-        {
-            printf("\nArgument #%u:", argNum);
-        }
-        if (inlCurArgInfo->argIsLclVar)
-        {
-            printf(" is a local var");
-        }
-        if (inlCurArgInfo->argIsInvariant)
-        {
-            printf(" is a constant");
-        }
-        if (inlCurArgInfo->argHasGlobRef)
-        {
-            printf(" has global refs");
-        }
-        if (inlCurArgInfo->argHasCallerLocalRef)
-        {
-            printf(" has caller local ref");
-        }
-        if (inlCurArgInfo->argHasSideEff)
-        {
-            printf(" has side effects");
-        }
-        if (inlCurArgInfo->argHasLdargaOp)
-        {
-            printf(" has ldarga effect");
-        }
-        if (inlCurArgInfo->argHasStargOp)
-        {
-            printf(" has starg effect");
-        }
-        if (inlCurArgInfo->argIsByRefToStructLocal)
-        {
-            printf(" is byref to a struct local");
-        }
-
-        printf("\n");
-        gtDispTree(curArgVal);
-        printf("\n");
-    }
-#endif
-}
-
-//------------------------------------------------------------------------
-// impInlineInitVars: setup inline information for inlinee args and locals
-//
-// Arguments:
-//    pInlineInfo - inline info for the inline candidate
-//
-// Notes:
-//    This method primarily adds caller-supplied info to the inlArgInfo
-//    and sets up the lclVarInfo table.
-//
-//    For args, the inlArgInfo records properties of the actual argument
-//    including the tree node that produces the arg value. This node is
-//    usually the tree node present at the call, but may also differ in
-//    various ways:
-//    - when the call arg is a GT_RET_EXPR, we search back through the ret
-//      expr chain for the actual node. Note this will either be the original
-//      call (which will be a failed inline by this point), or the return
-//      expression from some set of inlines.
-//    - when argument type casting is needed the necessary casts are added
-//      around the argument node.
-//    - if an argument can be simplified by folding then the node here is the
-//      folded value.
-//
-//   The method may make observations that lead to marking this candidate as
-//   a failed inline. If this happens the initialization is abandoned immediately
-//   to try and reduce the jit time cost for a failed inline.
-
-void Compiler::impInlineInitVars(InlineInfo* pInlineInfo)
-{
-    assert(!compIsForInlining());
-
-    GenTreeCall*         call         = pInlineInfo->iciCall;
-    CORINFO_METHOD_INFO* methInfo     = &pInlineInfo->inlineCandidateInfo->methInfo;
-    unsigned             clsAttr      = pInlineInfo->inlineCandidateInfo->clsAttr;
-    InlArgInfo*          inlArgInfo   = pInlineInfo->inlArgInfo;
-    InlLclVarInfo*       lclVarInfo   = pInlineInfo->lclVarInfo;
-    InlineResult*        inlineResult = pInlineInfo->inlineResult;
-
-    /* init the argument stuct */
-
-    memset(inlArgInfo, 0, (MAX_INL_ARGS + 1) * sizeof(inlArgInfo[0]));
-
-    GenTreeCall::Use* thisArg = call->gtCallThisArg;
-    unsigned          argCnt  = 0; // Count of the arguments
-
-    assert((methInfo->args.hasThis()) == (thisArg != nullptr));
-
-    if (thisArg != nullptr)
-    {
-        inlArgInfo[0].argIsThis = true;
-        impInlineRecordArgInfo(pInlineInfo, thisArg->GetNode(), argCnt, inlineResult);
-
-        if (inlineResult->IsFailure())
-        {
-            return;
-        }
-
-        /* Increment the argument count */
-        argCnt++;
-    }
-
-    const bool hasRetBuffArg = call->HasRetBufArg();
-
-    /* Record some information about each of the arguments */
-    bool hasTypeCtxtArg = (methInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0;
-
-#if USER_ARGS_COME_LAST
-    unsigned typeCtxtArg = (thisArg != nullptr) ? 1 : 0;
-#else  // USER_ARGS_COME_LAST
-    unsigned typeCtxtArg = methInfo->args.totalILArgs();
-#endif // USER_ARGS_COME_LAST
-
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        if (hasRetBuffArg && (&use == call->gtCallArgs))
-        {
-            continue;
-        }
-
-        // Ignore the type context argument
-        if (hasTypeCtxtArg && (argCnt == typeCtxtArg))
-        {
-            pInlineInfo->typeContextArg = typeCtxtArg;
-            typeCtxtArg                 = 0xFFFFFFFF;
-            continue;
-        }
-
-        GenTree* actualArg = use.GetNode();
-        impInlineRecordArgInfo(pInlineInfo, actualArg, argCnt, inlineResult);
-
-        if (inlineResult->IsFailure())
-        {
-            return;
-        }
-
-        /* Increment the argument count */
-        argCnt++;
-    }
-
-    /* Make sure we got the arg number right */
-    assert(argCnt == methInfo->args.totalILArgs());
-
-#ifdef FEATURE_SIMD
-    bool foundSIMDType = pInlineInfo->hasSIMDTypeArgLocalOrReturn;
-#endif // FEATURE_SIMD
-
-    /* We have typeless opcodes, get type information from the signature */
-
-    if (thisArg != nullptr)
-    {
-        var_types argType;
-        typeInfo  argTypeInfo;
-
-        if ((clsAttr & CORINFO_FLG_VALUECLASS) == 0)
-        {
-            argType     = TYP_REF;
-            argTypeInfo = typeInfo(TI_REF, pInlineInfo->inlineCandidateInfo->clsHandle);
-        }
-        else
-        {
-            argType = TYP_BYREF;
-
-            if (info.compCompHnd->getTypeForPrimitiveValueClass(pInlineInfo->inlineCandidateInfo->clsHandle) ==
-                CORINFO_TYPE_UNDEF)
-            {
-                // TODO-MIKE-Cleanup: Like LDLOCA import, this generates incorrect type information,
-                // TI_STRUCT without marking it byref.
-
-                argTypeInfo = typeInfo(TI_STRUCT, pInlineInfo->inlineCandidateInfo->clsHandle);
-            }
-        }
-
-        lclVarInfo[0].lclType        = argType;
-        lclVarInfo[0].lclVerTypeInfo = argTypeInfo;
-        lclVarInfo[0].lclHasLdlocaOp = false;
-
-#ifdef FEATURE_SIMD
-        // We always want to check isSIMDClass, since we want to set foundSIMDType (to increase
-        // the inlining multiplier) for anything in that assembly.
-        // But we only need to normalize it if it is a TYP_STRUCT
-        // (which we need to do even if we have already set foundSIMDType).
-        if (!foundSIMDType && (argType == TYP_BYREF) &&
-            isSIMDorHWSIMDClass(pInlineInfo->inlineCandidateInfo->clsHandle))
-        {
-            foundSIMDType = true;
-        }
-#endif // FEATURE_SIMD
-
-        GenTree* thisArgNode = thisArg->GetNode();
-
-        assert(thisArgNode->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL));
-
-        if (thisArgNode->GetType() != argType)
-        {
-            if (argType == TYP_REF)
-            {
-                // The argument cannot be bashed into a ref (see bug 750871)
-                inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
-                return;
-            }
-
-            // A native pointer can be passed as "this" to a method of a struct.
-            assert(thisArgNode->TypeIs(TYP_I_IMPL));
-
-            lclVarInfo[0].lclVerTypeInfo = typeInfo(TI_I_IMPL);
-        }
-    }
-
-    // Init the types of the arguments and make sure the types
-    // from the trees match the types in the signature
-
-    CORINFO_ARG_LIST_HANDLE argLst = methInfo->args.args;
-
-    for (unsigned i = (thisArg ? 1 : 0); i < argCnt; i++, argLst = info.compCompHnd->getArgNext(argLst))
-    {
-        CORINFO_CLASS_HANDLE argClass;
-        CorInfoType          argCorType = strip(info.compCompHnd->getArgType(&methInfo->args, argLst, &argClass));
-        var_types            argType    = JITtype2varType(argCorType);
-        typeInfo             argTypeInfo;
-
-        if (argType == TYP_REF)
-        {
-            argTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&methInfo->args, argLst));
-        }
-        else if (argType == TYP_BYREF)
-        {
-            // Don't generate typeInfo for byref, it's not needed and requires extra VM calls.
-        }
-        else if (argType == TYP_STRUCT)
-        {
-#ifdef FEATURE_SIMD
-            if (isSIMDorHWSIMDClass(argClass))
-            {
-                // If this is a SIMD class (i.e. in the SIMD assembly), then we will consider that we've
-                // found a SIMD type, even if this may not be a type we recognize (the assumption is that
-                // it is likely to use a SIMD type, and therefore we want to increase the inlining multiplier).
-                foundSIMDType = true;
-                argType       = impNormStructType(argClass);
-            }
-#endif // FEATURE_SIMD
-
-            argTypeInfo = typeInfo(TI_STRUCT, argClass);
-        }
-        else if (argClass != NO_CLASS_HANDLE)
-        {
-            assert(info.compCompHnd->isValueClass(argClass));
-            assert(info.compCompHnd->getTypeForPrimitiveValueClass(argClass) == CORINFO_TYPE_UNDEF);
-
-            // This is a "normed type" - a struct that contains a single primitive type field.
-            // See lvaInitVarDsc.
-            argTypeInfo = typeInfo(TI_STRUCT, argClass);
-        }
-        else if (argCorType <= CORINFO_TYPE_DOUBLE)
-        {
-            // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
-            // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
-            // primitive type, and thus detects any primitive type local as being normed type.
-
-            argTypeInfo = typeInfo(JITtype2tiType(argCorType));
-        }
-
-        lclVarInfo[i].lclType        = argType;
-        lclVarInfo[i].lclVerTypeInfo = argTypeInfo;
-        lclVarInfo[i].lclHasLdlocaOp = false;
-
-        // Does the tree type match the signature type?
-
-        GenTree* inlArgNode = inlArgInfo[i].argNode;
-
-        if (argType == inlArgNode->GetType())
-        {
-            continue;
-        }
-
-        // In valid IL, this can only happen for short integer types or byrefs <-> [native] ints,
-        // but in bad IL cases with caller-callee signature mismatches we can see other types.
-        // Intentionally reject cases with mismatches so the jit is more flexible when
-        // encountering bad IL. */
-
-        bool isPlausibleTypeMatch = (genActualType(argType) == genActualType(inlArgNode->gtType)) ||
-                                    (genActualTypeIsIntOrI(argType) && inlArgNode->gtType == TYP_BYREF) ||
-                                    (argType == TYP_BYREF && genActualTypeIsIntOrI(inlArgNode->gtType));
-
-        if (!isPlausibleTypeMatch)
-        {
-            inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_TYPES_INCOMPATIBLE);
-            return;
-        }
-
-        // Is it a narrowing or widening cast?
-        // Widening casts are ok since the value computed is already
-        // normalized to an int (on the IL stack)
-
-        if (genTypeSize(inlArgNode->gtType) >= genTypeSize(argType))
-        {
-            if (argType == TYP_BYREF)
-            {
-                lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
-            }
-            else if (inlArgNode->gtType == TYP_BYREF)
-            {
-                assert(varTypeIsIntOrI(argType));
-
-                // If possible bash the BYREF to an int
-                if (inlArgNode->IsLocalAddrExpr() != nullptr)
-                {
-                    inlArgNode->gtType           = TYP_I_IMPL;
-                    lclVarInfo[i].lclVerTypeInfo = typeInfo(TI_I_IMPL);
-                }
-                else
-                {
-                    // Arguments 'int <- byref' cannot be changed
-                    inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
-                    return;
-                }
-            }
-            else if (genTypeSize(argType) < EA_PTRSIZE)
-            {
-                // Narrowing cast
-
-                if (inlArgNode->gtOper == GT_LCL_VAR &&
-                    !lvaTable[inlArgNode->AsLclVarCommon()->GetLclNum()].lvNormalizeOnLoad() &&
-                    argType == lvaGetRealType(inlArgNode->AsLclVarCommon()->GetLclNum()))
-                {
-                    // We don't need to insert a cast here as the variable
-                    // was assigned a normalized value of the right type
-
-                    continue;
-                }
-
-                inlArgNode = inlArgInfo[i].argNode = gtNewCastNode(TYP_INT, inlArgNode, false, argType);
-
-                inlArgInfo[i].argIsLclVar = false;
-
-                // Try to fold the node in case we have constant arguments
-
-                if (inlArgInfo[i].argIsInvariant)
-                {
-                    inlArgNode            = gtFoldExprConst(inlArgNode);
-                    inlArgInfo[i].argNode = inlArgNode;
-                    assert(inlArgNode->OperIsConst());
-                }
-            }
-#ifdef TARGET_64BIT
-            else if (genTypeSize(genActualType(inlArgNode->gtType)) < genTypeSize(argType))
-            {
-                // This should only happen for int -> native int widening
-                inlArgNode = inlArgInfo[i].argNode = gtNewCastNode(genActualType(argType), inlArgNode, false, argType);
-
-                inlArgInfo[i].argIsLclVar = false;
-
-                // Try to fold the node in case we have constant arguments
-
-                if (inlArgInfo[i].argIsInvariant)
-                {
-                    inlArgNode            = gtFoldExprConst(inlArgNode);
-                    inlArgInfo[i].argNode = inlArgNode;
-                    assert(inlArgNode->OperIsConst());
-                }
-            }
-#endif // TARGET_64BIT
-        }
-    }
-
-    // Init the types of the local variables
-
-    argLst = methInfo->locals.args;
-
-    for (unsigned i = 0; i < methInfo->locals.numArgs; i++, argLst = info.compCompHnd->getArgNext(argLst))
-    {
-        CORINFO_CLASS_HANDLE lclClass;
-        CorInfoTypeWithMod   lclCorType = info.compCompHnd->getArgType(&methInfo->locals, argLst, &lclClass);
-        var_types            lclType    = JITtype2varType(strip(lclCorType));
-        typeInfo             lclTypeInfo;
-
-        if (varTypeIsGC(lclType))
-        {
-            if (lclType == TYP_REF)
-            {
-                lclTypeInfo = typeInfo(TI_REF, info.compCompHnd->getArgClass(&methInfo->locals, argLst));
-            }
-
-            if ((lclCorType & CORINFO_TYPE_MOD_PINNED) != 0)
-            {
-                // Pinned locals may cause inlines to fail.
-                inlineResult->Note(InlineObservation::CALLEE_HAS_PINNED_LOCALS);
-                if (inlineResult->IsFailure())
-                {
-                    return;
-                }
-
-                JITDUMP("Inlinee local #%02u is pinned\n", i);
-
-                lclVarInfo[i + argCnt].lclIsPinned = true;
-            }
-
-            pInlineInfo->numberOfGcRefLocals++;
-        }
-        else if (lclType == TYP_STRUCT)
-        {
-            if ((info.compCompHnd->getClassAttribs(lclClass) & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
-            {
-                // If this local is a struct type with GC fields, inform the inliner.
-                // It may choose to bail out on the inline.
-
-                inlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
-                if (inlineResult->IsFailure())
-                {
-                    return;
-                }
-
-                // Do further notification in the case where the call site is rare; some policies do
-                // not track the relative hotness of call sites for "always" inline cases.
-                if (pInlineInfo->iciBlock->isRunRarely())
-                {
-                    inlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
-                    if (inlineResult->IsFailure())
-                    {
-                        return;
-                    }
-                }
-            }
-#ifdef FEATURE_SIMD
-            else if (isSIMDorHWSIMDClass(lclClass))
-            {
-                foundSIMDType = true;
-                lclType       = impNormStructType(lclClass);
-            }
-#endif
-
-            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
-        }
-        else if (lclClass != NO_CLASS_HANDLE)
-        {
-            assert(info.compCompHnd->isValueClass(lclClass));
-            assert(info.compCompHnd->getTypeForPrimitiveValueClass(lclClass) == CORINFO_TYPE_UNDEF);
-
-            // This is a "normed type" - a struct that contains a single primitive type field.
-            // See lvaInitVarDsc.
-            lclTypeInfo = typeInfo(TI_STRUCT, lclClass);
-        }
-        else if (strip(lclCorType) <= CORINFO_TYPE_DOUBLE)
-        {
-            // TODO-MIKE-Cleanup: This shouldn't be necessary but fgFindJumpTargets's normed type
-            // check is broken - it uses typeInfo::IsValueClass(), which returns true for any
-            // primitive type, and thus detects any primitive type local as being normed type.
-
-            lclTypeInfo = typeInfo(JITtype2tiType(strip(lclCorType)));
-        }
-
-        lclVarInfo[i + argCnt].lclType        = lclType;
-        lclVarInfo[i + argCnt].lclVerTypeInfo = lclTypeInfo;
-        lclVarInfo[i + argCnt].lclHasLdlocaOp = false;
-    }
-
-#ifdef FEATURE_SIMD
-    if (!foundSIMDType && varTypeIsSIMD(call->AsCall()->GetRetSigType()))
-    {
-        foundSIMDType = true;
-    }
-    pInlineInfo->hasSIMDTypeArgLocalOrReturn = foundSIMDType;
-#endif // FEATURE_SIMD
-}
-
-//------------------------------------------------------------------------
-// impInlineFetchLocal: get a local var that represents an inlinee local
-//
-// Arguments:
-//    lclNum -- number of the inlinee local
-//    reason -- debug string describing purpose of the local var
-//
-// Returns:
-//    Number of the local to use
-//
-// Notes:
-//    This method is invoked only for locals actually used in the
-//    inlinee body.
-//
-//    Allocates a new temp if necessary, and copies key properties
-//    over from the inlinee local var info.
-
-unsigned Compiler::impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reason))
-{
-    assert(compIsForInlining());
-
-    unsigned tmpNum = impInlineInfo->lclTmpNum[lclNum];
-
-    if (tmpNum == BAD_VAR_NUM)
-    {
-        const InlLclVarInfo& inlineeLocal = impInlineInfo->lclVarInfo[lclNum + impInlineInfo->argCnt];
-        const var_types      lclTyp       = inlineeLocal.lclType;
-
-        // The lifetime of this local might span multiple BBs.
-        // So it is a long lifetime local.
-        impInlineInfo->lclTmpNum[lclNum] = tmpNum = lvaGrabTemp(false DEBUGARG(reason));
-
-        // Copy over key info
-        lvaTable[tmpNum].lvHasLdAddrOp          = inlineeLocal.lclHasLdlocaOp;
-        lvaTable[tmpNum].lvPinned               = inlineeLocal.lclIsPinned;
-        lvaTable[tmpNum].lvHasILStoreOp         = inlineeLocal.lclHasStlocOp;
-        lvaTable[tmpNum].lvHasMultipleILStoreOp = inlineeLocal.lclHasMultipleStlocOp;
-
-        if (varTypeIsStruct(lclTyp))
-        {
-            lvaSetStruct(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandle(), true /* unsafe value cls check */);
-        }
-        else
-        {
-            lvaTable[tmpNum].SetType(lclTyp);
-
-            // Copy over class handle for ref types. Note this may be a
-            // shared type -- someday perhaps we can get the exact
-            // signature and pass in a more precise type.
-            if (lclTyp == TYP_REF)
-            {
-                assert(lvaTable[tmpNum].lvSingleDef == 0);
-
-                lvaTable[tmpNum].lvSingleDef = !inlineeLocal.lclHasMultipleStlocOp && !inlineeLocal.lclHasLdlocaOp;
-                if (lvaTable[tmpNum].lvSingleDef)
-                {
-                    JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
-                }
-
-                lvaSetClass(tmpNum, inlineeLocal.lclVerTypeInfo.GetClassHandleForObjRef());
-            }
-            else if (inlineeLocal.lclVerTypeInfo.IsType(TI_STRUCT))
-            {
-                // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
-                lvaTable[tmpNum].lvImpTypeInfo = inlineeLocal.lclVerTypeInfo;
-            }
-        }
-
-#ifdef DEBUG
-        // Sanity check that we're properly prepared for gc ref locals.
-        if (varTypeIsGC(lclTyp))
-        {
-            // Since there are gc locals we should have seen them earlier
-            // and if there was a return value, set up the spill temp.
-            assert(impInlineInfo->HasGcRefLocals());
-            assert((info.compRetType == TYP_VOID) || (lvaInlineeReturnSpillTemp != BAD_VAR_NUM));
-        }
-        else
-        {
-            // Make sure all pinned locals count as gc refs.
-            assert(!inlineeLocal.lclIsPinned);
-        }
-#endif // DEBUG
-    }
-
-    return tmpNum;
-}
-
-//------------------------------------------------------------------------
-// impInlineFetchArg: return tree node for argument value in an inlinee
-//
-// Arguments:
-//    lclNum -- argument number in inlinee IL
-//    inlArgInfo -- argument info for inlinee
-//    lclVarInfo -- var info for inlinee
-//
-// Returns:
-//    Tree for the argument's value. Often an inlinee-scoped temp
-//    GT_LCL_VAR but can be other tree kinds, if the argument
-//    expression from the caller can be directly substituted into the
-//    inlinee body.
-//
-// Notes:
-//    Must be used only for arguments -- use impInlineFetchLocal for
-//    inlinee locals.
-//
-//    Direct substitution is performed when the formal argument cannot
-//    change value in the inlinee body (no starg or ldarga), and the
-//    actual argument expression's value cannot be changed if it is
-//    substituted it into the inlinee body.
-//
-//    Even if an inlinee-scoped temp is returned here, it may later be
-//    "bashed" to a caller-supplied tree when arguments are actually
-//    passed (see fgInlinePrependStatements). Bashing can happen if
-//    the argument ends up being single use and other conditions are
-//    met. So the contents of the tree returned here may not end up
-//    being the ones ultimately used for the argument.
-//
-//    This method will side effect inlArgInfo. It should only be called
-//    for actual uses of the argument in the inlinee.
-
-GenTree* Compiler::impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo)
-{
-    // Cache the relevant arg and lcl info for this argument.
-    // We will modify argInfo but not lclVarInfo.
-    InlArgInfo&          argInfo          = inlArgInfo[lclNum];
-    const InlLclVarInfo& lclInfo          = lclVarInfo[lclNum];
-    const bool           argCanBeModified = argInfo.argHasLdargaOp || argInfo.argHasStargOp;
-    const var_types      lclTyp           = lclInfo.lclType;
-    GenTree*             op1              = nullptr;
-
-    GenTree* argNode = argInfo.argNode->gtRetExprVal();
-
-    if (argInfo.argIsInvariant && !argCanBeModified)
-    {
-        // Directly substitute constants or addresses of locals
-        //
-        // Clone the constant. Note that we cannot directly use
-        // argNode in the trees even if !argInfo.argIsUsed as this
-        // would introduce aliasing between inlArgInfo[].argNode and
-        // impInlineExpr. Then gtFoldExpr() could change it, causing
-        // further references to the argument working off of the
-        // bashed copy.
-        op1 = gtCloneExpr(argNode);
-        PREFIX_ASSUME(op1 != nullptr);
-        argInfo.argTmpNum = BAD_VAR_NUM;
-
-        // We may need to retype to ensure we match the callee's view of the type.
-        // Otherwise callee-pass throughs of arguments can create return type
-        // mismatches that block inlining.
-        //
-        // Note argument type mismatches that prevent inlining should
-        // have been caught in impInlineInitVars.
-        if (op1->TypeGet() != lclTyp)
-        {
-            op1->gtType = genActualType(lclTyp);
-        }
-    }
-    else if (argInfo.argIsLclVar && !argCanBeModified && !argInfo.argHasCallerLocalRef)
-    {
-        // Directly substitute unaliased caller locals for args that cannot be modified
-        //
-        // Use the caller-supplied node if this is the first use.
-        op1               = argNode;
-        argInfo.argTmpNum = op1->AsLclVarCommon()->GetLclNum();
-
-        // Use an equivalent copy if this is the second or subsequent
-        // use, or if we need to retype.
-        //
-        // Note argument type mismatches that prevent inlining should
-        // have been caught in impInlineInitVars.
-        if (argInfo.argIsUsed || (op1->TypeGet() != lclTyp))
-        {
-            assert(op1->gtOper == GT_LCL_VAR);
-            assert(lclNum == op1->AsLclVar()->gtLclILoffs);
-
-            var_types newTyp = lclTyp;
-
-            if (!lvaTable[op1->AsLclVarCommon()->GetLclNum()].lvNormalizeOnLoad())
-            {
-                newTyp = genActualType(lclTyp);
-            }
-
-            // Create a new lcl var node - remember the argument lclNum
-            op1 = gtNewLclvNode(op1->AsLclVarCommon()->GetLclNum(), newTyp DEBUGARG(op1->AsLclVar()->gtLclILoffs));
-        }
-    }
-    else if (argInfo.argIsByRefToStructLocal && !argInfo.argHasStargOp)
-    {
-        /* Argument is a by-ref address to a struct, a normed struct, or its field.
-           In these cases, don't spill the byref to a local, simply clone the tree and use it.
-           This way we will increase the chance for this byref to be optimized away by
-           a subsequent "dereference" operation.
-
-           From Dev11 bug #139955: Argument node can also be TYP_I_IMPL if we've bashed the tree
-           (in impInlineInitVars()), if the arg has argHasLdargaOp as well as argIsByRefToStructLocal.
-           For example, if the caller is:
-                ldloca.s   V_1  // V_1 is a local struct
-                call       void Test.ILPart::RunLdargaOnPointerArg(int32*)
-           and the callee being inlined has:
-                .method public static void  RunLdargaOnPointerArg(int32* ptrToInts) cil managed
-                    ldarga.s   ptrToInts
-                    call       void Test.FourInts::NotInlined_SetExpectedValuesThroughPointerToPointer(int32**)
-           then we change the argument tree (of "ldloca.s V_1") to TYP_I_IMPL to match the callee signature. We'll
-           soon afterwards reject the inlining anyway, since the tree we return isn't a GT_LCL_VAR.
-        */
-        assert(argNode->TypeGet() == TYP_BYREF || argNode->TypeGet() == TYP_I_IMPL);
-        op1 = gtCloneExpr(argNode);
-    }
-    else
-    {
-        /* Argument is a complex expression - it must be evaluated into a temp */
-
-        if (argInfo.argHasTmp)
-        {
-            assert(argInfo.argIsUsed);
-            assert(argInfo.argTmpNum < lvaCount);
-
-            /* Create a new lcl var node - remember the argument lclNum */
-            op1 = gtNewLclvNode(argInfo.argTmpNum, genActualType(lclTyp));
-
-            /* This is the second or later use of the this argument,
-            so we have to use the temp (instead of the actual arg) */
-            argInfo.argBashTmpNode = nullptr;
-        }
-        else
-        {
-            /* First time use */
-            assert(!argInfo.argIsUsed);
-
-            /* Reserve a temp for the expression.
-            * Use a large size node as we may change it later */
-
-            const unsigned tmpNum = lvaGrabTemp(true DEBUGARG("Inlining Arg"));
-
-            assert(lvaTable[tmpNum].lvAddrExposed == 0);
-            if (argInfo.argHasLdargaOp)
-            {
-                lvaTable[tmpNum].lvHasLdAddrOp = 1;
-            }
-
-            if (varTypeIsStruct(lclTyp))
-            {
-                lvaSetStruct(tmpNum, lclInfo.lclVerTypeInfo.GetClassHandle(), true /* unsafe value cls check */);
-                if (info.compIsVarArgs)
-                {
-                    lvaSetStructUsedAsVarArg(tmpNum);
-                }
-            }
-            else
-            {
-                lvaTable[tmpNum].SetType(lclTyp);
-
-                if (lclTyp == TYP_REF)
-                {
-                    if (!argCanBeModified)
-                    {
-                        // If the arg can't be modified in the method
-                        // body, use the type of the value, if
-                        // known. Otherwise, use the declared type.
-                        assert(lvaTable[tmpNum].lvSingleDef == 0);
-                        lvaTable[tmpNum].lvSingleDef = 1;
-                        JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
-                        lvaSetClass(tmpNum, argInfo.argNode, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
-                    }
-                    else
-                    {
-                        // Arg might be modified, use the declared type of
-                        // the argument.
-                        lvaSetClass(tmpNum, lclInfo.lclVerTypeInfo.GetClassHandleForObjRef());
-                    }
-                }
-                else if (lclInfo.lclVerTypeInfo.IsType(TI_STRUCT))
-                {
-                    // This is a "normed type", we need to set lclVerTypeInfo to preserve the struct handle.
-                    lvaTable[tmpNum].lvImpTypeInfo = lclInfo.lclVerTypeInfo;
-                }
-            }
-
-            argInfo.argHasTmp = true;
-            argInfo.argTmpNum = tmpNum;
-
-            // If we require strict exception order, then arguments must
-            // be evaluated in sequence before the body of the inlined method.
-            // So we need to evaluate them to a temp.
-            // Also, if arguments have global or local references, we need to
-            // evaluate them to a temp before the inlined body as the
-            // inlined body may be modifying the global ref.
-            // TODO-1stClassStructs: We currently do not reuse an existing lclVar
-            // if it is a struct, because it requires some additional handling.
-
-            if (!varTypeIsStruct(lclTyp) && !argInfo.argHasSideEff && !argInfo.argHasGlobRef &&
-                !argInfo.argHasCallerLocalRef)
-            {
-                /* Get a *LARGE* LCL_VAR node */
-                op1 = gtNewLclLNode(tmpNum, genActualType(lclTyp) DEBUGARG(lclNum));
-
-                /* Record op1 as the very first use of this argument.
-                If there are no further uses of the arg, we may be
-                able to use the actual arg node instead of the temp.
-                If we do see any further uses, we will clear this. */
-                argInfo.argBashTmpNode = op1;
-            }
-            else
-            {
-                /* Get a small LCL_VAR node */
-                op1 = gtNewLclvNode(tmpNum, genActualType(lclTyp));
-                /* No bashing of this argument */
-                argInfo.argBashTmpNode = nullptr;
-            }
-        }
-    }
-
-    // Mark this argument as used.
-    argInfo.argIsUsed = true;
-
-    return op1;
-}
-
-/******************************************************************************
- Is this the original "this" argument to the call being inlined?
-
- Note that we do not inline methods with "starg 0", and so we do not need to
- worry about it.
-*/
-
-BOOL Compiler::impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo)
-{
-    assert(compIsForInlining());
-    return (tree->gtOper == GT_LCL_VAR && tree->AsLclVarCommon()->GetLclNum() == inlArgInfo[0].argTmpNum);
-}
-
 //-----------------------------------------------------------------------------
 // impInlineIsGuaranteedThisDerefBeforeAnySideEffects: Check if a dereference in
 // the inlinee can guarantee that the "this" pointer is non-NULL.
@@ -16375,7 +15194,6 @@ BOOL Compiler::impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo)
 //    additionalTree - a tree to check for side effects
 //    additionalCallArgs - a list of call args to check for side effects
 //    dereferencedAddress - address expression being dereferenced
-//    inlArgInfo - inlinee argument information
 //
 // Notes:
 //    If we haven't hit a branch or a side effect, and we are dereferencing
@@ -16387,10 +15205,9 @@ BOOL Compiler::impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo)
 //    statement list and have to be checked for side effects may be provided via
 //    additionalTree and additionalCallArgs.
 //
-BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
+bool Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
                                                                   GenTreeCall::Use* additionalCallArgs,
-                                                                  GenTree*          dereferencedAddress,
-                                                                  InlArgInfo*       inlArgInfo)
+                                                                  GenTree*          dereferencedAddress)
 {
     assert(compIsForInlining());
     assert(opts.OptEnabled(CLFLG_INLINING));
@@ -16399,17 +15216,17 @@ BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
 
     if (block != fgFirstBB)
     {
-        return FALSE;
+        return false;
     }
 
-    if (!impInlineIsThis(dereferencedAddress, inlArgInfo))
+    if (!impInlineInfo->IsThisParam(dereferencedAddress))
     {
-        return FALSE;
+        return false;
     }
 
     if ((additionalTree != nullptr) && GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(additionalTree->gtFlags))
     {
-        return FALSE;
+        return false;
     }
 
     for (GenTreeCall::Use& use : GenTreeCall::UseList(additionalCallArgs))
@@ -16425,7 +15242,7 @@ BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
         GenTree* expr = stmt->GetRootNode();
         if (GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(expr->gtFlags))
         {
-            return FALSE;
+            return false;
         }
     }
 
@@ -16434,11 +15251,11 @@ BOOL Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
         unsigned stackTreeFlags = verCurrentState.esStack[level].val->gtFlags;
         if (GTF_GLOBALLY_VISIBLE_SIDE_EFFECTS(stackTreeFlags))
         {
-            return FALSE;
+            return false;
         }
     }
 
-    return TRUE;
+    return true;
 }
 
 //------------------------------------------------------------------------
@@ -17033,7 +15850,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     if ((objClass == nullptr) || !isExact)
     {
         // Walk back through any return expression placeholders
-        actualThisObj = thisObj->gtRetExprVal();
+        actualThisObj = thisObj->SkipRetExpr();
 
         // See if we landed on a call to a special intrinsic method
         if (actualThisObj->IsCall())
@@ -17408,7 +16225,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #endif // defined(DEBUG)
 
     // If the 'this' object is a box, see if we can find the unboxed entry point for the call.
-    if (thisObj->IsBoxedValue())
+    if (thisObj->IsBox())
     {
         JITDUMP("Now have direct call to boxed entry point, looking for unboxed entry point\n");
 
@@ -17572,6 +16389,19 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         call->setEntryPoint(derivedCallInfo.codePointerLookup.constLookup);
     }
 #endif // FEATURE_READYTORUN_COMPILER
+}
+
+void Compiler::impLateDevirtualizeCall(GenTreeCall* call)
+{
+    JITDUMPTREE(call, "**** Late devirt opportunity\n");
+
+    CORINFO_METHOD_HANDLE  method                 = call->gtCallMethHnd;
+    unsigned               methodFlags            = 0;
+    CORINFO_CONTEXT_HANDLE context                = nullptr;
+    const bool             isLateDevirtualization = true;
+    bool                   explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+
+    impDevirtualizeCall(call, &method, &methodFlags, &context, nullptr, isLateDevirtualization, explicitTailCall);
 }
 
 //------------------------------------------------------------------------

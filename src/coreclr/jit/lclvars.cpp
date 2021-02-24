@@ -70,8 +70,6 @@ void Compiler::lvaInit()
     lvaMonAcquired      = BAD_VAR_NUM;
     lvaRetAddrVar       = BAD_VAR_NUM;
 
-    lvaInlineeReturnSpillTemp = BAD_VAR_NUM;
-
     gsShadowVarInfo = nullptr;
 #if defined(FEATURE_EH_FUNCLETS)
     lvaPSPSym = BAD_VAR_NUM;
@@ -1371,7 +1369,7 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
             //   - The inliner state machine assigns special weights to LDLOCA/LDARGA used
             //     with normed type locals.
             //
-            // Note: impInlineFetchArg and impInlineFetchLocal have similar code.
+            // Note: inlUseArg and inlFetchInlineeLocal have similar code.
 
             assert(info.compCompHnd->getTypeForPrimitiveValueClass(typeHnd) == CORINFO_TYPE_UNDEF);
 
@@ -2675,7 +2673,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
         // already has struct type. Some trivial cases have been fixed but there are a at least
         // 2 more:
         //   - Spill clique temps may be assigned multiple times via impAssignTempGen.
-        //   - fgInlinePrependStatements initializes inlinee parameters also using impAssignTempGen.
+        //   - inlPrependStatements initializes inlinee parameters also using impAssignTempGen.
         //     Inlinee parameters (temps really) have already been created and assigned a type when
         //     inlining started.
         //

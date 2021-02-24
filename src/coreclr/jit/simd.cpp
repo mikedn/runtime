@@ -137,12 +137,12 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
         {
             // Steal the inliner compiler's cache (create it if not available).
 
-            if (impInlineInfo->InlineRoot->m_simdHandleCache == nullptr)
+            if (impInlineInfo->InlinerCompiler->m_simdHandleCache == nullptr)
             {
-                impInlineInfo->InlineRoot->m_simdHandleCache = new (this, CMK_Generic) SIMDHandlesCache();
+                impInlineInfo->InlinerCompiler->m_simdHandleCache = new (this, CMK_Generic) SIMDHandlesCache();
             }
 
-            m_simdHandleCache = impInlineInfo->InlineRoot->m_simdHandleCache;
+            m_simdHandleCache = impInlineInfo->InlinerCompiler->m_simdHandleCache;
         }
     }
 
@@ -1019,8 +1019,7 @@ GenTree* Compiler::impSIMDPopStack(var_types type)
     {
         // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
 
-        ClassLayout* layout =
-            tree->OperIs(GT_RET_EXPR) ? tree->AsRetExpr()->GetRetLayout() : tree->AsCall()->GetRetLayout();
+        ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
 
         unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
         impAssignTempGen(tmpNum, tree, layout->GetClassHandle(), CHECK_SPILL_ALL);

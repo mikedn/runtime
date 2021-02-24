@@ -755,8 +755,7 @@ extern int jitNativeCode(CORINFO_METHOD_HANDLE methodHnd,
                          CORINFO_METHOD_INFO*  methodInfo,
                          void**                methodCodePtr,
                          ULONG*                methodCodeSize,
-                         JitFlags*             compileFlags,
-                         void*                 inlineInfoPtr);
+                         JitFlags*             compileFlags);
 
 // Constants for making sure size_t fit into smaller types.
 const size_t MAX_USHORT_SIZE_T   = static_cast<size_t>(static_cast<unsigned short>(-1));

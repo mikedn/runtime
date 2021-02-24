@@ -1974,10 +1974,8 @@ public:
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
-protected:
     void gtInitStructCopyAsg(GenTreeOp* asg);
 
-public:
     GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
     GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
@@ -2122,7 +2120,7 @@ public:
     GenTree* gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
 
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
-    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type, BasicBlock* block);
+    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
     GenTreeField* gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE fldHnd, GenTree* obj = nullptr, DWORD offset = 0);
 
@@ -2210,9 +2208,9 @@ public:
 
     GenTree* gtReverseCond(GenTree* tree);
 
-    bool gtHasRef(GenTree* tree, ssize_t lclNum, bool defOnly);
+    bool gtHasRef(GenTree* tree, ssize_t lclNum);
 
-    bool gtHasLocalsWithAddrOp(GenTree* tree);
+    bool gtHasAddressTakenLocals(GenTree* tree);
 
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);
 
@@ -2590,10 +2588,6 @@ public:
     unsigned lvaArg0Var; // The lclNum of arg0. Normally this will be info.compThisArg.
                          // However, if there is a "ldarga 0" or "starg 0" in the IL,
                          // we will redirect all "ldarg(a) 0" and "starg 0" to this temp.
-
-    unsigned lvaInlineeReturnSpillTemp; // The temp to spill the non-VOID return expression
-                                        // in case there are multiple BBJ_RETURN blocks in the inlinee
-                                        // or if the inlinee has GC ref locals.
 
 #if FEATURE_FIXED_OUT_ARGS
     unsigned            lvaOutgoingArgSpaceVar;  // dummy TYP_LCLBLK var for fixed outgoing argument space
@@ -3052,6 +3046,8 @@ public:
                              bool                    isExplicitTailCall,
                              IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
 
+    void impLateDevirtualizeCall(GenTreeCall* call);
+
     //=========================================================================
     //                          PROTECTED
     //=========================================================================
@@ -3279,7 +3275,7 @@ public:
 
     var_types impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types* simdBaseType = nullptr);
 
-    GenTree* impNormStructVal(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    GenTree* impCanonicalizeStructCallArg(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                               BOOL*                   pRuntimeLookup    = nullptr,
@@ -3481,7 +3477,7 @@ private:
     bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
     bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
 
-    void impLoadVar(unsigned lclNum, IL_OFFSET offset);
+    void impPushLclVar(unsigned lclNum, IL_OFFSET offset);
     void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
     void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
     bool impInlineReturnInstruction();
@@ -3534,23 +3530,9 @@ private:
                            InlineCandidateInfo**  ppInlineCandidateInfo,
                            InlineResult*          inlineResult);
 
-    void impInlineRecordArgInfo(InlineInfo*   pInlineInfo,
-                                GenTree*      curArgVal,
-                                unsigned      argNum,
-                                InlineResult* inlineResult);
-
-    void impInlineInitVars(InlineInfo* pInlineInfo);
-
-    unsigned impInlineFetchLocal(unsigned lclNum DEBUGARG(const char* reason));
-
-    GenTree* impInlineFetchArg(unsigned lclNum, InlArgInfo* inlArgInfo, InlLclVarInfo* lclVarInfo);
-
-    BOOL impInlineIsThis(GenTree* tree, InlArgInfo* inlArgInfo);
-
-    BOOL impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
+    bool impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
                                                             GenTreeCall::Use* additionalCallArgs,
-                                                            GenTree*          dereferencedAddress,
-                                                            InlArgInfo*       inlArgInfo);
+                                                            GenTree*          dereferencedAddress);
 
     void impMarkInlineCandidate(GenTreeCall*           call,
                                 CORINFO_CONTEXT_HANDLE exactContextHnd,
@@ -4395,7 +4377,7 @@ public:
 
     void fgRemoveEmptyBlocks();
 
-    void fgRemoveStmt(BasicBlock* block, Statement* stmt);
+    void fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt = true));
 
     bool fgCheckRemoveStmt(BasicBlock* block, Statement* stmt);
 
@@ -4871,12 +4853,7 @@ private:
                                                      Statement*     tmpAssignmentInsertionPoint,
                                                      Statement*     paramAssignmentInsertionPoint);
     GenTree* fgMorphCall(GenTreeCall* call);
-    void fgMorphCallInline(GenTreeCall* call, InlineResult* result);
-    void fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result);
-#if DEBUG
-    void fgNoteNonInlineCandidate(Statement* stmt, GenTreeCall* call);
-    static fgWalkPreFn fgFindNonInlineCandidate;
-#endif
+
     GenTree* fgOptimizeDelegateConstructor(GenTreeCall*            call,
                                            CORINFO_CONTEXT_HANDLE* ExactContextHnd,
                                            CORINFO_RESOLVED_TOKEN* ldftnToken);
@@ -4986,6 +4963,32 @@ public:
         return fgAddCodeList;
     }
 
+    void inlReplaceRetExpr(Statement* stmt);
+    void inlFoldJTrue(BasicBlock* block);
+    bool inlInlineCall(Statement* stmt, GenTreeCall* call);
+    void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
+    void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);
+    bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
+    void inlUpdateRetSpillTempClass(InlineInfo* inlineInfo);
+    unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
+    bool inlAnalyzeInlineeSignature(InlineInfo* inlineInfo);
+    bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum);
+    GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
+    bool inlAnalyzeInlineeLocals(InlineInfo* inlineInfo);
+    unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    unsigned inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    void inlInsertInlineeCode(InlineInfo* pInlineInfo);
+    Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
+    Statement* inlPrependStatements(InlineInfo* inlineInfo);
+    Statement* inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt);
+    bool inlCanDiscardArgSideEffects(GenTree* argNode);
+    Statement* inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt);
+    void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmt);
+    BasicBlock* inlSplitInlinerBlock(const InlineInfo* inlineInfo, Statement* stmtAfter);
+    void inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* stmtAfter);
+    void inlPropagateInlineeCompilerState();
+    INDEBUG(void inlDebugCheckInlineCandidates();)
+
 private:
     bool fgIsCodeAdded();
 
@@ -4997,26 +5000,7 @@ private:
 
     unsigned fgBigOffsetMorphingTemps[TYP_COUNT];
 
-    unsigned fgCheckInlineDepthAndRecursion(InlineInfo* inlineInfo);
-    void fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* result);
-    void fgInsertInlineeBlocks(InlineInfo* pInlineInfo);
-    Statement* fgInlinePrependStatements(InlineInfo* inlineInfo);
-    void fgInlineAppendStatements(InlineInfo* inlineInfo, BasicBlock* block, Statement* stmt);
-
-#if FEATURE_MULTIREG_RET
-    GenTree* inlGetStructAddress(GenTree* tree);
-    GenTree* inlGetStructAsgDst(GenTree* dst, CORINFO_CLASS_HANDLE structHandle);
-    GenTree* inlGetStructAsgSrc(GenTree* src, CORINFO_CLASS_HANDLE structHandle);
-    GenTree* inlAssignStructInlineeToTemp(GenTree* src, CORINFO_CLASS_HANDLE structHandle);
-    void inlAttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, CORINFO_CLASS_HANDLE structHandle);
-#endif // FEATURE_MULTIREG_RET
-
-    static fgWalkPreFn  fgUpdateInlineReturnExpressionPlaceHolder;
-    static fgWalkPostFn fgLateDevirtualization;
-
 #ifdef DEBUG
-    static fgWalkPreFn fgDebugCheckInlineCandidates;
-
     void               CheckNoTransformableIndirectCallsRemain();
     static fgWalkPreFn fgDebugCheckForTransformableIndirectCalls;
 #endif
@@ -5043,8 +5027,6 @@ private:
 
     static fgWalkPreFn  fgUpdateSideEffectsPre;
     static fgWalkPostFn fgUpdateSideEffectsPost;
-
-    static fgWalkPreFn gtHasLocalsWithAddrOpCB;
 
     enum TypeProducerKind
     {
@@ -7333,31 +7315,32 @@ private:
 
     bool isSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
-        if (isIntrinsicType(clsHnd))
+        if (!isIntrinsicType(clsHnd))
         {
-            const char* namespaceName = nullptr;
-            (void)getClassNameFromMetadata(clsHnd, &namespaceName);
-            return strcmp(namespaceName, "System.Numerics") == 0;
+            return false;
         }
-        return false;
-    }
 
-    bool isHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
-    {
-#ifdef FEATURE_HW_INTRINSICS
-        if (isIntrinsicType(clsHnd))
-        {
-            const char* namespaceName = nullptr;
-            (void)getClassNameFromMetadata(clsHnd, &namespaceName);
-            return strcmp(namespaceName, "System.Runtime.Intrinsics") == 0;
-        }
-#endif // FEATURE_HW_INTRINSICS
-        return false;
+        const char* namespaceName = nullptr;
+        getClassNameFromMetadata(clsHnd, &namespaceName);
+
+        return strcmp(namespaceName, "System.Numerics") == 0;
     }
 
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
-        return isSIMDClass(clsHnd) || isHWSIMDClass(clsHnd);
+        if (!isIntrinsicType(clsHnd))
+        {
+            return false;
+        }
+
+        const char* namespaceName = nullptr;
+        getClassNameFromMetadata(clsHnd, &namespaceName);
+
+        return
+#ifdef FEATURE_HW_INTRINSICS
+            (strcmp(namespaceName, "System.Runtime.Intrinsics") == 0) ||
+#endif
+            (strcmp(namespaceName, "System.Numerics") == 0);
     }
 
     // Get the base (element) type and size in bytes for a SIMD type. Returns TYP_UNKNOWN
@@ -8560,7 +8543,7 @@ public:
                   CORINFO_METHOD_HANDLE methodHnd,
                   COMP_HANDLE           compHnd,
                   CORINFO_METHOD_INFO*  methodInfo,
-                  InlineInfo*           inlineInfo);
+                  InlineInfo*           inlineInfo = nullptr);
     void compDone();
 
     static void compDisplayStaticSizes(FILE* fout);
@@ -8941,8 +8924,6 @@ public:
                                             // filename to write it to.
     static FILE* compJitFuncInfoFile;       // And this is the actual FILE* to write to.
 #endif                                      // FUNC_INFO_LOGGING
-
-    Compiler* prevCompiler; // Previous compiler on stack for TLS Compiler* linked list for reentrant compilers.
 
 #if MEASURE_NOWAY
     void RecordNowayAssert(const char* filename, unsigned line, const char* condStr);

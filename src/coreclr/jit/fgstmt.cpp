@@ -420,19 +420,18 @@ Statement* Compiler::fgNewStmtFromTree(GenTree* tree, IL_OFFSETX offs)
  *
  */
 
-void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt)
+void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt /* = true */))
 {
     assert(fgOrder == FGOrderTree);
 
 #ifdef DEBUG
-    if (verbose &&
-        stmt->GetRootNode()->gtOper != GT_NOP) // Don't print if it is a GT_NOP. Too much noise from the inliner.
+    if (verbose && dumpStmt)
     {
         printf("\nRemoving statement ");
         gtDispStmt(stmt);
         printf(" in " FMT_BB " as useless:\n", block->bbNum);
     }
-#endif // DEBUG
+#endif
 
     if (opts.compDbgCode && stmt->GetPrevStmt() != stmt && stmt->GetILOffsetX() != BAD_IL_OFFSET)
     {

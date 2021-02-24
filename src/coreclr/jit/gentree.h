@@ -373,6 +373,8 @@ struct Statement;
 #include <pshpack4.h>
 #endif
 
+#define FMT_TREEID "[%06u]"
+
 struct GenTree
 {
 // We use GT_STRUCT_0 only for the category of simple ops.
@@ -875,7 +877,7 @@ public:
 // where 'typ' is a small type and 'lclVar' corresponds to a normalized-on-store local variable.
 // This flag identifies such nodes in order to make sure that fgDoNormalizeOnStore() is called on their parents in post-order morph.
 
-                                       // Relevant for inlining optimizations (see fgInlinePrependStatements)
+                                       // Relevant for inlining optimizations (see inlPrependStatements)
 
                                                // For additional flags for GT_CALL node see GTF_CALL_M_*
 
@@ -946,8 +948,6 @@ public:
 
 #define GTF_QMARK_CAST_INSTOF       0x80000000 // GT_QMARK -- Is this a top (not nested) level qmark created for
                                                //             castclass or instanceof?
-
-#define GTF_BOX_VALUE               0x80000000 // GT_BOX -- "box" is on a value type
 
 #define GTF_ICON_HDL_MASK           0xF0000000 // Bits used by handle types below
 #define GTF_ICON_SCOPE_HDL          0x10000000 // GT_CNS_INT -- constant is a scope handle
@@ -1671,8 +1671,6 @@ public:
     bool IsIntegralConst(ssize_t constVal);
     bool IsIntegralConstVector(ssize_t constVal);
 
-    inline bool IsBoxedValue();
-
     inline GenTree* gtGetOp1() const;
 
     // Directly return op2. Asserts the node is binary. Might return nullptr if the binary node allows
@@ -1697,7 +1695,7 @@ public:
     GenTree* SkipComma();
 
     // Tunnel through any GT_RET_EXPRs
-    inline GenTree* gtRetExprVal(unsigned __int64* pbbFlags = nullptr);
+    inline GenTree* SkipRetExpr();
 
     // Return the child of this node if it is a GT_RELOAD or GT_COPY; otherwise simply return the node itself
     inline GenTree* gtSkipReloadOrCopy();
@@ -2105,6 +2103,10 @@ public:
 #endif
 
 #ifdef DEBUG
+    unsigned GetID() const
+    {
+        return gtTreeID;
+    }
 
 private:
     GenTree& operator=(const GenTree& gt)
@@ -4304,9 +4306,15 @@ public:
     {
         return (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VIRT_VTABLE;
     }
+
     bool IsInlineCandidate() const
     {
         return (gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0;
+    }
+
+    void ClearInlineCandidate()
+    {
+        gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
     }
 
     bool IsR2ROrVirtualStubRelativeIndir()
@@ -4536,6 +4544,11 @@ public:
         return (gtFlags & GTF_CALL_M_EXP_RUNTIME_LOOKUP) != 0;
     }
 
+    bool IsUserCall() const
+    {
+        return gtCallType == CT_USER_FUNC;
+    }
+
     bool IsHelperCall() const
     {
         return gtCallType == CT_HELPER;
@@ -4555,6 +4568,17 @@ public:
     CorInfoCallConvExtension GetUnmanagedCallConv() const
     {
         return IsUnmanaged() ? unmgdCallConv : CorInfoCallConvExtension::Managed;
+    }
+
+    CORINFO_METHOD_HANDLE GetMethodHandle() const
+    {
+        return gtCallMethHnd;
+    }
+
+    InlineCandidateInfo* GetInlineCandidateInfo() const
+    {
+        assert(IsInlineCandidate());
+        return gtInlineCandidateInfo;
     }
 
     static bool Equals(GenTreeCall* c1, GenTreeCall* c2);
@@ -6707,14 +6731,13 @@ protected:
 struct GenTreeRetExpr : public GenTree
 {
 private:
-    ClassLayout* m_retLayout;
+    GenTreeCall* m_call;
+    GenTree*     m_retExpr;
+    uint64_t     m_retBlockIRSummary;
 
 public:
-    GenTree* gtInlineCandidate;
-    uint64_t bbFlags;
-
-    GenTreeRetExpr(var_types type, GenTreeCall* call, uint64_t bbFlags)
-        : GenTree(GT_RET_EXPR, type), m_retLayout(call->m_retLayout), gtInlineCandidate(call), bbFlags(bbFlags)
+    GenTreeRetExpr(var_types type, GenTreeCall* call)
+        : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(call), m_retBlockIRSummary(0)
     {
         // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
         // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
@@ -6722,9 +6745,37 @@ public:
         gtFlags |= GTF_CALL;
     }
 
-    ClassLayout* GetRetLayout() const
+    GenTreeCall* GetCall() const
     {
-        return m_retLayout;
+        return m_call;
+    }
+
+    ClassLayout* GetLayout() const
+    {
+        return m_call->GetRetLayout();
+    }
+
+    GenTree* GetRetExpr() const
+    {
+        return m_retExpr;
+    }
+
+    uint64_t GetRetBlockIRSummary() const
+    {
+        return m_retBlockIRSummary;
+    }
+
+    void SetRetExpr(GenTree* expr)
+    {
+        assert(expr != nullptr);
+        m_retExpr = expr;
+    }
+
+    void SetRetExpr(GenTree* expr, uint64_t blockIRSummary)
+    {
+        assert(expr != nullptr);
+        m_retExpr           = expr;
+        m_retBlockIRSummary = blockIRSummary;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -7939,12 +7990,6 @@ inline bool GenTree::IsIntegralConstVector(ssize_t constVal)
     return false;
 }
 
-inline bool GenTree::IsBoxedValue()
-{
-    assert(gtOper != GT_BOX || AsBox()->BoxOp() != nullptr);
-    return (gtOper == GT_BOX) && (gtFlags & GTF_BOX_VALUE);
-}
-
 inline GenTree* GenTree::gtGetOp1() const
 {
     return AsOp()->gtOp1;
@@ -8079,40 +8124,16 @@ inline GenTree* GenTree::gtCommaAssignVal()
     return result;
 }
 
-//-------------------------------------------------------------------------
-// gtRetExprVal - walk back through GT_RET_EXPRs
-//
-// Arguments:
-//    pbbFlags - out-parameter that is set to the flags of the basic block
-//               containing the inlinee return value. The value is 0
-//               for unsuccessful inlines.
-//
-// Returns:
-//    tree representing return value from a successful inline,
-//    or original call for failed or yet to be determined inline.
-//
-// Notes:
-//    Multi-level inlines can form chains of GT_RET_EXPRs.
-//    This method walks back to the root of the chain.
-
-inline GenTree* GenTree::gtRetExprVal(unsigned __int64* pbbFlags /* = nullptr */)
+inline GenTree* GenTree::SkipRetExpr()
 {
-    GenTree*         retExprVal = this;
-    unsigned __int64 bbFlags    = 0;
+    GenTree* value = this;
 
-    while (retExprVal->OperIs(GT_RET_EXPR))
+    while (GenTreeRetExpr* retExpr = value->IsRetExpr())
     {
-        const GenTreeRetExpr* retExpr = retExprVal->AsRetExpr();
-        bbFlags                       = retExpr->bbFlags;
-        retExprVal                    = retExpr->gtInlineCandidate;
+        value = retExpr->GetRetExpr();
     }
 
-    if (pbbFlags != nullptr)
-    {
-        *pbbFlags = bbFlags;
-    }
-
-    return retExprVal;
+    return value;
 }
 
 inline GenTree* GenTree::gtSkipReloadOrCopy()

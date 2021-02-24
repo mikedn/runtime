@@ -469,6 +469,11 @@ public:
         return m_Policy;
     }
 
+    Compiler* GetRootCompiler() const
+    {
+        return m_RootCompiler;
+    }
+
     // SetReported indicates that this particular result doesn't need
     // to be reported back to the runtime, either because the runtime
     // already knows, or we aren't actually inlining yet.
@@ -544,7 +549,7 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
     CORINFO_METHOD_HANDLE  ilCallerHandle; // the logical IL caller of this inlinee.
     CORINFO_CLASS_HANDLE   clsHandle;
     CORINFO_CONTEXT_HANDLE exactContextHnd;
-    GenTree*               retExpr;
+    GenTreeRetExpr*        retExprPlaceholder;
     DWORD                  dwRestrictions;
     unsigned               preexistingSpillTemp;
     unsigned               clsAttr;
@@ -553,84 +558,107 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
     bool                   exactContextNeedsRuntimeLookup;
 };
 
-// InlArgInfo describes inline candidate argument properties.
+// InlArgInfo describes inline candidate IL argument properties.
 
 struct InlArgInfo
 {
-    GenTree* argNode;                     // caller node for this argument
-    GenTree* argBashTmpNode;              // tmp node created, if it may be replaced with actual arg
-    unsigned argTmpNum;                   // the argument tmp number
-    unsigned argIsUsed : 1;               // is this arg used at all?
-    unsigned argIsInvariant : 1;          // the argument is a constant or a local variable address
-    unsigned argIsLclVar : 1;             // the argument is a local variable
-    unsigned argIsThis : 1;               // the argument is the 'this' pointer
-    unsigned argHasSideEff : 1;           // the argument has side effects
-    unsigned argHasGlobRef : 1;           // the argument has a global ref
-    unsigned argHasCallerLocalRef : 1;    // the argument value depends on an aliased caller local
-    unsigned argHasTmp : 1;               // the argument will be evaluated to a temp
-    unsigned argHasLdargaOp : 1;          // Is there LDARGA(s) operation on this argument?
-    unsigned argHasStargOp : 1;           // Is there STARG(s) operation on this argument?
-    unsigned argIsByRefToStructLocal : 1; // Is this arg an address of a struct local or a normed struct local or a
-                                          // field in them?
+    GenTree*             argNode;
+    GenTree*             paramSingleUse;
+    CORINFO_CLASS_HANDLE paramClass;
+    unsigned             paramLclNum;
+    var_types            paramType;
+
+    bool argIsInvariant : 1;
+    bool argIsUnaliasedLclVar : 1;
+    bool argHasSideEff : 1;
+    bool argHasGlobRef : 1;
+    bool paramIsThis : 1;
+    bool paramHasLcl : 1;
+    bool paramIsAddressTaken : 1;
+    bool paramHasStores : 1;
+    bool paramHasNormedType : 1;
+
+    InlArgInfo()
+    {
+        // Keep empty to avoid unnecessary initialization of InlineInfo::ilArgInfo array.
+    }
+
+    InlArgInfo(GenTree* argNode, bool isThis = false)
+        : argNode(argNode)
+        , paramSingleUse(nullptr)
+        , paramClass(NO_CLASS_HANDLE)
+        , paramLclNum(BAD_VAR_NUM)
+        , paramType(TYP_UNDEF)
+        , argIsInvariant(false)
+        , argIsUnaliasedLclVar(false)
+        , argHasSideEff(false)
+        , argHasGlobRef(false)
+        , paramIsThis(isThis)
+        , paramHasLcl(false)
+        , paramIsAddressTaken(false)
+        , paramHasStores(false)
+        , paramHasNormedType(false)
+    {
+    }
 };
 
-// InlLclVarInfo describes inline candidate argument and local variable properties.
+// InlLocInfo describes inline candidate IL local properties.
 
-struct InlLclVarInfo
+struct InlLocInfo
 {
-    typeInfo  lclVerTypeInfo;
-    var_types lclType;
-    unsigned  lclHasLdlocaOp : 1;        // Is there LDLOCA(s) operation on this local?
-    unsigned  lclHasStlocOp : 1;         // Is there a STLOC on this local?
-    unsigned  lclHasMultipleStlocOp : 1; // Is there more than one STLOC on this local
-    unsigned  lclIsPinned : 1;
+    CORINFO_CLASS_HANDLE lclClass;
+    unsigned             lclNum;
+    var_types            lclType;
+
+    bool lclIsPinned : 1;
+    bool lclIsUsed : 1;
+    bool lclHasLdlocaOp : 1;        // Is there LDLOCA(s) operation on this local?
+    bool lclHasStlocOp : 1;         // Is there a STLOC on this local?
+    bool lclHasMultipleStlocOp : 1; // Is there more than one STLOC on this local
+    bool lclHasNormedType : 1;
+
+    InlLocInfo()
+    {
+        // Keep empty to avoid unnecessary initialization of InlineInfo::ilLocInfo array.
+    }
+
+    InlLocInfo(var_types lclType, CORINFO_CLASS_HANDLE lclClass, bool lclIsPinned, bool lclHasNormedType)
+        : lclClass(lclClass)
+        , lclNum(BAD_VAR_NUM)
+        , lclType(lclType)
+        , lclIsPinned(lclIsPinned)
+        , lclIsUsed(false)
+        , lclHasLdlocaOp(false)
+        , lclHasStlocOp(false)
+        , lclHasMultipleStlocOp(false)
+        , lclHasNormedType(lclHasNormedType)
+    {
+    }
 };
 
 // InlineInfo provides detailed information about a particular inline candidate.
 
 struct InlineInfo
 {
-    Compiler* InlinerCompiler; // The Compiler instance for the caller (i.e. the inliner)
-    Compiler* InlineRoot; // The Compiler instance that is the root of the inlining tree of which the owner of "this" is
-                          // a member.
+    Compiler*            InlinerCompiler;
+    BasicBlock*          iciBlock; // The call block
+    Statement*           iciStmt;  // The call statement
+    GenTreeCall*         iciCall;  // The call node
+    InlineCandidateInfo* inlineCandidateInfo;
+    InlineResult*        inlineResult;
 
-    CORINFO_METHOD_HANDLE fncHandle;
-    InlineCandidateInfo*  inlineCandidateInfo;
-
-    InlineResult* inlineResult;
-
-    GenTree*             retExpr; // The return expression of the inlined candidate.
-    BasicBlock*          retBB;   // The basic block of the return expression of the inlined candidate.
+    GenTree*             retExpr;
+    uint64_t             retBlockIRSummary;
     CORINFO_CLASS_HANDLE retExprClassHnd;
     bool                 retExprClassHndIsExact;
+    unsigned             retSpillTempLclNum;
 
-    CORINFO_CONTEXT_HANDLE tokenLookupContextHandle; // The context handle that will be passed to
-                                                     // impTokenLookupContextHandle in Inlinee's Compiler.
-
-    unsigned      argCnt;
-    InlArgInfo    inlArgInfo[MAX_INL_ARGS + 1];
-    int           lclTmpNum[MAX_INL_LCLS];                     // map local# -> temp# (-1 if unused)
-    InlLclVarInfo lclVarInfo[MAX_INL_LCLS + MAX_INL_ARGS + 1]; // type information from local sig
-
-    unsigned numberOfGcRefLocals; // Number of TYP_REF and TYP_BYREF locals
-
-    bool HasGcRefLocals() const
-    {
-        return numberOfGcRefLocals > 0;
-    }
-
-    bool     thisDereferencedFirst;
-    unsigned typeContextArg;
-
+    bool hasGCRefLocals;
+    bool thisDereferencedFirst;
 #ifdef FEATURE_SIMD
     bool hasSIMDTypeArgLocalOrReturn;
-#endif // FEATURE_SIMD
+#endif
 
-    GenTreeCall* iciCall;  // The GT_CALL node to be inlined.
-    Statement*   iciStmt;  // The statement iciCall is in.
-    BasicBlock*  iciBlock; // The basic block iciStmt is in.
-
-    // Profile support
     enum class ProfileScaleState
     {
         UNDETERMINED,
@@ -640,6 +668,22 @@ struct InlineInfo
 
     ProfileScaleState profileScaleState;
     double            profileScaleFactor;
+
+    unsigned   ilArgCount;
+    unsigned   ilLocCount;
+    InlArgInfo ilArgInfo[MAX_INL_ARGS + 1];
+    InlLocInfo ilLocInfo[MAX_INL_LCLS];
+
+    void NoteParamStore(unsigned ilArgNum);
+    void NoteAddressTakenParam(unsigned ilArgNum);
+    bool IsNormedTypeParam(unsigned ilArgNum) const;
+    bool IsInvariantArg(unsigned ilArgNum) const;
+    typeInfo GetParamTypeInfo(unsigned ilArgNum) const;
+    bool IsThisParam(GenTree* tree) const;
+
+    void NoteLocalStore(unsigned ilLocNum);
+    void NoteAddressTakenLocal(unsigned ilLocNum);
+    bool IsNormedTypeLocal(unsigned ilLocNum) const;
 };
 
 // InlineContext tracks the inline history in a method.
@@ -751,6 +795,8 @@ public:
         return m_ImportedILSize;
     }
 
+    void AddChild(InlineContext* child);
+
 private:
     InlineContext(InlineStrategy* strategy);
 
@@ -791,11 +837,13 @@ public:
     // Construct a new inline strategy.
     InlineStrategy(Compiler* compiler);
 
+    void BeginInlining();
+
     // Create context for a successful inline.
-    InlineContext* NewSuccess(InlineInfo* inlineInfo);
+    InlineContext* NewSuccess(const InlineInfo* inlineInfo);
 
     // Create context for a failing inline.
-    InlineContext* NewFailure(Statement* stmt, InlineResult* inlineResult);
+    InlineContext* NewFailure(Statement* stmt, const InlineResult& inlineResult);
 
     // Compiler associated with this strategy
     Compiler* GetCompiler() const
@@ -803,8 +851,10 @@ public:
         return m_Compiler;
     }
 
-    // Root context
-    InlineContext* GetRootContext();
+    InlineContext* GetRootContext()
+    {
+        return m_RootContext;
+    }
 
     // Context for the last sucessful inline
     // (or root if no inlines)

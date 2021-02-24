@@ -1524,7 +1524,7 @@ AGAIN:
  *  Returns non-zero if the given tree contains a use of a local #lclNum.
  */
 
-bool Compiler::gtHasRef(GenTree* tree, ssize_t lclNum, bool defOnly)
+bool Compiler::gtHasRef(GenTree* tree, ssize_t lclNum)
 {
     genTreeOps oper;
     unsigned   kind;
@@ -1551,15 +1551,12 @@ AGAIN:
         {
             if (tree->AsLclVarCommon()->GetLclNum() == (unsigned)lclNum)
             {
-                if (!defOnly)
-                {
-                    return true;
-                }
+                return true;
             }
         }
         else if (oper == GT_RET_EXPR)
         {
-            return gtHasRef(tree->AsRetExpr()->gtInlineCandidate, lclNum, defOnly);
+            return gtHasRef(tree->AsRetExpr()->GetRetExpr(), lclNum);
         }
 
         return false;
@@ -1571,7 +1568,7 @@ AGAIN:
     {
         if (tree->gtGetOp2IfPresent())
         {
-            if (gtHasRef(tree->AsOp()->gtOp1, lclNum, defOnly))
+            if (gtHasRef(tree->AsOp()->gtOp1, lclNum))
             {
                 return true;
             }
@@ -1614,10 +1611,7 @@ AGAIN:
         case GT_FIELD:
             if (lclNum == (ssize_t)tree->AsField()->gtFldHnd)
             {
-                if (!defOnly)
-                {
-                    return true;
-                }
+                return true;
             }
 
             tree = tree->AsField()->gtFldObj;
@@ -1630,7 +1624,7 @@ AGAIN:
         case GT_CALL:
             if (tree->AsCall()->gtCallThisArg != nullptr)
             {
-                if (gtHasRef(tree->AsCall()->gtCallThisArg->GetNode(), lclNum, defOnly))
+                if (gtHasRef(tree->AsCall()->gtCallThisArg->GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1638,7 +1632,7 @@ AGAIN:
 
             for (GenTreeCall::Use& use : tree->AsCall()->Args())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1646,7 +1640,7 @@ AGAIN:
 
             for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1654,7 +1648,7 @@ AGAIN:
 
             if (tree->AsCall()->gtControlExpr)
             {
-                if (gtHasRef(tree->AsCall()->gtControlExpr, lclNum, defOnly))
+                if (gtHasRef(tree->AsCall()->gtControlExpr, lclNum))
                 {
                     return true;
                 }
@@ -1681,7 +1675,7 @@ AGAIN:
             break;
 
         case GT_ARR_ELEM:
-            if (gtHasRef(tree->AsArrElem()->gtArrObj, lclNum, defOnly))
+            if (gtHasRef(tree->AsArrElem()->gtArrObj, lclNum))
             {
                 return true;
             }
@@ -1689,7 +1683,7 @@ AGAIN:
             unsigned dim;
             for (dim = 0; dim < tree->AsArrElem()->gtArrRank; dim++)
             {
-                if (gtHasRef(tree->AsArrElem()->gtArrInds[dim], lclNum, defOnly))
+                if (gtHasRef(tree->AsArrElem()->gtArrInds[dim], lclNum))
                 {
                     return true;
                 }
@@ -1698,9 +1692,8 @@ AGAIN:
             break;
 
         case GT_ARR_OFFSET:
-            if (gtHasRef(tree->AsArrOffs()->gtOffset, lclNum, defOnly) ||
-                gtHasRef(tree->AsArrOffs()->gtIndex, lclNum, defOnly) ||
-                gtHasRef(tree->AsArrOffs()->gtArrObj, lclNum, defOnly))
+            if (gtHasRef(tree->AsArrOffs()->gtOffset, lclNum) || gtHasRef(tree->AsArrOffs()->gtIndex, lclNum) ||
+                gtHasRef(tree->AsArrOffs()->gtArrObj, lclNum))
             {
                 return true;
             }
@@ -1709,7 +1702,7 @@ AGAIN:
         case GT_PHI:
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1719,7 +1712,7 @@ AGAIN:
         case GT_FIELD_LIST:
             for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1730,7 +1723,7 @@ AGAIN:
         case GT_SIMD:
             for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1742,7 +1735,7 @@ AGAIN:
         case GT_HWINTRINSIC:
             for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1753,7 +1746,7 @@ AGAIN:
         case GT_INSTR:
             for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
             {
-                if (gtHasRef(use.GetNode(), lclNum, defOnly))
+                if (gtHasRef(use.GetNode(), lclNum))
                 {
                     return true;
                 }
@@ -1761,15 +1754,15 @@ AGAIN:
             break;
 
         case GT_CMPXCHG:
-            if (gtHasRef(tree->AsCmpXchg()->gtOpLocation, lclNum, defOnly))
+            if (gtHasRef(tree->AsCmpXchg()->gtOpLocation, lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsCmpXchg()->gtOpValue, lclNum, defOnly))
+            if (gtHasRef(tree->AsCmpXchg()->gtOpValue, lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsCmpXchg()->gtOpComparand, lclNum, defOnly))
+            if (gtHasRef(tree->AsCmpXchg()->gtOpComparand, lclNum))
             {
                 return true;
             }
@@ -1782,28 +1775,28 @@ AGAIN:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif // FEATURE_HW_INTRINSICS
-            if (gtHasRef(tree->AsBoundsChk()->gtIndex, lclNum, defOnly))
+            if (gtHasRef(tree->AsBoundsChk()->gtIndex, lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsBoundsChk()->gtArrLen, lclNum, defOnly))
+            if (gtHasRef(tree->AsBoundsChk()->gtArrLen, lclNum))
             {
                 return true;
             }
             break;
 
         case GT_STORE_DYN_BLK:
-            if (gtHasRef(tree->AsDynBlk()->Data(), lclNum, defOnly))
+            if (gtHasRef(tree->AsDynBlk()->Data(), lclNum))
             {
                 return true;
             }
             FALLTHROUGH;
         case GT_DYN_BLK:
-            if (gtHasRef(tree->AsDynBlk()->Addr(), lclNum, defOnly))
+            if (gtHasRef(tree->AsDynBlk()->Addr(), lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsDynBlk()->gtDynamicSize, lclNum, defOnly))
+            if (gtHasRef(tree->AsDynBlk()->gtDynamicSize, lclNum))
             {
                 return true;
             }
@@ -1819,49 +1812,33 @@ AGAIN:
     return false;
 }
 
-struct AddrTakenDsc
+// Check if the tree references any address taken locals.
+//
+// Note that "address taken" is far more conservative than "address exposed"
+// and as such this should only be used before we determine which locals are
+// address exposed - typically during IL import and inlining. Beyond that,
+// GTF_GLOB_REF should be used instead as it is set on any tree that uses
+// address exposed locals.
+//
+bool Compiler::gtHasAddressTakenLocals(GenTree* tree)
 {
-    Compiler* comp;
-    bool      hasAddrTakenLcl;
-};
+    auto visitor = [](GenTree** use, fgWalkData* data) {
+        GenTree* node = *use;
 
-/* static */
-Compiler::fgWalkResult Compiler::gtHasLocalsWithAddrOpCB(GenTree** pTree, fgWalkData* data)
-{
-    GenTree*  tree = *pTree;
-    Compiler* comp = data->compiler;
-
-    if (tree->gtOper == GT_LCL_VAR)
-    {
-        unsigned   lclNum = tree->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* varDsc = &comp->lvaTable[lclNum];
-
-        if (varDsc->lvHasLdAddrOp || varDsc->lvAddrExposed)
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            ((AddrTakenDsc*)data->pCallbackData)->hasAddrTakenLcl = true;
-            return WALK_ABORT;
+            LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclVarCommon());
+
+            if (lcl->lvHasLdAddrOp || lcl->lvAddrExposed)
+            {
+                return WALK_ABORT;
+            }
         }
-    }
 
-    return WALK_CONTINUE;
-}
+        return WALK_CONTINUE;
+    };
 
-/*****************************************************************************
- *
- *  Return true if this tree contains locals with lvHasLdAddrOp or lvAddrExposed
- *  flag(s) set.
- */
-
-bool Compiler::gtHasLocalsWithAddrOp(GenTree* tree)
-{
-    AddrTakenDsc desc;
-
-    desc.comp            = this;
-    desc.hasAddrTakenLcl = false;
-
-    fgWalkTreePre(&tree, gtHasLocalsWithAddrOpCB, &desc);
-
-    return desc.hasAddrTakenLcl;
+    return fgWalkTreePre(&tree, visitor) == WALK_ABORT;
 }
 
 #ifdef DEBUG
@@ -5672,10 +5649,9 @@ GenTreeCall* Compiler::gtNewCallNode(
 
 GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
-// Cannot have this assert because the inliner uses this function to add temporaries
-// assert(lnum < lvaCount);
-
 #ifdef DEBUG
+    LclVarDsc* lcl = lvaGetDesc(lnum);
+
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
@@ -5689,10 +5665,9 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL
         // TODO-1stClassStructs: When we stop "lying" about the types for ABI purposes, we
         // should be able to remove this exception and handle the assignment mismatch in
         // Lowering.
-        LclVarDsc* varDsc = lvaGetDesc(lnum);
-        assert((type == varDsc->lvType) ||
-               (lvaIsImplicitByRefLocal(lnum) && fgGlobalMorph && (varDsc->lvType == TYP_BYREF)) ||
-               ((varDsc->lvType == TYP_STRUCT) && (genTypeSize(type) == varDsc->lvExactSize)));
+        assert((type == lcl->GetType()) ||
+               (lcl->IsImplicitByRefParam() && fgGlobalMorph && (lcl->GetType() == TYP_BYREF)) ||
+               ((lcl->GetType() == TYP_STRUCT) && (varTypeSize(type) == lcl->lvExactSize)));
     }
 #endif
 
@@ -5701,6 +5676,9 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL
 
 GenTreeLclVar* Compiler::gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
+#ifdef DEBUG
+    LclVarDsc* lcl = lvaGetDesc(lnum);
+
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
@@ -5708,9 +5686,10 @@ GenTreeLclVar* Compiler::gtNewLclLNode(unsigned lnum, var_types type DEBUGARG(IL
         // Make an exception for implicit by-ref parameters during global morph, since
         // their lvType has been updated to byref but their appearances have not yet all
         // been rewritten and so may have struct type still.
-        assert(type == lvaTable[lnum].lvType ||
-               (lvaIsImplicitByRefLocal(lnum) && fgGlobalMorph && (lvaTable[lnum].lvType == TYP_BYREF)));
+        assert((type == lcl->GetType()) ||
+               (lcl->IsImplicitByRefParam() && fgGlobalMorph && (lcl->GetType() == TYP_BYREF)));
     }
+#endif
 
     // This local variable node may later get transformed into a large node
     assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_VAR]);
@@ -5737,9 +5716,9 @@ GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned
     return new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
 }
 
-GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call, var_types type, BasicBlock* block)
+GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call, var_types type)
 {
-    return new (this, GT_RET_EXPR) GenTreeRetExpr(type, call, block->bbFlags);
+    return new (this, GT_RET_EXPR) GenTreeRetExpr(type, call);
 }
 
 GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)
@@ -6142,10 +6121,7 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     GenTree* dst = asg->GetOp(0);
     GenTree* src = asg->GetOp(1);
 
-    if (!varTypeIsStruct(dst->GetType()))
-    {
-        return;
-    }
+    assert(varTypeIsStruct(dst->GetType()));
 
     if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
@@ -8863,9 +8839,11 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
 
     if (tree)
     {
-        printf(" %-6s", varTypeName(tree->GetType()));
-
-        if (varTypeIsStruct(tree->GetType()))
+        if (!varTypeIsStruct(tree->GetType()))
+        {
+            printf(" %-6s", varTypeName(tree->GetType()));
+        }
+        else
         {
             ClassLayout* layout = nullptr;
 
@@ -8890,6 +8868,16 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
             {
                 layout = index->GetLayout();
             }
+            else if (GenTreeCall* call = tree->IsCall())
+            {
+                layout = call->GetRetLayout();
+            }
+            else if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
+            {
+                layout = retExpr->GetCall()->GetRetLayout();
+            }
+
+            printf(" %s", varTypeName(tree->GetType()));
 
             if (layout != nullptr)
             {
@@ -9708,9 +9696,7 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
             break;
 
         case GT_RET_EXPR:
-            printf("(inl return from call ");
-            printTreeID(tree->AsRetExpr()->gtInlineCandidate);
-            printf(")");
+            printf(" (call " FMT_TREEID ")", tree->AsRetExpr()->GetCall()->GetID());
             break;
 
         case GT_PHYSREG:
@@ -10402,6 +10388,10 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum,
         {
             sprintf_s(buf, bufLength, "this");
         }
+        else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (arg == call->gtCallArgs->GetNode()))
+        {
+            sprintf_s(buf, bufLength, "retbuf");
+        }
         else
         {
             sprintf_s(buf, bufLength, "arg%d", argNum);
@@ -10418,6 +10408,12 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
     if (argInfo->use == call->gtCallThisArg)
     {
         int len = sprintf_s(buf, bufLength, "this");
+        buf += len;
+        bufLength -= len;
+    }
+    else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (argInfo->use == call->gtCallArgs))
+    {
+        int len = sprintf_s(buf, bufLength, "retbuf");
         buf += len;
         bufLength -= len;
     }
@@ -11528,7 +11524,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTree* tree)
             // Optimize boxed value classes; these are always false.  This IL is
             // generated when a generic value is tested against null:
             //     <T> ... foo(T x) { ... if ((object)x == null) ...
-            if ((val == 0) && op->IsBoxedValue())
+            if ((val == 0) && op->IsBox())
             {
                 JITDUMP("\nAttempting to optimize BOX(valueType) %s null [%06u]\n", GenTree::OpName(oper),
                         dspTreeID(tree));
@@ -11882,7 +11878,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
 GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions options)
 {
-    assert(op->IsBoxedValue());
+    assert(op->IsBox());
 
     // grab related parts for the optimization
     GenTreeBox* box      = op->AsBox();
@@ -12170,7 +12166,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     JITDUMP("Considering optimizing call to Enum.HasFlag....\n");
 
     // Operands must be boxes
-    if (!thisOp->IsBoxedValue() || !flagOp->IsBoxedValue())
+    if (!thisOp->IsBox() || !flagOp->IsBox())
     {
         JITDUMP("bailing, need both inputs to be BOXes\n");
         return nullptr;
@@ -13874,7 +13870,7 @@ GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
     }
 
     // Floating Point assignments can be created during inlining
-    // see "Zero init inlinee locals:" in fgInlinePrependStatements
+    // see "Zero init inlinee locals:" in inlPrependStatements
     // thus we may need to set compFloatingPointUsed to true here.
     //
     if (varTypeUsesFloatReg(dstTyp) && (compFloatingPointUsed == false))
@@ -15784,7 +15780,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 structHnd = tree->AsCall()->GetRetLayout()->GetClassHandle();
                 break;
             case GT_RET_EXPR:
-                structHnd = tree->AsRetExpr()->GetRetLayout()->GetClassHandle();
+                structHnd = tree->AsRetExpr()->GetLayout()->GetClassHandle();
                 break;
             case GT_INDEX:
                 structHnd = tree->AsIndex()->GetLayout()->GetClassHandle();
@@ -15932,13 +15928,8 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         }
 
         case GT_RET_EXPR:
-        {
-            // If we see a RET_EXPR, recurse through to examine the
-            // return value expression.
-            GenTree* retExpr = tree->AsRetExpr()->gtInlineCandidate;
-            objClass         = gtGetClassHandle(retExpr, pIsExact, pIsNonNull);
+            objClass = gtGetClassHandle(tree->AsRetExpr()->GetRetExpr(), pIsExact, pIsNonNull);
             break;
-        }
 
         case GT_CALL:
         {
