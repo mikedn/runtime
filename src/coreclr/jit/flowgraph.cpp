@@ -1270,6 +1270,8 @@ GenTree* Compiler::fgOptimizeDelegateConstructor(GenTreeCall*            call,
 
 bool Compiler::fgCastNeeded(GenTree* tree, var_types toType)
 {
+    assert(varTypeIsSmall(toType));
+
     //
     // If tree is a relop and we need an 4-byte integer
     //  then we never need to insert a cast
