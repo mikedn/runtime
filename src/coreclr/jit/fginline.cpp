@@ -1356,6 +1356,29 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
                 argType = lvaGetDesc(argNode->AsLclVar())->GetType();
             }
+            else if (argNode->OperIsCompare())
+            {
+                // Relops typically have type INT but they always produce 0/1 values
+                // so we can treat them as having type UBYTE, which doesn't require
+                // a cast no matter what the parameter type is.
+
+                argType = TYP_UBYTE;
+            }
+            else if (GenTreeCall* call = argNode->IsCall())
+            {
+                // Calls have "actual" type, use the signature type instead.
+                // TODO-MIKE-Review: Is this correct for unmanaged calls? Native ABIs
+                // usualluy don't widen small int return values so normally we'd need
+                // a cast. fgCastNeeded does seem to think that it's not needed.
+
+                argType = call->GetRetSigType();
+            }
+            else if (GenTreeCast* cast = argNode->IsCast())
+            {
+                // Casts to small int types have type INT, use the cast type instead.
+
+                argType = cast->GetCastType();
+            }
 
             // TODO-MIKE-Cleanup: This misses some cases (e.g. calls, relops) and should
             // use fgCastNeeded. On the other hand, fgCastNeeded seems to be missing at
