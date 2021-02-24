@@ -1268,48 +1268,6 @@ GenTree* Compiler::fgOptimizeDelegateConstructor(GenTreeCall*            call,
     return call;
 }
 
-// If assigning to a local var, add a cast if the target is
-// marked as NormalizedOnStore. Returns true if any change was made
-GenTree* Compiler::fgDoNormalizeOnStore(GenTree* tree)
-{
-    //
-    // Only normalize the stores in the global morph phase
-    //
-    if (fgGlobalMorph)
-    {
-        noway_assert(tree->OperGet() == GT_ASG);
-
-        GenTree* op1 = tree->AsOp()->gtOp1;
-        GenTree* op2 = tree->AsOp()->gtOp2;
-
-        if (op1->gtOper == GT_LCL_VAR && genActualType(op1->TypeGet()) == TYP_INT)
-        {
-            // Small-typed arguments and aliased locals are normalized on load.
-            // Other small-typed locals are normalized on store.
-            // If it is an assignment to one of the latter, insert the cast on RHS
-            unsigned   varNum = op1->AsLclVarCommon()->GetLclNum();
-            LclVarDsc* varDsc = &lvaTable[varNum];
-
-            if (varDsc->lvNormalizeOnStore())
-            {
-                noway_assert(op1->gtType <= TYP_INT);
-                op1->gtType = TYP_INT;
-
-                if (gtIsSmallIntCastNeeded(op2, varDsc->TypeGet()))
-                {
-                    op2                 = gtNewCastNode(TYP_INT, op2, false, varDsc->TypeGet());
-                    tree->AsOp()->gtOp2 = op2;
-
-                    // Propagate GTF_COLON_COND
-                    op2->gtFlags |= (tree->gtFlags & GTF_COLON_COND);
-                }
-            }
-        }
-    }
-
-    return tree;
-}
-
 /*****************************************************************************
  *
  *  Mark whether the edge "srcBB -> dstBB" forms a loop that will always

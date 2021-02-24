@@ -9624,6 +9624,34 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
     return newTree;
 }
 
+GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
+{
+    assert(asg->OperIs(GT_ASG));
+    assert(fgGlobalMorph);
+
+    GenTree* op1 = asg->GetOp(0);
+    GenTree* op2 = asg->GetOp(1);
+
+    if (varActualType(op1->GetType()) == TYP_INT)
+    {
+        LclVarDsc* lcl = lvaGetDesc(op1->AsLclVar());
+
+        if (lcl->lvNormalizeOnStore())
+        {
+            op1->SetType(TYP_INT);
+
+            if (gtIsSmallIntCastNeeded(op2, lcl->GetType()))
+            {
+                op2 = gtNewCastNode(TYP_INT, op2, false, lcl->GetType());
+                op2->gtFlags |= asg->gtFlags & GTF_COLON_COND;
+                asg->SetOp(1, op2);
+            }
+        }
+    }
+
+    return op2;
+}
+
 /*****************************************************************************
  *
  *  Transform the given GTK_SMPOP tree for code generation.
@@ -9675,10 +9703,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         int helper;
 
         case GT_ASG:
-            tree = fgDoNormalizeOnStore(tree);
-            /* fgDoNormalizeOnStore can change op2 */
-            noway_assert(op1 == tree->AsOp()->gtOp1);
-            op2 = tree->AsOp()->gtOp2;
+            if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR))
+            {
+                op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
+            }
 
             // We can't CSE the LHS of an assignment. Only r-values can be CSEed.
             // Previously, the "lhs" (addr) of a block op was CSE'd.  So, to duplicate the former
@@ -10763,12 +10791,10 @@ DONE_MORPHING_CHILDREN:
     switch (oper)
     {
         case GT_ASG:
-
-            if (op1->OperIs(GT_LCL_VAR) && ((op1->gtFlags & GTF_VAR_FOLDED_IND) != 0))
+            if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR) && ((op1->gtFlags & GTF_VAR_FOLDED_IND) != 0))
             {
                 op1->gtFlags &= ~GTF_VAR_FOLDED_IND;
-                tree = fgDoNormalizeOnStore(tree);
-                op2  = tree->gtGetOp2();
+                op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
             }
 
             lclVarTree = fgIsIndirOfAddrOfLocal(op1);
@@ -11904,7 +11930,8 @@ DONE_MORPHING_CHILDREN:
                                 if (possiblyStore)
                                 {
                                     // This node can be on the left-hand-side of an assignment node.
-                                    // Mark this node with GTF_VAR_FOLDED_IND to make sure that fgDoNormalizeOnStore()
+                                    // Mark this node with GTF_VAR_FOLDED_IND to make sure that
+                                    // fgMorphNormalizeLclVarStore()
                                     // is called on its parent in post-order morph.
                                     temp->gtFlags |= GTF_VAR_FOLDED_IND;
                                 }
