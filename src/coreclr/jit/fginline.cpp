@@ -1346,6 +1346,14 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
         if (varTypeIsSmall(paramType) && varTypeIsIntegral(argNode->GetType()))
         {
+            if (GenTreeIntCon* con = argNode->IsIntCon())
+            {
+                if (varTypeSmallIntCanRepresentValue(paramType, con->GetValue()))
+                {
+                    continue;
+                }
+            }
+
             var_types argType = argNode->GetType();
 
             if (argNode->OperIs(GT_LCL_VAR))

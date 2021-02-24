@@ -17417,6 +17417,11 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
         return false;
     }
 
+    if (GenTreeIntCon* con = tree->IsIntCon())
+    {
+        return !varTypeSmallIntCanRepresentValue(toType, con->GetValue());
+    }
+
     var_types fromType;
 
     if (GenTreeCast* cast = tree->IsCast())

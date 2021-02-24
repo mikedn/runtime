@@ -414,6 +414,22 @@ inline var_types varTypePointerAdd(var_types type)
     return (type == TYP_REF) ? TYP_BYREF : type;
 }
 
-/*****************************************************************************/
+inline bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
+{
+    switch (type)
+    {
+        case TYP_UBYTE:
+        case TYP_BOOL:
+            return FitsIn<uint8_t>(value);
+        case TYP_BYTE:
+            return FitsIn<int8_t>(value);
+        case TYP_USHORT:
+            return FitsIn<uint16_t>(value);
+        case TYP_SHORT:
+            return FitsIn<int16_t>(value);
+        default:
+            unreached();
+    }
+}
+
 #endif // _VARTYPE_H_
-/*****************************************************************************/
