@@ -965,7 +965,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
     {
         // Small-typed return values are normalized by the callee
 
-        if (fgCastNeeded(retExpr, info.GetRetSigType()))
+        if (gtIsSmallIntCastNeeded(retExpr, info.GetRetSigType()))
         {
             retExpr = gtNewCastNode(TYP_INT, retExpr, false, info.GetRetSigType());
         }
@@ -1369,7 +1369,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
                 // Calls have "actual" type, use the signature type instead.
                 // TODO-MIKE-Review: Is this correct for unmanaged calls? Native ABIs
                 // usualluy don't widen small int return values so normally we'd need
-                // a cast. fgCastNeeded does seem to think that it's not needed.
+                // a cast. gtIsSmallIntCastNeeded does seem to think that it's not needed.
 
                 argType = call->GetRetSigType();
             }
@@ -1381,17 +1381,18 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
             }
 
             // TODO-MIKE-Cleanup: This misses some cases (e.g. calls, relops) and should
-            // use fgCastNeeded. On the other hand, fgCastNeeded seems to be missing at
-            // least one case - no cast is needed for the UBYTE - SHORT.
+            // use gtIsSmallIntCastNeeded. On the other hand, fgCastNeeded seems to be
+            // missing at least one case - no cast is needed for the UBYTE - SHORT.
 
             if (paramType == argType)
             {
                 continue;
             }
 
-            if (varTypeIsSmall(argType) && ((varTypeSize(argType) < varTypeSize(paramType))
-                                                ? (varTypeIsUnsigned(argType) || !varTypeIsUnsigned(paramType))
-                                                : (varTypeIsUnsigned(argType) == varTypeIsUnsigned(paramType))))
+            if ((varTypeSize(argType) <= varTypeSize(paramType)) &&
+                ((varTypeSize(argType) == varTypeSize(paramType))
+                     ? (varTypeIsUnsigned(argType) == varTypeIsUnsigned(paramType))
+                     : (varTypeIsUnsigned(argType) || !varTypeIsUnsigned(paramType))))
             {
                 continue;
             }

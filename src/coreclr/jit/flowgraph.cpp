@@ -1268,71 +1268,6 @@ GenTree* Compiler::fgOptimizeDelegateConstructor(GenTreeCall*            call,
     return call;
 }
 
-bool Compiler::fgCastNeeded(GenTree* tree, var_types toType)
-{
-    assert(varTypeIsSmall(toType));
-
-    //
-    // If tree is a relop and we need an 4-byte integer
-    //  then we never need to insert a cast
-    //
-    if ((tree->OperKind() & GTK_RELOP) && (genActualType(toType) == TYP_INT))
-    {
-        return false;
-    }
-
-    var_types fromType;
-
-    //
-    // Is the tree as GT_CAST or a GT_CALL ?
-    //
-    if (tree->OperGet() == GT_CAST)
-    {
-        fromType = tree->CastToType();
-    }
-    else if (tree->OperIs(GT_CALL))
-    {
-        fromType = tree->AsCall()->GetRetSigType();
-    }
-    else
-    {
-        fromType = tree->TypeGet();
-    }
-
-    //
-    // If both types are the same then an additional cast is not necessary
-    //
-    if (toType == fromType)
-    {
-        return false;
-    }
-
-    if ((toType == TYP_SHORT) && ((fromType == TYP_BOOL) || (fromType == TYP_UBYTE)))
-    {
-        return false;
-    }
-
-    //
-    // If the sign-ness of the two types are different then a cast is necessary
-    //
-    if (varTypeIsUnsigned(toType) != varTypeIsUnsigned(fromType))
-    {
-        return true;
-    }
-    //
-    // If the from type is the same size or smaller then an additional cast is not necessary
-    //
-    if (genTypeSize(toType) >= genTypeSize(fromType))
-    {
-        return false;
-    }
-
-    //
-    // Looks like we will need the cast
-    //
-    return true;
-}
-
 // If assigning to a local var, add a cast if the target is
 // marked as NormalizedOnStore. Returns true if any change was made
 GenTree* Compiler::fgDoNormalizeOnStore(GenTree* tree)
@@ -1360,7 +1295,7 @@ GenTree* Compiler::fgDoNormalizeOnStore(GenTree* tree)
                 noway_assert(op1->gtType <= TYP_INT);
                 op1->gtType = TYP_INT;
 
-                if (fgCastNeeded(op2, varDsc->TypeGet()))
+                if (gtIsSmallIntCastNeeded(op2, varDsc->TypeGet()))
                 {
                     op2                 = gtNewCastNode(TYP_INT, op2, false, varDsc->TypeGet());
                     tree->AsOp()->gtOp2 = op2;

@@ -17407,3 +17407,43 @@ bool GenTreeLclFld::IsOffsetMisaligned() const
     return false;
 }
 #endif // TARGET_ARM
+
+bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
+{
+    assert(varTypeIsSmall(toType));
+
+    if (tree->OperIsCompare())
+    {
+        return false;
+    }
+
+    var_types fromType;
+
+    if (GenTreeCast* cast = tree->IsCast())
+    {
+        fromType = cast->GetCastType();
+    }
+    else if (GenTreeCall* call = tree->IsCall())
+    {
+        fromType = call->GetRetSigType();
+    }
+    else
+    {
+        fromType = tree->GetType();
+    }
+
+    assert(varTypeIsIntegral(fromType));
+
+    if (toType == fromType)
+    {
+        return false;
+    }
+
+    if (varTypeSize(fromType) > varTypeSize(toType))
+    {
+        return true;
+    }
+
+    return (varTypeSize(fromType) == varTypeSize(toType)) ? (varTypeIsUnsigned(fromType) != varTypeIsUnsigned(toType))
+                                                          : (!varTypeIsUnsigned(fromType) && varTypeIsUnsigned(toType));
+}
