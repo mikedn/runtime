@@ -1306,6 +1306,12 @@ bool Compiler::fgCastNeeded(GenTree* tree, var_types toType)
     {
         return false;
     }
+
+    if ((toType == TYP_SHORT) && ((fromType == TYP_BOOL) || (fromType == TYP_UBYTE)))
+    {
+        return false;
+    }
+
     //
     // If the sign-ness of the two types are different then a cast is necessary
     //
