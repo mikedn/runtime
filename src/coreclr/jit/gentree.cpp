@@ -17414,6 +17414,9 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
 
     if (tree->OperIsCompare())
     {
+        // Relops have type INT but they always produce 0/1 values so a
+        // cast is not required, no matter what the destination type is.
+
         return false;
     }
 
@@ -17422,26 +17425,34 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
         return !varTypeSmallIntCanRepresentValue(toType, con->GetValue());
     }
 
-    var_types fromType;
+    var_types fromType = tree->GetType();
+
+    assert(varTypeIsIntegral(fromType));
 
     if (GenTreeCast* cast = tree->IsCast())
     {
+        // Casts to small int types have type INT, use the cast type instead.
+
         fromType = cast->GetCastType();
     }
     else if (GenTreeCall* call = tree->IsCall())
     {
+        // Calls have "actual" type, use the signature type instead.
+        // Note that this works only in the managed ABI (and only when we're not compiling
+        // for R2R), native ABIs expect the caller to widen the return value. impImportCall
+        // should have already the necessary casts so we don't need to check again here but
+        // this means that this function can only be used when we need to add new casts
+        // (e.g. fgMorphNormalizeLclVarStore) and not to remove existing casts.
+
         fromType = call->GetRetSigType();
     }
-    else if (tree->OperIs(GT_LCL_VAR))
+    else if ((fromType == TYP_INT) && tree->OperIs(GT_LCL_VAR))
     {
+        // LCL_VARs associated with small int locals may have type INT,
+        // we need to check the type of the local variable.
+
         fromType = lvaGetDesc(tree->AsLclVar())->GetType();
     }
-    else
-    {
-        fromType = tree->GetType();
-    }
-
-    assert(varTypeIsIntegral(fromType));
 
     if (toType == fromType)
     {
@@ -17453,6 +17464,10 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
         return true;
     }
 
-    return (varTypeSize(fromType) == varTypeSize(toType)) ? (varTypeIsUnsigned(fromType) != varTypeIsUnsigned(toType))
-                                                          : (!varTypeIsUnsigned(fromType) && varTypeIsUnsigned(toType));
+    if (varTypeSize(fromType) < varTypeSize(toType))
+    {
+        return !varTypeIsUnsigned(fromType) && varTypeIsUnsigned(toType);
+    }
+
+    return varTypeIsUnsigned(fromType) != varTypeIsUnsigned(toType);
 }

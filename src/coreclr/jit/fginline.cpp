@@ -1346,61 +1346,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
         if (varTypeIsSmall(paramType) && varTypeIsIntegral(argNode->GetType()))
         {
-            if (GenTreeIntCon* con = argNode->IsIntCon())
-            {
-                if (varTypeSmallIntCanRepresentValue(paramType, con->GetValue()))
-                {
-                    continue;
-                }
-            }
-
-            var_types argType = argNode->GetType();
-
-            if (argNode->OperIs(GT_LCL_VAR))
-            {
-                // LCL_VARs associated with small int locals may have type INT, check
-                // the local type to avoid adding an unncessary cast. Morph will add
-                // one as needed (normalized on store vs. normalize on load).
-
-                argType = lvaGetDesc(argNode->AsLclVar())->GetType();
-            }
-            else if (argNode->OperIsCompare())
-            {
-                // Relops typically have type INT but they always produce 0/1 values
-                // so we can treat them as having type UBYTE, which doesn't require
-                // a cast no matter what the parameter type is.
-
-                argType = TYP_UBYTE;
-            }
-            else if (GenTreeCall* call = argNode->IsCall())
-            {
-                // Calls have "actual" type, use the signature type instead.
-                // TODO-MIKE-Review: Is this correct for unmanaged calls? Native ABIs
-                // usualluy don't widen small int return values so normally we'd need
-                // a cast. gtIsSmallIntCastNeeded does seem to think that it's not needed.
-
-                argType = call->GetRetSigType();
-            }
-            else if (GenTreeCast* cast = argNode->IsCast())
-            {
-                // Casts to small int types have type INT, use the cast type instead.
-
-                argType = cast->GetCastType();
-            }
-
-            // TODO-MIKE-Cleanup: This misses some cases (e.g. calls, relops) and should
-            // use gtIsSmallIntCastNeeded. On the other hand, fgCastNeeded seems to be
-            // missing at least one case - no cast is needed for the UBYTE - SHORT.
-
-            if (paramType == argType)
-            {
-                continue;
-            }
-
-            if ((varTypeSize(argType) <= varTypeSize(paramType)) &&
-                ((varTypeSize(argType) == varTypeSize(paramType))
-                     ? (varTypeIsUnsigned(argType) == varTypeIsUnsigned(paramType))
-                     : (varTypeIsUnsigned(argType) || !varTypeIsUnsigned(paramType))))
+            if (!gtIsSmallIntCastNeeded(argNode, paramType))
             {
                 continue;
             }
