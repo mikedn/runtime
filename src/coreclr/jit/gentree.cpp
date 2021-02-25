@@ -17432,6 +17432,10 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
     {
         fromType = call->GetRetSigType();
     }
+    else if (tree->OperIs(GT_LCL_VAR))
+    {
+        fromType = lvaGetDesc(tree->AsLclVar())->GetType();
+    }
     else
     {
         fromType = tree->GetType();
