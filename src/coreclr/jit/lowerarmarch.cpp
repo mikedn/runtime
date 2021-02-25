@@ -196,18 +196,9 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-//------------------------------------------------------------------------
-// LowerStoreIndir: Determine addressing mode for an indirection, and whether operands are contained.
-//
-// Arguments:
-//    node       - The indirect store node (GT_STORE_IND) of interest
-//
-// Return Value:
-//    None.
-//
-void Lowering::LowerStoreIndir(GenTreeIndir* node)
+void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
 {
-    ContainCheckStoreIndir(node);
+    ContainCheckStoreIndir(store);
 }
 
 void Lowering::LowerStructStore(GenTreeBlk* store)
@@ -1264,36 +1255,30 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
     // There are no contained operands for arm.
 }
 
-//------------------------------------------------------------------------
-// ContainCheckStoreIndir: determine whether the sources of a STOREIND node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
+void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
 {
-    ContainCheckIndir(node);
+    ContainCheckIndir(store);
 
 #ifdef TARGET_ARM64
-    GenTree* src = node->GetValue();
+    GenTree* value = store->GetValue();
 
     // TODO-MIKE-CQ-ARM64: SIMD16 0 is problematic to contain because we need
     // stp xzr, xzr, [...] but emitInsLoadStoreOp does not support stp. Currently
     // STORE_BLK.struct<16> works better than STOREIND.simd16 because of this.
-    if (node->TypeIs(TYP_SIMD8, TYP_SIMD12))
+    if (store->TypeIs(TYP_SIMD8, TYP_SIMD12))
     {
-        if (src->IsSIMDZero() || src->IsHWIntrinsicZero())
+        if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
         {
-            src->SetContained();
+            value->SetContained();
         }
-        else if (node->TypeIs(TYP_SIMD12))
+        else if (store->TypeIs(TYP_SIMD12))
         {
-            ContainSIMD12MemToMemCopy(node, src);
+            ContainSIMD12MemToMemCopy(store, value);
         }
     }
-    else if (src->IsIntegralConst(0) || src->IsDblConPositiveZero())
+    else if (value->IsIntegralConst(0) || value->IsDblConPositiveZero())
     {
-        src->SetContained();
+        value->SetContained();
     }
 #endif // TARGET_ARM64
 }

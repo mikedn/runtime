@@ -88,7 +88,7 @@ private:
 
     void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
-    void ContainCheckStoreIndir(GenTreeIndir* indirNode);
+    void ContainCheckStoreIndir(GenTreeStoreInd* store);
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
@@ -168,14 +168,14 @@ private:
     void InsertPInvokeCallEpilog(GenTreeCall* call);
     void InsertPInvokeMethodProlog();
     void InsertPInvokeMethodEpilog(BasicBlock* returnBB DEBUGARG(GenTree* lastExpr));
-    GenTree* SetGCState(int cns);
+    GenTreeStoreInd* SetGCState(int cns);
     GenTree* CreateReturnTrapSeq();
     enum FrameLinkAction
     {
         PushFrame,
         PopFrame
     };
-    GenTree* CreateFrameLinkUpdate(FrameLinkAction);
+    GenTreeStoreInd* CreateFrameLinkUpdate(FrameLinkAction);
     GenTree* AddrGen(ssize_t addr);
     GenTree* AddrGen(void* addr);
 
@@ -287,7 +287,7 @@ private:
     // Per tree node member functions
     void LowerStoreIndirCommon(GenTreeStoreInd* ind);
     void LowerIndir(GenTreeIndir* ind);
-    void LowerStoreIndir(GenTreeIndir* node);
+    void LowerStoreIndir(GenTreeStoreInd* store);
     GenTree* LowerAdd(GenTreeOp* node);
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
