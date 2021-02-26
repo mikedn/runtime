@@ -89,22 +89,13 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-//------------------------------------------------------------------------
-// LowerStoreIndir: Determine addressing mode for an indirection, and whether operands are contained.
-//
-// Arguments:
-//    node       - The indirect store node (GT_STORE_IND) of interest
-//
-// Return Value:
-//    None.
-//
-void Lowering::LowerStoreIndir(GenTreeIndir* node)
+void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
 {
     // Mark all GT_STOREIND nodes to indicate that it is not known
     // whether it represents a RMW memory op.
-    node->AsStoreInd()->SetRMWStatusDefault();
+    store->SetRMWStatusDefault();
 
-    if (!varTypeIsFloating(node))
+    if (!varTypeIsFloating(store->GetType()))
     {
         // Perform recognition of trees with the following structure:
         //        StoreInd(addr, BinOp(expr, GT_IND(addr)))
@@ -113,12 +104,20 @@ void Lowering::LowerStoreIndir(GenTreeIndir* node)
         // where register is the actual place where 'expr' is computed.
         //
         // SSE2 doesn't support RMW form of instructions.
-        if (LowerRMWMemOp(node))
+        if (LowerRMWMemOp(store))
         {
             return;
         }
+
+        GenTree* value = store->GetValue();
+
+        if (varTypeIsByte(store->GetType()) && (value->OperIsCompare() || value->OperIs(GT_SETCC)))
+        {
+            value->SetType(store->GetType());
+        }
     }
-    ContainCheckStoreIndir(node);
+
+    ContainCheckStoreIndir(store);
 }
 
 void Lowering::LowerStructStore(GenTreeBlk* store)
@@ -3741,22 +3740,16 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckStoreIndir: determine whether the sources of a STOREIND node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
+void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
 {
-    ContainCheckIndir(node);
+    ContainCheckIndir(store);
 
-    GenTree* src = node->GetValue();
+    GenTree* value = store->GetValue();
 
 #ifdef FEATURE_SIMD
-    if (node->TypeIs(TYP_SIMD12))
+    if (store->TypeIs(TYP_SIMD12))
     {
-        ContainSIMD12MemToMemCopy(node, src);
+        ContainSIMD12MemToMemCopy(store, value);
         return;
     }
 #endif
@@ -3765,10 +3758,10 @@ void Lowering::ContainCheckStoreIndir(GenTreeIndir* node)
     // an int-size or larger store of zero to memory, because we can generate smaller code
     // by zeroing a register and then storing it.
 
-    if (IsContainableImmed(node, src) &&
-        (!src->IsIntegralConst(0) || varTypeIsSmall(node) || node->GetAddr()->OperIs(GT_CLS_VAR_ADDR)))
+    if (IsContainableImmed(store, value) &&
+        (!value->IsIntegralConst(0) || varTypeIsSmall(store->GetType()) || store->GetAddr()->OperIs(GT_CLS_VAR_ADDR)))
     {
-        MakeSrcContained(node, src);
+        MakeSrcContained(store, value);
     }
 }
 

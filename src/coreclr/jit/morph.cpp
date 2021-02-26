@@ -9624,6 +9624,34 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
     return newTree;
 }
 
+GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
+{
+    assert(asg->OperIs(GT_ASG));
+    assert(fgGlobalMorph);
+
+    GenTree* op1 = asg->GetOp(0);
+    GenTree* op2 = asg->GetOp(1);
+
+    if (varActualType(op1->GetType()) == TYP_INT)
+    {
+        LclVarDsc* lcl = lvaGetDesc(op1->AsLclVar());
+
+        if (lcl->lvNormalizeOnStore())
+        {
+            op1->SetType(TYP_INT);
+
+            if (gtIsSmallIntCastNeeded(op2, lcl->GetType()))
+            {
+                op2 = gtNewCastNode(TYP_INT, op2, false, lcl->GetType());
+                op2->gtFlags |= asg->gtFlags & GTF_COLON_COND;
+                asg->SetOp(1, op2);
+            }
+        }
+    }
+
+    return op2;
+}
+
 /*****************************************************************************
  *
  *  Transform the given GTK_SMPOP tree for code generation.
@@ -9675,10 +9703,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         int helper;
 
         case GT_ASG:
-            tree = fgDoNormalizeOnStore(tree);
-            /* fgDoNormalizeOnStore can change op2 */
-            noway_assert(op1 == tree->AsOp()->gtOp1);
-            op2 = tree->AsOp()->gtOp2;
+            if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR))
+            {
+                op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
+            }
 
             // We can't CSE the LHS of an assignment. Only r-values can be CSEed.
             // Previously, the "lhs" (addr) of a block op was CSE'd.  So, to duplicate the former
@@ -10192,7 +10220,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             return fgMorphIntoHelperCall(tree, helper, gtNewCallArgs(op1, op2));
 
         case GT_RETURN:
-            if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && fgCastNeeded(op1, info.compRetType))
+            if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && gtIsSmallIntCastNeeded(op1, info.compRetType))
             {
                 // Small-typed return values are extended by the callee.
 
@@ -10763,12 +10791,10 @@ DONE_MORPHING_CHILDREN:
     switch (oper)
     {
         case GT_ASG:
-
-            if (op1->OperIs(GT_LCL_VAR) && ((op1->gtFlags & GTF_VAR_FOLDED_IND) != 0))
+            if (fgGlobalMorph && op1->OperIs(GT_LCL_VAR) && ((op1->gtFlags & GTF_VAR_FOLDED_IND) != 0))
             {
                 op1->gtFlags &= ~GTF_VAR_FOLDED_IND;
-                tree = fgDoNormalizeOnStore(tree);
-                op2  = tree->gtGetOp2();
+                op2 = fgMorphNormalizeLclVarStore(tree->AsOp());
             }
 
             lclVarTree = fgIsIndirOfAddrOfLocal(op1);
@@ -10786,7 +10812,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             /* If we are storing a small type, we might be able to omit a cast */
-            if ((effectiveOp1->gtOper == GT_IND) && varTypeIsSmall(effectiveOp1->TypeGet()))
+            if (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) && varTypeIsSmall(effectiveOp1->TypeGet()))
             {
                 if (!gtIsActiveCSE_Candidate(op2) && (op2->gtOper == GT_CAST) && !op2->gtOverflow())
                 {
@@ -10801,23 +10827,8 @@ DONE_MORPHING_CHILDREN:
                         tree->AsOp()->gtOp2 = op2 = op2->AsCast()->CastOp();
                     }
                 }
-                else if (op2->OperIsCompare() && varTypeIsByte(effectiveOp1->TypeGet()))
-                {
-                    /* We don't need to zero extend the setcc instruction */
-                    op2->gtType = TYP_BYTE;
-                }
             }
-            // If we introduced a CSE we may need to undo the optimization above
-            // (i.e. " op2->gtType = TYP_BYTE;" which depends upon op1 being a GT_IND of a byte type)
-            // When we introduce the CSE we remove the GT_IND and subsitute a GT_LCL_VAR in it place.
-            else if (op2->OperIsCompare() && (op2->gtType == TYP_BYTE) && (op1->gtOper == GT_LCL_VAR))
-            {
-                unsigned   varNum = op1->AsLclVarCommon()->GetLclNum();
-                LclVarDsc* varDsc = &lvaTable[varNum];
 
-                /* We again need to zero extend the setcc instruction */
-                op2->gtType = varDsc->TypeGet();
-            }
             fgAssignSetVarDef(tree);
 
             /* We can't CSE the LHS of an assignment */
@@ -11904,7 +11915,8 @@ DONE_MORPHING_CHILDREN:
                                 if (possiblyStore)
                                 {
                                     // This node can be on the left-hand-side of an assignment node.
-                                    // Mark this node with GTF_VAR_FOLDED_IND to make sure that fgDoNormalizeOnStore()
+                                    // Mark this node with GTF_VAR_FOLDED_IND to make sure that
+                                    // fgMorphNormalizeLclVarStore()
                                     // is called on its parent in post-order morph.
                                     temp->gtFlags |= GTF_VAR_FOLDED_IND;
                                 }

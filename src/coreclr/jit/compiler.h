@@ -968,14 +968,14 @@ public:
     bool lvNormalizeOnLoad() const
     {
         return varTypeIsSmall(TypeGet()) &&
-               // lvIsStructField is treated the same as the aliased local, see fgDoNormalizeOnStore.
+               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
                (lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
     bool lvNormalizeOnStore() const
     {
         return varTypeIsSmall(TypeGet()) &&
-               // lvIsStructField is treated the same as the aliased local, see fgDoNormalizeOnStore.
+               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
                !(lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
@@ -4476,8 +4476,8 @@ public:
     /* Helper code that has been factored out */
     inline void fgConvertBBToThrowBB(BasicBlock* block);
 
-    bool fgCastNeeded(GenTree* tree, var_types toType);
-    GenTree* fgDoNormalizeOnStore(GenTree* tree);
+    bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
+    GenTree* fgMorphNormalizeLclVarStore(GenTreeOp* asg);
 
     // The following check for loops that don't execute calls
     bool fgLoopCallMarked;

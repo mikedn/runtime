@@ -965,7 +965,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
     {
         // Small-typed return values are normalized by the callee
 
-        if (fgCastNeeded(retExpr, info.GetRetSigType()))
+        if (gtIsSmallIntCastNeeded(retExpr, info.GetRetSigType()))
         {
             retExpr = gtNewCastNode(TYP_INT, retExpr, false, info.GetRetSigType());
         }
@@ -1346,29 +1346,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
         if (varTypeIsSmall(paramType) && varTypeIsIntegral(argNode->GetType()))
         {
-            var_types argType = argNode->GetType();
-
-            if (argNode->OperIs(GT_LCL_VAR))
-            {
-                // LCL_VARs associated with small int locals may have type INT, check
-                // the local type to avoid adding an unncessary cast. Morph will add
-                // one as needed (normalized on store vs. normalize on load).
-
-                argType = lvaGetDesc(argNode->AsLclVar())->GetType();
-            }
-
-            // TODO-MIKE-Cleanup: This misses some cases (e.g. calls, relops) and should
-            // use fgCastNeeded. On the other hand, fgCastNeeded seems to be missing at
-            // least one case - no cast is needed for the UBYTE - SHORT.
-
-            if (paramType == argType)
-            {
-                continue;
-            }
-
-            if (varTypeIsSmall(argType) && ((varTypeSize(argType) < varTypeSize(paramType))
-                                                ? (varTypeIsUnsigned(argType) || !varTypeIsUnsigned(paramType))
-                                                : (varTypeIsUnsigned(argType) == varTypeIsUnsigned(paramType))))
+            if (!gtIsSmallIntCastNeeded(argNode, paramType))
             {
                 continue;
             }

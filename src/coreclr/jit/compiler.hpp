@@ -545,20 +545,7 @@ inline regNumber genRegNumFromMask(regMaskTP mask)
 
 inline bool genSmallTypeCanRepresentValue(var_types type, ssize_t value)
 {
-    switch (type)
-    {
-        case TYP_UBYTE:
-        case TYP_BOOL:
-            return FitsIn<UINT8>(value);
-        case TYP_BYTE:
-            return FitsIn<INT8>(value);
-        case TYP_USHORT:
-            return FitsIn<UINT16>(value);
-        case TYP_SHORT:
-            return FitsIn<INT16>(value);
-        default:
-            unreached();
-    }
+    return varTypeSmallIntCanRepresentValue(type, value);
 }
 
 /*****************************************************************************
