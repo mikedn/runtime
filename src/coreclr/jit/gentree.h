@@ -1526,7 +1526,18 @@ public:
 
     static bool OperIsAtomicOp(genTreeOps gtOper)
     {
-        return (gtOper == GT_XADD || gtOper == GT_XCHG || gtOper == GT_LOCKADD || gtOper == GT_CMPXCHG);
+        switch (gtOper)
+        {
+            case GT_XADD:
+            case GT_XORR:
+            case GT_XAND:
+            case GT_XCHG:
+            case GT_LOCKADD:
+            case GT_CMPXCHG:
+                return true;
+            default:
+                return false;
+        }
     }
 
     bool OperIsAtomicOp() const
@@ -2073,12 +2084,14 @@ private:
 public:
     bool Precedes(GenTree* other);
 
-    bool IsReuseRegValCandidate() const
+    bool IsInvariant();
+
+    bool IsReuseRegValCandidate()
     {
-        return OperIsConst() || IsHWIntrinsicZero();
+        return IsInvariant() || IsHWIntrinsicZero();
     }
 
-    bool IsReuseRegVal() const
+    bool IsReuseRegVal()
     {
         // This can be extended to non-constant nodes, but not to local or indir nodes.
         return ((gtFlags & GTF_REUSE_REG_VAL) != 0) && IsReuseRegValCandidate();
@@ -4279,6 +4292,7 @@ public:
 #define GTF_CALL_M_SUPPRESS_GC_TRANSITION  0x00800000 // GT_CALL -- suppress the GC transition (i.e. during a pinvoke) but a separate GC safe point is required.
 #define GTF_CALL_M_EXP_RUNTIME_LOOKUP      0x01000000 // GT_CALL -- this call needs to be tranformed into CFG for the dynamic dictionary expansion feature.
 #define GTF_CALL_M_STRESS_TAILCALL         0x02000000 // GT_CALL -- the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
+#define GTF_CALL_M_EXPANDED_EARLY          0x04000000 // GT_CALL -- the Virtual Call target address is expanded and placed in gtControlExpr in Morph rather than in Lower
 
     // clang-format on
 
@@ -4531,17 +4545,32 @@ public:
 
     void SetExpRuntimeLookup()
     {
-        gtFlags |= GTF_CALL_M_EXP_RUNTIME_LOOKUP;
+        gtCallMoreFlags |= GTF_CALL_M_EXP_RUNTIME_LOOKUP;
     }
 
     void ClearExpRuntimeLookup()
     {
-        gtFlags &= ~GTF_CALL_M_EXP_RUNTIME_LOOKUP;
+        gtCallMoreFlags &= ~GTF_CALL_M_EXP_RUNTIME_LOOKUP;
     }
 
     bool IsExpRuntimeLookup() const
     {
-        return (gtFlags & GTF_CALL_M_EXP_RUNTIME_LOOKUP) != 0;
+        return (gtCallMoreFlags & GTF_CALL_M_EXP_RUNTIME_LOOKUP) != 0;
+    }
+
+    void SetExpandedEarly()
+    {
+        gtCallMoreFlags |= GTF_CALL_M_EXPANDED_EARLY;
+    }
+
+    void ClearExpandedEarly()
+    {
+        gtCallMoreFlags &= ~GTF_CALL_M_EXPANDED_EARLY;
+    }
+
+    bool IsExpandedEarly() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_EXPANDED_EARLY) != 0;
     }
 
     bool IsUserCall() const

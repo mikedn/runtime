@@ -3244,7 +3244,7 @@ public:
         {
             if (dsc1->lvIsRegArg)
             {
-                weight2 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
+                weight1 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
             }
 
             if (varTypeIsGC(dsc1->TypeGet()))
@@ -3484,10 +3484,8 @@ void Compiler::lvaSortByRefCount()
 
             switch (type)
             {
-#if CPU_HAS_FP_SUPPORT
                 case TYP_FLOAT:
                 case TYP_DOUBLE:
-#endif
                 case TYP_INT:
                 case TYP_LONG:
                 case TYP_REF:

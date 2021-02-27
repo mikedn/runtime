@@ -235,6 +235,7 @@ namespace ILCompiler
         private readonly string _pdbPath;
         private readonly bool _generatePerfMapFile;
         private readonly string _perfMapPath;
+        private readonly Guid? _perfMapMvid;
         private readonly bool _generateProfileFile;
         private readonly Func<MethodDesc, string> _printReproInstructions;
 
@@ -270,6 +271,7 @@ namespace ILCompiler
             string pdbPath,
             bool generatePerfMapFile,
             string perfMapPath,
+            Guid? perfMapMvid,
             bool generateProfileFile,
             int parallelism,
             ProfileDataManager profileData,
@@ -295,9 +297,12 @@ namespace ILCompiler
             _pdbPath = pdbPath;
             _generatePerfMapFile = generatePerfMapFile;
             _perfMapPath = perfMapPath;
+            _perfMapMvid = perfMapMvid;
             _generateProfileFile = generateProfileFile;
             _customPESectionAlignment = customPESectionAlignment;
             SymbolNodeFactory = new ReadyToRunSymbolNodeFactory(nodeFactory, verifyTypeAndFieldLayout);
+            if (nodeFactory.InstrumentationDataTable != null)
+                nodeFactory.InstrumentationDataTable.Initialize(SymbolNodeFactory);
             _corInfoImpls = new ConditionalWeakTable<Thread, CorInfoImpl>();
             _inputFiles = inputFiles;
             _compositeRootPath = compositeRootPath;
@@ -338,6 +343,7 @@ namespace ILCompiler
                     pdbPath: _pdbPath,
                     generatePerfMapFile: _generatePerfMapFile,
                     perfMapPath: _perfMapPath,
+                    perfMapMvid: _perfMapMvid,
                     generateProfileFile: _generateProfileFile,
                     callChainProfile: _profileData.CallChainProfile,
                     _customPESectionAlignment);
@@ -385,6 +391,7 @@ namespace ILCompiler
             NodeFactory componentFactory = new NodeFactory(
                 _nodeFactory.TypeSystemContext,
                 _nodeFactory.CompilationModuleGroup,
+                null,
                 _nodeFactory.NameMangler,
                 copiedCorHeader,
                 debugDirectory,
@@ -413,10 +420,11 @@ namespace ILCompiler
                 generateMapFile: false,
                 generateMapCsvFile: false,
                 generatePdbFile: false,
-                pdbPath: _pdbPath,
+                pdbPath: null,
                 generatePerfMapFile: false,
-                perfMapPath: _perfMapPath,
-                generateProfileFile: _generateProfileFile,
+                perfMapPath: null,
+                perfMapMvid: null,
+                generateProfileFile: false,
                 _profileData.CallChainProfile,
                 customPESectionAlignment: 0);
         }

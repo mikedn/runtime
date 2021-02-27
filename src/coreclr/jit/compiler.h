@@ -65,11 +65,13 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  */
 
 struct InfoHdr;            // defined in GCInfo.h
-struct escapeMapping_t;    // defined in flowgraph.cpp
+struct escapeMapping_t;    // defined in fgdiagnostic.cpp
 class emitter;             // defined in emit.h
 struct ShadowParamVarInfo; // defined in GSChecks.cpp
 struct InitVarDscInfo;     // defined in register_arg_convention.h
-class FgStack;             // defined in flowgraph.cpp
+class FgStack;             // defined in fgbasic.cpp
+class Instrumentor;        // defined in fgprofile.cpp
+class SpanningTreeVisitor; // defined in fgprofile.cpp
 #if FEATURE_ANYCSE
 class CSE_DataFlow; // defined in OptCSE.cpp
 #endif
@@ -1631,29 +1633,29 @@ public:
             ehnBlockType = FaultNode;
         }
 
-        BOOL ehnIsTryBlock()
+        bool ehnIsTryBlock()
         {
             return ehnBlockType == TryNode;
         }
-        BOOL ehnIsFilterBlock()
+        bool ehnIsFilterBlock()
         {
             return ehnBlockType == FilterNode;
         }
-        BOOL ehnIsHandlerBlock()
+        bool ehnIsHandlerBlock()
         {
             return ehnBlockType == HandlerNode;
         }
-        BOOL ehnIsFinallyBlock()
+        bool ehnIsFinallyBlock()
         {
             return ehnBlockType == FinallyNode;
         }
-        BOOL ehnIsFaultBlock()
+        bool ehnIsFaultBlock()
         {
             return ehnBlockType == FaultNode;
         }
 
         // returns true if there is any overlap between the two nodes
-        static BOOL ehnIsOverlap(pEHNodeDsc node1, pEHNodeDsc node2)
+        static bool ehnIsOverlap(pEHNodeDsc node1, pEHNodeDsc node2)
         {
             if (node1->ehnStartOffset < node2->ehnStartOffset)
             {
@@ -1666,7 +1668,7 @@ public:
         }
 
         // fails with BADCODE if inner is not completely nested inside outer
-        static BOOL ehnIsNested(pEHNodeDsc inner, pEHNodeDsc outer)
+        static bool ehnIsNested(pEHNodeDsc inner, pEHNodeDsc outer)
         {
             return ((inner->ehnStartOffset >= outer->ehnStartOffset) && (inner->ehnEndOffset <= outer->ehnEndOffset));
         }
@@ -2802,8 +2804,8 @@ public:
 
     bool lvaIsParameter(unsigned varNum);
     bool lvaIsRegArgument(unsigned varNum);
-    BOOL lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
-    BOOL lvaIsOriginalThisReadOnly();           // return TRUE if there is no place in the code
+    bool lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
+    bool lvaIsOriginalThisReadOnly();           // return true if there is no place in the code
                                                 // that writes to arg0
 
     bool lvaIsImplicitByRefLocal(unsigned varNum)
@@ -4456,7 +4458,7 @@ public:
     void fgComputeCalledCount(BasicBlock::weight_t returnWeight);
     void fgComputeEdgeWeights();
 
-    void fgReorderBlocks();
+    bool fgReorderBlocks();
 
     void fgDetermineFirstColdBlock();
 
@@ -4517,13 +4519,19 @@ public:
     void fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees);
     void fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt);
     void fgDebugCheckNodesUniqueness();
+    void fgDebugCheckLoopTable();
 
     void fgDebugCheckFlags(GenTree* tree);
     void fgDebugCheckDispFlags(GenTree* tree, unsigned dispFlags, unsigned debugFlags);
     void fgDebugCheckFlagsHelper(GenTree* tree, unsigned treeFlags, unsigned chkFlags);
     void fgDebugCheckTryFinallyExits();
     void fgDebugCheckProfileData();
+    bool fgDebugCheckIncomingProfileData(BasicBlock* block);
+    bool fgDebugCheckOutgoingProfileData(BasicBlock* block);
 #endif
+
+    bool fgProfileWeightsEqual(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
+    bool fgProfileWeightsConsistent(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
 
     static GenTree* fgGetFirstNode(GenTree* tree);
 
@@ -4612,12 +4620,6 @@ protected:
 
     void fgAdjustForAddressExposedOrWrittenThis();
 
-    bool                                   fgProfileData_ILSizeMismatch;
-    ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema;
-    BYTE*                                  fgPgoData;
-    UINT32                                 fgPgoSchemaCount;
-    UINT32                                 fgNumProfileRuns;
-
     unsigned fgStressBBProf()
     {
 #ifdef DEBUG
@@ -4636,11 +4638,32 @@ protected:
     }
 
     bool fgHaveProfileData();
-    void fgComputeProfileScale();
     bool fgGetProfileWeightForBasicBlock(IL_OFFSET offset, BasicBlock::weight_t* weight);
+
+    Instrumentor* fgCountInstrumentor;
+    Instrumentor* fgClassInstrumentor;
+
+    PhaseStatus fgPrepareToInstrumentMethod();
     PhaseStatus fgInstrumentMethod();
+    PhaseStatus fgIncorporateProfileData();
+    void        fgIncorporateBlockCounts();
+    void        fgIncorporateEdgeCounts();
 
 public:
+    bool                                   fgProfileData_ILSizeMismatch;
+    ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema;
+    BYTE*                                  fgPgoData;
+    UINT32                                 fgPgoSchemaCount;
+    HRESULT                                fgPgoQueryResult;
+    UINT32                                 fgNumProfileRuns;
+    UINT32                                 fgPgoBlockCounts;
+    UINT32                                 fgPgoEdgeCounts;
+    UINT32                                 fgPgoClassProfiles;
+
+    void WalkSpanningTree(SpanningTreeVisitor* visitor);
+    void fgSetProfileWeight(BasicBlock* block, BasicBlock::weight_t weight);
+    void fgComputeProfileScale();
+
     // fgIsUsingProfileWeights - returns true if we have real profile data for this method
     //                           or if we have some fake profile data for the stress mode
     bool fgIsUsingProfileWeights()
@@ -4853,6 +4876,7 @@ private:
                                                      Statement*     tmpAssignmentInsertionPoint,
                                                      Statement*     paramAssignmentInsertionPoint);
     GenTree* fgMorphCall(GenTreeCall* call);
+    GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
 
     GenTree* fgOptimizeDelegateConstructor(GenTreeCall*            call,
                                            CORINFO_CONTEXT_HANDLE* ExactContextHnd,
@@ -4873,8 +4897,6 @@ private:
     GenTree* fgMorphRetInd(GenTreeUnOp* ret);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
-
-    GenTree* fgMorphToEmulatedFP(GenTree* tree);
     GenTree* fgMorphConst(GenTree* tree);
 
     GenTreeLclVar* fgMorphTryFoldObjAsLclVar(GenTreeObj* obj);
@@ -5173,11 +5195,9 @@ private:
     void optOptimizeBoolsGcStress(BasicBlock* condBlock);
 #endif
 public:
-    void optOptimizeLayout(); // Optimize the BasicBlock layout of the method
-
-    void optOptimizeLoops(); // for "while-do" loops duplicates simple loop conditions and transforms
-                             // the loop into a "do-while" loop
-                             // Also finds all natural loops and records them in the loop table
+    PhaseStatus optInvertLoops();    // Invert loops so they're entered at top and tested at bottom.
+    PhaseStatus optOptimizeLayout(); // Optimize the BasicBlock layout of the method
+    PhaseStatus optFindLoops();      // Finds loops and records them in the loop table
 
     // Optionally clone loops in the loop table.
     void optCloneLoops();
@@ -5499,7 +5519,7 @@ protected:
         }
     }
 
-    void fgOptWhileLoop(BasicBlock* block);
+    void optInvertWhileLoop(BasicBlock* block);
 
     bool optComputeLoopRep(int        constInit,
                            int        constLimit,
@@ -5587,6 +5607,7 @@ protected:
         ValueNum csdConstDefVN;    // When we CSE similar constants, this is the ValueNumber that we use for the LclVar
                                    // assignment
         unsigned csdIndex;         // 1..optCSECandidateCount
+        bool     csdIsSharedConst; // true if this CSE is a shared const
         bool     csdLiveAcrossCall;
 
         unsigned short csdDefCount; // definition   count
@@ -5679,9 +5700,17 @@ protected:
         return ((key & TARGET_SIGN_BIT) != 0);
     }
 
-    static size_t Decode_Shared_Const_CSE_Value(size_t key)
+    // returns the encoded key
+    static size_t Encode_Shared_Const_CSE_Value(size_t key)
     {
-        return (key & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
+        return TARGET_SIGN_BIT | (key >> CSE_CONST_SHARED_LOW_BITS);
+    }
+
+    // returns the orginal key
+    static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
+    {
+        assert(Is_Shared_Const_CSE(enckey));
+        return (enckey & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
     }
 
 #endif // FEATURE_ANYCSE
@@ -5846,6 +5875,14 @@ public:
     {
         optMethodFlags &= ~OMF_HAS_GUARDEDDEVIRT;
     }
+
+    void considerGuardedDevirtualization(GenTreeCall*            call,
+                                         IL_OFFSETX              iloffset,
+                                         bool                    isInterface,
+                                         CORINFO_METHOD_HANDLE   baseMethod,
+                                         CORINFO_CLASS_HANDLE    baseClass,
+                                         CORINFO_CONTEXT_HANDLE* pContextHandle DEBUGARG(CORINFO_CLASS_HANDLE objClass)
+                                             DEBUGARG(const char* objClassName));
 
     void addGuardedDevirtualizationCandidate(GenTreeCall*          call,
                                              CORINFO_METHOD_HANDLE methodHandle,
@@ -6465,7 +6502,7 @@ public:
 
     // Get the flags
 
-    BOOL eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd);
+    bool eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd);
 
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(TRACK_LSRA_STATS)
 
@@ -6547,19 +6584,6 @@ public:
     target_size_t eeGetPageSize()
     {
         return (target_size_t)eeGetEEInfo()->osPageSize;
-    }
-
-    // Returns the frame size at which we will generate a loop to probe the stack.
-    target_size_t getVeryLargeFrameSize()
-    {
-#ifdef TARGET_ARM
-        // The looping probe code is 40 bytes, whereas the straight-line probing for
-        // the (0x2000..0x3000) case is 44, so use looping for anything 0x2000 bytes
-        // or greater, to generate smaller code.
-        return 2 * eeGetPageSize();
-#else
-        return 3 * eeGetPageSize();
-#endif
     }
 
     //------------------------------------------------------------------------
@@ -8056,6 +8080,8 @@ public:
         bool dspGCtbls;       // Display the GC tables
 #endif
 
+        bool compExpandCallsEarly; // True if we should expand virtual call targets early for this method
+
 // Default numbers used to perform loop alignment. All the numbers are choosen
 // based on experimenting with various benchmarks.
 
@@ -8568,14 +8594,14 @@ public:
 
     int compCompile(CORINFO_MODULE_HANDLE classPtr,
                     void**                methodCodePtr,
-                    ULONG*                methodCodeSize,
+                    uint32_t*             methodCodeSize,
                     JitFlags*             compileFlags);
     void compCompileFinish();
     int compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
                           COMP_HANDLE           compHnd,
                           CORINFO_METHOD_INFO*  methodInfo,
                           void**                methodCodePtr,
-                          ULONG*                methodCodeSize,
+                          uint32_t*             methodCodeSize,
                           JitFlags*             compileFlag);
 
     ArenaAllocator* compGetArenaAllocator();
@@ -8725,7 +8751,7 @@ protected:
 #ifdef TARGET_ARMARCH
     bool compRsvdRegCheck(FrameLayoutState curState);
 #endif
-    void compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags* compileFlags);
+    void compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFlags* compileFlags);
 
     // Clear annotations produced during optimizations; to be used between iterations when repeating opts.
     void ResetOptAnnotations();
@@ -8772,7 +8798,7 @@ public:
 
 public:
     // Returns TRUE if child is equal to or a subtype of parent.
-    INDEBUG(BOOL tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent) const;)
+    INDEBUG(bool tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent) const;)
 
     // The following is used to track liveness of local variables, initialization
     // of valueclass constructors, and type safe use of IL instructions.
@@ -9092,7 +9118,6 @@ public:
 #endif // !TARGET_X86
 
     bool killGCRefs(GenTree* tree);
-
 }; // end of class Compiler
 
 #ifdef TARGET_ARM64

@@ -187,19 +187,19 @@ public:
         return m_token;
     }
 
-    BOOL IsType(ti_types type) const
+    bool IsType(ti_types type) const
     {
         assert(type != TI_ERROR);
         return (m_flags & (TI_FLAG_DATA_MASK | TI_FLAG_BYREF)) == static_cast<unsigned>(type);
     }
 
     // A byref value class is NOT a value class
-    BOOL IsValueClass() const
+    bool IsValueClass() const
     {
         return IsType(TI_STRUCT) || IsPrimitiveType();
     }
 
-    BOOL IsToken() const
+    bool IsToken() const
     {
         return (GetType() == TI_METHOD) && ((m_flags & TI_FLAG_TOKEN) != 0);
     }
@@ -221,7 +221,7 @@ public:
         return *this;
     }
 
-    BOOL IsByRef() const
+    bool IsByRef() const
     {
         return (m_flags & TI_FLAG_BYREF) != 0;
     }
@@ -238,7 +238,7 @@ public:
 
     static bool AreEquivalent(const typeInfo& li, const typeInfo& ti);
 
-    static BOOL tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent);
+    static bool tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent);
 #endif // DEBUG
 };
 

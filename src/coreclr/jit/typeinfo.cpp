@@ -192,7 +192,7 @@ bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
     return li.m_cls == ti.m_cls;
 }
 
-BOOL Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const
+bool Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const
 {
     return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent);
 }
@@ -202,13 +202,13 @@ typeInfo DereferenceByRef(const typeInfo& ti)
     return typeInfo(ti).DereferenceByRef();
 }
 
-static BOOL tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
+static bool tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
 {
     assert(parent.IsByRef());
 
     if (!child.IsByRef())
     {
-        return FALSE;
+        return false;
     }
 
     // Byrefs are compatible if the underlying types are equivalent
@@ -217,7 +217,7 @@ static BOOL tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const 
 
     if (typeInfo::AreEquivalent(childTarget, parentTarget))
     {
-        return TRUE;
+        return true;
     }
 
     // Make sure that both types have a valid m_cls
@@ -227,7 +227,7 @@ static BOOL tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const 
         return vm->areTypesEquivalent(childTarget.GetClassHandle(), parentTarget.GetClassHandle());
     }
 
-    return FALSE;
+    return false;
 }
 
 /*****************************************************************************
@@ -263,11 +263,11 @@ static BOOL tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const 
  *
  */
 
-BOOL typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
+bool typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
 {
     if (typeInfo::AreEquivalent(child, parent))
     {
-        return TRUE;
+        return true;
     }
 
     if (parent.IsType(TI_REF))
@@ -297,16 +297,16 @@ BOOL typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const ty
     // between an int32 and a native int.
     if (parent.IsType(TI_INT) && typeInfo::AreEquivalent(nativeInt(), child))
     {
-        return TRUE;
+        return true;
     }
 
     if (typeInfo::AreEquivalent(nativeInt(), parent) && child.IsType(TI_INT))
     {
-        return TRUE;
+        return true;
     }
 #endif // TARGET_64BIT
 
-    return FALSE;
+    return false;
 }
 
 #endif // DEBUG

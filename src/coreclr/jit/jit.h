@@ -754,7 +754,7 @@ extern int jitNativeCode(CORINFO_METHOD_HANDLE methodHnd,
                          COMP_HANDLE           compHnd,
                          CORINFO_METHOD_INFO*  methodInfo,
                          void**                methodCodePtr,
-                         ULONG*                methodCodeSize,
+                         uint32_t*             methodCodeSize,
                          JitFlags*             compileFlags);
 
 // Constants for making sure size_t fit into smaller types.

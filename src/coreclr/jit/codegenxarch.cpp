@@ -1114,7 +1114,7 @@ void CodeGen::genMultiRegSIMDReturn(GenTree* src)
     assert(src->TypeIs(TYP_SIMD8));
     assert((retReg0 == REG_EAX) && (retReg1 == REG_EDX));
 
-    GetEmitter()->emitIns_R_R(INS_mov_xmm2i, EA_4BYTE, srcReg, retReg0);
+    GetEmitter()->emitIns_R_R(INS_movd, EA_4BYTE, retReg0, srcReg);
 
     if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
@@ -1123,7 +1123,7 @@ void CodeGen::genMultiRegSIMDReturn(GenTree* src)
     else
     {
         GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, srcReg, 4);
-        GetEmitter()->emitIns_R_R(INS_mov_xmm2i, EA_4BYTE, srcReg, retReg1);
+        GetEmitter()->emitIns_R_R(INS_movd, EA_4BYTE, retReg1, srcReg);
     }
 #endif
 }
@@ -1651,6 +1651,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_XCHG:
         case GT_XADD:
             genLockedInstructions(treeNode->AsOp());
+            break;
+
+        case GT_XORR:
+        case GT_XAND:
+            NYI("Interlocked.Or and Interlocked.And aren't implemented for x86 yet.");
             break;
 
         case GT_MEMORYBARRIER:
@@ -2614,7 +2619,7 @@ void CodeGen::genStructStoreUnrollInit(GenTreeBlk* store)
         }
         else
         {
-            emit->emitIns_R_R(INS_mov_i2xmm, EA_PTRSIZE, srcXmmReg, srcIntReg);
+            emit->emitIns_R_R(INS_movd, EA_PTRSIZE, srcXmmReg, srcIntReg);
             emit->emitIns_R_R(INS_punpckldq, EA_16BYTE, srcXmmReg, srcXmmReg);
 #ifdef TARGET_X86
             // For x86, we need one more to convert it from 8 bytes to 16 bytes.
@@ -4499,7 +4504,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
             // to pass an integer argument at the same position.
             regNumber intArgReg = compiler->getCallArgIntRegister(argNode->GetRegNum());
-            GetEmitter()->emitIns_R_R(INS_mov_xmm2i, emitTypeSize(argNode->GetType()), srcReg, intArgReg);
+            GetEmitter()->emitIns_R_R(INS_movd, emitTypeSize(argNode->GetType()), intArgReg, srcReg);
         }
 #endif
     }
@@ -5214,9 +5219,8 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
             if (varTypeIsFloating(loadType))
             {
-                intArgReg       = compiler->getCallArgIntRegister(argReg);
-                instruction ins = ins_CopyFloatToInt(loadType, TYP_LONG);
-                inst_RV_RV(ins, argReg, intArgReg, loadType);
+                intArgReg = compiler->getCallArgIntRegister(argReg);
+                inst_RV_RV(ins_Copy(argReg, TYP_LONG), intArgReg, argReg, loadType);
             }
             else
             {
@@ -5255,7 +5259,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         regMaskTP remainingIntArgMask = RBM_ARG_REGS & ~fixedIntArgMask;
         if (remainingIntArgMask != RBM_NONE)
         {
-            instruction insCopyIntToFloat = ins_CopyIntToFloat(TYP_LONG, TYP_DOUBLE);
             GetEmitter()->emitDisableGC();
             for (int argNum = 0, argOffset = 0; argNum < MAX_REG_ARG; ++argNum)
             {
@@ -5269,7 +5272,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
                     // also load it in corresponding float arg reg
                     regNumber floatReg = compiler->getCallArgFloatRegister(argReg);
-                    inst_RV_RV(insCopyIntToFloat, floatReg, argReg);
+                    inst_RV_RV(ins_Copy(argReg, TYP_DOUBLE), floatReg, argReg);
                 }
 
                 argOffset += REGSIZE_BYTES;
@@ -6003,8 +6006,9 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     // Copy the floating-point value to an integer register. If we copied a float to a long, then
     // right-shift the value so the high 32 bits of the floating-point value sit in the low 32
     // bits of the integer register.
-    instruction ins = ins_CopyFloatToInt(targetType, (targetType == TYP_FLOAT) ? TYP_INT : TYP_LONG);
-    inst_RV_RV(ins, op1->GetRegNum(), tmpReg, targetType);
+    regNumber srcReg        = op1->GetRegNum();
+    var_types targetIntType = ((targetType == TYP_FLOAT) ? TYP_INT : TYP_LONG);
+    inst_RV_RV(ins_Copy(srcReg, targetIntType), tmpReg, srcReg, targetType);
     if (targetType == TYP_DOUBLE)
     {
         // right shift by 32 bits to get to exponent.
@@ -6073,7 +6077,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
 
     // Copy only the low 32 bits. This will be the high order 32 bits of the floating-point
     // value, no matter the floating-point type.
-    inst_RV_RV(ins_CopyFloatToInt(TYP_FLOAT, TYP_INT), copyToTmpSrcReg, tmpReg, TYP_FLOAT);
+    inst_RV_RV(ins_Copy(copyToTmpSrcReg, TYP_INT), tmpReg, copyToTmpSrcReg, TYP_FLOAT);
 
     // Mask exponent with all 1's and check if the exponent is all 1's
     inst_RV_IV(INS_and, tmpReg, expMask, EA_4BYTE);
@@ -6490,14 +6494,9 @@ void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcTyp
 
     instruction ins = INS_none;
 
-    if (dstIsFloat && !srcIsFloat)
+    if (dstIsFloat != srcIsFloat)
     {
-        ins = INS_mov_i2xmm;
-    }
-    else if (!dstIsFloat && srcIsFloat)
-    {
-        ins = INS_mov_xmm2i;
-        std::swap(dstReg, srcReg);
+        ins = INS_movd;
     }
     else if (dstReg != srcReg)
     {
@@ -8241,9 +8240,8 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 #if FEATURE_VARARG
         if (compiler->info.compIsVarArgs && varTypeIsFloating(loadType))
         {
-            regNumber   intArgReg = compiler->getCallArgIntRegister(argReg);
-            instruction ins       = ins_CopyFloatToInt(loadType, TYP_LONG);
-            inst_RV_RV(ins, argReg, intArgReg, loadType);
+            regNumber intArgReg = compiler->getCallArgIntRegister(argReg);
+            inst_RV_RV(ins_Copy(argReg, TYP_LONG), intArgReg, argReg, loadType);
         }
 #endif //  FEATURE_VARARG
     }
@@ -8509,6 +8507,63 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
     {
         GetEmitter()->emitIns_ARX_R(ins, attr, reg, addrMode.Base(), addrMode.Index(), addrMode.Scale(),
                                     addrMode.Disp(offset));
+    }
+}
+
+//------------------------------------------------------------------------
+// genPushCalleeSavedRegisters: Push any callee-saved registers we have used.
+//
+void CodeGen::genPushCalleeSavedRegisters()
+{
+    assert(compiler->compGeneratingProlog);
+
+    // x86/x64 doesn't support push of xmm/ymm regs, therefore consider only integer registers for pushing onto stack
+    // here. Space for float registers to be preserved is stack allocated and saved as part of prolog sequence and not
+    // here.
+    regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_INT_CALLEE_SAVED;
+
+#if ETW_EBP_FRAMED
+    if (!isFramePointerUsed() && regSet.rsRegsModified(RBM_FPBASE))
+    {
+        noway_assert(!"Used register RBM_FPBASE as a scratch register!");
+    }
+#endif
+
+    // On X86/X64 we have already pushed the FP (frame-pointer) prior to calling this method
+    if (isFramePointerUsed())
+    {
+        rsPushRegs &= ~RBM_FPBASE;
+    }
+
+#ifdef DEBUG
+    if (compiler->compCalleeRegsPushed != genCountBits(rsPushRegs))
+    {
+        printf("Error: unexpected number of callee-saved registers to push. Expected: %d. Got: %d ",
+               compiler->compCalleeRegsPushed, genCountBits(rsPushRegs));
+        dspRegMask(rsPushRegs);
+        printf("\n");
+        assert(compiler->compCalleeRegsPushed == genCountBits(rsPushRegs));
+    }
+#endif // DEBUG
+
+    // Push backwards so we match the order we will pop them in the epilog
+    // and all the other code that expects it to be in this order.
+    for (regNumber reg = REG_INT_LAST; rsPushRegs != RBM_NONE; reg = REG_PREV(reg))
+    {
+        regMaskTP regBit = genRegMask(reg);
+
+        if ((regBit & rsPushRegs) != 0)
+        {
+            inst_RV(INS_push, reg, TYP_REF);
+            compiler->unwindPush(reg);
+#ifdef USING_SCOPE_INFO
+            if (!doubleAlignOrFramePointerUsed())
+            {
+                psiAdjustStackLevel(REGSIZE_BYTES);
+            }
+#endif // USING_SCOPE_INFO
+            rsPushRegs &= ~regBit;
+        }
     }
 }
 
