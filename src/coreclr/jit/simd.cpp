@@ -605,7 +605,7 @@ void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree
             compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length, compiler->compCurBB);
         GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL);
 
-        addr   = compiler->gtNewOperNode(GT_COMMA, array->GetType(), arrBndsChk, array);
+        addr   = compiler->gtNewCommaNode(arrBndsChk, array);
         offset = OFFSETOF__CORINFO_Array__data + index * varTypeSize(TYP_FLOAT);
     }
     else
@@ -1183,11 +1183,11 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             GenTreeArrLen*    arrLen = gtNewArrLen(arrayRefForArgChk, OFFSETOF__CORINFO_Array__length, compCurBB);
             GenTreeBoundsChk* argChk = gtNewArrBoundsChk(checkIndexExpr, arrLen, op2CheckKind);
 
-            // Create a GT_COMMA tree for the bounds check(s).
-            op2 = gtNewOperNode(GT_COMMA, op2->TypeGet(), argChk, op2);
+            op2 = gtNewCommaNode(argChk, op2);
+
             if (argRngChk != nullptr)
             {
-                op2 = gtNewOperNode(GT_COMMA, op2->TypeGet(), argRngChk, op2);
+                op2 = gtNewCommaNode(argRngChk, op2);
             }
 
             if (op3 == nullptr)
@@ -1313,8 +1313,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 GenTreeBoundsChk* simdChk =
                     new (this, GT_SIMD_CHK) GenTreeBoundsChk(GT_SIMD_CHK, index, lengthNode, SCK_RNGCHK_FAIL);
 
-                // Create a GT_COMMA tree for the bounds check.
-                op2 = gtNewOperNode(GT_COMMA, op2->TypeGet(), simdChk, op2);
+                op2 = gtNewCommaNode(simdChk, op2);
             }
 
             assert(op1->TypeGet() == simdType);

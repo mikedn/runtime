@@ -493,8 +493,7 @@ private:
             m_compiler->gtInitStructCopyAsg(newAsg->AsOp());
         }
 
-        return m_compiler->gtNewOperNode(GT_COMMA, dst->GetType(), newAsg,
-                                         m_compiler->gtNewLclvNode(tempLclNum, dst->GetType()));
+        return m_compiler->gtNewCommaNode(newAsg, m_compiler->gtNewLclvNode(tempLclNum, dst->GetType()));
     }
 
     void AttachStructInlineeToAsg(GenTreeOp* asg, GenTree* src, ClassLayout* layout)

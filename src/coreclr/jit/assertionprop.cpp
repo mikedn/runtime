@@ -2656,7 +2656,7 @@ GenTree* Compiler::optVNConstantPropOnTree(BasicBlock* block, GenTree* tree)
         {
             // Replace as COMMA(side_effects, const value tree);
             assert((sideEffList->gtFlags & GTF_SIDE_EFFECT) != 0);
-            return gtNewOperNode(GT_COMMA, conValTree->TypeGet(), sideEffList, conValTree);
+            return gtNewCommaNode(sideEffList, conValTree);
         }
         else
         {
@@ -3942,7 +3942,7 @@ GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCal
                 gtExtractSideEffList(call, &list, GTF_SIDE_EFFECT, true);
                 if (list != nullptr)
                 {
-                    arg1 = gtNewOperNode(GT_COMMA, call->TypeGet(), list, arg1);
+                    arg1 = gtNewCommaNode(list, arg1, call->TypeGet());
                     fgSetTreeSeq(arg1);
                 }
 

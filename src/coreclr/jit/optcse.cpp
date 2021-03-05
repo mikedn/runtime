@@ -3087,7 +3087,7 @@ public:
                     exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
 
                     // Create a comma node with the sideEffList as op1
-                    cse           = m_pCompiler->gtNewOperNode(GT_COMMA, expTyp, sideEffList, cseVal);
+                    cse           = m_pCompiler->gtNewCommaNode(sideEffList, cseVal, expTyp);
                     cse->gtVNPair = vnStore->VNPWithExc(op2vnp, exceptions_vnp);
                 }
             }
@@ -3185,7 +3185,7 @@ public:
                 }
                 cseUse->gtVNPair = val->gtVNPair;
 
-                cse = m_pCompiler->gtNewOperNode(GT_COMMA, expTyp, asgTree, cseUse);
+                cse = m_pCompiler->gtNewCommaNode(asgTree, cseUse, expTyp);
                 // COMMA's VN is the same the original expression VN because assignment does not add any exceptions.
                 cse->gtVNPair = cseUse->gtVNPair;
             }

@@ -5275,6 +5275,21 @@ GenTreeOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1
     return new (this, oper) GenTreeOp(oper, type, op1, op2);
 }
 
+GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
+{
+    assert(op1 != nullptr);
+    assert(op2 != nullptr);
+
+    if (type == TYP_UNDEF)
+    {
+        type = op2->GetType();
+    }
+
+    assert(!op2->OperIs(GT_NULLCHECK, GT_ASG) || (type == TYP_VOID));
+
+    return new (this, GT_COMMA) GenTreeOp(GT_COMMA, type, op1, op2);
+}
+
 GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)
 {
     assert(!compQmarkRationalized);
@@ -11268,11 +11283,11 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
                 // we still have to emit a null-check
                 // obj.GetType == typeof() -> (nullcheck) true/false
                 GenTree* nullcheck = gtNewNullCheck(objOp, compCurBB);
-                return gtNewOperNode(GT_COMMA, tree->TypeGet(), nullcheck, compareResult);
+                return gtNewCommaNode(nullcheck, compareResult);
             }
-            else if (objOp->gtFlags & GTF_ALL_EFFECT)
+            else if (objOp->GetSideEffects() != 0)
             {
-                return gtNewOperNode(GT_COMMA, tree->TypeGet(), objOp, compareResult);
+                return gtNewCommaNode(objOp, compareResult);
             }
             else
             {
@@ -13178,9 +13193,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                             vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, vnStore->VNPForVoid())));
             }
 
-            tree = gtNewOperNode(GT_COMMA, tree->gtType, op1, op2);
-
-            return tree;
+            return gtNewCommaNode(op1, op2);
 
         /*-------------------------------------------------------------------------
          * Fold constant LONG binary operator
@@ -13832,7 +13845,7 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
     if (list != nullptr)
     {
         // Create a GT_COMMA that appends 'expr' in front of the remaining set of expressions in (*list)
-        GenTree* result = gtNewOperNode(GT_COMMA, TYP_VOID, expr, list);
+        GenTree* result = gtNewCommaNode(expr, list, TYP_VOID);
 
         // Set the flags in the comma node
         result->gtFlags |= (list->gtFlags & GTF_ALL_EFFECT);
@@ -16598,8 +16611,8 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
         {
             lvaTable[dummyTemp].SetType(type);
         }
-        GenTree* dummyNode = gtNewLclvNode(dummyTemp, type);
-        return gtNewOperNode(GT_COMMA, type, node, dummyNode);
+
+        return gtNewCommaNode(node, gtNewLclvNode(dummyTemp, type));
     }
     return node;
 }

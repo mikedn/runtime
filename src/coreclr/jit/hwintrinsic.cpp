@@ -329,7 +329,7 @@ GenTree* Compiler::addRangeCheckIfNeeded(
     GenTreeBoundsChk* hwIntrinsicChk = new (this, GT_HW_INTRINSIC_CHK)
         GenTreeBoundsChk(GT_HW_INTRINSIC_CHK, immOpUses[1], adjustedUpperBoundNode, SCK_ARG_RNG_EXCPN);
 
-    return gtNewOperNode(GT_COMMA, immOpUses[0]->GetType(), hwIntrinsicChk, immOpUses[0]);
+    return gtNewCommaNode(hwIntrinsicChk, immOpUses[0]);
 }
 
 //------------------------------------------------------------------------

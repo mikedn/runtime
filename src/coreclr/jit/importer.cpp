@@ -3642,10 +3642,12 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             //     s->_pointer + index * sizeof(T)
             //
             // For ReadOnlySpan<T> -- same expansion, as it now returns a readonly ref
-            //
-            // Signature should show one class type parameter, which
-            // we need to examine.
+
+            assert(sig->retType == CORINFO_TYPE_BYREF);
+
+            // Signature should show one class type parameter, which we need to examine.
             assert(sig->sigInst.classInstCount == 1);
+
             CORINFO_CLASS_HANDLE spanElemHnd = sig->sigInst.classInst[0];
             const unsigned       elemSize    = info.compCompHnd->getClassSize(spanElemHnd);
             assert(elemSize > 0);
@@ -3683,10 +3685,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             GenTree*             data        = gtNewFieldRef(TYP_BYREF, ptrHnd, spanAddrUses[1], ptrOffset);
             GenTree*             result      = gtNewOperNode(GT_ADD, TYP_BYREF, data, mulNode);
 
-            // Prepare result
-            var_types resultType = JITtype2varType(sig->retType);
-            assert(resultType == result->TypeGet());
-            retNode = gtNewOperNode(GT_COMMA, resultType, boundsCheck, result);
+            retNode = gtNewCommaNode(boundsCheck, result);
 
             break;
         }
@@ -5391,7 +5390,7 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
             GenTree* dest = gtNewAddrNode(gtNewLclvNode(lvaNewObjArrayArgs, TYP_BLK), TYP_I_IMPL);
             dest          = gtNewOperNode(GT_ADD, TYP_I_IMPL, dest, gtNewIconNode(sizeof(INT32) * i, TYP_I_IMPL));
             dest          = gtNewOperNode(GT_IND, TYP_INT, dest);
-            node          = gtNewOperNode(GT_COMMA, node->TypeGet(), gtNewAssignNode(dest, arg), node);
+            node          = gtNewCommaNode(gtNewAssignNode(dest, arg), node);
         }
 
         GenTreeCall::Use* args = gtNewCallArgs(node);
@@ -8061,9 +8060,13 @@ void Compiler::impImportLeave(BasicBlock* block)
 
             // Make a list of all the currently pending endCatches
             if (endCatches)
-                endCatches = gtNewOperNode(GT_COMMA, TYP_VOID, endCatches, endCatch);
+            {
+                endCatches = gtNewCommaNode(endCatches, endCatch, TYP_VOID);
+            }
             else
+            {
                 endCatches = endCatch;
+            }
 
 #ifdef DEBUG
             if (verbose)
@@ -12254,7 +12257,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // (see impCanonicalizeStructCallArg and impAssignStructAddr).
                         // We could do that here but let's keep it as is for now for testing purposes.
 
-                        op1 = gtNewOperNode(GT_COMMA, op1->TypeGet(), helperNode, op1);
+                        op1 = gtNewCommaNode(helperNode, op1);
                     }
                 }
 
@@ -12509,7 +12512,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     if (helperNode != nullptr)
                     {
-                        op1 = gtNewOperNode(GT_COMMA, op1->TypeGet(), helperNode, op1);
+                        op1 = gtNewCommaNode(helperNode, op1);
                     }
                 }
 
@@ -12992,7 +12995,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                 GenTree* boxPayloadAddress =
                                     gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[0], boxPayloadOffset);
                                 GenTree* nullcheck = gtNewNullCheck(op1Uses[1], block);
-                                GenTree* result    = gtNewOperNode(GT_COMMA, TYP_BYREF, nullcheck, boxPayloadAddress);
+                                GenTree* result    = gtNewCommaNode(nullcheck, boxPayloadAddress);
                                 impPushOnStack(result, typeInfo());
 
                                 break;
@@ -13096,7 +13099,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
 
                         op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
-                        op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
+                        op1 = gtNewCommaNode(op1, op2);
                     }
 
                     assert(op1->TypeIs(TYP_BYREF));
@@ -13147,7 +13150,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
 
                     op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
-                    op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
+                    op1 = gtNewCommaNode(op1, op2);
 
                     goto LDOBJ;
                 }

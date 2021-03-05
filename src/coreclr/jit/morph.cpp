@@ -170,7 +170,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), src);
         src->SetType(srcType);
         src = gtNewLclvNode(lclNum, TYP_I_IMPL);
-        src = gtNewOperNode(GT_COMMA, TYP_I_IMPL, asg, src);
+        src = gtNewCommaNode(asg, src);
         cast->SetOp(0, src);
         srcType = TYP_I_IMPL;
     }
@@ -1465,7 +1465,7 @@ GenTree* Compiler::fgInsertCommaFormTemp(GenTree** use)
     unsigned  lclNum = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
     GenTree*  asg    = gtNewAssignNode(gtNewLclvNode(lclNum, type), tree);
     GenTree*  load   = gtNewLclvNode(lclNum, type);
-    *use             = gtNewOperNode(GT_COMMA, type, asg, load);
+    *use             = gtNewCommaNode(asg, load, type);
     return gtNewLclvNode(lclNum, type);
 }
 
@@ -2985,7 +2985,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
             if (addrTempAssign != nullptr)
             {
-                arg = gtNewOperNode(GT_COMMA, arg->GetType(), addrTempAssign, arg);
+                arg = gtNewCommaNode(addrTempAssign, arg);
             }
 
             argInfo->use->SetNode(arg);
@@ -3332,7 +3332,7 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkref
     destTypeField->SetFieldSeq(GetFieldSeqStore()->CreateSingleton(GetRefanyTypeField()));
     GenTree* asgTypeField = gtNewAssignNode(destTypeField, mkrefany->GetOp(1));
 
-    return gtNewOperNode(GT_COMMA, TYP_VOID, asgPtrField, asgTypeField);
+    return gtNewCommaNode(asgPtrField, asgTypeField, TYP_VOID);
 }
 
 #if FEATURE_MULTIREG_ARGS
@@ -3852,7 +3852,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 
         if (i == 0)
         {
-            regValue = gtNewOperNode(GT_COMMA, regType, tempAssign, regValue);
+            regValue = gtNewCommaNode(tempAssign, regValue);
         }
 
         fieldList->AddField(this, regValue, regOffset, regType);
@@ -4017,7 +4017,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 #ifdef TARGET_ARM
         if (tempAssign != nullptr)
         {
-            regValue   = gtNewOperNode(GT_COMMA, regValue->GetType(), tempAssign, regValue);
+            regValue   = gtNewCommaNode(tempAssign, regValue);
             tempAssign = nullptr;
         }
 #endif
@@ -4095,7 +4095,7 @@ GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
 
         if ((i == 0) && (addrTempAssign != nullptr))
         {
-            regIndir = gtNewOperNode(GT_COMMA, regType, addrTempAssign, regIndir);
+            regIndir = gtNewCommaNode(addrTempAssign, regIndir, regType);
         }
 
         fieldList->AddField(this, regIndir, regOffset, regType);
@@ -4782,16 +4782,16 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
     // morphing actually transforms ADDR(COMMA(_, x)) into COMMA(_, ADDR(x))
     // and forgets to clear GTF_DONOT_CSE from the COMMA node).
 
-    GenTreeOp* comma = gtNewOperNode(GT_COMMA, indir->GetType(), boundsCheck, indir);
+    GenTreeOp* comma = gtNewCommaNode(boundsCheck, indir);
 
     if (indexTmpAsg != nullptr)
     {
-        comma = gtNewOperNode(GT_COMMA, indir->GetType(), indexTmpAsg, comma);
+        comma = gtNewCommaNode(indexTmpAsg, comma);
     }
 
     if (arrayTmpAsg != nullptr)
     {
-        comma = gtNewOperNode(GT_COMMA, indir->GetType(), arrayTmpAsg, comma);
+        comma = gtNewCommaNode(arrayTmpAsg, comma);
     }
 
     return fgMorphTree(comma);
@@ -5059,14 +5059,9 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 
         nullchk->gtFlags |= GTF_DONT_CSE; // Don't try to create a CSE for these TYP_BYTE indirections
 
-        if (asg)
+        if (asg != nullptr)
         {
-            // Create the "comma" node.
-            comma = gtNewOperNode(GT_COMMA,
-                                  TYP_VOID, // We don't want to return anything from this "comma" node.
-                                            // Set the type to TYP_VOID, so we can select "cmp" instruction
-                                            // instead of "mov" instruction later on.
-                                  asg, nullchk);
+            comma = gtNewCommaNode(asg, nullchk, TYP_VOID);
         }
         else
         {
@@ -5104,20 +5099,13 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     // Now let's set the "tree" as a GT_IND tree.
 
     tree->SetOper(GT_IND);
-    tree->AsOp()->gtOp1 = addr;
+    tree->AsIndir()->SetAddr(addr);
 
     tree->SetIndirExceptionFlags(this);
 
     if (addExplicitNullCheck)
     {
-        //
-        // Create "comma2" node and link it to "tree".
-        //
-        GenTree* comma2;
-        comma2 = gtNewOperNode(GT_COMMA,
-                               addr->TypeGet(), // The type of "comma2" node is the same as the type of "addr" node.
-                               comma, addr);
-        tree->AsOp()->gtOp1 = comma2;
+        tree->AsIndir()->SetAddr(gtNewCommaNode(comma, addr));
     }
 
 #ifdef DEBUG
@@ -6272,7 +6260,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
                     // COMMA(tmp = "this", deref(tmp))
                     GenTree* tmp          = gtNewLclvNode(lclNum, objp->TypeGet());
                     GenTree* nullcheck    = gtNewNullCheck(tmp, compCurBB);
-                    doBeforeStoreArgsStub = gtNewOperNode(GT_COMMA, TYP_VOID, doBeforeStoreArgsStub, nullcheck);
+                    doBeforeStoreArgsStub = gtNewCommaNode(doBeforeStoreArgsStub, nullcheck, TYP_VOID);
                 }
 
                 thisPtr = gtNewLclvNode(lclNum, objp->TypeGet());
@@ -6394,16 +6382,12 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
 
     if (doBeforeStoreArgsStub != nullptr)
     {
-        callStoreArgsStub = gtNewOperNode(GT_COMMA, TYP_VOID, doBeforeStoreArgsStub, callStoreArgsStub);
+        callStoreArgsStub = gtNewCommaNode(doBeforeStoreArgsStub, callStoreArgsStub);
     }
 
-    GenTree* finalTree =
-        gtNewOperNode(GT_COMMA, callDispatcherAndGetResult->TypeGet(), callStoreArgsStub, callDispatcherAndGetResult);
-
-    finalTree = fgMorphTree(finalTree);
-
-    JITDUMP("fgMorphTailCallViaHelpers (after):\n");
-    DISPTREE(finalTree);
+    GenTree* finalTree = gtNewCommaNode(callStoreArgsStub, callDispatcherAndGetResult);
+    finalTree          = fgMorphTree(finalTree);
+    JITDUMPTREE(finalTree, "fgMorphTailCallViaHelpers (after):\n");
     return finalTree;
 }
 
@@ -6544,7 +6528,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
     if (copyToRetBufNode != nullptr)
     {
-        finalTree = gtNewOperNode(GT_COMMA, TYP_VOID, callDispatcherNode, copyToRetBufNode);
+        finalTree = gtNewCommaNode(callDispatcherNode, copyToRetBufNode, TYP_VOID);
     }
 
     if (origCall->gtType == TYP_VOID)
@@ -6552,8 +6536,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         return finalTree;
     }
 
-    assert(retVal != nullptr);
-    finalTree = gtNewOperNode(GT_COMMA, origCall->TypeGet(), finalTree, retVal);
+    finalTree = gtNewCommaNode(finalTree, retVal, origCall->GetType());
 
     // The JIT seems to want to CSE this comma and messes up multi-reg ret
     // values in the process. Just avoid CSE'ing this tree entirely in that
@@ -6705,7 +6688,7 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 
     while (!stmts.Empty())
     {
-        result = gtNewOperNode(GT_COMMA, TYP_I_IMPL, stmts.Pop(), result);
+        result = gtNewCommaNode(stmts.Pop(), result, TYP_I_IMPL);
     }
 
     DISPTREE(result);
@@ -6861,7 +6844,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
             // COMMA(tmp = "this", tmp)
             var_types vt  = objp->TypeGet();
             GenTree*  tmp = gtNewLclvNode(lclNum, vt);
-            thisPtr       = gtNewOperNode(GT_COMMA, vt, asg, tmp);
+            thisPtr       = gtNewCommaNode(asg, tmp);
 
             objp = thisPtr;
         }
@@ -6886,16 +6869,14 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
                 // COMMA(tmp = "this", deref(tmp))
                 GenTree* tmp       = gtNewLclvNode(lclNum, vt);
                 GenTree* nullcheck = gtNewNullCheck(tmp, compCurBB);
-                asg                = gtNewOperNode(GT_COMMA, TYP_VOID, asg, nullcheck);
-
-                // COMMA(COMMA(tmp = "this", deref(tmp)), tmp)
-                thisPtr = gtNewOperNode(GT_COMMA, vt, asg, gtNewLclvNode(lclNum, vt));
+                asg                = gtNewCommaNode(asg, nullcheck, TYP_VOID);
+                thisPtr            = gtNewCommaNode(asg, gtNewLclvNode(lclNum, vt));
             }
             else
             {
                 // thisPtr = COMMA(deref("this"), "this")
                 GenTree* nullcheck = gtNewNullCheck(thisPtr, compCurBB);
-                thisPtr            = gtNewOperNode(GT_COMMA, vt, nullcheck, gtClone(objp, true));
+                thisPtr            = gtNewCommaNode(nullcheck, gtClone(objp, true));
             }
 
             call->gtFlags &= ~GTF_CALL_NULLCHECK;
@@ -7477,16 +7458,11 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
                 if (op1 == nullptr)
                 {
                     op1 = gtNewNothingNode();
-#if DEBUG
-                    op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif // DEBUG
+                    INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
                 }
 
-                argSetup = new (this, GT_COMMA) GenTreeOp(GT_COMMA, TYP_VOID, op1, arg);
-
-#if DEBUG
-                argSetup->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif // DEBUG
+                argSetup = gtNewCommaNode(op1, arg, TYP_VOID);
+                INDEBUG(argSetup->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
             }
 
 #ifdef DEBUG
@@ -7508,10 +7484,8 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
             GenTree* result = fgMorphTree(arrStore);
             if (argSetup != nullptr)
             {
-                result = new (this, GT_COMMA) GenTreeOp(GT_COMMA, TYP_VOID, argSetup, result);
-#if DEBUG
-                result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif // DEBUG
+                result = gtNewCommaNode(argSetup, result, TYP_VOID);
+                INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
             }
 
             return result;
@@ -7639,9 +7613,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
 
             result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewLclvNode(varNum2, TYP_I_IMPL)); // [var2] + var2
 
-            // Now stitch together the two assignment and the calculation of result into a single tree
-            GenTree* commaTree = gtNewOperNode(GT_COMMA, TYP_I_IMPL, asgVar2, result);
-            result             = gtNewOperNode(GT_COMMA, TYP_I_IMPL, asgVar1, commaTree);
+            result = gtNewCommaNode(asgVar1, gtNewCommaNode(asgVar2, result));
         }
         else
         {
@@ -8394,7 +8366,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* 
 
         if (tree != nullptr)
         {
-            tree = gtNewOperNode(GT_COMMA, TYP_VOID, tree, asg);
+            tree = gtNewCommaNode(tree, asg, TYP_VOID);
         }
         else
         {
@@ -8824,7 +8796,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             }
             else
             {
-                asgFieldCommaTree = gtNewOperNode(GT_COMMA, TYP_VOID, asgFieldCommaTree, asgField);
+                asgFieldCommaTree = gtNewCommaNode(asgFieldCommaTree, asgField, TYP_VOID);
             }
         }
 
@@ -9459,7 +9431,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (asgFieldCommaTree != nullptr)
         {
-            asgFieldCommaTree = gtNewOperNode(GT_COMMA, TYP_VOID, asgFieldCommaTree, asgField);
+            asgFieldCommaTree = gtNewCommaNode(asgFieldCommaTree, asgField, TYP_VOID);
         }
         else
         {

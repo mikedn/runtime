@@ -1261,7 +1261,7 @@ inline void GenTree::gtBashToNOP()
 
 inline GenTree* Compiler::gtUnusedValNode(GenTree* expr)
 {
-    return gtNewOperNode(GT_COMMA, TYP_VOID, expr, gtNewNothingNode());
+    return gtNewCommaNode(expr, gtNewNothingNode());
 }
 
 /*****************************************************************************
