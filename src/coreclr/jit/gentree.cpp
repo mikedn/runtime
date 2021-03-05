@@ -6420,7 +6420,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                 {
                     return nullptr;
                 }
-                copy = gtNewOperNode(GT_ADDR, tree->TypeGet(), op1);
+                copy = gtNewAddrNode(op1, tree->GetType());
             }
             else
             {
@@ -12095,7 +12095,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
         DISPSTMT(copyStmt);
 
         // Return the address of the now-struct typed box temp
-        return gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(boxTempLclNum, boxTempLclDsc->TypeGet()));
+        return gtNewAddrNode(gtNewLclvNode(boxTempLclNum, boxTempLclDsc->GetType()));
     }
 
     // If the copy is a struct copy, make sure we know how to isolate
@@ -13946,7 +13946,7 @@ GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
         dest->gtFlags |= GTF_DONT_CSE;
         valx->gtFlags |= GTF_DONT_CSE;
 
-        GenTree* destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
+        GenTree* destAddr = gtNewAddrNode(dest);
         asg               = impAssignStructPtr(destAddr, val, valStructHnd, CHECK_SPILL_NONE);
     }
     else

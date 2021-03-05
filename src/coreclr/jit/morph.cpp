@@ -6678,7 +6678,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
         var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
 
-        retValArg = gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(tmpRetBufNum, tmpRetBufType));
+        retValArg = gtNewAddrNode(gtNewLclvNode(tmpRetBufNum, tmpRetBufType), TYP_I_IMPL);
 
         var_types callerRetBufType = lvaGetDesc(info.compRetBuffArg)->TypeGet();
 
@@ -8661,7 +8661,7 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
         // and nothing updates the value numbers of the COMMA chain, they'll still have the
         // VN of the original effective value instead of its address.
 
-        GenTree* effectiveValAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, effectiveVal);
+        GenTree* effectiveValAddr = gtNewAddrNode(effectiveVal);
         INDEBUG(effectiveValAddr->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
         commas.Top()->SetOp(1, effectiveValAddr);
 
@@ -9282,7 +9282,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         {
             if (src->GetType() != dest->GetType())
             {
-                src = gtNewIndir(dest->GetType(), gtNewOperNode(GT_ADDR, TYP_I_IMPL, srcLclNode));
+                src = gtNewIndir(dest->GetType(), gtNewAddrNode(srcLclNode, TYP_I_IMPL));
                 src->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
             }
         }

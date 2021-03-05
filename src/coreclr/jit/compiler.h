@@ -1926,7 +1926,8 @@ public:
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
     // For unary opers.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool doSimplifications = TRUE);
+    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool doSimplifications = true);
+    GenTree* gtNewAddrNode(GenTree* location, var_types type = TYP_BYREF);
 
     // For binary opers.
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
