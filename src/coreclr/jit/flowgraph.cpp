@@ -1784,10 +1784,8 @@ GenTree* Compiler::fgCreateMonitorTree(unsigned lvaMonAcquired, unsigned lvaThis
 {
     // Insert the expression "enter/exitCrit(this, &acquired)" or "enter/exitCrit(handle, &acquired)"
 
-    var_types typeMonAcquired = TYP_UBYTE;
-    GenTree*  varNode         = gtNewLclvNode(lvaMonAcquired, typeMonAcquired);
-    GenTree*  varAddrNode     = gtNewAddrNode(varNode);
-    GenTree*  tree;
+    GenTree* varAddrNode = gtNewLclVarAddrNode(lvaMonAcquired);
+    GenTree* tree;
 
     if (info.compIsStatic)
     {
@@ -1917,10 +1915,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add enter pinvoke exit callout at the start of prolog
 
-    GenTree* pInvokeFrameVar = gtNewAddrNode(gtNewLclvNode(lvaReversePInvokeFrameVar, TYP_BLK), TYP_I_IMPL);
-
-    GenTree* tree;
-
+    GenTree*        pInvokeFrameVar = gtNewLclVarAddrNode(lvaReversePInvokeFrameVar);
     CorInfoHelpFunc reversePInvokeEnterHelper;
 
     GenTreeCall::Use* args;
@@ -1950,7 +1945,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
         args                      = gtNewCallArgs(pInvokeFrameVar);
     }
 
-    tree = gtNewHelperCallNode(reversePInvokeEnterHelper, TYP_VOID, args);
+    GenTree* tree = gtNewHelperCallNode(reversePInvokeEnterHelper, TYP_VOID, args);
 
     fgEnsureFirstBBisScratch();
 
@@ -1968,7 +1963,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add reverse pinvoke exit callout at the end of epilog
 
-    tree = gtNewAddrNode(gtNewLclvNode(lvaReversePInvokeFrameVar, TYP_BLK), TYP_I_IMPL);
+    tree = gtNewLclVarAddrNode(lvaReversePInvokeFrameVar);
 
     CorInfoHelpFunc reversePInvokeExitHelper = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS)
                                                    ? CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT_TRACK_TRANSITIONS

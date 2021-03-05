@@ -6678,7 +6678,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
         var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
 
-        retValArg = gtNewAddrNode(gtNewLclvNode(tmpRetBufNum, tmpRetBufType), TYP_I_IMPL);
+        retValArg = gtNewLclVarAddrNode(tmpRetBufNum);
 
         var_types callerRetBufType = lvaGetDesc(info.compRetBuffArg)->TypeGet();
 
