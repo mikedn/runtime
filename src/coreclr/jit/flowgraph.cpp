@@ -1768,25 +1768,37 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
     Statement* retStmt = block->lastStmt();
     GenTree*   retNode = retStmt->GetRootNode();
 
-    if (retNode->TypeIs(TYP_VOID))
+    if (!retNode->TypeIs(TYP_VOID))
     {
-        fgInsertStmtBefore(block, retStmt, gtNewStmt(call));
-        return;
+        GenTree* retExpr = retNode->AsUnOp()->GetOp(0);
+
+        // Anything with side effects needs to stay inside the synchronized region.
+        // That should include address exposed locals, even if the chance that such
+        // locals are used by another thread is slim. But we haven't yet dermined
+        // which locals are address exposed so GTF_GLOB_REF may not be present,
+        // fall back to address taken.
+
+        if ((retExpr->GetSideEffects() != 0) || gtHasAddressTakenLocals(retExpr))
+        {
+            unsigned   retTempLclNum = lvaGrabTemp(true DEBUGARG("monitor 'return' temp"));
+            LclVarDsc* retTempLcl    = lvaGetDesc(retTempLclNum);
+
+            if (varTypeIsStruct(retNode->GetType()))
+            {
+                lvaSetStruct(retTempLclNum, info.compMethodInfo->args.retTypeClass, /* unsafeValueClsCheck */ false);
+            }
+            else
+            {
+                retTempLcl->SetType(retNode->GetType());
+            }
+
+            GenTreeOp* retTempInit = gtNewAssignNode(gtNewLclvNode(retTempLclNum, retTempLcl->GetType()), retExpr);
+            fgInsertStmtBefore(block, retStmt, gtNewStmt(retTempInit));
+            retNode->AsUnOp()->SetOp(0, gtNewLclvNode(retTempLclNum, retTempLcl->GetType()));
+        }
     }
 
-    GenTree* retExpr = retNode->AsUnOp()->GetOp(0);
-
-    fgInsertCommaFormTemp(&retNode->AsUnOp()->gtOp1, info.compMethodInfo->args.retTypeClass);
-    GenTree* lclVar = retNode->AsUnOp()->GetOp(0)->AsOp()->GetOp(1);
-
-    // The return can't handle all of the trees that could be on the right-hand-side of an assignment,
-    // especially in the case of a struct. Therefore, we need to propagate GTF_DONT_CSE.
-    // If we don't, assertion propagation may, e.g., change a return of a local to a return of "CNS_INT   struct
-    // 0", which downstream phases can't handle.
-
-    lclVar->gtFlags |= (retExpr->gtFlags & GTF_DONT_CSE);
-
-    retNode->AsUnOp()->GetOp(0)->AsOp()->SetOp(1, gtNewOperNode(GT_COMMA, retExpr->GetType(), call, lclVar));
+    fgInsertStmtBefore(block, retStmt, gtNewStmt(call));
 }
 
 // Convert a BBJ_RETURN block in a synchronized method to a BBJ_ALWAYS.
