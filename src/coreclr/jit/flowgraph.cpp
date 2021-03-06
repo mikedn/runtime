@@ -1602,11 +1602,10 @@ void Compiler::fgAddSyncMethodEnterExit()
     // Don't put the scratch BB in the protected region.
 
     fgEnsureFirstBBisScratch();
+    assert(fgFirstBB->bbJumpKind == BBJ_NONE);
 
     // Create a block for the start of the try region, where the monitor enter call
     // will go.
-
-    assert(fgFirstBB->bbFallsThrough());
 
     BasicBlock* tryBegBB  = fgNewBBafter(BBJ_NONE, fgFirstBB, false);
     BasicBlock* tryNextBB = tryBegBB->bbNext;
@@ -1714,140 +1713,80 @@ void Compiler::fgAddSyncMethodEnterExit()
 #endif // DEBUG
     }
 
-    // Create a 'monitor acquired' boolean (actually, an unsigned byte: 1 = acquired, 0 = not acquired).
+    // Add monitor enter/exit calls.
 
-    var_types typeMonAcquired = TYP_UBYTE;
-    this->lvaMonAcquired      = lvaGrabTemp(true DEBUGARG("Synchronized method monitor acquired boolean"));
+    lvaMonAcquired = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"));
 
-    lvaTable[lvaMonAcquired].lvType = typeMonAcquired;
+    GenTreeOp* init = gtNewAssignNode(gtNewLclvNode(lvaMonAcquired, TYP_INT), gtNewIconNode(0));
+    fgNewStmtAtEnd(fgFirstBB, init);
+    JITDUMPTREE(init, "\nSynchronized method - Add 'acquired' initialization in first block " FMT_BB "\n",
+                fgFirstBB->bbNum);
 
-    { // Scope the variables of the variable initialization
+    // Make a copy of the 'this' pointer to be used in the handler so it does
+    // not inhibit enregistration of all uses of the variable.
+    unsigned thisCopyLclNum = 0;
 
-        // Initialize the 'acquired' boolean.
-
-        GenTree* zero     = gtNewZeroConNode(genActualType(typeMonAcquired));
-        GenTree* varNode  = gtNewLclvNode(lvaMonAcquired, typeMonAcquired);
-        GenTree* initNode = gtNewAssignNode(varNode, zero);
-
-        fgNewStmtAtEnd(fgFirstBB, initNode);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nSynchronized method - Add 'acquired' initialization in first block %s\n",
-                   fgFirstBB->dspToString());
-            gtDispTree(initNode);
-            printf("\n");
-        }
-#endif
-    }
-
-    // Make a copy of the 'this' pointer to be used in the handler so it does not inhibit enregistration
-    // of all uses of the variable.
-    unsigned lvaCopyThis = 0;
     if (!info.compIsStatic)
     {
-        lvaCopyThis                  = lvaGrabTemp(true DEBUGARG("Synchronized method monitor acquired boolean"));
-        lvaTable[lvaCopyThis].lvType = TYP_REF;
-
-        GenTree* thisNode = gtNewLclvNode(info.compThisArg, TYP_REF);
-        GenTree* copyNode = gtNewLclvNode(lvaCopyThis, TYP_REF);
-        GenTree* initNode = gtNewAssignNode(copyNode, thisNode);
-
-        fgNewStmtAtEnd(tryBegBB, initNode);
+        thisCopyLclNum = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"));
+        init = gtNewAssignNode(gtNewLclvNode(thisCopyLclNum, TYP_REF), gtNewLclvNode(info.compThisArg, TYP_REF));
+        fgNewStmtAtEnd(tryBegBB, init);
     }
 
-    fgCreateMonitorTree(lvaMonAcquired, info.compThisArg, tryBegBB, true /*enter*/);
+    CorInfoHelpFunc enterHelper = info.compIsStatic ? CORINFO_HELP_MON_ENTER_STATIC : CORINFO_HELP_MON_ENTER;
+    CorInfoHelpFunc exitHelper  = info.compIsStatic ? CORINFO_HELP_MON_EXIT_STATIC : CORINFO_HELP_MON_EXIT;
 
-    // exceptional case
-    fgCreateMonitorTree(lvaMonAcquired, lvaCopyThis, faultBB, false /*exit*/);
+    fgInsertMonitorCall(tryBegBB, enterHelper, info.compThisArg);
+    fgInsertMonitorCall(faultBB, exitHelper, thisCopyLclNum);
 
-    // non-exceptional cases
     for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
         if (block->bbJumpKind == BBJ_RETURN)
         {
-            fgCreateMonitorTree(lvaMonAcquired, info.compThisArg, block, false /*exit*/);
+            fgInsertMonitorCall(block, exitHelper, info.compThisArg);
         }
     }
 }
 
-// fgCreateMonitorTree: Create tree to execute a monitor enter or exit operation for synchronized methods
-//    lvaMonAcquired: lvaNum of boolean variable that tracks if monitor has been acquired.
-//    lvaThisVar: lvaNum of variable being used as 'this' pointer, may not be the original one.  Is only used for
-//    nonstatic methods
-//    block: block to insert the tree in.  It is inserted at the end or in the case of a return, immediately before the
-//    GT_RETURN
-//    enter: whether to create a monitor enter or exit
-
-GenTree* Compiler::fgCreateMonitorTree(unsigned lvaMonAcquired, unsigned lvaThisVar, BasicBlock* block, bool enter)
+void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, unsigned thisLclNum)
 {
-    // Insert the expression "enter/exitCrit(this, &acquired)" or "enter/exitCrit(handle, &acquired)"
+    assert((block->bbJumpKind == BBJ_NONE) || (block->bbJumpKind == BBJ_RETURN) ||
+           (block->bbJumpKind == BBJ_EHFINALLYRET));
 
-    GenTree* varAddrNode = gtNewLclVarAddrNode(lvaMonAcquired);
-    GenTree* tree;
+    GenTree* monitor  = info.compIsStatic ? fgGetCritSectOfStaticMethod() : gtNewLclvNode(thisLclNum, TYP_REF);
+    GenTree* acquired = gtNewLclVarAddrNode(lvaMonAcquired);
+    GenTree* call     = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(monitor, acquired));
 
-    if (info.compIsStatic)
+    JITDUMPTREE(call, "\nSynchronized method - Add monitor call to block " FMT_BB "\n", block->bbNum);
+
+    if ((block->bbJumpKind != BBJ_RETURN) || !block->lastStmt()->GetRootNode()->OperIs(GT_RETURN))
     {
-        tree = fgGetCritSectOfStaticMethod();
-        tree = gtNewHelperCallNode(enter ? CORINFO_HELP_MON_ENTER_STATIC : CORINFO_HELP_MON_EXIT_STATIC, TYP_VOID,
-                                   gtNewCallArgs(tree, varAddrNode));
-    }
-    else
-    {
-        tree = gtNewLclvNode(lvaThisVar, TYP_REF);
-        tree = gtNewHelperCallNode(enter ? CORINFO_HELP_MON_ENTER : CORINFO_HELP_MON_EXIT, TYP_VOID,
-                                   gtNewCallArgs(tree, varAddrNode));
+        fgNewStmtAtEnd(block, call);
+        return;
     }
 
-#ifdef DEBUG
-    if (verbose)
+    Statement* retStmt = block->lastStmt();
+    GenTree*   retNode = retStmt->GetRootNode();
+
+    if (retNode->TypeIs(TYP_VOID))
     {
-        printf("\nSynchronized method - Add monitor %s call to block %s\n", enter ? "enter" : "exit",
-               block->dspToString());
-        gtDispTree(tree);
-        printf("\n");
-    }
-#endif
-
-    if (block->bbJumpKind == BBJ_RETURN && block->lastStmt()->GetRootNode()->gtOper == GT_RETURN)
-    {
-        GenTree* retNode = block->lastStmt()->GetRootNode();
-        GenTree* retExpr = retNode->AsOp()->gtOp1;
-
-        if (retExpr != nullptr)
-        {
-            // have to insert this immediately before the GT_RETURN so we transform:
-            // ret(...) ->
-            // ret(comma(comma(tmp=...,call mon_exit), tmp)
-            //
-            //
-            // Before morph stage, it is possible to have a case of GT_RETURN(TYP_LONG, op1) where op1's type is
-            // TYP_STRUCT (of 8-bytes) and op1 is call node.
-            GenTree* temp = fgInsertCommaFormTemp(&retNode->AsOp()->gtOp1, info.compMethodInfo->args.retTypeClass);
-
-            GenTree* lclVar = retNode->AsOp()->gtOp1->AsOp()->gtOp2;
-
-            // The return can't handle all of the trees that could be on the right-hand-side of an assignment,
-            // especially in the case of a struct. Therefore, we need to propagate GTF_DONT_CSE.
-            // If we don't, assertion propagation may, e.g., change a return of a local to a return of "CNS_INT   struct
-            // 0",
-            // which downstream phases can't handle.
-            lclVar->gtFlags |= (retExpr->gtFlags & GTF_DONT_CSE);
-            retNode->AsOp()->gtOp1->AsOp()->gtOp2 = gtNewOperNode(GT_COMMA, retExpr->TypeGet(), tree, lclVar);
-        }
-        else
-        {
-            // Insert this immediately before the GT_RETURN
-            fgNewStmtNearEnd(block, tree);
-        }
-    }
-    else
-    {
-        fgNewStmtAtEnd(block, tree);
+        fgInsertStmtBefore(block, retStmt, gtNewStmt(call));
+        return;
     }
 
-    return tree;
+    GenTree* retExpr = retNode->AsUnOp()->GetOp(0);
+
+    fgInsertCommaFormTemp(&retNode->AsUnOp()->gtOp1, info.compMethodInfo->args.retTypeClass);
+    GenTree* lclVar = retNode->AsUnOp()->GetOp(0)->AsOp()->GetOp(1);
+
+    // The return can't handle all of the trees that could be on the right-hand-side of an assignment,
+    // especially in the case of a struct. Therefore, we need to propagate GTF_DONT_CSE.
+    // If we don't, assertion propagation may, e.g., change a return of a local to a return of "CNS_INT   struct
+    // 0", which downstream phases can't handle.
+
+    lclVar->gtFlags |= (retExpr->gtFlags & GTF_DONT_CSE);
+
+    retNode->AsUnOp()->GetOp(0)->AsOp()->SetOp(1, gtNewOperNode(GT_COMMA, retExpr->GetType(), call, lclVar));
 }
 
 // Convert a BBJ_RETURN block in a synchronized method to a BBJ_ALWAYS.
