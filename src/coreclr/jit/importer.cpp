@@ -12501,9 +12501,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewAssignNode(op1, op2);
                 }
 
-                /* Check if the class needs explicit initialization */
-
-                if (fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS)
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
                 {
                     GenTree* helperNode = impInitClass(&resolvedToken);
                     if (compDonotInline())
@@ -12512,7 +12510,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     if (helperNode != nullptr)
                     {
-                        op1 = gtNewCommaNode(helperNode, op1);
+                        op1 = gtNewCommaNode(helperNode, op1, op1->OperIs(GT_ASG) ? TYP_VOID : op1->GetType());
                     }
                 }
 
@@ -12540,7 +12538,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                    statics) and calls. But don't need to spill other statics
                    as we have explicitly spilled this particular static field. */
 
-                impSpillSideEffects(false, (unsigned)CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
+                impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
 
                 if (deferStructAssign)
                 {
