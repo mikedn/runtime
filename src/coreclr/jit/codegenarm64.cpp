@@ -3565,13 +3565,6 @@ void CodeGen::genSIMDIntrinsic(GenTreeSIMD* simdNode)
             genSIMDIntrinsicNarrow(simdNode);
             break;
 
-        case SIMDIntrinsicSub:
-        case SIMDIntrinsicBitwiseAnd:
-        case SIMDIntrinsicBitwiseOr:
-        case SIMDIntrinsicEqual:
-            genSIMDIntrinsicBinOp(simdNode);
-            break;
-
         case SIMDIntrinsicGetItem:
             genSIMDIntrinsicGetItem(simdNode);
             break;
@@ -3648,12 +3641,6 @@ instruction CodeGen::getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_type
     {
         switch (intrinsicId)
         {
-            case SIMDIntrinsicBitwiseAnd:
-                result = INS_and;
-                break;
-            case SIMDIntrinsicBitwiseOr:
-                result = INS_orr;
-                break;
             case SIMDIntrinsicCast:
                 result = INS_mov;
                 break;
@@ -3661,16 +3648,10 @@ instruction CodeGen::getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_type
             case SIMDIntrinsicConvertToInt64:
                 result = INS_fcvtzs;
                 break;
-            case SIMDIntrinsicEqual:
-                result = INS_fcmeq;
-                break;
             case SIMDIntrinsicNarrow:
                 // Use INS_fcvtn lower bytes of result followed by INS_fcvtn2 for upper bytes
                 // Return lower bytes instruction here
                 result = INS_fcvtn;
-                break;
-            case SIMDIntrinsicSub:
-                result = INS_fsub;
                 break;
             case SIMDIntrinsicWidenLo:
                 result = INS_fcvtl;
@@ -3689,12 +3670,6 @@ instruction CodeGen::getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_type
 
         switch (intrinsicId)
         {
-            case SIMDIntrinsicBitwiseAnd:
-                result = INS_and;
-                break;
-            case SIMDIntrinsicBitwiseOr:
-                result = INS_orr;
-                break;
             case SIMDIntrinsicCast:
                 result = INS_mov;
                 break;
@@ -3702,16 +3677,10 @@ instruction CodeGen::getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_type
             case SIMDIntrinsicConvertToSingle:
                 result = isUnsigned ? INS_ucvtf : INS_scvtf;
                 break;
-            case SIMDIntrinsicEqual:
-                result = INS_cmeq;
-                break;
             case SIMDIntrinsicNarrow:
                 // Use INS_xtn lower bytes of result followed by INS_xtn2 for upper bytes
                 // Return lower bytes instruction here
                 result = INS_xtn;
-                break;
-            case SIMDIntrinsicSub:
-                result = INS_sub;
                 break;
             case SIMDIntrinsicWidenLo:
                 result = isUnsigned ? INS_uxtl : INS_sxtl;
@@ -3998,48 +3967,6 @@ void CodeGen::genSIMDIntrinsicNarrow(GenTreeSIMD* simdNode)
 
     GetEmitter()->emitIns_R_R(ins, EA_8BYTE, targetReg, op1Reg, opt);
     GetEmitter()->emitIns_R_R(ins2, EA_16BYTE, targetReg, op2Reg, opt2);
-
-    genProduceReg(simdNode);
-}
-
-//--------------------------------------------------------------------------------
-// genSIMDIntrinsicBinOp: Generate code for SIMD Intrinsic binary operations
-// add, sub, mul, bit-wise And, AndNot and Or.
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genSIMDIntrinsicBinOp(GenTreeSIMD* simdNode)
-{
-    assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicSub || simdNode->gtSIMDIntrinsicID == SIMDIntrinsicBitwiseAnd ||
-           simdNode->gtSIMDIntrinsicID == SIMDIntrinsicBitwiseOr || simdNode->gtSIMDIntrinsicID == SIMDIntrinsicEqual);
-
-    GenTree*  op1       = simdNode->GetOp(0);
-    GenTree*  op2       = simdNode->GetOp(1);
-    var_types baseType  = simdNode->gtSIMDBaseType;
-    regNumber targetReg = simdNode->GetRegNum();
-    assert(targetReg != REG_NA);
-    var_types targetType = simdNode->TypeGet();
-
-    genConsumeRegs(op1);
-    genConsumeRegs(op2);
-    regNumber op1Reg = op1->GetRegNum();
-    regNumber op2Reg = op2->GetRegNum();
-
-    assert(genIsValidFloatReg(op1Reg));
-    assert(genIsValidFloatReg(op2Reg));
-    assert(genIsValidFloatReg(targetReg));
-
-    // TODO-ARM64-CQ Contain integer constants where posible
-
-    instruction ins  = getOpForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID, baseType);
-    emitAttr    attr = (simdNode->gtSIMDSize > 8) ? EA_16BYTE : EA_8BYTE;
-    insOpts     opt  = genGetSimdInsOpt(attr, baseType);
-
-    GetEmitter()->emitIns_R_R_R(ins, attr, targetReg, op1Reg, op2Reg, opt);
 
     genProduceReg(simdNode);
 }

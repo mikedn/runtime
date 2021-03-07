@@ -1865,14 +1865,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             buildUses = false;
             break;
 
-        case SIMDIntrinsicSub:
-        case SIMDIntrinsicBitwiseAnd:
-        case SIMDIntrinsicBitwiseOr:
-            break;
-
-        case SIMDIntrinsicEqual:
-            break;
-
         case SIMDIntrinsicGetItem:
         {
             // This implements get_Item method. The sources are:
@@ -2031,11 +2023,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             {
                 buildInternalFloatRegisterDefForNode(simdTree);
             }
-            break;
-
-        case SIMDIntrinsicShuffleSSE2:
-            // Second operand is an integer constant and marked as contained.
-            assert(simdTree->GetOp(1)->isContainedIntOrIImmed());
             break;
 
         default:

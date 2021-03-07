@@ -16761,15 +16761,7 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
 
 bool GenTree::isCommutativeSIMDIntrinsic()
 {
-    switch (AsSIMD()->gtSIMDIntrinsicID)
-    {
-        case SIMDIntrinsicBitwiseAnd:
-        case SIMDIntrinsicBitwiseOr:
-        case SIMDIntrinsicEqual:
-            return true;
-        default:
-            return false;
-    }
+    return false;
 }
 #endif // FEATURE_SIMD
 

@@ -7296,11 +7296,6 @@ private:
         return varTypeIsSIMD(varDsc->GetType()) && isOpaqueSIMDType(varDsc->GetLayout()->GetClassHandle());
     }
 
-    static bool isRelOpSIMDIntrinsic(SIMDIntrinsicID intrinsicId)
-    {
-        return (intrinsicId == SIMDIntrinsicEqual);
-    }
-
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
         if (!isIntrinsicType(clsHnd))
@@ -7339,26 +7334,6 @@ private:
 
     GenTree* impSIMDPopStack(var_types type);
     GenTree* impSIMDPopStackAddr(var_types type);
-
-    // Transforms operands and returns the SIMD intrinsic to be applied on
-    // transformed operands to obtain given relop result.
-    SIMDIntrinsicID impSIMDRelOp(SIMDIntrinsicID      relOpIntrinsicId,
-                                 CORINFO_CLASS_HANDLE typeHnd,
-                                 unsigned             simdVectorSize,
-                                 var_types*           baseType,
-                                 GenTree**            op1,
-                                 GenTree**            op2);
-
-#if defined(TARGET_XARCH)
-
-    // Transforms operands and returns the SIMD intrinsic to be applied on
-    // transformed operands to obtain == comparison result.
-    SIMDIntrinsicID impSIMDLongRelOpEqual(CORINFO_CLASS_HANDLE typeHnd,
-                                          unsigned             simdVectorSize,
-                                          GenTree**            op1,
-                                          GenTree**            op2);
-
-#endif // defined(TARGET_XARCH)
 
     void setLclRelatedToSIMDIntrinsic(GenTree* tree);
 
@@ -7435,9 +7410,6 @@ private:
 
     // Get the the number of elements of basetype of SIMD vector given by its size and baseType
     static int getSIMDVectorLength(unsigned simdSize, var_types baseType);
-
-    // Get the the number of elements of basetype of SIMD vector given by its type handle
-    int getSIMDVectorLength(CORINFO_CLASS_HANDLE typeHnd);
 
     // Get preferred alignment of SIMD type.
     int getSIMDTypeAlignment(var_types simdType);
