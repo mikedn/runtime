@@ -4594,19 +4594,47 @@ GenTree* Compiler::impUnsupportedNamedIntrinsic(unsigned              helper,
     // be in response to an indirect call (e.g. done via reflection) or in response to an earlier attempt returning
     // `nullptr` (under `mustExpand=false`). In that scenario, we are safe to return the `MustThrowException` node.
 
-    if (mustExpand)
-    {
-        for (unsigned i = 0; i < sig->numArgs; i++)
-        {
-            impPopStack();
-        }
-
-        return gtNewMustThrowException(helper, JITtype2varType(sig->retType), sig->retTypeClass);
-    }
-    else
+    if (!mustExpand)
     {
         return nullptr;
     }
+
+    for (unsigned i = 0; i < sig->numArgs; i++)
+    {
+        GenTree* arg = impPopStack().val;
+        // These are expected to be the intrinsic method's own parameters so
+        // they should not have side effects and can simply be discarded.
+        assert(arg->GetSideEffects() == 0);
+    }
+
+    GenTreeCall* call = gtNewHelperCallNode(helper, TYP_VOID);
+    call->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
+    impAppendTree(call, CHECK_SPILL_ALL, impCurStmtOffs);
+
+    var_types retType = JITtype2varType(sig->retType);
+
+    if (retType == TYP_VOID)
+    {
+        return gtNewNothingNode();
+    }
+
+    if (retType != TYP_STRUCT)
+    {
+        return gtNewZeroConNode(retType);
+    }
+
+    ClassLayout* layout = typGetObjLayout(sig->retTypeClass);
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(typGetStructType(layout)))
+    {
+        return gtGetSIMDZero(layout);
+    }
+#endif
+
+    unsigned lclNum = lvaGrabTemp(true DEBUGARG("unsupported named intrinsic temp"));
+    lvaSetStruct(lclNum, layout, false);
+    return gtNewLclvNode(lclNum, TYP_STRUCT);
 }
 
 /*****************************************************************************/

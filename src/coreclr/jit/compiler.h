@@ -1942,8 +1942,6 @@ public:
                                                ClassLayout**     argLayout);
 #endif // FEATURE_HW_INTRINSICS
 
-    GenTree* gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
-
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
 
@@ -2969,6 +2967,7 @@ protected:
                                           CORINFO_METHOD_HANDLE method,
                                           CORINFO_SIG_INFO*     sig,
                                           bool                  mustExpand);
+    GenTree* impNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTree* impHWIntrinsic(NamedIntrinsic        intrinsic,

@@ -16585,40 +16585,6 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoadOrStore() const
 
 #endif // FEATURE_HW_INTRINSICS
 
-//---------------------------------------------------------------------------------------
-// gtNewMustThrowException:
-//    create a throw node (calling into JIT helper) that must be thrown.
-//    The result would be a comma node: COMMA(jithelperthrow(void), x) where x's type should be specified.
-//
-// Arguments
-//    helper      -  JIT helper ID
-//    type        -  return type of the node
-//
-// Return Value
-//    pointer to the throw node
-//
-GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd)
-{
-    GenTreeCall* node = gtNewHelperCallNode(helper, TYP_VOID);
-    node->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
-    if (type != TYP_VOID)
-    {
-        unsigned dummyTemp = lvaGrabTemp(true DEBUGARG("dummy temp of must thrown exception"));
-        if (type == TYP_STRUCT)
-        {
-            lvaSetStruct(dummyTemp, clsHnd, false);
-            type = lvaTable[dummyTemp].GetType();
-        }
-        else
-        {
-            lvaTable[dummyTemp].SetType(type);
-        }
-
-        return gtNewCommaNode(node, gtNewLclvNode(dummyTemp, type));
-    }
-    return node;
-}
-
 void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout, StructPassing retKind)
 {
     switch (retKind.kind)
