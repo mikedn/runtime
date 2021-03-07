@@ -895,9 +895,6 @@ public:
 
 #define GTF_MEMORYBARRIER_LOAD      0x40000000 // GT_MEMORYBARRIER -- Load barrier
 
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-#define GTF_FLD_TLS_REF             0x08000000 // GT_FIELD            -- the target is accessed via TLS
-#endif
 #define GTF_FLD_VOLATILE            0x40000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
 #define GTF_FLD_INITCLASS           0x20000000 // GT_FIELD/GT_CLS_VAR -- field access requires preceding class/static init helper
 

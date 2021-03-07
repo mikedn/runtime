@@ -12289,15 +12289,22 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_STATIC_TLS:
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
+                        op1 = impTlsFieldAddr(resolvedToken.hField, fieldInfo.offset, fieldInfo.fieldFlags);
 
-                        /* Create the data member node */
-                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, nullptr, fieldInfo.offset);
-                        op1->gtFlags |= GTF_FLD_TLS_REF; // fgMorphField will handle the transformation
-
-                        if (isLoadAddress)
+                        if (!isLoadAddress)
                         {
-                            op1 = gtNewAddrNode(op1, TYP_I_IMPL);
+                            if (varTypeIsStruct(lclTyp))
+                            {
+                                op1 = gtNewObjNode(fieldInfo.structType, op1);
+                            }
+                            else
+                            {
+                                op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+                            }
+
+                            op1->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
                         }
+
                         break;
 #else
                         fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
@@ -12587,11 +12594,18 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_STATIC_TLS:
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
+                        op1 = impTlsFieldAddr(resolvedToken.hField, fieldInfo.offset, fieldInfo.fieldFlags);
 
-                        /* Create the data member node */
-                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, nullptr, fieldInfo.offset);
-                        op1->gtFlags |= GTF_FLD_TLS_REF; // fgMorphField will handle the transformation
+                        if (varTypeIsStruct(lclTyp))
+                        {
+                            op1 = gtNewObjNode(fieldInfo.structType, op1);
+                        }
+                        else
+                        {
+                            op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+                        }
 
+                        op1->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
                         break;
 #else
                         fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
@@ -17036,3 +17050,63 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
 
     return op1;
 }
+
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
+
+GenTree* Compiler::impTlsFieldAddr(CORINFO_FIELD_HANDLE handle, unsigned offset, unsigned flags)
+{
+    void**   pIdAddr = nullptr;
+    unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(handle, (void**)&pIdAddr);
+
+    // If we can we access the TLS DLL index ID value directly
+    // then pIdAddr will be NULL and
+    //      IdValue will be the actual TLS DLL index ID
+
+    GenTree* dllRef = nullptr;
+    if (pIdAddr == nullptr)
+    {
+        if (IdValue != 0)
+        {
+            dllRef = gtNewIconNode(IdValue * 4, TYP_I_IMPL);
+        }
+    }
+    else
+    {
+        dllRef = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(pIdAddr), GTF_ICON_CONST_PTR, true);
+
+        // Next we multiply by 4
+        dllRef = gtNewOperNode(GT_MUL, TYP_I_IMPL, dllRef, gtNewIconNode(4, TYP_I_IMPL));
+    }
+
+    constexpr size_t WIN32_TLS_SLOTS = 0x2C; // Offset from fs:[0] where the pointer to the slots resides
+
+    // Mark this ICON as a TLS_HDL, codegen will use FS:[cns]
+
+    GenTree* tlsRef = gtNewIconHandleNode(WIN32_TLS_SLOTS, GTF_ICON_TLS_HDL);
+
+    if ((flags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+    {
+        tlsRef->gtFlags |= GTF_ICON_INITCLASS;
+    }
+
+    tlsRef = gtNewOperNode(GT_IND, TYP_I_IMPL, tlsRef);
+    tlsRef->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+
+    if (dllRef != nullptr)
+    {
+        tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, dllRef);
+    }
+
+    tlsRef = gtNewOperNode(GT_IND, TYP_I_IMPL, tlsRef);
+
+    if (offset != 0)
+    {
+        // Add the TLS static field offset. Don't bother recording a field sequence
+        // for the field offset as it won't be recognized during value numbering.
+        tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, gtNewIconNode(offset, TYP_I_IMPL));
+    }
+
+    return tlsRef;
+}
+
+#endif // TARGET_X86 && TARGET_WINDOWS

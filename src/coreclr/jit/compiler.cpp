@@ -8645,12 +8645,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[FLD_VOLATILE]");
                 }
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-                if (tree->gtFlags & GTF_FLD_TLS_REF)
-                {
-                    chars += printf("[FLD_TLS_REF]");
-                }
-#endif
                 break;
 
             case GT_INDEX:
