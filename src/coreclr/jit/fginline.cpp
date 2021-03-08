@@ -2413,21 +2413,15 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
     // the actual arg expression has no side effects, we can skip
     // appending all together. This will help jit TP a bit.
 
-    // For case (1)
-    //
-    // Look for the following tree shapes
-    // prejit: (IND (ADD (CONST, CALL(special dce helper...))))
-    // jit   : (COMMA (CALL(special dce helper...), (FIELD ...)))
-
     if (argNode->OperIs(GT_COMMA))
     {
-        // Look for (COMMA (CALL(special dce helper...), (FIELD ...)))
+        // Look for (COMMA (CALL(special dce helper...), (CLS_VAR|IND ...)))
 
         GenTree* op1 = argNode->AsOp()->GetOp(0);
         GenTree* op2 = argNode->AsOp()->GetOp(1);
 
         if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
-            op2->OperIs(GT_FIELD) && ((op2->gtFlags & GTF_EXCEPT) == 0))
+            (op2->OperIs(GT_CLS_VAR) || (op2->OperIs(GT_IND) && op2->AsIndir()->GetAddr()->IsIntCon())))
         {
             JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
                     op1->GetID());

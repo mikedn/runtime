@@ -5213,59 +5213,6 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     return result;
 }
 
-GenTree* Compiler::fgMorphStaticField(GenTreeField* field, MorphAddrContext* mac)
-{
-    assert(field->gtFldObj == nullptr);
-
-    CORINFO_FIELD_HANDLE fldHandle = field->GetFieldHandle();
-    unsigned             fldOffset = field->GetOffset();
-
-    // If we can we access the static's address directly
-    // then pFldAddr will be NULL and
-    //      fldAddr will be the actual address of the static field
-    //
-    void** pFldAddr = nullptr;
-    void*  fldAddr  = info.compCompHnd->getFieldAddress(fldHandle, (void**)&pFldAddr);
-
-    // We should always be able to access this static field address directly
-    //
-    assert(pFldAddr == nullptr);
-
-    FieldSeqNode* fldSeq = GetFieldSeqStore()->CreateSingleton(fldHandle);
-
-#ifdef TARGET_64BIT
-    if (IMAGE_REL_BASED_REL32 != eeGetRelocTypeHint(fldAddr))
-    {
-        // The address is not directly addressible, so force it into a
-        // constant, so we handle it properly
-
-        GenTree* addr = gtNewIconHandleNode((size_t)fldAddr, GTF_ICON_STATIC_HDL, fldSeq);
-
-        // Translate GTF_FLD_INITCLASS to GTF_ICON_INITCLASS
-        if ((field->gtFlags & GTF_FLD_INITCLASS) != 0)
-        {
-            field->gtFlags &= ~GTF_FLD_INITCLASS;
-            addr->gtFlags |= GTF_ICON_INITCLASS;
-        }
-
-        field->SetOper(GT_IND);
-        field->AsIndir()->SetAddr(addr);
-
-        return fgMorphSmpOp(field);
-    }
-#endif // TARGET_64BIT
-
-    // Only volatile or classinit could be set, and they map over
-    noway_assert((field->gtFlags & ~(GTF_FLD_VOLATILE | GTF_FLD_INITCLASS | GTF_COMMON_MASK)) == 0);
-    static_assert_no_msg(GTF_FLD_VOLATILE == GTF_CLS_VAR_VOLATILE);
-    static_assert_no_msg(GTF_FLD_INITCLASS == GTF_CLS_VAR_INITCLASS);
-
-    field->SetOper(GT_CLS_VAR);
-    field->AsClsVar()->SetFieldHandle(fldHandle, fldSeq);
-
-    return field;
-}
-
 //------------------------------------------------------------------------
 // fgCanFastTailCall: Check to see if this tail call can be optimized as epilog+jmp.
 //
@@ -13464,14 +13411,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
     switch (tree->OperGet())
     {
         case GT_FIELD:
-            if (tree->AsField()->gtFldObj == nullptr)
-            {
-                tree = fgMorphStaticField(tree->AsField(), mac);
-            }
-            else
-            {
-                tree = fgMorphField(tree, mac);
-            }
+            tree = fgMorphField(tree, mac);
             break;
 
         case GT_CALL:

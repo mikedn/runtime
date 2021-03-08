@@ -2071,7 +2071,16 @@ void Compiler::impSpillStackEnsure(bool spillLeaves)
     {
         GenTree* tree = verCurrentState.esStack[level].val;
 
-        if (!spillLeaves && tree->OperIsLeaf())
+        // TODO-MIKE-Review: The use of OperIsLeaf here is kind of risky.
+        // It makes sense to ignore such trees when breaking up trees that
+        // are too deep but this fails to account for side effects leafs
+        // may have (e.g. GT_CLS_VAR). There are all sort of other leafs
+        // (e.g. MEMORYBARRIER) and the only reason why this happens to
+        // work is that such opers don't appear during import or as part
+        // of other trees (MEMORYBARRIER returns VOID). This is also
+        // problematic to test because large trees are not that common.
+
+        if (!spillLeaves && tree->OperIsLeaf() && !tree->OperIs(GT_CLS_VAR))
         {
             continue;
         }
@@ -6204,13 +6213,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedT
             }
             else // We need the value of a static field
             {
-                // In future, it may be better to just create the right tree here instead of folding it later.
-                op1 = gtNewFieldRef(lclTyp, pResolvedToken->hField);
-
-                if (pFieldInfo->fieldFlags & CORINFO_FLG_FIELD_INITCLASS)
-                {
-                    op1->gtFlags |= GTF_FLD_INITCLASS;
-                }
+                op1 = impStaticField(lclTyp, pResolvedToken->hField, pFieldInfo->fieldFlags);
 
                 if ((pFieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
                 {
@@ -12400,26 +12403,23 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (!isLoadAddress)
                 {
-
-                    if (prefixFlags & PREFIX_VOLATILE)
+                    if ((prefixFlags & PREFIX_VOLATILE) != 0)
                     {
                         op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
                         op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
 
                         if (!usesHelper)
                         {
-                            assert((op1->OperGet() == GT_FIELD) || (op1->OperGet() == GT_IND) ||
-                                   (op1->OperGet() == GT_OBJ));
+                            assert(op1->OperIs(GT_FIELD, GT_IND, GT_OBJ, GT_CLS_VAR));
                             op1->gtFlags |= GTF_IND_VOLATILE;
                         }
                     }
 
-                    if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp))
+                    if (((prefixFlags & PREFIX_UNALIGNED) != 0) && !varTypeIsByte(lclTyp) && (obj == nullptr))
                     {
                         if (!usesHelper)
                         {
-                            assert((op1->OperGet() == GT_FIELD) || (op1->OperGet() == GT_IND) ||
-                                   (op1->OperGet() == GT_OBJ));
+                            assert(op1->OperIs(GT_FIELD, GT_IND, GT_OBJ));
                             op1->gtFlags |= GTF_IND_UNALIGNED;
                         }
                     }
@@ -12639,14 +12639,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     if (prefixFlags & PREFIX_VOLATILE)
                     {
-                        assert((op1->OperGet() == GT_FIELD) || (op1->OperGet() == GT_IND));
+                        assert(op1->OperIs(GT_FIELD, GT_IND, GT_CLS_VAR));
                         op1->gtFlags |= GTF_DONT_CSE;      // Can't CSE a volatile
                         op1->gtFlags |= GTF_ORDER_SIDEEFF; // Prevent this from being reordered
                         op1->gtFlags |= GTF_IND_VOLATILE;
                     }
-                    if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp))
+
+                    if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp) && (obj == nullptr))
                     {
-                        assert((op1->OperGet() == GT_FIELD) || (op1->OperGet() == GT_IND));
+                        assert(op1->OperIs(GT_FIELD, GT_IND));
                         op1->gtFlags |= GTF_IND_UNALIGNED;
                     }
 
@@ -17049,6 +17050,52 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
     }
 
     return op1;
+}
+
+GenTree* Compiler::impStaticField(var_types type, CORINFO_FIELD_HANDLE handle, unsigned flags)
+{
+    // If we can we access the static's address directly
+    // then pFldAddr will be NULL and
+    //      fldAddr will be the actual address of the static field
+
+    void** pFldAddr = nullptr;
+    void*  fldAddr  = info.compCompHnd->getFieldAddress(handle, (void**)&pFldAddr);
+
+    // We should always be able to access this static field address directly
+    assert(pFldAddr == nullptr);
+
+    FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(handle);
+    GenTree*      indir;
+
+#ifdef TARGET_64BIT
+    if (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32)
+    {
+        // The address is not directly addressible, so force it into a
+        // constant, so we handle it properly
+
+        GenTree* addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
+
+        if ((flags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+        {
+            addr->gtFlags |= GTF_ICON_INITCLASS;
+        }
+
+        indir = gtNewOperNode(GT_IND, type, addr);
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+    else
+#endif
+    {
+        indir = new (this, GT_CLS_VAR) GenTreeClsVar(GT_CLS_VAR, type, handle, fieldSeq);
+
+        if ((flags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+        {
+            indir->gtFlags |= GTF_CLS_VAR_INITCLASS;
+        }
+    }
+
+    indir->gtFlags |= GTF_GLOB_REF;
+    return indir;
 }
 
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)

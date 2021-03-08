@@ -16127,8 +16127,27 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                         }
                     }
                 }
+                else if (GenTreeIntCon* icon = base->IsIntCon())
+                {
+                    FieldSeqNode* fieldSeq = icon->GetFieldSeq();
+
+                    if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                    {
+                        CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
+                        assert(info.compCompHnd->isFieldStatic(fieldHandle));
+                        objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
+                    }
+                }
             }
 
+            break;
+        }
+
+        case GT_CLS_VAR:
+        {
+            CORINFO_FIELD_HANDLE fieldHandle = obj->AsClsVar()->GetFieldHandle();
+            assert(info.compCompHnd->isFieldStatic(fieldHandle));
+            objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
             break;
         }
 
