@@ -6371,27 +6371,22 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                 return nullptr;
             }
 
-            if (tree->gtOper == GT_FIELD)
+            if (GenTreeField* field = tree->IsField())
             {
-                GenTree* objp;
+                GenTree* addr = field->GetAddr();
 
-                // copied from line 9850
-
-                objp = nullptr;
-                if (tree->AsField()->gtFldObj != nullptr)
+                if (addr != nullptr)
                 {
-                    objp = gtClone(tree->AsField()->gtFldObj, false);
-                    if (objp == nullptr)
+                    addr = gtClone(addr, false);
+
+                    if (addr == nullptr)
                     {
                         return nullptr;
                     }
                 }
 
-                copy = gtNewFieldRef(tree->TypeGet(), tree->AsField()->gtFldHnd, objp, tree->AsField()->gtFldOffset);
-                copy->AsField()->gtFldMayOverlap = tree->AsField()->gtFldMayOverlap;
-#ifdef FEATURE_READYTORUN_COMPILER
-                copy->AsField()->SetR2RFieldLookupAddr(tree->AsField()->GetR2RFieldLookupAddr());
-#endif
+                copy = new (this, GT_FIELD) GenTreeField(field);
+                copy->AsField()->SetAddr(addr);
             }
             else if (tree->OperIs(GT_ADD, GT_SUB))
             {
@@ -6790,16 +6785,11 @@ GenTree* Compiler::gtCloneExpr(
             break;
 
         case GT_FIELD:
-
-            copy = gtNewFieldRef(tree->TypeGet(), tree->AsField()->gtFldHnd, nullptr, tree->AsField()->gtFldOffset);
-
-            copy->AsField()->gtFldObj = tree->AsField()->gtFldObj != nullptr
-                                            ? gtCloneExpr(tree->AsField()->gtFldObj, addFlags, deepVarNum, deepVarVal)
-                                            : nullptr;
-            copy->AsField()->gtFldMayOverlap = tree->AsField()->gtFldMayOverlap;
-#ifdef FEATURE_READYTORUN_COMPILER
-            copy->AsField()->SetR2RFieldLookupAddr(tree->AsField()->GetR2RFieldLookupAddr());
-#endif
+            copy = new (this, GT_FIELD) GenTreeField(tree->AsField());
+            if (GenTree* addr = tree->AsField()->GetAddr())
+            {
+                copy->AsField()->SetAddr(gtCloneExpr(addr, addFlags, deepVarNum, deepVarVal));
+            }
             break;
 
         case GT_ARR_ELEM:

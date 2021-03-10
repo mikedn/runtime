@@ -3647,9 +3647,27 @@ public:
         }
     }
 
+    GenTreeField(const GenTreeField* copyFrom)
+        : GenTree(GT_FIELD, copyFrom->GetType())
+        , gtFldObj(copyFrom->gtFldObj)
+        , gtFldHnd(copyFrom->gtFldHnd)
+        , gtFldOffset(copyFrom->gtFldOffset)
+        , gtFldMayOverlap(copyFrom->gtFldMayOverlap)
+#ifdef FEATURE_READYTORUN_COMPILER
+        , m_r2rFieldLookupAddr(copyFrom->m_r2rFieldLookupAddr)
+#endif
+    {
+    }
+
     GenTree* GetAddr() const
     {
         return gtFldObj;
+    }
+
+    void SetAddr(GenTree* addr)
+    {
+        assert((addr == nullptr) || addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+        gtFldObj = addr;
     }
 
     CORINFO_FIELD_HANDLE GetFieldHandle() const
