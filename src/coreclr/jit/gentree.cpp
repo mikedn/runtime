@@ -2671,7 +2671,7 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
             if (firstNode->gtFlags & strictEffects & GTF_PERSISTENT_SIDE_EFFECTS)
             {
                 // We have to be conservative - can swap iff op2 is constant.
-                if (!secondNode->IsInvariant())
+                if (!secondNode->OperIsConst())
                 {
                     canSwap = false;
                 }
@@ -17497,9 +17497,4 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
     }
 
     return varTypeIsUnsigned(fromType) != varTypeIsUnsigned(toType);
-}
-
-bool GenTree::IsInvariant()
-{
-    return OperIsConst() || (Compiler::impIsAddressInLocal(this) != nullptr);
 }
