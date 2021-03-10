@@ -969,7 +969,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
                 needsTemps = true;
             }
 
-            // For all previous arguments, unless they are a simple constant
+            // For all previous arguments, unless they are constants or local addresses
             // we require that they be evaluated into temps
 
             for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
@@ -978,7 +978,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
                 assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
 
-                if (!prevArgInfo->GetNode()->IsInvariant())
+                if (!prevArgInfo->GetNode()->OperIsConst() && !prevArgInfo->GetNode()->OperIsLocalAddr())
                 {
                     prevArgInfo->SetTempNeeded();
                     needsTemps = true;
