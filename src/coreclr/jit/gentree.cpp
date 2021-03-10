@@ -6791,7 +6791,7 @@ GenTree* Compiler::gtCloneExpr(
 
         case GT_FIELD:
 
-            copy = gtNewFieldRef(tree->TypeGet(), tree->AsField()->gtFldHnd, nullptr, tree->AsField()->gtFldOffset);
+            copy = gtNewFieldRef(tree->TypeGet(), tree->AsField()->gtFldHnd, tree->AsField()->gtFldObj, tree->AsField()->gtFldOffset);
 
             copy->AsField()->gtFldObj = tree->AsField()->gtFldObj != nullptr
                                             ? gtCloneExpr(tree->AsField()->gtFldObj, addFlags, deepVarNum, deepVarVal)
