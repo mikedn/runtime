@@ -14777,28 +14777,25 @@ void Compiler::impImport()
 #endif
 }
 
-/*****************************************************************************
- *  Check to see if the tree is the address of a local or
-    the address of a field in a local.
-
-    *lclVarTreeOut will contain the GT_LCL_VAR tree when it returns TRUE.
-
- */
-
 GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
 {
-    if (tree->gtOper != GT_ADDR)
+    if (!tree->TypeIs(TYP_BYREF, TYP_I_IMPL))
     {
         return nullptr;
     }
 
-    GenTree* op = tree->AsOp()->gtOp1;
-    while (op->gtOper == GT_FIELD)
+    while (tree->OperIs(GT_ADD, GT_SUB))
     {
-        op = op->AsField()->gtFldObj;
-        if (op && op->gtOper == GT_ADDR) // Skip static fields where op will be NULL.
+        GenTree* op1 = tree->AsOp()->GetOp(0);
+        GenTree* op2 = tree->AsOp()->GetOp(1);
+
+        if (op2->IsIntCon())
         {
-            op = op->AsOp()->gtOp1;
+            tree = op1;
+        }
+        else if (op1->IsIntCon())
+        {
+            tree = op2;
         }
         else
         {
@@ -14806,14 +14803,26 @@ GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
         }
     }
 
-    if (op->gtOper == GT_LCL_VAR)
-    {
-        return op->AsLclVar();
-    }
-    else
+    if (!tree->OperIs(GT_ADDR))
     {
         return nullptr;
     }
+
+    GenTree* location = tree->AsUnOp()->GetOp(0);
+
+    while (GenTreeField* field = location->IsField())
+    {
+        GenTree* addr = field->GetAddr();
+
+        if ((addr == nullptr) || !addr->OperIs(GT_ADDR))
+        {
+            return nullptr;
+        }
+
+        location = addr->AsUnOp()->GetOp(0);
+    }
+
+    return location->OperIs(GT_LCL_VAR) ? location->AsLclVar() : nullptr;
 }
 
 //------------------------------------------------------------------------
