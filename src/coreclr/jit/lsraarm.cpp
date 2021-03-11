@@ -333,11 +333,6 @@ int LinearScan::BuildNode(GenTree* tree)
             assert(srcCount == 2);
             break;
 
-        case GT_ASG:
-            noway_assert(!"We should never hit any assignment operator in lowering");
-            srcCount = 0;
-            break;
-
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
@@ -420,14 +415,6 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree, RBM_NONE, 1);
             break;
 
-        case GT_FIELD_LIST:
-            // These should always be contained. We don't correctly allocate or
-            // generate code for a non-contained GT_FIELD_LIST.
-            noway_assert(!"Non-contained GT_FIELD_LIST");
-            srcCount = 0;
-            break;
-
-        case GT_ARGPLACE:
         case GT_NO_OP:
         case GT_START_NONGC:
         case GT_PROF_HOOK:
@@ -640,28 +627,10 @@ int LinearScan::BuildNode(GenTree* tree)
             }
             break;
 
-        case GT_ADDR:
-        {
-            // For a GT_ADDR, the child node should not be evaluated into a register
-            GenTree* child = tree->gtGetOp1();
-            assert(!isCandidateLclVar(child));
-            assert(child->isContained());
-            assert(dstCount == 1);
-            srcCount = 0;
-            BuildDef(tree);
-        }
-        break;
-
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
         case GT_STORE_DYN_BLK:
             srcCount = BuildStructStore(tree->AsBlk());
-            break;
-
-        case GT_INIT_VAL:
-            // Always a passthrough of its child's value.
-            assert(!"INIT_VAL should always be contained");
-            srcCount = 0;
             break;
 
         case GT_LCLHEAP:
@@ -701,20 +670,6 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = 0;
             assert(dstCount == 1);
             BuildDef(tree, RBM_EXCEPTION_OBJECT);
-            break;
-
-        case GT_CLS_VAR:
-            srcCount = 0;
-            // GT_CLS_VAR, by the time we reach the backend, must always
-            // be a pure use.
-            // It will produce a result of the type of the
-            // node, and use an internal register for the address.
-
-            assert(dstCount == 1);
-            assert((tree->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) == 0);
-            buildInternalIntRegisterDefForNode(tree);
-            buildInternalRegisterUses();
-            BuildDef(tree);
             break;
 
         case GT_PUTARG_SPLIT:
@@ -791,6 +746,16 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_INSTR:
             srcCount = BuildInstr(tree->AsInstr());
             break;
+
+        case GT_ADDR:
+        case GT_ARGPLACE:
+        case GT_ASG:
+        case GT_CLS_VAR:
+        case GT_DYN_BLK:
+        case GT_BLK:
+        case GT_FIELD_LIST:
+        case GT_INIT_VAL:
+            unreached();
 
         default:
 #ifdef DEBUG
