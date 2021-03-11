@@ -368,7 +368,8 @@ inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
     {
         for (unsigned level = 0; level < chkLevel; level++)
         {
-            assert((verCurrentState.esStack[level].val->gtFlags & GTF_GLOB_EFFECT) == 0);
+            GenTree* tree = verCurrentState.esStack[level].val;
+            assert(((tree->gtFlags & GTF_GLOB_EFFECT) == 0) || impIsAddressInLocal(tree));
         }
     }
 
@@ -1035,7 +1036,7 @@ GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HA
     {
         assert(dest->OperIs(GT_LCL_VAR, GT_FIELD, GT_INDEX));
 
-        destAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dest);
+        destAddr = gtNewAddrNode(dest);
     }
 
     return impAssignStructPtr(destAddr, src, structHnd, curLevel);
@@ -1337,10 +1338,7 @@ GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
 
         // The 'return value' is now the temp itself
 
-        type          = genActualType(lvaTable[tmpNum].TypeGet());
-        GenTree* temp = gtNewLclvNode(tmpNum, type);
-        temp          = gtNewOperNode(GT_ADDR, TYP_BYREF, temp);
-        return temp;
+        return gtNewAddrNode(gtNewLclvNode(tmpNum, varActualType(lvaGetDesc(tmpNum)->GetType())));
     }
     else if (oper == GT_COMMA)
     {
@@ -1372,10 +1370,10 @@ GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
             structVal->AsOp()->gtOp1 = gtNewNothingNode();
         }
 
-        return (structVal);
+        return structVal;
     }
 
-    return (gtNewOperNode(GT_ADDR, TYP_BYREF, structVal));
+    return gtNewAddrNode(structVal);
 }
 
 //------------------------------------------------------------------------
@@ -1465,7 +1463,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HAND
         case GT_LCL_VAR:
         case GT_LCL_FLD:
             argLclNum = arg->AsLclVarCommon()->GetLclNum();
-            arg       = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, arg));
+            arg       = gtNewObjNode(argClass, gtNewAddrNode(arg));
             assert(arg->GetType() == lvaGetDesc(argLclNum)->GetType());
             isCanonical = true;
             break;
@@ -1515,7 +1513,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HAND
 
             if (commaValue->OperIs(GT_FIELD))
             {
-                commaValue = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, commaValue));
+                commaValue = gtNewObjNode(argClass, gtNewAddrNode(commaValue));
             }
 
 #ifdef FEATURE_SIMD
@@ -1559,7 +1557,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HAND
 
     if (!isCanonical && arg->TypeIs(TYP_STRUCT) && !arg->OperIs(GT_OBJ))
     {
-        arg = gtNewObjNode(argClass, gtNewOperNode(GT_ADDR, TYP_BYREF, arg));
+        arg = gtNewObjNode(argClass, gtNewAddrNode(arg));
     }
 
     if (arg->OperIs(GT_OBJ))
@@ -2122,34 +2120,47 @@ inline void Compiler::impEvalSideEffects()
 
 inline void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBUGARG(const char* reason))
 {
-    assert(chkLevel != (unsigned)CHECK_SPILL_NONE);
+    assert(chkLevel != CHECK_SPILL_NONE);
 
-    /* Before we make any appends to the tree list we must spill the
-     * "special" side effects (GTF_ORDER_SIDEEFF on a GT_CATCH_ARG) */
+    // Before we make any appends to the tree list we must spill the
+    // "special" side effects (GTF_ORDER_SIDEEFF on a GT_CATCH_ARG)
 
     impSpillSpecialSideEff();
 
-    if (chkLevel == (unsigned)CHECK_SPILL_ALL)
+    if (chkLevel == CHECK_SPILL_ALL)
     {
         chkLevel = verCurrentState.esStackDepth;
     }
 
     assert(chkLevel <= verCurrentState.esStackDepth);
 
-    unsigned spillFlags = spillGlobEffects ? GTF_GLOB_EFFECT : GTF_SIDE_EFFECT;
+    unsigned spillSideEffects = spillGlobEffects ? GTF_GLOB_EFFECT : GTF_SIDE_EFFECT;
 
     for (unsigned i = 0; i < chkLevel; i++)
     {
         GenTree* tree = verCurrentState.esStack[i].val;
 
-        if ((tree->gtFlags & spillFlags) != 0 ||
-            (spillGlobEffects &&                       // Only consider the following when  spillGlobEffects == TRUE
-             (impIsAddressInLocal(tree) == nullptr) && // No need to spill the GT_ADDR node on a local.
-             gtHasAddressTakenLocals(tree))) // Spill if we still see GT_LCL_VAR that contains lvHasLdAddrOp or
-                                             // lvAddrTaken flag.
+        if (impIsAddressInLocal(tree))
         {
-            impSpillStackEntry(i DEBUGARG(reason));
+            // Trees that represent local addresses may have spurios GLOB_REF
+            // side effects but they never need need to be spilled.
+            continue;
         }
+
+        if ((tree->GetSideEffects() & spillSideEffects) == 0)
+        {
+            // We haven't yet determined which local variables are address exposed
+            // so we cannot rely on GTF_GLOB_REF being present in trees that use
+            // such variables. Conservatively assume that address taken variables
+            // will be address exposed and get GTF_GLOB_REF.
+
+            if (!spillGlobEffects || !gtHasAddressTakenLocals(tree))
+            {
+                continue;
+            }
+        }
+
+        impSpillStackEntry(i DEBUGARG(reason));
     }
 }
 
@@ -3260,7 +3271,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
     if (intrinsicID == CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr)
     {
         // must be done regardless of DbgCode and MinOpts
-        return gtNewOperNode(GT_ADDR, TYP_I_IMPL, gtNewLclvNode(lvaStubArgumentVar, TYP_I_IMPL));
+        return gtNewAddrNode(gtNewLclvNode(lvaStubArgumentVar, TYP_I_IMPL), TYP_I_IMPL);
     }
 #else
     assert(intrinsicID != CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr);
@@ -3711,8 +3722,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             unsigned rawHandleSlot = lvaGrabTemp(true DEBUGARG("rawHandle"));
             impAssignTempGen(rawHandleSlot, rawHandle, clsHnd, (unsigned)CHECK_SPILL_NONE);
 
-            GenTree*  lclVar     = gtNewLclvNode(rawHandleSlot, TYP_I_IMPL);
-            GenTree*  lclVarAddr = gtNewOperNode(GT_ADDR, TYP_I_IMPL, lclVar);
+            GenTree*  lclVarAddr = gtNewAddrNode(gtNewLclvNode(rawHandleSlot, TYP_I_IMPL), TYP_I_IMPL);
             var_types resultType = JITtype2varType(sig->retType);
             retNode              = gtNewOperNode(GT_IND, resultType, lclVarAddr);
 
@@ -5382,8 +5392,7 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         //  - Pointer to block of int32 dimensions - address  of lvaNewObjArrayArgs temp.
         //
 
-        node = gtNewLclvNode(lvaNewObjArrayArgs, TYP_BLK);
-        node = gtNewOperNode(GT_ADDR, TYP_I_IMPL, node);
+        node = gtNewAddrNode(gtNewLclvNode(lvaNewObjArrayArgs, TYP_BLK), TYP_I_IMPL);
 
         // Pop dimension arguments from the stack one at a time and store it
         // into lvaNewObjArrayArgs temp.
@@ -5391,13 +5400,10 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         {
             GenTree* arg = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
 
-            GenTree* dest = gtNewLclvNode(lvaNewObjArrayArgs, TYP_BLK);
-            dest          = gtNewOperNode(GT_ADDR, TYP_I_IMPL, dest);
-            dest          = gtNewOperNode(GT_ADD, TYP_I_IMPL, dest,
-                                 new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, sizeof(INT32) * i));
-            dest = gtNewOperNode(GT_IND, TYP_INT, dest);
-
-            node = gtNewOperNode(GT_COMMA, node->TypeGet(), gtNewAssignNode(dest, arg), node);
+            GenTree* dest = gtNewAddrNode(gtNewLclvNode(lvaNewObjArrayArgs, TYP_BLK), TYP_I_IMPL);
+            dest          = gtNewOperNode(GT_ADD, TYP_I_IMPL, dest, gtNewIconNode(sizeof(INT32) * i, TYP_I_IMPL));
+            dest          = gtNewOperNode(GT_IND, TYP_INT, dest);
+            node          = gtNewOperNode(GT_COMMA, node->TypeGet(), gtNewAssignNode(dest, arg), node);
         }
 
         GenTreeCall::Use* args = gtNewCallArgs(node);
@@ -9659,56 +9665,40 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto DECODE_OPCODE;
 
             SPILL_APPEND:
-
                 // We need to call impSpillLclRefs() for a struct type lclVar.
                 // This is because there may be loads of that lclVar on the evaluation stack, and
                 // we need to ensure that those loads are completed before we modify it.
-                if ((op1->OperGet() == GT_ASG) && varTypeIsStruct(op1->gtGetOp1()))
+                if (op1->OperIs(GT_ASG) && varTypeIsStruct(op1->AsOp()->GetOp(0)->GetType()))
                 {
-                    GenTree*             lhs    = op1->gtGetOp1();
-                    GenTreeLclVarCommon* lclVar = nullptr;
-                    if (lhs->gtOper == GT_LCL_VAR)
+                    GenTree*       lhs    = op1->AsOp()->GetOp(0);
+                    GenTreeLclVar* lclVar = nullptr;
+
+                    if (lhs->OperIs(GT_LCL_VAR))
                     {
-                        lclVar = lhs->AsLclVarCommon();
+                        lclVar = lhs->AsLclVar();
                     }
                     else if (lhs->OperIsBlk())
                     {
                         // Check if LHS address is within some struct local, to catch
                         // cases where we're updating the struct by something other than a stfld
-                        GenTree* addr = lhs->AsBlk()->GetAddr();
-
-                        // Catches ADDR(LCL_VAR), or ADD(ADDR(LCL_VAR),CNS_INT))
-                        lclVar = addr->IsLocalAddrExpr();
-
-                        // Catches ADDR(FIELD(... ADDR(LCL_VAR)))
-                        if (lclVar == nullptr)
-                        {
-                            lclVar = impIsAddressInLocal(addr);
-                        }
+                        lclVar = impIsAddressInLocal(lhs->AsBlk()->GetAddr());
                     }
+
                     if (lclVar != nullptr)
                     {
                         impSpillLclRefs(lclVar->GetLclNum());
                     }
                 }
 
-                /* Append 'op1' to the list of statements */
-                impAppendTree(op1, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+            SPILL_ALL_APPEND:
+                impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
                 goto DONE_APPEND;
 
             APPEND:
-
-                /* Append 'op1' to the list of statements */
-
-                impAppendTree(op1, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
-                goto DONE_APPEND;
-
+                impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
             DONE_APPEND:
-
-#ifdef DEBUG
                 // Remember at which BC offset the tree was finished
-                impNoteLastILoffs();
-#endif
+                INDEBUG(impNoteLastILoffs();)
                 break;
 
             case CEE_LDNULL:
@@ -9982,7 +9972,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (opts.compDbgCode)
                     {
                         op1 = gtNewNothingNode();
-                        goto SPILL_APPEND;
+                        goto SPILL_ALL_APPEND;
                     }
                     else
                     {
@@ -10110,7 +10100,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // where it is used as a TYP_I_IMPL and change the node if needed.
                 // Thus we are pessimistic and may report byrefs in the GC info
                 // where it was not absolutely needed, but it is safer this way.
-                op1 = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
+                op1 = gtNewAddrNode(op1);
 
                 // &aliasedVar doesnt need GTF_GLOB_REF, though alisasedVar does
                 assert((op1->gtFlags & GTF_GLOB_REF) == 0);
@@ -10149,7 +10139,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 lclNum = lvaVarargsHandleArg;
                 op1    = gtNewLclvNode(lclNum, TYP_I_IMPL DEBUGARG(opcodeOffs + sz + 1));
-                op1    = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
+                op1    = gtNewAddrNode(op1);
                 impPushOnStack(op1, typeInfo());
                 break;
 
@@ -10408,7 +10398,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if ((opcode == CEE_LDELEMA) || (lclTyp == TYP_STRUCT))
                 {
-                    op1 = gtNewOperNode(GT_ADDR, TYP_BYREF, op1);
+                    op1 = gtNewAddrNode(op1);
                 }
 
                 if (opcode == CEE_LDELEM)
@@ -10469,7 +10459,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 // Else call a helper function to do the assignment
                 op1 = gtNewHelperCallNode(CORINFO_HELP_ARRADDR_ST, TYP_VOID, impPopCallArgs(3, nullptr));
-                goto SPILL_APPEND;
+                goto SPILL_ALL_APPEND;
 
             case CEE_STELEM_I1:
                 lclTyp = TYP_BYTE;
@@ -10794,15 +10784,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     block->bbJumpKind = BBJ_NONE;
 
-                    if (op1->gtFlags & GTF_GLOB_EFFECT)
+                    if ((op1->gtFlags & GTF_GLOB_EFFECT) != 0)
                     {
                         op1 = gtUnusedValNode(op1);
-                        goto SPILL_APPEND;
+                        goto SPILL_ALL_APPEND;
                     }
-                    else
-                    {
-                        break;
-                    }
+
+                    break;
                 }
 
                 if (op1->OperIsCompare())
@@ -10867,15 +10855,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 op1 = gtNewOperNode(GT_JTRUE, TYP_VOID, op1);
 
-                /* GT_JTRUE is handled specially for non-empty stacks. See 'addStmt'
-                   in impImportBlock(block). For correct line numbers, spill stack. */
+                // GT_JTRUE is handled specially for non-empty stacks. See 'addStmt'
+                // in impImportBlock(block). For correct line numbers, spill stack. */
 
                 if (opts.compDbgCode && impCurStmtOffs != BAD_IL_OFFSET)
                 {
                     impSpillStackEnsure(true);
                 }
 
-                goto SPILL_APPEND;
+                goto SPILL_ALL_APPEND;
 
             case CEE_CEQ:
                 oper = GT_EQ;
@@ -11088,7 +11076,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 val = (int)getU4LittleEndian(codeAddr);
                 codeAddr += 4 + val * 4; // skip over the switch-table
 
-                goto SPILL_APPEND;
+                goto SPILL_ALL_APPEND;
 
             /************************** Casting OPCODES ***************************/
 
@@ -11914,9 +11902,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             compSuppressedZeroInit    = true;
                         }
 
-                        // Obtain the address of the temp
-                        newObjThisPtr =
-                            gtNewOperNode(GT_ADDR, TYP_BYREF, gtNewLclvNode(lclNum, lvaTable[lclNum].TypeGet()));
+                        newObjThisPtr = gtNewAddrNode(gtNewLclvNode(lclNum, lcl->GetType()));
                     }
                     else
                     {
@@ -12287,8 +12273,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // wrap it in a address of operator if necessary
                         if (isLoadAddress)
                         {
-                            op1 = gtNewOperNode(GT_ADDR,
-                                                (var_types)(varTypeIsGC(obj->TypeGet()) ? TYP_BYREF : TYP_I_IMPL), op1);
+                            op1 = gtNewAddrNode(op1, varTypeIsGC(obj->GetType()) ? TYP_BYREF : TYP_I_IMPL);
                         }
                         else
                         {
@@ -12311,7 +12296,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         if (isLoadAddress)
                         {
-                            op1 = gtNewOperNode(GT_ADDR, (var_types)TYP_I_IMPL, op1);
+                            op1 = gtNewAddrNode(op1, TYP_I_IMPL);
                         }
                         break;
 #else
@@ -12911,8 +12896,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                 lvaTable[stackallocAsLocal].lvType           = TYP_BLK;
                                 lvaTable[stackallocAsLocal].lvExactSize      = (unsigned)allocSize;
                                 lvaTable[stackallocAsLocal].lvIsUnsafeBuffer = true;
-                                op1              = gtNewLclvNode(stackallocAsLocal, TYP_BLK);
-                                op1              = gtNewOperNode(GT_ADDR, TYP_I_IMPL, op1);
+                                op1              = gtNewAddrNode(gtNewLclvNode(stackallocAsLocal, TYP_BLK), TYP_I_IMPL);
                                 convertedToLocal = true;
 
                                 if (!this->opts.compDbgEnC)
@@ -13323,8 +13307,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
                         assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
 
-                        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                        op2 = gtNewOperNode(GT_ADDR, TYP_BYREF, op2);
+                        op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
                         op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
                     }
 
@@ -13376,8 +13359,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
                     assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
 
-                    op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                    op2 = gtNewOperNode(GT_ADDR, TYP_BYREF, op2);
+                    op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
                     op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
 
                     goto LDOBJ;
@@ -13783,13 +13765,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_BREAK:
                 op1 = gtNewHelperCallNode(CORINFO_HELP_USER_BREAKPOINT, TYP_VOID);
-                goto SPILL_APPEND;
+                goto SPILL_ALL_APPEND;
 
             case CEE_NOP:
                 if (opts.compDbgCode)
                 {
                     op1 = new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-                    goto SPILL_APPEND;
+                    goto SPILL_ALL_APPEND;
                 }
                 break;
 
@@ -14777,28 +14759,25 @@ void Compiler::impImport()
 #endif
 }
 
-/*****************************************************************************
- *  Check to see if the tree is the address of a local or
-    the address of a field in a local.
-
-    *lclVarTreeOut will contain the GT_LCL_VAR tree when it returns TRUE.
-
- */
-
 GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
 {
-    if (tree->gtOper != GT_ADDR)
+    if (!tree->TypeIs(TYP_BYREF, TYP_I_IMPL))
     {
         return nullptr;
     }
 
-    GenTree* op = tree->AsOp()->gtOp1;
-    while (op->gtOper == GT_FIELD)
+    while (tree->OperIs(GT_ADD, GT_SUB))
     {
-        op = op->AsField()->gtFldObj;
-        if (op && op->gtOper == GT_ADDR) // Skip static fields where op will be NULL.
+        GenTree* op1 = tree->AsOp()->GetOp(0);
+        GenTree* op2 = tree->AsOp()->GetOp(1);
+
+        if (op2->IsIntCon())
         {
-            op = op->AsOp()->gtOp1;
+            tree = op1;
+        }
+        else if (op1->IsIntCon())
+        {
+            tree = op2;
         }
         else
         {
@@ -14806,14 +14785,26 @@ GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
         }
     }
 
-    if (op->gtOper == GT_LCL_VAR)
-    {
-        return op->AsLclVar();
-    }
-    else
+    if (!tree->OperIs(GT_ADDR))
     {
         return nullptr;
     }
+
+    GenTree* location = tree->AsUnOp()->GetOp(0);
+
+    while (GenTreeField* field = location->IsField())
+    {
+        GenTree* addr = field->GetAddr();
+
+        if ((addr == nullptr) || !addr->OperIs(GT_ADDR))
+        {
+            return nullptr;
+        }
+
+        location = addr->AsUnOp()->GetOp(0);
+    }
+
+    return location->OperIs(GT_LCL_VAR) ? location->AsLclVar() : nullptr;
 }
 
 //------------------------------------------------------------------------

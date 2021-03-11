@@ -369,7 +369,7 @@ private:
             case GT_HWINTRINSIC:
 #endif
                 // TODO-MIKE-Cleanup: Bleah, more ADDR(SIMD|HWINTRINSIC) nonsense...
-                return m_compiler->gtNewOperNode(GT_ADDR, TYP_BYREF, tree);
+                return m_compiler->gtNewAddrNode(tree);
 
             default:
                 unreached();
@@ -389,7 +389,7 @@ private:
                 return dst;
             }
 
-            return m_compiler->gtNewObjNode(layout, m_compiler->gtNewOperNode(GT_ADDR, TYP_I_IMPL, dst));
+            return m_compiler->gtNewObjNode(layout, m_compiler->gtNewAddrNode(dst, TYP_I_IMPL));
         }
 
         GenTree* dstAddr = GetStructAddress(dst);
@@ -1061,7 +1061,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            GenTree* lclAddr = gtNewOperNode(GT_ADDR, TYP_I_IMPL, lclVar);
+            GenTree* lclAddr = gtNewAddrNode(lclVar, TYP_I_IMPL);
 
             asg = impAssignStructPtr(lclAddr, retExpr, retExprClass, CHECK_SPILL_NONE);
         }
@@ -1378,7 +1378,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
             // But this is done only if the arg represents a local address which is BYREF
             // in spec but in reality is just a native pointer.
 
-            if (argNode->IsLocalAddrExpr() == nullptr)
+            if (!impIsAddressInLocal(argNode))
             {
                 inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
                 return false;
@@ -2308,7 +2308,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
                 assert(!argNode->OperIs(GT_COMMA));
 
                 GenTree* dst     = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
-                GenTree* dstAddr = gtNewOperNode(GT_ADDR, TYP_BYREF, dst);
+                GenTree* dstAddr = gtNewAddrNode(dst, TYP_BYREF);
                 asg              = impAssignStructPtr(dstAddr, argNode, argClass, CHECK_SPILL_NONE);
 
                 if (restoreLayout)

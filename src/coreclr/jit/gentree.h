@@ -2084,11 +2084,9 @@ private:
 public:
     bool Precedes(GenTree* other);
 
-    bool IsInvariant();
-
     bool IsReuseRegValCandidate()
     {
-        return IsInvariant() || IsHWIntrinsicZero();
+        return OperIsConst() || IsHWIntrinsicZero();
     }
 
     bool IsReuseRegVal()

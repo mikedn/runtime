@@ -899,6 +899,18 @@ inline GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree
     return node;
 }
 
+inline GenTree* Compiler::gtNewAddrNode(GenTree* location, var_types type)
+{
+    if (location->OperIs(GT_IND) && ((location->gtFlags & GTF_IND_ARR_INDEX) == 0))
+    {
+        return location->AsIndir()->GetAddr();
+    }
+
+    location->SetDoNotCSE();
+
+    return new (this, GT_ADDR) GenTreeOp(GT_ADDR, type, location, nullptr);
+}
+
 // Returns an opcode that is of the largest node size in use.
 inline genTreeOps LargeOpOpcode()
 {

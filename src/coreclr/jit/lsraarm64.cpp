@@ -68,10 +68,6 @@ int LinearScan::BuildNode(GenTree* tree)
 
     switch (tree->OperGet())
     {
-        default:
-            srcCount = BuildSimple(tree);
-            break;
-
         case GT_LCL_VAR:
             // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
             // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
@@ -109,14 +105,6 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildStoreLclFld(tree->AsLclFld());
             break;
 
-        case GT_FIELD_LIST:
-            // These should always be contained. We don't correctly allocate or
-            // generate code for a non-contained GT_FIELD_LIST.
-            noway_assert(!"Non-contained GT_FIELD_LIST");
-            srcCount = 0;
-            break;
-
-        case GT_ARGPLACE:
         case GT_NO_OP:
         case GT_START_NONGC:
             srcCount = 0;
@@ -239,11 +227,6 @@ int LinearScan::BuildNode(GenTree* tree)
             buildInternalIntRegisterDefForNode(tree);
             srcCount = BuildBinaryUses(tree->AsOp());
             assert(dstCount == 0);
-            break;
-
-        case GT_ASG:
-            noway_assert(!"We should never hit any assignment operator in lowering");
-            srcCount = 0;
             break;
 
         case GT_ADD:
@@ -493,35 +476,10 @@ int LinearScan::BuildNode(GenTree* tree)
             }
             break;
 
-        case GT_ADDR:
-        {
-            // For a GT_ADDR, the child node should not be evaluated into a register
-            GenTree* child = tree->gtGetOp1();
-            assert(!isCandidateLclVar(child));
-            assert(child->isContained());
-            assert(dstCount == 1);
-            srcCount = 0;
-            BuildDef(tree);
-        }
-        break;
-
-        case GT_BLK:
-        case GT_DYN_BLK:
-            // These should all be eliminated prior to Lowering.
-            assert(!"Non-store block node in Lowering");
-            srcCount = 0;
-            break;
-
         case GT_STORE_BLK:
         case GT_STORE_OBJ:
         case GT_STORE_DYN_BLK:
             srcCount = BuildStructStore(tree->AsBlk());
-            break;
-
-        case GT_INIT_VAL:
-            // Always a passthrough of its child's value.
-            assert(!"INIT_VAL should always be contained");
-            srcCount = 0;
             break;
 
         case GT_LCLHEAP:
@@ -726,20 +684,6 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree, RBM_EXCEPTION_OBJECT);
             break;
 
-        case GT_CLS_VAR:
-            srcCount = 0;
-            // GT_CLS_VAR, by the time we reach the backend, must always
-            // be a pure use.
-            // It will produce a result of the type of the
-            // node, and use an internal register for the address.
-
-            assert(dstCount == 1);
-            assert((tree->gtFlags & (GTF_VAR_DEF | GTF_VAR_USEASG)) == 0);
-            buildInternalIntRegisterDefForNode(tree);
-            buildInternalRegisterUses();
-            BuildDef(tree);
-            break;
-
         case GT_INDEX_ADDR:
             assert(dstCount == 1);
             srcCount = BuildBinaryUses(tree->AsOp());
@@ -752,7 +696,20 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildInstr(tree->AsInstr());
             break;
 
-    } // end switch (tree->OperGet())
+        case GT_ADDR:
+        case GT_ARGPLACE:
+        case GT_ASG:
+        case GT_CLS_VAR:
+        case GT_DYN_BLK:
+        case GT_BLK:
+        case GT_FIELD_LIST:
+        case GT_INIT_VAL:
+            unreached();
+
+        default:
+            srcCount = BuildSimple(tree);
+            break;
+    }
 
     if (tree->IsUnusedValue() && (dstCount != 0))
     {
