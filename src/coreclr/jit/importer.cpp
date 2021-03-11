@@ -9665,56 +9665,40 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 goto DECODE_OPCODE;
 
             SPILL_APPEND:
-
                 // We need to call impSpillLclRefs() for a struct type lclVar.
                 // This is because there may be loads of that lclVar on the evaluation stack, and
                 // we need to ensure that those loads are completed before we modify it.
-                if ((op1->OperGet() == GT_ASG) && varTypeIsStruct(op1->gtGetOp1()))
+                if (op1->OperIs(GT_ASG) && varTypeIsStruct(op1->AsOp()->GetOp(0)->GetType()))
                 {
-                    GenTree*             lhs    = op1->gtGetOp1();
-                    GenTreeLclVarCommon* lclVar = nullptr;
-                    if (lhs->gtOper == GT_LCL_VAR)
+                    GenTree*       lhs    = op1->AsOp()->GetOp(0);
+                    GenTreeLclVar* lclVar = nullptr;
+
+                    if (lhs->OperIs(GT_LCL_VAR))
                     {
-                        lclVar = lhs->AsLclVarCommon();
+                        lclVar = lhs->AsLclVar();
                     }
                     else if (lhs->OperIsBlk())
                     {
                         // Check if LHS address is within some struct local, to catch
                         // cases where we're updating the struct by something other than a stfld
-                        GenTree* addr = lhs->AsBlk()->GetAddr();
-
-                        // Catches ADDR(LCL_VAR), or ADD(ADDR(LCL_VAR),CNS_INT))
-                        lclVar = addr->IsLocalAddrExpr();
-
-                        // Catches ADDR(FIELD(... ADDR(LCL_VAR)))
-                        if (lclVar == nullptr)
-                        {
-                            lclVar = impIsAddressInLocal(addr);
-                        }
+                        lclVar = impIsAddressInLocal(lhs->AsBlk()->GetAddr());
                     }
+
                     if (lclVar != nullptr)
                     {
                         impSpillLclRefs(lclVar->GetLclNum());
                     }
                 }
 
-                /* Append 'op1' to the list of statements */
-                impAppendTree(op1, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+            SPILL_ALL_APPEND:
+                impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
                 goto DONE_APPEND;
 
             APPEND:
-
-                /* Append 'op1' to the list of statements */
-
-                impAppendTree(op1, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
-                goto DONE_APPEND;
-
+                impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
             DONE_APPEND:
-
-#ifdef DEBUG
                 // Remember at which BC offset the tree was finished
-                impNoteLastILoffs();
-#endif
+                INDEBUG(impNoteLastILoffs();)
                 break;
 
             case CEE_LDNULL:
@@ -9988,7 +9972,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     if (opts.compDbgCode)
                     {
                         op1 = gtNewNothingNode();
-                        goto SPILL_APPEND;
+                        goto SPILL_ALL_APPEND;
                     }
                     else
                     {
@@ -10475,7 +10459,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 // Else call a helper function to do the assignment
                 op1 = gtNewHelperCallNode(CORINFO_HELP_ARRADDR_ST, TYP_VOID, impPopCallArgs(3, nullptr));
-                goto SPILL_APPEND;
+                goto SPILL_ALL_APPEND;
 
             case CEE_STELEM_I1:
                 lclTyp = TYP_BYTE;
@@ -10800,15 +10784,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     block->bbJumpKind = BBJ_NONE;
 
-                    if (op1->gtFlags & GTF_GLOB_EFFECT)
+                    if ((op1->gtFlags & GTF_GLOB_EFFECT) != 0)
                     {
                         op1 = gtUnusedValNode(op1);
-                        goto SPILL_APPEND;
+                        goto SPILL_ALL_APPEND;
                     }
-                    else
-                    {
-                        break;
-                    }
+
+                    break;
                 }
 
                 if (op1->OperIsCompare())
@@ -10873,15 +10855,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 op1 = gtNewOperNode(GT_JTRUE, TYP_VOID, op1);
 
-                /* GT_JTRUE is handled specially for non-empty stacks. See 'addStmt'
-                   in impImportBlock(block). For correct line numbers, spill stack. */
+                // GT_JTRUE is handled specially for non-empty stacks. See 'addStmt'
+                // in impImportBlock(block). For correct line numbers, spill stack. */
 
                 if (opts.compDbgCode && impCurStmtOffs != BAD_IL_OFFSET)
                 {
                     impSpillStackEnsure(true);
                 }
 
-                goto SPILL_APPEND;
+                goto SPILL_ALL_APPEND;
 
             case CEE_CEQ:
                 oper = GT_EQ;
@@ -11094,7 +11076,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 val = (int)getU4LittleEndian(codeAddr);
                 codeAddr += 4 + val * 4; // skip over the switch-table
 
-                goto SPILL_APPEND;
+                goto SPILL_ALL_APPEND;
 
             /************************** Casting OPCODES ***************************/
 
@@ -13783,13 +13765,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             case CEE_BREAK:
                 op1 = gtNewHelperCallNode(CORINFO_HELP_USER_BREAKPOINT, TYP_VOID);
-                goto SPILL_APPEND;
+                goto SPILL_ALL_APPEND;
 
             case CEE_NOP:
                 if (opts.compDbgCode)
                 {
                     op1 = new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-                    goto SPILL_APPEND;
+                    goto SPILL_ALL_APPEND;
                 }
                 break;
 
