@@ -1378,7 +1378,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
             // But this is done only if the arg represents a local address which is BYREF
             // in spec but in reality is just a native pointer.
 
-            if (argNode->IsLocalAddrExpr() == nullptr)
+            if (!impIsAddressInLocal(argNode))
             {
                 inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
                 return false;
