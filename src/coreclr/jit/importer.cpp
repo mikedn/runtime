@@ -368,7 +368,8 @@ inline void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
     {
         for (unsigned level = 0; level < chkLevel; level++)
         {
-            assert((verCurrentState.esStack[level].val->gtFlags & GTF_GLOB_EFFECT) == 0);
+            GenTree* tree = verCurrentState.esStack[level].val;
+            assert(((tree->gtFlags & GTF_GLOB_EFFECT) == 0) || impIsAddressInLocal(tree));
         }
     }
 
@@ -2119,34 +2120,47 @@ inline void Compiler::impEvalSideEffects()
 
 inline void Compiler::impSpillSideEffects(bool spillGlobEffects, unsigned chkLevel DEBUGARG(const char* reason))
 {
-    assert(chkLevel != (unsigned)CHECK_SPILL_NONE);
+    assert(chkLevel != CHECK_SPILL_NONE);
 
-    /* Before we make any appends to the tree list we must spill the
-     * "special" side effects (GTF_ORDER_SIDEEFF on a GT_CATCH_ARG) */
+    // Before we make any appends to the tree list we must spill the
+    // "special" side effects (GTF_ORDER_SIDEEFF on a GT_CATCH_ARG)
 
     impSpillSpecialSideEff();
 
-    if (chkLevel == (unsigned)CHECK_SPILL_ALL)
+    if (chkLevel == CHECK_SPILL_ALL)
     {
         chkLevel = verCurrentState.esStackDepth;
     }
 
     assert(chkLevel <= verCurrentState.esStackDepth);
 
-    unsigned spillFlags = spillGlobEffects ? GTF_GLOB_EFFECT : GTF_SIDE_EFFECT;
+    unsigned spillSideEffects = spillGlobEffects ? GTF_GLOB_EFFECT : GTF_SIDE_EFFECT;
 
     for (unsigned i = 0; i < chkLevel; i++)
     {
         GenTree* tree = verCurrentState.esStack[i].val;
 
-        if ((tree->gtFlags & spillFlags) != 0 ||
-            (spillGlobEffects &&                       // Only consider the following when  spillGlobEffects == TRUE
-             (impIsAddressInLocal(tree) == nullptr) && // No need to spill the GT_ADDR node on a local.
-             gtHasAddressTakenLocals(tree))) // Spill if we still see GT_LCL_VAR that contains lvHasLdAddrOp or
-                                             // lvAddrTaken flag.
+        if (impIsAddressInLocal(tree))
         {
-            impSpillStackEntry(i DEBUGARG(reason));
+            // Trees that represent local addresses may have spurios GLOB_REF
+            // side effects but they never need need to be spilled.
+            continue;
         }
+
+        if ((tree->GetSideEffects() & spillSideEffects) == 0)
+        {
+            // We haven't yet determined which local variables are address exposed
+            // so we cannot rely on GTF_GLOB_REF being present in trees that use
+            // such variables. Conservatively assume that address taken variables
+            // will be address exposed and get GTF_GLOB_REF.
+
+            if (!spillGlobEffects || !gtHasAddressTakenLocals(tree))
+            {
+                continue;
+            }
+        }
+
+        impSpillStackEntry(i DEBUGARG(reason));
     }
 }
 
