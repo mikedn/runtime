@@ -6228,22 +6228,31 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
     assert((fieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDRESS) ||
            (fieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_RVA_ADDRESS));
 
-    if ((access & CORINFO_ACCESS_ADDRESS) != 0)
-    {
-        void* pFldAddr = nullptr;
-        void* fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, &pFldAddr);
-        // We should always be able to access this static's address directly
-        assert(pFldAddr == nullptr);
+    void* pFldAddr = nullptr;
+    void* fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, &pFldAddr);
+    // We should always be able to access this static's address directly
+    assert(pFldAddr == nullptr);
 
-        FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
-        GenTree*      addr     = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
+    FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
+    GenTree*      addr     = nullptr;
+
+    if (((access & CORINFO_ACCESS_ADDRESS) != 0)
+#ifdef TARGET_64BIT
+        || (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32)
+#endif
+            )
+    {
+        addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
         INDEBUG(addr->AsIntCon()->gtTargetHandle = addr->AsIntCon()->GetValue();)
 
         if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
         {
             addr->gtFlags |= GTF_ICON_INITCLASS;
         }
+    }
 
+    if ((access & CORINFO_ACCESS_ADDRESS) != 0)
+    {
         if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
         {
             addr     = gtNewOperNode(GT_IND, TYP_REF, addr);
@@ -6254,32 +6263,14 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
         return addr;
     }
 
-    void** pFldAddr = nullptr;
-    void*  fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, (void**)&pFldAddr);
-    // We should always be able to access this static field address directly
-    assert(pFldAddr == nullptr);
+    GenTree* indir;
 
-    FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
-    GenTree*      indir;
-
-#ifdef TARGET_64BIT
-    if (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32)
+    if (addr != nullptr)
     {
-        // The address is not directly addressible, so force it into a
-        // constant, so we handle it properly
-
-        GenTree* addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
-
-        if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
-        {
-            addr->gtFlags |= GTF_ICON_INITCLASS;
-        }
-
         indir = gtNewOperNode(GT_IND, type, addr);
         indir->gtFlags |= GTF_IND_NONFAULTING;
     }
     else
-#endif
     {
         indir = new (this, GT_CLS_VAR) GenTreeClsVar(GT_CLS_VAR, type, resolvedToken->hField, fieldSeq);
 
@@ -6294,17 +6285,18 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
     if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         indir->SetType(TYP_REF);
+        addr = indir;
 
-        FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
-        indir                  = gtNewOperNode(GT_ADD, TYP_BYREF, indir, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
+        fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
+        addr     = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, fieldSeq));
 
         if (varTypeIsStruct(type))
         {
-            indir = gtNewObjNode(fieldInfo->structType, indir);
+            indir = gtNewObjNode(fieldInfo->structType, addr);
         }
         else
         {
-            indir = gtNewOperNode(GT_IND, type, indir);
+            indir = gtNewOperNode(GT_IND, type, addr);
             indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
         }
     }
