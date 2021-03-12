@@ -1118,7 +1118,7 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE
     GenTreeField* tree = new (this, GT_FIELD) GenTreeField(typ, addr, fldHnd, offset);
 
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
-    if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+    if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
     {
         unsigned   lclNum = addr->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
         LclVarDsc* varDsc = lvaGetDesc(lclNum);
@@ -4376,10 +4376,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         }
 
         case GT_FIELD:
-            if (this->AsField()->gtFldObj != nullptr)
-            {
-                visitor(this->AsField()->gtFldObj);
-            }
+            visitor(AsField()->gtFldObj);
             return;
 
         case GT_ARR_ELEM:

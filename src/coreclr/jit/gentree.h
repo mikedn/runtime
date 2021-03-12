@@ -3634,11 +3634,8 @@ public:
         , m_r2rFieldLookupAddr(nullptr)
 #endif
     {
-        if (obj != nullptr)
-        {
-            assert(obj->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
-            gtFlags |= (obj->gtFlags & GTF_ALL_EFFECT);
-        }
+        assert(obj->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+        gtFlags |= (obj->gtFlags & GTF_ALL_EFFECT);
     }
 
     GenTreeField(const GenTreeField* copyFrom)
@@ -3660,7 +3657,7 @@ public:
 
     void SetAddr(GenTree* addr)
     {
-        assert((addr == nullptr) || addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
         gtFldObj = addr;
     }
 

@@ -9778,19 +9778,12 @@ public:
             }
 
             case GT_FIELD:
-            {
-                GenTreeField* const field = node->AsField();
-
-                if (field->gtFldObj != nullptr)
+                result = WalkTree(&node->AsField()->gtFldObj, node);
+                if (result == fgWalkResult::WALK_ABORT)
                 {
-                    result = WalkTree(&field->gtFldObj, field);
-                    if (result == fgWalkResult::WALK_ABORT)
-                    {
-                        return result;
-                    }
+                    return result;
                 }
                 break;
-            }
 
             case GT_ARR_ELEM:
             {

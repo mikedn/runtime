@@ -1425,18 +1425,9 @@ AGAIN:
                 break;
             }
 
-            op1 = op1->AsField()->gtFldObj;
-            op2 = op2->AsField()->gtFldObj;
-
-            if (op1 || op2)
-            {
-                if (op1 && op2)
-                {
-                    goto AGAIN;
-                }
-            }
-
-            return true;
+            op1 = op1->AsField()->GetAddr();
+            op2 = op2->AsField()->GetAddr();
+            goto AGAIN;
 
         case GT_CALL:
             return GenTreeCall::Equals(op1->AsCall(), op2->AsCall());
@@ -1614,12 +1605,8 @@ AGAIN:
                 return true;
             }
 
-            tree = tree->AsField()->gtFldObj;
-            if (tree)
-            {
-                goto AGAIN;
-            }
-            break;
+            tree = tree->AsField()->GetAddr();
+            goto AGAIN;
 
         case GT_CALL:
             if (tree->AsCall()->gtCallThisArg != nullptr)
@@ -2075,12 +2062,7 @@ AGAIN:
     switch (tree->gtOper)
     {
         case GT_FIELD:
-            if (tree->AsField()->gtFldObj)
-            {
-                temp = tree->AsField()->gtFldObj;
-                assert(temp);
-                hash = genTreeHashAdd(hash, gtHashValue(temp));
-            }
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsField()->GetAddr()));
             break;
 
         case GT_ARR_ELEM:
@@ -5097,16 +5079,7 @@ bool GenTree::OperMayThrow(Compiler* comp)
             return comp->fgAddrCouldBeNull(this->AsArrElem()->gtArrObj);
 
         case GT_FIELD:
-        {
-            GenTree* fldObj = this->AsField()->gtFldObj;
-
-            if (fldObj != nullptr)
-            {
-                return comp->fgAddrCouldBeNull(fldObj);
-            }
-
-            return false;
-        }
+            return comp->fgAddrCouldBeNull(AsField()->GetAddr());
 
         case GT_ARR_BOUNDS_CHECK:
         case GT_ARR_INDEX:
@@ -6373,16 +6346,11 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
 
             if (GenTreeField* field = tree->IsField())
             {
-                GenTree* addr = field->GetAddr();
+                GenTree* addr = gtClone(field->GetAddr(), false);
 
-                if (addr != nullptr)
+                if (addr == nullptr)
                 {
-                    addr = gtClone(addr, false);
-
-                    if (addr == nullptr)
-                    {
-                        return nullptr;
-                    }
+                    return nullptr;
                 }
 
                 copy = new (this, GT_FIELD) GenTreeField(field);
@@ -6786,10 +6754,7 @@ GenTree* Compiler::gtCloneExpr(
 
         case GT_FIELD:
             copy = new (this, GT_FIELD) GenTreeField(tree->AsField());
-            if (GenTree* addr = tree->AsField()->GetAddr())
-            {
-                copy->AsField()->SetAddr(gtCloneExpr(addr, addFlags, deepVarNum, deepVarVal));
-            }
+            copy->AsField()->SetAddr(gtCloneExpr(tree->AsField()->GetAddr(), addFlags, deepVarNum, deepVarVal));
             break;
 
         case GT_ARR_ELEM:
@@ -7627,15 +7592,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         case GT_FIELD:
-            if (m_node->AsField()->gtFldObj == nullptr)
-            {
-                m_state = -1;
-            }
-            else
-            {
-                m_edge    = &m_node->AsField()->gtFldObj;
-                m_advance = &GenTreeUseEdgeIterator::Terminate;
-            }
+            m_edge    = &m_node->AsField()->gtFldObj;
+            m_advance = &GenTreeUseEdgeIterator::Terminate;
             return;
 
         case GT_ARR_ELEM:
@@ -10161,9 +10119,9 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             gtDispCommonEndLine(tree);
 
-            if (tree->AsField()->gtFldObj && !topOnly)
+            if (!topOnly)
             {
-                gtDispChild(tree->AsField()->gtFldObj, indentStack, IIArcBottom);
+                gtDispChild(tree->AsField()->GetAddr(), indentStack, IIArcBottom);
             }
 
             break;

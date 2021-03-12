@@ -1270,7 +1270,7 @@ bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, G
     }
 
     auto AreValuesEqual = [](GenTree* v1, GenTree* v2) {
-        while ((v1 != nullptr) && (v2 != nullptr) && (v1->GetOper() == v2->GetOper()))
+        while (v1->GetOper() == v2->GetOper())
         {
             if (v1->OperIs(GT_ADDR))
             {
