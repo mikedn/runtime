@@ -3123,6 +3123,10 @@ protected:
                                   CORINFO_CLASS_HANDLE    structType,
                                   GenTree*                assg);
 
+    GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                               CORINFO_ACCESS_FLAGS    access,
+                                               CORINFO_FIELD_INFO*     pFieldInfo);
+
     GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                         CORINFO_ACCESS_FLAGS    access,
                                         CORINFO_FIELD_INFO*     pFieldInfo,

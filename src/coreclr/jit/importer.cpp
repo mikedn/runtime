@@ -6078,10 +6078,9 @@ GenTree* Compiler::impImportFieldAccess(GenTree*                objPtr,
     return result;
 }
 
-GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                              CORINFO_ACCESS_FLAGS    access,
-                                              CORINFO_FIELD_INFO*     pFieldInfo,
-                                              var_types               lclTyp)
+GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                                     CORINFO_ACCESS_FLAGS    access,
+                                                     CORINFO_FIELD_INFO*     pFieldInfo)
 {
     GenTree* op1;
 
@@ -6183,6 +6182,28 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedT
 #endif // FEATURE_READYTORUN_COMPILER
         }
         break;
+
+        default:
+            unreached();
+    }
+
+    return op1;
+}
+
+GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                              CORINFO_ACCESS_FLAGS    access,
+                                              CORINFO_FIELD_INFO*     pFieldInfo,
+                                              var_types               lclTyp)
+{
+    GenTree* op1;
+
+    switch (pFieldInfo->fieldAccessor)
+    {
+        case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
+        case CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER:
+        case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
+            op1 = impImportStaticFieldAddressHelper(pResolvedToken, access, pFieldInfo);
+            break;
 
         default:
         {
