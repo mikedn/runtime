@@ -3123,14 +3123,14 @@ protected:
                                   CORINFO_CLASS_HANDLE    structType,
                                   GenTree*                assg);
 
-    GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+    GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                                CORINFO_ACCESS_FLAGS    access,
-                                               CORINFO_FIELD_INFO*     pFieldInfo);
+                                               CORINFO_FIELD_INFO*     fieldInfo);
 
-    GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+    GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                         CORINFO_ACCESS_FLAGS    access,
-                                        CORINFO_FIELD_INFO*     pFieldInfo,
-                                        var_types               lclTyp);
+                                        CORINFO_FIELD_INFO*     fieldInfo,
+                                        var_types               type);
 
     static void impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 = nullptr);
 
