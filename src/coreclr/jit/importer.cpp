@@ -6254,7 +6254,42 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
         return addr;
     }
 
-    GenTree* indir = impStaticField(type, resolvedToken->hField, fieldInfo->fieldFlags);
+    void** pFldAddr = nullptr;
+    void*  fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, (void**)&pFldAddr);
+    // We should always be able to access this static field address directly
+    assert(pFldAddr == nullptr);
+
+    FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
+    GenTree*      indir;
+
+#ifdef TARGET_64BIT
+    if (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32)
+    {
+        // The address is not directly addressible, so force it into a
+        // constant, so we handle it properly
+
+        GenTree* addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
+
+        if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+        {
+            addr->gtFlags |= GTF_ICON_INITCLASS;
+        }
+
+        indir = gtNewOperNode(GT_IND, type, addr);
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+    else
+#endif
+    {
+        indir = new (this, GT_CLS_VAR) GenTreeClsVar(GT_CLS_VAR, type, resolvedToken->hField, fieldSeq);
+
+        if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+        {
+            indir->gtFlags |= GTF_CLS_VAR_INITCLASS;
+        }
+    }
+
+    indir->gtFlags |= GTF_GLOB_REF;
 
     if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
@@ -17044,52 +17079,6 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
     }
 
     return op1;
-}
-
-GenTree* Compiler::impStaticField(var_types type, CORINFO_FIELD_HANDLE handle, unsigned flags)
-{
-    // If we can we access the static's address directly
-    // then pFldAddr will be NULL and
-    //      fldAddr will be the actual address of the static field
-
-    void** pFldAddr = nullptr;
-    void*  fldAddr  = info.compCompHnd->getFieldAddress(handle, (void**)&pFldAddr);
-
-    // We should always be able to access this static field address directly
-    assert(pFldAddr == nullptr);
-
-    FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(handle);
-    GenTree*      indir;
-
-#ifdef TARGET_64BIT
-    if (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32)
-    {
-        // The address is not directly addressible, so force it into a
-        // constant, so we handle it properly
-
-        GenTree* addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
-
-        if ((flags & CORINFO_FLG_FIELD_INITCLASS) != 0)
-        {
-            addr->gtFlags |= GTF_ICON_INITCLASS;
-        }
-
-        indir = gtNewOperNode(GT_IND, type, addr);
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-    }
-    else
-#endif
-    {
-        indir = new (this, GT_CLS_VAR) GenTreeClsVar(GT_CLS_VAR, type, handle, fieldSeq);
-
-        if ((flags & CORINFO_FLG_FIELD_INITCLASS) != 0)
-        {
-            indir->gtFlags |= GTF_CLS_VAR_INITCLASS;
-        }
-    }
-
-    indir->gtFlags |= GTF_GLOB_REF;
-    return indir;
 }
 
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)

@@ -3571,7 +3571,6 @@ private:
 
     GenTree* impImportPop(BasicBlock* block);
 
-    GenTree* impStaticField(var_types type, CORINFO_FIELD_HANDLE handle, unsigned flags);
     GenTree* impTlsFieldAddr(CORINFO_FIELD_HANDLE handle, unsigned offset, unsigned flags);
 
     /*
