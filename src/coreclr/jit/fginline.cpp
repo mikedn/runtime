@@ -2400,22 +2400,14 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
 bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
 {
-    // In some special cases, unused args with side effects can
-    // trigger further changes.
-    //
-    // (1) If the arg is a static field access and the field access
-    // was produced by a call to EqualityComparer<T>.get_Default, the
-    // helper call to ensure the field has a value can be suppressed.
-    // This helper call is marked as a "Special DCE" helper during
-    // importation, over in fgGetStaticsCCtorHelper.
-    //
-    // (2) NYI. If, after tunneling through GT_RET_VALs, we find that
-    // the actual arg expression has no side effects, we can skip
-    // appending all together. This will help jit TP a bit.
+    // If the arg is a static field access and the field access was produced
+    // by a call to EqualityComparer<T>.get_Default, the helper call to ensure
+    // the field has a value can be suppressed. This helper call is marked as
+    // "Special DCE" during importation, over in fgGetStaticsCCtorHelper.
 
     if (argNode->OperIs(GT_COMMA))
     {
-        // Look for (COMMA (CALL(special dce helper...), (CLS_VAR|IND ...)))
+        // Look for COMMA(CALL special DCE helper, CLS_VAR|IND(CNS_INT)) (jit case)
 
         GenTree* op1 = argNode->AsOp()->GetOp(0);
         GenTree* op2 = argNode->AsOp()->GetOp(1);
@@ -2423,7 +2415,7 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
         if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
             (op2->OperIs(GT_CLS_VAR) || (op2->OperIs(GT_IND) && op2->AsIndir()->GetAddr()->IsIntCon())))
         {
-            JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
+            JITDUMP("\nPerforming special DCE on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
                     op1->GetID());
 
             return true;
@@ -2431,7 +2423,7 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
     }
     else if (argNode->OperIs(GT_IND))
     {
-        // Look for (IND (ADD (CONST, CALL(special dce helper...))))
+        // Look for IND(ADD(CALL special DCE helper, CNS_INT)) (prejit case)
 
         GenTree* addr = argNode->AsIndir()->GetAddr();
 
@@ -2443,7 +2435,7 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
             if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
                 op2->IsIntCon())
             {
-                JITDUMP("\nPerforming special dce on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
+                JITDUMP("\nPerforming special DCE on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
                         op1->GetID());
 
                 return true;
