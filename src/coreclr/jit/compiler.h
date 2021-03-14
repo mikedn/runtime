@@ -3123,13 +3123,6 @@ protected:
                                   CORINFO_CLASS_HANDLE      structType,
                                   GenTree*                  storeValue);
 
-    GenTree* impImportStaticFieldAccess2(CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                         const CORINFO_FIELD_INFO& fieldInfo,
-                                         CORINFO_ACCESS_FLAGS      accessFlags,
-                                         var_types                 type,
-                                         CORINFO_CLASS_HANDLE      structType,
-                                         GenTree*                  storeValue);
-
     GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                                const CORINFO_FIELD_INFO& fieldInfo,
                                                CORINFO_ACCESS_FLAGS      accessFlags);
@@ -3578,12 +3571,10 @@ private:
 
     GenTree* impImportPop(BasicBlock* block);
 
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-    GenTree* impImportTlsFieldAccess(const CORINFO_RESOLVED_TOKEN& resolvedToken,
-                                     const CORINFO_FIELD_INFO&     fieldInfo,
-                                     CORINFO_ACCESS_FLAGS          accessFlags,
-                                     var_types                     type);
-#endif
+    GenTree* impImportTlsFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                     const CORINFO_FIELD_INFO& fieldInfo,
+                                     CORINFO_ACCESS_FLAGS      accessFlags,
+                                     var_types                 type);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

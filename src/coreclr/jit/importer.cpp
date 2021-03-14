@@ -6049,54 +6049,6 @@ GenTree* Compiler::impImportFieldAccess(GenTree*                  objPtr,
     return result;
 }
 
-GenTree* Compiler::impImportStaticFieldAccess2(CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                               const CORINFO_FIELD_INFO& fieldInfo,
-                                               CORINFO_ACCESS_FLAGS      accessFlags,
-                                               var_types                 type,
-                                               CORINFO_CLASS_HANDLE      structType,
-                                               GenTree*                  storeValue)
-{
-    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) &&
-           (fieldInfo.helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS));
-
-    GenTree* fieldHnd = impTokenToHandle(resolvedToken);
-    if (fieldHnd == nullptr)
-    {
-        assert(compDonotInline());
-        return nullptr;
-    }
-
-    GenTree* result = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(fieldHnd));
-
-    if ((accessFlags & CORINFO_ACCESS_GET) != 0)
-    {
-        if (varTypeIsStruct(type))
-        {
-            result = gtNewObjNode(structType, result);
-        }
-        else
-        {
-            result = gtNewOperNode(GT_IND, type, result);
-        }
-        result->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF);
-    }
-    else if ((accessFlags & CORINFO_ACCESS_SET) != 0)
-    {
-        if (varTypeIsStruct(type))
-        {
-            result = impAssignStructPtr(result, storeValue, structType, CHECK_SPILL_ALL);
-        }
-        else
-        {
-            result = gtNewOperNode(GT_IND, type, result);
-            result->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-            result = gtNewAssignNode(result, storeValue);
-        }
-    }
-
-    return result;
-}
-
 GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                                      const CORINFO_FIELD_INFO& fieldInfo,
                                                      CORINFO_ACCESS_FLAGS      accessFlags)
@@ -12349,17 +12301,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         break;
 
                     case CORINFO_FIELD_STATIC_TLS:
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-                        // Legacy TLS access is implemented as intrinsic on x86 only
-                        op1 = impImportTlsFieldAccess(resolvedToken, fieldInfo, accessFlags, lclTyp);
+                        op1 = impImportTlsFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
                         break;
-#else
-                        fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
-                        op1 = impImportStaticFieldAccess2(&resolvedToken, fieldInfo, accessFlags, lclTyp,
-                                                          fieldInfo.structType, nullptr);
-                        usesHelper = true;
-                        break;
-#endif
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
                     case CORINFO_FIELD_STATIC_RVA_ADDRESS:
@@ -12402,7 +12345,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 #if BIGENDIAN
                         op1 = gtNewIconNode(0, lclTyp);
 #else
-                        op1                     = gtNewIconNode(1, lclTyp);
+                        op1 = gtNewIconNode(1, lclTyp);
 #endif
                         goto FIELD_DONE;
                     }
@@ -12600,15 +12543,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         goto SPILL_APPEND;
 
                     case CORINFO_FIELD_STATIC_TLS:
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-                        // Legacy TLS access is implemented as intrinsic on x86 only
-                        op1 = impImportTlsFieldAccess(resolvedToken, fieldInfo, accessFlags, lclTyp);
+                        op1 = impImportTlsFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
                         break;
-#else
-                        fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
-                        op1 = impImportStaticFieldAccess2(&resolvedToken, fieldInfo, accessFlags, lclTyp, clsHnd, op2);
-                        goto SPILL_APPEND;
-#endif
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
                     case CORINFO_FIELD_STATIC_RVA_ADDRESS:
@@ -17042,15 +16978,26 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
     return op1;
 }
 
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-
-GenTree* Compiler::impImportTlsFieldAccess(const CORINFO_RESOLVED_TOKEN& resolvedToken,
-                                           const CORINFO_FIELD_INFO&     fieldInfo,
-                                           CORINFO_ACCESS_FLAGS          accessFlags,
-                                           var_types                     type)
+GenTree* Compiler::impImportTlsFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                           const CORINFO_FIELD_INFO& fieldInfo,
+                                           CORINFO_ACCESS_FLAGS      accessFlags,
+                                           var_types                 type)
 {
+#if !defined(TARGET_X86) || !defined(TARGET_WINDOWS)
+    // Legacy TLS access is implemented as intrinsic on x86 only
+    assert(fieldInfo.helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS);
+
+    GenTree* fieldHnd = impTokenToHandle(resolvedToken);
+    if (fieldHnd == nullptr)
+    {
+        assert(compDonotInline());
+        return nullptr;
+    }
+
+    GenTree* addr = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(fieldHnd));
+#else
     void**   pIdAddr = nullptr;
-    unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(resolvedToken.hField, (void**)&pIdAddr);
+    unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(resolvedToken->hField, (void**)&pIdAddr);
 
     // If we can we access the TLS DLL index ID value directly
     // then pIdAddr will be NULL and
@@ -17076,45 +17023,47 @@ GenTree* Compiler::impImportTlsFieldAccess(const CORINFO_RESOLVED_TOKEN& resolve
 
     // Mark this ICON as a TLS_HDL, codegen will use FS:[cns]
 
-    GenTree* tlsRef = gtNewIconHandleNode(WIN32_TLS_SLOTS, GTF_ICON_TLS_HDL);
+    GenTree* addr = gtNewIconHandleNode(WIN32_TLS_SLOTS, GTF_ICON_TLS_HDL);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
     {
-        tlsRef->gtFlags |= GTF_ICON_INITCLASS;
+        addr->gtFlags |= GTF_ICON_INITCLASS;
     }
 
-    tlsRef = gtNewOperNode(GT_IND, TYP_I_IMPL, tlsRef);
-    tlsRef->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+    addr = gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+    addr->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
     if (dllRef != nullptr)
     {
-        tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, dllRef);
+        addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, dllRef);
     }
 
-    tlsRef = gtNewOperNode(GT_IND, TYP_I_IMPL, tlsRef);
+    addr = gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
 
     if (fieldInfo.offset != 0)
     {
         // Add the TLS static field offset. Don't bother recording a field sequence
         // for the field offset as it won't be recognized during value numbering.
-        tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, gtNewIconNode(fieldInfo.offset, TYP_I_IMPL));
+        addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, gtNewIconNode(fieldInfo.offset, TYP_I_IMPL));
     }
-
-    if ((accessFlags & CORINFO_ACCESS_ADDRESS) == 0)
-    {
-        if (varTypeIsStruct(type))
-        {
-            tlsRef = gtNewObjNode(fieldInfo.structType, tlsRef);
-        }
-        else
-        {
-            tlsRef = gtNewOperNode(GT_IND, type, tlsRef);
-        }
-
-        tlsRef->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-    }
-
-    return tlsRef;
-}
-
 #endif // TARGET_X86 && TARGET_WINDOWS
+
+    if ((accessFlags & CORINFO_ACCESS_ADDRESS) != 0)
+    {
+        return addr;
+    }
+
+    GenTree* indir;
+
+    if (varTypeIsStruct(type))
+    {
+        indir = gtNewObjNode(fieldInfo.structType, addr);
+    }
+    else
+    {
+        indir = gtNewOperNode(GT_IND, type, addr);
+    }
+
+    indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+    return indir;
+}
