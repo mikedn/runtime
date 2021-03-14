@@ -12225,16 +12225,17 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_INSTANCE_WITH_BASE:
 #endif
                     {
-                        obj = impCheckForNullPointer(obj);
-
-                        // If the object is a struct, what we really want is
-                        // for the field to operate on the address of the struct.
                         if (!varTypeGCtype(obj->GetType()) && tiObj.IsType(TI_STRUCT))
                         {
+                            // If the object is a struct, what we really want is
+                            // for the field to operate on the address of the struct.
+
                             assert((opcode == CEE_LDFLD) && (tiObj.GetClassHandle() != NO_CLASS_HANDLE));
 
                             obj = impGetStructAddr(obj, tiObj.GetClassHandle(), CHECK_SPILL_ALL, true);
                         }
+
+                        obj = impCheckForNullPointer(obj);
 
                         op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
 
