@@ -3624,9 +3624,9 @@ private:
 #endif
 
 public:
-    GenTreeField(var_types type, GenTree* obj, CORINFO_FIELD_HANDLE fldHnd, DWORD offs)
+    GenTreeField(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE fldHnd, DWORD offs)
         : GenTree(GT_FIELD, type)
-        , gtFldObj(obj)
+        , gtFldObj(addr)
         , gtFldHnd(fldHnd)
         , gtFldOffset(offs)
         , gtFldMayOverlap(false)
@@ -3634,8 +3634,8 @@ public:
         , m_r2rFieldLookupAddr(nullptr)
 #endif
     {
-        assert(obj->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
-        gtFlags |= (obj->gtFlags & GTF_ALL_EFFECT);
+        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+        gtFlags |= addr->GetSideEffects();
     }
 
     GenTreeField(const GenTreeField* copyFrom)

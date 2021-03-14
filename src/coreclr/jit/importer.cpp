@@ -12236,7 +12236,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             obj = impGetStructAddr(obj, tiObj.GetClassHandle(), CHECK_SPILL_ALL, true);
                         }
 
-                        /* Create the data member node */
                         op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -12247,15 +12246,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         }
 #endif
 
-                        op1->gtFlags |= (obj->gtFlags & GTF_GLOB_EFFECT);
-
                         if (fgAddrCouldBeNull(obj))
                         {
                             op1->gtFlags |= GTF_EXCEPT;
                         }
 
-                        DWORD typeFlags = info.compCompHnd->getClassAttribs(resolvedToken.hClass);
-                        if (StructHasOverlappingFields(typeFlags))
+                        if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {
                             op1->AsField()->gtFldMayOverlap = true;
                         }
@@ -12472,10 +12468,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         obj = impCheckForNullPointer(obj);
 
-                        /* Create the data member node */
-                        op1             = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
-                        DWORD typeFlags = info.compCompHnd->getClassAttribs(resolvedToken.hClass);
-                        if (StructHasOverlappingFields(typeFlags))
+                        op1 = gtNewFieldRef(lclTyp, resolvedToken.hField, obj, fieldInfo.offset);
+
+                        if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
                         {
                             op1->AsField()->gtFldMayOverlap = true;
                         }
@@ -12487,8 +12482,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             op1->AsField()->SetR2RFieldLookupAddr(fieldInfo.fieldLookup.addr);
                         }
 #endif
-
-                        op1->gtFlags |= (obj->gtFlags & GTF_GLOB_EFFECT);
 
                         if (fgAddrCouldBeNull(obj))
                         {
