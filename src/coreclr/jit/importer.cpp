@@ -5958,66 +5958,45 @@ GenTree* Compiler::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
     return node;
 }
 
-GenTree* Compiler::impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp)
+GenTree* Compiler::impImportStaticReadOnlyField(void* addr, var_types type)
 {
-    GenTree* op1 = nullptr;
-
-    switch (lclTyp)
+    switch (type)
     {
-        int     ival;
-        __int64 lval;
-        double  dval;
-
-        case TYP_BOOL:
-            ival = *((bool*)fldAddr);
-            goto IVAL_COMMON;
+        int32_t ival;
 
         case TYP_BYTE:
-            ival = *((signed char*)fldAddr);
+            ival = *static_cast<int8_t*>(addr);
             goto IVAL_COMMON;
-
+        case TYP_BOOL:
         case TYP_UBYTE:
-            ival = *((unsigned char*)fldAddr);
+            ival = *static_cast<uint8_t*>(addr);
             goto IVAL_COMMON;
-
         case TYP_SHORT:
-            ival = *((short*)fldAddr);
+            ival = *static_cast<int16_t*>(addr);
             goto IVAL_COMMON;
-
         case TYP_USHORT:
-            ival = *((unsigned short*)fldAddr);
+            ival = *static_cast<uint16_t*>(addr);
             goto IVAL_COMMON;
-
         case TYP_UINT:
         case TYP_INT:
-            ival = *((int*)fldAddr);
+            ival = *static_cast<int32_t*>(addr);
         IVAL_COMMON:
-            op1 = gtNewIconNode(ival);
-            break;
+            return gtNewIconNode(ival);
 
         case TYP_LONG:
         case TYP_ULONG:
-            lval = *((__int64*)fldAddr);
-            op1  = gtNewLconNode(lval);
-            break;
+            return gtNewLconNode(*static_cast<int64_t*>(addr));
 
         case TYP_FLOAT:
-            dval        = *((float*)fldAddr);
-            op1         = gtNewDconNode(dval);
-            op1->gtType = TYP_FLOAT;
-            break;
+            return gtNewDconNode(*static_cast<float*>(addr), TYP_FLOAT);
 
         case TYP_DOUBLE:
-            dval = *((double*)fldAddr);
-            op1  = gtNewDconNode(dval);
-            break;
+            return gtNewDconNode(*static_cast<double*>(addr), TYP_DOUBLE);
 
         default:
-            assert(!"Unexpected lclTyp");
-            break;
+            assert(!"Unexpected type");
+            return nullptr;
     }
-
-    return op1;
 }
 
 GenTree* Compiler::impImportFieldAccess(GenTree*                  objPtr,
@@ -12349,11 +12328,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                 assert(pFldAddr == nullptr);
 
                                 op1 = impImportStaticReadOnlyField(fldAddr, lclTyp);
-
-                                // Widen small types since we're propagating the value
-                                // instead of producing an indir.
-                                //
-                                op1->gtType = genActualType(lclTyp);
 
                                 goto FIELD_DONE;
                             }
