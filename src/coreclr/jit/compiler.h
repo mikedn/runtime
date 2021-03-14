@@ -3115,22 +3115,22 @@ protected:
 
     GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
 
-    GenTree* impImportFieldAccess(GenTree*                objPtr,
-                                  CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                  CORINFO_ACCESS_FLAGS    access,
-                                  CORINFO_FIELD_INFO*     pFieldInfo,
-                                  var_types               lclTyp,
-                                  CORINFO_CLASS_HANDLE    structType,
-                                  GenTree*                assg);
+    GenTree* impImportFieldAccess(GenTree*                  objPtr,
+                                  CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                  const CORINFO_FIELD_INFO& fieldInfo,
+                                  CORINFO_ACCESS_FLAGS      accessFlags,
+                                  var_types                 type,
+                                  CORINFO_CLASS_HANDLE      structType,
+                                  GenTree*                  storeValue);
 
-    GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                               CORINFO_ACCESS_FLAGS    access,
-                                               CORINFO_FIELD_INFO*     fieldInfo);
+    GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                               const CORINFO_FIELD_INFO& fieldInfo,
+                                               CORINFO_ACCESS_FLAGS      accessFlags);
 
-    GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                        CORINFO_ACCESS_FLAGS    access,
-                                        CORINFO_FIELD_INFO*     fieldInfo,
-                                        var_types               type);
+    GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                        const CORINFO_FIELD_INFO& fieldInfo,
+                                        CORINFO_ACCESS_FLAGS      accessFlags,
+                                        var_types                 type);
 
     static void impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 = nullptr);
 
@@ -3571,7 +3571,12 @@ private:
 
     GenTree* impImportPop(BasicBlock* block);
 
-    GenTree* impTlsFieldAddr(CORINFO_FIELD_HANDLE handle, unsigned offset, unsigned flags);
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
+    GenTree* impImportTlsFieldAccess(const CORINFO_RESOLVED_TOKEN& resolvedToken,
+                                     const CORINFO_FIELD_INFO&     fieldInfo,
+                                     CORINFO_ACCESS_FLAGS          accessFlags,
+                                     var_types                     type);
+#endif
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

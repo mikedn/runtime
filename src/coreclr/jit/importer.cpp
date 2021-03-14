@@ -6020,23 +6020,24 @@ GenTree* Compiler::impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp)
     return op1;
 }
 
-GenTree* Compiler::impImportFieldAccess(GenTree*                objPtr,
-                                        CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                        CORINFO_ACCESS_FLAGS    access,
-                                        CORINFO_FIELD_INFO*     pFieldInfo,
-                                        var_types               lclTyp,
-                                        CORINFO_CLASS_HANDLE    structType,
-                                        GenTree*                assg)
+GenTree* Compiler::impImportFieldAccess(GenTree*                  objPtr,
+                                        CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                        const CORINFO_FIELD_INFO& fieldInfo,
+                                        CORINFO_ACCESS_FLAGS      accessFlags,
+                                        var_types                 type,
+                                        CORINFO_CLASS_HANDLE      structType,
+                                        GenTree*                  storeValue)
 {
-    assert(((pFieldInfo->fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER) &&
-            (pFieldInfo->helper == CORINFO_HELP_GETFIELDADDR)) ||
-           ((pFieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) &&
-            (pFieldInfo->helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS)));
-    assert((pFieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) == (objPtr == nullptr));
+    assert(((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER) &&
+            (fieldInfo.helper == CORINFO_HELP_GETFIELDADDR)) ||
+           ((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) &&
+            (fieldInfo.helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS)));
+    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) == (objPtr == nullptr));
 
-    GenTree* fieldHnd = impTokenToHandle(pResolvedToken);
+    GenTree* fieldHnd = impTokenToHandle(resolvedToken);
     if (fieldHnd == nullptr)
-    { // compDonotInline()
+    {
+        assert(compDonotInline());
         return nullptr;
     }
 
@@ -6047,44 +6048,44 @@ GenTree* Compiler::impImportFieldAccess(GenTree*                objPtr,
         args = gtPrependNewCallArg(objPtr, args);
     }
 
-    GenTree* result = gtNewHelperCallNode(pFieldInfo->helper, TYP_BYREF, args);
+    GenTree* result = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, args);
 
-    if (access & CORINFO_ACCESS_GET)
+    if ((accessFlags & CORINFO_ACCESS_GET) != 0)
     {
-        if (varTypeIsStruct(lclTyp))
+        if (varTypeIsStruct(type))
         {
             result = gtNewObjNode(structType, result);
         }
         else
         {
-            result = gtNewOperNode(GT_IND, lclTyp, result);
+            result = gtNewOperNode(GT_IND, type, result);
         }
         result->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF);
     }
-    else if (access & CORINFO_ACCESS_SET)
+    else if ((accessFlags & CORINFO_ACCESS_SET) != 0)
     {
-        if (varTypeIsStruct(lclTyp))
+        if (varTypeIsStruct(type))
         {
-            result = impAssignStructPtr(result, assg, structType, CHECK_SPILL_ALL);
+            result = impAssignStructPtr(result, storeValue, structType, CHECK_SPILL_ALL);
         }
         else
         {
-            result = gtNewOperNode(GT_IND, lclTyp, result);
+            result = gtNewOperNode(GT_IND, type, result);
             result->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-            result = gtNewAssignNode(result, assg);
+            result = gtNewAssignNode(result, storeValue);
         }
     }
 
     return result;
 }
 
-GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                                     CORINFO_ACCESS_FLAGS    access,
-                                                     CORINFO_FIELD_INFO*     fieldInfo)
+GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                                     const CORINFO_FIELD_INFO& fieldInfo,
+                                                     CORINFO_ACCESS_FLAGS      accessFlags)
 {
     GenTree* addr;
 
-    switch (fieldInfo->fieldAccessor)
+    switch (fieldInfo.fieldAccessor)
     {
         case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
         {
@@ -6095,7 +6096,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* res
 
             var_types type = TYP_BYREF;
 
-            switch (fieldInfo->helper)
+            switch (fieldInfo.helper)
             {
                 case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
                     type = TYP_I_IMPL;
@@ -6109,7 +6110,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* res
                     break;
             }
 
-            addr = gtNewHelperCallNode(fieldInfo->helper, type, gtNewCallArgs(addr));
+            addr = gtNewHelperCallNode(fieldInfo.helper, type, gtNewCallArgs(addr));
         }
         break;
 
@@ -6121,7 +6122,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* res
                 uint32_t classAttribs = info.compCompHnd->getClassAttribs(resolvedToken->hClass);
 
                 addr = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
-                addr->AsCall()->setEntryPoint(fieldInfo->fieldLookup);
+                addr->AsCall()->setEntryPoint(fieldInfo.fieldLookup);
 
                 if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
                 {
@@ -6131,7 +6132,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* res
             else
 #endif
             {
-                addr = fgGetStaticsCCtorHelper(resolvedToken->hClass, fieldInfo->helper);
+                addr = fgGetStaticsCCtorHelper(resolvedToken->hClass, fieldInfo.helper);
             }
             break;
         }
@@ -6150,7 +6151,7 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* res
 
             GenTree* ctxTree = getRuntimeContextTree(kind.runtimeLookupKind);
             addr = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF, gtNewCallArgs(ctxTree));
-            addr->AsCall()->setEntryPoint(fieldInfo->fieldLookup);
+            addr->AsCall()->setEntryPoint(fieldInfo.fieldLookup);
 
             if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
             {
@@ -6165,9 +6166,9 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* res
     }
 
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
-    addr                   = gtNewOperNode(GT_ADD, addr->GetType(), addr, gtNewIconNode(fieldInfo->offset, fieldSeq));
+    addr                   = gtNewOperNode(GT_ADD, addr->GetType(), addr, gtNewIconNode(fieldInfo.offset, fieldSeq));
 
-    if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
+    if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         addr     = gtNewOperNode(GT_IND, TYP_REF, addr);
         fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
@@ -6177,18 +6178,18 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN* res
     return addr;
 }
 
-GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                              CORINFO_ACCESS_FLAGS    access,
-                                              CORINFO_FIELD_INFO*     fieldInfo,
-                                              var_types               type)
+GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                              const CORINFO_FIELD_INFO& fieldInfo,
+                                              CORINFO_ACCESS_FLAGS      accessFlags,
+                                              var_types                 type)
 {
-    if ((fieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
-        (fieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
-        (fieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER))
+    if ((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
+        (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
+        (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER))
     {
-        GenTree* addr = impImportStaticFieldAddressHelper(resolvedToken, access, fieldInfo);
+        GenTree* addr = impImportStaticFieldAddressHelper(resolvedToken, fieldInfo, accessFlags);
 
-        if ((access & CORINFO_ACCESS_ADDRESS) != 0)
+        if ((accessFlags & CORINFO_ACCESS_ADDRESS) != 0)
         {
             return addr;
         }
@@ -6197,7 +6198,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
 
         if (varTypeIsStruct(type))
         {
-            indir = gtNewObjNode(fieldInfo->structType, addr);
+            indir = gtNewObjNode(fieldInfo.structType, addr);
         }
         else
         {
@@ -6225,8 +6226,8 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
         return indir;
     }
 
-    assert((fieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_ADDRESS) ||
-           (fieldInfo->fieldAccessor == CORINFO_FIELD_STATIC_RVA_ADDRESS));
+    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDRESS) ||
+           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_RVA_ADDRESS));
 
     void* pFldAddr = nullptr;
     void* fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, &pFldAddr);
@@ -6236,7 +6237,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
     GenTree*      addr     = nullptr;
 
-    if (((access & CORINFO_ACCESS_ADDRESS) != 0)
+    if (((accessFlags & CORINFO_ACCESS_ADDRESS) != 0)
 #ifdef TARGET_64BIT
         || (eeGetRelocTypeHint(fldAddr) != IMAGE_REL_BASED_REL32)
 #endif
@@ -6245,15 +6246,15 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
         addr = gtNewIconHandleNode(reinterpret_cast<size_t>(fldAddr), GTF_ICON_STATIC_HDL, fieldSeq);
         INDEBUG(addr->AsIntCon()->gtTargetHandle = addr->AsIntCon()->GetValue();)
 
-        if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+        if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
         {
             addr->gtFlags |= GTF_ICON_INITCLASS;
         }
     }
 
-    if ((access & CORINFO_ACCESS_ADDRESS) != 0)
+    if ((accessFlags & CORINFO_ACCESS_ADDRESS) != 0)
     {
-        if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
+        if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
         {
             addr     = gtNewOperNode(GT_IND, TYP_REF, addr);
             fieldSeq = GetFieldSeqStore()->CreateSingleton(FieldSeqStore::BoxedValuePseudoFieldHandle);
@@ -6274,7 +6275,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
     {
         indir = new (this, GT_CLS_VAR) GenTreeClsVar(GT_CLS_VAR, type, resolvedToken->hField, fieldSeq);
 
-        if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+        if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
         {
             indir->gtFlags |= GTF_CLS_VAR_INITCLASS;
         }
@@ -6282,7 +6283,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
 
     indir->gtFlags |= GTF_GLOB_REF;
 
-    if ((fieldInfo->fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
+    if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         indir->SetType(TYP_REF);
         addr = indir;
@@ -6292,7 +6293,7 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* resolvedTo
 
         if (varTypeIsStruct(type))
         {
-            indir = gtNewObjNode(fieldInfo->structType, addr);
+            indir = gtNewObjNode(fieldInfo.structType, addr);
         }
         else
         {
@@ -12168,7 +12169,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                int aflags = isLoadAddress ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
+                CORINFO_ACCESS_FLAGS accessFlags = isLoadAddress ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET;
 
                 GenTree* obj = nullptr;
                 typeInfo tiObj;
@@ -12180,12 +12181,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if (impIsThis(obj))
                     {
-                        aflags |= CORINFO_ACCESS_THIS;
+                        accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
                     }
                 }
 
                 CORINFO_FIELD_INFO fieldInfo;
-                eeGetFieldInfo(&resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo);
+                eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
 
                 lclTyp = JITtype2varType(fieldInfo.fieldType);
 
@@ -12313,22 +12314,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_STATIC_TLS:
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
-                        op1 = impTlsFieldAddr(resolvedToken.hField, fieldInfo.offset, fieldInfo.fieldFlags);
-
-                        if (!isLoadAddress)
-                        {
-                            if (varTypeIsStruct(lclTyp))
-                            {
-                                op1 = gtNewObjNode(fieldInfo.structType, op1);
-                            }
-                            else
-                            {
-                                op1 = gtNewOperNode(GT_IND, lclTyp, op1);
-                            }
-
-                            op1->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-                        }
-
+                        op1 = impImportTlsFieldAccess(resolvedToken, fieldInfo, accessFlags, lclTyp);
                         break;
 #else
                         fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
@@ -12338,14 +12324,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     case CORINFO_FIELD_STATIC_ADDR_HELPER:
                     case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo,
-                                                   lclTyp, fieldInfo.structType, nullptr);
+                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp,
+                                                   fieldInfo.structType, nullptr);
                         usesHelper = true;
                         break;
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
                         // Replace static read-only fields with constant if possible
-                        if ((aflags & CORINFO_ACCESS_GET) && (fieldInfo.fieldFlags & CORINFO_FLG_FIELD_FINAL) &&
+                        if ((accessFlags & CORINFO_ACCESS_GET) && (fieldInfo.fieldFlags & CORINFO_FLG_FIELD_FINAL) &&
                             !(fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) &&
                             (varTypeIsIntegral(lclTyp) || varTypeIsFloating(lclTyp)))
                         {
@@ -12379,13 +12365,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
-                        op1 = impImportStaticFieldAccess(&resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo,
-                                                         lclTyp);
+                        op1 = impImportStaticFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
                         break;
 
                     case CORINFO_FIELD_INTRINSIC_ZERO:
                     {
-                        assert(aflags & CORINFO_ACCESS_GET);
+                        assert(accessFlags & CORINFO_ACCESS_GET);
                         // Widen to stack type
                         lclTyp = genActualType(lclTyp);
                         op1    = gtNewIconNode(0, lclTyp);
@@ -12395,7 +12380,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     case CORINFO_FIELD_INTRINSIC_EMPTY_STRING:
                     {
-                        assert(aflags & CORINFO_ACCESS_GET);
+                        assert(accessFlags & CORINFO_ACCESS_GET);
 
                         LPVOID         pValue;
                         InfoAccessType iat = info.compCompHnd->emptyStringLiteral(&pValue);
@@ -12406,7 +12391,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     case CORINFO_FIELD_INTRINSIC_ISLITTLEENDIAN:
                     {
-                        assert(aflags & CORINFO_ACCESS_GET);
+                        assert(accessFlags & CORINFO_ACCESS_GET);
                         // Widen to stack type
                         lclTyp = genActualType(lclTyp);
 #if BIGENDIAN
@@ -12488,10 +12473,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                int       aflags = CORINFO_ACCESS_SET;
-                GenTree*  obj    = nullptr;
-                typeInfo* tiObj  = nullptr;
-                typeInfo  tiVal;
+                CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_SET;
+                GenTree*             obj         = nullptr;
+                typeInfo*            tiObj       = nullptr;
+                typeInfo             tiVal;
 
                 /* Pull the value from the stack */
                 StackEntry se = impPopStack();
@@ -12506,12 +12491,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if (impIsThis(obj))
                     {
-                        aflags |= CORINFO_ACCESS_THIS;
+                        accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_THIS);
                     }
                 }
 
                 CORINFO_FIELD_INFO fieldInfo;
-                eeGetFieldInfo(&resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo);
+                eeGetFieldInfo(&resolvedToken, accessFlags, &fieldInfo);
 
                 // Figure out the type of the member.  We always call canAccessField, so you always need this
                 // handle
@@ -12531,7 +12516,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
                         case CORINFO_FIELD_STATIC_ADDR_HELPER:
                         case CORINFO_FIELD_STATIC_TLS:
-
                             compInlineResult->NoteFatal(InlineObservation::CALLEE_STFLD_NEEDS_HELPER);
                             return;
 
@@ -12609,18 +12593,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_STATIC_TLS:
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
-                        op1 = impTlsFieldAddr(resolvedToken.hField, fieldInfo.offset, fieldInfo.fieldFlags);
-
-                        if (varTypeIsStruct(lclTyp))
-                        {
-                            op1 = gtNewObjNode(fieldInfo.structType, op1);
-                        }
-                        else
-                        {
-                            op1 = gtNewOperNode(GT_IND, lclTyp, op1);
-                        }
-
-                        op1->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+                        op1 = impImportTlsFieldAccess(resolvedToken, fieldInfo, accessFlags, lclTyp);
                         break;
 #else
                         fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
@@ -12630,8 +12603,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     case CORINFO_FIELD_STATIC_ADDR_HELPER:
                     case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo,
-                                                   lclTyp, clsHnd, op2);
+                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp, clsHnd, op2);
                         goto SPILL_APPEND;
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
@@ -12639,8 +12611,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     case CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
-                        op1 = impImportStaticFieldAccess(&resolvedToken, (CORINFO_ACCESS_FLAGS)aflags, &fieldInfo,
-                                                         lclTyp);
+                        op1 = impImportStaticFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
                         break;
 
                     default:
@@ -17069,10 +17040,13 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
 
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)
 
-GenTree* Compiler::impTlsFieldAddr(CORINFO_FIELD_HANDLE handle, unsigned offset, unsigned flags)
+GenTree* Compiler::impImportTlsFieldAccess(const CORINFO_RESOLVED_TOKEN& resolvedToken,
+                                           const CORINFO_FIELD_INFO&     fieldInfo,
+                                           CORINFO_ACCESS_FLAGS          accessFlags,
+                                           var_types                     type)
 {
     void**   pIdAddr = nullptr;
-    unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(handle, (void**)&pIdAddr);
+    unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(resolvedToken.hField, (void**)&pIdAddr);
 
     // If we can we access the TLS DLL index ID value directly
     // then pIdAddr will be NULL and
@@ -17100,7 +17074,7 @@ GenTree* Compiler::impTlsFieldAddr(CORINFO_FIELD_HANDLE handle, unsigned offset,
 
     GenTree* tlsRef = gtNewIconHandleNode(WIN32_TLS_SLOTS, GTF_ICON_TLS_HDL);
 
-    if ((flags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+    if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
     {
         tlsRef->gtFlags |= GTF_ICON_INITCLASS;
     }
@@ -17115,11 +17089,25 @@ GenTree* Compiler::impTlsFieldAddr(CORINFO_FIELD_HANDLE handle, unsigned offset,
 
     tlsRef = gtNewOperNode(GT_IND, TYP_I_IMPL, tlsRef);
 
-    if (offset != 0)
+    if (fieldInfo.offset != 0)
     {
         // Add the TLS static field offset. Don't bother recording a field sequence
         // for the field offset as it won't be recognized during value numbering.
-        tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, gtNewIconNode(offset, TYP_I_IMPL));
+        tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, gtNewIconNode(fieldInfo.offset, TYP_I_IMPL));
+    }
+
+    if ((accessFlags & CORINFO_ACCESS_ADDRESS) == 0)
+    {
+        if (varTypeIsStruct(type))
+        {
+            tlsRef = gtNewObjNode(fieldInfo.structType, tlsRef);
+        }
+        else
+        {
+            tlsRef = gtNewOperNode(GT_IND, type, tlsRef);
+        }
+
+        tlsRef->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
     }
 
     return tlsRef;
