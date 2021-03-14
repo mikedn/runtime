@@ -12355,13 +12355,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         break;
 #else
                         fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
-                        FALLTHROUGH;
-#endif
-                    case CORINFO_FIELD_STATIC_ADDR_HELPER:
                         op1 = impImportStaticFieldAccess2(&resolvedToken, fieldInfo, accessFlags, lclTyp,
                                                           fieldInfo.structType, nullptr);
                         usesHelper = true;
                         break;
+#endif
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
                     case CORINFO_FIELD_STATIC_RVA_ADDRESS:
@@ -12608,11 +12606,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         break;
 #else
                         fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
-                        FALLTHROUGH;
-#endif
-                    case CORINFO_FIELD_STATIC_ADDR_HELPER:
                         op1 = impImportStaticFieldAccess2(&resolvedToken, fieldInfo, accessFlags, lclTyp, clsHnd, op2);
                         goto SPILL_APPEND;
+#endif
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
                     case CORINFO_FIELD_STATIC_RVA_ADDRESS:
