@@ -6213,6 +6213,20 @@ GenTree* Compiler::impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolved
     // We should always be able to access this static's address directly
     assert(pFldAddr == nullptr);
 
+    // Replace static read-only fields with constant if possible
+    if (((accessFlags & CORINFO_ACCESS_GET) != 0) && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_FINAL) != 0) &&
+        ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) == 0) &&
+        (varTypeIsIntegral(type) || varTypeIsFloating(type)))
+    {
+        CorInfoInitClassResult initClassResult =
+            info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
+
+        if ((initClassResult & CORINFO_INITCLASS_INITIALIZED) != 0)
+        {
+            return impImportStaticReadOnlyField(fldAddr, type);
+        }
+    }
+
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
     GenTree*      addr     = nullptr;
 
@@ -12309,37 +12323,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         break;
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
-                        // Replace static read-only fields with constant if possible
-                        if ((accessFlags & CORINFO_ACCESS_GET) && (fieldInfo.fieldFlags & CORINFO_FLG_FIELD_FINAL) &&
-                            !(fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) &&
-                            (varTypeIsIntegral(lclTyp) || varTypeIsFloating(lclTyp)))
-                        {
-                            CorInfoInitClassResult initClassResult =
-                                info.compCompHnd->initClass(resolvedToken.hField, info.compMethodHnd,
-                                                            impTokenLookupContextHandle);
-
-                            if (initClassResult & CORINFO_INITCLASS_INITIALIZED)
-                            {
-                                void** pFldAddr = nullptr;
-                                void*  fldAddr =
-                                    info.compCompHnd->getFieldAddress(resolvedToken.hField, (void**)&pFldAddr);
-
-                                // We should always be able to access this static's address directly
-                                assert(pFldAddr == nullptr);
-
-                                op1 = impImportStaticReadOnlyField(fldAddr, lclTyp);
-
-                                goto FIELD_DONE;
-                            }
-                        }
-
-                        FALLTHROUGH;
-
                     case CORINFO_FIELD_STATIC_RVA_ADDRESS:
                     case CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER:
                     case CORINFO_FIELD_STATIC_READYTORUN_HELPER:
                         op1 = impImportStaticFieldAccess(&resolvedToken, fieldInfo, accessFlags, lclTyp);
+                        if (((accessFlags & CORINFO_ACCESS_GET) != 0) && op1->OperIsConst())
+                        {
+                            goto FIELD_DONE;
+                        }
                         break;
 
                     case CORINFO_FIELD_INTRINSIC_ZERO:
