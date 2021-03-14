@@ -1425,18 +1425,9 @@ AGAIN:
                 break;
             }
 
-            op1 = op1->AsField()->gtFldObj;
-            op2 = op2->AsField()->gtFldObj;
-
-            if (op1 || op2)
-            {
-                if (op1 && op2)
-                {
-                    goto AGAIN;
-                }
-            }
-
-            return true;
+            op1 = op1->AsField()->GetAddr();
+            op2 = op2->AsField()->GetAddr();
+            goto AGAIN;
 
         case GT_CALL:
             return GenTreeCall::Equals(op1->AsCall(), op2->AsCall());
@@ -1614,12 +1605,8 @@ AGAIN:
                 return true;
             }
 
-            tree = tree->AsField()->gtFldObj;
-            if (tree)
-            {
-                goto AGAIN;
-            }
-            break;
+            tree = tree->AsField()->GetAddr();
+            goto AGAIN;
 
         case GT_CALL:
             if (tree->AsCall()->gtCallThisArg != nullptr)
@@ -2075,12 +2062,7 @@ AGAIN:
     switch (tree->gtOper)
     {
         case GT_FIELD:
-            if (tree->AsField()->gtFldObj)
-            {
-                temp = tree->AsField()->gtFldObj;
-                assert(temp);
-                hash = genTreeHashAdd(hash, gtHashValue(temp));
-            }
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsField()->GetAddr()));
             break;
 
         case GT_ARR_ELEM:
@@ -5097,16 +5079,7 @@ bool GenTree::OperMayThrow(Compiler* comp)
             return comp->fgAddrCouldBeNull(this->AsArrElem()->gtArrObj);
 
         case GT_FIELD:
-        {
-            GenTree* fldObj = this->AsField()->gtFldObj;
-
-            if (fldObj != nullptr)
-            {
-                return comp->fgAddrCouldBeNull(fldObj);
-            }
-
-            return false;
-        }
+            return comp->fgAddrCouldBeNull(AsField()->GetAddr());
 
         case GT_ARR_BOUNDS_CHECK:
         case GT_ARR_INDEX:
@@ -6373,16 +6346,11 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
 
             if (GenTreeField* field = tree->IsField())
             {
-                GenTree* addr = field->GetAddr();
+                GenTree* addr = gtClone(field->GetAddr(), false);
 
-                if (addr != nullptr)
+                if (addr == nullptr)
                 {
-                    addr = gtClone(addr, false);
-
-                    if (addr == nullptr)
-                    {
-                        return nullptr;
-                    }
+                    return nullptr;
                 }
 
                 copy = new (this, GT_FIELD) GenTreeField(field);
@@ -6786,10 +6754,7 @@ GenTree* Compiler::gtCloneExpr(
 
         case GT_FIELD:
             copy = new (this, GT_FIELD) GenTreeField(tree->AsField());
-            if (GenTree* addr = tree->AsField()->GetAddr())
-            {
-                copy->AsField()->SetAddr(gtCloneExpr(addr, addFlags, deepVarNum, deepVarVal));
-            }
+            copy->AsField()->SetAddr(gtCloneExpr(tree->AsField()->GetAddr(), addFlags, deepVarNum, deepVarVal));
             break;
 
         case GT_ARR_ELEM:
@@ -7627,15 +7592,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         case GT_FIELD:
-            if (m_node->AsField()->gtFldObj == nullptr)
-            {
-                m_state = -1;
-            }
-            else
-            {
-                m_edge    = &m_node->AsField()->gtFldObj;
-                m_advance = &GenTreeUseEdgeIterator::Terminate;
-            }
+            m_edge    = &m_node->AsField()->gtFldObj;
+            m_advance = &GenTreeUseEdgeIterator::Terminate;
             return;
 
         case GT_ARR_ELEM:
@@ -10161,9 +10119,9 @@ void Compiler::gtDispTree(GenTree*     tree,
 
             gtDispCommonEndLine(tree);
 
-            if (tree->AsField()->gtFldObj && !topOnly)
+            if (!topOnly)
             {
-                gtDispChild(tree->AsField()->gtFldObj, indentStack, IIArcBottom);
+                gtDispChild(tree->AsField()->GetAddr(), indentStack, IIArcBottom);
             }
 
             break;
@@ -16070,65 +16028,79 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
         case GT_IND:
         {
-            GenTreeIndir* indir = obj->AsIndir();
+            GenTree*             addr = obj->AsIndir()->GetAddr();
+            GenTreeLclVarCommon* lcl  = addr->IsLocalAddrExpr();
 
-            if (indir->HasBase() && !indir->HasIndex())
+            if ((lcl != nullptr) && (addr->OperGet() != GT_ADD))
             {
                 // indir(addr(lcl)) --> lcl
                 //
                 // This comes up during constrained callvirt on ref types.
 
-                GenTree*             base = indir->Base();
-                GenTreeLclVarCommon* lcl  = base->IsLocalAddrExpr();
+                const unsigned objLcl = lcl->GetLclNum();
+                objClass              = lvaTable[objLcl].lvClassHnd;
+                *pIsExact             = lvaTable[objLcl].lvClassIsExact;
+            }
+            else if (addr->OperGet() == GT_ARR_ELEM)
+            {
+                // indir(arr_elem(...)) -> array element type
 
-                if ((lcl != nullptr) && (base->OperGet() != GT_ADD))
+                GenTree* array = addr->AsArrElem()->gtArrObj;
+
+                objClass    = gtGetArrayElementClassHandle(array);
+                *pIsExact   = false;
+                *pIsNonNull = false;
+            }
+            else if (addr->OperGet() == GT_ADD)
+            {
+                // This could be a static field access.
+                //
+                // See if op1 is a static field base helper call
+                // and if so, op2 will have the field info.
+                GenTree* op1 = addr->AsOp()->gtOp1;
+                GenTree* op2 = addr->AsOp()->gtOp2;
+
+                const bool op1IsStaticFieldBase = gtIsStaticGCBaseHelperCall(op1);
+
+                if (op1IsStaticFieldBase && op2->IsIntCon())
                 {
-                    const unsigned objLcl = lcl->GetLclNum();
-                    objClass              = lvaTable[objLcl].lvClassHnd;
-                    *pIsExact             = lvaTable[objLcl].lvClassIsExact;
-                }
-                else if (base->OperGet() == GT_ARR_ELEM)
-                {
-                    // indir(arr_elem(...)) -> array element type
+                    FieldSeqNode* fieldSeq = op2->AsIntCon()->GetFieldSeq();
 
-                    GenTree* array = base->AsArrElem()->gtArrObj;
-
-                    objClass    = gtGetArrayElementClassHandle(array);
-                    *pIsExact   = false;
-                    *pIsNonNull = false;
-                }
-                else if (base->OperGet() == GT_ADD)
-                {
-                    // This could be a static field access.
-                    //
-                    // See if op1 is a static field base helper call
-                    // and if so, op2 will have the field info.
-                    GenTree* op1 = base->AsOp()->gtOp1;
-                    GenTree* op2 = base->AsOp()->gtOp2;
-
-                    const bool op1IsStaticFieldBase = gtIsStaticGCBaseHelperCall(op1);
-
-                    if (op1IsStaticFieldBase && op2->IsIntCon())
+                    if ((fieldSeq != nullptr) && !fieldSeq->IsArrayElement())
                     {
-                        FieldSeqNode* fieldSeq = op2->AsIntCon()->GetFieldSeq();
+                        fieldSeq = fieldSeq->GetTail();
 
-                        if ((fieldSeq != nullptr) && !fieldSeq->IsArrayElement())
-                        {
-                            fieldSeq = fieldSeq->GetTail();
+                        // No benefit to calling gtGetFieldClassHandle here, as
+                        // the exact field being accessed can vary.
+                        CORINFO_FIELD_HANDLE fieldHnd     = fieldSeq->GetFieldHandle();
+                        CORINFO_CLASS_HANDLE fieldClass   = nullptr;
+                        CorInfoType          fieldCorType = info.compCompHnd->getFieldType(fieldHnd, &fieldClass);
 
-                            // No benefit to calling gtGetFieldClassHandle here, as
-                            // the exact field being accessed can vary.
-                            CORINFO_FIELD_HANDLE fieldHnd     = fieldSeq->GetFieldHandle();
-                            CORINFO_CLASS_HANDLE fieldClass   = nullptr;
-                            CorInfoType          fieldCorType = info.compCompHnd->getFieldType(fieldHnd, &fieldClass);
-
-                            assert(fieldCorType == CORINFO_TYPE_CLASS);
-                            objClass = fieldClass;
-                        }
+                        assert(fieldCorType == CORINFO_TYPE_CLASS);
+                        objClass = fieldClass;
                     }
                 }
             }
+            else if (GenTreeIntCon* icon = addr->IsIntCon())
+            {
+                FieldSeqNode* fieldSeq = icon->GetFieldSeq();
 
+                if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                {
+                    CORINFO_FIELD_HANDLE fieldHandle = fieldSeq->GetFieldHandle();
+                    assert(info.compCompHnd->isFieldStatic(fieldHandle));
+                    objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
+                }
+            }
+
+            break;
+        }
+
+        case GT_CLS_VAR:
+        {
+            CORINFO_FIELD_HANDLE fieldHandle = obj->AsClsVar()->GetFieldHandle();
+            assert(info.compCompHnd->isFieldStatic(fieldHandle));
+            objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
             break;
         }
 

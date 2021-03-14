@@ -4930,13 +4930,6 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     GenTree* addr;
     objIsLocal = objRef->IsLocal();
 
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-    if ((tree->gtFlags & GTF_FLD_TLS_REF) != 0)
-    {
-        NO_WAY("instance field can not be a TLS ref.");
-    }
-#endif
-
     /* We'll create the expression "*(objRef + mem_offs)" */
 
     noway_assert(varTypeIsGC(objRef->TypeGet()) || objRef->TypeGet() == TYP_I_IMPL);
@@ -5218,158 +5211,6 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 #endif
 
     return result;
-}
-
-GenTree* Compiler::fgMorphStaticField(GenTreeField* field, MorphAddrContext* mac)
-{
-    assert(field->gtFldObj == nullptr);
-
-    CORINFO_FIELD_HANDLE fldHandle = field->GetFieldHandle();
-    unsigned             fldOffset = field->GetOffset();
-
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-    if ((field->gtFlags & GTF_FLD_TLS_REF) != 0)
-    {
-        field->gtFlags &= ~GTF_FLD_TLS_REF;
-
-        // Thread Local Storage static field reference
-        //
-        // Field ref is a TLS 'Thread-Local-Storage' reference
-        //
-        // Build this tree:  IND(*) #
-        //                    |
-        //                   ADD(I_IMPL)
-        //                   / \.
-        //                  /  CNS(fldOffset)
-        //                 /
-        //                /
-        //               /
-        //             IND(I_IMPL) == [Base of this DLL's TLS]
-        //              |
-        //             ADD(I_IMPL)
-        //             / \.
-        //            /   CNS(IdValue*4) or MUL
-        //           /                      / \.
-        //          IND(I_IMPL)            /  CNS(4)
-        //           |                    /
-        //          CNS(TLS_HDL,0x2C)    IND
-        //                                |
-        //                               CNS(pIdAddr)
-        //
-        // # Denotes the orginal node
-        //
-        void**   pIdAddr = nullptr;
-        unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(fldHandle, (void**)&pIdAddr);
-
-        //
-        // If we can we access the TLS DLL index ID value directly
-        // then pIdAddr will be NULL and
-        //      IdValue will be the actual TLS DLL index ID
-        //
-        GenTree* dllRef = nullptr;
-        if (pIdAddr == nullptr)
-        {
-            if (IdValue != 0)
-            {
-                dllRef = gtNewIconNode(IdValue * 4, TYP_I_IMPL);
-            }
-        }
-        else
-        {
-            dllRef = gtNewIndOfIconHandleNode(TYP_I_IMPL, (size_t)pIdAddr, GTF_ICON_CONST_PTR, true);
-
-            // Next we multiply by 4
-            dllRef = gtNewOperNode(GT_MUL, TYP_I_IMPL, dllRef, gtNewIconNode(4, TYP_I_IMPL));
-        }
-
-#define WIN32_TLS_SLOTS (0x2C) // Offset from fs:[0] where the pointer to the slots resides
-
-        // Mark this ICON as a TLS_HDL, codegen will use FS:[cns]
-
-        GenTree* tlsRef = gtNewIconHandleNode(WIN32_TLS_SLOTS, GTF_ICON_TLS_HDL);
-
-        // Translate GTF_FLD_INITCLASS to GTF_ICON_INITCLASS
-        if ((field->gtFlags & GTF_FLD_INITCLASS) != 0)
-        {
-            field->gtFlags &= ~GTF_FLD_INITCLASS;
-            tlsRef->gtFlags |= GTF_ICON_INITCLASS;
-        }
-
-        tlsRef = gtNewOperNode(GT_IND, TYP_I_IMPL, tlsRef);
-        tlsRef->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
-
-        if (dllRef != nullptr)
-        {
-            /* Add the dllRef */
-            tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, dllRef);
-        }
-
-        /* indirect to have tlsRef point at the base of the DLLs Thread Local Storage */
-        tlsRef = gtNewOperNode(GT_IND, TYP_I_IMPL, tlsRef);
-
-        if (fldOffset != 0)
-        {
-            // Add the TLS static field offset. Don't bother recording a field sequence
-            // for the field offset as it won't be recognized during value numbering.
-            tlsRef = gtNewOperNode(GT_ADD, TYP_I_IMPL, tlsRef, gtNewIconNode(fldOffset, TYP_I_IMPL));
-        }
-
-        // Final indirect to get to actual value of TLS static field
-
-        field->SetOper(GT_IND);
-        field->AsIndir()->SetAddr(tlsRef);
-
-        return fgMorphSmpOp(field, mac);
-    }
-#endif // TARGET_X86 && TARGET_WINDOWS
-
-    // Normal static field reference
-
-    //
-    // If we can we access the static's address directly
-    // then pFldAddr will be NULL and
-    //      fldAddr will be the actual address of the static field
-    //
-    void** pFldAddr = nullptr;
-    void*  fldAddr  = info.compCompHnd->getFieldAddress(fldHandle, (void**)&pFldAddr);
-
-    // We should always be able to access this static field address directly
-    //
-    assert(pFldAddr == nullptr);
-
-    FieldSeqNode* fldSeq = GetFieldSeqStore()->CreateSingleton(fldHandle);
-
-#ifdef TARGET_64BIT
-    if (IMAGE_REL_BASED_REL32 != eeGetRelocTypeHint(fldAddr))
-    {
-        // The address is not directly addressible, so force it into a
-        // constant, so we handle it properly
-
-        GenTree* addr = gtNewIconHandleNode((size_t)fldAddr, GTF_ICON_STATIC_HDL, fldSeq);
-
-        // Translate GTF_FLD_INITCLASS to GTF_ICON_INITCLASS
-        if ((field->gtFlags & GTF_FLD_INITCLASS) != 0)
-        {
-            field->gtFlags &= ~GTF_FLD_INITCLASS;
-            addr->gtFlags |= GTF_ICON_INITCLASS;
-        }
-
-        field->SetOper(GT_IND);
-        field->AsIndir()->SetAddr(addr);
-
-        return fgMorphSmpOp(field);
-    }
-#endif // TARGET_64BIT
-
-    // Only volatile or classinit could be set, and they map over
-    noway_assert((field->gtFlags & ~(GTF_FLD_VOLATILE | GTF_FLD_INITCLASS | GTF_COMMON_MASK)) == 0);
-    static_assert_no_msg(GTF_FLD_VOLATILE == GTF_CLS_VAR_VOLATILE);
-    static_assert_no_msg(GTF_FLD_INITCLASS == GTF_CLS_VAR_INITCLASS);
-
-    field->SetOper(GT_CLS_VAR);
-    field->AsClsVar()->SetFieldHandle(fldHandle, fldSeq);
-
-    return field;
 }
 
 //------------------------------------------------------------------------
@@ -13570,14 +13411,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
     switch (tree->OperGet())
     {
         case GT_FIELD:
-            if (tree->AsField()->gtFldObj == nullptr)
-            {
-                tree = fgMorphStaticField(tree->AsField(), mac);
-            }
-            else
-            {
-                tree = fgMorphField(tree, mac);
-            }
+            tree = fgMorphField(tree, mac);
             break;
 
         case GT_CALL:

@@ -3115,18 +3115,21 @@ protected:
 
     GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
 
-    GenTree* impImportFieldAccess(GenTree*                objPtr,
-                                  CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                  CORINFO_ACCESS_FLAGS    access,
-                                  CORINFO_FIELD_INFO*     pFieldInfo,
-                                  var_types               lclTyp,
-                                  CORINFO_CLASS_HANDLE    structType,
-                                  GenTree*                assg);
+    GenTree* impImportFieldAccess(GenTree*                  objPtr,
+                                  CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                  const CORINFO_FIELD_INFO& fieldInfo,
+                                  CORINFO_ACCESS_FLAGS      accessFlags,
+                                  var_types                 type,
+                                  CORINFO_CLASS_HANDLE      structType);
 
-    GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                        CORINFO_ACCESS_FLAGS    access,
-                                        CORINFO_FIELD_INFO*     pFieldInfo,
-                                        var_types               lclTyp);
+    GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                               const CORINFO_FIELD_INFO& fieldInfo,
+                                               CORINFO_ACCESS_FLAGS      accessFlags);
+
+    GenTree* impImportStaticFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                        const CORINFO_FIELD_INFO& fieldInfo,
+                                        CORINFO_ACCESS_FLAGS      accessFlags,
+                                        var_types                 type);
 
     static void impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 = nullptr);
 
@@ -3566,6 +3569,11 @@ private:
     GenTree* impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile);
 
     GenTree* impImportPop(BasicBlock* block);
+
+    GenTree* impImportTlsFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                     const CORINFO_FIELD_INFO& fieldInfo,
+                                     CORINFO_ACCESS_FLAGS      accessFlags,
+                                     var_types                 type);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -4843,7 +4851,6 @@ public:
 
 private:
     GenTree* fgMorphField(GenTree* tree, MorphAddrContext* mac);
-    GenTree* fgMorphStaticField(GenTreeField* field, MorphAddrContext* mac);
     bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
 #if FEATURE_FASTTAILCALL
     bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
@@ -9773,19 +9780,12 @@ public:
             }
 
             case GT_FIELD:
-            {
-                GenTreeField* const field = node->AsField();
-
-                if (field->gtFldObj != nullptr)
+                result = WalkTree(&node->AsField()->gtFldObj, node);
+                if (result == fgWalkResult::WALK_ABORT)
                 {
-                    result = WalkTree(&field->gtFldObj, field);
-                    if (result == fgWalkResult::WALK_ABORT)
-                    {
-                        return result;
-                    }
+                    return result;
                 }
                 break;
-            }
 
             case GT_ARR_ELEM:
             {

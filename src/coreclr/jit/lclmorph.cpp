@@ -464,24 +464,17 @@ public:
                 break;
 
             case GT_FIELD:
-                if (node->AsField()->gtFldObj != nullptr)
-                {
-                    assert(TopValue(1).Node() == node);
-                    assert(TopValue(0).Node() == node->AsField()->gtFldObj);
+                assert(TopValue(1).Node() == node);
+                assert(TopValue(0).Node() == node->AsField()->gtFldObj);
 
-                    if (!TopValue(1).Field(TopValue(0), node->AsField(), m_compiler->GetFieldSeqStore()))
-                    {
-                        // Either the address comes from a location value (e.g. FIELD(IND(...)))
-                        // or the field offset has overflowed.
-                        EscapeValue(TopValue(0), node);
-                    }
-
-                    PopValue();
-                }
-                else
+                if (!TopValue(1).Field(TopValue(0), node->AsField(), m_compiler->GetFieldSeqStore()))
                 {
-                    assert(TopValue(0).Node() == node);
+                    // Either the address comes from a location value (e.g. FIELD(IND(...)))
+                    // or the field offset has overflowed.
+                    EscapeValue(TopValue(0), node);
                 }
+
+                PopValue();
                 break;
 
             case GT_OBJ:
@@ -1457,7 +1450,7 @@ private:
     {
         GenTreeField* field = node->AsField();
 
-        if ((field->gtFldObj == nullptr) || !field->gtFldObj->OperIs(GT_ADDR))
+        if (!field->GetAddr()->OperIs(GT_ADDR))
         {
             return;
         }

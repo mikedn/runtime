@@ -895,11 +895,7 @@ public:
 
 #define GTF_MEMORYBARRIER_LOAD      0x40000000 // GT_MEMORYBARRIER -- Load barrier
 
-#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
-#define GTF_FLD_TLS_REF             0x08000000 // GT_FIELD            -- the target is accessed via TLS
-#endif
 #define GTF_FLD_VOLATILE            0x40000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
-#define GTF_FLD_INITCLASS           0x20000000 // GT_FIELD/GT_CLS_VAR -- field access requires preceding class/static init helper
 
 #define GTF_INX_RNGCHK              0x80000000 // GT_INDEX/GT_INDEX_ADDR -- the array reference should be range-checked.
 
@@ -926,7 +922,7 @@ public:
      GTF_IND_UNALIGNED | GTF_IND_INVARIANT | GTF_IND_ARR_INDEX | GTF_IND_TGT_NOT_HEAP)
 
 #define GTF_CLS_VAR_VOLATILE        0x40000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
-#define GTF_CLS_VAR_INITCLASS       0x20000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_FLD_INITCLASS
+#define GTF_CLS_VAR_INITCLASS       0x20000000 // GT_CLS_VAR
 #define GTF_CLS_VAR_ASG_LHS         0x04000000 // GT_CLS_VAR   -- this GT_CLS_VAR node is (the effective val) of the LHS
                                                //                 of an assignment; don't evaluate it independently.
 
@@ -3628,9 +3624,9 @@ private:
 #endif
 
 public:
-    GenTreeField(var_types type, GenTree* obj, CORINFO_FIELD_HANDLE fldHnd, DWORD offs)
+    GenTreeField(var_types type, GenTree* addr, CORINFO_FIELD_HANDLE fldHnd, DWORD offs)
         : GenTree(GT_FIELD, type)
-        , gtFldObj(obj)
+        , gtFldObj(addr)
         , gtFldHnd(fldHnd)
         , gtFldOffset(offs)
         , gtFldMayOverlap(false)
@@ -3638,11 +3634,8 @@ public:
         , m_r2rFieldLookupAddr(nullptr)
 #endif
     {
-        if (obj != nullptr)
-        {
-            assert(obj->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
-            gtFlags |= (obj->gtFlags & GTF_ALL_EFFECT);
-        }
+        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+        gtFlags |= addr->GetSideEffects();
     }
 
     GenTreeField(const GenTreeField* copyFrom)
@@ -3664,7 +3657,7 @@ public:
 
     void SetAddr(GenTree* addr)
     {
-        assert((addr == nullptr) || addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
+        assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF, TYP_REF));
         gtFldObj = addr;
     }
 
@@ -7072,11 +7065,10 @@ private:
     FieldSeqNode* m_fieldSeq;
 
 public:
-    GenTreeClsVar(genTreeOps oper, CORINFO_FIELD_HANDLE fieldHandle)
-        : GenTree(oper, TYP_I_IMPL), gtClsVarHnd(fieldHandle), m_fieldSeq(nullptr)
+    GenTreeClsVar(genTreeOps oper, var_types type, CORINFO_FIELD_HANDLE fieldHandle, FieldSeqNode* fieldSeq = nullptr)
+        : GenTree(oper, type), gtClsVarHnd(fieldHandle), m_fieldSeq(fieldSeq)
     {
-        // Currently this used only to create GT_CLS_VAR_ADDR nodes in LIR.
-        assert(oper == GT_CLS_VAR_ADDR);
+        assert((oper == GT_CLS_VAR_ADDR) || (oper == GT_CLS_VAR));
     }
 
     GenTreeClsVar(const GenTreeClsVar* copyFrom)
