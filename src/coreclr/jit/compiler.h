@@ -3120,8 +3120,7 @@ protected:
                                   const CORINFO_FIELD_INFO& fieldInfo,
                                   CORINFO_ACCESS_FLAGS      accessFlags,
                                   var_types                 type,
-                                  CORINFO_CLASS_HANDLE      structType,
-                                  GenTree*                  storeValue);
+                                  CORINFO_CLASS_HANDLE      structType);
 
     GenTree* impImportStaticFieldAddressHelper(CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                                const CORINFO_FIELD_INFO& fieldInfo,
