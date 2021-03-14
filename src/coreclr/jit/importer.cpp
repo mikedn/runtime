@@ -6007,11 +6007,9 @@ GenTree* Compiler::impImportFieldAccess(GenTree*                  objPtr,
                                         CORINFO_CLASS_HANDLE      structType,
                                         GenTree*                  storeValue)
 {
-    assert(((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER) &&
-            (fieldInfo.helper == CORINFO_HELP_GETFIELDADDR)) ||
-           ((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) &&
-            (fieldInfo.helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS)));
-    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) == (objPtr == nullptr));
+    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER) &&
+           (fieldInfo.helper == CORINFO_HELP_GETFIELDADDR));
+    assert(objPtr != nullptr);
 
     GenTree* fieldHnd = impTokenToHandle(resolvedToken);
     if (fieldHnd == nullptr)
@@ -6020,14 +6018,55 @@ GenTree* Compiler::impImportFieldAccess(GenTree*                  objPtr,
         return nullptr;
     }
 
-    GenTreeCall::Use* args = gtNewCallArgs(fieldHnd);
+    GenTree* result = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(objPtr, fieldHnd));
 
-    if (objPtr != nullptr)
+    if ((accessFlags & CORINFO_ACCESS_GET) != 0)
     {
-        args = gtPrependNewCallArg(objPtr, args);
+        if (varTypeIsStruct(type))
+        {
+            result = gtNewObjNode(structType, result);
+        }
+        else
+        {
+            result = gtNewOperNode(GT_IND, type, result);
+        }
+        result->gtFlags |= (GTF_EXCEPT | GTF_GLOB_REF);
+    }
+    else if ((accessFlags & CORINFO_ACCESS_SET) != 0)
+    {
+        if (varTypeIsStruct(type))
+        {
+            result = impAssignStructPtr(result, storeValue, structType, CHECK_SPILL_ALL);
+        }
+        else
+        {
+            result = gtNewOperNode(GT_IND, type, result);
+            result->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+            result = gtNewAssignNode(result, storeValue);
+        }
     }
 
-    GenTree* result = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, args);
+    return result;
+}
+
+GenTree* Compiler::impImportStaticFieldAccess2(CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                               const CORINFO_FIELD_INFO& fieldInfo,
+                                               CORINFO_ACCESS_FLAGS      accessFlags,
+                                               var_types                 type,
+                                               CORINFO_CLASS_HANDLE      structType,
+                                               GenTree*                  storeValue)
+{
+    assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDR_HELPER) &&
+           (fieldInfo.helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS));
+
+    GenTree* fieldHnd = impTokenToHandle(resolvedToken);
+    if (fieldHnd == nullptr)
+    {
+        assert(compDonotInline());
+        return nullptr;
+    }
+
+    GenTree* result = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(fieldHnd));
 
     if ((accessFlags & CORINFO_ACCESS_GET) != 0)
     {
@@ -12191,7 +12230,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
                         case CORINFO_FIELD_STATIC_ADDR_HELPER:
                         case CORINFO_FIELD_STATIC_TLS:
-
                             compInlineResult->NoteFatal(InlineObservation::CALLEE_LDFLD_NEEDS_HELPER);
                             return;
 
@@ -12304,6 +12342,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     break;
 
+                    case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
+                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp,
+                                                   fieldInfo.structType, nullptr);
+                        usesHelper = true;
+                        break;
+
                     case CORINFO_FIELD_STATIC_TLS:
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
@@ -12311,14 +12355,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         break;
 #else
                         fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
-
                         FALLTHROUGH;
 #endif
-
                     case CORINFO_FIELD_STATIC_ADDR_HELPER:
-                    case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp,
-                                                   fieldInfo.structType, nullptr);
+                        op1 = impImportStaticFieldAccess2(&resolvedToken, fieldInfo, accessFlags, lclTyp,
+                                                          fieldInfo.structType, nullptr);
                         usesHelper = true;
                         break;
 
@@ -12556,6 +12597,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     break;
 
+                    case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
+                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp, clsHnd, op2);
+                        goto SPILL_APPEND;
+
                     case CORINFO_FIELD_STATIC_TLS:
 #if defined(TARGET_X86) && defined(TARGET_WINDOWS)
                         // Legacy TLS access is implemented as intrinsic on x86 only
@@ -12563,13 +12608,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         break;
 #else
                         fieldInfo.fieldAccessor = CORINFO_FIELD_STATIC_ADDR_HELPER;
-
                         FALLTHROUGH;
 #endif
-
                     case CORINFO_FIELD_STATIC_ADDR_HELPER:
-                    case CORINFO_FIELD_INSTANCE_ADDR_HELPER:
-                        op1 = impImportFieldAccess(obj, &resolvedToken, fieldInfo, accessFlags, lclTyp, clsHnd, op2);
+                        op1 = impImportStaticFieldAccess2(&resolvedToken, fieldInfo, accessFlags, lclTyp, clsHnd, op2);
                         goto SPILL_APPEND;
 
                     case CORINFO_FIELD_STATIC_ADDRESS:
