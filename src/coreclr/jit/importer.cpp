@@ -6012,13 +6012,7 @@ GenTree* Compiler::impImportFieldAccess(GenTree*                  objPtr,
     assert(objPtr != nullptr);
 
     GenTree* fieldHnd = impTokenToHandle(resolvedToken);
-    if (fieldHnd == nullptr)
-    {
-        assert(compDonotInline());
-        return nullptr;
-    }
-
-    GenTree* result = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(objPtr, fieldHnd));
+    GenTree* result   = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(objPtr, fieldHnd));
 
     if ((accessFlags & CORINFO_ACCESS_GET) != 0)
     {
@@ -16988,13 +16982,7 @@ GenTree* Compiler::impImportTlsFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedTok
     assert(fieldInfo.helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS);
 
     GenTree* fieldHnd = impTokenToHandle(resolvedToken);
-    if (fieldHnd == nullptr)
-    {
-        assert(compDonotInline());
-        return nullptr;
-    }
-
-    GenTree* addr = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(fieldHnd));
+    GenTree* addr     = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(fieldHnd));
 #else
     void**   pIdAddr = nullptr;
     unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(resolvedToken->hField, (void**)&pIdAddr);
