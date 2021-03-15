@@ -468,14 +468,12 @@ void Compiler::optAddCopies()
 
             /* Change the tree to a GT_COMMA with the two assignments as child nodes */
 
-            tree->gtBashToNOP();
             tree->ChangeOper(GT_COMMA);
-
-            tree->AsOp()->gtOp1 = newAsgn;
-            tree->AsOp()->gtOp2 = copyAsgn;
-
-            tree->gtFlags |= (newAsgn->gtFlags & GTF_ALL_EFFECT);
-            tree->gtFlags |= (copyAsgn->gtFlags & GTF_ALL_EFFECT);
+            tree->AsOp()->SetOp(0, newAsgn);
+            tree->AsOp()->SetOp(1, copyAsgn);
+            tree->SetType(TYP_VOID);
+            tree->SetSideEffects(newAsgn->GetSideEffects() | copyAsgn->GetSideEffects());
+            tree->gtFlags &= ~GTF_REVERSE_OPS;
         }
 
         JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", lclNum);
