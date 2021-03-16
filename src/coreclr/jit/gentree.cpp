@@ -16661,9 +16661,26 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
         return;
     }
 
-    // It really should be a value class but we may also get a primitive type
-    // due to the normed type mess.
-    // assert(t == CORINFO_TYPE_VALUECLASS);
+    // It really should be a value class but we may also get a primitive type due
+    // to the normed type mess. It's also possible do end up attempting to access
+    // the value field of a primtive struct (Int32, Double etc.) via the primitive
+    // type itself, e.g. by calling GetHashCode on a Nullable<double> local.
+    // Double.GetHashCode is inlined and due to inliner arg substitution we end up
+    // with something like:
+    //   ADDR(FIELD.double Double.m_value (ADDR(FIELD.double Nullable.value))))
+    //
+    // TODO-MIKE-Cleanup: Probably the importer should detect and discard the
+    // redundant FIELD node.
+    // At least in the Double.GetHashCode case this doesn't seem to have any ill
+    // side effects - either the Nullable<Double> local is promoted and then the
+    // whole thing is replaced with a LCL_VAR or it is not promoted and then we
+    // get a LCL_FLD with NotAField field sequence because GetHashCode actually
+    // reinterprets the double value as long.
+
+    if (t != CORINFO_TYPE_VALUECLASS)
+    {
+        return;
+    }
 
     // In theory the below check should be just
     //     assert(vm->getFieldClass(b->m_fieldHnd) != fieldClass)
