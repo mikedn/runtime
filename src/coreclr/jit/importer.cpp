@@ -10530,7 +10530,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    op2 = impImplicitR4orR8Cast(op2, op1->GetType());
+                    op2 = impImplicitR4orR8Cast(op2, lclTyp);
                     op2 = impImplicitIorI4Cast(op2, lclTyp);
 
                     op1 = gtNewAssignNode(op1, op2);
