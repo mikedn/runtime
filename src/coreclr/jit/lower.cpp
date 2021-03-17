@@ -3241,14 +3241,12 @@ void Lowering::LowerCallStruct(GenTreeCall* call)
 void Lowering::LowerStoreSingleRegCallStruct(GenTreeObj* store)
 {
     assert(varTypeIsStruct(store->GetType()));
-    assert(store->Data()->IsCall());
-    GenTreeCall* call = store->Data()->AsCall();
-    assert(!call->HasMultiRegRetVal());
 
-    ClassLayout* layout  = store->GetLayout();
-    var_types    regType = layout->GetRegisterType();
+    GenTreeCall* call = store->GetValue()->AsCall();
+    assert(call->GetRegCount() == 1);
+    var_types regType = call->GetRegType(0);
 
-    if (regType != TYP_UNDEF)
+    if (varTypeSize(regType) <= store->GetLayout()->GetSize())
     {
         store->SetType(regType);
         store->SetOper(GT_STOREIND);
