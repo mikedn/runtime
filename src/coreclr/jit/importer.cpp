@@ -11374,29 +11374,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impBashVarAddrsToI(op1, op2);
 
                 op2 = impImplicitR4orR8Cast(op2, lclTyp);
-
-#ifdef TARGET_64BIT
-                // Automatic upcast for a GT_CNS_INT into TYP_I_IMPL
-                if ((op2->OperGet() == GT_CNS_INT) && varTypeIsI(lclTyp) && !varTypeIsI(op2->gtType))
-                {
-                    op2->gtType = TYP_I_IMPL;
-                }
-                else
-                {
-                    // Allow a downcast of op2 from TYP_I_IMPL into a 32-bit Int for x86 JIT compatiblity
-                    //
-                    if (varTypeIsI(op2->gtType) && (genActualType(lclTyp) == TYP_INT))
-                    {
-                        op2 = gtNewCastNode(TYP_INT, op2, false, TYP_INT);
-                    }
-                    // Allow an upcast of op2 from a 32-bit Int into TYP_I_IMPL for x86 JIT compatiblity
-                    //
-                    if (varTypeIsI(lclTyp) && (genActualType(op2->gtType) == TYP_INT))
-                    {
-                        op2 = gtNewCastNode(TYP_I_IMPL, op2, false, TYP_I_IMPL);
-                    }
-                }
-#endif // TARGET_64BIT
+                op2 = impImplicitIorI4Cast(op2, lclTyp);
 
                 if ((lclTyp == TYP_REF) && !op2->TypeIs(TYP_REF))
                 {
