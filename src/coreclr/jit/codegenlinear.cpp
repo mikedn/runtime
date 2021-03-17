@@ -2535,3 +2535,33 @@ void CodeGen::genCodeForSetcc(GenTreeCC* setcc)
     inst_SETCC(setcc->gtCondition, setcc->TypeGet(), setcc->GetRegNum());
     genProduceReg(setcc);
 }
+
+#ifdef DEBUG
+bool CodeGen::IsValidSourceType(var_types instrType, var_types sourceType)
+{
+    switch (varActualType(instrType))
+    {
+        case TYP_INT:
+        case TYP_LONG:
+        case TYP_REF:
+        case TYP_BYREF:
+            return varTypeIsIntegralOrI(sourceType) &&
+                   (varTypeSize(varActualType(sourceType)) >= varTypeSize(instrType));
+
+        case TYP_FLOAT:
+        case TYP_DOUBLE:
+            return sourceType == instrType;
+
+#ifdef FEATURE_SIMD
+        case TYP_SIMD8:
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+        case TYP_SIMD32:
+            return varTypeIsSIMD(sourceType) && (varTypeSize(sourceType) >= varTypeSize(instrType));
+#endif
+
+        default:
+            return false;
+    }
+}
+#endif

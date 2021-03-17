@@ -1812,6 +1812,9 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     GenTree*    op2 = treeNode->gtGetOp2();
     instruction ins = genGetInsForOper(treeNode->OperGet(), targetType);
 
+    assert(IsValidSourceType(targetType, op1->GetType()));
+    assert(IsValidSourceType(targetType, op2->GetType()));
+
     if ((treeNode->gtFlags & GTF_SET_FLAGS) != 0)
     {
         switch (oper)
@@ -1888,12 +1891,11 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     }
 #endif
 
-    LclVarDsc* lcl  = compiler->lvaGetDesc(store);
-    var_types  type = store->GetType();
+    var_types type = store->GetType();
+    GenTree*  src  = store->GetOp(0);
 
-    assert(!lcl->lvNormalizeOnStore() || (type == varActualType(lcl->GetType())));
+    assert(IsValidSourceType(type, src->GetType()));
 
-    GenTree*  src = store->GetOp(0);
     regNumber srcReg;
 
     if (src->isContained())
@@ -1922,7 +1924,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     }
 
     genUpdateLife(store);
-    lcl->SetRegNum(REG_STK);
+    compiler->lvaGetDesc(store)->SetRegNum(REG_STK);
 }
 
 void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
@@ -2936,6 +2938,8 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 
     GenTree* data = tree->Data();
     GenTree* addr = tree->Addr();
+
+    assert(IsValidSourceType(tree->GetType(), data->GetType()));
 
     GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
