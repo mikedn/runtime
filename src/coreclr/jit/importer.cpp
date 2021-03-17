@@ -1942,8 +1942,9 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         impAssignTempGen(slotLclNum, slotPtrTree, CHECK_SPILL_ALL);
 
         GenTree* slot = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
-        // downcast the pointer to a TYP_INT on 64-bit targets
-        slot = impImplicitIorI4Cast(slot, TYP_INT);
+#ifdef TARGET_64BIT
+        slot = gtNewCastNode(TYP_INT, slot, false, TYP_INT);
+#endif
         // Use a GT_AND to check for the lowest bit and indirect if it is set
         GenTree* test  = gtNewOperNode(GT_AND, TYP_INT, slot, gtNewIconNode(1));
         GenTree* relop = gtNewOperNode(GT_EQ, TYP_INT, test, gtNewIconNode(0));
@@ -1959,7 +1960,7 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         GenTree* asg   = gtNewAssignNode(slot, indir);
         GenTree* colon = new (this, GT_COLON) GenTreeColon(TYP_VOID, gtNewNothingNode(), asg);
         GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, colon);
-        impAppendTree(qmark, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(qmark, CHECK_SPILL_NONE, impCurStmtOffs);
 
         return gtNewLclvNode(slotLclNum, TYP_I_IMPL);
     }
