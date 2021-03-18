@@ -827,6 +827,9 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     GenTree* op1 = treeNode->gtGetOp1();
     GenTree* op2 = treeNode->gtGetOp2();
 
+    assert(IsValidSourceType(targetType, op1->GetType()));
+    assert(IsValidSourceType(targetType, op2->GetType()));
+
     // Commutative operations can mark op1 as contained or reg-optional to generate "op reg, memop/immed"
     if (!op1->isUsedFromReg())
     {
@@ -3856,8 +3859,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     var_types type = store->GetType();
     GenTree*  src  = store->GetOp(0);
 
-    assert(varTypeUsesFloatReg(type) == varTypeUsesFloatReg(src->GetType()));
-    assert(varTypeSize(varActualType(type)) == varTypeSize(varActualType(src->GetType())));
+    assert(IsValidSourceType(type, src->GetType()));
 
     genConsumeRegs(src);
     GetEmitter()->emitInsBinary(ins_Store(type), emitTypeSize(type), store, src);
@@ -4152,7 +4154,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
     GenTree*  addr       = tree->Addr();
     var_types targetType = tree->TypeGet();
 
-    assert(!varTypeIsFloating(targetType) || (genTypeSize(targetType) == genTypeSize(data->TypeGet())));
+    assert(IsValidSourceType(targetType, data->GetType()));
 
     GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)

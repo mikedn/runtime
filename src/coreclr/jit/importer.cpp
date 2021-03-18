@@ -1942,8 +1942,9 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         impAssignTempGen(slotLclNum, slotPtrTree, CHECK_SPILL_ALL);
 
         GenTree* slot = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
-        // downcast the pointer to a TYP_INT on 64-bit targets
-        slot = impImplicitIorI4Cast(slot, TYP_INT);
+#ifdef TARGET_64BIT
+        slot = gtNewCastNode(TYP_INT, slot, false, TYP_INT);
+#endif
         // Use a GT_AND to check for the lowest bit and indirect if it is set
         GenTree* test  = gtNewOperNode(GT_AND, TYP_INT, slot, gtNewIconNode(1));
         GenTree* relop = gtNewOperNode(GT_EQ, TYP_INT, test, gtNewIconNode(0));
@@ -1959,7 +1960,7 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         GenTree* asg   = gtNewAssignNode(slot, indir);
         GenTree* colon = new (this, GT_COLON) GenTreeColon(TYP_VOID, gtNewNothingNode(), asg);
         GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, colon);
-        impAppendTree(qmark, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(qmark, CHECK_SPILL_NONE, impCurStmtOffs);
 
         return gtNewLclvNode(slotLclNum, TYP_I_IMPL);
     }
@@ -3692,7 +3693,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
 
             // Element access
             GenTree*             indexIntPtr = impImplicitIorI4Cast(indexClone, TYP_I_IMPL);
-            GenTree*             sizeofNode  = gtNewIconNode(elemSize);
+            GenTree*             sizeofNode  = gtNewIconNode(elemSize, TYP_I_IMPL);
             GenTree*             mulNode     = gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
             CORINFO_FIELD_HANDLE ptrHnd      = info.compCompHnd->getFieldInClass(clsHnd, 0);
             const unsigned       ptrOffset   = info.compCompHnd->getFieldOffset(ptrHnd);
@@ -10530,7 +10531,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    op2 = impImplicitR4orR8Cast(op2, op1->GetType());
+                    op2 = impImplicitR4orR8Cast(op2, lclTyp);
+                    op2 = impImplicitIorI4Cast(op2, lclTyp);
 
                     op1 = gtNewAssignNode(op1, op2);
                 }
@@ -11372,29 +11374,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impBashVarAddrsToI(op1, op2);
 
                 op2 = impImplicitR4orR8Cast(op2, lclTyp);
-
-#ifdef TARGET_64BIT
-                // Automatic upcast for a GT_CNS_INT into TYP_I_IMPL
-                if ((op2->OperGet() == GT_CNS_INT) && varTypeIsI(lclTyp) && !varTypeIsI(op2->gtType))
-                {
-                    op2->gtType = TYP_I_IMPL;
-                }
-                else
-                {
-                    // Allow a downcast of op2 from TYP_I_IMPL into a 32-bit Int for x86 JIT compatiblity
-                    //
-                    if (varTypeIsI(op2->gtType) && (genActualType(lclTyp) == TYP_INT))
-                    {
-                        op2 = gtNewCastNode(TYP_INT, op2, false, TYP_INT);
-                    }
-                    // Allow an upcast of op2 from a 32-bit Int into TYP_I_IMPL for x86 JIT compatiblity
-                    //
-                    if (varTypeIsI(lclTyp) && (genActualType(op2->gtType) == TYP_INT))
-                    {
-                        op2 = gtNewCastNode(TYP_I_IMPL, op2, false, TYP_I_IMPL);
-                    }
-                }
-#endif // TARGET_64BIT
+                op2 = impImplicitIorI4Cast(op2, lclTyp);
 
                 if ((lclTyp == TYP_REF) && !op2->TypeIs(TYP_REF))
                 {
