@@ -1527,22 +1527,6 @@ bool Compiler::lvaVarDoNotEnregister(unsigned varNum)
     return varDsc->lvDoNotEnregister;
 }
 
-//--------------------------------------------------------------------------------------------
-// lvaFieldOffsetCmp - a static compare function passed to jitstd::sort() by Compiler::StructPromotionHelper;
-//   compares fields' offsets.
-//
-// Arguments:
-//   field1 - pointer to the first field;
-//   field2 - pointer to the second field.
-//
-// Return value:
-//   0 if the fields' offsets are equal, 1 if the first field has bigger offset, -1 otherwise.
-//
-bool Compiler::lvaFieldOffsetCmp::operator()(const lvaStructFieldInfo& field1, const lvaStructFieldInfo& field2)
-{
-    return field1.fldOffset < field2.fldOffset;
-}
-
 //------------------------------------------------------------------------
 // StructPromotionHelper constructor.
 //
@@ -2046,9 +2030,12 @@ void Compiler::StructPromotionHelper::SortStructFields()
 {
     if (!structPromotionInfo.fieldsSorted)
     {
-        jitstd::sort(structPromotionInfo.fields, structPromotionInfo.fields + structPromotionInfo.fieldCnt,
-                     lvaFieldOffsetCmp());
         structPromotionInfo.fieldsSorted = true;
+
+        jitstd::sort(structPromotionInfo.fields, structPromotionInfo.fields + structPromotionInfo.fieldCnt,
+                     [](const lvaStructFieldInfo& f1, const lvaStructFieldInfo& f2) {
+                         return f1.fldOffset < f2.fldOffset;
+                     });
     }
 }
 

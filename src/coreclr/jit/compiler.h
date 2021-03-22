@@ -2861,11 +2861,6 @@ public:
         }
     };
 
-    struct lvaFieldOffsetCmp
-    {
-        bool operator()(const lvaStructFieldInfo& field1, const lvaStructFieldInfo& field2);
-    };
-
     // This class is responsible for checking validity and profitability of struct promotion.
     // If it is both legal and profitable, then TryPromoteStructVar promotes the struct and initializes
     // nessesary information for fgMorphStructField to use.
