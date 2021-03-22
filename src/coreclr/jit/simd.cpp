@@ -155,7 +155,7 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
     unsigned  size         = 0;
 
     const char* namespaceName = nullptr;
-    getClassNameFromMetadata(typeHnd, &namespaceName);
+    const char* className     = getClassNameFromMetadata(typeHnd, &namespaceName);
 
     if (strcmp(namespaceName, "System.Numerics") == 0)
     {
@@ -514,8 +514,6 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
         // slow path search
         if (simdBaseType == TYP_UNKNOWN)
         {
-            // Doesn't match with any of the cached type handles.
-            const char*          className   = getClassNameFromMetadata(typeHnd, nullptr);
             CORINFO_CLASS_HANDLE baseTypeHnd = getTypeInstantiationArgument(typeHnd, 0);
 
             if (baseTypeHnd != nullptr)
