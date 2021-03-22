@@ -2827,14 +2827,12 @@ public:
     struct lvaStructFieldInfo
     {
         CORINFO_FIELD_HANDLE fldHnd;
-        unsigned char        fldOffset;
-        unsigned char        fldOrdinal;
-        var_types            fldType;
+        unsigned             fldOffset;
         unsigned             fldSize;
         CORINFO_CLASS_HANDLE fldTypeHnd;
+        var_types            fldType;
 
-        lvaStructFieldInfo()
-            : fldHnd(nullptr), fldOffset(0), fldOrdinal(0), fldType(TYP_UNDEF), fldSize(0), fldTypeHnd(nullptr)
+        lvaStructFieldInfo() : fldHnd(nullptr), fldOffset(0), fldSize(0), fldTypeHnd(nullptr), fldType(TYP_UNDEF)
         {
         }
     };
@@ -2890,8 +2888,8 @@ public:
         void PromoteStructVar(unsigned lclNum);
         void SortStructFields();
 
-        lvaStructFieldInfo GetFieldInfo(CORINFO_FIELD_HANDLE fieldHnd, BYTE ordinal);
-        bool TryPromoteStructField(lvaStructFieldInfo& outerFieldInfo);
+        void GetFieldInfo(CORINFO_CLASS_HANDLE classHandle, unsigned index);
+        void TryPromoteSingleFieldStruct(lvaStructFieldInfo& outerFieldInfo);
 
     private:
         Compiler*              compiler;
