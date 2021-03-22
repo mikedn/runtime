@@ -1403,10 +1403,10 @@ var_types Compiler::impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types*
 #ifdef FEATURE_SIMD
     if (supportSIMDTypes())
     {
-        const DWORD structFlags = info.compCompHnd->getClassAttribs(structHnd);
+        const uint32_t structFlags = info.compCompHnd->getClassAttribs(structHnd);
 
-        // Don't bother if the struct contains GC references of byrefs, it can't be a SIMD type.
-        if ((structFlags & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) == 0)
+        if ((structFlags & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR |
+                            CORINFO_FLG_INTRINSIC_TYPE)) == CORINFO_FLG_INTRINSIC_TYPE)
         {
             unsigned originalSize = info.compCompHnd->getClassSize(structHnd);
 
