@@ -155,7 +155,7 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
     unsigned  size         = 0;
 
     const char* namespaceName = nullptr;
-    const char* className     = getClassNameFromMetadata(typeHnd, &namespaceName);
+    const char* className     = info.compCompHnd->getClassNameFromMetadata(typeHnd, &namespaceName);
 
     if (strcmp(namespaceName, "System.Numerics") == 0)
     {
@@ -237,17 +237,7 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
         // slow path search
         if (simdBaseType == TYP_UNKNOWN)
         {
-            // Doesn't match with any of the cached type handles.
-            // Obtain base type by parsing fully qualified class name.
-            //
-            // TODO-Throughput: implement product shipping solution to query base type.
-            WCHAR  className[256] = {0};
-            WCHAR* pbuf           = &className[0];
-            int    len            = _countof(className);
-            info.compCompHnd->appendClassName((char16_t**)&pbuf, &len, typeHnd, TRUE, FALSE, FALSE);
-            noway_assert(pbuf < &className[256]);
-
-            if (wcsncmp(&(className[16]), W("Vector`1["), 9) == 0)
+            if (strcmp(className, "Vector`1") == 0)
             {
                 size = getSIMDVectorRegisterByteLength();
 
@@ -300,7 +290,7 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
                         break;
                 }
             }
-            else if (wcsncmp(&(className[16]), W("Vector2"), 8) == 0)
+            else if (strcmp(className, "Vector2") == 0)
             {
                 m_simdHandleCache->SIMDVector2Handle = typeHnd;
 
@@ -308,7 +298,7 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
                 size         = 2 * genTypeSize(TYP_FLOAT);
                 assert(size == roundUp(info.compCompHnd->getClassSize(typeHnd), TARGET_POINTER_SIZE));
             }
-            else if (wcsncmp(&(className[16]), W("Vector3"), 8) == 0)
+            else if (strcmp(className, "Vector3") == 0)
             {
                 m_simdHandleCache->SIMDVector3Handle = typeHnd;
 
@@ -316,7 +306,7 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
                 size         = 3 * genTypeSize(TYP_FLOAT);
                 assert(size == info.compCompHnd->getClassSize(typeHnd));
             }
-            else if (wcsncmp(&(className[16]), W("Vector4"), 8) == 0)
+            else if (strcmp(className, "Vector4") == 0)
             {
                 m_simdHandleCache->SIMDVector4Handle = typeHnd;
 
@@ -324,7 +314,7 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
                 size         = 4 * genTypeSize(TYP_FLOAT);
                 assert(size == roundUp(info.compCompHnd->getClassSize(typeHnd), TARGET_POINTER_SIZE));
             }
-            else if (wcsncmp(&(className[16]), W("Vector"), 6) == 0)
+            else if (strcmp(className, "Vector") == 0)
             {
                 m_simdHandleCache->SIMDVectorHandle = typeHnd;
                 size                                = getSIMDVectorRegisterByteLength();
