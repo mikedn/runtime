@@ -504,52 +504,55 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
 #if defined(TARGET_XARCH)
                 if (strcmp(className, "Vector256`1") == 0)
                 {
-                    size = Vector256SizeBytes;
-                    switch (type)
+                    if (compExactlyDependsOn(InstructionSet_AVX))
                     {
-                        case CORINFO_TYPE_FLOAT:
-                            m_simdHandleCache->Vector256FloatHandle = typeHnd;
-                            simdBaseType                            = TYP_FLOAT;
-                            break;
-                        case CORINFO_TYPE_DOUBLE:
-                            m_simdHandleCache->Vector256DoubleHandle = typeHnd;
-                            simdBaseType                             = TYP_DOUBLE;
-                            break;
-                        case CORINFO_TYPE_INT:
-                            m_simdHandleCache->Vector256IntHandle = typeHnd;
-                            simdBaseType                          = TYP_INT;
-                            break;
-                        case CORINFO_TYPE_UINT:
-                            m_simdHandleCache->Vector256UIntHandle = typeHnd;
-                            simdBaseType                           = TYP_UINT;
-                            break;
-                        case CORINFO_TYPE_SHORT:
-                            m_simdHandleCache->Vector256ShortHandle = typeHnd;
-                            simdBaseType                            = TYP_SHORT;
-                            break;
-                        case CORINFO_TYPE_USHORT:
-                            m_simdHandleCache->Vector256UShortHandle = typeHnd;
-                            simdBaseType                             = TYP_USHORT;
-                            break;
-                        case CORINFO_TYPE_LONG:
-                            m_simdHandleCache->Vector256LongHandle = typeHnd;
-                            simdBaseType                           = TYP_LONG;
-                            break;
-                        case CORINFO_TYPE_ULONG:
-                            m_simdHandleCache->Vector256ULongHandle = typeHnd;
-                            simdBaseType                            = TYP_ULONG;
-                            break;
-                        case CORINFO_TYPE_UBYTE:
-                            m_simdHandleCache->Vector256UByteHandle = typeHnd;
-                            simdBaseType                            = TYP_UBYTE;
-                            break;
-                        case CORINFO_TYPE_BYTE:
-                            m_simdHandleCache->Vector256ByteHandle = typeHnd;
-                            simdBaseType                           = TYP_BYTE;
-                            break;
+                        size = Vector256SizeBytes;
+                        switch (type)
+                        {
+                            case CORINFO_TYPE_FLOAT:
+                                m_simdHandleCache->Vector256FloatHandle = typeHnd;
+                                simdBaseType                            = TYP_FLOAT;
+                                break;
+                            case CORINFO_TYPE_DOUBLE:
+                                m_simdHandleCache->Vector256DoubleHandle = typeHnd;
+                                simdBaseType                             = TYP_DOUBLE;
+                                break;
+                            case CORINFO_TYPE_INT:
+                                m_simdHandleCache->Vector256IntHandle = typeHnd;
+                                simdBaseType                          = TYP_INT;
+                                break;
+                            case CORINFO_TYPE_UINT:
+                                m_simdHandleCache->Vector256UIntHandle = typeHnd;
+                                simdBaseType                           = TYP_UINT;
+                                break;
+                            case CORINFO_TYPE_SHORT:
+                                m_simdHandleCache->Vector256ShortHandle = typeHnd;
+                                simdBaseType                            = TYP_SHORT;
+                                break;
+                            case CORINFO_TYPE_USHORT:
+                                m_simdHandleCache->Vector256UShortHandle = typeHnd;
+                                simdBaseType                             = TYP_USHORT;
+                                break;
+                            case CORINFO_TYPE_LONG:
+                                m_simdHandleCache->Vector256LongHandle = typeHnd;
+                                simdBaseType                           = TYP_LONG;
+                                break;
+                            case CORINFO_TYPE_ULONG:
+                                m_simdHandleCache->Vector256ULongHandle = typeHnd;
+                                simdBaseType                            = TYP_ULONG;
+                                break;
+                            case CORINFO_TYPE_UBYTE:
+                                m_simdHandleCache->Vector256UByteHandle = typeHnd;
+                                simdBaseType                            = TYP_UBYTE;
+                                break;
+                            case CORINFO_TYPE_BYTE:
+                                m_simdHandleCache->Vector256ByteHandle = typeHnd;
+                                simdBaseType                           = TYP_BYTE;
+                                break;
 
-                        default:
-                            JITDUMP("Unknown HW SIMD type %s\n", eeGetClassName(typeHnd));
+                            default:
+                                JITDUMP("Unknown HW SIMD type %s\n", eeGetClassName(typeHnd));
+                        }
                     }
                 }
                 else
@@ -658,15 +661,6 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
 #endif // defined(TARGET_ARM64)
             }
         }
-
-#if defined(TARGET_XARCH)
-        // Even though Vector256 is TYP_SIMD32, if AVX isn't supported, then it must
-        // be treated as a regular struct
-        if (size == YMM_REGSIZE_BYTES && (simdBaseType != TYP_UNKNOWN) && !compExactlyDependsOn(InstructionSet_AVX))
-        {
-            simdBaseType = TYP_UNKNOWN;
-        }
-#endif // TARGET_XARCH
     }
 #endif // FEATURE_HW_INTRINSICS
 
