@@ -247,100 +247,97 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
             info.compCompHnd->appendClassName((char16_t**)&pbuf, &len, typeHnd, TRUE, FALSE, FALSE);
             noway_assert(pbuf < &className[256]);
 
-            if (wcsncmp(className, W("System.Numerics."), 16) == 0)
+            if (wcsncmp(&(className[16]), W("Vector`1["), 9) == 0)
             {
-                if (wcsncmp(&(className[16]), W("Vector`1["), 9) == 0)
-                {
-                    size = getSIMDVectorRegisterByteLength();
+                size = getSIMDVectorRegisterByteLength();
 
-                    if (wcsncmp(&(className[25]), W("System.Single"), 13) == 0)
-                    {
-                        m_simdHandleCache->SIMDFloatHandle = typeHnd;
-                        simdBaseType                       = TYP_FLOAT;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.Int32"), 12) == 0)
-                    {
-                        m_simdHandleCache->SIMDIntHandle = typeHnd;
-                        simdBaseType                     = TYP_INT;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.UInt16"), 13) == 0)
-                    {
-                        m_simdHandleCache->SIMDUShortHandle = typeHnd;
-                        simdBaseType                        = TYP_USHORT;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.Byte"), 11) == 0)
-                    {
-                        m_simdHandleCache->SIMDUByteHandle = typeHnd;
-                        simdBaseType                       = TYP_UBYTE;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.Double"), 13) == 0)
-                    {
-                        m_simdHandleCache->SIMDDoubleHandle = typeHnd;
-                        simdBaseType                        = TYP_DOUBLE;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.Int64"), 12) == 0)
-                    {
-                        m_simdHandleCache->SIMDLongHandle = typeHnd;
-                        simdBaseType                      = TYP_LONG;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.Int16"), 12) == 0)
-                    {
-                        m_simdHandleCache->SIMDShortHandle = typeHnd;
-                        simdBaseType                       = TYP_SHORT;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.SByte"), 12) == 0)
-                    {
-                        m_simdHandleCache->SIMDByteHandle = typeHnd;
-                        simdBaseType                      = TYP_BYTE;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.UInt32"), 13) == 0)
-                    {
-                        m_simdHandleCache->SIMDUIntHandle = typeHnd;
-                        simdBaseType                      = TYP_UINT;
-                    }
-                    else if (wcsncmp(&(className[25]), W("System.UInt64"), 13) == 0)
-                    {
-                        m_simdHandleCache->SIMDULongHandle = typeHnd;
-                        simdBaseType                       = TYP_ULONG;
-                    }
-                    else
-                    {
-                        JITDUMP("Unknown SIMD type %s\n", eeGetClassName(typeHnd));
-                    }
-                }
-                else if (wcsncmp(&(className[16]), W("Vector2"), 8) == 0)
+                if (wcsncmp(&(className[25]), W("System.Single"), 13) == 0)
                 {
-                    m_simdHandleCache->SIMDVector2Handle = typeHnd;
-
-                    simdBaseType = TYP_FLOAT;
-                    size         = 2 * genTypeSize(TYP_FLOAT);
-                    assert(size == roundUp(info.compCompHnd->getClassSize(typeHnd), TARGET_POINTER_SIZE));
+                    m_simdHandleCache->SIMDFloatHandle = typeHnd;
+                    simdBaseType                       = TYP_FLOAT;
                 }
-                else if (wcsncmp(&(className[16]), W("Vector3"), 8) == 0)
+                else if (wcsncmp(&(className[25]), W("System.Int32"), 12) == 0)
                 {
-                    m_simdHandleCache->SIMDVector3Handle = typeHnd;
-
-                    simdBaseType = TYP_FLOAT;
-                    size         = 3 * genTypeSize(TYP_FLOAT);
-                    assert(size == info.compCompHnd->getClassSize(typeHnd));
+                    m_simdHandleCache->SIMDIntHandle = typeHnd;
+                    simdBaseType                     = TYP_INT;
                 }
-                else if (wcsncmp(&(className[16]), W("Vector4"), 8) == 0)
+                else if (wcsncmp(&(className[25]), W("System.UInt16"), 13) == 0)
                 {
-                    m_simdHandleCache->SIMDVector4Handle = typeHnd;
-
-                    simdBaseType = TYP_FLOAT;
-                    size         = 4 * genTypeSize(TYP_FLOAT);
-                    assert(size == roundUp(info.compCompHnd->getClassSize(typeHnd), TARGET_POINTER_SIZE));
+                    m_simdHandleCache->SIMDUShortHandle = typeHnd;
+                    simdBaseType                        = TYP_USHORT;
                 }
-                else if (wcsncmp(&(className[16]), W("Vector"), 6) == 0)
+                else if (wcsncmp(&(className[25]), W("System.Byte"), 11) == 0)
                 {
-                    m_simdHandleCache->SIMDVectorHandle = typeHnd;
-                    size                                = getSIMDVectorRegisterByteLength();
+                    m_simdHandleCache->SIMDUByteHandle = typeHnd;
+                    simdBaseType                       = TYP_UBYTE;
+                }
+                else if (wcsncmp(&(className[25]), W("System.Double"), 13) == 0)
+                {
+                    m_simdHandleCache->SIMDDoubleHandle = typeHnd;
+                    simdBaseType                        = TYP_DOUBLE;
+                }
+                else if (wcsncmp(&(className[25]), W("System.Int64"), 12) == 0)
+                {
+                    m_simdHandleCache->SIMDLongHandle = typeHnd;
+                    simdBaseType                      = TYP_LONG;
+                }
+                else if (wcsncmp(&(className[25]), W("System.Int16"), 12) == 0)
+                {
+                    m_simdHandleCache->SIMDShortHandle = typeHnd;
+                    simdBaseType                       = TYP_SHORT;
+                }
+                else if (wcsncmp(&(className[25]), W("System.SByte"), 12) == 0)
+                {
+                    m_simdHandleCache->SIMDByteHandle = typeHnd;
+                    simdBaseType                      = TYP_BYTE;
+                }
+                else if (wcsncmp(&(className[25]), W("System.UInt32"), 13) == 0)
+                {
+                    m_simdHandleCache->SIMDUIntHandle = typeHnd;
+                    simdBaseType                      = TYP_UINT;
+                }
+                else if (wcsncmp(&(className[25]), W("System.UInt64"), 13) == 0)
+                {
+                    m_simdHandleCache->SIMDULongHandle = typeHnd;
+                    simdBaseType                       = TYP_ULONG;
                 }
                 else
                 {
                     JITDUMP("Unknown SIMD type %s\n", eeGetClassName(typeHnd));
                 }
+            }
+            else if (wcsncmp(&(className[16]), W("Vector2"), 8) == 0)
+            {
+                m_simdHandleCache->SIMDVector2Handle = typeHnd;
+
+                simdBaseType = TYP_FLOAT;
+                size         = 2 * genTypeSize(TYP_FLOAT);
+                assert(size == roundUp(info.compCompHnd->getClassSize(typeHnd), TARGET_POINTER_SIZE));
+            }
+            else if (wcsncmp(&(className[16]), W("Vector3"), 8) == 0)
+            {
+                m_simdHandleCache->SIMDVector3Handle = typeHnd;
+
+                simdBaseType = TYP_FLOAT;
+                size         = 3 * genTypeSize(TYP_FLOAT);
+                assert(size == info.compCompHnd->getClassSize(typeHnd));
+            }
+            else if (wcsncmp(&(className[16]), W("Vector4"), 8) == 0)
+            {
+                m_simdHandleCache->SIMDVector4Handle = typeHnd;
+
+                simdBaseType = TYP_FLOAT;
+                size         = 4 * genTypeSize(TYP_FLOAT);
+                assert(size == roundUp(info.compCompHnd->getClassSize(typeHnd), TARGET_POINTER_SIZE));
+            }
+            else if (wcsncmp(&(className[16]), W("Vector"), 6) == 0)
+            {
+                m_simdHandleCache->SIMDVectorHandle = typeHnd;
+                size                                = getSIMDVectorRegisterByteLength();
+            }
+            else
+            {
+                JITDUMP("Unknown SIMD type %s\n", eeGetClassName(typeHnd));
             }
         }
     }
