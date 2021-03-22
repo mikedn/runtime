@@ -7178,20 +7178,6 @@ private:
 #endif
     }
 
-    // Have we identified any SIMD types?
-    // This is currently used by struct promotion to avoid getting type information for a struct
-    // field to see if it is a SIMD type, if we haven't seen any SIMD types or operations in
-    // the method.
-    bool _usesSIMDTypes;
-    bool usesSIMDTypes()
-    {
-        return _usesSIMDTypes;
-    }
-    void setUsesSIMDTypes(bool value)
-    {
-        _usesSIMDTypes = value;
-    }
-
     // This is a temp lclVar allocated on the stack as TYP_SIMD.  It is used to implement intrinsics
     // that require indexed access to the individual fields of the vector, which is not well supported
     // by the hardware.  It is allocated when/if such situations are encountered during Lowering.

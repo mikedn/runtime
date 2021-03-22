@@ -2127,13 +2127,6 @@ void Compiler::inlPropagateInlineeCompilerState()
 
     lvaGenericsContextInUse |= InlineeCompiler->lvaGenericsContextInUse;
 
-#ifdef FEATURE_SIMD
-    if (InlineeCompiler->usesSIMDTypes())
-    {
-        setUsesSIMDTypes(true);
-    }
-#endif // FEATURE_SIMD
-
     // Update unmanaged call details
     info.compUnmanagedCallCountWithGCTransition += InlineeCompiler->info.compUnmanagedCallCountWithGCTransition;
 

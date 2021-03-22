@@ -2075,24 +2075,17 @@ Compiler::lvaStructFieldInfo Compiler::StructPromotionHelper::GetFieldInfo(CORIN
     fieldInfo.fldSize    = genTypeSize(fieldInfo.fldType);
 
 #ifdef FEATURE_SIMD
-    // Check to see if this is a SIMD type.
-    // We will only check this if we have already found a SIMD type, which will be true if
-    // we have encountered any SIMD intrinsics.
-    if (compiler->usesSIMDTypes() && (fieldInfo.fldSize == 0) && compiler->isSIMDorHWSIMDClass(fieldInfo.fldTypeHnd))
+    if (fieldInfo.fldSize == 0)
     {
-        unsigned  simdSize;
-        var_types simdBaseType = compiler->getBaseTypeAndSizeOfSIMDType(fieldInfo.fldTypeHnd, &simdSize);
-        // We will only promote fields of SIMD types that fit into a SIMD register.
+        var_types simdBaseType;
+        var_types simdType = compiler->impNormStructType(fieldInfo.fldTypeHnd, &simdBaseType);
+
         if (simdBaseType != TYP_UNKNOWN)
         {
-            if ((simdSize >= compiler->minSIMDStructBytes()) && (simdSize <= compiler->maxSIMDStructBytes()))
-            {
-                fieldInfo.fldType = compiler->getSIMDTypeForSize(simdSize);
-                fieldInfo.fldSize = simdSize;
-#ifdef DEBUG
-                retypedFieldsMap.Set(fieldInfo.fldHnd, fieldInfo.fldType, RetypedAsScalarFieldsMap::Overwrite);
-#endif // DEBUG
-            }
+            fieldInfo.fldType = simdType;
+            fieldInfo.fldSize = varTypeSize(simdType);
+
+            INDEBUG(retypedFieldsMap.Set(fieldInfo.fldHnd, fieldInfo.fldType, RetypedAsScalarFieldsMap::Overwrite);)
         }
     }
 #endif // FEATURE_SIMD
