@@ -251,59 +251,53 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
             {
                 size = getSIMDVectorRegisterByteLength();
 
-                if (wcsncmp(&(className[25]), W("System.Single"), 13) == 0)
+                CORINFO_CLASS_HANDLE baseTypeHandle = info.compCompHnd->getTypeInstantiationArgument(typeHnd, 0);
+
+                switch (info.compCompHnd->getTypeForPrimitiveNumericClass(baseTypeHandle))
                 {
-                    m_simdHandleCache->SIMDFloatHandle = typeHnd;
-                    simdBaseType                       = TYP_FLOAT;
-                }
-                else if (wcsncmp(&(className[25]), W("System.Int32"), 12) == 0)
-                {
-                    m_simdHandleCache->SIMDIntHandle = typeHnd;
-                    simdBaseType                     = TYP_INT;
-                }
-                else if (wcsncmp(&(className[25]), W("System.UInt16"), 13) == 0)
-                {
-                    m_simdHandleCache->SIMDUShortHandle = typeHnd;
-                    simdBaseType                        = TYP_USHORT;
-                }
-                else if (wcsncmp(&(className[25]), W("System.Byte"), 11) == 0)
-                {
-                    m_simdHandleCache->SIMDUByteHandle = typeHnd;
-                    simdBaseType                       = TYP_UBYTE;
-                }
-                else if (wcsncmp(&(className[25]), W("System.Double"), 13) == 0)
-                {
-                    m_simdHandleCache->SIMDDoubleHandle = typeHnd;
-                    simdBaseType                        = TYP_DOUBLE;
-                }
-                else if (wcsncmp(&(className[25]), W("System.Int64"), 12) == 0)
-                {
-                    m_simdHandleCache->SIMDLongHandle = typeHnd;
-                    simdBaseType                      = TYP_LONG;
-                }
-                else if (wcsncmp(&(className[25]), W("System.Int16"), 12) == 0)
-                {
-                    m_simdHandleCache->SIMDShortHandle = typeHnd;
-                    simdBaseType                       = TYP_SHORT;
-                }
-                else if (wcsncmp(&(className[25]), W("System.SByte"), 12) == 0)
-                {
-                    m_simdHandleCache->SIMDByteHandle = typeHnd;
-                    simdBaseType                      = TYP_BYTE;
-                }
-                else if (wcsncmp(&(className[25]), W("System.UInt32"), 13) == 0)
-                {
-                    m_simdHandleCache->SIMDUIntHandle = typeHnd;
-                    simdBaseType                      = TYP_UINT;
-                }
-                else if (wcsncmp(&(className[25]), W("System.UInt64"), 13) == 0)
-                {
-                    m_simdHandleCache->SIMDULongHandle = typeHnd;
-                    simdBaseType                       = TYP_ULONG;
-                }
-                else
-                {
-                    JITDUMP("Unknown SIMD type %s\n", eeGetClassName(typeHnd));
+                    case CORINFO_TYPE_FLOAT:
+                        m_simdHandleCache->SIMDFloatHandle = typeHnd;
+                        simdBaseType                       = TYP_FLOAT;
+                        break;
+                    case CORINFO_TYPE_INT:
+                        m_simdHandleCache->SIMDIntHandle = typeHnd;
+                        simdBaseType                     = TYP_INT;
+                        break;
+                    case CORINFO_TYPE_USHORT:
+                        m_simdHandleCache->SIMDUShortHandle = typeHnd;
+                        simdBaseType                        = TYP_USHORT;
+                        break;
+                    case CORINFO_TYPE_UBYTE:
+                        m_simdHandleCache->SIMDUByteHandle = typeHnd;
+                        simdBaseType                       = TYP_UBYTE;
+                        break;
+                    case CORINFO_TYPE_DOUBLE:
+                        m_simdHandleCache->SIMDDoubleHandle = typeHnd;
+                        simdBaseType                        = TYP_DOUBLE;
+                        break;
+                    case CORINFO_TYPE_LONG:
+                        m_simdHandleCache->SIMDLongHandle = typeHnd;
+                        simdBaseType                      = TYP_LONG;
+                        break;
+                    case CORINFO_TYPE_SHORT:
+                        m_simdHandleCache->SIMDShortHandle = typeHnd;
+                        simdBaseType                       = TYP_SHORT;
+                        break;
+                    case CORINFO_TYPE_BYTE:
+                        m_simdHandleCache->SIMDByteHandle = typeHnd;
+                        simdBaseType                      = TYP_BYTE;
+                        break;
+                    case CORINFO_TYPE_UINT:
+                        m_simdHandleCache->SIMDUIntHandle = typeHnd;
+                        simdBaseType                      = TYP_UINT;
+                        break;
+                    case CORINFO_TYPE_ULONG:
+                        m_simdHandleCache->SIMDULongHandle = typeHnd;
+                        simdBaseType                       = TYP_ULONG;
+                        break;
+                    default:
+                        JITDUMP("Unknown SIMD type %s\n", eeGetClassName(typeHnd));
+                        break;
                 }
             }
             else if (wcsncmp(&(className[16]), W("Vector2"), 8) == 0)
