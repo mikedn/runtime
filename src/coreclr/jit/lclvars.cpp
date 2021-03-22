@@ -2084,8 +2084,6 @@ Compiler::lvaStructFieldInfo Compiler::StructPromotionHelper::GetFieldInfo(CORIN
         {
             fieldInfo.fldType = simdType;
             fieldInfo.fldSize = varTypeSize(simdType);
-
-            INDEBUG(retypedFieldsMap.Set(fieldInfo.fldHnd, fieldInfo.fldType, RetypedAsScalarFieldsMap::Overwrite);)
         }
     }
 #endif // FEATURE_SIMD
