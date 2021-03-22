@@ -7318,19 +7318,6 @@ private:
         return (intrinsicId == SIMDIntrinsicEqual);
     }
 
-    bool isSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
-    {
-        if (!isIntrinsicType(clsHnd))
-        {
-            return false;
-        }
-
-        const char* namespaceName = nullptr;
-        getClassNameFromMetadata(clsHnd, &namespaceName);
-
-        return strcmp(namespaceName, "System.Numerics") == 0;
-    }
-
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
         if (!isIntrinsicType(clsHnd))

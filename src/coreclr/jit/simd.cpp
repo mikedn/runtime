@@ -710,16 +710,16 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* in
     assert(baseType != nullptr);
     assert(sizeBytes != nullptr);
 
-    // get baseType and size of the type
     CORINFO_CLASS_HANDLE typeHnd = *inOutTypeHnd;
-    *baseType                    = getBaseTypeAndSizeOfSIMDType(typeHnd, sizeBytes);
 
     if (typeHnd == m_simdHandleCache->SIMDVectorHandle)
     {
+        assert(*baseType == TYP_UNKNOWN);
+
         // All of the supported intrinsics on this static class take a first argument that's a vector,
         // which determines the baseType.
         // The exception is the IsHardwareAccelerated property, which is handled as a special case.
-        assert(*baseType == TYP_UNKNOWN);
+
         if (sig->numArgs == 0)
         {
             const SIMDIntrinsicInfo* hwAccelIntrinsicInfo = &(simdIntrinsicInfoArray[SIMDIntrinsicHWAccel]);
@@ -727,17 +727,15 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* in
                 JITtype2varType(sig->retType) == hwAccelIntrinsicInfo->retType)
             {
                 // Sanity check
-                assert(hwAccelIntrinsicInfo->argCount == 0 && hwAccelIntrinsicInfo->isInstMethod == false);
+                assert((hwAccelIntrinsicInfo->argCount == 0) && !hwAccelIntrinsicInfo->isInstMethod);
                 return hwAccelIntrinsicInfo;
             }
             return nullptr;
         }
-        else
-        {
-            typeHnd       = info.compCompHnd->getArgClass(sig, sig->args);
-            *inOutTypeHnd = typeHnd;
-            *baseType     = getBaseTypeAndSizeOfSIMDType(typeHnd, sizeBytes);
-        }
+
+        typeHnd       = info.compCompHnd->getArgClass(sig, sig->args);
+        *inOutTypeHnd = typeHnd;
+        *baseType     = getBaseTypeAndSizeOfSIMDType(typeHnd, sizeBytes);
     }
 
     if (*baseType == TYP_UNKNOWN)
@@ -1645,21 +1643,15 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 {
     assert(featureSIMD);
 
-    // Exit early if we are not in one of the SIMD types.
-    if (!isSIMDClass(clsHnd))
-    {
-        return nullptr;
-    }
-
     // Exit early if the method is not a JIT Intrinsic (which requires the [Intrinsic] attribute).
     if ((methodFlags & CORINFO_FLG_JIT_INTRINSIC) == 0)
     {
         return nullptr;
     }
 
-    // Get base type and intrinsic Id
-    var_types                baseType = TYP_UNKNOWN;
-    unsigned                 size     = 0;
+    unsigned  size     = 0;
+    var_types baseType = getBaseTypeAndSizeOfSIMDType(clsHnd, &size);
+
     unsigned                 argCount = 0;
     const SIMDIntrinsicInfo* intrinsicInfo =
         getSIMDIntrinsicInfo(&clsHnd, methodHnd, sig, (opcode == CEE_NEWOBJ), &argCount, &baseType, &size);
