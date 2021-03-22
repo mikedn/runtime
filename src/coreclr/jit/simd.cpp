@@ -146,17 +146,18 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
         }
     }
 
-    if (typeHnd == nullptr)
+    if ((typeHnd == nullptr) || !info.compCompHnd->isIntrinsicType(typeHnd))
     {
         return TYP_UNKNOWN;
     }
 
-    // fast path search using cached type handles of important types
     var_types simdBaseType = TYP_UNKNOWN;
     unsigned  size         = 0;
 
-    // TODO - Optimize SIMD type recognition by IntrinsicAttribute
-    if (isSIMDClass(typeHnd))
+    const char* namespaceName = nullptr;
+    getClassNameFromMetadata(typeHnd, &namespaceName);
+
+    if (strcmp(namespaceName, "System.Numerics") == 0)
     {
         // The most likely to be used type handles are looked up first followed by
         // less likely to be used type handles
@@ -344,7 +345,7 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
         }
     }
 #ifdef FEATURE_HW_INTRINSICS
-    else if (isIntrinsicType(typeHnd))
+    else
     {
         const size_t Vector64SizeBytes  = 64 / 8;
         const size_t Vector128SizeBytes = 128 / 8;
