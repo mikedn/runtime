@@ -6335,13 +6335,12 @@ void Compiler::fgValueNumber()
 
             switch (typ)
             {
-                case TYP_LCLBLK: // The outgoing args area for arm and x64
-                case TYP_BLK:    // A blob of memory
-                    // TYP_BLK is used for the EHSlots LclVar on x86 (aka shadowSPslotsVar)
-                    // and for the lvaInlinedPInvokeFrameVar on x64, arm and x86
+                case TYP_BLK:
+                    // TYP_BLK is used for the EHSlots locals on x86 (aka shadowSPslotsVar),
+                    // for the lvaInlinedPInvokeFrameVar on x64, arm and x86
+                    // and for the outgoing argument area if FEATURE_FIXED_OUT_ARGS is enabled.
                     // The stack associated with these LclVars are not zero initialized
                     // thus we set 'initVN' to a new, unique VN.
-                    //
                     initVal = vnStore->VNForExpr(fgFirstBB);
                     break;
 

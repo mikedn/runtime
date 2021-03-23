@@ -2931,86 +2931,56 @@ void Compiler::lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HAND
     }
 }
 
-//------------------------------------------------------------------------
-// lvaLclSize: returns size of a local variable, in bytes
-//
-// Arguments:
-//    varNum -- variable to query
-//
-// Returns:
-//    Number of bytes needed on the frame for such a local.
-
-unsigned Compiler::lvaLclSize(unsigned varNum)
+// Returns the number of bytes needed on the frame for the local variable lclNum
+unsigned Compiler::lvaLclSize(unsigned lclNum)
 {
-    assert(varNum < lvaCount);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    var_types varType = lvaTable[varNum].TypeGet();
-
-    switch (varType)
+    switch (lcl->GetType())
     {
-        case TYP_STRUCT:
         case TYP_BLK:
-            return lvaTable[varNum].lvSize();
-
-        case TYP_LCLBLK:
 #if FEATURE_FIXED_OUT_ARGS
-            // Note that this operation performs a read of a PhasedVar
-            noway_assert(varNum == lvaOutgoingArgSpaceVar);
-            return lvaOutgoingArgSpaceSize;
-#else // FEATURE_FIXED_OUT_ARGS
-            assert(!"Unknown size");
-            NO_WAY("Target doesn't support TYP_LCLBLK");
-
-#endif // FEATURE_FIXED_OUT_ARGS
-
-        default: // This must be a primitive var. Fall out of switch statement
-            break;
-    }
-#ifdef TARGET_64BIT
-    // We only need this Quirk for TARGET_64BIT
-    if (lvaTable[varNum].lvQuirkToLong)
-    {
-        noway_assert(lvaTable[varNum].lvAddrExposed);
-        return genTypeStSz(TYP_LONG) * sizeof(int); // return 8  (2 * 4)
-    }
+            if (lclNum == lvaOutgoingArgSpaceVar)
+            {
+                return lvaOutgoingArgSpaceSize.GetValue();
+            }
 #endif
-    return genTypeStSz(varType) * sizeof(int);
+            FALLTHROUGH;
+        case TYP_STRUCT:
+            return lcl->lvSize();
+
+        default:
+#ifdef TARGET_64BIT
+            if (lcl->lvQuirkToLong)
+            {
+                noway_assert(lcl->lvAddrExposed);
+                return genTypeStSz(TYP_LONG) * sizeof(int); // return 8  (2 * 4)
+            }
+#endif
+            return genTypeStSz(lcl->GetType()) * sizeof(int);
+    }
 }
 
-//
-// Return the exact width of local variable "varNum" -- the number of bytes
-// you'd need to copy in order to overwrite the value.
-//
-unsigned Compiler::lvaLclExactSize(unsigned varNum)
+unsigned Compiler::lvaLclExactSize(unsigned lclNum)
 {
-    assert(varNum < lvaCount);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    var_types varType = lvaTable[varNum].TypeGet();
-
-    switch (varType)
+    switch (lcl->GetType())
     {
-        case TYP_STRUCT:
         case TYP_BLK:
-            return lvaTable[varNum].lvExactSize;
-
-        case TYP_LCLBLK:
 #if FEATURE_FIXED_OUT_ARGS
-            // Note that this operation performs a read of a PhasedVar
-            noway_assert(lvaOutgoingArgSpaceSize >= 0);
-            noway_assert(varNum == lvaOutgoingArgSpaceVar);
-            return lvaOutgoingArgSpaceSize;
+            if (lclNum == lvaOutgoingArgSpaceVar)
+            {
+                return lvaOutgoingArgSpaceSize.GetValue();
+            }
+#endif
+            FALLTHROUGH;
+        case TYP_STRUCT:
+            return lcl->lvExactSize;
 
-#else // FEATURE_FIXED_OUT_ARGS
-            assert(!"Unknown size");
-            NO_WAY("Target doesn't support TYP_LCLBLK");
-
-#endif // FEATURE_FIXED_OUT_ARGS
-
-        default: // This must be a primitive var. Fall out of switch statement
-            break;
+        default:
+            return varTypeSize(lcl->GetType());
     }
-
-    return genTypeSize(varType);
 }
 
 // getCalledCount -- get the value used to normalized weights for this method
@@ -4365,7 +4335,7 @@ void Compiler::lvaAllocOutgoingArgSpaceVar()
     {
         lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("OutgoingArgSpace"));
 
-        lvaTable[lvaOutgoingArgSpaceVar].lvType                 = TYP_LCLBLK;
+        lvaTable[lvaOutgoingArgSpaceVar].lvType                 = TYP_BLK;
         lvaTable[lvaOutgoingArgSpaceVar].lvImplicitlyReferenced = 1;
     }
 

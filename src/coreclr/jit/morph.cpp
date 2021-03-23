@@ -12011,9 +12011,9 @@ DONE_MORPHING_CHILDREN:
                 const unsigned   lclNum = temp->AsLclVarCommon()->GetLclNum();
                 LclVarDsc* const varDsc = &lvaTable[lclNum];
 
-                const var_types tempTyp = temp->TypeGet();
-                const bool useExactSize = varTypeIsStruct(tempTyp) || (tempTyp == TYP_BLK) || (tempTyp == TYP_LCLBLK);
-                const unsigned varSize  = useExactSize ? varDsc->lvExactSize : genTypeSize(temp);
+                const var_types tempTyp      = temp->TypeGet();
+                const bool      useExactSize = varTypeIsStruct(tempTyp) || (tempTyp == TYP_BLK);
+                const unsigned  varSize      = useExactSize ? varDsc->lvExactSize : genTypeSize(temp);
 
                 // Make sure we do not enregister this lclVar.
                 lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));

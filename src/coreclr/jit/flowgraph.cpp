@@ -2940,11 +2940,8 @@ void Compiler::fgSimpleLowering()
 
     assert((outgoingArgSpaceSize % TARGET_POINTER_SIZE) == 0);
 
-    // Publish the final value and mark it as read only so any update
-    // attempt later will cause an assert.
-    lvaOutgoingArgSpaceSize = outgoingArgSpaceSize;
-    lvaOutgoingArgSpaceSize.MarkAsReadOnly();
-
+    lvaOutgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
+    lvaGetDesc(lvaOutgoingArgSpaceVar)->lvExactSize = outgoingArgSpaceSize;
 #endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG
