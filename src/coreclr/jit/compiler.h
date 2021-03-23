@@ -932,6 +932,18 @@ public:
         lvType = type;
     }
 
+    void SetBlockType(unsigned size)
+    {
+        lvType      = TYP_BLK;
+        lvExactSize = size;
+    }
+
+    unsigned GetBlockSize() const
+    {
+        assert(lvType == TYP_BLK);
+        return lvExactSize;
+    }
+
     var_types TypeGet() const
     {
         return (var_types)lvType;

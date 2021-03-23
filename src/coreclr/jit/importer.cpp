@@ -5345,26 +5345,32 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
     if (!opts.IsReadyToRun() || IsTargetAbi(CORINFO_CORERT_ABI))
     {
-
         // Reuse the temp used to pass the array dimensions to avoid bloating
         // the stack frame in case there are multiple calls to multi-dim array
         // constructors within a single method.
+
+        LclVarDsc* argsLcl;
+
         if (lvaNewObjArrayArgs == BAD_VAR_NUM)
         {
-            lvaNewObjArrayArgs                       = lvaGrabTemp(false DEBUGARG("NewObjArrayArgs"));
-            lvaTable[lvaNewObjArrayArgs].lvType      = TYP_BLK;
-            lvaTable[lvaNewObjArrayArgs].lvExactSize = 0;
+            lvaNewObjArrayArgs = lvaGrabTemp(false DEBUGARG("NewObjArrayArgs"));
+
+            argsLcl = lvaGetDesc(lvaNewObjArrayArgs);
+            argsLcl->SetBlockType(0);
+        }
+        else
+        {
+            argsLcl = lvaGetDesc(lvaNewObjArrayArgs);
         }
 
         // Increase size of lvaNewObjArrayArgs to be the largest size needed to hold 'numArgs' integers
         // for our call to CORINFO_HELP_NEW_MDARR_NONVARARG.
-        lvaTable[lvaNewObjArrayArgs].lvExactSize =
-            max(lvaTable[lvaNewObjArrayArgs].lvExactSize, pCallInfo->sig.numArgs * sizeof(INT32));
+        argsLcl->SetBlockType(max(argsLcl->GetBlockSize(), pCallInfo->sig.numArgs * sizeof(int32_t)));
 
         // The side-effects may include allocation of more multi-dimensional arrays. Spill all side-effects
         // to ensure that the shared lvaNewObjArrayArgs local variable is only ever used to pass arguments
         // to one allocation at a time.
-        impSpillSideEffects(true, (unsigned)CHECK_SPILL_ALL DEBUGARG("impImportNewObjArray"));
+        impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("impImportNewObjArray"));
 
         //
         // The arguments of the CORINFO_HELP_NEW_MDARR_NONVARARG helper are:
@@ -12714,47 +12720,43 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // will have casts in the way.
                     op2 = gtFoldExpr(op2);
 
-                    if (op2->IsIntegralConst())
+                    if (GenTreeIntCon* icon = op2->IsIntCon())
                     {
-                        const ssize_t allocSize = op2->AsIntCon()->IconValue();
-
-                        bool bbInALoop = impBlockIsInALoop(block);
+                        const ssize_t allocSize = icon->GetValue();
 
                         if (allocSize == 0)
                         {
                             // Result is nullptr
                             JITDUMP("Converting stackalloc of 0 bytes to push null unmanaged pointer\n");
-                            op1              = gtNewIconNode(0, TYP_I_IMPL);
+                            op1 = gtNewIconNode(0, TYP_I_IMPL);
+
                             convertedToLocal = true;
                         }
-                        else if ((allocSize > 0) && !bbInALoop)
+                        else if ((allocSize > 0) && !impBlockIsInALoop(block))
                         {
-                            // Get the size threshold for local conversion
                             ssize_t maxSize = DEFAULT_MAX_LOCALLOC_TO_LOCAL_SIZE;
-
-#ifdef DEBUG
-                            // Optionally allow this to be modified
-                            maxSize = JitConfig.JitStackAllocToLocalSize();
-#endif // DEBUG
+                            INDEBUG(maxSize = JitConfig.JitStackAllocToLocalSize();)
 
                             if (allocSize <= maxSize)
                             {
-                                const unsigned stackallocAsLocal = lvaGrabTemp(false DEBUGARG("stackallocLocal"));
-                                JITDUMP("Converting stackalloc of %lld bytes to new local V%02u\n", allocSize,
-                                        stackallocAsLocal);
-                                lvaTable[stackallocAsLocal].lvType           = TYP_BLK;
-                                lvaTable[stackallocAsLocal].lvExactSize      = (unsigned)allocSize;
-                                lvaTable[stackallocAsLocal].lvIsUnsafeBuffer = true;
-                                op1              = gtNewAddrNode(gtNewLclvNode(stackallocAsLocal, TYP_BLK), TYP_I_IMPL);
-                                convertedToLocal = true;
+                                const unsigned lclNum = lvaGrabTemp(false DEBUGARG("small stackalloc temp"));
+                                JITDUMP("Converting stackalloc of %lld bytes to new local V%02u\n", allocSize, lclNum);
 
-                                if (!this->opts.compDbgEnC)
+                                LclVarDsc* lcl = lvaGetDesc(lclNum);
+                                lcl->SetBlockType(static_cast<unsigned>(allocSize));
+                                lcl->lvIsUnsafeBuffer = true;
+
+                                op1 = gtNewAddrNode(gtNewLclvNode(lclNum, TYP_BLK), TYP_I_IMPL);
+
+                                if (!opts.compDbgEnC)
                                 {
                                     // Ensure we have stack security for this method.
                                     // Reorder layout since the converted localloc is treated as an unsafe buffer.
                                     setNeedsGSSecurityCookie();
                                     compGSReorderStackLayout = true;
                                 }
+
+                                convertedToLocal = true;
                             }
                         }
                     }

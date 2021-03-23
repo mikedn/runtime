@@ -1782,7 +1782,9 @@ public:
 #ifdef TARGET_X86
             // Treat floating point and 64 bit integers as always on the stack
             if (varTypeIsFloating(varDsc->TypeGet()) || varTypeIsLong(varDsc->TypeGet()))
+            {
                 onStack = true;
+            }
 #endif
 
             if (onStack)

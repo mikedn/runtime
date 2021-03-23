@@ -4009,10 +4009,8 @@ void Compiler::lvaMarkLocalVars()
         // For zero-termination of the shadow-Stack-pointer chain
         slotsNeeded++;
 
-        lvaShadowSPslotsVar           = lvaGrabTempWithImplicitUse(false DEBUGARG("lvaShadowSPslotsVar"));
-        LclVarDsc* shadowSPslotsVar   = &lvaTable[lvaShadowSPslotsVar];
-        shadowSPslotsVar->lvType      = TYP_BLK;
-        shadowSPslotsVar->lvExactSize = (slotsNeeded * TARGET_POINTER_SIZE);
+        lvaShadowSPslotsVar = lvaGrabTempWithImplicitUse(false DEBUGARG("lvaShadowSPslotsVar"));
+        lvaGetDesc(lvaShadowSPslotsVar)->SetBlockType(slotsNeeded * REGSIZE_BYTES);
     }
 
 #endif // !FEATURE_EH_FUNCLETS
@@ -4328,19 +4326,16 @@ void Compiler::lvaComputeRefCounts(bool isRecompute, bool setSlotNumbers)
 void Compiler::lvaAllocOutgoingArgSpaceVar()
 {
 #if FEATURE_FIXED_OUT_ARGS
-
-    // Setup the outgoing argument region, in case we end up using it later
-
     if (lvaOutgoingArgSpaceVar == BAD_VAR_NUM)
     {
-        lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("OutgoingArgSpace"));
+        lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("outgoing args area"));
 
-        lvaTable[lvaOutgoingArgSpaceVar].lvType                 = TYP_BLK;
-        lvaTable[lvaOutgoingArgSpaceVar].lvImplicitlyReferenced = 1;
+        LclVarDsc* lcl = lvaGetDesc(lvaOutgoingArgSpaceVar);
+        lcl->SetBlockType(0);
+        lcl->lvImplicitlyReferenced = 1;
     }
 
-    noway_assert(lvaOutgoingArgSpaceVar >= info.compLocalsCount && lvaOutgoingArgSpaceVar < lvaCount);
-
+    noway_assert(lvaOutgoingArgSpaceVar >= info.compLocalsCount);
 #endif // FEATURE_FIXED_OUT_ARGS
 }
 
@@ -7647,8 +7642,7 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTree** pTree, fgWalkData* 
         // Change the variable to a TYP_BLK
         if (varType != TYP_BLK)
         {
-            varDsc->lvExactSize = roundUp(padding + pComp->lvaLclSize(lclNum), TARGET_POINTER_SIZE);
-            varDsc->lvType      = TYP_BLK;
+            varDsc->SetBlockType(roundUp(padding + pComp->lvaLclSize(lclNum), TARGET_POINTER_SIZE));
             pComp->lvaSetVarAddrExposed(lclNum);
         }
 

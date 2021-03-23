@@ -1845,24 +1845,12 @@ void Compiler::fgConvertSyncReturnToLeave(BasicBlock* block)
 
 #endif // FEATURE_EH_FUNCLETS
 
-//------------------------------------------------------------------------
-// fgAddReversePInvokeEnterExit: Add enter/exit calls for reverse PInvoke methods
-//
-// Arguments:
-//      None.
-//
-// Return Value:
-//      None.
-
 void Compiler::fgAddReversePInvokeEnterExit()
 {
     assert(opts.IsReversePInvoke());
 
     lvaReversePInvokeFrameVar = lvaGrabTempWithImplicitUse(false DEBUGARG("Reverse Pinvoke FrameVar"));
-
-    LclVarDsc* varDsc   = &lvaTable[lvaReversePInvokeFrameVar];
-    varDsc->lvType      = TYP_BLK;
-    varDsc->lvExactSize = eeGetEEInfo()->sizeOfReversePInvokeFrame;
+    lvaGetDesc(lvaReversePInvokeFrameVar)->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
 
     // Add enter pinvoke exit callout at the start of prolog
 
@@ -2626,11 +2614,8 @@ void Compiler::fgAddInternal()
         }
 
         lvaInlinedPInvokeFrameVar = lvaGrabTempWithImplicitUse(false DEBUGARG("Pinvoke FrameVar"));
+        lvaGetDesc(lvaInlinedPInvokeFrameVar)->SetBlockType(eeGetEEInfo()->inlinedCallFrameInfo.size);
 
-        LclVarDsc* varDsc = &lvaTable[lvaInlinedPInvokeFrameVar];
-        varDsc->lvType    = TYP_BLK;
-        // Make room for the inlined frame.
-        varDsc->lvExactSize = eeGetEEInfo()->inlinedCallFrameInfo.size;
 #if FEATURE_FIXED_OUT_ARGS
         // Grab and reserve space for TCB, Frame regs used in PInvoke epilog to pop the inlined frame.
         // See genPInvokeMethodEpilog() for use of the grabbed var. This is only necessary if we are
@@ -2638,9 +2623,7 @@ void Compiler::fgAddInternal()
         if (!opts.ShouldUsePInvokeHelpers() && compJmpOpUsed)
         {
             lvaPInvokeFrameRegSaveVar = lvaGrabTempWithImplicitUse(false DEBUGARG("PInvokeFrameRegSave Var"));
-            varDsc                    = &lvaTable[lvaPInvokeFrameRegSaveVar];
-            varDsc->lvType            = TYP_BLK;
-            varDsc->lvExactSize       = 2 * REGSIZE_BYTES;
+            lvaGetDesc(lvaPInvokeFrameRegSaveVar)->SetBlockType(2 * REGSIZE_BYTES);
         }
 #endif
     }
