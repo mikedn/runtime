@@ -653,8 +653,9 @@ public:
         assert(lvIsHfa());
         assert(varTypeIsStruct(lvType));
         unsigned slots = 0;
+        unsigned size  = lvExactSize;
 #ifdef TARGET_ARM
-        slots = lvExactSize / sizeof(float);
+        slots = size / sizeof(float);
         assert(slots <= 8);
 #elif defined(TARGET_ARM64)
         switch (_lvHfaElemKind)
@@ -663,17 +664,17 @@ public:
                 assert(!"lvHfaSlots called for non-HFA");
                 break;
             case CORINFO_HFA_ELEM_FLOAT:
-                assert((lvExactSize % 4) == 0);
-                slots = lvExactSize >> 2;
+                assert((size % 4) == 0);
+                slots = size / 4;
                 break;
             case CORINFO_HFA_ELEM_DOUBLE:
             case CORINFO_HFA_ELEM_VECTOR64:
-                assert((lvExactSize % 8) == 0);
-                slots = lvExactSize >> 3;
+                assert((size % 8) == 0);
+                slots = size / 8;
                 break;
             case CORINFO_HFA_ELEM_VECTOR128:
-                assert((lvExactSize % 16) == 0);
-                slots = lvExactSize >> 4;
+                assert((size % 16) == 0);
+                slots = size / 16;
                 break;
             default:
                 unreached();

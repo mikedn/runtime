@@ -2922,7 +2922,7 @@ void Compiler::fgSimpleLowering()
     assert((outgoingArgSpaceSize % TARGET_POINTER_SIZE) == 0);
 
     lvaOutgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
-    lvaGetDesc(lvaOutgoingArgSpaceVar)->lvExactSize = outgoingArgSpaceSize;
+    lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgSpaceSize);
 #endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG

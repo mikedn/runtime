@@ -2638,15 +2638,15 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
 #endif
 
 #ifdef FEATURE_HFA
-            if (varDsc->lvExactSize <= MAX_PASS_MULTIREG_BYTES)
+            if (layout->GetSize() <= MAX_PASS_MULTIREG_BYTES)
             {
                 var_types hfaType = GetHfaType(layout->GetClassHandle());
 
                 if (hfaType != TYP_UNDEF)
                 {
                     assert(!layout->HasGCPtr());
-                    assert((varDsc->lvExactSize % varTypeSize(hfaType)) == 0);
-                    assert((varDsc->lvExactSize / varTypeSize(hfaType)) <= MAX_ARG_REG_COUNT);
+                    assert((layout->GetSize() % varTypeSize(hfaType)) == 0);
+                    assert((layout->GetSize() / varTypeSize(hfaType)) <= MAX_ARG_REG_COUNT);
 
                     varDsc->SetHfaType(hfaType);
                 }
