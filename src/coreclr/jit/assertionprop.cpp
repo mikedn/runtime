@@ -2740,6 +2740,7 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
             if (curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK)
             {
                 // Here we have to allocate a new 'large' node to replace the old one
+                // TODO-MIKE-Cleanup: Huh, what large node?!?
                 newTree = gtNewIconHandleNode(curAssertion->op2.u1.iconVal,
                                               curAssertion->op2.u1.iconFlags & GTF_ICON_HDL_MASK);
             }
@@ -2747,18 +2748,14 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
             {
                 // If we have done constant propagation of a struct type, it is only valid for zero-init,
                 // and we have to ensure that we have the right zero for the type.
-                if (varTypeIsStruct(tree))
-                {
-                    assert(curAssertion->op2.u1.iconVal == 0);
-                }
+                assert(!varTypeIsStruct(tree->GetType()) || curAssertion->op2.u1.iconVal == 0);
+
 #ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(tree))
+                if (varTypeIsSIMD(tree->GetType()))
                 {
-                    LclVarDsc* varDsc   = lvaGetDesc(lclNum);
-                    var_types  simdType = tree->TypeGet();
-                    assert(varDsc->TypeGet() == simdType);
-                    var_types baseType = varDsc->lvBaseType;
-                    newTree            = gtGetSIMDZero(simdType, baseType, varDsc->GetLayout()->GetClassHandle());
+                    LclVarDsc* lcl = lvaGetDesc(lclNum);
+                    assert(lcl->GetType() == tree->GetType());
+                    newTree = gtGetSIMDZero(lcl->GetType(), lcl->GetSIMDBaseType(), lcl->GetLayout()->GetClassHandle());
                     if (newTree == nullptr)
                     {
                         return nullptr;

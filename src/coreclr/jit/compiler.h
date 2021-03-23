@@ -516,7 +516,7 @@ public:
 #endif                                       // FEATURE_SIMD
     unsigned char lvRegStruct : 1;           // This is a reg-sized non-field-addressed struct.
 
-    var_types GetSIMDBaseType()
+    var_types GetSIMDBaseType() const
     {
 #ifdef FEATURE_SIMD
         return lvBaseType;

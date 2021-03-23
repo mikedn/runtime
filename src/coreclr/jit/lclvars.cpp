@@ -495,7 +495,6 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
                 if (simdBaseType != TYP_UNKNOWN)
                 {
                     assert(varTypeIsSIMD(type));
-                    varDsc->lvBaseType  = simdBaseType;
                     varDsc->lvExactSize = genTypeSize(type);
                 }
             }
@@ -571,9 +570,9 @@ void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBuf
 #ifdef FEATURE_SIMD
         else if (supportSIMDTypes() && varTypeIsSIMD(info.compRetType))
         {
-            varDsc->lvBaseType =
+            var_types simdBaseType =
                 getBaseTypeAndSizeOfSIMDType(info.compMethodInfo->args.retTypeClass, &varDsc->lvExactSize);
-            assert(varDsc->lvBaseType != TYP_UNKNOWN);
+            assert(simdBaseType != TYP_UNKNOWN);
         }
 #endif // FEATURE_SIMD
 
