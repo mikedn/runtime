@@ -406,14 +406,6 @@ void Compiler::gsParamsToShadows()
         var_types type       = varTypeIsSmall(varDsc->TypeGet()) ? TYP_INT : varDsc->TypeGet();
         shadowVarDsc->lvType = type;
 
-#ifdef FEATURE_SIMD
-        shadowVarDsc->lvSIMDType            = varDsc->lvSIMDType;
-        shadowVarDsc->lvUsedInSIMDIntrinsic = varDsc->lvUsedInSIMDIntrinsic;
-        if (varDsc->lvSIMDType)
-        {
-            shadowVarDsc->lvBaseType = varDsc->lvBaseType;
-        }
-#endif
         shadowVarDsc->lvRegStruct = varDsc->lvRegStruct;
 
         shadowVarDsc->lvAddrExposed     = varDsc->lvAddrExposed;
@@ -432,6 +424,9 @@ void Compiler::gsParamsToShadows()
 
             shadowVarDsc->lvIsMultiRegArg = varDsc->lvIsMultiRegArg;
             shadowVarDsc->lvIsMultiRegRet = varDsc->lvIsMultiRegRet;
+#ifdef FEATURE_SIMD
+            shadowVarDsc->lvUsedInSIMDIntrinsic = varDsc->lvUsedInSIMDIntrinsic;
+#endif
         }
         shadowVarDsc->lvIsUnsafeBuffer = varDsc->lvIsUnsafeBuffer;
         shadowVarDsc->lvIsPtr          = varDsc->lvIsPtr;

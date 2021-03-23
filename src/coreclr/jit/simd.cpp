@@ -73,28 +73,22 @@ int Compiler::getSIMDVectorLength(CORINFO_CLASS_HANDLE typeHnd)
 //
 int Compiler::getSIMDTypeAlignment(var_types simdType)
 {
-    unsigned size = genTypeSize(simdType);
+    unsigned size = varTypeSize(simdType);
 
 #ifdef TARGET_XARCH
-    // Fixed length vectors have the following alignment preference
-    // Vector2   = 8 byte alignment
-    // Vector3/4 = 16-byte alignment
-
-    // preferred alignment for SSE2 128-bit vectors is 16-bytes
     if (size == 8)
     {
         return 8;
     }
-    else if (size <= 16)
+
+    if (size <= 16)
     {
         assert((size == 12) || (size == 16));
         return 16;
     }
-    else
-    {
-        assert(size == 32);
-        return 32;
-    }
+
+    assert(size == 32);
+    return 32;
 #elif defined(TARGET_ARM64)
     // preferred alignment for 64-bit vectors is 8-bytes.
     // For everything else, 16-bytes.

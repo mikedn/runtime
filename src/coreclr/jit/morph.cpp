@@ -4363,12 +4363,10 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     unsigned tempLclNum = abiAllocateStructArgTemp(argClass);
 
-    // TYP_SIMD structs should not be enregistered, since ABI requires it to be
-    // allocated on stack and address of it needs to be passed.
-    if (lclVarIsSIMDType(tempLclNum))
-    {
-        lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(DNER_IsStruct));
-    }
+    // These temps are passed by reference so they're always address taken.
+    // TODO-MIKE-Cleanup: Aren't they actually address exposed? If we only
+    // make them DNER they may still be tracked unnecessarily.
+    lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(DNER_IsStructArg));
 
     // Replace the argument with an assignment to the temp, EvalArgsToTemps will later add
     // a use of the temp to the late arg list.

@@ -495,7 +495,6 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
                 if (simdBaseType != TYP_UNKNOWN)
                 {
                     assert(varTypeIsSIMD(type));
-                    varDsc->lvSIMDType  = true;
                     varDsc->lvBaseType  = simdBaseType;
                     varDsc->lvExactSize = genTypeSize(type);
                 }
@@ -572,7 +571,6 @@ void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBuf
 #ifdef FEATURE_SIMD
         else if (supportSIMDTypes() && varTypeIsSIMD(info.compRetType))
         {
-            varDsc->lvSIMDType = true;
             varDsc->lvBaseType =
                 getBaseTypeAndSizeOfSIMDType(info.compMethodInfo->args.retTypeClass, &varDsc->lvExactSize);
             assert(varDsc->lvBaseType != TYP_UNKNOWN);
@@ -2631,7 +2629,6 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
 
                 varDsc->lvType     = simdType;
                 varDsc->lvBaseType = simdBaseType;
-                varDsc->lvSIMDType = true;
             }
 #endif
 
@@ -6566,6 +6563,8 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
 {
     noway_assert(lclNum != BAD_VAR_NUM);
 
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
 #ifdef TARGET_64BIT
     // Before final frame layout, assume the worst case, that every >=8 byte local will need
     // maximum padding to be aligned. This is because we generate code based on the stack offset
@@ -6584,7 +6583,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
     // better performance.
     if ((size >= 8) && ((lvaDoneFrameLayout != FINAL_FRAME_LAYOUT) || ((stkOffs % 8) != 0)
 #if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
-                        || lclVarIsSIMDType(lclNum)
+                        || varTypeIsSIMD(lcl->GetType())
 #endif
                             ))
     {
@@ -6594,9 +6593,9 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
         // alignment padding
         unsigned pad = 0;
 #if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
-        if (lclVarIsSIMDType(lclNum) && !lvaIsImplicitByRefLocal(lclNum))
+        if (varTypeIsSIMD(lcl->GetType()) && !lcl->IsImplicitByRefParam())
         {
-            int alignment = getSIMDTypeAlignment(lvaTable[lclNum].lvType);
+            int alignment = getSIMDTypeAlignment(lcl->GetType());
 
             if (stkOffs % alignment != 0)
             {

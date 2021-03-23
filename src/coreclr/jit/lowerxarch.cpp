@@ -46,10 +46,6 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
         unsigned   varNum = store->GetLclNum();
         LclVarDsc* varDsc = comp->lvaTable + varNum;
 
-        if (varDsc->lvIsSIMDType())
-        {
-            noway_assert(store->gtType != TYP_STRUCT);
-        }
         unsigned size = genTypeSize(store);
         // If we are storing a constant into a local variable
         // we extend the size of the store here

@@ -1439,12 +1439,12 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
             JITDUMP("is aliased local");
         }
     }
-    else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argInfo.argNode))
+    else if (GenTreeLclVar* lclVar = impIsAddressInLocal(argInfo.argNode))
     {
         argInfo.argIsInvariant = true;
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsStruct(addrLclVar->GetType()) && lvaGetDesc(addrLclVar)->lvSIMDType)
+        if (varTypeIsSIMD(lvaGetDesc(lclVar)->GetType()))
         {
             inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
         }

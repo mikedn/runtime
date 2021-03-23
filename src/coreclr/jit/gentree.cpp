@@ -13772,12 +13772,6 @@ GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
     if (dstTyp == TYP_UNDEF)
     {
         varDsc->lvType = dstTyp = genActualType(valTyp);
-#if FEATURE_SIMD
-        if (varTypeIsSIMD(dstTyp))
-        {
-            varDsc->lvSIMDType = 1;
-        }
-#endif
     }
 
 #ifdef DEBUG
