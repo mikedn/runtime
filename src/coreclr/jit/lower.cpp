@@ -211,7 +211,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerSignedDivOrMod(node);
 
         case GT_SWITCH:
-            return LowerSwitch(node);
+            return LowerSwitch(node->AsUnOp());
 
         case GT_CALL:
             LowerCall(node);
@@ -440,13 +440,13 @@ GenTree* Lowering::LowerNode(GenTree* node)
  *     InstrGroups downstream.
  */
 
-GenTree* Lowering::LowerSwitch(GenTree* node)
+GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
 {
+    assert(node->OperIs(GT_SWITCH));
+
     unsigned     jumpCnt;
     unsigned     targetCnt;
     BasicBlock** jumpTab;
-
-    assert(node->gtOper == GT_SWITCH);
 
     // The first step is to build the default case conditional construct that is
     // shared between both kinds of expansion of the switch node.
@@ -498,14 +498,17 @@ GenTree* Lowering::LowerSwitch(GenTree* node)
 
         // We have to get rid of the GT_SWITCH node but a child might have side effects so just assign
         // the result of the child subtree to a temp.
-        GenTree* rhs = node->AsOp()->gtOp1;
 
-        unsigned lclNum               = comp->lvaGrabTemp(true DEBUGARG("Lowering is creating a new local variable"));
-        comp->lvaTable[lclNum].lvType = rhs->TypeGet();
+        // TODO-MIKE-Cleanup: This seems useless, the switch value should simply be marked unused.
 
-        GenTreeLclVar* store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, rhs->TypeGet(), lclNum);
-        store->gtOp1         = rhs;
-        store->gtFlags       = (rhs->gtFlags & GTF_COMMON_MASK);
+        GenTree*  value  = node->GetOp(0);
+        var_types type   = varActualType(value->GetType());
+        unsigned  lclNum = comp->lvaNewTemp(type, true DEBUGARG("unused switch value temp"));
+
+        GenTreeLclVar* store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, type, lclNum);
+        store->SetOp(0, value);
+        // TODO-MIKE-Cleanup: Bogus flags "inheritance".
+        store->gtFlags = (value->gtFlags & GTF_COMMON_MASK);
         store->gtFlags |= GTF_VAR_DEF;
 
         switchBBRange.InsertAfter(node, store);
@@ -1806,7 +1809,6 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
 
             LclVarDsc* callerArgDsc                     = comp->lvaGetDesc(lclNum);
             var_types  tmpTyp                           = genActualType(callerArgDsc->TypeGet());
-            comp->lvaTable[tmpLclNum].lvType            = tmpTyp;
             comp->lvaTable[tmpLclNum].lvDoNotEnregister = comp->lvaTable[lcl->GetLclNum()].lvDoNotEnregister;
             GenTree* value                              = comp->gtNewLclvNode(lclNum, tmpTyp);
 
@@ -1840,6 +1842,9 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
             }
             else
             {
+                // TODO-MIKE-Cleanup: This creates SIMD locals without calling lvaSetStruct.
+                comp->lvaGetDesc(tmpLclNum)->SetType(tmpTyp);
+
                 GenTree* assignExpr = comp->gtNewTempAssign(tmpLclNum, value);
                 ContainCheckRange(value, assignExpr);
                 BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, assignExpr));

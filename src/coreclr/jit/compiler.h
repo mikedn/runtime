@@ -7404,7 +7404,17 @@ private:
     {
         if (lvaSIMDInitTempVarNum == BAD_VAR_NUM)
         {
-            lvaSIMDInitTempVarNum                  = lvaGrabTempWithImplicitUse(false DEBUGARG("SIMDInitTempVar"));
+            lvaSIMDInitTempVarNum = lvaGrabTempWithImplicitUse(false DEBUGARG("SIMDInitTempVar"));
+
+            // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
+            // so it doesn't set layout, exact size etc. It happens to work because it
+            // is done late, after lowering, otherwise at least the lack of exact size
+            // would cause problems.
+            // And we don't have where to get a class handle to call lvaSetStruct...
+            // Could also be a TYP_BLK local, codegen only needs a memory location where
+            // to store a SIMD register in order to extract an element from it. But if
+            // it's TYP_BLK then it won't have SIMD alignment. Bleah.
+
             lvaTable[lvaSIMDInitTempVarNum].lvType = getSIMDVectorType();
         }
         return lvaSIMDInitTempVarNum;

@@ -1251,8 +1251,7 @@ public:
 
         // Grab a temp to hold the 'this' object as it will be used three times
         //
-        unsigned const tmpNum             = compiler->lvaGrabTemp(true DEBUGARG("class profile tmp"));
-        compiler->lvaTable[tmpNum].lvType = TYP_REF;
+        unsigned const tmpNum = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("class profile tmp"));
 
         // Generate the IR...
         //

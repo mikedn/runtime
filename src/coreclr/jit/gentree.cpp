@@ -12008,17 +12008,16 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
         JITDUMP("Bashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
         asg->gtBashToNOP();
 
-        if (varTypeIsStruct(copyDst->TypeGet()))
+        if (varTypeIsStruct(copyDst->GetType()))
         {
             JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclNum, eeGetClassName(boxTempLclDsc->lvClassHnd));
-            boxTempLclDsc->lvType = TYP_UNDEF;
             lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, /* checkUnsafeBuffer */ false);
         }
         else
         {
-            assert(copyDst->TypeGet() == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
-            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclNum, varTypeName(copyDst->TypeGet()));
-            boxTempLclDsc->lvType = copyDst->TypeGet();
+            assert(copyDst->GetType() == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
+            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclNum, varTypeName(copyDst->GetType()));
+            boxTempLclDsc->SetType(copyDst->GetType());
         }
 
         copyDst->ChangeOper(GT_LCL_VAR);
@@ -13762,6 +13761,7 @@ GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
     /* If the variable's lvType is not yet set then set it here */
     if (dstTyp == TYP_UNDEF)
     {
+        // TODO-MIKE-Cleanup: This sets the temp's type only to overwrite later by calling lvaSetStruct.
         varDsc->lvType = dstTyp = genActualType(valTyp);
     }
 
@@ -16865,11 +16865,11 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
         if (type == TYP_STRUCT)
         {
             lvaSetStruct(dummyTemp, clsHnd, false);
-            type = lvaTable[dummyTemp].lvType; // struct type is normalized
+            type = lvaTable[dummyTemp].GetType();
         }
         else
         {
-            lvaTable[dummyTemp].lvType = type;
+            lvaTable[dummyTemp].SetType(type);
         }
         GenTree* dummyNode = gtNewLclvNode(dummyTemp, type);
         return gtNewOperNode(GT_COMMA, type, node, dummyNode);

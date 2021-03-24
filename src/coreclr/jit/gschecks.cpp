@@ -15,19 +15,12 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-/*****************************************************************************
- * gsGSChecksInitCookie
- * Grabs the cookie for detecting overflow of unsafe buffers.
- */
 void Compiler::gsGSChecksInitCookie()
 {
-    var_types type = TYP_I_IMPL;
-
-    lvaGSSecurityCookie = lvaGrabTempWithImplicitUse(false DEBUGARG("GSSecurityCookie"));
-
-    // Prevent cookie init/check from being optimized
+    lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GS cookie"));
+    // Prevent cookie from being optimized
+    lvaGetDesc(lvaGSSecurityCookie)->lvImplicitlyReferenced = true;
     lvaSetVarAddrExposed(lvaGSSecurityCookie);
-    lvaTable[lvaGSSecurityCookie].lvType = type;
 
     info.compCompHnd->getGSCookie(&gsGlobalSecurityCookieVal, &gsGlobalSecurityCookieAddr);
 }

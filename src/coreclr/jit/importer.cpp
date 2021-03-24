@@ -2287,9 +2287,8 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         hndBlk->bbRefs++;
 
         // Spill into a temp.
-        unsigned tempNum         = lvaGrabTemp(false DEBUGARG("CATCH_ARG spill temp"));
-        lvaTable[tempNum].lvType = TYP_REF;
-        GenTree*   argAsg        = gtNewTempAssign(tempNum, impNewCatchArg());
+        unsigned   tempNum = lvaNewTemp(TYP_REF, false DEBUGARG("CATCH_ARG spill temp"));
+        GenTree*   argAsg  = gtNewTempAssign(tempNum, impNewCatchArg());
         Statement* argStmt;
 
         if (info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
@@ -5184,21 +5183,19 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         {
             // For minopts/debug code, try and minimize the total number
             // of box temps by reusing an existing temp when possible.
-            if (impBoxTempInUse || impBoxTemp == BAD_VAR_NUM)
+            if (impBoxTempInUse || (impBoxTemp == BAD_VAR_NUM))
             {
-                impBoxTemp = lvaGrabTemp(true DEBUGARG("Reusable Box Helper"));
+                impBoxTemp = lvaNewTemp(TYP_REF, true DEBUGARG("Reusable Box Helper"));
             }
         }
         else
         {
             // When optimizing, use a new temp for each box operation
             // since we then know the exact class of the box temp.
-            impBoxTemp                       = lvaGrabTemp(true DEBUGARG("Single-def Box Helper"));
-            lvaTable[impBoxTemp].lvType      = TYP_REF;
-            lvaTable[impBoxTemp].lvSingleDef = 1;
+            impBoxTemp                          = lvaNewTemp(TYP_REF, true DEBUGARG("Single-def Box Helper"));
+            lvaGetDesc(impBoxTemp)->lvSingleDef = 1;
             JITDUMP("Marking V%02u as a single def local\n", impBoxTemp);
-            const bool isExact = true;
-            lvaSetClass(impBoxTemp, pResolvedToken->hClass, isExact);
+            lvaSetClass(impBoxTemp, pResolvedToken->hClass, /* isExact */ true);
         }
 
         // needs to stay in use until this box expression is appended
@@ -5206,20 +5203,18 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         // the opcode stack becomes empty
         impBoxTempInUse = true;
 
-        const BOOL useParent = FALSE;
-        op1                  = gtNewAllocObjNode(pResolvedToken, useParent);
+        op1 = gtNewAllocObjNode(pResolvedToken, /* useParent */ false);
         if (op1 == nullptr)
         {
             return;
         }
 
-        /* Remember that this basic block contains 'new' of an object, and so does this method */
+        // Remember that this basic block contains 'new' of an object, and so does this method
         compCurBB->bbFlags |= BBF_HAS_NEWOBJ;
         optMethodFlags |= OMF_HAS_NEWOBJ;
 
-        GenTree* asg = gtNewTempAssign(impBoxTemp, op1);
-
-        Statement* asgStmt = impAppendTree(asg, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+        GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(impBoxTemp, TYP_REF), op1);
+        Statement* asgStmt = impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
 
         op1 = gtNewLclvNode(impBoxTemp, TYP_REF);
         op2 = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
@@ -11824,7 +11819,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                         if (impIsPrimitive(jitTyp))
                         {
-                            lvaTable[lclNum].lvType = JITtype2varType(jitTyp);
+                            lvaGetDesc(lclNum)->SetType(JITtype2varType(jitTyp));
                         }
                         else
                         {
@@ -11841,7 +11836,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         if (fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
                         {
                             GenTree* init = gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0));
-                            impAppendTree(init, (unsigned)CHECK_SPILL_NONE, impCurStmtOffs);
+                            impAppendTree(init, CHECK_SPILL_NONE, impCurStmtOffs);
                         }
                         else
                         {

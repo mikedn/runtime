@@ -1520,7 +1520,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
-    switch (genActualType(varDsc->TypeGet()))
+    switch (varActualType(varDsc->GetType()))
     {
         case TYP_FLOAT:
         case TYP_DOUBLE:
@@ -1530,7 +1530,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         case TYP_LONG:
         case TYP_REF:
         case TYP_BYREF:
-            break;
+            return true;
 
 #ifdef FEATURE_SIMD
         case TYP_SIMD8:
@@ -1546,14 +1546,10 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         case TYP_UNDEF:
         case TYP_UNKNOWN:
             noway_assert(!"lvType not set correctly");
-            varDsc->lvType = TYP_INT;
-            return false;
-
+            FALLTHROUGH;
         default:
             return false;
     }
-
-    return true;
 }
 
 // Identify locals & compiler temps that are register candidates

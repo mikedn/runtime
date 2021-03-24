@@ -2764,8 +2764,6 @@ public:
         }
 #endif // DEBUG
 
-        /* Introduce a new temp for the CSE */
-
         // we will create a  long lifetime temp for the new CSE LclVar
         unsigned  cseLclVarNum = m_pCompiler->lvaGrabTemp(false DEBUGARG(grabTempMessage));
         var_types cseLclVarTyp = varActualType(successfulCandidate->Expr()->GetType());

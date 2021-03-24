@@ -6548,8 +6548,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     // Add the caller's return address slot.
     if (lvaRetAddrVar == BAD_VAR_NUM)
     {
-        lvaRetAddrVar                  = lvaGrabTemp(false DEBUGARG("Return address"));
-        lvaTable[lvaRetAddrVar].lvType = TYP_I_IMPL;
+        lvaRetAddrVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
         lvaSetVarAddrExposed(lvaRetAddrVar);
     }
 
@@ -7277,14 +7276,13 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
             // The argument is not assigned to a temp. We need to create a new temp and insert an assignment.
             // TODO: we can avoid a temp assignment if we can prove that the argument tree
             // doesn't involve any caller parameters.
-            unsigned tmpNum          = lvaGrabTemp(true DEBUGARG("arg temp"));
-            lvaTable[tmpNum].lvType  = arg->gtType;
-            GenTree*   tempSrc       = arg;
-            GenTree*   tempDest      = gtNewLclvNode(tmpNum, tempSrc->gtType);
-            GenTree*   tmpAssignNode = gtNewAssignNode(tempDest, tempSrc);
+            unsigned tmpNum = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"));
+
+            GenTree*   tempDest      = gtNewLclvNode(tmpNum, arg->GetType());
+            GenTree*   tmpAssignNode = gtNewAssignNode(tempDest, arg);
             Statement* tmpAssignStmt = gtNewStmt(tmpAssignNode, callILOffset);
             fgInsertStmtBefore(block, tmpAssignmentInsertionPoint, tmpAssignStmt);
-            argInTemp = gtNewLclvNode(tmpNum, tempSrc->gtType);
+            argInTemp = gtNewLclvNode(tmpNum, arg->GetType());
         }
 
         // Now assign the temp to the parameter.

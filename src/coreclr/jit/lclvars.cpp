@@ -364,8 +364,8 @@ void Compiler::lvaInitTypeRef()
     {
         // Ensure that there will be at least one stack variable since
         // we require that the GSCookie does not have a 0 stack offset.
-        unsigned dummy         = lvaGrabTempWithImplicitUse(false DEBUGARG("GSCookie dummy"));
-        lvaTable[dummy].lvType = TYP_INT;
+        unsigned lclNum = lvaGrabTempWithImplicitUse(false DEBUGARG("GSCookie dummy"));
+        lvaGetDesc(lclNum)->SetType(TYP_INT);
     }
 
     // Allocate the lvaOutgoingArgSpaceVar now because we can run into problems in the
@@ -488,7 +488,8 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
 
         if (eeIsValueClass(info.compClassHnd))
         {
-            varDsc->lvType = TYP_BYREF;
+            varDsc->SetType(TYP_BYREF);
+
 #ifdef FEATURE_SIMD
             if (supportSIMDTypes())
             {
@@ -502,7 +503,7 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
         }
         else
         {
-            varDsc->lvType = TYP_REF;
+            varDsc->SetType(TYP_REF);
             lvaSetClass(varDscInfo->varNum, info.compClassHnd);
         }
 
@@ -534,12 +535,12 @@ void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBuf
 {
     if (varDscInfo->hasRetBufArg)
     {
-        LclVarDsc* varDsc = varDscInfo->varDsc;
-
         info.compRetBuffArg = varDscInfo->varNum;
-        varDsc->lvType      = TYP_BYREF;
-        varDsc->lvIsParam   = 1;
-        varDsc->lvIsRegArg  = 0;
+
+        LclVarDsc* varDsc = varDscInfo->varDsc;
+        varDsc->SetType(TYP_BYREF);
+        varDsc->lvIsParam  = 1;
+        varDsc->lvIsRegArg = 0;
 
         if (useFixedRetBufReg && hasFixedRetBuffReg())
         {
@@ -1178,8 +1179,8 @@ void Compiler::lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo)
         info.compTypeCtxtArg = varDscInfo->varNum;
 
         LclVarDsc* varDsc = varDscInfo->varDsc;
+        varDsc->SetType(TYP_I_IMPL);
         varDsc->lvIsParam = 1;
-        varDsc->lvType    = TYP_I_IMPL;
 
         if (varDscInfo->canEnreg(TYP_I_IMPL))
         {
@@ -1232,7 +1233,7 @@ void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)
         lvaVarargsHandleArg = varDscInfo->varNum;
 
         LclVarDsc* varDsc = varDscInfo->varDsc;
-        varDsc->lvType    = TYP_I_IMPL;
+        varDsc->SetType(TYP_I_IMPL);
         varDsc->lvIsParam = 1;
         // Make sure this lives in the stack -- address may be reported to the VM.
         // TODO-CQ: This should probably be:
@@ -1294,9 +1295,7 @@ void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)
 
         // Allocate a temp to point at the beginning of the args
 
-        lvaVarargsBaseOfStkArgs                  = lvaGrabTemp(false DEBUGARG("Varargs BaseOfStkArgs"));
-        lvaTable[lvaVarargsBaseOfStkArgs].lvType = TYP_I_IMPL;
-
+        lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
 #endif // TARGET_X86
     }
 }
@@ -2311,16 +2310,15 @@ void Compiler::lvaPromoteLongVars()
             strcpy_s(bufp, len, buf);
 #endif
 
-            unsigned varNum = lvaGrabTemp(false DEBUGARG(bufp)); // Lifetime of field locals might span multiple BBs, so
-                                                                 // they are long lifetime temps.
+            unsigned varNum = lvaNewTemp(TYP_INT, false DEBUGARG(bufp));
 
-            LclVarDsc* fieldVarDsc       = &lvaTable[varNum];
-            fieldVarDsc->lvType          = TYP_INT;
-            fieldVarDsc->lvExactSize     = genTypeSize(TYP_INT);
+            LclVarDsc* fieldVarDsc       = lvaGetDesc(varNum);
+            fieldVarDsc->lvExactSize     = varTypeSize(TYP_INT);
             fieldVarDsc->lvIsStructField = true;
-            fieldVarDsc->lvFldOffset     = (unsigned char)(index * genTypeSize(TYP_INT));
-            fieldVarDsc->lvFldOrdinal    = (unsigned char)index;
+            fieldVarDsc->lvFldOffset     = static_cast<uint8_t>(index * varTypeSize(TYP_INT));
+            fieldVarDsc->lvFldOrdinal    = static_cast<uint8_t>(index);
             fieldVarDsc->lvParentLcl     = lclNum;
+
             // Currently we do not support enregistering incoming promoted aggregates with more than one field.
             if (isParam)
             {
@@ -3370,10 +3368,7 @@ void Compiler::lvaSortByRefCount()
                 case TYP_UNDEF:
                 case TYP_UNKNOWN:
                     noway_assert(!"lvType not set correctly");
-                    varDsc->lvType = TYP_INT;
-
                     FALLTHROUGH;
-
                 default:
                     varDsc->lvTracked = 0;
             }
@@ -3860,6 +3855,8 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
 
         /* Remember the type of the reference */
 
+        // TODO-MIKE-Cleanup: What the crap is this?!?!
+
         if (tree->gtType == TYP_UNKNOWN || varDsc->lvType == TYP_UNDEF)
         {
             varDsc->lvType = tree->gtType;
@@ -4021,9 +4018,8 @@ void Compiler::lvaMarkLocalVars()
 #if defined(FEATURE_EH_FUNCLETS)
         if (ehNeedsPSPSym())
         {
-            lvaPSPSym            = lvaGrabTempWithImplicitUse(false DEBUGARG("PSPSym"));
-            LclVarDsc* lclPSPSym = &lvaTable[lvaPSPSym];
-            lclPSPSym->lvType    = TYP_I_IMPL;
+            lvaPSPSym = lvaGrabTempWithImplicitUse(false DEBUGARG("PSPSym"));
+            lvaGetDesc(lvaPSPSym)->SetType(TYP_I_IMPL);
         }
 #endif // FEATURE_EH_FUNCLETS
 
@@ -4043,9 +4039,8 @@ void Compiler::lvaMarkLocalVars()
         // See also eetwain.cpp::GetLocallocSPOffset() and its callers.
         if (compLocallocUsed)
         {
-            lvaLocAllocSPvar         = lvaGrabTempWithImplicitUse(false DEBUGARG("LocAllocSPvar"));
-            LclVarDsc* locAllocSPvar = &lvaTable[lvaLocAllocSPvar];
-            locAllocSPvar->lvType    = TYP_I_IMPL;
+            lvaLocAllocSPvar = lvaGrabTempWithImplicitUse(false DEBUGARG("LocAllocSPvar"));
+            lvaGetDesc(lvaLocAllocSPvar)->SetType(TYP_I_IMPL);
         }
 #endif // JIT32_GCENCODER
     }
