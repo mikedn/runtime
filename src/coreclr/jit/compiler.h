@@ -364,25 +364,18 @@ enum RefCountState
 class LclVarDsc
 {
 public:
-    // The constructor. Most things can just be zero'ed.
-    //
-    // Initialize the ArgRegs to REG_STK.
-    // Morph will update if this local is passed in a register.
     LclVarDsc()
         : _lvArgReg(REG_STK)
-        ,
 #if FEATURE_MULTIREG_ARGS
-        _lvOtherArgReg(REG_STK)
-        ,
-#endif // FEATURE_MULTIREG_ARGS
-        lvClassHnd(NO_CLASS_HANDLE)
-        ,
-#if ASSERTION_PROP
-        lvRefBlks(BlockSetOps::UninitVal())
-        ,
-#endif // ASSERTION_PROP
-        lvPerSsaData()
+        , _lvOtherArgReg(REG_STK)
+#endif
     {
+        // It is expected that the memory allocated for LclVarDsc is already zeroed.
+        assert(lvType == TYP_UNDEF);
+        assert(lvClassHnd == NO_CLASS_HANDLE);
+#if ASSERTION_PROP
+        assert(lvRefBlks == BlockSetOps::UninitVal());
+#endif
     }
 
     // note this only packs because var_types is a typedef of unsigned char

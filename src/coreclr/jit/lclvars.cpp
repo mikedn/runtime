@@ -244,7 +244,7 @@ void Compiler::lvaInitTypeRef()
     lvaTableSize = max(16, lvaCount * 2);
     lvaTable     = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(lvaTableSize);
     memset(lvaTable, 0, lvaTableSize * sizeof(lvaTable[0]));
-    for (unsigned i = 0; i < lvaTableSize; i++)
+    for (unsigned i = 0; i < lvaCount; i++)
     {
         new (&lvaTable[i]) LclVarDsc();
     }

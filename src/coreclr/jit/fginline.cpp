@@ -657,11 +657,7 @@ bool Compiler::inlInlineCall(Statement* stmt, GenTreeCall* call)
 
     if (result.IsFailure())
     {
-        memset(lvaTable + initialLvaCount, 0, (static_cast<size_t>(lvaCount) - initialLvaCount) * sizeof(*lvaTable));
-        for (unsigned i = initialLvaCount; i < lvaCount; i++)
-        {
-            new (&lvaTable[i]) LclVarDsc();
-        }
+        memset(lvaTable + initialLvaCount, 0, (static_cast<size_t>(lvaCount) - initialLvaCount) * sizeof(lvaTable[0]));
         lvaCount = initialLvaCount;
 
         // Before we do any cleanup, create a failing InlineContext to

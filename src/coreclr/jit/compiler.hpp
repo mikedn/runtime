@@ -1547,14 +1547,8 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
         }
 
         LclVarDsc* newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newSize);
-
         memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
-        memset(newTable + lvaCount, 0, (newSize - lvaCount) * sizeof(lvaTable[0]));
-
-        for (unsigned i = lvaCount; i < newSize; i++)
-        {
-            new (&newTable[i]) LclVarDsc();
-        }
+        memset(newTable + lvaCount, 0, (static_cast<size_t>(newSize) - lvaCount) * sizeof(lvaTable[0]));
 
         // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
         INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
@@ -1563,14 +1557,12 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
         lvaTable     = newTable;
     }
 
-    unsigned   lclNum = lvaCount++;
-    LclVarDsc& lcl    = lvaTable[lclNum];
+    unsigned lclNum = lvaCount++;
 
-    assert(lcl.GetType() == TYP_UNDEF);
-
-    lcl.lvIsTemp  = shortLifetime;
-    lcl.lvOnFrame = true;
-    INDEBUG(lcl.lvReason = reason;)
+    LclVarDsc* lcl = new (&lvaTable[lclNum]) LclVarDsc();
+    lcl->lvIsTemp  = shortLifetime;
+    lcl->lvOnFrame = true;
+    INDEBUG(lcl->lvReason = reason;)
 
     // If we've started normal ref counting, bump the ref count of this
     // local, as we no longer do any incremental counting, and we presume
@@ -1579,12 +1571,12 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     {
         if (opts.OptimizationDisabled())
         {
-            lcl.lvImplicitlyReferenced = 1;
+            lcl->lvImplicitlyReferenced = 1;
         }
         else
         {
-            lcl.setLvRefCnt(1);
-            lcl.setLvRefCntWtd(BB_UNITY_WEIGHT);
+            lcl->setLvRefCnt(1);
+            lcl->setLvRefCntWtd(BB_UNITY_WEIGHT);
         }
     }
 
@@ -1619,14 +1611,8 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
         }
 
         LclVarDsc* newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newSize);
-
         memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
-        memset(newTable + lvaCount, 0, (newSize - lvaCount) * sizeof(lvaTable[0]));
-
-        for (unsigned i = lvaCount; i < newSize; i++)
-        {
-            new (&newTable[i]) LclVarDsc();
-        }
+        memset(newTable + lvaCount, 0, (static_cast<size_t>(newSize) - lvaCount) * sizeof(lvaTable[0]));
 
         // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
         INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
@@ -1640,13 +1626,10 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
 
     for (unsigned i = 0; i < count; i++)
     {
-        LclVarDsc& lcl = lvaTable[lclNum + i];
-
-        assert(lcl.lvType == TYP_UNDEF);
-        assert(lcl.lvIsTemp == false);
-
-        lcl.lvOnFrame = true;
-        INDEBUG(lcl.lvReason = reason;)
+        LclVarDsc* lcl = new (&lvaTable[lclNum + i]) LclVarDsc();
+        assert(lcl->lvIsTemp == false);
+        lcl->lvOnFrame = true;
+        INDEBUG(lcl->lvReason = reason;)
     }
 
     // Could handle this like in lvaGrabTemp probably...
