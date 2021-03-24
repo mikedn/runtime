@@ -1490,6 +1490,25 @@ unsigned Compiler::compMap2ILvarNum(unsigned varNum) const
     return varNum;
 }
 
+void Compiler::lvaResizeTable(unsigned newSize)
+{
+    // Check for overflow
+    if (newSize <= lvaCount)
+    {
+        IMPL_LIMITATION("too many locals");
+    }
+
+    LclVarDsc* newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newSize);
+    memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
+    memset(newTable + lvaCount, 0, (static_cast<size_t>(newSize) - lvaCount) * sizeof(lvaTable[0]));
+
+    // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
+    INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
+
+    lvaTableSize = newSize;
+    lvaTable     = newTable;
+}
+
 /*****************************************************************************
  * Returns true if variable "varNum" may be address-exposed.
  */

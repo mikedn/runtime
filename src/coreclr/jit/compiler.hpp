@@ -1538,23 +1538,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
 
     if (lvaCount + 1 > lvaTableSize)
     {
-        unsigned newSize = lvaCount + (lvaCount / 2) + 1;
-
-        // Check for overflow
-        if (newSize <= lvaCount)
-        {
-            IMPL_LIMITATION("too many locals");
-        }
-
-        LclVarDsc* newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newSize);
-        memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
-        memset(newTable + lvaCount, 0, (static_cast<size_t>(newSize) - lvaCount) * sizeof(lvaTable[0]));
-
-        // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
-        INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
-
-        lvaTableSize = newSize;
-        lvaTable     = newTable;
+        lvaResizeTable(lvaCount + (lvaCount / 2) + 1);
     }
 
     unsigned lclNum = lvaCount++;
@@ -1589,6 +1573,8 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
 {
     if (compIsForInlining())
     {
+        // TODO-MIKE-Cleanup: Why doesn't this check for too many locals like lvaGrabTemp?
+
         unsigned lclNum = impInlineInfo->InlinerCompiler->lvaGrabTemps(count DEBUGARG(reason));
 
         lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
@@ -1602,23 +1588,7 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
 
     if (lvaCount + count > lvaTableSize)
     {
-        unsigned newSize = lvaCount + max(lvaCount / 2 + 1, count);
-
-        // Check for overflow
-        if (newSize <= lvaCount)
-        {
-            IMPL_LIMITATION("too many locals");
-        }
-
-        LclVarDsc* newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newSize);
-        memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
-        memset(newTable + lvaCount, 0, (static_cast<size_t>(newSize) - lvaCount) * sizeof(lvaTable[0]));
-
-        // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
-        INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
-
-        lvaTableSize = newSize;
-        lvaTable     = newTable;
+        lvaResizeTable(lvaCount + max(lvaCount / 2 + 1, count));
     }
 
     unsigned lclNum = lvaCount;
@@ -1645,27 +1615,14 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
 // to be forced to be kept alive, and not be optimized away.
 inline unsigned Compiler::lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG(const char* reason))
 {
-    if (compIsForInlining())
-    {
-        unsigned lclNum = impInlineInfo->InlinerCompiler->lvaGrabTempWithImplicitUse(shortLifetime DEBUGARG(reason));
-
-        lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
-        lvaCount     = impInlineInfo->InlinerCompiler->lvaCount;
-        lvaTableSize = impInlineInfo->InlinerCompiler->lvaTableSize;
-
-        return lclNum;
-    }
-
     unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
 
     lvaTable[lclNum].lvImplicitlyReferenced = 1;
-
     // This will prevent it from being optimized away.
     // TODO-MIKE-Review: Shouldn't lvImplicitlyReferenced be enough to prevent
     // it from being optimized away? What does "optimized away" means anyway,
     // local variables are not deleted...
     lvaSetVarAddrExposed(lclNum);
-
     return lclNum;
 }
 

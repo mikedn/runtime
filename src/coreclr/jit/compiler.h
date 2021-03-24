@@ -2749,6 +2749,8 @@ public:
     unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
     unsigned lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG(const char* reason));
 
+    void lvaResizeTable(unsigned newSize);
+
     void lvaSortByRefCount();
 
     void lvaMarkLocalVars(); // Local variable ref-counting
