@@ -495,6 +495,8 @@ void Compiler::optAddCopies()
 
 ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
 {
+    assert(lclNum < lvaCount);
+
     JitExpandArray<ASSERT_TP>& dep = *optAssertionDep;
     if (dep[lclNum] == nullptr)
     {

@@ -1110,10 +1110,10 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                     // This check is only intended to prevent an AV.  Bad varNum values will later
                     // be handled properly by the verifier.
-                    if (varNum < lvaTableCnt)
+                    if (varNum < lvaCount)
                     {
                         // In non-inline cases, note written-to arguments.
-                        lvaTable[varNum].lvHasILStoreOp = 1;
+                        lvaGetDesc(varNum)->lvHasILStoreOp = 1;
                     }
                 }
             }
@@ -1149,16 +1149,18 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                     // This check is only intended to prevent an AV.  Bad varNum values will later
                     // be handled properly by the verifier.
-                    if (varNum < lvaTableCnt)
+                    if (varNum < lvaCount)
                     {
+                        LclVarDsc* lcl = lvaGetDesc(varNum);
+
                         // In non-inline cases, note written-to locals.
-                        if (lvaTable[varNum].lvHasILStoreOp)
+                        if (lcl->lvHasILStoreOp)
                         {
-                            lvaTable[varNum].lvHasMultipleILStoreOp = 1;
+                            lcl->lvHasMultipleILStoreOp = 1;
                         }
                         else
                         {
-                            lvaTable[varNum].lvHasILStoreOp = 1;
+                            lcl->lvHasILStoreOp = 1;
                         }
                     }
                 }

@@ -233,27 +233,20 @@ void Compiler::lvaInitTypeRef()
 
     if (compIsForInlining())
     {
-        lvaTable    = impInlineInfo->InlinerCompiler->lvaTable;
-        lvaCount    = impInlineInfo->InlinerCompiler->lvaCount;
-        lvaTableCnt = impInlineInfo->InlinerCompiler->lvaTableCnt;
+        lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
+        lvaCount     = impInlineInfo->InlinerCompiler->lvaCount;
+        lvaTableSize = impInlineInfo->InlinerCompiler->lvaTableSize;
 
         // No more stuff needs to be done.
         return;
     }
 
-    lvaTableCnt = lvaCount * 2;
-
-    if (lvaTableCnt < 16)
+    lvaTableSize = max(16, lvaCount * 2);
+    lvaTable     = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(lvaTableSize);
+    memset(lvaTable, 0, lvaTableSize * sizeof(lvaTable[0]));
+    for (unsigned i = 0; i < lvaTableSize; i++)
     {
-        lvaTableCnt = 16;
-    }
-
-    lvaTable         = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(lvaTableCnt);
-    size_t tableSize = lvaTableCnt * sizeof(*lvaTable);
-    memset(lvaTable, 0, tableSize);
-    for (unsigned i = 0; i < lvaTableCnt; i++)
-    {
-        new (&lvaTable[i]) LclVarDsc(); // call the constructor.
+        new (&lvaTable[i]) LclVarDsc();
     }
 
     //-------------------------------------------------------------------------

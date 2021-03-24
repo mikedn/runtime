@@ -2489,8 +2489,8 @@ public:
     unsigned lvaCount;        // total number of locals, which includes function arguments,
                               // special arguments, IL local variables, and JIT temporary variables
 
-    LclVarDsc* lvaTable;    // variable descriptor table
-    unsigned   lvaTableCnt; // lvaTable size (>= lvaCount)
+    LclVarDsc* lvaTable;     // variable descriptor table
+    unsigned   lvaTableSize; // lvaTable size (>= lvaCount)
 
     unsigned lvaTrackedCount;             // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits; // min # of size_t's sufficient to hold a bit for all the locals being tracked

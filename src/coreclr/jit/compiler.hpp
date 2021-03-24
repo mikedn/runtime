@@ -1526,9 +1526,9 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
 
         unsigned lclNum = pComp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
 
-        lvaTable    = pComp->lvaTable;
-        lvaCount    = pComp->lvaCount;
-        lvaTableCnt = pComp->lvaTableCnt;
+        lvaTable     = pComp->lvaTable;
+        lvaCount     = pComp->lvaCount;
+        lvaTableSize = pComp->lvaTableSize;
 
         return lclNum;
     }
@@ -1536,31 +1536,31 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     // You cannot allocate more space after frame layout!
     noway_assert(lvaDoneFrameLayout < Compiler::TENTATIVE_FRAME_LAYOUT);
 
-    if (lvaCount + 1 > lvaTableCnt)
+    if (lvaCount + 1 > lvaTableSize)
     {
-        unsigned newLvaTableCnt = lvaCount + (lvaCount / 2) + 1;
+        unsigned newSize = lvaCount + (lvaCount / 2) + 1;
 
         // Check for overflow
-        if (newLvaTableCnt <= lvaCount)
+        if (newSize <= lvaCount)
         {
             IMPL_LIMITATION("too many locals");
         }
 
-        LclVarDsc* newLvaTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newLvaTableCnt);
+        LclVarDsc* newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newSize);
 
-        memcpy(newLvaTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
-        memset(newLvaTable + lvaCount, 0, (newLvaTableCnt - lvaCount) * sizeof(lvaTable[0]));
+        memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
+        memset(newTable + lvaCount, 0, (newSize - lvaCount) * sizeof(lvaTable[0]));
 
-        for (unsigned i = lvaCount; i < newLvaTableCnt; i++)
+        for (unsigned i = lvaCount; i < newSize; i++)
         {
-            new (&newLvaTable[i]) LclVarDsc();
+            new (&newTable[i]) LclVarDsc();
         }
 
         // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
         INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
 
-        lvaTableCnt = newLvaTableCnt;
-        lvaTable    = newLvaTable;
+        lvaTableSize = newSize;
+        lvaTable     = newTable;
     }
 
     unsigned   lclNum = lvaCount++;
@@ -1599,40 +1599,40 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
     {
         unsigned lclNum = impInlineInfo->InlinerCompiler->lvaGrabTemps(count DEBUGARG(reason));
 
-        lvaTable    = impInlineInfo->InlinerCompiler->lvaTable;
-        lvaCount    = impInlineInfo->InlinerCompiler->lvaCount;
-        lvaTableCnt = impInlineInfo->InlinerCompiler->lvaTableCnt;
+        lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
+        lvaCount     = impInlineInfo->InlinerCompiler->lvaCount;
+        lvaTableSize = impInlineInfo->InlinerCompiler->lvaTableSize;
 
         return lclNum;
     }
 
     noway_assert(lvaDoneFrameLayout < Compiler::TENTATIVE_FRAME_LAYOUT);
 
-    if (lvaCount + count > lvaTableCnt)
+    if (lvaCount + count > lvaTableSize)
     {
-        unsigned newLvaTableCnt = lvaCount + max(lvaCount / 2 + 1, count);
+        unsigned newSize = lvaCount + max(lvaCount / 2 + 1, count);
 
         // Check for overflow
-        if (newLvaTableCnt <= lvaCount)
+        if (newSize <= lvaCount)
         {
             IMPL_LIMITATION("too many locals");
         }
 
-        LclVarDsc* newLvaTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newLvaTableCnt);
+        LclVarDsc* newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newSize);
 
-        memcpy(newLvaTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
-        memset(newLvaTable + lvaCount, 0, (newLvaTableCnt - lvaCount) * sizeof(lvaTable[0]));
+        memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
+        memset(newTable + lvaCount, 0, (newSize - lvaCount) * sizeof(lvaTable[0]));
 
-        for (unsigned i = lvaCount; i < newLvaTableCnt; i++)
+        for (unsigned i = lvaCount; i < newSize; i++)
         {
-            new (&newLvaTable[i]) LclVarDsc();
+            new (&newTable[i]) LclVarDsc();
         }
 
         // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
         INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
 
-        lvaTableCnt = newLvaTableCnt;
-        lvaTable    = newLvaTable;
+        lvaTableSize = newSize;
+        lvaTable     = newTable;
     }
 
     unsigned lclNum = lvaCount;
@@ -1666,9 +1666,9 @@ inline unsigned Compiler::lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG
     {
         unsigned lclNum = impInlineInfo->InlinerCompiler->lvaGrabTempWithImplicitUse(shortLifetime DEBUGARG(reason));
 
-        lvaTable    = impInlineInfo->InlinerCompiler->lvaTable;
-        lvaCount    = impInlineInfo->InlinerCompiler->lvaCount;
-        lvaTableCnt = impInlineInfo->InlinerCompiler->lvaTableCnt;
+        lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
+        lvaCount     = impInlineInfo->InlinerCompiler->lvaCount;
+        lvaTableSize = impInlineInfo->InlinerCompiler->lvaTableSize;
 
         return lclNum;
     }
@@ -3124,12 +3124,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #if LOCAL_ASSERTION_PROP
 
-/*****************************************************************************
- *
- *  The following resets the value assignment table
- *  used only during local assertion prop
- */
-
+// The following resets the value assignment table
+// used only during local assertion prop
 inline void Compiler::optAssertionReset(AssertionIndex limit)
 {
     PREFAST_ASSUME(optAssertionCount <= optMaxAssertionCount);
@@ -3140,7 +3136,6 @@ inline void Compiler::optAssertionReset(AssertionIndex limit)
         AssertionDsc*  curAssertion = optGetAssertion(index);
         optAssertionCount--;
         unsigned lclNum = curAssertion->op1.lcl.lclNum;
-        assert(lclNum < lvaTableCnt);
         BitVecOps::RemoveElemD(apTraits, GetAssertionDep(lclNum), index - 1);
 
         //

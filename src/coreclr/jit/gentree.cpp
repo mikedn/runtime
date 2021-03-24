@@ -2560,8 +2560,7 @@ bool Compiler::gtIsLikelyRegVar(GenTree* tree)
         return false;
     }
 
-    assert(tree->AsLclVar()->GetLclNum() < lvaTableCnt);
-    LclVarDsc* varDsc = lvaTable + tree->AsLclVar()->GetLclNum();
+    LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
 
     if (varDsc->lvDoNotEnregister)
     {
