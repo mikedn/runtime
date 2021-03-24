@@ -46,6 +46,10 @@ Compiler::fgWalkResult Compiler::optAddCopiesCallback(GenTree** pTree, fgWalkDat
 
 void Compiler::optAddCopies()
 {
+    // TODO-MIKE-Review: Does this thing actually work? Copies are added but
+    // they don't appear to be used. The idea was probably that copy prop will
+    // pick up these copies but that doesn't seem to happen.
+
     unsigned   lclNum;
     LclVarDsc* varDsc;
 
@@ -277,29 +281,31 @@ void Compiler::optAddCopies()
             continue;
         }
 
-        Statement* stmt;
-        unsigned   copyLclNum = lvaGrabTemp(false DEBUGARG("optAddCopies"));
-
+        unsigned copyLclNum = lvaGrabTemp(false DEBUGARG("optAddCopies"));
         // Because lvaGrabTemp may have reallocated the lvaTable, ensure varDsc
         // is still in sync with lvaTable[lclNum];
-        varDsc = &lvaTable[lclNum];
+        varDsc = lvaGetDesc(lclNum);
 
-        // Set lvType on the new Temp Lcl Var
-        lvaTable[copyLclNum].lvType = typ;
-
-#ifdef DEBUG
-        if (verbose)
+        if (varTypeIsSIMD(varDsc->GetType()))
         {
-            printf("\n    Finding the best place to insert the assignment V%02i=V%02i\n", copyLclNum, lclNum);
+            lvaSetStruct(copyLclNum, varDsc->GetLayout(), /* checkUnsafeBuffer */ false);
+            assert(lvaGetDesc(copyLclNum)->GetType() == typ);
         }
-#endif
+        else
+        {
+            lvaGetDesc(copyLclNum)->SetType(typ);
+        }
+
+        JITDUMP("Finding the best place to insert the assignment V%02i = V%02i\n", copyLclNum, lclNum);
+
+        Statement* stmt;
 
         if (varDsc->lvIsParam)
         {
-            noway_assert(varDsc->lvDefStmt == nullptr || varDsc->lvIsStructField);
+            noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->lvIsStructField);
 
             // Create a new copy assignment tree
-            GenTree* copyAsgn = gtNewTempAssign(copyLclNum, gtNewLclvNode(lclNum, typ));
+            GenTree* copyAsgn = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), gtNewLclvNode(lclNum, typ));
 
             /* Find the best block to insert the new assignment     */
             /* We will choose the lowest weighted block, and within */
@@ -454,7 +460,7 @@ void Compiler::optAddCopies()
 
             /* Assign the old expression into the new temp */
 
-            GenTree* newAsgn = gtNewTempAssign(copyLclNum, tree->AsOp()->gtOp2);
+            GenTree* newAsgn = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), tree->AsOp()->gtOp2);
 
             /* Copy the new temp to op1 */
 
@@ -472,14 +478,7 @@ void Compiler::optAddCopies()
             tree->gtFlags |= (copyAsgn->gtFlags & GTF_ALL_EFFECT);
         }
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nIntroducing a new copy for V%02u\n", lclNum);
-            gtDispTree(stmt->GetRootNode());
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", lclNum);
     }
 }
 
