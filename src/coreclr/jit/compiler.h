@@ -2753,7 +2753,7 @@ public:
     unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
 
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason));
+    unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
     unsigned lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG(const char* reason));
 
     void lvaSortByRefCount();

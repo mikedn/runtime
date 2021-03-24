@@ -1513,35 +1513,29 @@ inline unsigned Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shor
     return lclNum;
 }
 
-/*****************************************************************************
- *
- *  Allocate a temporary variable or a set of temp variables.
- */
-
 inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
     {
-        // Grab the temp using Inliner's Compiler instance.
-        Compiler* pComp = impInlineInfo->InlinerCompiler; // The Compiler instance for the caller (i.e. the inliner)
+        Compiler* pComp = impInlineInfo->InlinerCompiler;
 
         if (pComp->lvaHaveManyLocals())
         {
-            // Don't create more LclVar with inlining
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_TOO_MANY_LOCALS);
         }
 
-        unsigned tmpNum = pComp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
-        lvaTable        = pComp->lvaTable;
-        lvaCount        = pComp->lvaCount;
-        lvaTableCnt     = pComp->lvaTableCnt;
-        return tmpNum;
+        unsigned lclNum = pComp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
+
+        lvaTable    = pComp->lvaTable;
+        lvaCount    = pComp->lvaCount;
+        lvaTableCnt = pComp->lvaTableCnt;
+
+        return lclNum;
     }
 
     // You cannot allocate more space after frame layout!
     noway_assert(lvaDoneFrameLayout < Compiler::TENTATIVE_FRAME_LAYOUT);
 
-    /* Check if the lvaTable has to be grown */
     if (lvaCount + 1 > lvaTableCnt)
     {
         unsigned newLvaTableCnt = lvaCount + (lvaCount / 2) + 1;
@@ -1554,30 +1548,29 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
 
         LclVarDsc* newLvaTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newLvaTableCnt);
 
-        memcpy(newLvaTable, lvaTable, lvaCount * sizeof(*lvaTable));
-        memset(newLvaTable + lvaCount, 0, (newLvaTableCnt - lvaCount) * sizeof(*lvaTable));
+        memcpy(newLvaTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
+        memset(newLvaTable + lvaCount, 0, (newLvaTableCnt - lvaCount) * sizeof(lvaTable[0]));
 
         for (unsigned i = lvaCount; i < newLvaTableCnt; i++)
         {
-            new (&newLvaTable[i]) LclVarDsc(); // call the constructor.
+            new (&newLvaTable[i]) LclVarDsc();
         }
 
-#ifdef DEBUG
-        // Fill the old table with junks. So to detect the un-intended use.
-        memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(*lvaTable));
-#endif
+        // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
+        INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
 
         lvaTableCnt = newLvaTableCnt;
         lvaTable    = newLvaTable;
     }
 
-    const unsigned tempNum = lvaCount;
-    lvaCount++;
+    unsigned   lclNum = lvaCount++;
+    LclVarDsc& lcl    = lvaTable[lclNum];
 
-    // Initialize lvType, lvIsTemp and lvOnFrame
-    lvaTable[tempNum].lvType    = TYP_UNDEF;
-    lvaTable[tempNum].lvIsTemp  = shortLifetime;
-    lvaTable[tempNum].lvOnFrame = true;
+    assert(lcl.GetType() == TYP_UNDEF);
+
+    lcl.lvIsTemp  = shortLifetime;
+    lcl.lvOnFrame = true;
+    INDEBUG(lcl.lvReason = reason;)
 
     // If we've started normal ref counting, bump the ref count of this
     // local, as we no longer do any incremental counting, and we presume
@@ -1586,60 +1579,38 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     {
         if (opts.OptimizationDisabled())
         {
-            lvaTable[tempNum].lvImplicitlyReferenced = 1;
+            lcl.lvImplicitlyReferenced = 1;
         }
         else
         {
-            lvaTable[tempNum].setLvRefCnt(1);
-            lvaTable[tempNum].setLvRefCntWtd(BB_UNITY_WEIGHT);
+            lcl.setLvRefCnt(1);
+            lcl.setLvRefCntWtd(BB_UNITY_WEIGHT);
         }
     }
 
-#ifdef DEBUG
-    lvaTable[tempNum].lvReason = reason;
+    JITDUMP("\nAllocated %stemp V%02u for \"%s\"\n", shortLifetime ? "" : "long lifetime ", lclNum, reason);
 
-    if (verbose)
-    {
-        printf("\nlvaGrabTemp returning %d (", tempNum);
-        gtDispLclVar(tempNum, false);
-        printf(")%s called for \"%s\".\n", shortLifetime ? "" : " (a long lifetime temp)", reason);
-    }
-#endif // DEBUG
-
-    return tempNum;
+    return lclNum;
 }
 
-inline unsigned Compiler::lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason))
+inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
     {
-        // Grab the temps using Inliner's Compiler instance.
-        unsigned tmpNum = impInlineInfo->InlinerCompiler->lvaGrabTemps(cnt DEBUGARG(reason));
+        unsigned lclNum = impInlineInfo->InlinerCompiler->lvaGrabTemps(count DEBUGARG(reason));
 
         lvaTable    = impInlineInfo->InlinerCompiler->lvaTable;
         lvaCount    = impInlineInfo->InlinerCompiler->lvaCount;
         lvaTableCnt = impInlineInfo->InlinerCompiler->lvaTableCnt;
-        return tmpNum;
+
+        return lclNum;
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nlvaGrabTemps(%d) returning %d..%d (long lifetime temps) called for %s", cnt, lvaCount,
-               lvaCount + cnt - 1, reason);
-    }
-#endif
-
-    // Could handle this...
-    assert(!lvaLocalVarRefCounted());
-
-    // You cannot allocate more space after frame layout!
     noway_assert(lvaDoneFrameLayout < Compiler::TENTATIVE_FRAME_LAYOUT);
 
-    /* Check if the lvaTable has to be grown */
-    if (lvaCount + cnt > lvaTableCnt)
+    if (lvaCount + count > lvaTableCnt)
     {
-        unsigned newLvaTableCnt = lvaCount + max(lvaCount / 2 + 1, cnt);
+        unsigned newLvaTableCnt = lvaCount + max(lvaCount / 2 + 1, count);
 
         // Check for overflow
         if (newLvaTableCnt <= lvaCount)
@@ -1649,66 +1620,68 @@ inline unsigned Compiler::lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason)
 
         LclVarDsc* newLvaTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newLvaTableCnt);
 
-        memcpy(newLvaTable, lvaTable, lvaCount * sizeof(*lvaTable));
-        memset(newLvaTable + lvaCount, 0, (newLvaTableCnt - lvaCount) * sizeof(*lvaTable));
+        memcpy(newLvaTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
+        memset(newLvaTable + lvaCount, 0, (newLvaTableCnt - lvaCount) * sizeof(lvaTable[0]));
+
         for (unsigned i = lvaCount; i < newLvaTableCnt; i++)
         {
-            new (&newLvaTable[i]) LclVarDsc(); // call the constructor.
+            new (&newLvaTable[i]) LclVarDsc();
         }
 
-#ifdef DEBUG
-        // Fill the old table with junks. So to detect the un-intended use.
-        memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(*lvaTable));
-#endif
+        // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
+        INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
 
         lvaTableCnt = newLvaTableCnt;
         lvaTable    = newLvaTable;
     }
 
-    unsigned tempNum = lvaCount;
+    unsigned lclNum = lvaCount;
+    lvaCount += count;
 
-    while (cnt--)
+    for (unsigned i = 0; i < count; i++)
     {
-        lvaTable[lvaCount].lvType    = TYP_UNDEF; // Initialize lvType, lvIsTemp and lvOnFrame
-        lvaTable[lvaCount].lvIsTemp  = false;
-        lvaTable[lvaCount].lvOnFrame = true;
-        lvaCount++;
+        LclVarDsc& lcl = lvaTable[lclNum + i];
+
+        assert(lcl.lvType == TYP_UNDEF);
+        assert(lcl.lvIsTemp == false);
+
+        lcl.lvOnFrame = true;
+        INDEBUG(lcl.lvReason = reason;)
     }
 
-    return tempNum;
+    // Could handle this like in lvaGrabTemp probably...
+    assert(!lvaLocalVarRefCounted());
+
+    JITDUMP("\nAllocated %u long lifetime temps V%02u..V%02u for \"%s\"\n", count, lclNum, lclNum + count - 1, reason);
+
+    return lclNum;
 }
 
-/*****************************************************************************
- *
- *  Allocate a temporary variable which is implicitly used by code-gen
- *  There will be no explicit references to the temp, and so it needs to
- *  be forced to be kept alive, and not be optimized away.
- */
-
+// Allocate a temporary variable which is implicitly used by codegen.
+// There will be no explicit references to the temp, and so it needs
+// to be forced to be kept alive, and not be optimized away.
 inline unsigned Compiler::lvaGrabTempWithImplicitUse(bool shortLifetime DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
     {
-        // Grab the temp using Inliner's Compiler instance.
-        unsigned tmpNum = impInlineInfo->InlinerCompiler->lvaGrabTempWithImplicitUse(shortLifetime DEBUGARG(reason));
+        unsigned lclNum = impInlineInfo->InlinerCompiler->lvaGrabTempWithImplicitUse(shortLifetime DEBUGARG(reason));
 
         lvaTable    = impInlineInfo->InlinerCompiler->lvaTable;
         lvaCount    = impInlineInfo->InlinerCompiler->lvaCount;
         lvaTableCnt = impInlineInfo->InlinerCompiler->lvaTableCnt;
-        return tmpNum;
+
+        return lclNum;
     }
 
     unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
 
-    LclVarDsc* varDsc = &lvaTable[lclNum];
+    lvaTable[lclNum].lvImplicitlyReferenced = 1;
 
-    // This will prevent it from being optimized away
-    // TODO-CQ: We shouldn't have to go as far as to declare these
-    // address-exposed -- DoNotEnregister should suffice?
+    // This will prevent it from being optimized away.
+    // TODO-MIKE-Review: Shouldn't lvImplicitlyReferenced be enough to prevent
+    // it from being optimized away? What does "optimized away" means anyway,
+    // local variables are not deleted...
     lvaSetVarAddrExposed(lclNum);
-
-    // Note the implicit use
-    varDsc->lvImplicitlyReferenced = 1;
 
     return lclNum;
 }
