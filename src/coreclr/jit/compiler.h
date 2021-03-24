@@ -326,8 +326,7 @@ public:
 #endif
     }
 
-    // note this only packs because var_types is a typedef of unsigned char
-    var_types lvType : 5; // TYP_INT/LONG/FLOAT/DOUBLE/REF
+    var_types lvType;
 
     unsigned char lvIsParam : 1;           // is this a parameter?
     unsigned char lvIsRegArg : 1;          // is this an argument that was passed by register?
