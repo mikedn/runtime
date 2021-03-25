@@ -399,10 +399,12 @@ public:
             MorphLocalField(node, user);
         }
 
-        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && m_compiler->lvaHasImplicitByRefParams)
         {
-            UpdateEarlyRefCountForImplicitByRef(node->AsLclVarCommon()->GetLclNum());
+            UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
         }
+#endif
 
         PushValue(node);
 
@@ -1626,7 +1628,7 @@ private:
     }
 
     //------------------------------------------------------------------------
-    // UpdateEarlyRefCountForImplicitByRef: updates the ref count for implicit byref params.
+    // UpdateImplicitByRefParamRefCounts: updates the ref count for implicit byref params.
     //
     // Arguments:
     //    lclNum - the local number to update the count for.
@@ -1636,7 +1638,7 @@ private:
     //    if it's legal to elide certain copies of them;
     //    lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
     //
-    void UpdateEarlyRefCountForImplicitByRef(unsigned lclNum)
+    void UpdateImplicitByRefParamRefCounts(unsigned lclNum)
     {
         LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
 
@@ -2170,6 +2172,8 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     JITDUMP("\n*************** In lvaResetImplicitByRefParamsRefCount()\n");
 
+    lvaHasImplicitByRefParams = false;
+
     for (unsigned lclNum = 0; lclNum < info.compArgsCount; ++lclNum)
     {
         LclVarDsc* lcl = lvaGetDesc(lclNum);
@@ -2177,6 +2181,7 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
         if (lcl->IsImplicitByRefParam())
         {
             lcl->setLvRefCnt(0, RCS_EARLY);
+            lvaHasImplicitByRefParams = true;
         }
     }
 
@@ -2193,6 +2198,11 @@ void Compiler::lvaRetypeImplicitByRefParams()
 {
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     JITDUMP("\n*************** In lvaRetypeImplicitByRefParams()\n");
+
+    if (!lvaHasImplicitByRefParams)
+    {
+        return;
+    }
 
     for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
     {
@@ -2366,10 +2376,12 @@ void Compiler::fgMorphIndirectParams(Statement* stmt)
 
 #if defined(TARGET_X86)
     if (!info.compIsVarArgs)
+#else
+    if (!lvaHasImplicitByRefParams)
+#endif
     {
         return;
     }
-#endif
 
     IndirectParamMorphVisitor visitor(this);
     visitor.VisitStmt(stmt);
@@ -2382,6 +2394,11 @@ void Compiler::fgMorphIndirectParams(Statement* stmt)
 void Compiler::lvaDemoteImplicitByRefParams()
 {
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+
+    if (!lvaHasImplicitByRefParams)
+    {
+        return;
+    }
 
     for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
     {

@@ -2610,6 +2610,10 @@ public:
 
 #endif // defined(DEBUG) && defined(TARGET_X86)
 
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+    bool lvaHasImplicitByRefParams;
+#endif
+
     bool lvaGenericsContextInUse;
 
     bool lvaKeepAliveAndReportThis(); // Synchronized instance method of a reference type, or
