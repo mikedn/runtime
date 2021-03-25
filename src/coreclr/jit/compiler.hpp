@@ -3885,7 +3885,7 @@ inline bool Compiler::impIsPrimitive(CorInfoType jitType)
 
 inline Compiler::lvaPromotionType Compiler::lvaGetPromotionType(const LclVarDsc* varDsc)
 {
-    assert(!varDsc->lvPromoted || varTypeIsPromotable(varDsc) || varDsc->lvUnusedStruct);
+    assert(!varDsc->lvPromoted || varTypeIsPromotable(varDsc->GetType()));
 
     if (!varDsc->lvPromoted)
     {

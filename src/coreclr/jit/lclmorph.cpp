@@ -2449,6 +2449,7 @@ void Compiler::fgMarkDemotedImplicitByRefParams()
                 fieldLcl->lvIsStructField = false;
                 fieldLcl->lvAddrExposed   = false;
                 fieldLcl->setLvRefCnt(0, RCS_EARLY);
+                INDEBUG(fieldLcl->lvReason = "unused implicit byref promoted field";)
             }
 
             lcl->lvFieldLclStart = 0;

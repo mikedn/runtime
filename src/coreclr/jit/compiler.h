@@ -508,15 +508,6 @@ public:
     CorInfoHFAElemType _lvHfaElemKind : 3; // What kind of an HFA this is (CORINFO_HFA_ELEM_NONE if it is not an HFA).
 #endif                                     // FEATURE_HFA
 
-#ifdef DEBUG
-    // TODO-Cleanup: See the note on lvSize() - this flag is only in use by asserts that are checking for struct
-    // types, and is needed because of cases where TYP_STRUCT is bashed to an integral type.
-    // Consider cleaning this up so this workaround is not required.
-    unsigned char lvUnusedStruct : 1; // All references to this promoted struct are through its field locals.
-                                      // I.e. there is no longer any reference to the struct directly.
-                                      // In this case we can simply remove this struct local.
-#endif
-
     unsigned char lvLRACandidate : 1; // Tracked for linear scan register allocation purposes
 
 #ifdef FEATURE_SIMD

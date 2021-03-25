@@ -8888,12 +8888,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
                 printf("(AX)"); // Variable has address exposed.
             }
 
-            if (varDsc->lvUnusedStruct)
-            {
-                assert(varDsc->lvPromoted);
-                printf("(U)"); // Unused struct
-            }
-            else if (varDsc->lvPromoted)
+            if (varDsc->lvPromoted)
             {
                 if (varTypeIsPromotable(varDsc))
                 {
@@ -9579,53 +9574,43 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
                 printf(" %s", compRegVarName(tree->GetRegNum()));
             }
 
-            if (varDsc->lvPromoted)
+            if (varDsc->IsPromoted())
             {
-                if (!varTypeIsPromotable(varDsc) && !varDsc->lvUnusedStruct)
+                for (unsigned i = 0; i < varDsc->GetPromotedFieldCount(); ++i)
                 {
-                    // Promoted implicit byrefs can get in this state while they are being rewritten
-                    // in global morph.
-                    assert(fgGlobalMorph);
-                }
-                else
-                {
-
-                    for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
-                    {
-                        LclVarDsc*  fieldVarDsc = &lvaTable[i];
-                        const char* fieldName;
+                    LclVarDsc*  fieldVarDsc = lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
+                    const char* fieldName;
 #if !defined(TARGET_64BIT)
-                        if (varTypeIsLong(varDsc))
-                        {
-                            fieldName = (i == 0) ? "lo" : "hi";
-                        }
-                        else
+                    if (varTypeIsLong(varDsc))
+                    {
+                        fieldName = (i == 0) ? "lo" : "hi";
+                    }
+                    else
 #endif // !defined(TARGET_64BIT)
-                        {
-                            CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
-                            CORINFO_FIELD_HANDLE fldHnd =
-                                info.compCompHnd->getFieldInClass(typeHnd, fieldVarDsc->lvFldOrdinal);
-                            fieldName = eeGetFieldName(fldHnd);
-                        }
+                    {
+                        CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
+                        CORINFO_FIELD_HANDLE fldHnd =
+                            info.compCompHnd->getFieldInClass(typeHnd, fieldVarDsc->lvFldOrdinal);
+                        fieldName = eeGetFieldName(fldHnd);
+                    }
 
-                        printf("\n");
-                        printf("                                                  ");
-                        printIndent(indentStack);
-                        printf("    %-6s V%02u.%s (offs=0x%02x) -> ", varTypeName(fieldVarDsc->TypeGet()),
-                               tree->AsLclVarCommon()->GetLclNum(), fieldName, fieldVarDsc->lvFldOffset);
-                        gtDispLclVar(i);
+                    printf("\n");
+                    printf("                                                  ");
+                    printIndent(indentStack);
+                    printf("    %-6s V%02u.%s (offs=0x%02x) -> ", varTypeName(fieldVarDsc->TypeGet()),
+                           tree->AsLclVarCommon()->GetLclNum(), fieldName, fieldVarDsc->lvFldOffset);
+                    gtDispLclVar(i);
 
-                        if (fieldVarDsc->lvRegister)
-                        {
-                            printf(" ");
-                            fieldVarDsc->PrintVarReg();
-                        }
+                    if (fieldVarDsc->lvRegister)
+                    {
+                        printf(" ");
+                        fieldVarDsc->PrintVarReg();
+                    }
 
-                        if (fieldVarDsc->lvTracked && fgLocalVarLivenessDone && tree->IsMultiRegLclVar() &&
-                            tree->AsLclVar()->IsLastUse(i - varDsc->lvFieldLclStart))
-                        {
-                            printf(" (last use)");
-                        }
+                    if (fieldVarDsc->lvTracked && fgLocalVarLivenessDone && tree->IsMultiRegLclVar() &&
+                        tree->AsLclVar()->IsLastUse(i - varDsc->lvFieldLclStart))
+                    {
+                        printf(" (last use)");
                     }
                 }
             }
