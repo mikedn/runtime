@@ -5631,8 +5631,8 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
                 // exposed then it could contain its address.
 
                 // TODO-MIKE-CQ: lvHasLdAddrOp is likely overly conservative. lvAddrExposed should be
-                // used instead but that one gets reset in fgRetypeImplicitByRefParams.
-                // Maybe fgRetypeImplicitByRefParams could copy lvAddrExposed somewhere so we can use it
+                // used instead but that one gets reset in lvaRetypeImplicitByRefParams.
+                // Maybe lvaRetypeImplicitByRefParams could copy lvAddrExposed somewhere so we can use it
                 // here, though care needs to be taken because nothing will ever update it.
 
                 JITDUMP("V%02u is address exposed\n", lclNode->GetLclNum());
@@ -5803,7 +5803,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
                 else if (varDsc->lvPromoted && (lvaTable[varDsc->lvFieldLclStart].lvParentLcl != varNum))
                 {
                     // This temp was used for struct promotion bookkeeping.  It will not be used, and will have
-                    // its ref count and address-taken flag reset in fgMarkDemotedImplicitByRefParams.
+                    // its ref count and address-taken flag reset in lvaDemoteImplicitByRefParams.
                     assert(lvaIsImplicitByRefLocal(lvaTable[varDsc->lvFieldLclStart].lvParentLcl));
                     assert(fgGlobalMorph);
                 }

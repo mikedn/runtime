@@ -4582,7 +4582,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
         // For x64 and ARM64 we need to mark irregular parameters
         lvaRefCountState = RCS_EARLY;
-        fgResetImplicitByRefParamsRefCount();
+        lvaResetImplicitByRefParamsRefCount();
 
         fgPromoteStructs();
     };
@@ -4595,7 +4595,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     // Apply the type update to implicit byref parameters; also choose (based on address-exposed
     // analysis) which implicit byref promotions to keep (requires copy to initialize) or discard.
     //
-    DoPhase(this, PHASE_MORPH_IMPBYREF, &Compiler::fgRetypeImplicitByRefParams);
+    DoPhase(this, PHASE_MORPH_IMPBYREF, &Compiler::lvaRetypeImplicitByRefParams);
 
 #ifdef DEBUG
     // Now that locals have address-taken and implicit byref marked, we can safely apply stress.
@@ -4610,7 +4610,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         fgMorphBlocks();
 
         // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
-        fgMarkDemotedImplicitByRefParams();
+        lvaDemoteImplicitByRefParams();
         lvaRefCountState = RCS_INVALID;
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
