@@ -1893,8 +1893,9 @@ public:
             // assert(lclVarDsc->lvDoNotEnregister);
 
             // Locals referenced by GT_LCL_VAR|FLD_ADDR cannot be enregistered and currently
-            // fgRetypeImplicitByRefParams undoes promotion of such arguments.
-            assert(!lcl->IsPromoted());
+            // fgRetypeImplicitByRefParams undoes promotion of such arguments. In this case
+            // lvFieldCnt remains set to the number of promoted fields.
+            assert((lcl->lvFieldLclStart == 0) || (lcl->lvFieldCnt != 0));
 
             if (lclAddrNode->OperIs(GT_LCL_FLD_ADDR))
             {
@@ -1971,14 +1972,14 @@ public:
 
             assert(varTypeIsStruct(lclNode->GetType()) || lclNode->OperIs(GT_LCL_FLD));
 
-            if (lcl->IsPromoted())
+            if ((lcl->lvFieldLclStart != 0) && (lcl->lvFieldCnt == 0))
             {
                 // fgRetypeImplicitByRefParams created a new promoted struct local to represent this
                 // param. Rewrite this to refer to the new local. We should never encounter a LCL_FLD
                 // because promotion is aborted if it turns out that it is dependent.
 
                 assert(lclNode->OperIs(GT_LCL_VAR));
-                assert(lcl->lvFieldLclStart != 0);
+                assert(varTypeIsStruct(m_compiler->lvaGetDesc(lcl->lvFieldLclStart)->GetType()));
 
                 lclNode->SetLclNum(lcl->lvFieldLclStart);
             }
@@ -2239,7 +2240,14 @@ void Compiler::fgRetypeImplicitByRefParams()
             continue;
         }
 
-        if (lcl->IsPromoted())
+        if (!lcl->IsPromoted())
+        {
+            // Make sure lvFieldCnt is 0 if we did not promote, fgMarkDemotedImplicitByRefParams
+            // relies on it to know when to cleanup unused promoted fields.
+
+            assert(lcl->lvFieldCnt == 0);
+        }
+        else
         {
             // This implicit-byref was promoted; create a new temp to represent the
             // promoted struct before rewriting this parameter as a pointer.
@@ -2286,7 +2294,7 @@ void Compiler::fgRetypeImplicitByRefParams()
 #endif
                 }
 
-                // Reset lvPromoted since the local is no longer promoted but keep lvFieldLclStart
+                // Reset lvPromoted since the param is no longer promoted but keep lvFieldLclStart
                 // and lvFieldCnt unchanged so fgMarkDemotedImplicitByRefParams can find the fields
                 // to "delete" them.
                 lcl->lvPromoted = false;
@@ -2352,35 +2360,15 @@ void Compiler::fgRetypeImplicitByRefParams()
 #endif
                 }
 
-                // Hijack lvPromoted to communicate to fgMorphIndirectParams
-                // whether references to the struct should be rewritten as
-                // indirections off the pointer (not promoted) or references
-                // to the new struct local (promoted).
-                lcl->lvPromoted = true;
+                // Reset lvPromoted since the param is no longer promoted but set lvFieldLclStart
+                // to the new local's number so fgMorphIndirectParams knows how to replace param
+                // references. Set lvFieldCnt to 0 so fgMarkDemotedImplicitByRefParams doesn't
+                // attempt to "delete" the promoted fields as unused.
 
-                // Hijack lvFieldLclStart to record the new temp number so that
-                // fgMorphIndirectParams knows how to replace parameter references.
-                // It will get fixed up in fgMarkDemotedImplicitByRefParams.
+                lcl->lvPromoted      = false;
                 lcl->lvFieldLclStart = structLclNum;
-
-                // Go ahead and clear lvFieldCnt -- either we're promoting
-                // a replacement temp or we're not promoting this arg, and
-                // in either case the parameter is now a pointer that doesn't
-                // have these fields.
-                lcl->lvFieldCnt = 0;
+                lcl->lvFieldCnt      = 0;
             }
-        }
-        else
-        {
-            // The "undo promotion" path above clears lvPromoted for args that struct
-            // promotion wanted to promote but that aren't considered profitable to
-            // rewrite.  It hijacks lvFieldLclStart to communicate to
-            // fgMarkDemotedImplicitByRefParams that it needs to clean up annotations left
-            // on such args for fgMorphIndirectParams to consult in the interim.
-            // Here we have an arg that was simply never promoted, so make sure it doesn't
-            // have nonzero lvFieldLclStart, since that would confuse fgMorphIndirectParams
-            // and fgMarkDemotedImplicitByRefParams.
-            assert(lcl->lvFieldLclStart == 0);
         }
 
         // Since the parameter in this position is really a pointer, its type is TYP_BYREF.
@@ -2441,18 +2429,9 @@ void Compiler::fgMarkDemotedImplicitByRefParams()
             continue;
         }
 
-        if (lcl->IsPromoted())
-        {
-            // The parameter is simply a pointer now, so clear lvPromoted.  It was left set
-            // by fgRetypeImplicitByRefParams to communicate to fgMorphIndirectParams that
-            // appearances of this param needed to be rewritten to a new promoted struct local.
-            lcl->lvPromoted = false;
+        assert(!lcl->IsPromoted());
 
-            // Clear the lvFieldLclStart value that was set by fgRetypeImplicitByRefParams
-            // to tell fgMorphIndirectParams which local is the new promoted struct one.
-            lcl->lvFieldLclStart = 0;
-        }
-        else if (lcl->lvFieldLclStart != 0)
+        if (lcl->lvFieldCnt != 0)
         {
             // Clear the arg's ref count; this was set during address-taken analysis so that
             // call morphing could identify single-use implicit byrefs; we're done with
