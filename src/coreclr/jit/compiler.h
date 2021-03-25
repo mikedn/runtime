@@ -5038,7 +5038,7 @@ private:
     void fgPromoteStructs();
 
     // Reset the refCount for implicit byrefs.
-    void fgResetImplicitByRefRefCount();
+    void fgResetImplicitByRefParamsRefCount();
 
     // Change implicit byrefs' types from struct to pointer, and for any that were
     // promoted, create new promoted struct temps.

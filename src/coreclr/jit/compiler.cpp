@@ -4582,7 +4582,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
         // For x64 and ARM64 we need to mark irregular parameters
         lvaRefCountState = RCS_EARLY;
-        fgResetImplicitByRefRefCount();
+        fgResetImplicitByRefParamsRefCount();
 
         fgPromoteStructs();
     };
