@@ -2266,58 +2266,74 @@ void Compiler::fgRetypeImplicitByRefParams()
                     undoPromotion ? "Undoing" : "Keeping", lclNum, isDependentPromoted ? "dependent;" : "",
                     totalAppearances, nonCallAppearances, lcl->lvFieldCnt);
 
-            unsigned structLclNum = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
-            // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
-            lcl = lvaGetDesc(lclNum);
-
-            lvaSetStruct(structLclNum, lcl->GetLayout(), true);
-
-            if (info.compIsVarArgs)
+            if (undoPromotion)
             {
-                lvaSetStructUsedAsVarArg(structLclNum);
+                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+                {
+                    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+                    // Leave lvParentLcl pointing to the parameter so that fgMorphIndirectParams
+                    // will know to rewrite appearances of this local.
+                    assert(fieldLcl->lvParentLcl == lclNum);
+
+                    // The fields shouldn't inherit any register preferences from the parameter.
+                    fieldLcl->lvIsParam       = false;
+                    fieldLcl->lvIsRegArg      = false;
+                    fieldLcl->lvIsMultiRegArg = false;
+                    fieldLcl->SetArgReg(REG_NA);
+#if FEATURE_MULTIREG_ARGS
+                    fieldLcl->SetOtherArgReg(REG_NA);
+#endif
+                }
+
+                // Reset lvPromoted since the local is no longer promoted but keep lvFieldLclStart
+                // and lvFieldCnt unchanged so fgMarkDemotedImplicitByRefParams can find the fields
+                // to "delete" them.
+                lcl->lvPromoted = false;
             }
+            else
+            {
+                unsigned structLclNum = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
+                // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
+                lcl = lvaGetDesc(lclNum);
 
-            LclVarDsc* structLcl       = lvaGetDesc(structLclNum);
-            structLcl->lvPromoted      = true;
-            structLcl->lvFieldLclStart = lcl->lvFieldLclStart;
-            structLcl->lvFieldCnt      = lcl->lvFieldCnt;
+                lvaSetStruct(structLclNum, lcl->GetLayout(), true);
 
-            structLcl->lvContainsHoles   = lcl->lvContainsHoles;
-            structLcl->lvCustomLayout    = lcl->lvCustomLayout;
-            structLcl->lvAddrExposed     = lcl->lvAddrExposed;
-            structLcl->lvDoNotEnregister = lcl->lvDoNotEnregister;
+                if (info.compIsVarArgs)
+                {
+                    lvaSetStructUsedAsVarArg(structLclNum);
+                }
+
+                LclVarDsc* structLcl       = lvaGetDesc(structLclNum);
+                structLcl->lvPromoted      = true;
+                structLcl->lvFieldLclStart = lcl->lvFieldLclStart;
+                structLcl->lvFieldCnt      = lcl->lvFieldCnt;
+
+                structLcl->lvContainsHoles   = lcl->lvContainsHoles;
+                structLcl->lvCustomLayout    = lcl->lvCustomLayout;
+                structLcl->lvAddrExposed     = lcl->lvAddrExposed;
+                structLcl->lvDoNotEnregister = lcl->lvDoNotEnregister;
 
 #ifdef DEBUG
-            structLcl->lvLclBlockOpAddr   = lcl->lvLclBlockOpAddr;
-            structLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
-            structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
-            structLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
-            structLcl->lvKeepType         = true;
+                structLcl->lvLclBlockOpAddr   = lcl->lvLclBlockOpAddr;
+                structLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
+                structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
+                structLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
+                structLcl->lvKeepType         = true;
 #endif // DEBUG
 
-            if (!undoPromotion)
-            {
                 fgEnsureFirstBBisScratch();
                 GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());
                 GenTree* addr = gtNewLclvNode(lclNum, TYP_BYREF);
                 GenTree* rhs  = gtNewObjNode(structLcl->GetType(), structLcl->GetLayout(), addr);
                 fgNewStmtAtBeg(fgFirstBB, gtNewAssignNode(lhs, rhs));
-            }
 
-            // Update the locals corresponding to the promoted fields.
+                // Update the locals corresponding to the promoted fields.
 
-            for (unsigned i = 0; i < structLcl->GetPromotedFieldCount(); i++)
-            {
-                LclVarDsc* fieldLcl = lvaGetDesc(structLcl->GetPromotedFieldLclNum(i));
-
-                if (undoPromotion)
+                for (unsigned i = 0; i < structLcl->GetPromotedFieldCount(); i++)
                 {
-                    // Leave lvParentLcl pointing to the parameter so that fgMorphIndirectParams
-                    // will know to rewrite appearances of this local.
-                    assert(fieldLcl->lvParentLcl == lclNum);
-                }
-                else
-                {
+                    LclVarDsc* fieldLcl = lvaGetDesc(structLcl->GetPromotedFieldLclNum(i));
+
                     // Set the new parent.
                     fieldLcl->lvParentLcl = structLclNum;
                     // Clear the ref count field; it is used to communicate the number of references
@@ -2325,33 +2341,34 @@ void Compiler::fgRetypeImplicitByRefParams()
                     // out as an outgoing argument value, but that doesn't pertain to this field local
                     // which is now a field of a non-arg local.
                     fieldLcl->setLvRefCnt(0, RCS_EARLY);
+
+                    // The fields shouldn't inherit any register preferences from the parameter.
+                    fieldLcl->lvIsParam       = false;
+                    fieldLcl->lvIsRegArg      = false;
+                    fieldLcl->lvIsMultiRegArg = false;
+                    fieldLcl->SetArgReg(REG_NA);
+#if FEATURE_MULTIREG_ARGS
+                    fieldLcl->SetOtherArgReg(REG_NA);
+#endif
                 }
 
-                // The fields shouldn't inherit any register preferences from the parameter.
-                fieldLcl->lvIsParam       = false;
-                fieldLcl->lvIsRegArg      = false;
-                fieldLcl->lvIsMultiRegArg = false;
-                fieldLcl->SetArgReg(REG_NA);
-#if FEATURE_MULTIREG_ARGS
-                fieldLcl->SetOtherArgReg(REG_NA);
-#endif
+                // Hijack lvPromoted to communicate to fgMorphIndirectParams
+                // whether references to the struct should be rewritten as
+                // indirections off the pointer (not promoted) or references
+                // to the new struct local (promoted).
+                lcl->lvPromoted = true;
+
+                // Hijack lvFieldLclStart to record the new temp number so that
+                // fgMorphIndirectParams knows how to replace parameter references.
+                // It will get fixed up in fgMarkDemotedImplicitByRefParams.
+                lcl->lvFieldLclStart = structLclNum;
+
+                // Go ahead and clear lvFieldCnt -- either we're promoting
+                // a replacement temp or we're not promoting this arg, and
+                // in either case the parameter is now a pointer that doesn't
+                // have these fields.
+                lcl->lvFieldCnt = 0;
             }
-
-            // Hijack lvPromoted to communicate to fgMorphIndirectParams
-            // whether references to the struct should be rewritten as
-            // indirections off the pointer (not promoted) or references
-            // to the new struct local (promoted).
-            lcl->lvPromoted = !undoPromotion;
-
-            // Hijack lvFieldLclStart to record the new temp number.
-            // It will get fixed up in fgMarkDemotedImplicitByRefParams.
-            lcl->lvFieldLclStart = structLclNum;
-
-            // Go ahead and clear lvFieldCnt -- either we're promoting
-            // a replacement temp or we're not promoting this arg, and
-            // in either case the parameter is now a pointer that doesn't
-            // have these fields.
-            lcl->lvFieldCnt = 0;
         }
         else
         {
@@ -2437,35 +2454,26 @@ void Compiler::fgMarkDemotedImplicitByRefParams()
         }
         else if (lcl->lvFieldLclStart != 0)
         {
-            // We created new temps to represent a promoted struct corresponding to this
-            // parameter, but decided not to go through with the promotion and have
-            // rewritten all uses as indirections off the pointer parameter.
-            // We stashed the pointer to the new struct temp in lvFieldLclStart; make
-            // note of that and clear the annotation.
-            unsigned structLclNum = lcl->lvFieldLclStart;
-            lcl->lvFieldLclStart  = 0;
-
             // Clear the arg's ref count; this was set during address-taken analysis so that
             // call morphing could identify single-use implicit byrefs; we're done with
             // that, and want it to be in its default state of zero when we go to set
             // real ref counts for all variables.
             lcl->setLvRefCnt(0, RCS_EARLY);
 
-            // The temp struct is now unused; set flags appropriately so that we
-            // won't allocate space for it on the stack.
-            LclVarDsc* structLcl = lvaGetDesc(structLclNum);
-            structLcl->setLvRefCnt(0, RCS_EARLY);
-            structLcl->lvAddrExposed = false;
-            INDEBUG(structLcl->lvUnusedStruct = true;)
+            // Promotion was undone so all the promoted fields are no longer used.
 
-            for (unsigned i = 0; i < structLcl->GetPromotedFieldCount(); i++)
+            for (unsigned i = 0; i < lcl->lvFieldCnt; i++)
             {
-                LclVarDsc* fieldLcl = lvaGetDesc(structLcl->GetPromotedFieldLclNum(i));
+                LclVarDsc* fieldLcl = lvaGetDesc(lcl->lvFieldLclStart + i);
                 assert(fieldLcl->lvParentLcl == lclNum);
-                fieldLcl->lvParentLcl = structLclNum;
+                fieldLcl->lvParentLcl     = 0;
+                fieldLcl->lvIsStructField = false;
+                fieldLcl->lvAddrExposed   = false;
                 fieldLcl->setLvRefCnt(0, RCS_EARLY);
-                fieldLcl->lvAddrExposed = false;
             }
+
+            lcl->lvFieldLclStart = 0;
+            lcl->lvFieldCnt      = 0;
         }
     }
 #endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
