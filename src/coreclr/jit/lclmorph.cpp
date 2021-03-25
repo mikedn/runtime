@@ -2244,6 +2244,28 @@ void Compiler::fgRetypeImplicitByRefParams()
             // This implicit-byref was promoted; create a new temp to represent the
             // promoted struct before rewriting this parameter as a pointer.
 
+            // If the promotion is dependent, the promoted temp would just be committed
+            // to memory anyway, so we'll rewrite its appearances to be indirections
+            // through the pointer parameter, the same as we'd do for this
+            // parameter if it weren't promoted at all (otherwise the initialization
+            // of the new temp would just be a needless memcpy at method entry).
+            //
+            // Otherwise, see how many appearances there are. We keep two early ref counts:
+            // total number of references to the struct or some field, and how many of these
+            // are arguments to calls. We undo promotion unless we see enough non-call uses.
+
+            unsigned totalAppearances = lcl->lvRefCnt(RCS_EARLY);
+            unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_EARLY));
+            assert(totalAppearances >= callAppearances);
+            unsigned nonCallAppearances  = totalAppearances - callAppearances;
+            bool     isDependentPromoted = lvaGetPromotionType(lcl) == PROMOTION_TYPE_DEPENDENT;
+
+            bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->lvFieldCnt);
+
+            JITDUMP("%s promotion of implicit byref V%02u: %s total: %u non-call: %u fields: %u\n",
+                    undoPromotion ? "Undoing" : "Keeping", lclNum, isDependentPromoted ? "dependent;" : "",
+                    totalAppearances, nonCallAppearances, lcl->lvFieldCnt);
+
             unsigned structLclNum = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
             // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
             lcl = lvaGetDesc(lclNum);
@@ -2272,28 +2294,6 @@ void Compiler::fgRetypeImplicitByRefParams()
             structLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
             structLcl->lvKeepType         = true;
 #endif // DEBUG
-
-            // If the promotion is dependent, the promoted temp would just be committed
-            // to memory anyway, so we'll rewrite its appearances to be indirections
-            // through the pointer parameter, the same as we'd do for this
-            // parameter if it weren't promoted at all (otherwise the initialization
-            // of the new temp would just be a needless memcpy at method entry).
-            //
-            // Otherwise, see how many appearances there are. We keep two early ref counts: total
-            // number of references to the struct or some field, and how many of these are
-            // arguments to calls. We undo promotion unless we see enough non-call uses.
-
-            unsigned totalAppearances = lcl->lvRefCnt(RCS_EARLY);
-            unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_EARLY));
-            assert(totalAppearances >= callAppearances);
-            unsigned nonCallAppearances  = totalAppearances - callAppearances;
-            bool     isDependentPromoted = lvaGetPromotionType(structLcl) == PROMOTION_TYPE_DEPENDENT;
-
-            bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->lvFieldCnt);
-
-            JITDUMP("%s promotion of implicit byref V%02u: %s total: %u non-call: %u fields: %u\n",
-                    undoPromotion ? "Undoing" : "Keeping", lclNum, isDependentPromoted ? "dependent;" : "",
-                    totalAppearances, nonCallAppearances, lcl->lvFieldCnt);
 
             if (!undoPromotion)
             {
