@@ -399,22 +399,9 @@ public:
             MorphLocalField(node, user);
         }
 
-        if (node->OperIsLocal())
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            unsigned lclNum = node->AsLclVarCommon()->GetLclNum();
-
-            LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-            if (varDsc->lvIsStructField)
-            {
-                // Promoted field, increase counter for the parent lclVar.
-                assert(!m_compiler->lvaIsImplicitByRefLocal(lclNum));
-                unsigned parentLclNum = varDsc->lvParentLcl;
-                UpdateEarlyRefCountForImplicitByRef(parentLclNum);
-            }
-            else
-            {
-                UpdateEarlyRefCountForImplicitByRef(lclNum);
-            }
+            UpdateEarlyRefCountForImplicitByRef(node->AsLclVarCommon()->GetLclNum());
         }
 
         PushValue(node);
@@ -1651,15 +1638,27 @@ private:
     //
     void UpdateEarlyRefCountForImplicitByRef(unsigned lclNum)
     {
-        if (!m_compiler->lvaIsImplicitByRefLocal(lclNum))
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
+
+        if (!lcl->IsImplicitByRefParam())
         {
-            return;
+            if (!lcl->IsPromotedField())
+            {
+                return;
+            }
+
+            lclNum = lcl->GetPromotedFieldParentLclNum();
+            lcl    = m_compiler->lvaGetDesc(lclNum);
+
+            if (!lcl->IsImplicitByRefParam())
+            {
+                return;
+            }
         }
 
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
         JITDUMP("LocalAddressVisitor incrementing ref count from %d to %d for implict byref V%02d\n",
-                varDsc->lvRefCnt(RCS_EARLY), varDsc->lvRefCnt(RCS_EARLY) + 1, lclNum);
-        varDsc->incLvRefCnt(1, RCS_EARLY);
+                lcl->lvRefCnt(RCS_EARLY), lcl->lvRefCnt(RCS_EARLY) + 1, lclNum);
+        lcl->incLvRefCnt(1, RCS_EARLY);
 
         // See if this struct is an argument to a call. This information is recorded
         // via the weighted early ref count for the local, and feeds the undo promotion
@@ -1670,51 +1669,15 @@ private:
         // handled in fgCanFastTailCall and abiMakeImplicityByRefStructArgCopy.
         //
         // CALL(OBJ(ADDR(LCL_VAR...)))
-        bool isArgToCall   = false;
-        bool keepSearching = true;
-        for (int i = 0; i < m_ancestors.Height() && keepSearching; i++)
-        {
-            GenTree* node = m_ancestors.Top(i);
-            switch (i)
-            {
-                case 0:
-                {
-                    keepSearching = node->OperIs(GT_LCL_VAR);
-                }
-                break;
 
-                case 1:
-                {
-                    keepSearching = node->OperIs(GT_ADDR);
-                }
-                break;
-
-                case 2:
-                {
-                    keepSearching = node->OperIs(GT_OBJ);
-                }
-                break;
-
-                case 3:
-                {
-                    keepSearching = false;
-                    isArgToCall   = node->IsCall();
-                }
-                break;
-                default:
-                {
-                    keepSearching = false;
-                }
-                break;
-            }
-        }
-
-        if (isArgToCall)
+        if ((m_ancestors.Height() >= 4) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+            m_ancestors.Top(1)->OperIs(GT_ADDR) && m_ancestors.Top(2)->OperIs(GT_OBJ) &&
+            m_ancestors.Top(3)->OperIs(GT_CALL))
         {
             JITDUMP("LocalAddressVisitor incrementing weighted ref count from %d to %d"
                     " for implict byref V%02d arg passed to call\n",
-                    varDsc->lvRefCntWtd(RCS_EARLY), varDsc->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
-            varDsc->incLvRefCntWtd(1, RCS_EARLY);
+                    lcl->lvRefCntWtd(RCS_EARLY), lcl->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
+            lcl->incLvRefCntWtd(1, RCS_EARLY);
         }
     }
 
