@@ -5801,11 +5801,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
                 failTailCall("Local address taken", lclNum);
                 return nullptr;
             }
-            if (lcl->lvPromoted && lcl->lvIsParam && !lvaIsImplicitByRefLocal(lclNum))
+
+            if (lcl->lvPromoted && lcl->lvIsParam)
             {
                 failTailCall("Has Struct Promoted Param", lclNum);
                 return nullptr;
             }
+
             if (lcl->lvPinned)
             {
                 // A tail call removes the method from the stack, which means the pinning
