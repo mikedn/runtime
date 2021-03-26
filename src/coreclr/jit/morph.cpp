@@ -5788,7 +5788,6 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         // following three hazard checks.
         // We still must check for any struct parameters and set 'hasStructParam'
         // so that we won't transform the recursive tail call into a loop.
-        //
         if (isImplicitOrStressTailCall)
         {
             if (lcl->lvHasLdAddrOp && !lcl->IsImplicitByRefParam())
@@ -5799,22 +5798,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
 
             if (lcl->lvAddrExposed)
             {
-                if (lvaIsImplicitByRefLocal(lclNum))
-                {
-                    // The address of the implicit-byref is a non-address use of the pointer parameter.
-                }
-                else if (lcl->lvPromoted && (lvaTable[lcl->lvFieldLclStart].lvParentLcl != lclNum))
-                {
-                    // This temp was used for struct promotion bookkeeping.  It will not be used, and will have
-                    // its ref count and address-taken flag reset in lvaDemoteImplicitByRefParams.
-                    assert(lvaIsImplicitByRefLocal(lvaTable[lcl->lvFieldLclStart].lvParentLcl));
-                    assert(fgGlobalMorph);
-                }
-                else
-                {
-                    failTailCall("Local address taken", lclNum);
-                    return nullptr;
-                }
+                failTailCall("Local address taken", lclNum);
+                return nullptr;
             }
             if (lcl->lvPromoted && lcl->lvIsParam && !lvaIsImplicitByRefLocal(lclNum))
             {
