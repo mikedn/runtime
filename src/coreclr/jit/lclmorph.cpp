@@ -2180,7 +2180,10 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 
         if (lcl->IsImplicitByRefParam())
         {
-            lcl->setLvRefCnt(0, RCS_EARLY);
+            // We haven't use ref counts until now so they should be 0.
+            assert(lcl->lvRefCnt(RCS_EARLY) == 0);
+            assert(lcl->lvRefCntWtd(RCS_EARLY) == 0);
+
             lvaHasImplicitByRefParams = true;
         }
     }
@@ -2317,11 +2320,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
                     // Set the new parent.
                     fieldLcl->lvParentLcl = structLclNum;
-                    // Clear the ref count field; it is used to communicate the number of references
-                    // to the implicit byref parameter when morphing calls that pass the implicit byref
-                    // out as an outgoing argument value, but that doesn't pertain to this field local
-                    // which is now a field of a non-arg local.
-                    fieldLcl->setLvRefCnt(0, RCS_EARLY);
 
                     // The fields shouldn't inherit any register preferences from the parameter.
                     fieldLcl->lvIsParam       = false;
@@ -2413,12 +2411,6 @@ void Compiler::lvaDemoteImplicitByRefParams()
 
         if (lcl->lvFieldCnt != 0)
         {
-            // Clear the arg's ref count; this was set during address-taken analysis so that
-            // call morphing could identify single-use implicit byrefs; we're done with
-            // that, and want it to be in its default state of zero when we go to set
-            // real ref counts for all variables.
-            lcl->setLvRefCnt(0, RCS_EARLY);
-
             // Promotion was undone so all the promoted fields are no longer used.
 
             for (unsigned i = 0; i < lcl->lvFieldCnt; i++)
@@ -2428,7 +2420,6 @@ void Compiler::lvaDemoteImplicitByRefParams()
                 fieldLcl->lvParentLcl     = 0;
                 fieldLcl->lvIsStructField = false;
                 fieldLcl->lvAddrExposed   = false;
-                fieldLcl->setLvRefCnt(0, RCS_EARLY);
                 INDEBUG(fieldLcl->lvReason = "unused implicit byref promoted field";)
             }
 

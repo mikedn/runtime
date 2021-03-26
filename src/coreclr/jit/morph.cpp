@@ -4335,7 +4335,6 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
             const bool isNoReturnLastUse = (totalAppearances == 1) && call->IsNoReturn();
             if (isTailCallLastUse || isCallLastUse || isNoReturnLastUse)
             {
-                lcl->setLvRefCnt(0, RCS_EARLY);
                 argInfo->SetNode(lclNode);
 
                 JITDUMP("did not need to make outgoing copy for last use of implicit byref V%02u\n", lclNum);
