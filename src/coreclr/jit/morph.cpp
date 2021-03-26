@@ -5773,9 +5773,17 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     }
 
     bool hasStructParam = false;
-    for (unsigned varNum = 0; varNum < lvaCount; varNum++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        LclVarDsc* varDsc = lvaTable + varNum;
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (lcl->IsPromotedField() && lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->IsImplicitByRefParam())
+        {
+            // This was a promoted field of an implicit byref param but promotion was
+            // undone. It's not used so ignore it.
+            continue;
+        }
+
         // If the method is marked as an explicit tail call we will skip the
         // following three hazard checks.
         // We still must check for any struct parameters and set 'hasStructParam'
@@ -5783,50 +5791,46 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         //
         if (isImplicitOrStressTailCall)
         {
-            if (varDsc->lvHasLdAddrOp && !lvaIsImplicitByRefLocal(varNum))
+            if (lcl->lvHasLdAddrOp && !lcl->IsImplicitByRefParam())
             {
-                failTailCall("Local address taken", varNum);
+                failTailCall("Local address taken", lclNum);
                 return nullptr;
             }
-            if (varDsc->lvAddrExposed)
+
+            if (lcl->lvAddrExposed)
             {
-                if (lvaIsImplicitByRefLocal(varNum))
+                if (lvaIsImplicitByRefLocal(lclNum))
                 {
                     // The address of the implicit-byref is a non-address use of the pointer parameter.
                 }
-                else if (varDsc->lvIsStructField && lvaIsImplicitByRefLocal(varDsc->lvParentLcl))
-                {
-                    // The address of the implicit-byref's field is likewise a non-address use of the pointer
-                    // parameter.
-                }
-                else if (varDsc->lvPromoted && (lvaTable[varDsc->lvFieldLclStart].lvParentLcl != varNum))
+                else if (lcl->lvPromoted && (lvaTable[lcl->lvFieldLclStart].lvParentLcl != lclNum))
                 {
                     // This temp was used for struct promotion bookkeeping.  It will not be used, and will have
                     // its ref count and address-taken flag reset in lvaDemoteImplicitByRefParams.
-                    assert(lvaIsImplicitByRefLocal(lvaTable[varDsc->lvFieldLclStart].lvParentLcl));
+                    assert(lvaIsImplicitByRefLocal(lvaTable[lcl->lvFieldLclStart].lvParentLcl));
                     assert(fgGlobalMorph);
                 }
                 else
                 {
-                    failTailCall("Local address taken", varNum);
+                    failTailCall("Local address taken", lclNum);
                     return nullptr;
                 }
             }
-            if (varDsc->lvPromoted && varDsc->lvIsParam && !lvaIsImplicitByRefLocal(varNum))
+            if (lcl->lvPromoted && lcl->lvIsParam && !lvaIsImplicitByRefLocal(lclNum))
             {
-                failTailCall("Has Struct Promoted Param", varNum);
+                failTailCall("Has Struct Promoted Param", lclNum);
                 return nullptr;
             }
-            if (varDsc->lvPinned)
+            if (lcl->lvPinned)
             {
                 // A tail call removes the method from the stack, which means the pinning
                 // goes away for the callee.  We can't allow that.
-                failTailCall("Has Pinned Vars", varNum);
+                failTailCall("Has Pinned Vars", lclNum);
                 return nullptr;
             }
         }
 
-        if (varTypeIsStruct(varDsc->TypeGet()) && varDsc->lvIsParam)
+        if (varTypeIsStruct(lcl->TypeGet()) && lcl->lvIsParam)
         {
             hasStructParam = true;
             // This prevents transforming a recursive tail call into a loop
