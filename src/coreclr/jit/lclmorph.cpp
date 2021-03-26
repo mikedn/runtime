@@ -2282,8 +2282,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
                 lcl = lvaGetDesc(lclNum);
 
-                lvaSetStruct(structLclNum, lcl->GetLayout(), true);
-
                 if (info.compIsVarArgs)
                 {
                     lvaSetStructUsedAsVarArg(structLclNum);
