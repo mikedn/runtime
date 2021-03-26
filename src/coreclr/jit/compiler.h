@@ -5031,23 +5031,23 @@ private:
 
     void fgPromoteStructs();
 
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     // Reset the refCount for implicit byrefs.
     void lvaResetImplicitByRefParamsRefCount();
-
     // Change implicit byrefs' types from struct to pointer, and for any that were
     // promoted, create new promoted struct temps.
     void lvaRetypeImplicitByRefParams();
+    // Clear up annotations for any struct promotion temps created for implicit byrefs.
+    void lvaDemoteImplicitByRefParams();
+#endif
+
+    void fgMarkAddressExposedLocals();
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection)
     // or stack params of x86 varargs methods.
     void fgMorphIndirectParams(Statement* stmt);
 #endif
-
-    // Clear up annotations for any struct promotion temps created for implicit byrefs.
-    void lvaDemoteImplicitByRefParams();
-
-    void fgMarkAddressExposedLocals();
 
     static fgWalkPreFn  fgUpdateSideEffectsPre;
     static fgWalkPostFn fgUpdateSideEffectsPost;

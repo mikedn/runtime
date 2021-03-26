@@ -1726,12 +1726,11 @@ private:
 //
 void Compiler::fgMarkAddressExposedLocals()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgMarkAddressExposedLocals()\n");
-    }
-#endif // DEBUG
+    JITDUMP("\n*************** In fgMarkAddressExposedLocals()\n");
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+    lvaResetImplicitByRefParamsRefCount();
+#endif
 
     LocalAddressVisitor visitor(this);
 #ifdef FEATURE_SIMD
@@ -1767,6 +1766,10 @@ void Compiler::fgMarkAddressExposedLocals()
 #endif
         }
     }
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+    lvaRetypeImplicitByRefParams();
+#endif
 }
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
@@ -2163,15 +2166,16 @@ public:
 #endif // !TARGET_X86
 };
 
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
 // Reset the ref count of implicit byref params; fgMarkAddressTakenLocals
 // will increment it per appearance of implicit byref param so that call
 // arg morphing can do an optimization for single-use implicit byref
 // params whose single use is as an outgoing call argument.
 void Compiler::lvaResetImplicitByRefParamsRefCount()
 {
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     JITDUMP("\n*************** In lvaResetImplicitByRefParamsRefCount()\n");
 
+    lvaRefCountState          = RCS_EARLY;
     lvaHasImplicitByRefParams = false;
 
     for (unsigned lclNum = 0; lclNum < info.compArgsCount; ++lclNum)
@@ -2187,8 +2191,6 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
             lvaHasImplicitByRefParams = true;
         }
     }
-
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
 }
 
 // Change the type of implicit byref parameters from struct to byref.
@@ -2199,7 +2201,6 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 // so that fgMorphIndirectParams will know to rewrite their appearances.
 void Compiler::lvaRetypeImplicitByRefParams()
 {
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     JITDUMP("\n*************** In lvaRetypeImplicitByRefParams()\n");
 
     if (!lvaHasImplicitByRefParams)
@@ -2363,8 +2364,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
         JITDUMP("Changed the type of struct parameter V%02d to TYP_BYREF.\n", lclNum);
     }
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
 }
+#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
 
 // Traverse the entire statement tree and morph implicit byref or
 // x86 vararg stack parameter references in it.
@@ -2385,14 +2386,13 @@ void Compiler::fgMorphIndirectParams(Statement* stmt)
     visitor.VisitStmt(stmt);
 }
 
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
 // Clear annotations for any implicit byrefs params that struct promotion
 // asked to promote. Appearances of these have now been rewritten by
 // fgMorphIndirectParams using indirections from the pointer parameter
 // or references to the promoted fields, as appropriate.
 void Compiler::lvaDemoteImplicitByRefParams()
 {
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
-
     if (!lvaHasImplicitByRefParams)
     {
         return;
@@ -2427,7 +2427,7 @@ void Compiler::lvaDemoteImplicitByRefParams()
             lcl->lvFieldCnt      = 0;
         }
     }
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
 }
+#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
 
 #endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64 || TARGET_X86
