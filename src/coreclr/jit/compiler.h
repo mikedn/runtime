@@ -3851,7 +3851,7 @@ public:
 
     void fgAddSyncMethodEnterExit();
 
-    GenTree* fgCreateMonitorTree(unsigned lvaMonitorBool, unsigned lvaThisVar, BasicBlock* block, bool enter);
+    void fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, unsigned thisLclNum);
 
     void fgConvertSyncReturnToLeave(BasicBlock* block);
 
