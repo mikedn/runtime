@@ -3591,7 +3591,7 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     // Here, the "struct(U)" shows that the "V03 loc2" variable is unused. Not shown is that V03
     // is now TYP_INT in the local variable table. It's not really unused, because it's in the tree.
 
-    assert(varTypeIsStruct(lvType) || (lvType == TYP_BLK) || (lvPromoted && lvUnusedStruct));
+    assert(varTypeIsStruct(lvType) || (lvType == TYP_BLK));
 
     if (lvIsParam)
     {

@@ -399,23 +399,12 @@ public:
             MorphLocalField(node, user);
         }
 
-        if (node->OperIsLocal())
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) && m_compiler->lvaHasImplicitByRefParams)
         {
-            unsigned lclNum = node->AsLclVarCommon()->GetLclNum();
-
-            LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-            if (varDsc->lvIsStructField)
-            {
-                // Promoted field, increase counter for the parent lclVar.
-                assert(!m_compiler->lvaIsImplicitByRefLocal(lclNum));
-                unsigned parentLclNum = varDsc->lvParentLcl;
-                UpdateEarlyRefCountForImplicitByRef(parentLclNum);
-            }
-            else
-            {
-                UpdateEarlyRefCountForImplicitByRef(lclNum);
-            }
+            UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
         }
+#endif
 
         PushValue(node);
 
@@ -1639,7 +1628,7 @@ private:
     }
 
     //------------------------------------------------------------------------
-    // UpdateEarlyRefCountForImplicitByRef: updates the ref count for implicit byref params.
+    // UpdateImplicitByRefParamRefCounts: updates the ref count for implicit byref params.
     //
     // Arguments:
     //    lclNum - the local number to update the count for.
@@ -1647,19 +1636,31 @@ private:
     // Notes:
     //    abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when it decides
     //    if it's legal to elide certain copies of them;
-    //    fgRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
+    //    lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
     //
-    void UpdateEarlyRefCountForImplicitByRef(unsigned lclNum)
+    void UpdateImplicitByRefParamRefCounts(unsigned lclNum)
     {
-        if (!m_compiler->lvaIsImplicitByRefLocal(lclNum))
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
+
+        if (!lcl->IsImplicitByRefParam())
         {
-            return;
+            if (!lcl->IsPromotedField())
+            {
+                return;
+            }
+
+            lclNum = lcl->GetPromotedFieldParentLclNum();
+            lcl    = m_compiler->lvaGetDesc(lclNum);
+
+            if (!lcl->IsImplicitByRefParam())
+            {
+                return;
+            }
         }
 
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-        JITDUMP("LocalAddressVisitor incrementing ref count from %d to %d for implict by-ref V%02d\n",
-                varDsc->lvRefCnt(RCS_EARLY), varDsc->lvRefCnt(RCS_EARLY) + 1, lclNum);
-        varDsc->incLvRefCnt(1, RCS_EARLY);
+        JITDUMP("LocalAddressVisitor incrementing ref count from %d to %d for implict byref V%02d\n",
+                lcl->lvRefCnt(RCS_EARLY), lcl->lvRefCnt(RCS_EARLY) + 1, lclNum);
+        lcl->incLvRefCnt(1, RCS_EARLY);
 
         // See if this struct is an argument to a call. This information is recorded
         // via the weighted early ref count for the local, and feeds the undo promotion
@@ -1670,51 +1671,15 @@ private:
         // handled in fgCanFastTailCall and abiMakeImplicityByRefStructArgCopy.
         //
         // CALL(OBJ(ADDR(LCL_VAR...)))
-        bool isArgToCall   = false;
-        bool keepSearching = true;
-        for (int i = 0; i < m_ancestors.Height() && keepSearching; i++)
-        {
-            GenTree* node = m_ancestors.Top(i);
-            switch (i)
-            {
-                case 0:
-                {
-                    keepSearching = node->OperIs(GT_LCL_VAR);
-                }
-                break;
 
-                case 1:
-                {
-                    keepSearching = node->OperIs(GT_ADDR);
-                }
-                break;
-
-                case 2:
-                {
-                    keepSearching = node->OperIs(GT_OBJ);
-                }
-                break;
-
-                case 3:
-                {
-                    keepSearching = false;
-                    isArgToCall   = node->IsCall();
-                }
-                break;
-                default:
-                {
-                    keepSearching = false;
-                }
-                break;
-            }
-        }
-
-        if (isArgToCall)
+        if ((m_ancestors.Height() >= 4) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+            m_ancestors.Top(1)->OperIs(GT_ADDR) && m_ancestors.Top(2)->OperIs(GT_OBJ) &&
+            m_ancestors.Top(3)->OperIs(GT_CALL))
         {
             JITDUMP("LocalAddressVisitor incrementing weighted ref count from %d to %d"
-                    " for implict by-ref V%02d arg passed to call\n",
-                    varDsc->lvRefCntWtd(RCS_EARLY), varDsc->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
-            varDsc->incLvRefCntWtd(1, RCS_EARLY);
+                    " for implict byref V%02d arg passed to call\n",
+                    lcl->lvRefCntWtd(RCS_EARLY), lcl->lvRefCntWtd(RCS_EARLY) + 1, lclNum);
+            lcl->incLvRefCntWtd(1, RCS_EARLY);
         }
     }
 
@@ -1761,12 +1726,11 @@ private:
 //
 void Compiler::fgMarkAddressExposedLocals()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgMarkAddressExposedLocals()\n");
-    }
-#endif // DEBUG
+    JITDUMP("\n*************** In fgMarkAddressExposedLocals()\n");
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+    lvaResetImplicitByRefParamsRefCount();
+#endif
 
     LocalAddressVisitor visitor(this);
 #ifdef FEATURE_SIMD
@@ -1797,11 +1761,18 @@ void Compiler::fgMarkAddressExposedLocals()
                 // local field access into LCL_FLDs, at that point we would be
                 // combining 2 existing LCL_FLDs or 2 FIELDs that do not reference
                 // a local and thus cannot result in a new address exposed local.
+                // Note that this also results in overcounting of implicit byref
+                // parameters, that may be a CQ issue but SIMD coalescing is rare
+                // so it's not worth fixing now.
                 visitor.VisitStmt(stmt);
             }
 #endif
         }
     }
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+    lvaRetypeImplicitByRefParams();
+#endif
 }
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
@@ -1887,14 +1858,15 @@ public:
 
         if (lcl->IsImplicitByRefParam())
         {
-            // Can't assert lvAddrExposed/lvDoNotEnregister because fgRetypeImplicitByRefParams
+            // Can't assert lvAddrExposed/lvDoNotEnregister because lvaRetypeImplicitByRefParams
             // already cleared both of them.
             // assert(lclVarDsc->lvAddrExposed);
             // assert(lclVarDsc->lvDoNotEnregister);
 
             // Locals referenced by GT_LCL_VAR|FLD_ADDR cannot be enregistered and currently
-            // fgRetypeImplicitByRefParams undoes promotion of such arguments.
-            assert(!lcl->IsPromoted());
+            // lvaRetypeImplicitByRefParams undoes promotion of such arguments. In this case
+            // lvFieldCnt remains set to the number of promoted fields.
+            assert((lcl->lvFieldLclStart == 0) || (lcl->lvFieldCnt != 0));
 
             if (lclAddrNode->OperIs(GT_LCL_FLD_ADDR))
             {
@@ -1962,7 +1934,7 @@ public:
 
         if (lcl->IsImplicitByRefParam())
         {
-            // fgRetypeImplicitByRefParams creates LCL_VAR nodes that reference
+            // lvaRetypeImplicitByRefParams creates LCL_VAR nodes that reference
             // implicit byref params and are already TYP_BYREF, ignore them.
             if (lclNode->OperIs(GT_LCL_VAR) && lclNode->TypeIs(TYP_BYREF))
             {
@@ -1971,14 +1943,14 @@ public:
 
             assert(varTypeIsStruct(lclNode->GetType()) || lclNode->OperIs(GT_LCL_FLD));
 
-            if (lcl->IsPromoted())
+            if ((lcl->lvFieldLclStart != 0) && (lcl->lvFieldCnt == 0))
             {
-                // fgRetypeImplicitByRefParams created a new promoted struct local to represent this
+                // lvaRetypeImplicitByRefParams created a new promoted struct local to represent this
                 // param. Rewrite this to refer to the new local. We should never encounter a LCL_FLD
                 // because promotion is aborted if it turns out that it is dependent.
 
                 assert(lclNode->OperIs(GT_LCL_VAR));
-                assert(lcl->lvFieldLclStart != 0);
+                assert(varTypeIsStruct(m_compiler->lvaGetDesc(lcl->lvFieldLclStart)->GetType()));
 
                 lclNode->SetLclNum(lcl->lvFieldLclStart);
             }
@@ -2197,26 +2169,267 @@ public:
 #endif // !TARGET_X86
 };
 
-//------------------------------------------------------------------------
-// fgMorphIndirectParams: Traverse the entire statement tree and morph
-//    implicit-by-ref or x86 vararg stack parameter references in it.
-//
-// Arguments:
-//    stmt - the statement to traverse
-//
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+// Reset the ref count of implicit byref params; fgMarkAddressTakenLocals
+// will increment it per appearance of implicit byref param so that call
+// arg morphing can do an optimization for single-use implicit byref
+// params whose single use is as an outgoing call argument.
+void Compiler::lvaResetImplicitByRefParamsRefCount()
+{
+    JITDUMP("\n*************** In lvaResetImplicitByRefParamsRefCount()\n");
+
+    lvaRefCountState          = RCS_EARLY;
+    lvaHasImplicitByRefParams = false;
+
+    for (unsigned lclNum = 0; lclNum < info.compArgsCount; ++lclNum)
+    {
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (lcl->IsImplicitByRefParam())
+        {
+            // We haven't use ref counts until now so they should be 0.
+            assert(lcl->lvRefCnt(RCS_EARLY) == 0);
+            assert(lcl->lvRefCntWtd(RCS_EARLY) == 0);
+
+            lvaHasImplicitByRefParams = true;
+        }
+    }
+}
+
+// Change the type of implicit byref parameters from struct to byref.
+// Also choose (based on address-exposed analysis) which struct promotions
+// of implicit byrefs to keep or discard.
+// For those which are kept, insert the appropriate initialization code.
+// For those which are to be discarded, annotate the promoted field locals
+// so that fgMorphIndirectParams will know to rewrite their appearances.
+void Compiler::lvaRetypeImplicitByRefParams()
+{
+    JITDUMP("\n*************** In lvaRetypeImplicitByRefParams()\n");
+
+    if (!lvaHasImplicitByRefParams)
+    {
+        return;
+    }
+
+    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
+    {
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (!lcl->IsImplicitByRefParam())
+        {
+            continue;
+        }
+
+        if (!lcl->IsPromoted())
+        {
+            // Make sure lvFieldCnt is 0 if we did not promote, lvaDemoteImplicitByRefParams
+            // relies on it to know when to cleanup unused promoted fields.
+
+            assert(lcl->lvFieldCnt == 0);
+        }
+        else
+        {
+            // This implicit-byref was promoted; create a new temp to represent the
+            // promoted struct before rewriting this parameter as a pointer.
+
+            // If the promotion is dependent, the promoted temp would just be committed
+            // to memory anyway, so we'll rewrite its appearances to be indirections
+            // through the pointer parameter, the same as we'd do for this
+            // parameter if it weren't promoted at all (otherwise the initialization
+            // of the new temp would just be a needless memcpy at method entry).
+            //
+            // Otherwise, see how many appearances there are. We keep two early ref counts:
+            // total number of references to the struct or some field, and how many of these
+            // are arguments to calls. We undo promotion unless we see enough non-call uses.
+
+            unsigned totalAppearances = lcl->lvRefCnt(RCS_EARLY);
+            unsigned callAppearances  = static_cast<unsigned>(lcl->lvRefCntWtd(RCS_EARLY));
+            assert(totalAppearances >= callAppearances);
+            unsigned nonCallAppearances  = totalAppearances - callAppearances;
+            bool     isDependentPromoted = lvaGetPromotionType(lcl) == PROMOTION_TYPE_DEPENDENT;
+
+            bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->lvFieldCnt);
+
+            JITDUMP("%s promotion of implicit byref V%02u: %s total: %u non-call: %u fields: %u\n",
+                    undoPromotion ? "Undoing" : "Keeping", lclNum, isDependentPromoted ? "dependent;" : "",
+                    totalAppearances, nonCallAppearances, lcl->lvFieldCnt);
+
+            if (undoPromotion)
+            {
+                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+                {
+                    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+
+                    // Leave lvParentLcl pointing to the parameter so that fgMorphIndirectParams
+                    // will know to rewrite appearances of this local.
+                    assert(fieldLcl->lvParentLcl == lclNum);
+
+                    // The fields shouldn't inherit any register preferences from the parameter.
+                    fieldLcl->lvIsParam       = false;
+                    fieldLcl->lvIsRegArg      = false;
+                    fieldLcl->lvIsMultiRegArg = false;
+                    fieldLcl->SetArgReg(REG_NA);
+#if FEATURE_MULTIREG_ARGS
+                    fieldLcl->SetOtherArgReg(REG_NA);
+#endif
+                }
+
+                // Reset lvPromoted since the param is no longer promoted but keep lvFieldLclStart
+                // and lvFieldCnt unchanged so lvaDemoteImplicitByRefParams can find the fields
+                // to "delete" them.
+                lcl->lvPromoted = false;
+            }
+            else
+            {
+                unsigned structLclNum = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
+                // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
+                lcl = lvaGetDesc(lclNum);
+
+                // TODO-MIKE-Review: What do varargs have to do with this temp?!?
+                if (info.compIsVarArgs)
+                {
+                    lvaSetStructUsedAsVarArg(structLclNum);
+                }
+
+                LclVarDsc* structLcl       = lvaGetDesc(structLclNum);
+                structLcl->lvPromoted      = true;
+                structLcl->lvFieldLclStart = lcl->lvFieldLclStart;
+                structLcl->lvFieldCnt      = lcl->lvFieldCnt;
+
+                structLcl->lvContainsHoles   = lcl->lvContainsHoles;
+                structLcl->lvCustomLayout    = lcl->lvCustomLayout;
+                structLcl->lvAddrExposed     = lcl->lvAddrExposed;
+                structLcl->lvDoNotEnregister = lcl->lvDoNotEnregister;
+
+#ifdef DEBUG
+                structLcl->lvLclBlockOpAddr   = lcl->lvLclBlockOpAddr;
+                structLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
+                structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
+                structLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
+                structLcl->lvKeepType         = true;
+#endif // DEBUG
+
+                fgEnsureFirstBBisScratch();
+                GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());
+                GenTree* addr = gtNewLclvNode(lclNum, TYP_BYREF);
+                GenTree* rhs  = gtNewObjNode(structLcl->GetType(), structLcl->GetLayout(), addr);
+                fgNewStmtAtBeg(fgFirstBB, gtNewAssignNode(lhs, rhs));
+
+                // Update the locals corresponding to the promoted fields.
+
+                for (unsigned i = 0; i < structLcl->GetPromotedFieldCount(); i++)
+                {
+                    LclVarDsc* fieldLcl = lvaGetDesc(structLcl->GetPromotedFieldLclNum(i));
+
+                    // Set the new parent.
+                    fieldLcl->lvParentLcl = structLclNum;
+
+                    // The fields shouldn't inherit any register preferences from the parameter.
+                    fieldLcl->lvIsParam       = false;
+                    fieldLcl->lvIsRegArg      = false;
+                    fieldLcl->lvIsMultiRegArg = false;
+                    fieldLcl->SetArgReg(REG_NA);
+#if FEATURE_MULTIREG_ARGS
+                    fieldLcl->SetOtherArgReg(REG_NA);
+#endif
+                }
+
+                // Reset lvPromoted since the param is no longer promoted but set lvFieldLclStart
+                // to the new local's number so fgMorphIndirectParams knows how to replace param
+                // references. Set lvFieldCnt to 0 so lvaDemoteImplicitByRefParams doesn't
+                // attempt to "delete" the promoted fields as unused.
+
+                lcl->lvPromoted      = false;
+                lcl->lvFieldLclStart = structLclNum;
+                lcl->lvFieldCnt      = 0;
+            }
+        }
+
+        // Since the parameter in this position is really a pointer, its type is TYP_BYREF.
+        lcl->SetType(TYP_BYREF);
+
+        // Since this previously was a TYP_STRUCT and we have changed it to a TYP_BYREF
+        // make sure that the following flag is not set as these will force SSA to
+        // exclude tracking/enregistering these LclVars. (see SsaBuilder::IncludeInSsa)
+        lcl->lvOverlappingFields = false;
+
+        // The struct parameter may have had its address taken, but the pointer parameter
+        // cannot -- any uses of the struct parameter's address are uses of the pointer
+        // parameter's value, and there's no way for the MSIL to reference the pointer
+        // parameter's address.  So clear the address-taken bit for the parameter.
+        lcl->lvAddrExposed     = false;
+        lcl->lvDoNotEnregister = false;
+
+        // This should not be converted to a double in stress mode,
+        // because it is really a pointer.
+        INDEBUG(lcl->lvKeepType = true;)
+
+        JITDUMP("Changed the type of struct parameter V%02d to TYP_BYREF.\n", lclNum);
+    }
+}
+#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
+
+// Traverse the entire statement tree and morph implicit byref or
+// x86 vararg stack parameter references in it.
 void Compiler::fgMorphIndirectParams(Statement* stmt)
 {
     assert(fgGlobalMorph);
 
 #if defined(TARGET_X86)
     if (!info.compIsVarArgs)
+#else
+    if (!lvaHasImplicitByRefParams)
+#endif
     {
         return;
     }
-#endif
 
     IndirectParamMorphVisitor visitor(this);
     visitor.VisitStmt(stmt);
 }
+
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+// Clear annotations for any implicit byrefs params that struct promotion
+// asked to promote. Appearances of these have now been rewritten by
+// fgMorphIndirectParams using indirections from the pointer parameter
+// or references to the promoted fields, as appropriate.
+void Compiler::lvaDemoteImplicitByRefParams()
+{
+    if (!lvaHasImplicitByRefParams)
+    {
+        return;
+    }
+
+    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
+    {
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (!lcl->IsImplicitByRefParam())
+        {
+            continue;
+        }
+
+        assert(!lcl->IsPromoted());
+
+        if (lcl->lvFieldCnt != 0)
+        {
+            // Promotion was undone so all the promoted fields are no longer used.
+
+            for (unsigned i = 0; i < lcl->lvFieldCnt; i++)
+            {
+                LclVarDsc* fieldLcl = lvaGetDesc(lcl->lvFieldLclStart + i);
+                assert(fieldLcl->lvParentLcl == lclNum);
+                fieldLcl->lvParentLcl     = 0;
+                fieldLcl->lvIsStructField = false;
+                fieldLcl->lvAddrExposed   = false;
+                INDEBUG(fieldLcl->lvReason = "unused implicit byref promoted field";)
+            }
+
+            lcl->lvFieldLclStart = 0;
+            lcl->lvFieldCnt      = 0;
+        }
+    }
+}
+#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
 
 #endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64 || TARGET_X86
