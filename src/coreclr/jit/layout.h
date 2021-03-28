@@ -16,20 +16,26 @@ class ClassLayout
     // Size of the layout in bytes (as reported by ICorJitInfo::getClassSize/getHeapClassSize
     // for non "block" layouts). For "block" layouts this may be 0 due to 0 being a valid size
     // for cpblk/initblk.
-    const unsigned m_size;
+    unsigned m_size;
 
-    const unsigned m_isValueClass : 1;
-    INDEBUG(unsigned m_gcPtrsInitialized : 1;)
+    unsigned m_isValueClass : 1;
     // The number of GC pointers in this layout. Since the the maximum size is 2^32-1 the count
     // can fit in at most 30 bits.
     unsigned m_gcPtrCount : 30;
 
-    // Array of CorInfoGCType (as BYTE) that describes the GC layout of the class.
-    // For small classes the array is stored inline, avoiding an extra allocation
-    // and the pointer size overhead.
     union {
+        // Array of CorInfoGCType (as BYTE) that describes the GC layout of the class.
+        // For small classes the array is stored inline, avoiding an extra allocation
+        // and the pointer size overhead.
         BYTE* m_gcPtrs;
         BYTE  m_gcPtrsArray[sizeof(BYTE*)];
+
+        // SIMD layout information. Valid when m_gcPtrCount is 0.
+        struct
+        {
+            var_types m_simdType;
+            var_types m_simdBaseType;
+        };
     };
 
 #ifdef TARGET_AMD64
@@ -48,9 +54,6 @@ class ClassLayout
         : m_classHandle(NO_CLASS_HANDLE)
         , m_size(size)
         , m_isValueClass(false)
-#ifdef DEBUG
-        , m_gcPtrsInitialized(true)
-#endif
         , m_gcPtrCount(0)
         , m_gcPtrs(nullptr)
 #ifdef TARGET_AMD64
@@ -62,15 +65,12 @@ class ClassLayout
     {
     }
 
-    static ClassLayout* Create(Compiler* compiler, CORINFO_CLASS_HANDLE classHandle);
+    ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler);
 
     ClassLayout(CORINFO_CLASS_HANDLE classHandle, bool isValueClass, unsigned size DEBUGARG(const char* className))
         : m_classHandle(classHandle)
         , m_size(size)
         , m_isValueClass(isValueClass)
-#ifdef DEBUG
-        , m_gcPtrsInitialized(false)
-#endif
         , m_gcPtrCount(0)
         , m_gcPtrs(nullptr)
 #ifdef TARGET_AMD64
@@ -82,8 +82,6 @@ class ClassLayout
     {
         assert(size != 0);
     }
-
-    void InitializeGCPtrs(Compiler* compiler);
 
 public:
 #ifdef TARGET_AMD64
@@ -118,6 +116,33 @@ public:
     unsigned GetSize() const
     {
         return m_size;
+    }
+
+    bool IsSIMDType() const
+    {
+#ifdef FEATURE_SIMD
+        return (m_gcPtrCount == 0) && (m_simdType != TYP_UNDEF);
+#else
+        return false;
+#endif
+    }
+
+    var_types GetSIMDType() const
+    {
+#ifdef FEATURE_SIMD
+        return (m_gcPtrCount > 0) ? TYP_UNDEF : m_simdType;
+#else
+        return TYP_UNDEF;
+#endif
+    }
+
+    var_types GetSIMDBaseType() const
+    {
+#ifdef FEATURE_SIMD
+        return (m_gcPtrCount > 0) ? TYP_UNDEF : m_simdBaseType;
+#else
+        return TYP_UNDEF;
+#endif
     }
 
     //------------------------------------------------------------------------
@@ -163,15 +188,11 @@ public:
 
     unsigned GetGCPtrCount() const
     {
-        assert(m_gcPtrsInitialized);
-
         return m_gcPtrCount;
     }
 
     bool HasGCPtr() const
     {
-        assert(m_gcPtrsInitialized);
-
         return m_gcPtrCount != 0;
     }
 
@@ -198,17 +219,9 @@ public:
     static bool AreCompatible(const ClassLayout* layout1, const ClassLayout* layout2);
 
 private:
-    const BYTE* GetGCPtrs() const
-    {
-        assert(m_gcPtrsInitialized);
-        assert(!IsBlockLayout());
-
-        return (GetSlotCount() > sizeof(m_gcPtrsArray)) ? m_gcPtrs : m_gcPtrsArray;
-    }
-
     CorInfoGCType GetGCPtr(unsigned slot) const
     {
-        assert(m_gcPtrsInitialized);
+        assert(!IsBlockLayout());
         assert(slot < GetSlotCount());
 
         if (m_gcPtrCount == 0)
@@ -216,7 +229,8 @@ private:
             return TYPE_GC_NONE;
         }
 
-        return static_cast<CorInfoGCType>(GetGCPtrs()[slot]);
+        const BYTE* gcPtrs = GetSlotCount() > sizeof(m_gcPtrsArray) ? m_gcPtrs : m_gcPtrsArray;
+        return static_cast<CorInfoGCType>(gcPtrs[slot]);
     }
 };
 

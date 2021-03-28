@@ -198,7 +198,7 @@ private:
 
     ClassLayout* CreateObjLayout(Compiler* compiler, CORINFO_CLASS_HANDLE classHandle)
     {
-        return ClassLayout::Create(compiler, classHandle);
+        return new (compiler, CMK_ClassLayout) ClassLayout(classHandle, compiler);
     }
 
     unsigned AddObjLayout(Compiler* compiler, ClassLayout* layout)
@@ -327,12 +327,22 @@ ClassLayout* Compiler::typGetObjLayout(CORINFO_CLASS_HANDLE classHandle)
     return typGetClassLayoutTable()->GetObjLayout(this, classHandle);
 }
 
-ClassLayout* ClassLayout::Create(Compiler* compiler, CORINFO_CLASS_HANDLE classHandle)
+ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
+    : m_classHandle(classHandle)
+    , m_size(0)
+    , m_isValueClass(true)
+    , m_gcPtrCount(0)
+    , m_gcPtrs(nullptr)
+#ifdef TARGET_AMD64
+    , m_pppQuirkLayout(nullptr)
+#endif
+#ifdef DEBUG
+    , m_className(compiler->info.compCompHnd->getClassName(classHandle))
+#endif
 {
-    bool     isValueClass = compiler->info.compCompHnd->isValueClass(classHandle);
-    unsigned size;
+    uint32_t attribs = compiler->info.compCompHnd->getClassAttribs(m_classHandle);
 
-    if (isValueClass)
+    if ((attribs & CORINFO_FLG_VALUECLASS) != 0)
     {
         // Normally we should not create layout instances for primitive types but the importer
         // manages to do that by importing `initobj T` where T may be a primitive type in
@@ -340,81 +350,98 @@ ClassLayout* ClassLayout::Create(Compiler* compiler, CORINFO_CLASS_HANDLE classH
 
         // assert(compiler->info.compCompHnd->getTypeForPrimitiveValueClass(classHandle) == CORINFO_TYPE_UNDEF);
 
-        size = compiler->info.compCompHnd->getClassSize(classHandle);
+        m_size = compiler->info.compCompHnd->getClassSize(classHandle);
     }
     else
     {
-        size = compiler->info.compCompHnd->getHeapClassSize(classHandle);
+        m_isValueClass = false;
+        m_size         = compiler->info.compCompHnd->getHeapClassSize(classHandle);
     }
-
-    INDEBUG(const char* className = compiler->info.compCompHnd->getClassName(classHandle);)
-
-    ClassLayout* layout =
-        new (compiler, CMK_ClassLayout) ClassLayout(classHandle, isValueClass, size DEBUGARG(className));
-    layout->InitializeGCPtrs(compiler);
-    return layout;
-}
-
-void ClassLayout::InitializeGCPtrs(Compiler* compiler)
-{
-    assert(!m_gcPtrsInitialized);
-    assert(!IsBlockLayout());
 
     if (m_size < TARGET_POINTER_SIZE)
     {
         assert(GetSlotCount() == 1);
-        assert(m_gcPtrCount == 0);
 
-        m_gcPtrsArray[0] = TYPE_GC_NONE;
+        // This class can't contain GC pointers nor can it be a SIMD type.
+
+        return;
+    }
+
+    if ((attribs & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) == 0)
+    {
+#ifdef FEATURE_SIMD
+        if (m_isValueClass && ((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && compiler->supportSIMDTypes() &&
+            compiler->structSizeMightRepresentSIMDType(m_size))
+        {
+            unsigned  simdByteSize;
+            var_types simdBaseType = compiler->getBaseTypeAndSizeOfSIMDType(m_classHandle, &simdByteSize);
+
+            if (simdBaseType != TYP_UNKNOWN)
+            {
+                assert(simdByteSize == m_size);
+
+                m_simdType     = compiler->getSIMDTypeForSize(simdByteSize);
+                m_simdBaseType = simdBaseType;
+
+                compiler->compFloatingPointUsed = true;
+            }
+        }
+#endif
+
+        return;
+    }
+
+    unsigned slotCount = GetSlotCount();
+    BYTE*    gcPtrs;
+
+    if (slotCount > sizeof(m_gcPtrsArray))
+    {
+        gcPtrs = new (compiler, CMK_ClassLayout) BYTE[slotCount];
     }
     else
     {
-        BYTE* gcPtrs;
-
-        if (GetSlotCount() > sizeof(m_gcPtrsArray))
-        {
-            gcPtrs = m_gcPtrs = new (compiler, CMK_ClassLayout) BYTE[GetSlotCount()];
-        }
-        else
-        {
-            gcPtrs = m_gcPtrsArray;
-        }
-
-        unsigned gcPtrCount = compiler->info.compCompHnd->getClassGClayout(m_classHandle, gcPtrs);
-
-        assert((gcPtrCount == 0) || ((compiler->info.compCompHnd->getClassAttribs(m_classHandle) &
-                                      (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) != 0));
-
-        // We assume that we cannot have a struct with GC pointers that is not a multiple
-        // of the register size.
-        // The EE currently does not allow this, but it could change.
-        // Let's assert it just to be safe.
-        // This doesn't work for heap classes because getHeapClassSize returns an incorrect
-        // class size, that doesn't include the padding required for alignment.
-
-        // TODO-MIKE-Cleanup: getHeapClassSize should be fixed instead, it's only used in
-        // ClassLayout::Create. Not only that omitting the padding in size is unexpected
-        // but it also serves no purpose - we only need the heap size for stack allocated
-        // objects and the JIT always allocates entire stack slots.
-        noway_assert(!m_isValueClass || (gcPtrCount == 0) || (roundUp(m_size, REGSIZE_BYTES) == m_size));
-
-        // Since class size is unsigned there's no way we could have more than 2^30 slots
-        // so it should be safe to fit this into a 30 bits bit field.
-        assert(gcPtrCount < (1 << 30));
-
-        m_gcPtrCount = gcPtrCount;
+        gcPtrs = m_gcPtrsArray;
     }
 
-    INDEBUG(m_gcPtrsInitialized = true;)
+    m_gcPtrCount = compiler->info.compCompHnd->getClassGClayout(m_classHandle, gcPtrs);
+
+    assert(m_gcPtrCount <= slotCount);
+
+    // We need to set m_gcPtrs only after we figure out that the class really has GC pointers,
+    // it it assumed that if there are no GC pointers then m_simdType has a valid value, be it
+    // an actual SIMD type or TYP_UNDEF.
+
+    // TODO-MIKE-Cleanup: It would seem that CORINFO_FLG_CONTAINS_GC_PTR cannot be relied on,
+    // "by ref like" types may not have it set but still contain GC pointers.
+    // That's unfortunate, both due to the unnecessary getClassGClayout call and the useless
+    // array allocation.
+
+    if ((m_gcPtrCount != 0) && (slotCount > sizeof(m_gcPtrsArray)))
+    {
+        m_gcPtrs = gcPtrs;
+    }
+
+    // We assume that we cannot have a struct with GC pointers that is not a multiple
+    // of the register size.
+    // The EE currently does not allow this, but it could change.
+    // Let's assert it just to be safe.
+    // This doesn't work for heap classes because getHeapClassSize returns an incorrect
+    // class size, that doesn't include the padding required for alignment.
+
+    // TODO-MIKE-Cleanup: getHeapClassSize should be fixed instead, it's only used in
+    // ClassLayout::Create. Not only that omitting the padding in size is unexpected
+    // but it also serves no purpose - we only need the heap size for stack allocated
+    // objects and the JIT always allocates entire stack slots.
+    noway_assert(!m_isValueClass || (m_gcPtrCount == 0) || (roundUp(m_size, REGSIZE_BYTES) == m_size));
 }
 
 #ifdef TARGET_AMD64
 ClassLayout* ClassLayout::GetPPPQuirkLayout(CompAllocator alloc)
 {
-    assert(m_gcPtrsInitialized);
     assert(m_classHandle != NO_CLASS_HANDLE);
     assert(m_isValueClass);
     assert(m_size == 32);
+    assert(GetSIMDType() == TYP_UNDEF);
 
     if (m_pppQuirkLayout == nullptr)
     {
@@ -432,8 +459,6 @@ ClassLayout* ClassLayout::GetPPPQuirkLayout(CompAllocator alloc)
         {
             m_pppQuirkLayout->m_gcPtrsArray[i] = TYPE_GC_NONE;
         }
-
-        INDEBUG(m_pppQuirkLayout->m_gcPtrsInitialized = true;)
     }
 
     return m_pppQuirkLayout;
