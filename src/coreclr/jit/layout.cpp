@@ -333,11 +333,11 @@ var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types
     if (supportSIMDTypes())
     {
         ClassLayout* layout = typGetObjLayout(classHandle);
-        if (layout->IsSIMDType())
+        if (layout->IsVector())
         {
             if (simdBaseType != nullptr)
             {
-                *simdBaseType = layout->GetSIMDBaseType();
+                *simdBaseType = layout->GetElementType();
             }
             return layout->GetSIMDType();
         }
@@ -352,11 +352,11 @@ var_types Compiler::typGetStructType(ClassLayout* layout, var_types* simdBaseTyp
 #ifdef FEATURE_SIMD
     if (supportSIMDTypes())
     {
-        if (layout->IsSIMDType())
+        if (layout->IsVector())
         {
             if (simdBaseType != nullptr)
             {
-                *simdBaseType = layout->GetSIMDBaseType();
+                *simdBaseType = layout->GetElementType();
             }
             return layout->GetSIMDType();
         }
@@ -412,17 +412,13 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
         if (m_isValueClass && ((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && compiler->supportSIMDTypes() &&
             compiler->structSizeMightRepresentSIMDType(m_size))
         {
-            unsigned  simdByteSize;
-            var_types simdBaseType = compiler->getBaseTypeAndSizeOfSIMDType(m_classHandle, &simdByteSize);
+            m_layoutInfo = GetVectorLayoutInfo(classHandle, compiler);
 
-            if (simdBaseType != TYP_UNKNOWN)
+            if (m_layoutInfo.simdType != TYP_UNDEF)
             {
-                assert(simdByteSize == m_size);
-
-                m_simdType     = compiler->getSIMDTypeForSize(simdByteSize);
-                m_simdBaseType = simdBaseType;
-
                 compiler->compFloatingPointUsed = true;
+                // Populate SIMDHandlesCache
+                compiler->getBaseTypeAndSizeOfSIMDType(classHandle);
             }
         }
 #endif
@@ -473,6 +469,106 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     // objects and the JIT always allocates entire stack slots.
     noway_assert(!m_isValueClass || (m_gcPtrCount == 0) || (roundUp(m_size, REGSIZE_BYTES) == m_size));
 }
+
+#ifdef FEATURE_SIMD
+
+ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
+{
+    ICorJitInfo* vm               = compiler->info.compCompHnd;
+    const char*  namespaceName    = nullptr;
+    const char*  className        = vm->getClassNameFromMetadata(classHandle, &namespaceName);
+    bool         isNumericsVector = strcmp(namespaceName, "System.Numerics") == 0;
+
+    if (isNumericsVector)
+    {
+        if (strcmp(className, "Vector2") == 0)
+        {
+            return {VectorKind::Vector234, TYP_SIMD8, TYP_FLOAT, true};
+        }
+
+        if (strcmp(className, "Vector3") == 0)
+        {
+            return {VectorKind::Vector234, TYP_SIMD12, TYP_FLOAT, true};
+        }
+
+        if (strcmp(className, "Vector4") == 0)
+        {
+            return {VectorKind::Vector234, TYP_SIMD16, TYP_FLOAT, true};
+        }
+    }
+
+    CORINFO_CLASS_HANDLE elementTypeHandle = vm->getTypeInstantiationArgument(classHandle, 0);
+
+    if (elementTypeHandle == NO_CLASS_HANDLE)
+    {
+        return {VectorKind::None, TYP_UNDEF, TYP_UNDEF, false};
+    }
+
+    CorInfoType elementCorType = vm->getTypeForPrimitiveNumericClass(elementTypeHandle);
+
+    if (elementCorType == CORINFO_TYPE_UNDEF)
+    {
+        JITDUMP("Unexpected vector element type %s.%s\n", vm->getClassName(elementTypeHandle));
+        return {VectorKind::None, TYP_UNDEF, TYP_UNDEF, false};
+    }
+
+    assert((elementCorType >= CORINFO_TYPE_BYTE) && (elementCorType <= CORINFO_TYPE_DOUBLE));
+    assert((elementCorType != CORINFO_TYPE_NATIVEINT) && (elementCorType != CORINFO_TYPE_NATIVEUINT));
+
+    var_types elementType;
+
+    switch (elementCorType)
+    {
+        case CORINFO_TYPE_UINT:
+            elementType = TYP_UINT;
+            break;
+        case CORINFO_TYPE_ULONG:
+            elementType = TYP_ULONG;
+            break;
+        default:
+            elementType = JITtype2varType(elementCorType);
+            break;
+    }
+
+    if (isNumericsVector && strcmp(className, "Vector`1") == 0)
+    {
+        unsigned size = compiler->getSIMDVectorRegisterByteLength();
+        assert((size == 16) || (size == 32));
+        return {VectorKind::VectorT, size == 32 ? TYP_SIMD32 : TYP_SIMD16, elementType, false};
+    }
+
+#ifdef FEATURE_HW_INTRINSICS
+    if (strcmp(className, "Vector128`1") == 0)
+    {
+        return {VectorKind::VectorNT, TYP_SIMD16, elementType, false};
+    }
+
+#ifdef TARGET_ARM64
+    if (strcmp(className, "Vector64`1") == 0)
+    {
+        return {VectorKind::VectorNT, TYP_SIMD8, elementType, false};
+    }
+#endif
+
+#ifdef TARGET_XARCH
+    if (strcmp(className, "Vector256`1") == 0)
+    {
+        if (!compiler->compExactlyDependsOn(InstructionSet_AVX))
+        {
+            JITDUMP("SIMD32/AVX is not available\n");
+            return {VectorKind::None, TYP_UNDEF, TYP_UNDEF, false};
+        }
+
+        return {VectorKind::VectorNT, TYP_SIMD32, elementType, false};
+    }
+#endif
+
+#endif // FEATURE_HW_INTRINSICS
+
+    return {VectorKind::None, TYP_UNDEF, TYP_UNDEF, false};
+}
+
+#endif // FEATURE_SIMD
 
 #ifdef TARGET_AMD64
 ClassLayout* ClassLayout::GetPPPQuirkLayout(CompAllocator alloc)

@@ -3,6 +3,18 @@
 
 #include "jit.h"
 
+enum class VectorKind : uint8_t
+{
+    None,
+#ifdef FEATURE_SIMD
+    Vector234,
+    VectorT,
+#ifdef FEATURE_HW_INTRINSICS
+    VectorNT,
+#endif
+#endif
+};
+
 // Encapsulates layout information about a class (typically a value class but this can also be
 // be used for reference classes when they are stack allocated). The class handle is optional,
 // allowing the creation of "block" layout objects having a specific size but lacking any other
@@ -23,6 +35,14 @@ class ClassLayout
     // can fit in at most 30 bits.
     unsigned m_gcPtrCount : 30;
 
+    struct LayoutInfo
+    {
+        VectorKind vectorKind;
+        var_types  simdType;
+        var_types  elementType;
+        bool       isHFA;
+    };
+
     union {
         // Array of CorInfoGCType (as BYTE) that describes the GC layout of the class.
         // For small classes the array is stored inline, avoiding an extra allocation
@@ -30,12 +50,8 @@ class ClassLayout
         BYTE* m_gcPtrs;
         BYTE  m_gcPtrsArray[sizeof(BYTE*)];
 
-        // SIMD layout information. Valid when m_gcPtrCount is 0.
-        struct
-        {
-            var_types m_simdType;
-            var_types m_simdBaseType;
-        };
+        // Layout information for vector and HFA structs. Valid when m_gcPtrCount is 0.
+        LayoutInfo m_layoutInfo;
     };
 
 #ifdef TARGET_AMD64
@@ -118,28 +134,37 @@ public:
         return m_size;
     }
 
-    bool IsSIMDType() const
+    bool IsVector() const
     {
 #ifdef FEATURE_SIMD
-        return (m_gcPtrCount == 0) && (m_simdType != TYP_UNDEF);
+        return (m_gcPtrCount == 0) && (m_layoutInfo.vectorKind != VectorKind::None);
 #else
         return false;
+#endif
+    }
+
+    VectorKind GetVectorKind() const
+    {
+#ifdef FEATURE_SIMD
+        return (m_gcPtrCount == 0) ? m_layoutInfo.vectorKind : VectorKind::None;
+#else
+        return VectorKind::None;
 #endif
     }
 
     var_types GetSIMDType() const
     {
 #ifdef FEATURE_SIMD
-        return (m_gcPtrCount > 0) ? TYP_UNDEF : m_simdType;
+        return (m_gcPtrCount > 0) ? TYP_UNDEF : m_layoutInfo.simdType;
 #else
         return TYP_UNDEF;
 #endif
     }
 
-    var_types GetSIMDBaseType() const
+    var_types GetElementType() const
     {
 #ifdef FEATURE_SIMD
-        return (m_gcPtrCount > 0) ? TYP_UNDEF : m_simdBaseType;
+        return (m_gcPtrCount > 0) ? TYP_UNDEF : m_layoutInfo.elementType;
 #else
         return TYP_UNDEF;
 #endif
@@ -232,6 +257,10 @@ private:
         const BYTE* gcPtrs = GetSlotCount() > sizeof(m_gcPtrsArray) ? m_gcPtrs : m_gcPtrsArray;
         return static_cast<CorInfoGCType>(gcPtrs[slot]);
     }
+
+#ifdef FEATURE_SIMD
+    static LayoutInfo GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler);
+#endif
 };
 
 #endif // LAYOUT_H
