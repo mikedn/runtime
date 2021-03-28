@@ -7276,23 +7276,6 @@ private:
         return NO_CLASS_HANDLE;
     }
 
-    // Returns true if this is a SIMD type that should be considered an opaque
-    // vector type (i.e. do not analyze or promote its fields).
-    // Note that all but the fixed vector types are opaque, even though they may
-    // actually be declared as having fields.
-    bool isOpaqueSIMDType(CORINFO_CLASS_HANDLE structHandle) const
-    {
-        return ((m_simdHandleCache != nullptr) && (structHandle != m_simdHandleCache->SIMDVector2Handle) &&
-                (structHandle != m_simdHandleCache->SIMDVector3Handle) &&
-                (structHandle != m_simdHandleCache->SIMDVector4Handle));
-    }
-
-    // Returns true if the lclVar is an opaque SIMD type.
-    bool isOpaqueSIMDLclVar(const LclVarDsc* varDsc) const
-    {
-        return varTypeIsSIMD(varDsc->GetType()) && isOpaqueSIMDType(varDsc->GetLayout()->GetClassHandle());
-    }
-
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
         if (!isIntrinsicType(clsHnd))
@@ -7490,12 +7473,6 @@ private:
             lvaTable[lvaSIMDInitTempVarNum].lvType = getSIMDVectorType();
         }
         return lvaSIMDInitTempVarNum;
-    }
-
-#else  // !FEATURE_SIMD
-    bool isOpaqueSIMDLclVar(LclVarDsc* varDsc)
-    {
-        return false;
     }
 #endif // FEATURE_SIMD
 

@@ -143,6 +143,15 @@ public:
 #endif
     }
 
+    bool IsOpaqueVector() const
+    {
+#ifdef FEATURE_SIMD
+        return (m_gcPtrCount == 0) && (m_layoutInfo.vectorKind >= VectorKind::VectorT);
+#else
+        return false;
+#endif
+    }
+
     VectorKind GetVectorKind() const
     {
 #ifdef FEATURE_SIMD

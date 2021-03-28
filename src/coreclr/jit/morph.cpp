@@ -15544,7 +15544,7 @@ void Compiler::fgPromoteStructs()
             continue;
         }
 
-        if (varTypeIsSIMD(lcl->GetType()) && (lcl->lvIsUsedInSIMDIntrinsic() || isOpaqueSIMDLclVar(lcl)))
+        if (varTypeIsSIMD(lcl->GetType()) && (lcl->lvIsUsedInSIMDIntrinsic() || lcl->GetLayout()->IsOpaqueVector()))
         {
             // If we have marked this as lvUsedInSIMDIntrinsic, then we do not want to promote
             // its fields. Instead, we will attempt to enregister the entire struct.

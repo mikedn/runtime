@@ -1011,7 +1011,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
             {
                 LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
 
-                if (varTypeIsStruct(location->GetType()) && !isOpaqueSIMDLclVar(lcl))
+                if (varTypeIsStruct(location->GetType()) && !lcl->GetLayout()->IsOpaqueVector())
                 {
                     CORINFO_CLASS_HANDLE byrefClass;
                     var_types            byrefType = JITtype2varType(
