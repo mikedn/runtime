@@ -597,7 +597,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
 
                 op1 = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(op1);
-                assert(op1->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
+                assert(op1->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
 
                 return op1;
             }

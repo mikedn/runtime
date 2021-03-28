@@ -574,7 +574,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
             retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
-            assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
+            assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
             break;
         }
 
@@ -596,7 +596,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
             retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
-            assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
+            assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
 
             break;
         }
@@ -617,7 +617,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
             retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
-            assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
+            assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
 
             break;
         }
@@ -649,7 +649,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
                     retNode = impSIMDPopStack(retType);
                     SetOpLclRelatedToSIMDIntrinsic(retNode);
-                    assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
+                    assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
 
                     break;
                 }
@@ -682,7 +682,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
                 retNode = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(retNode);
-                assert(retNode->gtType == getSIMDTypeForSize(getSIMDTypeSizeInBytes(sig->retTypeSigClass)));
+                assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
 
                 break;
             }

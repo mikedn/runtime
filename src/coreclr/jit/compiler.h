@@ -7393,14 +7393,6 @@ private:
 #endif
     }
 
-    // Get the size of the SIMD type in bytes
-    int getSIMDTypeSizeInBytes(CORINFO_CLASS_HANDLE typeHnd)
-    {
-        unsigned sizeBytes = 0;
-        (void)getBaseTypeAndSizeOfSIMDType(typeHnd, &sizeBytes);
-        return sizeBytes;
-    }
-
     // Get the the number of elements of basetype of SIMD vector given by its size and baseType
     static int getSIMDVectorLength(unsigned simdSize, var_types baseType);
 
