@@ -2793,7 +2793,7 @@ public:
     bool lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVararg);
 
     void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
-    void lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck);
+    void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
     void lvaSetStructUsedAsVarArg(unsigned varNum);
 
     // If the local is TYP_REF, set or update the associated class information.
@@ -8390,6 +8390,10 @@ public:
     ClassLayout* typGetObjLayout(CORINFO_CLASS_HANDLE classHandle);
     // Get the number of a layout for the specified class handle.
     unsigned typGetObjLayoutNum(CORINFO_CLASS_HANDLE classHandle);
+    // Get the struct type for the specified class handle.
+    var_types typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* simdBaseType = nullptr);
+    // Get the struct type for the specified layout.
+    var_types typGetStructType(ClassLayout* layout, var_types* simdBaseType = nullptr);
 
 //-------------------------- Global Compiler Data ------------------------------------
 

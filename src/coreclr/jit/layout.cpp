@@ -327,6 +327,45 @@ ClassLayout* Compiler::typGetObjLayout(CORINFO_CLASS_HANDLE classHandle)
     return typGetClassLayoutTable()->GetObjLayout(this, classHandle);
 }
 
+var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* simdBaseType)
+{
+#ifdef FEATURE_SIMD
+    if (supportSIMDTypes())
+    {
+        ClassLayout* layout = typGetObjLayout(classHandle);
+        if (layout->IsSIMDType())
+        {
+            if (simdBaseType != nullptr)
+            {
+                *simdBaseType = layout->GetSIMDBaseType();
+            }
+            return layout->GetSIMDType();
+        }
+    }
+#endif
+
+    return TYP_STRUCT;
+}
+
+var_types Compiler::typGetStructType(ClassLayout* layout, var_types* simdBaseType)
+{
+#ifdef FEATURE_SIMD
+    if (supportSIMDTypes())
+    {
+        if (layout->IsSIMDType())
+        {
+            if (simdBaseType != nullptr)
+            {
+                *simdBaseType = layout->GetSIMDBaseType();
+            }
+            return layout->GetSIMDType();
+        }
+    }
+#endif
+
+    return TYP_STRUCT;
+}
+
 ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     : m_classHandle(classHandle)
     , m_size(0)

@@ -1831,7 +1831,7 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
                 // reason why this doesn't cause problems is that this a struct and post
                 // lowering liveness is used by LSRA for reg candidates.
 
-                comp->lvaSetStruct(tmpLclNum, callerArgDsc->GetLayout()->GetClassHandle(), false);
+                comp->lvaSetStruct(tmpLclNum, callerArgDsc->GetLayout(), false);
                 GenTree*    addr = comp->gtNewLclVarAddrNode(tmpLclNum);
                 GenTreeObj* store =
                     new (comp, GT_STORE_OBJ) GenTreeObj(TYP_STRUCT, addr, value, callerArgDsc->GetLayout());

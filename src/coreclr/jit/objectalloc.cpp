@@ -511,10 +511,9 @@ unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* a
     assert(allocObj != nullptr);
     assert(m_AnalysisDone);
 
-    const bool         shortLifetime = false;
-    const unsigned int lclNum     = comp->lvaGrabTemp(shortLifetime DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
-    const int unsafeValueClsCheck = true;
-    comp->lvaSetStruct(lclNum, allocObj->gtAllocObjClsHnd, unsafeValueClsCheck);
+    const bool     shortLifetime = false;
+    const unsigned lclNum        = comp->lvaGrabTemp(shortLifetime DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
+    comp->lvaSetStruct(lclNum, allocObj->gtAllocObjClsHnd, /* checkUnsafeBuffer */ true);
 
     // Initialize the object memory if necessary.
     bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;

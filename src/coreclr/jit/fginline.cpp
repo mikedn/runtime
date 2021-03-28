@@ -1701,7 +1701,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
     if (varTypeIsStruct(lclInfo.lclType))
     {
-        lvaSetStruct(lclNum, lclInfo.lclClass, /* unsafeValueClsCheck */ true);
+        lvaSetStruct(lclNum, lclInfo.lclClass, /* checkUnsafeBuffer */ true);
     }
     else
     {
@@ -1845,7 +1845,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     if (varTypeIsStruct(argInfo.paramType))
     {
-        lvaSetStruct(tmpLclNum, argInfo.paramClass, /* unsafeValueClsCheck */ true);
+        lvaSetStruct(tmpLclNum, argInfo.paramClass, /* checkUnsafeBuffer */ true);
     }
     else
     {

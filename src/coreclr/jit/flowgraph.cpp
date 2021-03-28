@@ -1785,7 +1785,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
 
             if (varTypeIsStruct(retNode->GetType()))
             {
-                lvaSetStruct(retTempLclNum, info.compMethodInfo->args.retTypeClass, /* unsafeValueClsCheck */ false);
+                lvaSetStruct(retTempLclNum, info.compMethodInfo->args.retTypeClass, /* checkUnsafeBuffer */ false);
             }
             else
             {

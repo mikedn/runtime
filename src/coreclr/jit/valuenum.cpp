@@ -3580,13 +3580,10 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
     size_t structSize = 0;
     if (varTypeIsStruct(fieldType))
     {
-        structSize = m_pComp->info.compCompHnd->getClassSize(structHnd);
-        // We do not normalize the type field accesses during importation unless they
-        // are used in a call, return or assignment.
-        if ((fieldType == TYP_STRUCT) && m_pComp->structSizeMightRepresentSIMDType(structSize))
-        {
-            fieldType = m_pComp->impNormStructType(structHnd);
-        }
+        ClassLayout* layout = m_pComp->typGetObjLayout(structHnd);
+
+        structSize = layout->GetSize();
+        fieldType  = m_pComp->typGetStructType(layout);
     }
     if (wbFinalStructSize != nullptr)
     {

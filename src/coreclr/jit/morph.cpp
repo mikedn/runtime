@@ -6501,8 +6501,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         // and copy the value back to the caller return buffer after that.
         unsigned int tmpRetBufNum = lvaGrabTemp(true DEBUGARG("substitute local for return buffer"));
 
-        constexpr bool unsafeValueClsCheck = false;
-        lvaSetStruct(tmpRetBufNum, origCall->GetRetLayout(), unsafeValueClsCheck);
+        lvaSetStruct(tmpRetBufNum, origCall->GetRetLayout(), /* checkUnsafeBuffer */ false);
         lvaSetVarAddrExposed(tmpRetBufNum);
 
         var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();

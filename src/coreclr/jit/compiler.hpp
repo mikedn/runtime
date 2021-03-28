@@ -1500,7 +1500,7 @@ inline unsigned Compiler::lvaNewTemp(ClassLayout* layout, bool shortLifetime DEB
     assert(layout->IsValueClass());
 
     unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-    lvaSetStruct(lclNum, layout->GetClassHandle(), false);
+    lvaSetStruct(lclNum, layout, false);
     return lclNum;
 }
 

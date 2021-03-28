@@ -97,11 +97,12 @@ void Compiler::lvaInitTypeRef()
     else
     {
         CORINFO_CLASS_HANDLE retClass     = info.compMethodInfo->args.retTypeClass;
-        unsigned             retClassSize = info.compCompHnd->getClassSize(retClass);
+        ClassLayout*         retLayout    = typGetObjLayout(retClass);
+        unsigned             retClassSize = retLayout->GetSize();
         structPassingKind    retKind      = SPK_Unknown;
         var_types            retKindType  = getReturnTypeForStruct(retClass, info.compCallConv, &retKind, retClassSize);
 
-        info.compRetType = impNormStructType(retClass);
+        info.compRetType = typGetStructType(retLayout);
 
         if (retKind == SPK_PrimitiveType)
         {
@@ -2554,18 +2555,18 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
     return false;
 }
 
+void Compiler::lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer)
+{
+    lvaSetStruct(lclNum, typGetObjLayout(classHandle), checkUnsafeBuffer);
+}
+
 void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer)
 {
     assert(!layout->IsBlockLayout());
 
-    lvaSetStruct(lclNum, layout->GetClassHandle(), checkUnsafeBuffer);
-}
+    noway_assert(lclNum < lvaCount);
 
-void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck)
-{
-    noway_assert(varNum < lvaCount);
-
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
+    LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
     if (varDsc->lvExactSize != 0)
     {
@@ -2603,23 +2604,21 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
         // provided class handle. This catches attempts to change between STRUCT and SIMD types
         // that would leave LclVarDsc in a weird state.
 
-        assert(varDsc->GetType() == impNormStructType(typeHnd));
-        assert(varDsc->lvExactSize == typGetObjLayout(typeHnd)->GetSize());
+        assert(varDsc->GetType() == typGetStructType(layout));
+        assert(varDsc->lvExactSize == layout->GetSize());
     }
     else
     {
-        ClassLayout* layout = typGetObjLayout(typeHnd);
-
         varDsc->lvType = TYP_STRUCT;
         varDsc->SetLayout(layout);
         varDsc->lvExactSize   = layout->GetSize();
-        varDsc->lvImpTypeInfo = typeInfo(TI_STRUCT, typeHnd);
+        varDsc->lvImpTypeInfo = typeInfo(TI_STRUCT, layout->GetClassHandle());
 
         if (layout->IsValueClass())
         {
 #if FEATURE_SIMD
             var_types simdBaseType = TYP_UNKNOWN;
-            var_types simdType     = impNormStructType(typeHnd, &simdBaseType);
+            var_types simdType     = typGetStructType(layout, &simdBaseType);
 
             if (simdType != TYP_STRUCT)
             {
@@ -2634,7 +2633,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
 #ifdef FEATURE_HFA
             if (varDsc->lvExactSize <= MAX_PASS_MULTIREG_BYTES)
             {
-                var_types hfaType = GetHfaType(typeHnd);
+                var_types hfaType = GetHfaType(layout->GetClassHandle());
 
                 if (hfaType != TYP_UNDEF)
                 {
@@ -2650,24 +2649,27 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
     }
 
 #ifndef TARGET_64BIT
-    BOOL doubleAlignHint = FALSE;
+    bool doubleAlignHint = false;
 #ifdef TARGET_X86
-    doubleAlignHint = TRUE;
+    doubleAlignHint = true;
 #endif
-    if (info.compCompHnd->getClassAlignmentRequirement(typeHnd, doubleAlignHint) == 8)
+    if (info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle(), doubleAlignHint) == 8)
     {
-        JITDUMP("Marking struct in V%02i with double align flag\n", varNum);
+        JITDUMP("Marking struct in V%02i with double align flag\n", lclNum);
         varDsc->lvStructDoubleAlign = 1;
     }
 #endif
 
-    unsigned classAttribs = info.compCompHnd->getClassAttribs(typeHnd);
+    // TODO-MIKE-Throughput: ClassLayout already queries class attributes, it should store
+    // "overlapping fields" and "unsafe value class" bits so we don't have to do it again.
+
+    unsigned classAttribs = info.compCompHnd->getClassAttribs(layout->GetClassHandle());
 
     varDsc->lvOverlappingFields = StructHasOverlappingFields(classAttribs);
 
     // Check whether this local is an unsafe value type and requires GS cookie protection.
     // GS checks require the stack to be re-ordered, which can't be done with EnC.
-    if (unsafeValueClsCheck && ((classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) != 0) && !opts.compDbgEnC)
+    if (checkUnsafeBuffer && ((classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) != 0) && !opts.compDbgEnC)
     {
         setNeedsGSSecurityCookie();
         compGSReorderStackLayout = true;
@@ -2677,7 +2679,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
 #ifdef DEBUG
     if (JitConfig.EnableExtraSuperPmiQueries())
     {
-        makeExtraStructQueries(typeHnd, 2);
+        makeExtraStructQueries(layout->GetClassHandle(), 2);
     }
 #endif
 }

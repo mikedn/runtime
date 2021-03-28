@@ -1376,61 +1376,9 @@ GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
     return gtNewAddrNode(structVal);
 }
 
-//------------------------------------------------------------------------
-// impNormStructType: Normalize the type of a (known to be) struct class handle.
-//
-// Arguments:
-//    argClass       - The class handle for the struct type of interest.
-//    pSimdBaseType   - (optional, default nullptr) - if non-null, and the struct is a SIMD
-//                      type, set to the SIMD base type
-//
-// Return Value:
-//    The JIT type for the struct (e.g. TYP_STRUCT, or TYP_SIMD*).
-//    It may also modify the compFloatingPointUsed flag if the type is a SIMD type.
-//
-// Notes:
-//    Normalizing the type involves examining the struct type to determine if it should
-//    be modified to one that is handled specially by the JIT, possibly being a candidate
-//    for full enregistration, e.g. TYP_SIMD16. If the size of the struct is already known
-//    call structSizeMightRepresentSIMDType to determine if this api needs to be called.
-
 var_types Compiler::impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types* pSimdBaseType)
 {
-    assert(structHnd != NO_CLASS_HANDLE);
-
-    var_types structType = TYP_STRUCT;
-
-#ifdef FEATURE_SIMD
-    if (supportSIMDTypes())
-    {
-        const uint32_t structFlags = info.compCompHnd->getClassAttribs(structHnd);
-
-        if ((structFlags & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR |
-                            CORINFO_FLG_INTRINSIC_TYPE)) == CORINFO_FLG_INTRINSIC_TYPE)
-        {
-            unsigned originalSize = info.compCompHnd->getClassSize(structHnd);
-
-            if (structSizeMightRepresentSIMDType(originalSize))
-            {
-                unsigned int sizeBytes;
-                var_types    simdBaseType = getBaseTypeAndSizeOfSIMDType(structHnd, &sizeBytes);
-                if (simdBaseType != TYP_UNKNOWN)
-                {
-                    assert(sizeBytes == originalSize);
-                    structType = getSIMDTypeForSize(sizeBytes);
-                    if (pSimdBaseType != nullptr)
-                    {
-                        *pSimdBaseType = simdBaseType;
-                    }
-                    // Also indicate that we use floating point registers.
-                    compFloatingPointUsed = true;
-                }
-            }
-        }
-    }
-#endif // FEATURE_SIMD
-
-    return structType;
+    return typGetStructType(structHnd, pSimdBaseType);
 }
 
 GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HANDLE argClass, unsigned curLevel)
@@ -7870,7 +7818,7 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     assert(call->GetRetLayout() == nullptr);
 
     ClassLayout* layout = typGetObjLayout(retClass);
-    var_types    type   = impNormStructType(retClass);
+    var_types    type   = typGetStructType(layout);
 
     call->SetType(type);
     call->SetRetSigType(type);
@@ -10383,9 +10331,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     assert((opcode == CEE_LDELEM) || (opcode == CEE_LDELEMA));
 
-                    op1->SetType(impNormStructType(clsHnd));
-
                     ClassLayout* layout = typGetObjLayout(clsHnd);
+                    op1->SetType(typGetStructType(layout));
                     op1->AsIndex()->SetLayout(layout);
                     op1->AsIndex()->SetElemSize(layout->GetSize());
                 }
@@ -10521,9 +10468,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    op1->SetType(impNormStructType(clsHnd));
-
                     ClassLayout* layout = typGetObjLayout(clsHnd);
+                    op1->SetType(typGetStructType(layout));
                     op1->AsIndex()->SetLayout(layout);
                     op1->AsIndex()->SetElemSize(layout->GetSize());
 
@@ -11856,7 +11802,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             // The local variable itself is the allocated space.
                             // Here we need unsafe value cls check, since the address of struct is taken for further use
                             // and potentially exploitable.
-                            lvaSetStruct(lclNum, resolvedToken.hClass, true /* unsafe value cls check */);
+                            lvaSetStruct(lclNum, resolvedToken.hClass, /* checkUnsafeBuffer */ true);
                         }
 
                         bool bbInALoop  = impBlockIsInALoop(block);
@@ -13181,7 +13127,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // further along and potetially be exploitable.
 
                         unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a nullable"));
-                        lvaSetStruct(tmp, resolvedToken.hClass, true /* unsafe value cls check */);
+                        lvaSetStruct(tmp, resolvedToken.hClass, /* checkUnsafeBuffer */ true);
 
                         op2 = gtNewLclvNode(tmp, TYP_STRUCT);
                         op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
@@ -13233,7 +13179,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a register returnable nullable"));
                     lvaTable[tmp].lvIsMultiRegArg = true;
-                    lvaSetStruct(tmp, resolvedToken.hClass, true /* unsafe value cls check */);
+                    lvaSetStruct(tmp, resolvedToken.hClass, /* checkUnsafeBuffer */ true);
 
                     op2 = gtNewLclvNode(tmp, TYP_STRUCT);
                     op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
@@ -16708,7 +16654,7 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
 
     if (dst == nullptr)
     {
-        type = impNormStructType(classHandle, &simdBaseType);
+        type = typGetStructType(layout, &simdBaseType);
         dst  = gtNewObjNode(type, layout, dstAddr);
     }
 

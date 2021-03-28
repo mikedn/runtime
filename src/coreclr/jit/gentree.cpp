@@ -5891,7 +5891,7 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
 
 GenTreeObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
 {
-    return gtNewObjNode(impNormStructType(layout->GetClassHandle()), layout, addr);
+    return gtNewObjNode(typGetStructType(layout), layout, addr);
 }
 
 GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
@@ -12019,9 +12019,8 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
         if (varTypeIsStruct(copyDst->TypeGet()))
         {
             JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclNum, eeGetClassName(boxTempLclDsc->lvClassHnd));
-            boxTempLclDsc->lvType         = TYP_UNDEF;
-            const bool isUnsafeValueClass = false;
-            lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, isUnsafeValueClass);
+            boxTempLclDsc->lvType = TYP_UNDEF;
+            lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, /* checkUnsafeBuffer */ false);
         }
         else
         {
