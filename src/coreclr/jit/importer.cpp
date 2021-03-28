@@ -293,15 +293,15 @@ inline void Compiler::impBeginTreeList()
 
 inline void Compiler::impEndTreeList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt)
 {
-    /* Make the list circular, so that we can easily walk it backwards */
-
-    firstStmt->SetPrevStmt(lastStmt);
-
-    /* Store the tree list in the basic block */
+    if (firstStmt != nullptr)
+    {
+        // Make the list circular, so that we can easily walk it backwards
+        firstStmt->SetPrevStmt(lastStmt);
+    }
 
     block->bbStmtList = firstStmt;
 
-    /* The block should not already be marked as imported */
+    // The block should not already be marked as imported
     assert((block->bbFlags & BBF_IMPORTED) == 0);
 
     block->bbFlags |= BBF_IMPORTED;
@@ -315,18 +315,9 @@ inline void Compiler::impEndTreeList(BasicBlock* block, Statement* firstStmt, St
 //
 inline void Compiler::impEndTreeList(BasicBlock* block)
 {
-    if (impStmtList == nullptr)
-    {
-        // The block should not already be marked as imported.
-        assert((block->bbFlags & BBF_IMPORTED) == 0);
-
-        // Empty block. Just mark it as imported.
-        block->bbFlags |= BBF_IMPORTED;
-    }
-    else
-    {
-        impEndTreeList(block, impStmtList, impLastStmt);
-    }
+    impEndTreeList(block, impStmtList, impLastStmt);
+    impStmtList = nullptr;
+    impLastStmt = nullptr;
 
 #ifdef DEBUG
     if (impLastILoffsStmt != nullptr)
@@ -335,7 +326,6 @@ inline void Compiler::impEndTreeList(BasicBlock* block)
         impLastILoffsStmt = nullptr;
     }
 #endif
-    impStmtList = impLastStmt = nullptr;
 }
 
 /*****************************************************************************
