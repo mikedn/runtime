@@ -1391,7 +1391,7 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAND
             assert(sig->numArgs == 2);
             op2      = impSIMDPopStack(TYP_SIMD16);
             op1      = impSIMDPopStack(TYP_SIMD16);
-            baseType = getBaseTypeOfSIMDType(sig->retTypeSigClass);
+            baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass);
             assert(baseType == TYP_FLOAT);
 
             if (compOpportunisticallyDependsOn(InstructionSet_AVX))
@@ -1449,7 +1449,7 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
     GenTree*  op2      = nullptr;
     int       ival     = -1;
     int       simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
-    var_types baseType = getBaseTypeOfSIMDType(sig->retTypeSigClass);
+    var_types baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass);
     var_types retType  = TYP_UNKNOWN;
 
     // The  fencing intrinsics don't take any operands and simdSize is 0
@@ -1533,7 +1533,7 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
     {
         case NI_AVX2_PermuteVar8x32:
         {
-            baseType = getBaseTypeOfSIMDType(sig->retTypeSigClass);
+            baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass);
             // swap the two operands
             GenTree* indexVector  = impSIMDPopStack(TYP_SIMD32);
             GenTree* sourceVector = impSIMDPopStack(TYP_SIMD32);
@@ -1567,7 +1567,7 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
             SetOpLclRelatedToSIMDIntrinsic(op4);
 
             argType                 = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg3, &argClass)));
-            var_types indexbaseType = getBaseTypeOfSIMDType(argClass);
+            var_types indexbaseType = getBaseTypeAndSizeOfSIMDType(argClass);
             GenTree*  op3           = getArgForHWIntrinsic(argType, argClass);
             SetOpLclRelatedToSIMDIntrinsic(op3);
 

@@ -7314,11 +7314,6 @@ private:
     // if it is not a SIMD type or is an unsupported base type.
     var_types getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, unsigned* sizeBytes = nullptr);
 
-    var_types getBaseTypeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd)
-    {
-        return getBaseTypeAndSizeOfSIMDType(typeHnd, nullptr);
-    }
-
     // Get SIMD Intrinsic info given the method handle.
     // Also sets typeHnd, argCount, baseType and sizeBytes out params.
     const SIMDIntrinsicInfo* getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* typeHnd,

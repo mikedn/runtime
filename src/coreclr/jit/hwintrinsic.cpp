@@ -962,12 +962,12 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                     case NI_AdvSimd_AddWideningUpper:
                     case NI_AdvSimd_SubtractWideningUpper:
                         assert(varTypeIsSIMD(op1->TypeGet()));
-                        retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeOfSIMDType(sigReader.op1ClsHnd));
+                        retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeAndSizeOfSIMDType(sigReader.op1ClsHnd));
                         break;
 
                     case NI_AdvSimd_Arm64_AddSaturateScalar:
                         assert(varTypeIsSIMD(op2->TypeGet()));
-                        retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeOfSIMDType(sigReader.op2ClsHnd));
+                        retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeAndSizeOfSIMDType(sigReader.op2ClsHnd));
                         break;
 
                     case NI_ArmBase_Arm64_MultiplyHigh:
@@ -1025,7 +1025,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
                 {
                     assert(varTypeIsSIMD(op2->TypeGet()));
-                    retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeOfSIMDType(sigReader.op2ClsHnd));
+                    retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeAndSizeOfSIMDType(sigReader.op2ClsHnd));
                 }
 #elif defined(TARGET_ARM64)
                 if (category == HW_Category_SIMDByIndexedElement)
