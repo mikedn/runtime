@@ -45,7 +45,6 @@ const HWIntrinsicInfo& HWIntrinsicInfo::lookup(NamedIntrinsic id)
 //
 // Arguments:
 //    intrinsic -- id of the intrinsic function.
-//    clsHnd    -- class handle containing the intrinsic function.
 //    method    -- method handle of the intrinsic function.
 //    sig       -- signature of the intrinsic call.
 //    baseType  -- Predetermined baseType, could be TYP_UNKNOWN
@@ -53,10 +52,7 @@ const HWIntrinsicInfo& HWIntrinsicInfo::lookup(NamedIntrinsic id)
 // Return Value:
 //    The basetype of intrinsic of it can be fetched from 1st or 2nd argument, else return baseType unmodified.
 //
-var_types Compiler::getBaseTypeFromArgIfNeeded(NamedIntrinsic       intrinsic,
-                                               CORINFO_CLASS_HANDLE clsHnd,
-                                               CORINFO_SIG_INFO*    sig,
-                                               var_types            baseType)
+var_types Compiler::getBaseTypeFromArgIfNeeded(NamedIntrinsic intrinsic, CORINFO_SIG_INFO* sig, var_types baseType)
 {
     if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic))
     {
@@ -711,7 +707,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
         }
     }
 
-    baseType = getBaseTypeFromArgIfNeeded(intrinsic, clsHnd, sig, baseType);
+    baseType = getBaseTypeFromArgIfNeeded(intrinsic, sig, baseType);
 
     if (baseType == TYP_UNKNOWN)
     {
