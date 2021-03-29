@@ -7316,10 +7316,11 @@ private:
 
     // Get SIMD Intrinsic info given the method handle.
     // Also sets typeHnd, argCount, baseType and sizeBytes out params.
-    const SIMDIntrinsicInfo* getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* typeHnd,
-                                                  CORINFO_METHOD_HANDLE methodHnd,
+    const SIMDIntrinsicInfo* getSIMDIntrinsicInfo(const char*           className,
+                                                  const char*           methodName,
                                                   CORINFO_SIG_INFO*     sig,
                                                   bool                  isNewObj,
+                                                  CORINFO_CLASS_HANDLE* typeHnd,
                                                   unsigned*             argCount,
                                                   var_types*            baseType,
                                                   unsigned*             sizeBytes);

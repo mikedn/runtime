@@ -653,36 +653,11 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
     return simdBaseType;
 }
 
-//--------------------------------------------------------------------------------------
-// getSIMDIntrinsicInfo: get SIMD intrinsic info given the method handle.
-//
-// Arguments:
-//    inOutTypeHnd    - The handle of the type on which the method is invoked.  This is an in-out param.
-//    methodHnd       - The handle of the method we're interested in.
-//    sig             - method signature info
-//    isNewObj        - whether this call represents a newboj constructor call
-//    argCount        - argument count - out pram
-//    baseType        - base type of the intrinsic - out param
-//    sizeBytes       - size of SIMD vector type on which the method is invoked - out param
-//
-// Return Value:
-//    SIMDIntrinsicInfo struct initialized corresponding to methodHnd.
-//    Sets SIMDIntrinsicInfo.id to SIMDIntrinsicInvalid if methodHnd doesn't correspond
-//    to any SIMD intrinsic.  Also, sets the out params inOutTypeHnd, argCount, baseType and
-//    sizeBytes.
-//
-//    Note that VectorMath class doesn't have a base type and first argument of the method
-//    determines the SIMD vector type on which intrinsic is invoked. In such a case inOutTypeHnd
-//    is modified by this routine.
-//
-// TODO-Throughput: The current implementation is based on method name string parsing.
-//         Although we now have type identification from the VM, the parsing of intrinsic names
-//         could be made more efficient.
-//
-const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* inOutTypeHnd,
-                                                        CORINFO_METHOD_HANDLE methodHnd,
+const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           className,
+                                                        const char*           methodName,
                                                         CORINFO_SIG_INFO*     sig,
                                                         bool                  isNewObj,
+                                                        CORINFO_CLASS_HANDLE* inOutTypeHnd,
                                                         unsigned*             argCount,
                                                         var_types*            baseType,
                                                         unsigned*             sizeBytes)
@@ -691,33 +666,32 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* in
     assert(baseType != nullptr);
     assert(sizeBytes != nullptr);
 
-    CORINFO_CLASS_HANDLE typeHnd = *inOutTypeHnd;
-
-    if (typeHnd == m_simdHandleCache->SIMDVectorHandle)
+    if (strcmp(className, "Vector") == 0)
     {
-        assert(*baseType == TYP_UNKNOWN);
-
         // All of the supported intrinsics on this static class take a first argument that's a vector,
         // which determines the baseType.
         // The exception is the IsHardwareAccelerated property, which is handled as a special case.
 
         if (sig->numArgs == 0)
         {
-            const SIMDIntrinsicInfo* hwAccelIntrinsicInfo = &(simdIntrinsicInfoArray[SIMDIntrinsicHWAccel]);
-            if ((strcmp(eeGetMethodName(methodHnd, nullptr), hwAccelIntrinsicInfo->methodName) == 0) &&
-                JITtype2varType(sig->retType) == hwAccelIntrinsicInfo->retType)
+            const SIMDIntrinsicInfo& info = simdIntrinsicInfoArray[SIMDIntrinsicHWAccel];
+
+            if (strcmp(methodName, info.methodName) == 0)
             {
                 // Sanity check
-                assert((hwAccelIntrinsicInfo->argCount == 0) && !hwAccelIntrinsicInfo->isInstMethod);
-                return hwAccelIntrinsicInfo;
+                assert((info.argCount == 0) && !info.isInstMethod && (JITtype2varType(sig->retType) == info.retType));
+
+                return &info;
             }
+
             return nullptr;
         }
 
-        typeHnd       = info.compCompHnd->getArgClass(sig, sig->args);
-        *inOutTypeHnd = typeHnd;
-        *baseType     = getBaseTypeAndSizeOfSIMDType(typeHnd, sizeBytes);
+        *inOutTypeHnd = info.compCompHnd->getArgClass(sig, sig->args);
     }
+
+    CORINFO_CLASS_HANDLE typeHnd = *inOutTypeHnd;
+    *baseType                    = getBaseTypeAndSizeOfSIMDType(typeHnd, sizeBytes);
 
     if (*baseType == TYP_UNKNOWN)
     {
@@ -737,7 +711,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(CORINFO_CLASS_HANDLE* in
     // TODO-Throughput: replace sequential search by binary search by arranging entries
     // sorted by method name.
     SIMDIntrinsicID intrinsicId = SIMDIntrinsicInvalid;
-    const char*     methodName  = eeGetMethodName(methodHnd, nullptr);
     for (int i = SIMDIntrinsicNone + 1; i < SIMDIntrinsicInvalid; ++i)
     {
         if (strcmp(methodName, simdIntrinsicInfoArray[i].methodName) == 0)
@@ -1448,12 +1421,23 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
         return nullptr;
     }
 
-    unsigned  size     = 0;
-    var_types baseType = getBaseTypeAndSizeOfSIMDType(clsHnd, &size);
+    const char* className          = nullptr;
+    const char* namespaceName      = nullptr;
+    const char* enclosingClassName = nullptr;
+    const char* methodName =
+        info.compCompHnd->getMethodNameFromMetadata(methodHnd, &className, &namespaceName, &enclosingClassName);
 
-    unsigned                 argCount = 0;
+    if ((namespaceName == nullptr) || (strcmp(namespaceName, "System.Numerics") != 0))
+    {
+        return nullptr;
+    }
+
+    unsigned  size     = 0;
+    var_types baseType = TYP_UNKNOWN;
+    unsigned  argCount = 0;
+
     const SIMDIntrinsicInfo* intrinsicInfo =
-        getSIMDIntrinsicInfo(&clsHnd, methodHnd, sig, (opcode == CEE_NEWOBJ), &argCount, &baseType, &size);
+        getSIMDIntrinsicInfo(className, methodName, sig, (opcode == CEE_NEWOBJ), &clsHnd, &argCount, &baseType, &size);
 
     // Exit early if the intrinsic is invalid or unrecognized
     if ((intrinsicInfo == nullptr) || (intrinsicInfo->id == SIMDIntrinsicInvalid))
