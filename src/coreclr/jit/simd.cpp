@@ -170,10 +170,6 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
             size         = 4 * genTypeSize(TYP_FLOAT);
             assert(size == roundUp(info.compCompHnd->getClassSize(typeHnd), TARGET_POINTER_SIZE));
         }
-        else if (typeHnd == m_simdHandleCache->SIMDVectorHandle)
-        {
-            size = getSIMDVectorRegisterByteLength();
-        }
         else if (typeHnd == m_simdHandleCache->SIMDUShortHandle)
         {
             simdBaseType = TYP_USHORT;
@@ -294,11 +290,6 @@ var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, u
                 simdBaseType = TYP_FLOAT;
                 size         = 4 * genTypeSize(TYP_FLOAT);
                 assert(size == roundUp(info.compCompHnd->getClassSize(typeHnd), TARGET_POINTER_SIZE));
-            }
-            else if (strcmp(className, "Vector") == 0)
-            {
-                m_simdHandleCache->SIMDVectorHandle = typeHnd;
-                size                                = getSIMDVectorRegisterByteLength();
             }
             else
             {

@@ -200,15 +200,20 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
     unsigned             numArgs          = sig->numArgs;
     bool                 isInstanceMethod = false;
 
-    // We want to resolve and populate the handle cache for this type even
-    // if it isn't the basis for anything carried on the node.
-    baseType = getBaseTypeAndSizeOfSIMDType(clsHnd, &simdSize);
+    const char* namespaceName       = nullptr;
+    const char* className           = info.compCompHnd->getClassNameFromMetadata(clsHnd, &namespaceName);
+    bool        isStaticVectorClass = strcmp(className, "Vector") == 0;
 
-    if ((clsHnd != m_simdHandleCache->SIMDVectorHandle) && !varTypeIsArithmetic(baseType))
+    if (!isStaticVectorClass)
     {
-        // We want to exit early if the clsHnd should have a base type and it isn't one
-        // of the supported types. This handles cases like op_Explicit which take a Vector<T>
-        return nullptr;
+        baseType = getBaseTypeAndSizeOfSIMDType(clsHnd, &simdSize);
+
+        if (!varTypeIsArithmetic(baseType))
+        {
+            // We want to exit early if the clsHnd should have a base type and it isn't one
+            // of the supported types. This handles cases like op_Explicit which take a Vector<T>
+            return nullptr;
+        }
     }
 
     if (retType == TYP_STRUCT)
@@ -230,7 +235,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         isInstanceMethod = true;
         argClass         = clsHnd;
     }
-    else if ((clsHnd == m_simdHandleCache->SIMDVectorHandle) && (numArgs != 0))
+    else if (isStaticVectorClass && (numArgs != 0))
     {
         // We need to fixup the clsHnd in the case we are an intrinsic on Vector
         // The first argument will be the appropriate Vector<T> handle to use
