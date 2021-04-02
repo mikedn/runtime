@@ -694,17 +694,16 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if ((retType == TYP_STRUCT) && featureSIMD)
     {
-        unsigned int sizeBytes;
+        unsigned sizeBytes;
         baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass, &sizeBytes);
-        retType  = getSIMDTypeForSize(sizeBytes);
-        assert(sizeBytes != 0);
 
-        // We want to return early here for cases where retType was TYP_STRUCT as per method signature and
-        // rather than deferring the decision after getting the baseType of arg.
+        // Currently all HW intrinsics return either vectors or primitive types, not structs.
         if (!isSupportedBaseType(intrinsic, baseType))
         {
             return nullptr;
         }
+
+        retType = getSIMDTypeForSize(sizeBytes);
     }
 
     baseType = getBaseTypeFromArgIfNeeded(intrinsic, sig, baseType);
@@ -713,9 +712,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         if (category != HW_Category_Scalar)
         {
-            unsigned int sizeBytes;
-            baseType = getBaseTypeAndSizeOfSIMDType(clsHnd, &sizeBytes);
-            assert((category == HW_Category_Special) || (sizeBytes != 0));
+            baseType = getBaseTypeAndSizeOfSIMDType(clsHnd);
         }
         else
         {
