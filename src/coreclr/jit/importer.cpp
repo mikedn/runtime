@@ -16624,10 +16624,8 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
 
 GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle)
 {
-    ClassLayout* layout       = typGetObjLayout(classHandle);
-    var_types    type         = TYP_UNDEF;
-    var_types    simdBaseType = TYP_UNDEF;
-    GenTree*     dst          = nullptr;
+    ClassLayout* layout = typGetObjLayout(classHandle);
+    GenTree*     dst    = nullptr;
 
     if (dstAddr->OperIs(GT_ADDR))
     {
@@ -16639,25 +16637,25 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
 
             if (layout->GetSize() >= lcl->GetLayout()->GetSize())
             {
-                type         = lcl->GetType();
-                simdBaseType = lcl->GetSIMDBaseType();
-                dst          = location;
+                layout = lcl->GetLayout();
+                dst    = location;
             }
         }
     }
 
     if (dst == nullptr)
     {
-        type = typGetStructType(layout, &simdBaseType);
-        dst  = gtNewObjNode(type, layout, dstAddr);
+        dst = gtNewObjNode(layout, dstAddr);
     }
 
     GenTree* initValue;
 
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(type))
+    if (layout->IsVector())
     {
-        initValue = gtNewSIMDVectorZero(type, simdBaseType, varTypeSize(type));
+        // TODO-MIKE-Cleanup: This should probably use gtGetSIMDZero. But NI_Vector128_get_Zero & co.
+        // are a bunch of nonsense, how many "zero" nodes does it take to change a light bulb!?!
+        initValue = gtNewSIMDVectorZero(layout->GetSIMDType(), layout->GetElementType(), layout->GetSize());
     }
     else
 #endif
