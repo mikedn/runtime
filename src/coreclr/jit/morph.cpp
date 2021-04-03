@@ -6492,16 +6492,15 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         GenTree* retBufArg = origCall->gtCallArgs->GetNode();
 
         assert(info.compRetBuffArg != BAD_VAR_NUM);
-        assert(retBufArg->OperIsLocal());
-        assert(retBufArg->AsLclVarCommon()->GetLclNum() == info.compRetBuffArg);
+
+        assert(retBufArg->AsLclVar()->GetLclNum() == info.compRetBuffArg);
 
         // Caller return buffer argument retBufArg can point to GC heap while the dispatcher expects
         // the return value argument retValArg to point to the stack.
         // We use a temporary stack allocated return buffer to hold the value during the dispatcher call
         // and copy the value back to the caller return buffer after that.
-        unsigned int tmpRetBufNum = lvaGrabTemp(true DEBUGARG("substitute local for return buffer"));
-
-        lvaSetStruct(tmpRetBufNum, origCall->GetRetLayout(), /* checkUnsafeBuffer */ false);
+        unsigned tmpRetBufNum =
+            lvaNewTemp(origCall->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
         lvaSetVarAddrExposed(tmpRetBufNum);
 
         var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
@@ -6511,7 +6510,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         var_types callerRetBufType = lvaGetDesc(info.compRetBuffArg)->TypeGet();
 
         GenTree* dstAddr = gtNewLclvNode(info.compRetBuffArg, callerRetBufType);
-        GenTree* dst     = gtNewObjNode(info.compMethodInfo->args.retTypeClass, dstAddr);
+        GenTree* dst     = gtNewObjNode(origCall->GetRetLayout(), dstAddr);
         GenTree* src     = gtNewLclvNode(tmpRetBufNum, tmpRetBufType);
 
         copyToRetBufNode = gtNewAssignNode(dst, src);

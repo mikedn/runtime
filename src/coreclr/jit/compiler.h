@@ -8169,10 +8169,17 @@ public:
 
         var_types      compRetType; // Return type of the method as declared in IL
         ReturnTypeDesc retDesc;
+        ClassLayout*   retLayout;
 
         var_types GetRetSigType() const
         {
             return compRetType;
+        }
+
+        ClassLayout* GetRetLayout() const
+        {
+            assert(varTypeIsStruct(compRetType));
+            return retLayout;
         }
 
         unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)

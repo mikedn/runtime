@@ -901,7 +901,7 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
 
     if (varTypeIsStruct(info.GetRetSigType()))
     {
-        lvaSetStruct(spillLclNum, info.compMethodInfo->args.retTypeClass, false);
+        lvaSetStruct(spillLclNum, info.GetRetLayout(), false);
     }
     else
     {

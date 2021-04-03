@@ -3001,12 +3001,10 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 
     if (src->OperIs(GT_IND, GT_OBJ))
     {
-        var_types            retRegType = comp->info.retDesc.GetRegType(0);
-        CORINFO_CLASS_HANDLE retClass   = comp->info.compMethodInfo->args.retTypeClass;
+        var_types    retRegType = comp->info.retDesc.GetRegType(0);
+        ClassLayout* retLayout  = comp->info.GetRetLayout();
 
-        unsigned retClassSize = comp->info.compCompHnd->getClassSize(retClass);
-
-        if (retClassSize == varTypeSize(retRegType))
+        if (retLayout->GetSize() == varTypeSize(retRegType))
         {
             if (varTypeIsSmall(retRegType))
             {
@@ -3023,9 +3021,9 @@ void Lowering::LowerRetStruct(GenTreeUnOp* ret)
 #if defined(TARGET_X86) || defined(WINDOWS_AMD64_ABI)
             unreached();
 #else
-            assert(retClassSize < varTypeSize(retRegType));
+            assert(retLayout->GetSize() < varTypeSize(retRegType));
 
-            unsigned tempLclNum = comp->lvaNewTemp(retClass, true DEBUGARG("indir ret temp"));
+            unsigned tempLclNum = comp->lvaNewTemp(retLayout, true DEBUGARG("indir ret temp"));
             comp->lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(Compiler::DNER_LocalField));
 
             GenTree* retRegValue = comp->gtNewLclFldNode(tempLclNum, retRegType, 0);

@@ -1785,7 +1785,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
 
             if (varTypeIsStruct(retNode->GetType()))
             {
-                lvaSetStruct(retTempLclNum, info.compMethodInfo->args.retTypeClass, /* checkUnsafeBuffer */ false);
+                lvaSetStruct(retTempLclNum, info.GetRetLayout(), /* checkUnsafeBuffer */ false);
             }
             else
             {
@@ -2198,9 +2198,9 @@ private:
             unsigned   lclNum = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
             LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
-            if (varTypeIsStruct(comp->info.compRetType))
+            if (varTypeIsStruct(comp->info.GetRetSigType()))
             {
-                comp->lvaSetStruct(lclNum, comp->info.compMethodInfo->args.retTypeClass, false);
+                comp->lvaSetStruct(lclNum, comp->info.GetRetLayout(), false);
                 lcl->lvIsMultiRegRet = (comp->info.retDesc.GetRegCount() > 1);
             }
             else

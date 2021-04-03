@@ -103,6 +103,7 @@ void Compiler::lvaInitTypeRef()
         var_types            retKindType  = getReturnTypeForStruct(retClass, info.compCallConv, &retKind, retClassSize);
 
         info.compRetType = typGetStructType(retLayout);
+        info.retLayout   = retLayout;
 
         if (retKind == SPK_PrimitiveType)
         {
@@ -567,13 +568,11 @@ void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBuf
             assert(!info.compCompHnd->isStructRequiringStackAllocRetBuf(sigInfo.retTypeClass));
         }
 #ifdef FEATURE_SIMD
-        else if (supportSIMDTypes() && varTypeIsSIMD(info.compRetType))
+        else if (varTypeIsSIMD(info.GetRetSigType()))
         {
-            var_types simdBaseType =
-                getBaseTypeAndSizeOfSIMDType(info.compMethodInfo->args.retTypeClass, &varDsc->lvExactSize);
-            assert(simdBaseType != TYP_UNKNOWN);
+            varDsc->lvExactSize = info.GetRetLayout()->GetSize();
         }
-#endif // FEATURE_SIMD
+#endif
 
         assert(!varDsc->lvIsRegArg || isValidIntArgReg(varDsc->GetArgReg()));
 
