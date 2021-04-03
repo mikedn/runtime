@@ -15745,31 +15745,20 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
             case GT_ASG:
                 structHnd = gtGetStructHandleIfPresent(tree->gtGetOp1());
                 break;
+            case GT_LCL_VAR:
+                structHnd = lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
+                break;
             case GT_LCL_FLD:
                 ClassLayout* layout;
                 layout = tree->AsLclFld()->GetLayout(this);
                 if ((layout != nullptr) && !layout->IsBlockLayout())
                 {
                     structHnd = layout->GetClassHandle();
+                    break;
                 }
 #ifdef FEATURE_SIMD
-                else if (varTypeIsSIMD(tree))
-                {
-                    structHnd = gtGetStructHandleForSIMD(tree->gtType, TYP_FLOAT);
-#ifdef FEATURE_HW_INTRINSICS
-                    if (structHnd == NO_CLASS_HANDLE)
-                    {
-                        structHnd = gtGetStructHandleForHWSIMD(tree->gtType, TYP_FLOAT);
-                    }
-#endif
-                }
-#endif
-                break;
-            case GT_LCL_VAR:
-                structHnd = lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
-                break;
+                FALLTHROUGH;
             case GT_IND:
-#ifdef FEATURE_SIMD
                 if (varTypeIsSIMD(tree->GetType()))
                 {
                     structHnd = gtGetStructHandleForSIMD(tree->GetType(), TYP_FLOAT);
@@ -15780,13 +15769,10 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                     }
 #endif
                 }
-#endif
                 break;
-#ifdef FEATURE_SIMD
             case GT_SIMD:
                 structHnd = gtGetStructHandleForSIMD(tree->gtType, tree->AsSIMD()->gtSIMDBaseType);
                 break;
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
                 if ((tree->gtFlags & GTF_SIMDASHW_OP) != 0)
@@ -15797,8 +15783,8 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
                 {
                     structHnd = gtGetStructHandleForHWSIMD(tree->gtType, tree->AsHWIntrinsic()->gtSIMDBaseType);
                 }
-                break;
 #endif
+#endif // FEATURE_SIMD
                 break;
         }
         // TODO-1stClassStructs: add a check that `structHnd != NO_CLASS_HANDLE`,
