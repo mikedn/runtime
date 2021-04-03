@@ -3247,7 +3247,7 @@ public:
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
-    GenTree* impCanonicalizeStructCallArg(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    GenTree* impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel);
 
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                               BOOL*                   pRuntimeLookup    = nullptr,

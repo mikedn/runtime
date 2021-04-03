@@ -716,18 +716,18 @@ GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
     while (count--)
     {
         StackEntry se  = impPopStack();
-        GenTree*   val = se.val;
+        GenTree*   arg = se.val;
 
-        if (varTypeIsStruct(val->GetType()))
+        if (varTypeIsStruct(arg->GetType()))
         {
-            CORINFO_CLASS_HANDLE structType = se.seTypeInfo.GetClassHandleForValueClass();
-            JITDUMPTREE(val, "Calling impNormStructVal(%s) on:\n", eeGetClassName(structType));
-            val = impCanonicalizeStructCallArg(val, structType, CHECK_SPILL_ALL);
-            JITDUMPTREE(val, "resulting tree:\n");
+            ClassLayout* argLayout = typGetObjLayout(se.seTypeInfo.GetClassHandleForValueClass());
+            JITDUMPTREE(arg, "Calling impCanonicalizeStructCallArg(%s) on:\n", argLayout->GetClassName());
+            arg = impCanonicalizeStructCallArg(arg, argLayout, CHECK_SPILL_ALL);
+            JITDUMPTREE(arg, "resulting tree:\n");
         }
 
         // NOTE: we defer bashing the type for I_IMPL to fgMorphArgs
-        argList = gtPrependNewCallArg(val, argList);
+        argList = gtPrependNewCallArg(arg, argList);
     }
 
     if (sig != nullptr)
@@ -1376,10 +1376,9 @@ GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
     return gtNewAddrNode(structVal);
 }
 
-GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HANDLE argClass, unsigned curLevel)
+GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
 {
-    assert(argClass != NO_CLASS_HANDLE);
-    assert(arg->GetType() == typGetStructType(argClass));
+    assert(arg->GetType() == typGetStructType(argLayout));
 
     unsigned argLclNum = BAD_VAR_NUM;
     bool     isCanonical;
@@ -1391,9 +1390,9 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HAND
             // TODO-MIKE-Cleanup: We do need a local temp for calls that return structs via
             // a return buffer. Do we also need a temp if structs are returned in registers?
             {
-                argLclNum          = lvaNewTemp(argClass, true DEBUGARG("struct arg temp"));
+                argLclNum          = lvaNewTemp(argLayout, true DEBUGARG("struct arg temp"));
                 GenTree* argLclVar = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
-                GenTree* asg       = impAssignStruct(argLclVar, arg, argClass, curLevel);
+                GenTree* asg       = impAssignStruct(argLclVar, arg, argLayout->GetClassHandle(), curLevel);
 
                 impAppendTree(asg, curLevel, impCurStmtOffs);
 
@@ -1406,7 +1405,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HAND
         case GT_LCL_VAR:
         case GT_LCL_FLD:
             argLclNum = arg->AsLclVarCommon()->GetLclNum();
-            arg       = gtNewObjNode(argClass, gtNewAddrNode(arg));
+            arg       = gtNewObjNode(argLayout, gtNewAddrNode(arg));
             assert(arg->GetType() == lvaGetDesc(argLclNum)->GetType());
             isCanonical = true;
             break;
@@ -1419,7 +1418,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HAND
             break;
 
         case GT_IND:
-            arg         = gtNewObjNode(argClass, arg->AsIndir()->GetAddr());
+            arg         = gtNewObjNode(argLayout, arg->AsIndir()->GetAddr());
             isCanonical = true;
             break;
 
@@ -1456,13 +1455,13 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HAND
 
             if (commaValue->OperIs(GT_FIELD))
             {
-                commaValue = gtNewObjNode(argClass, gtNewAddrNode(commaValue));
+                commaValue = gtNewObjNode(argLayout, gtNewAddrNode(commaValue));
             }
 
 #ifdef FEATURE_SIMD
             if (commaValue->OperIsSimdOrHWintrinsic())
             {
-                lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argClass, curLevel));
+                lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argLayout, curLevel));
             }
             else
 #endif
@@ -1500,7 +1499,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HAND
 
     if (!isCanonical && arg->TypeIs(TYP_STRUCT) && !arg->OperIs(GT_OBJ))
     {
-        arg = gtNewObjNode(argClass, gtNewAddrNode(arg));
+        arg = gtNewObjNode(argLayout, gtNewAddrNode(arg));
     }
 
     if (arg->OperIs(GT_OBJ))
