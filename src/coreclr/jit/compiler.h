@@ -7151,129 +7151,42 @@ private:
     // by the hardware.  It is allocated when/if such situations are encountered during Lowering.
     unsigned lvaSIMDInitTempVarNum;
 
-    struct SIMDHandlesCache
-    {
-        // SIMD Types
-        CORINFO_CLASS_HANDLE SIMDFloatHandle;
-        CORINFO_CLASS_HANDLE SIMDDoubleHandle;
-        CORINFO_CLASS_HANDLE SIMDIntHandle;
-        CORINFO_CLASS_HANDLE SIMDUShortHandle;
-        CORINFO_CLASS_HANDLE SIMDUByteHandle;
-        CORINFO_CLASS_HANDLE SIMDShortHandle;
-        CORINFO_CLASS_HANDLE SIMDByteHandle;
-        CORINFO_CLASS_HANDLE SIMDLongHandle;
-        CORINFO_CLASS_HANDLE SIMDUIntHandle;
-        CORINFO_CLASS_HANDLE SIMDULongHandle;
-        CORINFO_CLASS_HANDLE SIMDVector2Handle;
-        CORINFO_CLASS_HANDLE SIMDVector3Handle;
-        CORINFO_CLASS_HANDLE SIMDVector4Handle;
-
-#ifdef FEATURE_HW_INTRINSICS
-#if defined(TARGET_ARM64)
-        CORINFO_CLASS_HANDLE Vector64FloatHandle;
-        CORINFO_CLASS_HANDLE Vector64DoubleHandle;
-        CORINFO_CLASS_HANDLE Vector64IntHandle;
-        CORINFO_CLASS_HANDLE Vector64UShortHandle;
-        CORINFO_CLASS_HANDLE Vector64UByteHandle;
-        CORINFO_CLASS_HANDLE Vector64ShortHandle;
-        CORINFO_CLASS_HANDLE Vector64ByteHandle;
-        CORINFO_CLASS_HANDLE Vector64LongHandle;
-        CORINFO_CLASS_HANDLE Vector64UIntHandle;
-        CORINFO_CLASS_HANDLE Vector64ULongHandle;
-#endif // defined(TARGET_ARM64)
-        CORINFO_CLASS_HANDLE Vector128FloatHandle;
-        CORINFO_CLASS_HANDLE Vector128DoubleHandle;
-        CORINFO_CLASS_HANDLE Vector128IntHandle;
-        CORINFO_CLASS_HANDLE Vector128UShortHandle;
-        CORINFO_CLASS_HANDLE Vector128UByteHandle;
-        CORINFO_CLASS_HANDLE Vector128ShortHandle;
-        CORINFO_CLASS_HANDLE Vector128ByteHandle;
-        CORINFO_CLASS_HANDLE Vector128LongHandle;
-        CORINFO_CLASS_HANDLE Vector128UIntHandle;
-        CORINFO_CLASS_HANDLE Vector128ULongHandle;
-#if defined(TARGET_XARCH)
-        CORINFO_CLASS_HANDLE Vector256FloatHandle;
-        CORINFO_CLASS_HANDLE Vector256DoubleHandle;
-        CORINFO_CLASS_HANDLE Vector256IntHandle;
-        CORINFO_CLASS_HANDLE Vector256UShortHandle;
-        CORINFO_CLASS_HANDLE Vector256UByteHandle;
-        CORINFO_CLASS_HANDLE Vector256ShortHandle;
-        CORINFO_CLASS_HANDLE Vector256ByteHandle;
-        CORINFO_CLASS_HANDLE Vector256LongHandle;
-        CORINFO_CLASS_HANDLE Vector256UIntHandle;
-        CORINFO_CLASS_HANDLE Vector256ULongHandle;
-#endif // defined(TARGET_XARCH)
-#endif // FEATURE_HW_INTRINSICS
-
-        SIMDHandlesCache()
-        {
-            memset(this, 0, sizeof(*this));
-        }
-    };
-
-    SIMDHandlesCache* m_simdHandleCache;
-
     // Get an appropriate "zero" for the given type and class handle.
-    GenTree* gtGetSIMDZero(var_types simdType, var_types baseType, CORINFO_CLASS_HANDLE simdHandle);
+    GenTree* gtGetSIMDZero(ClassLayout* layout);
 
     // Get the handle for a SIMD type.
     CORINFO_CLASS_HANDLE gtGetStructHandleForSIMD(var_types simdType, var_types simdBaseType)
     {
-        if (m_simdHandleCache == nullptr)
-        {
-            // This may happen if the JIT generates SIMD node on its own, without importing them.
-            // Otherwise getBaseTypeAndSizeOfSIMDType should have created the cache.
-            return NO_CLASS_HANDLE;
-        }
+        ClassLayout* layout = typGetSystemNumericsVectorLayout(simdType, simdBaseType);
+        return layout == nullptr ? nullptr : layout->GetClassHandle();
+    }
 
-        if (simdBaseType == TYP_FLOAT)
+    ClassLayout* typGetSystemNumericsVectorLayout(var_types simdType, var_types elementType)
+    {
+        if (elementType == TYP_FLOAT)
         {
             switch (simdType)
             {
                 case TYP_SIMD8:
-                    return m_simdHandleCache->SIMDVector2Handle;
                 case TYP_SIMD12:
-                    return m_simdHandleCache->SIMDVector3Handle;
+                    return typGetVectorLayout(simdType, TYP_FLOAT, VectorKind::Vector234);
                 case TYP_SIMD16:
-                    if ((getSIMDVectorType() == TYP_SIMD32) ||
-                        (m_simdHandleCache->SIMDVector4Handle != NO_CLASS_HANDLE))
+                {
+                    ClassLayout* layout = typGetVectorLayout(TYP_SIMD16, TYP_FLOAT, VectorKind::Vector234);
+                    if (layout != nullptr)
                     {
-                        return m_simdHandleCache->SIMDVector4Handle;
+                        return layout;
                     }
                     break;
+                }
                 case TYP_SIMD32:
                     break;
                 default:
                     unreached();
             }
         }
-        assert(emitTypeSize(simdType) <= largestEnregisterableStructSize());
-        switch (simdBaseType)
-        {
-            case TYP_FLOAT:
-                return m_simdHandleCache->SIMDFloatHandle;
-            case TYP_DOUBLE:
-                return m_simdHandleCache->SIMDDoubleHandle;
-            case TYP_INT:
-                return m_simdHandleCache->SIMDIntHandle;
-            case TYP_USHORT:
-                return m_simdHandleCache->SIMDUShortHandle;
-            case TYP_UBYTE:
-                return m_simdHandleCache->SIMDUByteHandle;
-            case TYP_SHORT:
-                return m_simdHandleCache->SIMDShortHandle;
-            case TYP_BYTE:
-                return m_simdHandleCache->SIMDByteHandle;
-            case TYP_LONG:
-                return m_simdHandleCache->SIMDLongHandle;
-            case TYP_UINT:
-                return m_simdHandleCache->SIMDUIntHandle;
-            case TYP_ULONG:
-                return m_simdHandleCache->SIMDULongHandle;
-            default:
-                assert(!"Didn't find a class handle for simdType");
-        }
-        return NO_CLASS_HANDLE;
+
+        return typGetVectorLayout(simdType, elementType, VectorKind::VectorT);
     }
 
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
@@ -8363,6 +8276,8 @@ public:
     var_types typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* simdBaseType = nullptr);
     // Get the struct type for the specified layout.
     var_types typGetStructType(ClassLayout* layout, var_types* simdBaseType = nullptr);
+    // Get the layout of a Vector2/3/4/T/NT type.
+    ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType, VectorKind kind);
 
 //-------------------------- Global Compiler Data ------------------------------------
 

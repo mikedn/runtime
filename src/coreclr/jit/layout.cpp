@@ -30,15 +30,26 @@ class ClassLayoutTable
         };
     };
     // The number of layout objects stored in this table.
-    unsigned m_layoutCount;
+    unsigned m_layoutCount = 0;
     // The capacity of m_layoutLargeArray (when more than 3 layouts are stored).
-    unsigned m_layoutLargeCapacity;
+    unsigned m_layoutLargeCapacity = 0;
+
+#ifdef FEATURE_SIMD
+    // The vector layout table has 10 entries for each supported generic Vector (Vector<T>, Vector64/128/256<T>)
+    // plus another 3 entries for Vector2/3/4.
+    static_assert_no_msg(TYP_DOUBLE - TYP_BYTE == 9);
+    static constexpr unsigned VectorElementTypesCount = 10;
+    static constexpr unsigned VectorLayoutTableSize =
+#ifdef FEATURE_HW_INTRINSICS
+        2 * VectorElementTypesCount + // Vector64/128<T> (ARM64) or Vector128/256<T> (X86/64)
+#endif
+        VectorElementTypesCount + // Vector<T>
+        3;                        // Vector2/3/4
+
+    ClassLayout** m_vectorLayoutTable = nullptr;
+#endif
 
 public:
-    ClassLayoutTable() : m_layoutCount(0), m_layoutLargeCapacity(0)
-    {
-    }
-
     // Get the layout number (FirstLayoutNum-based) of the specified layout.
     unsigned GetLayoutNum(ClassLayout* layout) const
     {
@@ -80,6 +91,15 @@ public:
     {
         return GetObjLayoutIndex(compiler, classHandle) + FirstLayoutNum;
     }
+
+#ifdef FEATURE_SIMD
+    ClassLayout* GetVectorLayout(var_types simdType, var_types elementType, VectorKind kind)
+    {
+        unsigned index = GetVectorLayoutIndex(simdType, elementType, kind);
+        assert(index < VectorLayoutTableSize);
+        return m_vectorLayoutTable == nullptr ? nullptr : m_vectorLayoutTable[index];
+    }
+#endif
 
 private:
     bool HasSmallCapacity() const
@@ -203,6 +223,13 @@ private:
 
     unsigned AddObjLayout(Compiler* compiler, ClassLayout* layout)
     {
+#ifdef FEATURE_SIMD
+        if (layout->IsVector())
+        {
+            AddVectorLayout(compiler, layout);
+        }
+#endif
+
         if (m_layoutCount < _countof(m_layoutArray))
         {
             m_layoutArray[m_layoutCount] = layout;
@@ -257,6 +284,57 @@ private:
         m_layoutLargeArray[m_layoutCount] = layout;
         return m_layoutCount++;
     }
+
+#ifdef FEATURE_SIMD
+    void AddVectorLayout(Compiler* compiler, ClassLayout* layout)
+    {
+        assert(layout->IsVector());
+
+        if (m_vectorLayoutTable == nullptr)
+        {
+            m_vectorLayoutTable = compiler->getAllocator(CMK_ClassLayout).allocate<ClassLayout*>(VectorLayoutTableSize);
+            memset(m_vectorLayoutTable, 0, sizeof(m_vectorLayoutTable[0]) * VectorLayoutTableSize);
+        }
+
+        unsigned index = GetVectorLayoutIndex(layout->GetSIMDType(), layout->GetElementType(), layout->GetVectorKind());
+        assert(index < VectorLayoutTableSize);
+        m_vectorLayoutTable[index] = layout;
+    }
+
+    unsigned GetVectorLayoutIndex(var_types simdType, var_types elementType, VectorKind kind)
+    {
+        unsigned elementTypeIndex = elementType - TYP_BYTE;
+        assert(elementTypeIndex < VectorElementTypesCount);
+
+#ifdef FEATURE_HW_INTRINSICS
+        if (kind == VectorKind::VectorNT)
+        {
+            if (simdType != TYP_SIMD16)
+            {
+#ifdef TARGET_XARCH
+                assert(simdType == TYP_SIMD32);
+#elif defined(TARGET_ARM64)
+                assert(simdType == TYP_SIMD8);
+#endif
+
+                elementTypeIndex += VectorElementTypesCount;
+            }
+
+            return elementTypeIndex;
+        }
+#endif
+
+        if (kind == VectorKind::VectorT)
+        {
+            return 2 * VectorElementTypesCount + elementTypeIndex;
+        }
+
+        assert(kind == VectorKind::Vector234);
+        assert(elementType == TYP_FLOAT);
+
+        return 3 * VectorElementTypesCount + ((varTypeSize(simdType) / 4) - 2);
+    }
+#endif // FEATURE_SIMD
 };
 
 ClassLayoutTable* Compiler::typCreateClassLayoutTable()
@@ -366,6 +444,15 @@ var_types Compiler::typGetStructType(ClassLayout* layout, var_types* simdBaseTyp
     return TYP_STRUCT;
 }
 
+ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementType, VectorKind kind)
+{
+#ifdef FEATURE_SIMD
+    return typGetClassLayoutTable()->GetVectorLayout(simdType, elementType, kind);
+#else
+    return nullptr;
+#endif
+}
+
 ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     : m_classHandle(classHandle)
     , m_size(0)
@@ -417,8 +504,6 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
             if (m_layoutInfo.simdType != TYP_UNDEF)
             {
                 compiler->compFloatingPointUsed = true;
-                // Populate SIMDHandlesCache
-                compiler->getBaseTypeAndSizeOfSIMDType(classHandle);
             }
         }
 #endif

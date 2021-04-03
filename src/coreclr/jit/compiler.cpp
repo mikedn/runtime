@@ -1933,10 +1933,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     m_abiStructArgTempsInUse = nullptr;
 #endif
 
-#ifdef FEATURE_SIMD
-    m_simdHandleCache = nullptr;
-#endif // FEATURE_SIMD
-
     compUsesThrowHelper = false;
 }
 

@@ -2755,7 +2755,7 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
                 {
                     LclVarDsc* lcl = lvaGetDesc(lclNum);
                     assert(lcl->GetType() == tree->GetType());
-                    newTree = gtGetSIMDZero(lcl->GetType(), lcl->GetSIMDBaseType(), lcl->GetLayout()->GetClassHandle());
+                    newTree = gtGetSIMDZero(lcl->GetLayout());
                     if (newTree == nullptr)
                     {
                         return nullptr;
