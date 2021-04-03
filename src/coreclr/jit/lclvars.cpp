@@ -491,12 +491,10 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
 #ifdef FEATURE_SIMD
             if (supportSIMDTypes())
             {
-                var_types simdBaseType = TYP_UNKNOWN;
-                var_types type         = impNormStructType(info.compClassHnd, &simdBaseType);
-                if (simdBaseType != TYP_UNKNOWN)
+                var_types type = typGetStructType(info.compClassHnd);
+                if (varTypeIsSIMD(type))
                 {
-                    assert(varTypeIsSIMD(type));
-                    varDsc->lvExactSize = genTypeSize(type);
+                    varDsc->lvExactSize = varTypeSize(type);
                 }
             }
 #endif // FEATURE_SIMD
@@ -2045,7 +2043,7 @@ void Compiler::StructPromotionHelper::GetFieldInfo(CORINFO_CLASS_HANDLE classHan
     if (fieldInfo.fldType == TYP_STRUCT)
     {
 #ifdef FEATURE_SIMD
-        var_types simdType = compiler->impNormStructType(fieldInfo.fldTypeHnd);
+        var_types simdType = compiler->typGetStructType(fieldInfo.fldTypeHnd);
 
         if (simdType != TYP_STRUCT)
         {
@@ -2708,7 +2706,7 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
         return;
     }
     unsigned fieldCnt = info.compCompHnd->getClassNumInstanceFields(structHandle);
-    impNormStructType(structHandle);
+    typGetStructType(structHandle);
 #ifdef TARGET_ARMARCH
     GetHfaType(structHandle);
 #endif

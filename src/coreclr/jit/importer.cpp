@@ -1208,12 +1208,12 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     }
     else if (src->OperIs(GT_OBJ))
     {
-        assert(src->GetType() == impNormStructType(structHnd));
+        assert(src->GetType() == typGetStructType(structHnd));
         assert((src->AsObj()->GetLayout()->GetClassHandle() == structHnd) || varTypeIsSIMD(src->GetType()));
     }
     else if (src->OperIs(GT_INDEX))
     {
-        assert(src->GetType() == impNormStructType(structHnd));
+        assert(src->GetType() == typGetStructType(structHnd));
         assert(src->AsIndex()->GetLayout()->GetClassHandle() == structHnd);
     }
     else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
@@ -1222,7 +1222,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     else
     {
         assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsSimdOrHWintrinsic());
-        assert((structHnd == NO_CLASS_HANDLE) || (src->GetType() == impNormStructType(structHnd)));
+        assert((structHnd == NO_CLASS_HANDLE) || (src->GetType() == typGetStructType(structHnd)));
     }
 
     var_types srcType = src->GetType();
@@ -1376,15 +1376,10 @@ GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
     return gtNewAddrNode(structVal);
 }
 
-var_types Compiler::impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types* pSimdBaseType)
-{
-    return typGetStructType(structHnd, pSimdBaseType);
-}
-
 GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, CORINFO_CLASS_HANDLE argClass, unsigned curLevel)
 {
     assert(argClass != NO_CLASS_HANDLE);
-    assert(arg->GetType() == impNormStructType(argClass));
+    assert(arg->GetType() == typGetStructType(argClass));
 
     unsigned argLclNum = BAD_VAR_NUM;
     bool     isCanonical;

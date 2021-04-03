@@ -8084,7 +8084,7 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             if ((destFieldSeq != nullptr) && destFieldSeq->GetTail()->IsField())
             {
                 CORINFO_CLASS_HANDLE fieldClassHandle;
-                var_types            fieldBaseType = TYP_UNKNOWN;
+                var_types            fieldBaseType = TYP_UNDEF;
                 var_types            fieldType     = JITtype2varType(
                     info.compCompHnd->getFieldType(destFieldSeq->GetTail()->GetFieldHandle(), &fieldClassHandle));
 
@@ -8092,7 +8092,7 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
                 if (fieldType == TYP_STRUCT)
                 {
-                    fieldType = impNormStructType(fieldClassHandle, &fieldBaseType);
+                    fieldType = typGetStructType(fieldClassHandle, &fieldBaseType);
                 }
 
                 if ((destSize == genTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsSIMD(fieldType) &&

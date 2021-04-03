@@ -3247,8 +3247,6 @@ public:
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
-    var_types impNormStructType(CORINFO_CLASS_HANDLE structHnd, var_types* simdBaseType = nullptr);
-
     GenTree* impCanonicalizeStructCallArg(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
@@ -8273,9 +8271,9 @@ public:
     // Get the number of a layout for the specified class handle.
     unsigned typGetObjLayoutNum(CORINFO_CLASS_HANDLE classHandle);
     // Get the struct type for the specified class handle.
-    var_types typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* simdBaseType = nullptr);
+    var_types typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType = nullptr);
     // Get the struct type for the specified layout.
-    var_types typGetStructType(ClassLayout* layout, var_types* simdBaseType = nullptr);
+    var_types typGetStructType(ClassLayout* layout, var_types* elementType = nullptr);
     // Get the layout of a Vector2/3/4/T/NT type.
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType, VectorKind kind);
 

@@ -405,7 +405,7 @@ ClassLayout* Compiler::typGetObjLayout(CORINFO_CLASS_HANDLE classHandle)
     return typGetClassLayoutTable()->GetObjLayout(this, classHandle);
 }
 
-var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* simdBaseType)
+var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType)
 {
 #ifdef FEATURE_SIMD
     if (supportSIMDTypes())
@@ -413,9 +413,9 @@ var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types
         ClassLayout* layout = typGetObjLayout(classHandle);
         if (layout->IsVector())
         {
-            if (simdBaseType != nullptr)
+            if (elementType != nullptr)
             {
-                *simdBaseType = layout->GetElementType();
+                *elementType = layout->GetElementType();
             }
             return layout->GetSIMDType();
         }
@@ -425,19 +425,16 @@ var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types
     return TYP_STRUCT;
 }
 
-var_types Compiler::typGetStructType(ClassLayout* layout, var_types* simdBaseType)
+var_types Compiler::typGetStructType(ClassLayout* layout, var_types* elementType)
 {
 #ifdef FEATURE_SIMD
-    if (supportSIMDTypes())
+    if (layout->IsVector())
     {
-        if (layout->IsVector())
+        if (elementType != nullptr)
         {
-            if (simdBaseType != nullptr)
-            {
-                *simdBaseType = layout->GetElementType();
-            }
-            return layout->GetSIMDType();
+            *elementType = layout->GetElementType();
         }
+        return layout->GetSIMDType();
     }
 #endif
 

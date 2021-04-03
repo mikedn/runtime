@@ -1309,7 +1309,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
                 // found a SIMD type, even if this may not be a type we recognize (the assumption is that
                 // it is likely to use a SIMD type, and therefore we want to increase the inlining multiplier).
                 foundSIMDType = true;
-                paramType     = impNormStructType(paramClass);
+                paramType     = typGetStructType(paramClass);
             }
 #endif
         }
@@ -1606,7 +1606,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
             else if (isSIMDorHWSIMDClass(lclClass))
             {
                 foundSIMDType = true;
-                lclType       = impNormStructType(lclClass);
+                lclType       = typGetStructType(lclClass);
             }
 #endif
         }

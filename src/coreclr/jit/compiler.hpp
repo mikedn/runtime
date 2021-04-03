@@ -1112,7 +1112,7 @@ inline GenTreeField* Compiler::gtNewFieldRef(var_types typ, CORINFO_FIELD_HANDLE
     {
         CORINFO_CLASS_HANDLE fieldClass;
         (void)info.compCompHnd->getFieldType(fldHnd, &fieldClass);
-        typ = impNormStructType(fieldClass);
+        typ = typGetStructType(fieldClass);
     }
 
     GenTreeField* tree = new (this, GT_FIELD) GenTreeField(typ, addr, fldHnd, offset);
