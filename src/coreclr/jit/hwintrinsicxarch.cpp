@@ -1370,14 +1370,9 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
 GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig)
 {
-    GenTree* retNode  = nullptr;
-    GenTree* op1      = nullptr;
-    GenTree* op2      = nullptr;
-    int      simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
-
-    // The Prefetch and StoreFence intrinsics don't take any SIMD operands
-    // and have a simdSize of 0
-    assert((simdSize == 16) || (simdSize == 0));
+    GenTree* retNode = nullptr;
+    GenTree* op1     = nullptr;
+    GenTree* op2     = nullptr;
 
     switch (intrinsic)
     {
@@ -1400,7 +1395,7 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAND
 
                 FloatComparisonMode comparison =
                     static_cast<FloatComparisonMode>(HWIntrinsicInfo::lookupIval(intrinsic, true));
-                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, simdSize, op1, op2,
+                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, 16, op1, op2,
                                                    gtNewIconNode(static_cast<int>(comparison)));
             }
             else
@@ -1409,9 +1404,8 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAND
                 op1                = impCloneExpr(op1, &clonedOp1, NO_CLASS_HANDLE,
                                    CHECK_SPILL_ALL DEBUGARG("Clone op1 for Sse.CompareScalarGreaterThan"));
 
-                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, simdSize, op2, op1);
-                retNode =
-                    gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, baseType, simdSize, clonedOp1, retNode);
+                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1);
+                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, baseType, 16, clonedOp1, retNode);
             }
             break;
         }
@@ -1443,12 +1437,11 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAND
 
 GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig)
 {
-    GenTree*  retNode  = nullptr;
-    GenTree*  op1      = nullptr;
-    GenTree*  op2      = nullptr;
-    int       ival     = -1;
-    int       simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
-    var_types retType  = TYP_UNKNOWN;
+    GenTree*  retNode = nullptr;
+    GenTree*  op1     = nullptr;
+    GenTree*  op2     = nullptr;
+    int       ival    = -1;
+    var_types retType = TYP_UNKNOWN;
 
     // The  fencing intrinsics don't take any operands and simdSize is 0
     assert((simdSize == 16) || (simdSize == 0));
@@ -1477,7 +1470,7 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
 
                 FloatComparisonMode comparison =
                     static_cast<FloatComparisonMode>(HWIntrinsicInfo::lookupIval(intrinsic, true));
-                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, simdSize, op1, op2,
+                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, 16, op1, op2,
                                                    gtNewIconNode(static_cast<int>(comparison)));
             }
             else
@@ -1486,9 +1479,8 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
                 op1                = impCloneExpr(op1, &clonedOp1, NO_CLASS_HANDLE,
                                    CHECK_SPILL_ALL DEBUGARG("Clone op1 for Sse2.CompareScalarGreaterThan"));
 
-                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, simdSize, op2, op1);
-                retNode =
-                    gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_MoveScalar, baseType, simdSize, clonedOp1, retNode);
+                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1);
+                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_MoveScalar, baseType, 16, clonedOp1, retNode);
             }
             break;
         }
@@ -1498,9 +1490,8 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
         {
             assert(sig->numArgs == 0);
             assert(JITtype2varType(sig->retType) == TYP_VOID);
-            assert(simdSize == 0);
 
-            retNode = gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, simdSize);
+            retNode = gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, 0);
             break;
         }
 
@@ -1523,10 +1514,9 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
 
 GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig)
 {
-    GenTree* retNode  = nullptr;
-    GenTree* op1      = nullptr;
-    GenTree* op2      = nullptr;
-    int      simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
+    GenTree* retNode = nullptr;
+    GenTree* op1     = nullptr;
+    GenTree* op2     = nullptr;
 
     switch (intrinsic)
     {
@@ -1578,6 +1568,7 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
             ClassLayout* retLayout = typGetObjLayout(sig->retTypeClass);
             var_types    baseType  = retLayout->GetElementType();
             var_types    retType   = retLayout->GetSIMDType();
+            unsigned     simdSize  = retLayout->GetSize();
 
             retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4, op5);
             retNode->AsHWIntrinsic()->SetAuxiliaryType(indexbaseType);
