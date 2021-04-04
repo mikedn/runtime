@@ -481,132 +481,36 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
         }
     }
 
-    switch (numArgs)
+    switch (intrinsic)
     {
-        case 0:
+        case NI_Vector2_get_One:
+        case NI_Vector3_get_One:
+        case NI_Vector4_get_One:
+        case NI_VectorT128_get_One:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_get_One:
+#endif
+            assert((numArgs == 0) && (newobjThis == nullptr));
+            return gtNewSimdCreateBroadcastNode(retType, gtNewOneConNode(baseType), baseType, simdSize,
+                                                /* isSimdAsHWIntrinsic */ true);
+
+        case NI_VectorT128_get_Count:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_get_Count:
+#endif
         {
-            assert(newobjThis == nullptr);
-
-            switch (intrinsic)
-            {
-#if defined(TARGET_XARCH)
-                case NI_Vector2_get_One:
-                case NI_Vector3_get_One:
-                case NI_Vector4_get_One:
-                case NI_VectorT128_get_One:
-                case NI_VectorT256_get_One:
-                {
-                    GenTree* op1;
-
-                    switch (baseType)
-                    {
-                        case TYP_BYTE:
-                        case TYP_UBYTE:
-                        case TYP_SHORT:
-                        case TYP_USHORT:
-                        case TYP_INT:
-                        case TYP_UINT:
-                        {
-                            op1 = gtNewIconNode(1, TYP_INT);
-                            break;
-                        }
-
-                        case TYP_LONG:
-                        case TYP_ULONG:
-                        {
-                            op1 = gtNewLconNode(1);
-                            break;
-                        }
-
-                        case TYP_FLOAT:
-                        case TYP_DOUBLE:
-                        {
-                            op1 = gtNewDconNode(1.0, baseType);
-                            break;
-                        }
-
-                        default:
-                        {
-                            unreached();
-                        }
-                    }
-
-                    return gtNewSimdCreateBroadcastNode(retType, op1, baseType, simdSize,
-                                                        /* isSimdAsHWIntrinsic */ true);
-                }
-
-                case NI_VectorT128_get_Count:
-                case NI_VectorT256_get_Count:
-                {
-                    GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType), TYP_INT);
-                    countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
-                    return countNode;
-                }
-#elif defined(TARGET_ARM64)
-                case NI_Vector2_get_One:
-                case NI_Vector3_get_One:
-                case NI_Vector4_get_One:
-                case NI_VectorT128_get_One:
-                {
-                    GenTree* op1;
-
-                    switch (baseType)
-                    {
-                        case TYP_BYTE:
-                        case TYP_UBYTE:
-                        case TYP_SHORT:
-                        case TYP_USHORT:
-                        case TYP_INT:
-                        case TYP_UINT:
-                        {
-                            op1 = gtNewIconNode(1, TYP_INT);
-                            break;
-                        }
-
-                        case TYP_LONG:
-                        case TYP_ULONG:
-                        {
-                            op1 = gtNewLconNode(1);
-                            break;
-                        }
-
-                        case TYP_FLOAT:
-                        case TYP_DOUBLE:
-                        {
-                            op1 = gtNewDconNode(1.0, baseType);
-                            break;
-                        }
-
-                        default:
-                        {
-                            unreached();
-                        }
-                    }
-
-                    return gtNewSimdCreateBroadcastNode(retType, op1, baseType, simdSize,
-                                                        /* isSimdAsHWIntrinsic */ true);
-                }
-
-                case NI_VectorT128_get_Count:
-                {
-                    GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType), TYP_INT);
-                    countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
-                    return countNode;
-                }
-#else
-#error Unsupported platform
-#endif // !TARGET_XARCH && !TARGET_ARM64
-
-                default:
-                {
-                    // Some platforms warn about unhandled switch cases
-                    // We handle it more generally via the assert and nullptr return below.
-                    break;
-                }
-            }
-            break;
+            assert((numArgs == 0) && (newobjThis == nullptr));
+            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType), TYP_INT);
+            countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
+            return countNode;
         }
 
+        default:
+            break;
+    }
+
+    switch (numArgs)
+    {
         case 1:
         {
             assert(newobjThis == nullptr);
