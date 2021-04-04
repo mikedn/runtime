@@ -3153,8 +3153,14 @@ protected:
                                          CORINFO_CLASS_HANDLE        clsHnd,
                                          const HWIntrinsicSignature& signature,
                                          var_types                   baseType,
-                                         unsigned                    simdSize,
-                                         GenTree*                    newobjThis);
+                                         unsigned                    simdSize);
+
+    GenTree* impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrinsic,
+                                        CORINFO_CLASS_HANDLE        clsHnd,
+                                        const HWIntrinsicSignature& signature,
+                                        var_types                   baseType,
+                                        unsigned                    simdSize,
+                                        GenTree*                    newobjThis);
 
     GenTree* impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
                                         var_types            retType,
