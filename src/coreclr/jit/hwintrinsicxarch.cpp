@@ -1544,25 +1544,28 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
             CORINFO_ARG_LIST_HANDLE arg4 = info.compCompHnd->getArgNext(arg3);
             CORINFO_ARG_LIST_HANDLE arg5 = info.compCompHnd->getArgNext(arg4);
 
-            argType      = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg5, &argClass)));
-            GenTree* op5 = getArgForHWIntrinsic(argType, argClass);
+            argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg5, &argClass)));
+            GenTree* op5 =
+                getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
             SetOpLclRelatedToSIMDIntrinsic(op5);
 
-            argType      = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg4, &argClass)));
-            GenTree* op4 = getArgForHWIntrinsic(argType, argClass);
+            argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg4, &argClass)));
+            GenTree* op4 =
+                getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
             SetOpLclRelatedToSIMDIntrinsic(op4);
 
             argType                 = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg3, &argClass)));
             var_types indexbaseType = typGetObjLayout(argClass)->GetElementType();
-            GenTree*  op3           = getArgForHWIntrinsic(argType, argClass);
+            GenTree*  op3 =
+                getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
             SetOpLclRelatedToSIMDIntrinsic(op3);
 
             argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg2, &argClass)));
-            op2     = getArgForHWIntrinsic(argType, argClass);
+            op2     = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
             SetOpLclRelatedToSIMDIntrinsic(op2);
 
             argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
-            op1     = getArgForHWIntrinsic(argType, argClass);
+            op1     = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
             SetOpLclRelatedToSIMDIntrinsic(op1);
 
             ClassLayout* retLayout = typGetObjLayout(sig->retTypeClass);
