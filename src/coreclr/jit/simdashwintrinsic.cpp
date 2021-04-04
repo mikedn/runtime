@@ -335,7 +335,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             var_types    argType    = isInstanceMethod ? simdType : signature.paramType[0];
             ClassLayout* argLayout  = isInstanceMethod ? simdLayout : signature.paramLayout[0];
 
-            GenTree* op1 = getArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
+            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
 
             return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, op1);
         }
@@ -346,12 +346,12 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             var_types    argType    = isInstanceMethod ? signature.paramType[0] : signature.paramType[1];
             ClassLayout* argLayout  = isInstanceMethod ? signature.paramLayout[0] : signature.paramLayout[1];
 
-            GenTree* op2 = getArgForHWIntrinsic(argType, argLayout);
+            GenTree* op2 = impPopArgForHWIntrinsic(argType, argLayout);
 
             argType   = isInstanceMethod ? simdType : signature.paramType[0];
             argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
 
-            GenTree* op1 = getArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
+            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
 
             if (SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic))
             {
@@ -403,7 +403,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
     CORINFO_CLASS_HANDLE argClass = NO_CLASS_HANDLE;
 
     SimdAsHWIntrinsicClassId classId          = SimdAsHWIntrinsicInfo::lookupClassId(intrinsic);
-    unsigned                 numArgs          = sig->numArgs;
+    unsigned                 numArgs          = signature.paramCount;
     bool                     isInstanceMethod = false;
 
     if (sig->hasThis())
@@ -452,7 +452,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 #endif // TARGET_XARCH
         case NI_VectorT128_As:
         {
-            if (!typGetObjLayout(sig->retTypeClass)->IsVector())
+            if (!signature.retLayout->IsVector())
             {
                 return nullptr;
             }
@@ -529,7 +529,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 
                 GenTree* op1 = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(op1);
-                assert(op1->GetType() == typGetObjLayout(sig->retTypeClass)->GetSIMDType());
+                assert(op1->GetType() == signature.retLayout->GetSIMDType());
 
                 return op1;
             }
@@ -539,7 +539,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             var_types    argType   = isInstanceMethod ? simdType : signature.paramType[0];
             ClassLayout* argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
 
-            GenTree* op1 = getArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
+            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
 
             switch (intrinsic)
             {
@@ -642,12 +642,12 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             var_types    argType    = isInstanceMethod ? signature.paramType[0] : signature.paramType[1];
             ClassLayout* argLayout  = isInstanceMethod ? signature.paramLayout[0] : signature.paramLayout[1];
 
-            GenTree* op2 = getArgForHWIntrinsic(argType, argLayout);
+            GenTree* op2 = impPopArgForHWIntrinsic(argType, argLayout);
 
             argType   = isInstanceMethod ? simdType : signature.paramType[0];
             argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
 
-            GenTree* op1 = getArgForHWIntrinsic(argType, argLayout, isInstanceMethod, newobjThis);
+            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, isInstanceMethod, newobjThis);
 
             assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
 
@@ -918,9 +918,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             assert(newobjThis == nullptr);
             assert(!isInstanceMethod);
 
-            GenTree* op3 = getArgForHWIntrinsic(signature.paramType[2], signature.paramLayout[2]);
-            GenTree* op2 = getArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
-            GenTree* op1 = getArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
+            GenTree* op3 = impPopArgForHWIntrinsic(signature.paramType[2], signature.paramLayout[2]);
+            GenTree* op2 = impPopArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
+            GenTree* op1 = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
 
             assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
 

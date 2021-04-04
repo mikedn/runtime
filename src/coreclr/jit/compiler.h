@@ -3168,36 +3168,30 @@ protected:
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
                                  CORINFO_CLASS_HANDLE        clsHnd,
-                                 CORINFO_METHOD_HANDLE       method,
-                                 CORINFO_SIG_INFO*           sig,
+                                 const HWIntrinsicSignature& sig,
                                  var_types                   baseType,
                                  var_types                   retType,
-                                 unsigned                    simdSize,
-                                 const HWIntrinsicSignature& signature);
+                                 unsigned                    simdSize);
 
-    GenTree* getArgForHWIntrinsic(var_types    paramType,
-                                  ClassLayout* paramLayout,
-                                  bool         expectAddr = false,
-                                  GenTree*     newobjThis = nullptr);
+    GenTree* impPopArgForHWIntrinsic(var_types    paramType,
+                                     ClassLayout* paramLayout,
+                                     bool         expectAddr = false,
+                                     GenTree*     newobjThis = nullptr);
     GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
     GenTree* addRangeCheckIfNeeded(
         NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
 
 #ifdef TARGET_XARCH
-    GenTree* impBaseIntrinsic(NamedIntrinsic        intrinsic,
-                              CORINFO_CLASS_HANDLE  clsHnd,
-                              CORINFO_METHOD_HANDLE method,
-                              CORINFO_SIG_INFO*     sig,
-                              var_types             baseType,
-                              var_types             retType,
-                              unsigned              simdSize);
-    GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig);
-    GenTree* impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig);
-    GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic              intrinsic,
-                                   CORINFO_METHOD_HANDLE       method,
-                                   CORINFO_SIG_INFO*           sig,
-                                   const HWIntrinsicSignature& signature);
-    GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig);
+    GenTree* impBaseIntrinsic(NamedIntrinsic              intrinsic,
+                              CORINFO_CLASS_HANDLE        clsHnd,
+                              const HWIntrinsicSignature& sig,
+                              var_types                   baseType,
+                              var_types                   retType,
+                              unsigned                    simdSize);
+    GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* impSSE2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 
     GenTree* impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
                                        CORINFO_CLASS_HANDLE clsHnd,

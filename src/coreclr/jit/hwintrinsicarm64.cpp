@@ -294,7 +294,6 @@ GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
 // Arguments:
 //    intrinsic  -- id of the intrinsic function.
 //    clsHnd     -- class handle containing the intrinsic function.
-//    method     -- method handle of the intrinsic function.
 //    sig        -- signature of the intrinsic call.
 //    baseType   -- generic argument of the intrinsic.
 //    retType    -- return type of the intrinsic.
@@ -304,17 +303,13 @@ GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
 //
 GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
                                        CORINFO_CLASS_HANDLE        clsHnd,
-                                       CORINFO_METHOD_HANDLE       method,
-                                       CORINFO_SIG_INFO*           sig,
+                                       const HWIntrinsicSignature& sig,
                                        var_types                   baseType,
                                        var_types                   retType,
-                                       unsigned                    simdSize,
-                                       const HWIntrinsicSignature& signature)
+                                       unsigned                    simdSize)
 {
     HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrinsic);
-    int                 numArgs  = sig->numArgs;
 
-    assert(numArgs >= 0);
     assert(varTypeIsArithmetic(baseType));
 
     GenTree* retNode = nullptr;
@@ -349,8 +344,8 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
         case NI_Vector128_AsVector4:
         case NI_Vector128_AsVector128:
         {
-            assert(!sig->hasThis());
-            assert(numArgs == 1);
+            assert(!sig.hasThisParam);
+            assert(sig.paramCount == 1);
 
             if (!featureSIMD)
             {
@@ -363,7 +358,7 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
 
             retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
-            assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
+            assert(retNode->GetType() == sig.retType);
             break;
         }
 
@@ -379,13 +374,13 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
             }
 
             GenTreeHWIntrinsic* hwIntrinsic = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
-            hwIntrinsic->SetNumOps(sig->numArgs, getAllocator(CMK_ASTNode));
+            hwIntrinsic->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
 
-            for (unsigned i = 0; i < sig->numArgs; i++)
+            for (unsigned i = 0; i < sig.paramCount; i++)
             {
                 GenTree* op = impPopStack().val;
                 SetOpLclRelatedToSIMDIntrinsic(op);
-                hwIntrinsic->SetOp(sig->numArgs - 1 - i, op);
+                hwIntrinsic->SetOp(sig.paramCount - 1 - i, op);
                 hwIntrinsic->gtFlags |= op->gtFlags & GTF_ALL_EFFECT;
             }
 
@@ -396,8 +391,8 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
         case NI_Vector64_get_Count:
         case NI_Vector128_get_Count:
         {
-            assert(!sig->hasThis());
-            assert(numArgs == 0);
+            assert(!sig.hasThisParam);
+            assert(sig.paramCount == 0);
 
             GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType), TYP_INT);
             countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
@@ -410,8 +405,8 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
         case NI_Vector128_get_Zero:
         case NI_Vector128_get_AllBitsSet:
         {
-            assert(!sig->hasThis());
-            assert(numArgs == 0);
+            assert(!sig.hasThisParam);
+            assert(sig.paramCount == 0);
 
             retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
             break;
@@ -420,7 +415,7 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
         case NI_Vector64_WithElement:
         case NI_Vector128_WithElement:
         {
-            assert(numArgs == 3);
+            assert(sig.paramCount == 3);
             GenTree* indexOp = impStackTop(1).val;
             if (!indexOp->OperIsConst())
             {
@@ -479,7 +474,7 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
         {
             // Converts to equivalent managed code:
             //   AdvSimd.ExtractVector128(vector, Vector128<T>.Zero, 8 / sizeof(T)).GetLower();
-            assert(numArgs == 1);
+            assert(sig.paramCount == 1);
             op1            = impPopStack().val;
             GenTree* zero  = gtNewSimdHWIntrinsicNode(retType, NI_Vector128_get_Zero, baseType, simdSize);
             ssize_t  index = 8 / genTypeSize(baseType);

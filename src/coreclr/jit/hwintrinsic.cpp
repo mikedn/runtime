@@ -245,58 +245,33 @@ bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
     return true;
 }
 
-//------------------------------------------------------------------------
-// getArgForHWIntrinsic: pop an argument from the stack and validate its type
-//
-// Arguments:
-//    argType    -- the required type of argument
-//    argClass   -- the class handle of argType
-//    expectAddr -- if true indicates we are expecting type stack entry to be a TYP_BYREF.
-//    newobjThis -- For CEE_NEWOBJ, this is the temp grabbed for the allocated uninitalized object.
-//
-// Return Value:
-//     the validated argument
-//
-GenTree* Compiler::getArgForHWIntrinsic(var_types    paramType,
-                                        ClassLayout* paramLayout,
-                                        bool         expectAddr,
-                                        GenTree*     newobjThis)
+GenTree* Compiler::impPopArgForHWIntrinsic(var_types    paramType,
+                                           ClassLayout* paramLayout,
+                                           bool         expectAddr,
+                                           GenTree*     newobjThis)
 {
-    GenTree* arg = nullptr;
-
-    if (varTypeIsStruct(paramType))
+    if (newobjThis != nullptr)
     {
-        if (!varTypeIsSIMD(paramType))
-        {
-            assert(paramLayout->IsVector());
-            paramType = paramLayout->GetSIMDType();
-        }
+        assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
 
-        if (newobjThis == nullptr)
-        {
-            arg = expectAddr ? impSIMDPopStackAddr(paramType) : impSIMDPopStack(paramType);
-            assert(varTypeIsSIMD(arg->TypeGet()));
-        }
-        else
-        {
-            assert((newobjThis->gtOper == GT_ADDR) && (newobjThis->AsOp()->gtOp1->gtOper == GT_LCL_VAR));
-            arg = newobjThis;
-
-            // push newobj result on type stack
-            unsigned tmp = arg->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-            impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), typeInfo(TI_STRUCT, paramLayout->GetClassHandle()));
-        }
+        unsigned   lclNum = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        LclVarDsc* lcl    = lvaGetDesc(lclNum);
+        impPushOnStack(gtNewLclvNode(lclNum, lcl->GetType()), typeInfo(TI_STRUCT, paramLayout->GetClassHandle()));
+        return newobjThis;
     }
-    else
+
+    if (!varTypeIsStruct(paramType))
     {
         assert(varTypeIsArithmetic(paramType));
+        assert(!expectAddr);
 
-        arg = impPopStack().val;
-        assert(varTypeIsArithmetic(arg->TypeGet()));
-
-        assert(genActualType(arg->gtType) == genActualType(paramType));
+        GenTree* arg = impPopStack().val;
+        assert(varActualType(arg->GetType()) == varActualType(paramType));
+        return arg;
     }
 
+    GenTree* arg = expectAddr ? impSIMDPopStackAddr(paramType) : impSIMDPopStack(paramType);
+    assert(varTypeIsSIMD(arg->TypeGet()));
     return arg;
 }
 
@@ -536,18 +511,18 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                                   CORINFO_SIG_INFO*     sig,
                                   bool                  mustExpand)
 {
-    CORINFO_InstructionSet isa       = HWIntrinsicInfo::lookupIsa(intrinsic);
-    HWIntrinsicCategory    category  = HWIntrinsicInfo::lookupCategory(intrinsic);
-    int                    numArgs   = sig->numArgs;
-    var_types              retType   = JITtype2varType(sig->retType);
-    var_types              baseType  = TYP_UNDEF;
-    unsigned               simdSize  = static_cast<unsigned>(HWIntrinsicInfo::lookup(intrinsic).simdSize);
-    ClassLayout*           retLayout = nullptr;
+    CORINFO_InstructionSet isa      = HWIntrinsicInfo::lookupIsa(intrinsic);
+    HWIntrinsicCategory    category = HWIntrinsicInfo::lookupCategory(intrinsic);
+    var_types              baseType = TYP_UNDEF;
+    unsigned               simdSize = static_cast<unsigned>(HWIntrinsicInfo::lookup(intrinsic).simdSize);
 
-    if ((retType == TYP_STRUCT) && featureSIMD)
+    HWIntrinsicSignature sigReader;
+    sigReader.Read(this, sig);
+    var_types    retType   = sigReader.retType;
+    ClassLayout* retLayout = sigReader.retLayout;
+
+    if ((retLayout != nullptr) && featureSIMD)
     {
-        retLayout = typGetObjLayout(sig->retTypeClass);
-
         // Currently all HW intrinsics return either vectors or primitive types, not structs.
         if (!retLayout->IsVector())
         {
@@ -597,14 +572,11 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
     GenTree* immOp = nullptr;
 
-    HWIntrinsicSignature sigReader;
-    sigReader.Read(this, sig);
-
 #ifdef TARGET_ARM64
     if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar) ||
         (intrinsic == NI_AdvSimd_LoadAndInsertScalar))
     {
-        assert(sig->numArgs == 3);
+        assert(sigReader.paramCount == 3);
         immOp = impStackTop(1).val;
         assert(HWIntrinsicInfo::isImmOp(intrinsic, immOp));
     }
@@ -622,7 +594,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
         GenTree* immOp2 = nullptr;
 
-        assert(sig->numArgs == 4);
+        assert(sigReader.paramCount == 4);
 
         immOp  = impStackTop(2).val;
         immOp2 = impStackTop().val;
@@ -658,7 +630,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     }
     else
 #endif
-        if ((sig->numArgs > 0) && HWIntrinsicInfo::isImmOp(intrinsic, impStackTop().val))
+        if ((sigReader.paramCount > 0) && HWIntrinsicInfo::isImmOp(intrinsic, impStackTop().val))
     {
         // NOTE: The following code assumes that for all intrinsics
         // taking an immediate operand, that operand will be last.
@@ -680,7 +652,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             var_types    indexedElementBaseType;
             unsigned int indexedElementSimdSize = 0;
 
-            if (numArgs == 3)
+            if (sigReader.paramCount == 3)
             {
                 ClassLayout* layout = sigReader.paramLayout[1];
                 assert(layout->IsVector());
@@ -689,7 +661,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             }
             else
             {
-                assert(numArgs == 4);
+                assert(sigReader.paramCount == 4);
 
                 ClassLayout* layout = sigReader.paramLayout[2];
                 assert(layout->IsVector());
@@ -762,37 +734,116 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
         compFloatingPointUsed = true;
     }
 
-    // table-driven importer of simple intrinsics
-    if (impIsTableDrivenHWIntrinsic(intrinsic, category))
+    if (!impIsTableDrivenHWIntrinsic(intrinsic, category))
     {
-        const bool isScalar = (category == HW_Category_Scalar);
+        return impSpecialIntrinsic(intrinsic, clsHnd, sigReader, baseType, retType, simdSize);
+    }
 
-        assert(numArgs >= 0);
+    const bool isScalar = (category == HW_Category_Scalar);
 
-        if (!isScalar && ((HWIntrinsicInfo::lookupIns(intrinsic, baseType) == INS_invalid) ||
-                          ((simdSize != 8) && (simdSize != 16) && (simdSize != 32))))
-        {
-            assert(!"Unexpected HW Intrinsic");
-            return nullptr;
-        }
+    if (!isScalar && ((HWIntrinsicInfo::lookupIns(intrinsic, baseType) == INS_invalid) ||
+                      ((simdSize != 8) && (simdSize != 16) && (simdSize != 32))))
+    {
+        assert(!"Unexpected HW Intrinsic");
+        return nullptr;
+    }
 
-        GenTree*            op1     = nullptr;
-        GenTree*            op2     = nullptr;
-        GenTree*            op3     = nullptr;
-        GenTree*            op4     = nullptr;
-        GenTreeHWIntrinsic* retNode = nullptr;
+    if (sigReader.paramCount == 0)
+    {
+        assert(!isScalar);
+        return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
+    }
 
-        switch (numArgs)
-        {
-            case 0:
-                assert(!isScalar);
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize);
-                break;
+    GenTree*            op1     = nullptr;
+    GenTree*            op2     = nullptr;
+    GenTree*            op3     = nullptr;
+    GenTree*            op4     = nullptr;
+    GenTreeHWIntrinsic* retNode = nullptr;
 
-            case 1:
-                op1 = getArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
+    switch (sigReader.paramCount)
+    {
+        case 1:
+            op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
 
-                if ((category == HW_Category_MemoryLoad) && op1->OperIs(GT_CAST))
+            if ((category == HW_Category_MemoryLoad) && op1->OperIs(GT_CAST))
+            {
+                // Although the API specifies a pointer, if what we have is a BYREF, that's what
+                // we really want, so throw away the cast.
+                if (op1->gtGetOp1()->TypeGet() == TYP_BYREF)
+                {
+                    op1 = op1->gtGetOp1();
+                }
+            }
+
+            retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1)
+                               : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+            break;
+
+        case 2:
+            op2 = impPopArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramLayout[1]);
+            op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
+            op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
+
+            retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2)
+                               : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
+
+#ifdef TARGET_XARCH
+            if ((intrinsic == NI_SSE42_Crc32) || (intrinsic == NI_SSE42_X64_Crc32))
+            {
+                // TODO-XArch-Cleanup: currently we use the BaseType to bring the type of the second argument
+                // to the code generator. May encode the overload info in other way.
+                retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
+            }
+#elif defined(TARGET_ARM64)
+            switch (intrinsic)
+            {
+                case NI_Crc32_ComputeCrc32:
+                case NI_Crc32_ComputeCrc32C:
+                case NI_Crc32_Arm64_ComputeCrc32:
+                case NI_Crc32_Arm64_ComputeCrc32C:
+                    retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
+                    break;
+
+                case NI_AdvSimd_AddWideningUpper:
+                case NI_AdvSimd_SubtractWideningUpper:
+                    assert(varTypeIsSIMD(op1->TypeGet()));
+                    retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[0]->GetElementType());
+                    break;
+
+                case NI_AdvSimd_Arm64_AddSaturateScalar:
+                    assert(varTypeIsSIMD(op2->TypeGet()));
+                    retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[1]->GetElementType());
+                    break;
+
+                case NI_ArmBase_Arm64_MultiplyHigh:
+                    if (sig->retType == CORINFO_TYPE_ULONG)
+                    {
+                        retNode->AsHWIntrinsic()->gtSIMDBaseType = TYP_ULONG;
+                    }
+                    else
+                    {
+                        assert(sig->retType == CORINFO_TYPE_LONG);
+                        retNode->AsHWIntrinsic()->gtSIMDBaseType = TYP_LONG;
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+#endif
+            break;
+
+        case 3:
+            op3 = impPopArgForHWIntrinsic(sigReader.paramType[2], sigReader.paramLayout[2]);
+            op2 = impPopArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramLayout[1]);
+            op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
+
+#ifdef TARGET_ARM64
+            if (intrinsic == NI_AdvSimd_LoadAndInsertScalar)
+            {
+                op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
+
+                if (op1->OperIs(GT_CAST))
                 {
                     // Although the API specifies a pointer, if what we have is a BYREF, that's what
                     // we really want, so throw away the cast.
@@ -801,156 +852,75 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                         op1 = op1->gtGetOp1();
                     }
                 }
-
-                retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1)
-                                   : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
-                break;
-
-            case 2:
-                op2 = getArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramLayout[1]);
-                op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
-                op1 = getArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
-
-                retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2)
-                                   : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
-
-#ifdef TARGET_XARCH
-                if ((intrinsic == NI_SSE42_Crc32) || (intrinsic == NI_SSE42_X64_Crc32))
-                {
-                    // TODO-XArch-Cleanup: currently we use the BaseType to bring the type of the second argument
-                    // to the code generator. May encode the overload info in other way.
-                    retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
-                }
-#elif defined(TARGET_ARM64)
-                switch (intrinsic)
-                {
-                    case NI_Crc32_ComputeCrc32:
-                    case NI_Crc32_ComputeCrc32C:
-                    case NI_Crc32_Arm64_ComputeCrc32:
-                    case NI_Crc32_Arm64_ComputeCrc32C:
-                        retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
-                        break;
-
-                    case NI_AdvSimd_AddWideningUpper:
-                    case NI_AdvSimd_SubtractWideningUpper:
-                        assert(varTypeIsSIMD(op1->TypeGet()));
-                        retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[0]->GetElementType());
-                        break;
-
-                    case NI_AdvSimd_Arm64_AddSaturateScalar:
-                        assert(varTypeIsSIMD(op2->TypeGet()));
-                        retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[1]->GetElementType());
-                        break;
-
-                    case NI_ArmBase_Arm64_MultiplyHigh:
-                        if (sig->retType == CORINFO_TYPE_ULONG)
-                        {
-                            retNode->AsHWIntrinsic()->gtSIMDBaseType = TYP_ULONG;
-                        }
-                        else
-                        {
-                            assert(sig->retType == CORINFO_TYPE_LONG);
-                            retNode->AsHWIntrinsic()->gtSIMDBaseType = TYP_LONG;
-                        }
-                        break;
-
-                    default:
-                        break;
-                }
-#endif
-                break;
-
-            case 3:
-                op3 = getArgForHWIntrinsic(sigReader.paramType[2], sigReader.paramLayout[2]);
-                op2 = getArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramLayout[1]);
-                op1 = getArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
-
-#ifdef TARGET_ARM64
-                if (intrinsic == NI_AdvSimd_LoadAndInsertScalar)
-                {
-                    op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
-
-                    if (op1->OperIs(GT_CAST))
-                    {
-                        // Although the API specifies a pointer, if what we have is a BYREF, that's what
-                        // we really want, so throw away the cast.
-                        if (op1->gtGetOp1()->TypeGet() == TYP_BYREF)
-                        {
-                            op1 = op1->gtGetOp1();
-                        }
-                    }
-                }
-                else if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar))
-                {
-                    op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
-                }
-                else
-#endif
-                {
-                    op3 = addRangeCheckIfNeeded(intrinsic, op3, mustExpand, immLowerBound, immUpperBound);
-                }
-
-                retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2, op3)
-                                   : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3);
-
-#ifdef TARGET_XARCH
-                if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
-                {
-                    assert(varTypeIsSIMD(op2->TypeGet()));
-                    retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[1]->GetElementType());
-                }
-#elif defined(TARGET_ARM64)
-                if (category == HW_Category_SIMDByIndexedElement)
-                {
-                    assert(varTypeIsSIMD(op2->TypeGet()));
-                    retNode->AsHWIntrinsic()->SetAuxiliaryType(op2->TypeGet());
-                }
-#endif
-                break;
-
-#ifdef TARGET_ARM64
-            case 4:
-                op4 = getArgForHWIntrinsic(sigReader.paramType[3], sigReader.paramLayout[3]);
-                op4 = addRangeCheckIfNeeded(intrinsic, op4, mustExpand, immLowerBound, immUpperBound);
-                op3 = getArgForHWIntrinsic(sigReader.paramType[2], sigReader.paramLayout[2]);
-                op2 = getArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramLayout[1]);
-                op1 = getArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
-
-                assert(!isScalar);
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
-
-                if (category == HW_Category_SIMDByIndexedElement)
-                {
-                    assert(varTypeIsSIMD(op3->TypeGet()));
-                    retNode->AsHWIntrinsic()->SetAuxiliaryType(op3->TypeGet());
-                }
-                break;
-#endif
-
-            default:
-                return nullptr;
-        }
-
-        const bool isMemoryStore = retNode->OperIsMemoryStore();
-
-        if (isMemoryStore || retNode->OperIsMemoryLoad())
-        {
-            if (isMemoryStore)
+            }
+            else if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar))
             {
-                // A MemoryStore operation is an assignment
-                retNode->gtFlags |= GTF_ASG;
+                op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
+            }
+            else
+#endif
+            {
+                op3 = addRangeCheckIfNeeded(intrinsic, op3, mustExpand, immLowerBound, immUpperBound);
             }
 
-            // This operation contains an implicit indirection
-            //   it could point into the gloabal heap or
-            //   it could throw a null reference exception.
-            //
-            retNode->gtFlags |= (GTF_GLOB_REF | GTF_EXCEPT);
-        }
-        return retNode;
+            retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2, op3)
+                               : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3);
+
+#ifdef TARGET_XARCH
+            if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
+            {
+                assert(varTypeIsSIMD(op2->TypeGet()));
+                retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[1]->GetElementType());
+            }
+#elif defined(TARGET_ARM64)
+            if (category == HW_Category_SIMDByIndexedElement)
+            {
+                assert(varTypeIsSIMD(op2->TypeGet()));
+                retNode->AsHWIntrinsic()->SetAuxiliaryType(op2->TypeGet());
+            }
+#endif
+            break;
+
+#ifdef TARGET_ARM64
+        case 4:
+            op4 = impPopArgForHWIntrinsic(sigReader.paramType[3], sigReader.paramLayout[3]);
+            op4 = addRangeCheckIfNeeded(intrinsic, op4, mustExpand, immLowerBound, immUpperBound);
+            op3 = impPopArgForHWIntrinsic(sigReader.paramType[2], sigReader.paramLayout[2]);
+            op2 = impPopArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramLayout[1]);
+            op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
+
+            assert(!isScalar);
+            retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
+
+            if (category == HW_Category_SIMDByIndexedElement)
+            {
+                assert(varTypeIsSIMD(op3->TypeGet()));
+                retNode->AsHWIntrinsic()->SetAuxiliaryType(op3->TypeGet());
+            }
+            break;
+#endif
+
+        default:
+            return nullptr;
     }
 
-    return impSpecialIntrinsic(intrinsic, clsHnd, method, sig, baseType, retType, simdSize, sigReader);
+    const bool isMemoryStore = retNode->OperIsMemoryStore();
+
+    if (isMemoryStore || retNode->OperIsMemoryLoad())
+    {
+        if (isMemoryStore)
+        {
+            // A MemoryStore operation is an assignment
+            retNode->gtFlags |= GTF_ASG;
+        }
+
+        // This operation contains an implicit indirection
+        //   it could point into the gloabal heap or
+        //   it could throw a null reference exception.
+        //
+        retNode->gtFlags |= (GTF_GLOB_REF | GTF_EXCEPT);
+    }
+    return retNode;
 }
 
 #ifdef DEBUG
