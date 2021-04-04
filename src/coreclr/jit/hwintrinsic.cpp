@@ -467,58 +467,20 @@ static bool isSupportedBaseType(NamedIntrinsic intrinsic, var_types baseType)
     return false;
 }
 
-// HWIntrinsicSignatureReader: a helper class that "reads" a list of hardware intrinsic arguments and stores
-// the corresponding argument type descriptors as the fields of the class instance.
-//
 struct HWIntrinsicSignatureReader final
 {
-    // Read: enumerates the list of arguments of a hardware intrinsic and stores the CORINFO_CLASS_HANDLE
-    // and var_types values of each operand into the corresponding fields of the class instance.
-    //
-    // Arguments:
-    //    compHnd -- an instance of COMP_HANDLE class.
-    //    sig     -- a hardware intrinsic signature.
-    //
-    void Read(COMP_HANDLE compHnd, CORINFO_SIG_INFO* sig)
+    var_types            paramType[4];
+    CORINFO_CLASS_HANDLE paramClass[4];
+
+    void Read(ICorJitInfo* vm, CORINFO_SIG_INFO* sig)
     {
-        CORINFO_ARG_LIST_HANDLE args = sig->args;
+        CORINFO_ARG_LIST_HANDLE param = sig->args;
 
-        if (sig->numArgs > 0)
+        for (unsigned i = 0; i < min(_countof(paramType), sig->numArgs); i++, param = vm->getArgNext(param))
         {
-            CorInfoType op1Type = strip(compHnd->getArgType(sig, args, &op1ClsHnd));
-            op1VarType          = JITtype2varType(op1Type);
-
-            if (sig->numArgs > 1)
-            {
-                args                = compHnd->getArgNext(args);
-                CorInfoType op2Type = strip(compHnd->getArgType(sig, args, &op2ClsHnd));
-                op2VarType          = JITtype2varType(op2Type);
-            }
-
-            if (sig->numArgs > 2)
-            {
-                args                = compHnd->getArgNext(args);
-                CorInfoType op3Type = strip(compHnd->getArgType(sig, args, &op3ClsHnd));
-                op3VarType          = JITtype2varType(op3Type);
-            }
-
-            if (sig->numArgs > 3)
-            {
-                args                = compHnd->getArgNext(args);
-                CorInfoType op4Type = strip(compHnd->getArgType(sig, args, &op4ClsHnd));
-                op4VarType          = JITtype2varType(op4Type);
-            }
+            paramType[i] = JITtype2varType(strip(vm->getArgType(sig, param, &paramClass[i])));
         }
     }
-
-    CORINFO_CLASS_HANDLE op1ClsHnd;
-    CORINFO_CLASS_HANDLE op2ClsHnd;
-    CORINFO_CLASS_HANDLE op3ClsHnd;
-    CORINFO_CLASS_HANDLE op4ClsHnd;
-    var_types            op1VarType;
-    var_types            op2VarType;
-    var_types            op3VarType;
-    var_types            op4VarType;
 };
 
 //------------------------------------------------------------------------
@@ -640,7 +602,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             return impNonConstFallback(intrinsic, retType, baseType);
         }
 
-        ClassLayout* sourceVectorLayout = typGetObjLayout(sigReader.op3ClsHnd);
+        ClassLayout* sourceVectorLayout = typGetObjLayout(sigReader.paramClass[2]);
         assert(sourceVectorLayout->IsVector());
         unsigned  otherSimdSize = sourceVectorLayout->GetSize();
         var_types otherBaseType = sourceVectorLayout->GetElementType();
@@ -686,7 +648,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
             if (numArgs == 3)
             {
-                ClassLayout* layout = typGetObjLayout(sigReader.op2ClsHnd);
+                ClassLayout* layout = typGetObjLayout(sigReader.paramClass[1]);
                 assert(layout->IsVector());
                 indexedElementBaseType = layout->GetElementType();
                 indexedElementSimdSize = layout->GetSize();
@@ -695,7 +657,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             {
                 assert(numArgs == 4);
 
-                ClassLayout* layout = typGetObjLayout(sigReader.op3ClsHnd);
+                ClassLayout* layout = typGetObjLayout(sigReader.paramClass[2]);
                 assert(layout->IsVector());
                 indexedElementBaseType = layout->GetElementType();
                 indexedElementSimdSize = layout->GetSize();
@@ -794,7 +756,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 break;
 
             case 1:
-                op1 = getArgForHWIntrinsic(sigReader.op1VarType, sigReader.op1ClsHnd);
+                op1 = getArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramClass[0]);
 
                 if ((category == HW_Category_MemoryLoad) && op1->OperIs(GT_CAST))
                 {
@@ -811,9 +773,9 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 break;
 
             case 2:
-                op2 = getArgForHWIntrinsic(sigReader.op2VarType, sigReader.op2ClsHnd);
+                op2 = getArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramClass[1]);
                 op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
-                op1 = getArgForHWIntrinsic(sigReader.op1VarType, sigReader.op1ClsHnd);
+                op1 = getArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramClass[0]);
 
                 retNode = isScalar ? gtNewScalarHWIntrinsicNode(retType, intrinsic, op1, op2)
                                    : gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
@@ -823,7 +785,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 {
                     // TODO-XArch-Cleanup: currently we use the BaseType to bring the type of the second argument
                     // to the code generator. May encode the overload info in other way.
-                    retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.op2VarType;
+                    retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
                 }
 #elif defined(TARGET_ARM64)
                 switch (intrinsic)
@@ -832,20 +794,20 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                     case NI_Crc32_ComputeCrc32C:
                     case NI_Crc32_Arm64_ComputeCrc32:
                     case NI_Crc32_Arm64_ComputeCrc32C:
-                        retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.op2VarType;
+                        retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
                         break;
 
                     case NI_AdvSimd_AddWideningUpper:
                     case NI_AdvSimd_SubtractWideningUpper:
                         assert(varTypeIsSIMD(op1->TypeGet()));
                         retNode->AsHWIntrinsic()->SetAuxiliaryType(
-                            typGetObjLayout(sigReader.op1ClsHnd)->GetElementType());
+                            typGetObjLayout(sigReader.paramClass[0])->GetElementType());
                         break;
 
                     case NI_AdvSimd_Arm64_AddSaturateScalar:
                         assert(varTypeIsSIMD(op2->TypeGet()));
                         retNode->AsHWIntrinsic()->SetAuxiliaryType(
-                            typGetObjLayout(sigReader.op2ClsHnd)->GetElementType());
+                            typGetObjLayout(sigReader.paramClass[1])->GetElementType());
                         break;
 
                     case NI_ArmBase_Arm64_MultiplyHigh:
@@ -867,9 +829,9 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 break;
 
             case 3:
-                op3 = getArgForHWIntrinsic(sigReader.op3VarType, sigReader.op3ClsHnd);
-                op2 = getArgForHWIntrinsic(sigReader.op2VarType, sigReader.op2ClsHnd);
-                op1 = getArgForHWIntrinsic(sigReader.op1VarType, sigReader.op1ClsHnd);
+                op3 = getArgForHWIntrinsic(sigReader.paramType[2], sigReader.paramClass[2]);
+                op2 = getArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramClass[1]);
+                op1 = getArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramClass[0]);
 
 #ifdef TARGET_ARM64
                 if (intrinsic == NI_AdvSimd_LoadAndInsertScalar)
@@ -903,7 +865,8 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
                 {
                     assert(varTypeIsSIMD(op2->TypeGet()));
-                    retNode->AsHWIntrinsic()->SetAuxiliaryType(typGetObjLayout(sigReader.op2ClsHnd)->GetElementType());
+                    retNode->AsHWIntrinsic()->SetAuxiliaryType(
+                        typGetObjLayout(sigReader.paramClass[1])->GetElementType());
                 }
 #elif defined(TARGET_ARM64)
                 if (category == HW_Category_SIMDByIndexedElement)
@@ -916,11 +879,11 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
 #ifdef TARGET_ARM64
             case 4:
-                op4 = getArgForHWIntrinsic(sigReader.op4VarType, sigReader.op4ClsHnd);
+                op4 = getArgForHWIntrinsic(sigReader.paramType[3], sigReader.paramClass[3]);
                 op4 = addRangeCheckIfNeeded(intrinsic, op4, mustExpand, immLowerBound, immUpperBound);
-                op3 = getArgForHWIntrinsic(sigReader.op3VarType, sigReader.op3ClsHnd);
-                op2 = getArgForHWIntrinsic(sigReader.op2VarType, sigReader.op2ClsHnd);
-                op1 = getArgForHWIntrinsic(sigReader.op1VarType, sigReader.op1ClsHnd);
+                op3 = getArgForHWIntrinsic(sigReader.paramType[2], sigReader.paramClass[2]);
+                op2 = getArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramClass[1]);
+                op1 = getArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramClass[0]);
 
                 assert(!isScalar);
                 retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
