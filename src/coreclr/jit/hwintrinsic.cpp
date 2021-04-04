@@ -468,10 +468,31 @@ static bool isSupportedBaseType(NamedIntrinsic intrinsic, var_types baseType)
 
 void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
 {
-    ICorJitInfo*            vm              = compiler->info.compCompHnd;
-    CORINFO_ARG_LIST_HANDLE param           = sig->args;
-    CORINFO_CLASS_HANDLE    prevParamClass  = NO_CLASS_HANDLE;
-    ClassLayout*            prevParamLayout = nullptr;
+    // Most HW intrinsics have return and parameters of the same type
+    // so in many cases we can avoid a ClassLayout table lookup.
+    CORINFO_CLASS_HANDLE prevClass  = NO_CLASS_HANDLE;
+    ClassLayout*         prevLayout = nullptr;
+
+    retType = JITtype2varType(sig->retType);
+
+    if (retType != TYP_STRUCT)
+    {
+        retLayout = nullptr;
+    }
+    else
+    {
+        prevClass  = sig->retTypeClass;
+        prevLayout = compiler->typGetObjLayout(prevClass);
+
+        retLayout = prevLayout;
+        retType   = prevLayout->IsVector() ? prevLayout->GetSIMDType() : TYP_STRUCT;
+    }
+
+    ICorJitInfo*            vm    = compiler->info.compCompHnd;
+    CORINFO_ARG_LIST_HANDLE param = sig->args;
+
+    hasThisParam = sig->hasThis();
+    paramCount   = sig->numArgs;
 
     for (unsigned i = 0; i < min(_countof(paramType), sig->numArgs); i++, param = vm->getArgNext(param))
     {
@@ -484,15 +505,14 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
         }
         else
         {
-            // Most HW intrinsics have arguments of the same type so in
-            // many cases we can avoid a ClassLayout table lookup.
-            if (prevParamClass != paramClass)
+            if (prevClass != paramClass)
             {
-                prevParamClass  = paramClass;
-                prevParamLayout = compiler->typGetObjLayout(prevParamClass);
+                prevClass  = paramClass;
+                prevLayout = compiler->typGetObjLayout(prevClass);
             }
 
-            paramLayout[i] = prevParamLayout;
+            paramLayout[i] = prevLayout;
+            paramType[i]   = prevLayout->IsVector() ? prevLayout->GetSIMDType() : TYP_STRUCT;
         }
     }
 }
