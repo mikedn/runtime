@@ -213,7 +213,7 @@ bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
 //    pImmUpperBound [OUT] - The upper incl. bound for a value of the intrinsic immediate operand
 //
 void HWIntrinsicInfo::lookupImmBounds(
-    NamedIntrinsic intrinsic, int simdSize, var_types baseType, int* pImmLowerBound, int* pImmUpperBound)
+    NamedIntrinsic intrinsic, unsigned simdSize, var_types baseType, int* pImmLowerBound, int* pImmUpperBound)
 {
     HWIntrinsicCategory category            = HWIntrinsicInfo::lookupCategory(intrinsic);
     bool                hasImmediateOperand = HasImmediateOperand(intrinsic);

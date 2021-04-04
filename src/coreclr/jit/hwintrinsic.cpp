@@ -42,7 +42,8 @@ const HWIntrinsicInfo& HWIntrinsicInfo::lookup(NamedIntrinsic id)
 
 var_types Compiler::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
                                                      CORINFO_SIG_INFO* sig,
-                                                     var_types         baseType)
+                                                     var_types         baseType,
+                                                     ClassLayout**     argLayout)
 {
     assert(HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic));
 
@@ -65,7 +66,13 @@ var_types Compiler::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic
 
     var_types argType = JITtype2varType(argCorType);
 
-    return argType != TYP_STRUCT ? argType : typGetObjLayout(argClass)->GetElementType();
+    if (argType != TYP_STRUCT)
+    {
+        return argType;
+    }
+
+    *argLayout = typGetObjLayout(argClass);
+    return (*argLayout)->GetElementType();
 }
 
 CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleForHWSIMD(var_types simdType, var_types simdBaseType)
@@ -198,50 +205,6 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
     // There are several helper intrinsics that are implemented in managed code
     // Those intrinsics will hit this code path and need to return NI_Illegal
     return NI_Illegal;
-}
-
-//------------------------------------------------------------------------
-// lookupSimdSize: Gets the SimdSize for a given HWIntrinsic and signature
-//
-// Arguments:
-//    id -- The ID associated with the HWIntrinsic to lookup
-//   sig -- The signature of the HWIntrinsic to lookup
-//
-// Return Value:
-//    The SIMD size for the HWIntrinsic associated with id and sig
-//
-// Remarks:
-//    This function is only used by the importer. After importation, we can
-//    get the SIMD size from the GenTreeHWIntrinsic node.
-unsigned HWIntrinsicInfo::lookupSimdSize(Compiler* comp, NamedIntrinsic id, CORINFO_SIG_INFO* sig)
-{
-    unsigned simdSize = 0;
-
-    if (tryLookupSimdSize(id, &simdSize))
-    {
-        return simdSize;
-    }
-
-    CORINFO_CLASS_HANDLE typeHnd = nullptr;
-
-    if (HWIntrinsicInfo::BaseTypeFromFirstArg(id))
-    {
-        typeHnd = comp->info.compCompHnd->getArgClass(sig, sig->args);
-    }
-    else if (HWIntrinsicInfo::BaseTypeFromSecondArg(id))
-    {
-        CORINFO_ARG_LIST_HANDLE secondArg = comp->info.compCompHnd->getArgNext(sig->args);
-        typeHnd                           = comp->info.compCompHnd->getArgClass(sig, secondArg);
-    }
-    else
-    {
-        assert(JITtype2varType(sig->retType) == TYP_STRUCT);
-        typeHnd = sig->retTypeClass;
-    }
-
-    ClassLayout* layout = comp->typGetObjLayout(typeHnd);
-    assert(layout->IsVector());
-    return layout->GetSize();
 }
 
 //------------------------------------------------------------------------
@@ -577,15 +540,17 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                                   CORINFO_SIG_INFO*     sig,
                                   bool                  mustExpand)
 {
-    CORINFO_InstructionSet isa      = HWIntrinsicInfo::lookupIsa(intrinsic);
-    HWIntrinsicCategory    category = HWIntrinsicInfo::lookupCategory(intrinsic);
-    int                    numArgs  = sig->numArgs;
-    var_types              retType  = JITtype2varType(sig->retType);
-    var_types              baseType = TYP_UNDEF;
+    CORINFO_InstructionSet isa       = HWIntrinsicInfo::lookupIsa(intrinsic);
+    HWIntrinsicCategory    category  = HWIntrinsicInfo::lookupCategory(intrinsic);
+    int                    numArgs   = sig->numArgs;
+    var_types              retType   = JITtype2varType(sig->retType);
+    var_types              baseType  = TYP_UNDEF;
+    unsigned               simdSize  = static_cast<unsigned>(HWIntrinsicInfo::lookup(intrinsic).simdSize);
+    ClassLayout*           retLayout = nullptr;
 
     if ((retType == TYP_STRUCT) && featureSIMD)
     {
-        ClassLayout* retLayout = typGetObjLayout(sig->retTypeClass);
+        retLayout = typGetObjLayout(sig->retTypeClass);
 
         // Currently all HW intrinsics return either vectors or primitive types, not structs.
         if (!retLayout->IsVector())
@@ -599,7 +564,20 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic))
     {
-        baseType = impGetHWIntrinsicBaseTypeFromArg(intrinsic, sig, baseType);
+        ClassLayout* argLayout = nullptr;
+        baseType               = impGetHWIntrinsicBaseTypeFromArg(intrinsic, sig, baseType, &argLayout);
+
+        if ((simdSize == UINT32_MAX) && (argLayout != nullptr))
+        {
+            simdSize = argLayout->GetSize();
+        }
+    }
+    else if (retLayout != nullptr)
+    {
+        if (simdSize == UINT32_MAX)
+        {
+            simdSize = retLayout->GetSize();
+        }
     }
 
     if (baseType == TYP_UNDEF)
@@ -690,8 +668,6 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
         // taking an immediate operand, that operand will be last.
         immOp = impStackTop().val;
     }
-
-    const unsigned simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
 
     int  immLowerBound   = 0;
     int  immUpperBound   = 0;
