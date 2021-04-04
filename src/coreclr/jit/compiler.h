@@ -3151,12 +3151,10 @@ protected:
 
     GenTree* impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
                                          CORINFO_CLASS_HANDLE        clsHnd,
-                                         CORINFO_SIG_INFO*           sig,
-                                         var_types                   retType,
+                                         const HWIntrinsicSignature& signature,
                                          var_types                   baseType,
                                          unsigned                    simdSize,
-                                         GenTree*                    newobjThis,
-                                         const HWIntrinsicSignature& signature);
+                                         GenTree*                    newobjThis);
 
     GenTree* impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
                                         var_types            retType,
@@ -7346,31 +7344,21 @@ private:
     }
 
 public:
-    // Returns the codegen type for a given SIMD size.
     static var_types getSIMDTypeForSize(unsigned size)
     {
-        var_types simdType = TYP_UNDEF;
-        if (size == 8)
+        switch (size)
         {
-            simdType = TYP_SIMD8;
+            case 8:
+                return TYP_SIMD8;
+            case 12:
+                return TYP_SIMD12;
+            case 16:
+                return TYP_SIMD16;
+            case 32:
+                return TYP_SIMD32;
+            default:
+                unreached();
         }
-        else if (size == 12)
-        {
-            simdType = TYP_SIMD12;
-        }
-        else if (size == 16)
-        {
-            simdType = TYP_SIMD16;
-        }
-        else if (size == 32)
-        {
-            simdType = TYP_SIMD32;
-        }
-        else
-        {
-            noway_assert(!"Unexpected size for SIMD type");
-        }
-        return simdType;
     }
 
 private:

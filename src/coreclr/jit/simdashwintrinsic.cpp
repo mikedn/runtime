@@ -172,7 +172,6 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 {
     if (!featureSIMD)
     {
-        // We can't support SIMD intrinsics if the JIT doesn't support the feature
         return nullptr;
     }
 
@@ -182,7 +181,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
     CORINFO_InstructionSet minimumIsa = InstructionSet_AdvSimd;
 #else
 #error Unsupported platform
-#endif // !TARGET_XARCH && !TARGET_ARM64
+#endif
 
     if (!compOpportunisticallyDependsOn(minimumIsa) || !JitConfig.EnableHWIntrinsic())
     {
@@ -192,19 +191,41 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
-    CORINFO_CLASS_HANDLE argClass         = NO_CLASS_HANDLE;
-    var_types            retType          = JITtype2varType(sig->retType);
-    var_types            baseType         = TYP_UNDEF;
-    var_types            simdType         = TYP_UNDEF;
-    unsigned             simdSize         = 0;
-    unsigned             numArgs          = sig->numArgs;
-    bool                 isInstanceMethod = false;
+    HWIntrinsicSignature signature;
+    signature.Read(this, sig);
 
-    const char* namespaceName       = nullptr;
-    const char* className           = info.compCompHnd->getClassNameFromMetadata(clsHnd, &namespaceName);
-    bool        isStaticVectorClass = strcmp(className, "Vector") == 0;
+    const char* namespaceName = nullptr;
+    const char* className     = info.compCompHnd->getClassNameFromMetadata(clsHnd, &namespaceName);
 
-    if (!isStaticVectorClass)
+    var_types    baseType   = TYP_UNDEF;
+    unsigned     simdSize   = 0;
+    ClassLayout* simdLayout = nullptr;
+    unsigned     numArgs    = signature.paramCount;
+
+    if (strcmp(className, "Vector") == 0)
+    {
+        assert(!signature.hasThisParam);
+
+        if (signature.paramCount == 0)
+        {
+            // IsHardwareAccelerated is imported by the old SIMD intrinsic code.
+            return nullptr;
+        }
+
+        ClassLayout* layout = signature.paramLayout[0];
+
+        if (!layout->IsVector())
+        {
+            // Many Vector methods are generic, ignore instantiations that use
+            // invalid element types.
+            return nullptr;
+        }
+
+        clsHnd   = layout->GetClassHandle();
+        baseType = layout->GetElementType();
+        simdSize = layout->GetSize();
+    }
+    else
     {
         // If it isn't the static Vector class then this must be one of the vector types
         // in System.Numerics - Vector2/3/4/<T>. Note that all System.Numerics intrinsic
@@ -217,148 +238,131 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             return nullptr;
         }
 
-        ClassLayout* layout = typGetObjLayout(clsHnd);
+        simdLayout = typGetObjLayout(clsHnd);
 
-        if (!layout->IsVector())
+        if (!simdLayout->IsVector())
         {
+            // Ignore Vector<T> instantiations that use invalid element types.
             return nullptr;
         }
 
-        baseType = layout->GetElementType();
-        simdSize = layout->GetSize();
-    }
-
-    if (retType == TYP_STRUCT)
-    {
-        ClassLayout* retLayout = typGetObjLayout(sig->retTypeClass);
-        assert(retLayout->IsVector());
-        baseType = retLayout->GetElementType();
-        retType  = retLayout->GetSIMDType();
-        simdSize = retLayout->GetSize();
-    }
-    else if (numArgs != 0)
-    {
-        // TODO-MIKE-Cleanup: Old code was bogus, this needs to be done only
-        // if the first argument is known to be a vector type. It could be a
-        // primitive type though (e.g. Vector2/3/4 constructors). This results
-        // in CreateBroadcast being ignored.
-
-        var_types argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, sig->args, &argClass)));
-
-        if (argType == TYP_STRUCT)
+        if (varTypeIsStruct(signature.retType))
         {
-            ClassLayout* argLayout = typGetObjLayout(argClass);
-            baseType               = argLayout->GetElementType();
-            simdSize               = argLayout->GetSize();
+            ClassLayout* retLayout = signature.retLayout;
+            assert(retLayout->IsVector());
+            baseType = retLayout->GetElementType();
+            simdSize = retLayout->GetSize();
+        }
+        else if (signature.paramCount == 0)
+        {
+            baseType = simdLayout->GetElementType();
+            simdSize = simdLayout->GetSize();
         }
         else
         {
-            baseType = TYP_UNDEF;
-            simdSize = 0;
+            // TODO-MIKE-Cleanup: Old code was bogus, this needs to be done only
+            // if the first argument is known to be a vector type. It could be a
+            // primitive type though (e.g. Vector2/3/4 constructors). This results
+            // in CreateBroadcast being ignored.
+
+            if (varTypeIsStruct(signature.paramType[0]))
+            {
+                ClassLayout* layout = signature.paramLayout[0];
+                assert(layout->IsVector());
+                baseType = layout->GetElementType();
+                simdSize = layout->GetSize();
+            }
+            else
+            {
+                return nullptr;
+            }
+        }
+
+        if (signature.hasThisParam)
+        {
+            assert(SimdAsHWIntrinsicInfo::IsInstanceMethod(intrinsic));
+            numArgs++;
         }
     }
 
-    if (sig->hasThis())
-    {
-        assert(SimdAsHWIntrinsicInfo::IsInstanceMethod(intrinsic));
-        numArgs++;
-
-        isInstanceMethod = true;
-        argClass         = clsHnd;
-    }
-    else if (isStaticVectorClass && (numArgs != 0))
-    {
-        // We need to fixup the clsHnd in the case we are an intrinsic on Vector
-        // The first argument will be the appropriate Vector<T> handle to use
-        clsHnd = info.compCompHnd->getArgClass(sig, sig->args);
-
-        // We also need to adjust the baseType as some methods on Vector return
-        // a type different than the operation we need to perform. An example
-        // is LessThan or Equals which takes double but returns long. This is
-        // unlike the counterparts on Vector<T> which take a return the same type.
-        ClassLayout* argLayout = typGetObjLayout(clsHnd);
-        assert(argLayout->IsVector());
-        baseType = argLayout->GetElementType();
-        simdSize = argLayout->GetSize();
-    }
-
-    if (!varTypeIsArithmetic(baseType) || (simdSize == 0))
-    {
-        // We get here for a devirtualization of IEquatable`1.Equals
-        // or if the user tries to use Vector<T> with an unsupported type
-        return nullptr;
-    }
-
-    simdType = getSIMDTypeForSize(simdSize);
-    assert(varTypeIsSIMD(simdType));
-
     NamedIntrinsic hwIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType);
 
-    if ((hwIntrinsic == NI_Illegal) || !varTypeIsSIMD(simdType))
+    if (hwIntrinsic == NI_Illegal)
     {
-        // The baseType isn't supported by the intrinsic
         return nullptr;
     }
 
     if (SimdAsHWIntrinsicInfo::IsFloatingPointUsed(intrinsic))
     {
-        // Set `compFloatingPointUsed` to cover the scenario where an intrinsic
-        // is operating on SIMD fields, but where no SIMD local vars are in use.
         compFloatingPointUsed = true;
     }
 
-    HWIntrinsicSignature signature;
-    signature.Read(this, sig);
-
     if (hwIntrinsic == intrinsic)
     {
-        // The SIMD intrinsic requires special handling outside the normal code path
-        return impSimdAsHWIntrinsicSpecial(intrinsic, clsHnd, sig, retType, baseType, simdSize, newobjThis, signature);
+        return impSimdAsHWIntrinsicSpecial(intrinsic, clsHnd, signature, baseType, simdSize, newobjThis);
     }
 
     CORINFO_InstructionSet hwIntrinsicIsa = HWIntrinsicInfo::lookupIsa(hwIntrinsic);
 
     if (!compOpportunisticallyDependsOn(hwIntrinsicIsa))
     {
-        // The JIT doesn't support the required ISA
         return nullptr;
+    }
+
+    if (numArgs == 0)
+    {
+        return gtNewSimdAsHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, simdSize);
     }
 
     switch (numArgs)
     {
-        case 0:
-            return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize);
-
         case 1:
         {
-            ClassLayout* simdLayout = isInstanceMethod ? typGetObjLayout(argClass) : nullptr;
-            var_types    argType    = isInstanceMethod ? simdType : signature.paramType[0];
-            ClassLayout* argLayout  = isInstanceMethod ? simdLayout : signature.paramLayout[0];
+            var_types    argType;
+            ClassLayout* argLayout;
 
-            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
+            if (signature.hasThisParam)
+            {
+                argType   = getSIMDTypeForSize(simdSize);
+                argLayout = simdLayout;
+            }
+            else
+            {
+                argType   = signature.paramType[0];
+                argLayout = signature.paramLayout[0];
+            }
 
-            return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, op1);
+            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, signature.hasThisParam);
+
+            return gtNewSimdAsHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, simdSize, op1);
         }
 
         case 2:
         {
-            ClassLayout* simdLayout = isInstanceMethod ? typGetObjLayout(argClass) : nullptr;
-            var_types    argType    = isInstanceMethod ? signature.paramType[0] : signature.paramType[1];
-            ClassLayout* argLayout  = isInstanceMethod ? signature.paramLayout[0] : signature.paramLayout[1];
+            var_types    argType   = signature.hasThisParam ? signature.paramType[0] : signature.paramType[1];
+            ClassLayout* argLayout = signature.hasThisParam ? signature.paramLayout[0] : signature.paramLayout[1];
 
             GenTree* op2 = impPopArgForHWIntrinsic(argType, argLayout);
 
-            argType   = isInstanceMethod ? simdType : signature.paramType[0];
-            argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
+            if (signature.hasThisParam)
+            {
+                argType   = getSIMDTypeForSize(simdSize);
+                argLayout = simdLayout;
+            }
+            else
+            {
+                argType   = signature.paramType[0];
+                argLayout = signature.paramLayout[0];
+            }
 
-            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
+            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, signature.hasThisParam);
 
             if (SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic))
             {
                 std::swap(op1, op2);
             }
 
-            return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, op1, op2);
+            return gtNewSimdAsHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, simdSize, op1, op2);
         }
 
         default:
@@ -375,7 +379,6 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 //    intrinsic  -- id of the intrinsic function.
 //    clsHnd     -- class handle containing the intrinsic function.
 //    sig        -- signature of the intrinsic call
-//    retType    -- the return type of the intrinsic call
 //    baseType   -- the base type of SIMD type of the intrinsic
 //    simdSize   -- the size of the SIMD type of the intrinsic
 //
@@ -384,51 +387,24 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 //
 GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
                                                CORINFO_CLASS_HANDLE        clsHnd,
-                                               CORINFO_SIG_INFO*           sig,
-                                               var_types                   retType,
+                                               const HWIntrinsicSignature& sig,
                                                var_types                   baseType,
                                                unsigned                    simdSize,
-                                               GenTree*                    newobjThis,
-                                               const HWIntrinsicSignature& signature)
+                                               GenTree*                    newobjThis)
 {
     assert(featureSIMD);
-    assert(retType != TYP_UNKNOWN);
     assert(varTypeIsArithmetic(baseType));
     assert(simdSize != 0);
     assert(SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType) == intrinsic);
-
-    var_types simdType = getSIMDTypeForSize(simdSize);
-    assert(varTypeIsSIMD(simdType));
-
-    CORINFO_CLASS_HANDLE argClass = NO_CLASS_HANDLE;
-
-    SimdAsHWIntrinsicClassId classId          = SimdAsHWIntrinsicInfo::lookupClassId(intrinsic);
-    unsigned                 numArgs          = signature.paramCount;
-    bool                     isInstanceMethod = false;
-
-    if (sig->hasThis())
-    {
-        assert(SimdAsHWIntrinsicInfo::IsInstanceMethod(intrinsic));
-        numArgs++;
-
-        isInstanceMethod = true;
-        argClass         = clsHnd;
-    }
-
 #if defined(TARGET_XARCH)
     bool isVectorT256 = (SimdAsHWIntrinsicInfo::lookupClassId(intrinsic) == SimdAsHWIntrinsicClassId::VectorT256);
-
-    // We should have already exited early if SSE2 isn't supported
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
-
-    // Vector<T>, when 32-bytes, requires at least AVX2
     assert(!isVectorT256 || compIsaSupportedDebugOnly(InstructionSet_AVX2));
 #elif defined(TARGET_ARM64)
-    // We should have already exited early if AdvSimd isn't supported
     assert(compIsaSupportedDebugOnly(InstructionSet_AdvSimd));
 #else
 #error Unsupported platform
-#endif // !TARGET_XARCH && !TARGET_ARM64
+#endif
 
     switch (intrinsic)
     {
@@ -452,7 +428,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 #endif // TARGET_XARCH
         case NI_VectorT128_As:
         {
-            if (!signature.retLayout->IsVector())
+            if (!sig.retLayout->IsVector())
             {
                 return nullptr;
             }
@@ -475,10 +451,17 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 #endif // TARGET_XARCH
 
         default:
-        {
             // Most intrinsics have some path that works even if only SSE2/AdvSimd is available
             break;
-        }
+    }
+
+    var_types retType = sig.retType;
+    unsigned  numArgs = sig.paramCount;
+
+    if (sig.hasThisParam)
+    {
+        assert(SimdAsHWIntrinsicInfo::IsInstanceMethod(intrinsic));
+        numArgs++;
     }
 
     switch (intrinsic)
@@ -509,6 +492,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             break;
     }
 
+    var_types simdType = getSIMDTypeForSize(simdSize);
+
     switch (numArgs)
     {
         case 1:
@@ -516,8 +501,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             assert(newobjThis == nullptr);
 
             bool isOpExplicit = (intrinsic == NI_VectorT128_op_Explicit) || (intrinsic == NI_VectorT128_As);
-
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
             isOpExplicit |= (intrinsic == NI_VectorT256_op_Explicit) || (intrinsic == NI_VectorT256_As);
 #endif
 
@@ -529,17 +513,17 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 
                 GenTree* op1 = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(op1);
-                assert(op1->GetType() == signature.retLayout->GetSIMDType());
+                assert(op1->GetType() == sig.retLayout->GetSIMDType());
 
                 return op1;
             }
 
-            ClassLayout* simdLayout = isInstanceMethod ? typGetObjLayout(argClass) : nullptr;
+            ClassLayout* simdLayout = sig.hasThisParam ? typGetObjLayout(clsHnd) : nullptr;
 
-            var_types    argType   = isInstanceMethod ? simdType : signature.paramType[0];
-            ClassLayout* argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
+            var_types    argType   = sig.hasThisParam ? simdType : sig.paramType[0];
+            ClassLayout* argLayout = sig.hasThisParam ? simdLayout : sig.paramLayout[0];
 
-            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
+            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, sig.hasThisParam);
 
             switch (intrinsic)
             {
@@ -558,17 +542,13 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 
                         if (baseType == TYP_FLOAT)
                         {
-                            static_assert_no_msg(sizeof(float) == sizeof(int));
-                            int mask = 0x7fffffff;
-                            bitMask  = gtNewDconNode(*((float*)&mask), TYP_FLOAT);
+                            bitMask = gtNewDconNode(jitstd::bit_cast<float, int32_t>(0x7fffffff), TYP_FLOAT);
                         }
                         else
                         {
                             assert(baseType == TYP_DOUBLE);
-                            static_assert_no_msg(sizeof(double) == sizeof(__int64));
-
-                            __int64 mask = 0x7fffffffffffffffLL;
-                            bitMask      = gtNewDconNode(*((double*)&mask), TYP_DOUBLE);
+                            bitMask =
+                                gtNewDconNode(jitstd::bit_cast<double, int64_t>(0x7fffffffffffffffLL), TYP_DOUBLE);
                         }
                         assert(bitMask != nullptr);
 
@@ -580,41 +560,39 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 
                         return gtNewSimdAsHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, bitMask);
                     }
-                    else if (varTypeIsUnsigned(baseType))
+
+                    if (varTypeIsUnsigned(baseType))
                     {
                         return op1;
                     }
-                    else if ((baseType != TYP_LONG) && compOpportunisticallyDependsOn(InstructionSet_SSSE3))
+
+                    if ((baseType != TYP_LONG) && compOpportunisticallyDependsOn(InstructionSet_SSSE3))
                     {
                         return gtNewSimdAsHWIntrinsicNode(retType, NI_SSSE3_Abs, baseType, simdSize, op1);
                     }
-                    else
-                    {
-                        GenTree*       tmp;
-                        NamedIntrinsic hwIntrinsic;
 
-                        GenTree* op1Dup1;
-                        op1 = impCloneExpr(op1, &op1Dup1, clsHnd,
+                    GenTree*       tmp;
+                    NamedIntrinsic hwIntrinsic;
+
+                    GenTree* op1Dup1;
+                    op1 = impCloneExpr(op1, &op1Dup1, clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
+
+                    GenTree* op1Dup2;
+                    op1Dup1 = impCloneExpr(op1Dup1, &op1Dup2, clsHnd,
                                            CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
 
-                        GenTree* op1Dup2;
-                        op1Dup1 = impCloneExpr(op1Dup1, &op1Dup2, clsHnd,
-                                               CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
+                    // op1 = op1 < Zero
+                    tmp         = gtNewSIMDVectorZero(retType, baseType, simdSize);
+                    hwIntrinsic = isVectorT256 ? NI_VectorT256_LessThan : NI_VectorT128_LessThan;
+                    op1         = impSimdAsHWIntrinsicRelOp(hwIntrinsic, clsHnd, retType, baseType, simdSize, op1, tmp);
 
-                        // op1 = op1 < Zero
-                        tmp         = gtNewSIMDVectorZero(retType, baseType, simdSize);
-                        hwIntrinsic = isVectorT256 ? NI_VectorT256_LessThan : NI_VectorT128_LessThan;
-                        op1 = impSimdAsHWIntrinsicRelOp(hwIntrinsic, clsHnd, retType, baseType, simdSize, op1, tmp);
+                    // tmp = Zero - op1Dup1
+                    tmp         = gtNewSIMDVectorZero(retType, baseType, simdSize);
+                    hwIntrinsic = isVectorT256 ? NI_AVX2_Subtract : NI_SSE2_Subtract;
+                    tmp         = gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, tmp, op1Dup1);
 
-                        // tmp = Zero - op1Dup1
-                        tmp         = gtNewSIMDVectorZero(retType, baseType, simdSize);
-                        hwIntrinsic = isVectorT256 ? NI_AVX2_Subtract : NI_SSE2_Subtract;
-                        tmp = gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, tmp, op1Dup1);
-
-                        // result = ConditionalSelect(op1, tmp, op1Dup2)
-                        return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, op1, tmp, op1Dup2);
-                    }
-                    break;
+                    // result = ConditionalSelect(op1, tmp, op1Dup2)
+                    return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, op1, tmp, op1Dup2);
                 }
 #elif defined(TARGET_ARM64)
                 case NI_VectorT128_Abs:
@@ -627,27 +605,23 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
                 default:
-                {
-                    // Some platforms warn about unhandled switch cases
-                    // We handle it more generally via the assert and nullptr return below.
                     break;
-                }
             }
             break;
         }
 
         case 2:
         {
-            ClassLayout* simdLayout = isInstanceMethod ? typGetObjLayout(argClass) : nullptr;
-            var_types    argType    = isInstanceMethod ? signature.paramType[0] : signature.paramType[1];
-            ClassLayout* argLayout  = isInstanceMethod ? signature.paramLayout[0] : signature.paramLayout[1];
+            ClassLayout* simdLayout = sig.hasThisParam ? typGetObjLayout(clsHnd) : nullptr;
+            var_types    argType    = sig.hasThisParam ? sig.paramType[0] : sig.paramType[1];
+            ClassLayout* argLayout  = sig.hasThisParam ? sig.paramLayout[0] : sig.paramLayout[1];
 
             GenTree* op2 = impPopArgForHWIntrinsic(argType, argLayout);
 
-            argType   = isInstanceMethod ? simdType : signature.paramType[0];
-            argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
+            argType   = sig.hasThisParam ? simdType : sig.paramType[0];
+            argLayout = sig.hasThisParam ? simdLayout : sig.paramLayout[0];
 
-            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, isInstanceMethod, newobjThis);
+            GenTree* op1 = impPopArgForHWIntrinsic(argType, argLayout, sig.hasThisParam, newobjThis);
 
             assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
 
@@ -690,11 +664,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                 }
 
                 case NI_VectorT128_Dot:
-                {
                     assert((baseType == TYP_INT) || (baseType == TYP_UINT));
                     assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
                     return gtNewSimdAsHWIntrinsicNode(retType, NI_Vector128_Dot, baseType, simdSize, op1, op2);
-                }
 
                 case NI_VectorT128_Equals:
                 case NI_VectorT128_GreaterThan:
@@ -705,9 +677,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                 case NI_VectorT256_GreaterThanOrEqual:
                 case NI_VectorT256_LessThan:
                 case NI_VectorT256_LessThanOrEqual:
-                {
                     return impSimdAsHWIntrinsicRelOp(intrinsic, clsHnd, retType, baseType, simdSize, op1, op2);
-                }
 
                 case NI_VectorT128_Max:
                 case NI_VectorT128_Min:
@@ -725,25 +695,17 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                         switch (baseType)
                         {
                             case TYP_BYTE:
-                            {
                                 constVal    = gtNewIconNode(0x80808080, TYP_INT);
                                 opIntrinsic = NI_VectorT128_op_Subtraction;
                                 baseType    = TYP_UBYTE;
                                 break;
-                            }
-
                             case TYP_USHORT:
-                            {
                                 constVal    = gtNewIconNode(0x80008000, TYP_INT);
                                 opIntrinsic = NI_VectorT128_op_Addition;
                                 baseType    = TYP_SHORT;
                                 break;
-                            }
-
                             default:
-                            {
                                 unreached();
-                            }
                         }
 
                         GenTree* constVector = gtNewSimdCreateBroadcastNode(retType, constVal, TYP_INT, simdSize,
@@ -904,11 +866,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
                 default:
-                {
-                    // Some platforms warn about unhandled switch cases
-                    // We handle it more generally via the assert and nullptr return below.
                     break;
-                }
             }
             break;
         }
@@ -916,39 +874,29 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
         case 3:
         {
             assert(newobjThis == nullptr);
-            assert(!isInstanceMethod);
+            assert(!sig.hasThisParam);
 
-            GenTree* op3 = impPopArgForHWIntrinsic(signature.paramType[2], signature.paramLayout[2]);
-            GenTree* op2 = impPopArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
-            GenTree* op1 = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
+            GenTree* op3 = impPopArgForHWIntrinsic(sig.paramType[2], sig.paramLayout[2]);
+            GenTree* op2 = impPopArgForHWIntrinsic(sig.paramType[1], sig.paramLayout[1]);
+            GenTree* op1 = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
 
             assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
 
             switch (intrinsic)
             {
-#if defined(TARGET_XARCH)
                 case NI_VectorT128_ConditionalSelect:
+#ifdef TARGET_XARCH
                 case NI_VectorT256_ConditionalSelect:
-                {
+#endif
                     return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, op1, op2, op3);
-                }
-#elif defined(TARGET_ARM64)
-                case NI_VectorT128_ConditionalSelect:
-                {
-                    return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, op1, op2, op3);
-                }
-#else
-#error Unsupported platform
-#endif // !TARGET_XARCH && !TARGET_ARM64
 
                 default:
-                {
-                    // Some platforms warn about unhandled switch cases
-                    // We handle it more generally via the assert and nullptr return below.
                     break;
-                }
             }
         }
+
+        default:
+            break;
     }
 
     assert(!"Unexpected SimdAsHWIntrinsic");
@@ -1145,33 +1093,19 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
             switch (intrinsic)
             {
                 case NI_VectorT128_GreaterThanOrEqual:
-                {
                     intrinsic = NI_VectorT128_GreaterThan;
                     break;
-                }
-
                 case NI_VectorT128_LessThanOrEqual:
-                {
                     intrinsic = NI_VectorT128_LessThan;
                     break;
-                }
-
                 case NI_VectorT256_GreaterThanOrEqual:
-                {
                     intrinsic = NI_VectorT256_GreaterThan;
                     break;
-                }
-
                 case NI_VectorT256_LessThanOrEqual:
-                {
                     intrinsic = NI_VectorT256_LessThan;
                     break;
-                }
-
                 default:
-                {
                     unreached();
-                }
             }
 
             op1       = impSimdAsHWIntrinsicRelOp(eqIntrinsic, clsHnd, retType, baseType, simdSize, op1, op2);
@@ -1211,37 +1145,23 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
                 switch (baseType)
                 {
                     case TYP_UBYTE:
-                    {
                         constVal = gtNewIconNode(0x80808080, TYP_INT);
                         baseType = TYP_BYTE;
                         break;
-                    }
-
                     case TYP_USHORT:
-                    {
                         constVal = gtNewIconNode(0x80008000, TYP_INT);
                         baseType = TYP_SHORT;
                         break;
-                    }
-
                     case TYP_UINT:
-                    {
                         constVal = gtNewIconNode(0x80000000, TYP_INT);
                         baseType = TYP_INT;
                         break;
-                    }
-
                     case TYP_ULONG:
-                    {
                         constVal = gtNewLconNode(0x8000000000000000);
                         baseType = TYP_LONG;
                         break;
-                    }
-
                     default:
-                    {
                         unreached();
-                    }
                 }
 
                 GenTree* constVector = gtNewSimdCreateBroadcastNode(retType, constVal, constVal->TypeGet(), simdSize,
