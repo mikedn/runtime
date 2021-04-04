@@ -470,13 +470,14 @@ GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
 // Return Value:
 //    the expanded intrinsic.
 //
-GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
-                                       CORINFO_CLASS_HANDLE  clsHnd,
-                                       CORINFO_METHOD_HANDLE method,
-                                       CORINFO_SIG_INFO*     sig,
-                                       var_types             baseType,
-                                       var_types             retType,
-                                       unsigned              simdSize)
+GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
+                                       CORINFO_CLASS_HANDLE        clsHnd,
+                                       CORINFO_METHOD_HANDLE       method,
+                                       CORINFO_SIG_INFO*           sig,
+                                       var_types                   baseType,
+                                       var_types                   retType,
+                                       unsigned                    simdSize,
+                                       const HWIntrinsicSignature& signature)
 {
     // other intrinsics need special importation
     switch (HWIntrinsicInfo::lookupIsa(intrinsic))
@@ -490,7 +491,7 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic        intrinsic,
             return impSSE2Intrinsic(intrinsic, method, sig);
         case InstructionSet_AVX:
         case InstructionSet_AVX2:
-            return impAvxOrAvx2Intrinsic(intrinsic, method, sig);
+            return impAvxOrAvx2Intrinsic(intrinsic, method, sig, signature);
 
         case InstructionSet_BMI1:
         case InstructionSet_BMI1_X64:
@@ -1512,12 +1513,11 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
     return retNode;
 }
 
-GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig)
+GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic              intrinsic,
+                                         CORINFO_METHOD_HANDLE       method,
+                                         CORINFO_SIG_INFO*           sig,
+                                         const HWIntrinsicSignature& signature)
 {
-    GenTree* retNode = nullptr;
-    GenTree* op1     = nullptr;
-    GenTree* op2     = nullptr;
-
     switch (intrinsic)
     {
         case NI_AVX2_PermuteVar8x32:
@@ -1526,63 +1526,36 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
             // swap the two operands
             GenTree* indexVector  = impSIMDPopStack(TYP_SIMD32);
             GenTree* sourceVector = impSIMDPopStack(TYP_SIMD32);
-            retNode =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, baseType, 32, indexVector, sourceVector);
-            break;
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, baseType, 32, indexVector,
+                                            sourceVector);
         }
 
         case NI_AVX2_GatherMaskVector128:
         case NI_AVX2_GatherMaskVector256:
         {
-            CORINFO_ARG_LIST_HANDLE argList = sig->args;
-            CORINFO_CLASS_HANDLE    argClass;
-            var_types               argType = TYP_UNKNOWN;
-
             assert(sig->numArgs == 5);
-            CORINFO_ARG_LIST_HANDLE arg2 = info.compCompHnd->getArgNext(argList);
-            CORINFO_ARG_LIST_HANDLE arg3 = info.compCompHnd->getArgNext(arg2);
-            CORINFO_ARG_LIST_HANDLE arg4 = info.compCompHnd->getArgNext(arg3);
-            CORINFO_ARG_LIST_HANDLE arg5 = info.compCompHnd->getArgNext(arg4);
 
-            argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg5, &argClass)));
-            GenTree* op5 =
-                getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
-            SetOpLclRelatedToSIMDIntrinsic(op5);
-
-            argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg4, &argClass)));
-            GenTree* op4 =
-                getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
-            SetOpLclRelatedToSIMDIntrinsic(op4);
-
-            argType                 = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg3, &argClass)));
-            var_types indexbaseType = typGetObjLayout(argClass)->GetElementType();
-            GenTree*  op3 =
-                getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
-            SetOpLclRelatedToSIMDIntrinsic(op3);
-
-            argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg2, &argClass)));
-            op2     = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
-            SetOpLclRelatedToSIMDIntrinsic(op2);
-
-            argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
-            op1     = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
-            SetOpLclRelatedToSIMDIntrinsic(op1);
+            GenTree* op5 = getArgForHWIntrinsic(signature.paramType[4], signature.paramLayout[4]);
+            GenTree* op4 = getArgForHWIntrinsic(signature.paramType[3], signature.paramLayout[3]);
+            GenTree* op3 = getArgForHWIntrinsic(signature.paramType[2], signature.paramLayout[2]);
+            GenTree* op2 = getArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
+            GenTree* op1 = getArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
 
             ClassLayout* retLayout = typGetObjLayout(sig->retTypeClass);
             var_types    baseType  = retLayout->GetElementType();
             var_types    retType   = retLayout->GetSIMDType();
             unsigned     simdSize  = retLayout->GetSize();
 
-            retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4, op5);
-            retNode->AsHWIntrinsic()->SetAuxiliaryType(indexbaseType);
-            break;
+            GenTreeHWIntrinsic* retNode =
+                gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4, op5);
+            retNode->SetAuxiliaryType(signature.paramLayout[2]->GetElementType());
+            return retNode;
         }
 
         default:
             JITDUMP("Not implemented hardware intrinsic");
-            break;
+            return nullptr;
     }
-    return retNode;
 }
 
 GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig)

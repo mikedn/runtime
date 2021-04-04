@@ -466,42 +466,36 @@ static bool isSupportedBaseType(NamedIntrinsic intrinsic, var_types baseType)
     return false;
 }
 
-struct HWIntrinsicSignatureReader final
+void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
 {
-    var_types    paramType[4];
-    ClassLayout* paramLayout[4];
+    ICorJitInfo*            vm              = compiler->info.compCompHnd;
+    CORINFO_ARG_LIST_HANDLE param           = sig->args;
+    CORINFO_CLASS_HANDLE    prevParamClass  = NO_CLASS_HANDLE;
+    ClassLayout*            prevParamLayout = nullptr;
 
-    void Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
+    for (unsigned i = 0; i < min(_countof(paramType), sig->numArgs); i++, param = vm->getArgNext(param))
     {
-        ICorJitInfo*            vm              = compiler->info.compCompHnd;
-        CORINFO_ARG_LIST_HANDLE param           = sig->args;
-        CORINFO_CLASS_HANDLE    prevParamClass  = NO_CLASS_HANDLE;
-        ClassLayout*            prevParamLayout = nullptr;
+        CORINFO_CLASS_HANDLE paramClass;
+        paramType[i] = JITtype2varType(strip(vm->getArgType(sig, param, &paramClass)));
 
-        for (unsigned i = 0; i < min(_countof(paramType), sig->numArgs); i++, param = vm->getArgNext(param))
+        if (paramType[i] != TYP_STRUCT)
         {
-            CORINFO_CLASS_HANDLE paramClass;
-            paramType[i] = JITtype2varType(strip(vm->getArgType(sig, param, &paramClass)));
-
-            if (paramType[i] != TYP_STRUCT)
+            paramLayout[i] = nullptr;
+        }
+        else
+        {
+            // Most HW intrinsics have arguments of the same type so in
+            // many cases we can avoid a ClassLayout table lookup.
+            if (prevParamClass != paramClass)
             {
-                paramLayout[i] = nullptr;
+                prevParamClass  = paramClass;
+                prevParamLayout = compiler->typGetObjLayout(prevParamClass);
             }
-            else
-            {
-                // Most HW intrinsics have arguments of the same type so in
-                // many cases we can avoid a ClassLayout table lookup.
-                if (prevParamClass != paramClass)
-                {
-                    prevParamClass  = paramClass;
-                    prevParamLayout = compiler->typGetObjLayout(prevParamClass);
-                }
 
-                paramLayout[i] = prevParamLayout;
-            }
+            paramLayout[i] = prevParamLayout;
         }
     }
-};
+}
 
 //------------------------------------------------------------------------
 // impHWIntrinsic: Import a hardware intrinsic as a GT_HWINTRINSIC node if possible
@@ -583,7 +577,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
     GenTree* immOp = nullptr;
 
-    HWIntrinsicSignatureReader sigReader;
+    HWIntrinsicSignature sigReader;
     sigReader.Read(this, sig);
 
 #ifdef TARGET_ARM64
@@ -936,7 +930,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
         return retNode;
     }
 
-    return impSpecialIntrinsic(intrinsic, clsHnd, method, sig, baseType, retType, simdSize);
+    return impSpecialIntrinsic(intrinsic, clsHnd, method, sig, baseType, retType, simdSize, sigReader);
 }
 
 #ifdef DEBUG

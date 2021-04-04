@@ -307,10 +307,13 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         compFloatingPointUsed = true;
     }
 
+    HWIntrinsicSignature signature;
+    signature.Read(this, sig);
+
     if (hwIntrinsic == intrinsic)
     {
         // The SIMD intrinsic requires special handling outside the normal code path
-        return impSimdAsHWIntrinsicSpecial(intrinsic, clsHnd, sig, retType, baseType, simdSize, newobjThis);
+        return impSimdAsHWIntrinsicSpecial(intrinsic, clsHnd, sig, retType, baseType, simdSize, newobjThis, signature);
     }
 
     CORINFO_InstructionSet hwIntrinsicIsa = HWIntrinsicInfo::lookupIsa(hwIntrinsic);
@@ -321,41 +324,34 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
-    CORINFO_ARG_LIST_HANDLE argList = sig->args;
-    var_types               argType = TYP_UNKNOWN;
-
-    GenTree* op1 = nullptr;
-    GenTree* op2 = nullptr;
-
     switch (numArgs)
     {
         case 0:
-        {
-            assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
             return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize);
-        }
 
         case 1:
         {
-            argType = isInstanceMethod ? simdType
-                                       : JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
-            op1 = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass),
-                                       isInstanceMethod);
+            ClassLayout* simdLayout = isInstanceMethod ? typGetObjLayout(argClass) : nullptr;
+            var_types    argType    = isInstanceMethod ? simdType : signature.paramType[0];
+            ClassLayout* argLayout  = isInstanceMethod ? simdLayout : signature.paramLayout[0];
 
-            assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
+            GenTree* op1 = getArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
+
             return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, op1);
         }
 
         case 2:
         {
-            CORINFO_ARG_LIST_HANDLE arg2 = isInstanceMethod ? argList : info.compCompHnd->getArgNext(argList);
-            argType                      = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg2, &argClass)));
-            op2 = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
+            ClassLayout* simdLayout = isInstanceMethod ? typGetObjLayout(argClass) : nullptr;
+            var_types    argType    = isInstanceMethod ? signature.paramType[0] : signature.paramType[1];
+            ClassLayout* argLayout  = isInstanceMethod ? signature.paramLayout[0] : signature.paramLayout[1];
 
-            argType = isInstanceMethod ? simdType
-                                       : JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
-            op1 = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass),
-                                       isInstanceMethod);
+            GenTree* op2 = getArgForHWIntrinsic(argType, argLayout);
+
+            argType   = isInstanceMethod ? simdType : signature.paramType[0];
+            argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
+
+            GenTree* op1 = getArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
 
             if (SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic))
             {
@@ -364,10 +360,11 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 
             return gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, baseType, simdSize, op1, op2);
         }
-    }
 
-    assert(!"Unexpected SimdAsHWIntrinsic");
-    return nullptr;
+        default:
+            assert(!"Unexpected SimdAsHWIntrinsic");
+            return nullptr;
+    }
 }
 
 //------------------------------------------------------------------------
@@ -385,13 +382,14 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 // Return Value:
 //    The GT_HWINTRINSIC node, or nullptr if not a supported intrinsic
 //
-GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
-                                               CORINFO_CLASS_HANDLE clsHnd,
-                                               CORINFO_SIG_INFO*    sig,
-                                               var_types            retType,
-                                               var_types            baseType,
-                                               unsigned             simdSize,
-                                               GenTree*             newobjThis)
+GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
+                                               CORINFO_CLASS_HANDLE        clsHnd,
+                                               CORINFO_SIG_INFO*           sig,
+                                               var_types                   retType,
+                                               var_types                   baseType,
+                                               unsigned                    simdSize,
+                                               GenTree*                    newobjThis,
+                                               const HWIntrinsicSignature& signature)
 {
     assert(featureSIMD);
     assert(retType != TYP_UNKNOWN);
@@ -402,13 +400,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
     var_types simdType = getSIMDTypeForSize(simdSize);
     assert(varTypeIsSIMD(simdType));
 
-    CORINFO_ARG_LIST_HANDLE argList  = sig->args;
-    var_types               argType  = TYP_UNKNOWN;
-    CORINFO_CLASS_HANDLE    argClass = NO_CLASS_HANDLE;
-
-    GenTree* op1 = nullptr;
-    GenTree* op2 = nullptr;
-    GenTree* op3 = nullptr;
+    CORINFO_CLASS_HANDLE argClass = NO_CLASS_HANDLE;
 
     SimdAsHWIntrinsicClassId classId          = SimdAsHWIntrinsicInfo::lookupClassId(intrinsic);
     unsigned                 numArgs          = sig->numArgs;
@@ -504,6 +496,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                 case NI_VectorT128_get_One:
                 case NI_VectorT256_get_One:
                 {
+                    GenTree* op1;
+
                     switch (baseType)
                     {
                         case TYP_BYTE:
@@ -554,6 +548,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                 case NI_Vector4_get_One:
                 case NI_VectorT128_get_One:
                 {
+                    GenTree* op1;
+
                     switch (baseType)
                     {
                         case TYP_BYTE:
@@ -627,19 +623,19 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                 // type system. It is safe to do this here since the op1 type
                 // and the signature return type are both the same TYP_SIMD.
 
-                op1 = impSIMDPopStack(retType);
+                GenTree* op1 = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(op1);
                 assert(op1->GetType() == typGetObjLayout(sig->retTypeClass)->GetSIMDType());
 
                 return op1;
             }
 
-            argType = isInstanceMethod ? simdType
-                                       : JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
-            op1 = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass),
-                                       isInstanceMethod);
+            ClassLayout* simdLayout = isInstanceMethod ? typGetObjLayout(argClass) : nullptr;
 
-            assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
+            var_types    argType   = isInstanceMethod ? simdType : signature.paramType[0];
+            ClassLayout* argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
+
+            GenTree* op1 = getArgForHWIntrinsic(argType, argLayout, isInstanceMethod);
 
             switch (intrinsic)
             {
@@ -738,14 +734,16 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
 
         case 2:
         {
-            CORINFO_ARG_LIST_HANDLE arg2 = isInstanceMethod ? argList : info.compCompHnd->getArgNext(argList);
-            argType                      = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg2, &argClass)));
-            op2 = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
+            ClassLayout* simdLayout = isInstanceMethod ? typGetObjLayout(argClass) : nullptr;
+            var_types    argType    = isInstanceMethod ? signature.paramType[0] : signature.paramType[1];
+            ClassLayout* argLayout  = isInstanceMethod ? signature.paramLayout[0] : signature.paramLayout[1];
 
-            argType = isInstanceMethod ? simdType
-                                       : JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
-            op1 = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass),
-                                       isInstanceMethod, newobjThis);
+            GenTree* op2 = getArgForHWIntrinsic(argType, argLayout);
+
+            argType   = isInstanceMethod ? simdType : signature.paramType[0];
+            argLayout = isInstanceMethod ? simdLayout : signature.paramLayout[0];
+
+            GenTree* op1 = getArgForHWIntrinsic(argType, argLayout, isInstanceMethod, newobjThis);
 
             assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
 
@@ -1014,20 +1012,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
         case 3:
         {
             assert(newobjThis == nullptr);
+            assert(!isInstanceMethod);
 
-            CORINFO_ARG_LIST_HANDLE arg2 = isInstanceMethod ? argList : info.compCompHnd->getArgNext(argList);
-            CORINFO_ARG_LIST_HANDLE arg3 = info.compCompHnd->getArgNext(arg2);
-
-            argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg3, &argClass)));
-            op3     = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
-
-            argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg2, &argClass)));
-            op2     = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass));
-
-            argType = isInstanceMethod ? simdType
-                                       : JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
-            op1 = getArgForHWIntrinsic(argType, argClass == NO_CLASS_HANDLE ? nullptr : typGetObjLayout(argClass),
-                                       isInstanceMethod, newobjThis);
+            GenTree* op3 = getArgForHWIntrinsic(signature.paramType[2], signature.paramLayout[2]);
+            GenTree* op2 = getArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
+            GenTree* op1 = getArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
 
             assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
 

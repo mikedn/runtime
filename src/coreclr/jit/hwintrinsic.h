@@ -701,6 +701,14 @@ struct HWIntrinsicInfo
 #endif // TARGET_ARM64
 };
 
+struct HWIntrinsicSignature final
+{
+    var_types    paramType[5];
+    ClassLayout* paramLayout[5];
+
+    void Read(class Compiler* compiler, CORINFO_SIG_INFO* sig);
+};
+
 #ifdef TARGET_ARM64
 
 struct HWIntrinsic final

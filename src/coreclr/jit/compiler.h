@@ -3149,13 +3149,14 @@ protected:
 protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
-    GenTree* impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
-                                         CORINFO_CLASS_HANDLE clsHnd,
-                                         CORINFO_SIG_INFO*    sig,
-                                         var_types            retType,
-                                         var_types            baseType,
-                                         unsigned             simdSize,
-                                         GenTree*             newobjThis);
+    GenTree* impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
+                                         CORINFO_CLASS_HANDLE        clsHnd,
+                                         CORINFO_SIG_INFO*           sig,
+                                         var_types                   retType,
+                                         var_types                   baseType,
+                                         unsigned                    simdSize,
+                                         GenTree*                    newobjThis,
+                                         const HWIntrinsicSignature& signature);
 
     GenTree* impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
                                         var_types            retType,
@@ -3165,13 +3166,14 @@ protected:
                                         GenTree*             op2,
                                         GenTree*             op3);
 
-    GenTree* impSpecialIntrinsic(NamedIntrinsic        intrinsic,
-                                 CORINFO_CLASS_HANDLE  clsHnd,
-                                 CORINFO_METHOD_HANDLE method,
-                                 CORINFO_SIG_INFO*     sig,
-                                 var_types             baseType,
-                                 var_types             retType,
-                                 unsigned              simdSize);
+    GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
+                                 CORINFO_CLASS_HANDLE        clsHnd,
+                                 CORINFO_METHOD_HANDLE       method,
+                                 CORINFO_SIG_INFO*           sig,
+                                 var_types                   baseType,
+                                 var_types                   retType,
+                                 unsigned                    simdSize,
+                                 const HWIntrinsicSignature& signature);
 
     GenTree* getArgForHWIntrinsic(var_types    paramType,
                                   ClassLayout* paramLayout,
@@ -3191,7 +3193,10 @@ protected:
                               unsigned              simdSize);
     GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig);
     GenTree* impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig);
-    GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig);
+    GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic              intrinsic,
+                                   CORINFO_METHOD_HANDLE       method,
+                                   CORINFO_SIG_INFO*           sig,
+                                   const HWIntrinsicSignature& signature);
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig);
 
     GenTree* impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
