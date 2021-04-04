@@ -86,42 +86,6 @@ int Compiler::getSIMDTypeAlignment(var_types simdType)
 #endif
 }
 
-var_types Compiler::getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, unsigned* sizeBytes /*= nullptr */)
-{
-    assert(supportSIMDTypes());
-
-    if (sizeBytes != nullptr)
-    {
-        *sizeBytes = 0;
-    }
-
-    if (typeHnd == NO_CLASS_HANDLE)
-    {
-        return TYP_UNKNOWN;
-    }
-
-    uint32_t classAttribs = info.compCompHnd->getClassAttribs(typeHnd);
-
-    if ((classAttribs & CORINFO_FLG_VALUECLASS) == 0)
-    {
-        return TYP_UNKNOWN;
-    }
-
-    ClassLayout* layout = typGetObjLayout(typeHnd);
-
-    if (!layout->IsVector())
-    {
-        return TYP_UNKNOWN;
-    }
-
-    if (sizeBytes != nullptr)
-    {
-        *sizeBytes = varTypeSize(layout->GetSIMDType());
-    }
-
-    return layout->GetElementType();
-}
-
 const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           className,
                                                         const char*           methodName,
                                                         CORINFO_SIG_INFO*     sig,

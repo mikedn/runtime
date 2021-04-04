@@ -194,8 +194,8 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 
     CORINFO_CLASS_HANDLE argClass         = NO_CLASS_HANDLE;
     var_types            retType          = JITtype2varType(sig->retType);
-    var_types            baseType         = TYP_UNKNOWN;
-    var_types            simdType         = TYP_UNKNOWN;
+    var_types            baseType         = TYP_UNDEF;
+    var_types            simdType         = TYP_UNDEF;
     unsigned             simdSize         = 0;
     unsigned             numArgs          = sig->numArgs;
     bool                 isInstanceMethod = false;
@@ -206,25 +206,56 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (!isStaticVectorClass)
     {
-        baseType = getBaseTypeAndSizeOfSIMDType(clsHnd, &simdSize);
+        // If it isn't the static Vector class then this must be one of the vector types
+        // in System.Numerics - Vector2/3/4/<T>. Note that all System.Numerics intrinsic
+        // types are structs so we shouldn't need the isValueClass check but it looks
+        // like we can also get here when devirtualizing IEquatable`1.Equals and then the
+        // class is IEquatable`1 and not the original vector struct.
 
-        if (!varTypeIsArithmetic(baseType))
+        if (!info.compCompHnd->isValueClass(clsHnd))
         {
-            // We want to exit early if the clsHnd should have a base type and it isn't one
-            // of the supported types. This handles cases like op_Explicit which take a Vector<T>
             return nullptr;
         }
+
+        ClassLayout* layout = typGetObjLayout(clsHnd);
+
+        if (!layout->IsVector())
+        {
+            return nullptr;
+        }
+
+        baseType = layout->GetElementType();
+        simdSize = layout->GetSize();
     }
 
     if (retType == TYP_STRUCT)
     {
-        baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass, &simdSize);
-        retType  = getSIMDTypeForSize(simdSize);
+        ClassLayout* retLayout = typGetObjLayout(sig->retTypeClass);
+        assert(retLayout->IsVector());
+        baseType = retLayout->GetElementType();
+        retType  = retLayout->GetSIMDType();
+        simdSize = retLayout->GetSize();
     }
     else if (numArgs != 0)
     {
-        argClass = info.compCompHnd->getArgClass(sig, sig->args);
-        baseType = getBaseTypeAndSizeOfSIMDType(argClass, &simdSize);
+        // TODO-MIKE-Cleanup: Old code was bogus, this needs to be done only
+        // if the first argument is known to be a vector type. It could be a
+        // primitive type though (e.g. Vector2/3/4 constructors). This results
+        // in CreateBroadcast being ignored.
+
+        var_types argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, sig->args, &argClass)));
+
+        if (argType == TYP_STRUCT)
+        {
+            ClassLayout* argLayout = typGetObjLayout(argClass);
+            baseType               = argLayout->GetElementType();
+            simdSize               = argLayout->GetSize();
+        }
+        else
+        {
+            baseType = TYP_UNDEF;
+            simdSize = 0;
+        }
     }
 
     if (sig->hasThis())
@@ -245,7 +276,10 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         // a type different than the operation we need to perform. An example
         // is LessThan or Equals which takes double but returns long. This is
         // unlike the counterparts on Vector<T> which take a return the same type.
-        baseType = getBaseTypeAndSizeOfSIMDType(clsHnd, &simdSize);
+        ClassLayout* argLayout = typGetObjLayout(clsHnd);
+        assert(argLayout->IsVector());
+        baseType = argLayout->GetElementType();
+        simdSize = argLayout->GetSize();
     }
 
     if (!varTypeIsArithmetic(baseType) || (simdSize == 0))
@@ -424,12 +458,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
 #endif // TARGET_XARCH
         case NI_VectorT128_As:
         {
-            unsigned  retSimdSize;
-            var_types retBaseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass, &retSimdSize);
-
-            if (!varTypeIsArithmetic(retBaseType) || (retSimdSize == 0))
+            if (!typGetObjLayout(sig->retTypeClass)->IsVector())
             {
-                // We get here if the return type is an unsupported type
                 return nullptr;
             }
             break;
@@ -597,7 +627,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
 
                 op1 = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(op1);
-                assert(op1->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
+                assert(op1->GetType() == typGetObjLayout(sig->retTypeClass)->GetSIMDType());
 
                 return op1;
             }

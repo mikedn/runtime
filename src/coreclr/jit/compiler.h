@@ -2089,7 +2089,7 @@ public:
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
     CORINFO_CLASS_HANDLE gtGetStructHandleForHWSIMD(var_types simdType, var_types simdBaseType);
-    var_types getBaseTypeFromArgIfNeeded(NamedIntrinsic intrinsic, CORINFO_SIG_INFO* sig, var_types baseType);
+    var_types impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic intrinsic, CORINFO_SIG_INFO* sig, var_types baseType);
 #endif // FEATURE_HW_INTRINSICS
 
     GenTree* gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
@@ -7203,10 +7203,6 @@ private:
 #endif
             (strcmp(namespaceName, "System.Numerics") == 0);
     }
-
-    // Get the base (element) type and size in bytes for a SIMD type. Returns TYP_UNKNOWN
-    // if it is not a SIMD type or is an unsupported base type.
-    var_types getBaseTypeAndSizeOfSIMDType(CORINFO_CLASS_HANDLE typeHnd, unsigned* sizeBytes = nullptr);
 
     // Get SIMD Intrinsic info given the method handle.
     // Also sets typeHnd, argCount, baseType and sizeBytes out params.

@@ -574,7 +574,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
             retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
-            assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
+            assert(retNode->GetType() == typGetObjLayout(sig->retTypeClass)->GetSIMDType());
             break;
         }
 
@@ -596,7 +596,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
             retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
-            assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
+            assert(retNode->GetType() == typGetObjLayout(sig->retTypeClass)->GetSIMDType());
 
             break;
         }
@@ -617,7 +617,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
             retNode = impSIMDPopStack(retType);
             SetOpLclRelatedToSIMDIntrinsic(retNode);
-            assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
+            assert(retNode->GetType() == typGetObjLayout(sig->retTypeClass)->GetSIMDType());
 
             break;
         }
@@ -627,11 +627,10 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
             assert(sig->numArgs == 1);
             assert(HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic));
 
-            var_types baseTypeOfIntrinsic =
-                getBaseTypeAndSizeOfSIMDType(info.compCompHnd->getArgClass(sig, sig->args), &simdSize);
-            assert(baseType == baseTypeOfIntrinsic);
+            ClassLayout* argLayout = typGetObjLayout(info.compCompHnd->getArgClass(sig, sig->args));
+            assert(argLayout->GetElementType() == baseType);
 
-            switch (getSIMDTypeForSize(simdSize))
+            switch (argLayout->GetSIMDType())
             {
                 case TYP_SIMD8:
                 case TYP_SIMD12:
@@ -649,7 +648,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
                     retNode = impSIMDPopStack(retType);
                     SetOpLclRelatedToSIMDIntrinsic(retNode);
-                    assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
+                    assert(retNode->GetType() == typGetObjLayout(sig->retTypeClass)->GetSIMDType());
 
                     break;
                 }
@@ -682,7 +681,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
                 retNode = impSIMDPopStack(retType);
                 SetOpLclRelatedToSIMDIntrinsic(retNode);
-                assert(retNode->GetType() == typGetObjLayout(sig->retTypeSigClass)->GetSIMDType());
+                assert(retNode->GetType() == typGetObjLayout(sig->retTypeClass)->GetSIMDType());
 
                 break;
             }
@@ -1371,11 +1370,10 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic        intrinsic,
 
 GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig)
 {
-    GenTree*  retNode  = nullptr;
-    GenTree*  op1      = nullptr;
-    GenTree*  op2      = nullptr;
-    int       simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
-    var_types baseType = TYP_UNKNOWN;
+    GenTree* retNode  = nullptr;
+    GenTree* op1      = nullptr;
+    GenTree* op2      = nullptr;
+    int      simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
 
     // The Prefetch and StoreFence intrinsics don't take any SIMD operands
     // and have a simdSize of 0
@@ -1389,9 +1387,10 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAND
         case NI_SSE_CompareScalarNotGreaterThanOrEqual:
         {
             assert(sig->numArgs == 2);
-            op2      = impSIMDPopStack(TYP_SIMD16);
-            op1      = impSIMDPopStack(TYP_SIMD16);
-            baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass);
+            op2 = impSIMDPopStack(TYP_SIMD16);
+            op1 = impSIMDPopStack(TYP_SIMD16);
+
+            var_types baseType = typGetObjLayout(sig->retTypeClass)->GetElementType();
             assert(baseType == TYP_FLOAT);
 
             if (compOpportunisticallyDependsOn(InstructionSet_AVX))
@@ -1449,7 +1448,6 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
     GenTree*  op2      = nullptr;
     int       ival     = -1;
     int       simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
-    var_types baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass);
     var_types retType  = TYP_UNKNOWN;
 
     // The  fencing intrinsics don't take any operands and simdSize is 0
@@ -1468,6 +1466,8 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
             assert(sig->numArgs == 2);
             op2 = impSIMDPopStack(TYP_SIMD16);
             op1 = impSIMDPopStack(TYP_SIMD16);
+
+            var_types baseType = typGetObjLayout(sig->retTypeClass)->GetElementType();
             assert(baseType == TYP_DOUBLE);
 
             if (compOpportunisticallyDependsOn(InstructionSet_AVX))
@@ -1523,17 +1523,16 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HAN
 
 GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, CORINFO_SIG_INFO* sig)
 {
-    GenTree*  retNode  = nullptr;
-    GenTree*  op1      = nullptr;
-    GenTree*  op2      = nullptr;
-    var_types baseType = TYP_UNKNOWN;
-    int       simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
+    GenTree* retNode  = nullptr;
+    GenTree* op1      = nullptr;
+    GenTree* op2      = nullptr;
+    int      simdSize = HWIntrinsicInfo::lookupSimdSize(this, intrinsic, sig);
 
     switch (intrinsic)
     {
         case NI_AVX2_PermuteVar8x32:
         {
-            baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass);
+            var_types baseType = typGetObjLayout(sig->retTypeClass)->GetElementType();
             // swap the two operands
             GenTree* indexVector  = impSIMDPopStack(TYP_SIMD32);
             GenTree* sourceVector = impSIMDPopStack(TYP_SIMD32);
@@ -1548,9 +1547,6 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
             CORINFO_ARG_LIST_HANDLE argList = sig->args;
             CORINFO_CLASS_HANDLE    argClass;
             var_types               argType = TYP_UNKNOWN;
-            unsigned int            sizeBytes;
-            baseType          = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass, &sizeBytes);
-            var_types retType = getSIMDTypeForSize(sizeBytes);
 
             assert(sig->numArgs == 5);
             CORINFO_ARG_LIST_HANDLE arg2 = info.compCompHnd->getArgNext(argList);
@@ -1567,7 +1563,7 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
             SetOpLclRelatedToSIMDIntrinsic(op4);
 
             argType                 = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg3, &argClass)));
-            var_types indexbaseType = getBaseTypeAndSizeOfSIMDType(argClass);
+            var_types indexbaseType = typGetObjLayout(argClass)->GetElementType();
             GenTree*  op3           = getArgForHWIntrinsic(argType, argClass);
             SetOpLclRelatedToSIMDIntrinsic(op3);
 
@@ -1578,6 +1574,10 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, CORINFO_METHO
             argType = JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
             op1     = getArgForHWIntrinsic(argType, argClass);
             SetOpLclRelatedToSIMDIntrinsic(op1);
+
+            ClassLayout* retLayout = typGetObjLayout(sig->retTypeClass);
+            var_types    baseType  = retLayout->GetElementType();
+            var_types    retType   = retLayout->GetSIMDType();
 
             retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2, op3, op4, op5);
             retNode->AsHWIntrinsic()->SetAuxiliaryType(indexbaseType);

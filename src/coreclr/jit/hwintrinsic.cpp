@@ -40,48 +40,32 @@ const HWIntrinsicInfo& HWIntrinsicInfo::lookup(NamedIntrinsic id)
     return hwIntrinsicInfoArray[id - NI_HW_INTRINSIC_START - 1];
 }
 
-//------------------------------------------------------------------------
-// getBaseTypeFromArgIfNeeded: Get baseType of intrinsic from 1st or 2nd argument depending on the flag
-//
-// Arguments:
-//    intrinsic -- id of the intrinsic function.
-//    method    -- method handle of the intrinsic function.
-//    sig       -- signature of the intrinsic call.
-//    baseType  -- Predetermined baseType, could be TYP_UNKNOWN
-//
-// Return Value:
-//    The basetype of intrinsic of it can be fetched from 1st or 2nd argument, else return baseType unmodified.
-//
-var_types Compiler::getBaseTypeFromArgIfNeeded(NamedIntrinsic intrinsic, CORINFO_SIG_INFO* sig, var_types baseType)
+var_types Compiler::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
+                                                     CORINFO_SIG_INFO* sig,
+                                                     var_types         baseType)
 {
-    if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic))
+    assert(HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic));
+
+    CORINFO_ARG_LIST_HANDLE arg = sig->args;
+
+    if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic))
     {
-        CORINFO_ARG_LIST_HANDLE arg = sig->args;
-
-        if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic))
-        {
-            arg = info.compCompHnd->getArgNext(arg);
-        }
-
-        CORINFO_CLASS_HANDLE argClass = info.compCompHnd->getArgClass(sig, arg);
-        baseType                      = getBaseTypeAndSizeOfSIMDType(argClass);
-
-        if (baseType == TYP_UNKNOWN) // the argument is not a vector
-        {
-            CORINFO_CLASS_HANDLE tmpClass;
-            CorInfoType          corInfoType = strip(info.compCompHnd->getArgType(sig, arg, &tmpClass));
-
-            if (corInfoType == CORINFO_TYPE_PTR)
-            {
-                corInfoType = info.compCompHnd->getChildType(argClass, &tmpClass);
-            }
-
-            baseType = JITtype2varType(corInfoType);
-        }
-        assert(baseType != TYP_UNKNOWN);
+        arg = info.compCompHnd->getArgNext(arg);
     }
 
-    return baseType;
+    CORINFO_CLASS_HANDLE argClass;
+    CorInfoType          argCorType = strip(info.compCompHnd->getArgType(sig, arg, &argClass));
+
+    if (argCorType == CORINFO_TYPE_PTR)
+    {
+        argClass = info.compCompHnd->getArgClass(sig, arg);
+        CORINFO_CLASS_HANDLE childClassHandle;
+        return JITtype2varType(info.compCompHnd->getChildType(argClass, &childClassHandle));
+    }
+
+    var_types argType = JITtype2varType(argCorType);
+
+    return argType != TYP_STRUCT ? argType : typGetObjLayout(argClass)->GetElementType();
 }
 
 CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleForHWSIMD(var_types simdType, var_types simdBaseType)
@@ -252,12 +236,12 @@ unsigned HWIntrinsicInfo::lookupSimdSize(Compiler* comp, NamedIntrinsic id, CORI
     else
     {
         assert(JITtype2varType(sig->retType) == TYP_STRUCT);
-        typeHnd = sig->retTypeSigClass;
+        typeHnd = sig->retTypeClass;
     }
 
-    var_types baseType = comp->getBaseTypeAndSizeOfSIMDType(typeHnd, &simdSize);
-    assert((simdSize > 0) && (baseType != TYP_UNKNOWN));
-    return simdSize;
+    ClassLayout* layout = comp->typGetObjLayout(typeHnd);
+    assert(layout->IsVector());
+    return layout->GetSize();
 }
 
 //------------------------------------------------------------------------
@@ -321,11 +305,10 @@ GenTree* Compiler::getArgForHWIntrinsic(var_types            argType,
     {
         if (!varTypeIsSIMD(argType))
         {
-            unsigned int argSizeBytes;
-            var_types    base = getBaseTypeAndSizeOfSIMDType(argClass, &argSizeBytes);
-            argType           = getSIMDTypeForSize(argSizeBytes);
+            ClassLayout* argLayout = typGetObjLayout(argClass);
+            assert(argLayout->IsVector());
+            argType = argLayout->GetSIMDType();
         }
-        assert(varTypeIsSIMD(argType));
 
         if (newobjThis == nullptr)
         {
@@ -598,29 +581,32 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     HWIntrinsicCategory    category = HWIntrinsicInfo::lookupCategory(intrinsic);
     int                    numArgs  = sig->numArgs;
     var_types              retType  = JITtype2varType(sig->retType);
-    var_types              baseType = TYP_UNKNOWN;
+    var_types              baseType = TYP_UNDEF;
 
     if ((retType == TYP_STRUCT) && featureSIMD)
     {
-        unsigned sizeBytes;
-        baseType = getBaseTypeAndSizeOfSIMDType(sig->retTypeSigClass, &sizeBytes);
+        ClassLayout* retLayout = typGetObjLayout(sig->retTypeClass);
 
         // Currently all HW intrinsics return either vectors or primitive types, not structs.
-        if (!isSupportedBaseType(intrinsic, baseType))
+        if (!retLayout->IsVector())
         {
             return nullptr;
         }
 
-        retType = getSIMDTypeForSize(sizeBytes);
+        baseType = retLayout->GetElementType();
+        retType  = retLayout->GetSIMDType();
     }
 
-    baseType = getBaseTypeFromArgIfNeeded(intrinsic, sig, baseType);
+    if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic))
+    {
+        baseType = impGetHWIntrinsicBaseTypeFromArg(intrinsic, sig, baseType);
+    }
 
-    if (baseType == TYP_UNKNOWN)
+    if (baseType == TYP_UNDEF)
     {
         if (category != HW_Category_Scalar)
         {
-            baseType = getBaseTypeAndSizeOfSIMDType(clsHnd);
+            baseType = typGetObjLayout(clsHnd)->GetElementType();
         }
         else
         {
@@ -676,8 +662,10 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             return impNonConstFallback(intrinsic, retType, baseType);
         }
 
-        unsigned int otherSimdSize = 0;
-        var_types    otherBaseType = getBaseTypeAndSizeOfSIMDType(sigReader.op3ClsHnd, &otherSimdSize);
+        ClassLayout* sourceVectorLayout = typGetObjLayout(sigReader.op3ClsHnd);
+        assert(sourceVectorLayout->IsVector());
+        unsigned  otherSimdSize = sourceVectorLayout->GetSize();
+        var_types otherBaseType = sourceVectorLayout->GetElementType();
 
         assert(otherBaseType == baseType);
 
@@ -722,12 +710,19 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
             if (numArgs == 3)
             {
-                indexedElementBaseType = getBaseTypeAndSizeOfSIMDType(sigReader.op2ClsHnd, &indexedElementSimdSize);
+                ClassLayout* layout = typGetObjLayout(sigReader.op2ClsHnd);
+                assert(layout->IsVector());
+                indexedElementBaseType = layout->GetElementType();
+                indexedElementSimdSize = layout->GetSize();
             }
             else
             {
                 assert(numArgs == 4);
-                indexedElementBaseType = getBaseTypeAndSizeOfSIMDType(sigReader.op3ClsHnd, &indexedElementSimdSize);
+
+                ClassLayout* layout = typGetObjLayout(sigReader.op3ClsHnd);
+                assert(layout->IsVector());
+                indexedElementBaseType = layout->GetElementType();
+                indexedElementSimdSize = layout->GetSize();
 
                 if (intrinsic == NI_Dp_DotProductBySelectedQuadruplet)
                 {
@@ -867,12 +862,14 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                     case NI_AdvSimd_AddWideningUpper:
                     case NI_AdvSimd_SubtractWideningUpper:
                         assert(varTypeIsSIMD(op1->TypeGet()));
-                        retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeAndSizeOfSIMDType(sigReader.op1ClsHnd));
+                        retNode->AsHWIntrinsic()->SetAuxiliaryType(
+                            typGetObjLayout(sigReader.op1ClsHnd)->GetElementType());
                         break;
 
                     case NI_AdvSimd_Arm64_AddSaturateScalar:
                         assert(varTypeIsSIMD(op2->TypeGet()));
-                        retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeAndSizeOfSIMDType(sigReader.op2ClsHnd));
+                        retNode->AsHWIntrinsic()->SetAuxiliaryType(
+                            typGetObjLayout(sigReader.op2ClsHnd)->GetElementType());
                         break;
 
                     case NI_ArmBase_Arm64_MultiplyHigh:
@@ -930,7 +927,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
                 {
                     assert(varTypeIsSIMD(op2->TypeGet()));
-                    retNode->AsHWIntrinsic()->SetAuxiliaryType(getBaseTypeAndSizeOfSIMDType(sigReader.op2ClsHnd));
+                    retNode->AsHWIntrinsic()->SetAuxiliaryType(typGetObjLayout(sigReader.op2ClsHnd)->GetElementType());
                 }
 #elif defined(TARGET_ARM64)
                 if (category == HW_Category_SIMDByIndexedElement)
