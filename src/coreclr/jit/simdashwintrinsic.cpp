@@ -425,6 +425,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
     assert(varTypeIsArithmetic(baseType));
     assert(simdSize != 0);
     assert(SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType) == intrinsic);
+    assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
     assert(!sig.hasThisParam);
 #if defined(TARGET_XARCH)
     bool isVectorT256 = (SimdAsHWIntrinsicInfo::lookupClassId(intrinsic) == SimdAsHWIntrinsicClassId::VectorT256);
@@ -435,6 +436,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 #else
 #error Unsupported platform
 #endif
+
+    if (sig.paramCount > 3)
+    {
+        return nullptr;
+    }
 
     switch (intrinsic)
     {
@@ -471,6 +477,12 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
     }
 
     var_types retType = sig.retType;
+    GenTree*  ops[3];
+
+    for (unsigned i = sig.paramCount; i != 0; i--)
+    {
+        ops[i - 1] = impPopArgForHWIntrinsic(sig.paramType[i - 1], sig.paramLayout[i - 1]);
+    }
 
     switch (intrinsic)
     {
@@ -504,32 +516,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 #endif
         {
             assert(sig.paramCount == 1);
-            GenTree* op1 = impSIMDPopStack(retType);
-            SetOpLclRelatedToSIMDIntrinsic(op1);
-            assert(op1->GetType() == sig.retLayout->GetSIMDType());
-            return op1;
+            SetOpLclRelatedToSIMDIntrinsic(ops[0]);
+            assert(ops[0]->GetType() == sig.retLayout->GetSIMDType());
+            return ops[0];
         }
 
-        default:
-            break;
-    }
-
-    if ((sig.paramCount < 1) || (sig.paramCount > 3))
-    {
-        return nullptr;
-    }
-
-    GenTree* ops[3];
-
-    for (unsigned i = sig.paramCount; i != 0; i--)
-    {
-        ops[i - 1] = impPopArgForHWIntrinsic(sig.paramType[i - 1], sig.paramLayout[i - 1]);
-    }
-
-    assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
-
-    switch (intrinsic)
-    {
 #ifdef TARGET_XARCH
         case NI_Vector2_Abs:
         case NI_Vector3_Abs:
@@ -756,11 +747,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 #endif // TARGET_ARM64
 
         default:
-            break;
+            assert(!"Unexpected SimdAsHWIntrinsic");
+            return nullptr;
     }
-
-    assert(!"Unexpected SimdAsHWIntrinsic");
-    return nullptr;
 }
 
 GenTree* Compiler::impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrinsic,
