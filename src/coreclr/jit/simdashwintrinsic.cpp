@@ -719,6 +719,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 
             return gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_UnpackLow, baseType, simdSize, ops[0], ops[1]);
         }
+
+        case NI_VectorT128_ConditionalSelect:
+        case NI_VectorT256_ConditionalSelect:
+            assert(sig.paramCount == 3);
+            return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, ops[0], ops[1], ops[2]);
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
@@ -740,16 +745,15 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             ops[0] = impCloneExpr(ops[0], &dup[0], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Max/Min"));
             ops[1] = impCloneExpr(ops[1], &dup[1], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Max/Min"));
             ops[0] = gtNewSimdAsHWIntrinsicNode(retType, intrinsic, baseType, simdSize, ops[0], ops[1]);
-            return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, ops[0], dup[0], dup[1]);
+            return gtNewSimdAsHWIntrinsicNode(retType, NI_AdvSimd_BitwiseSelect, baseType, simdSize, ops[0], dup[0],
+                                              dup[1]);
         }
-#endif // TARGET_ARM64
 
         case NI_VectorT128_ConditionalSelect:
-#ifdef TARGET_XARCH
-        case NI_VectorT256_ConditionalSelect:
-#endif
             assert(sig.paramCount == 3);
-            return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, ops[0], ops[1], ops[2]);
+            return gtNewSimdAsHWIntrinsicNode(retType, NI_AdvSimd_BitwiseSelect, baseType, simdSize, ops[0], ops[1],
+                                              ops[2]);
+#endif // TARGET_ARM64
 
         default:
             break;
@@ -819,21 +823,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrin
 }
 }
 
-//------------------------------------------------------------------------
-// impSimdAsHWIntrinsicCndSel: Import a SIMD conditional select intrinsic
-//
-// Arguments:
-//    clsHnd     -- class handle containing the intrinsic function.
-//    retType    -- the return type of the intrinsic call
-//    baseType   -- the base type of SIMD type of the intrinsic
-//    simdSize   -- the size of the SIMD type of the intrinsic
-//    op1        -- the first operand of the intrinsic
-//    op2        -- the second operand of the intrinsic
-//    op3        -- the third operand of the intrinsic
-//
-// Return Value:
-//    The GT_HWINTRINSIC node representing the conditional select
-//
+#if defined(TARGET_XARCH)
+
 GenTree* Compiler::impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
                                               var_types            retType,
                                               var_types            baseType,
@@ -847,11 +838,6 @@ GenTree* Compiler::impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
     assert(varTypeIsArithmetic(baseType));
     assert(simdSize != 0);
     assert(varTypeIsSIMD(getSIMDTypeForSize(simdSize)));
-    assert(op1 != nullptr);
-    assert(op2 != nullptr);
-    assert(op3 != nullptr);
-
-#if defined(TARGET_XARCH)
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
     assert((simdSize != 32) || compIsaSupportedDebugOnly(InstructionSet_AVX2));
 
@@ -870,29 +856,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
     op2 = gtNewSimdAsHWIntrinsicNode(retType, andIntrinsic, baseType, simdSize, op2, op1);
     op3 = gtNewSimdAsHWIntrinsicNode(retType, andnIntrinsic, baseType, simdSize, op1Dup, op3);
     return gtNewSimdAsHWIntrinsicNode(retType, orIntrinsic, baseType, simdSize, op2, op3);
-#elif defined(TARGET_ARM64)
-    return gtNewSimdAsHWIntrinsicNode(retType, NI_AdvSimd_BitwiseSelect, baseType, simdSize, op1, op2, op3);
-#else
-#error Unsupported platform
-#endif // !TARGET_XARCH && !TARGET_ARM64
 }
 
-#if defined(TARGET_XARCH)
-//------------------------------------------------------------------------
-// impSimdAsHWIntrinsicRelOp: Import a SIMD relational operator intrinsic
-//
-// Arguments:
-//    intrinsic  -- id of the intrinsic function.
-//    clsHnd     -- class handle containing the intrinsic function.
-//    retType    -- the return type of the intrinsic call
-//    baseType   -- the base type of SIMD type of the intrinsic
-//    simdSize   -- the size of the SIMD type of the intrinsic
-//    op1        -- the first operand of the intrinsic
-//    op2        -- the second operand of the intrinsic
-//
-// Return Value:
-//    The GT_HWINTRINSIC node representing the relational operator
-//
 GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
                                              CORINFO_CLASS_HANDLE clsHnd,
                                              var_types            retType,
