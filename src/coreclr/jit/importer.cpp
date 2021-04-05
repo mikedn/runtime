@@ -2325,44 +2325,40 @@ GenTree* Compiler::impNewCatchArg()
     return arg;
 }
 
-/*****************************************************************************
- *
- *  Given a tree, clone it. *pClone is set to the cloned tree.
- *  Returns the original tree if the cloning was easy,
- *   else returns the temp to which the tree had to be spilled to.
- *  If the tree has side-effects, it will be spilled to a temp.
- */
+// Given a tree, clone it. *pClone is set to the cloned tree.
+// Returns the original tree if the cloning was easy,
+// else returns the temp to which the tree had to be spilled to.
+// If the tree has side-effects, it will be spilled to a temp.
+GenTree* Compiler::impCloneExpr(GenTree*     tree,
+                                GenTree**    clone,
+                                ClassLayout* layout,
+                                unsigned spillCheckLevel DEBUGARG(const char* reason))
+{
+    return impCloneExpr(tree, clone, layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle(),
+                        spillCheckLevel DEBUGARG(reason));
+}
 
 GenTree* Compiler::impCloneExpr(GenTree*             tree,
-                                GenTree**            pClone,
+                                GenTree**            clone,
                                 CORINFO_CLASS_HANDLE structHnd,
-                                unsigned curLevel DEBUGARG(const char* reason))
+                                unsigned spillCheckLevel DEBUGARG(const char* reason))
 {
-    if (!(tree->gtFlags & GTF_GLOB_EFFECT))
+    if ((tree->gtFlags & GTF_GLOB_EFFECT) == 0)
     {
-        GenTree* clone = gtClone(tree, true);
+        *clone = gtClone(tree, true);
 
-        if (clone)
+        if (*clone != nullptr)
         {
-            *pClone = clone;
             return tree;
         }
     }
 
-    /* Store the operand in a temp and return the temp */
+    unsigned lclNum = lvaGrabTemp(true DEBUGARG(reason));
+    impAssignTempGen(lclNum, tree, structHnd, spillCheckLevel);
+    var_types type = varActualType(lvaGetDesc(lclNum)->GetType());
 
-    unsigned temp = lvaGrabTemp(true DEBUGARG(reason));
-
-    // impAssignTempGen() may change tree->gtType to TYP_VOID for calls which
-    // return a struct type. It also may modify the struct type to a more
-    // specialized type (e.g. a SIMD type).  So we will get the type from
-    // the lclVar AFTER calling impAssignTempGen().
-
-    impAssignTempGen(temp, tree, structHnd, curLevel);
-    var_types type = genActualType(lvaTable[temp].TypeGet());
-
-    *pClone = gtNewLclvNode(temp, type);
-    return gtNewLclvNode(temp, type);
+    *clone = gtNewLclvNode(lclNum, type);
+    return gtNewLclvNode(lclNum, type);
 }
 
 /*****************************************************************************
