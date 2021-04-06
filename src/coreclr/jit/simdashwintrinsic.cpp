@@ -64,14 +64,8 @@ NamedIntrinsic SimdAsHWIntrinsicInfo::lookupId(CORINFO_SIG_INFO* sig,
         return NI_Illegal;
     }
 
-    unsigned numArgs          = sig->numArgs;
-    bool     isInstanceMethod = false;
-
-    if (sig->hasThis())
-    {
-        numArgs++;
-        isInstanceMethod = true;
-    }
+    bool     isInstanceMethod = sig->hasThis();
+    unsigned numArgs          = sig->numArgs + (isInstanceMethod ? 1 : 0);
 
     for (int i = 0; i < (NI_SIMD_AS_HWINTRINSIC_END - NI_SIMD_AS_HWINTRINSIC_START - 1); i++)
     {
@@ -249,7 +243,6 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             return nullptr;
         }
 
-        clsHnd   = layout->GetClassHandle();
         baseType = layout->GetElementType();
         simdSize = layout->GetSize();
     }
@@ -335,7 +328,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             default:
                 assert(newobjThis == nullptr);
                 assert(!signature.hasThisParam);
-                return impSimdAsHWIntrinsicSpecial(intrinsic, clsHnd, signature, baseType, simdSize);
+                return impSimdAsHWIntrinsicSpecial(intrinsic, signature, baseType, simdSize);
         }
     }
 
@@ -401,22 +394,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
     }
 }
 
-//------------------------------------------------------------------------
-// impSimdAsHWIntrinsicSpecial: Import a SIMD intrinsic as a GT_HWINTRINSIC node if possible
-//                              This method handles cases which cannot be table driven
-//
-// Arguments:
-//    intrinsic  -- id of the intrinsic function.
-//    clsHnd     -- class handle containing the intrinsic function.
-//    sig        -- signature of the intrinsic call
-//    baseType   -- the base type of SIMD type of the intrinsic
-//    simdSize   -- the size of the SIMD type of the intrinsic
-//
-// Return Value:
-//    The GT_HWINTRINSIC node, or nullptr if not a supported intrinsic
-//
 GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
-                                               CORINFO_CLASS_HANDLE        clsHnd,
                                                const HWIntrinsicSignature& sig,
                                                var_types                   baseType,
                                                unsigned                    simdSize)
@@ -476,8 +454,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             break;
     }
 
-    var_types retType = sig.retType;
-    GenTree*  ops[3];
+    var_types    retType   = sig.retType;
+    ClassLayout* retLayout = sig.retLayout;
+    GenTree*     ops[3];
 
     for (unsigned i = sig.paramCount; i != 0; i--)
     {
@@ -529,6 +508,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
         case NI_VectorT256_Abs:
         {
             assert(sig.paramCount == 1);
+            assert(retLayout == sig.paramLayout[0]);
 
             if (varTypeIsFloating(baseType))
             {
@@ -566,12 +546,12 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             }
 
             GenTree* dup[2];
-            ops[0] = impCloneExpr(ops[0], &dup[0], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
-            dup[0] = impCloneExpr(dup[0], &dup[1], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
+            ops[0] = impCloneExpr(ops[0], &dup[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
+            dup[0] = impCloneExpr(dup[0], &dup[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
 
             // op1 = op1 < Zero
             GenTree* tmp = gtNewSIMDVectorZero(retType, baseType, simdSize);
-            ops[0]       = impSimdAsHWIntrinsicRelOp(MapVectorTIntrinsic(NI_VectorT128_LessThan, isVectorT256), clsHnd,
+            ops[0] = impSimdAsHWIntrinsicRelOp(MapVectorTIntrinsic(NI_VectorT128_LessThan, isVectorT256), retLayout,
                                                retType, baseType, simdSize, ops[0], tmp);
 
             // tmp = Zero - op1Dup1
@@ -579,7 +559,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             tmp = gtNewSimdAsHWIntrinsicNode(retType, isVectorT256 ? NI_AVX2_Subtract : NI_SSE2_Subtract, baseType,
                                              simdSize, tmp, dup[0]);
 
-            return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, ops[0], tmp, dup[1]);
+            return impSimdAsHWIntrinsicCndSel(retLayout, retType, baseType, simdSize, ops[0], tmp, dup[1]);
         }
 
         case NI_Vector2_op_Division:
@@ -618,7 +598,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
         case NI_VectorT256_LessThan:
         case NI_VectorT256_LessThanOrEqual:
             assert(sig.paramCount == 2);
-            return impSimdAsHWIntrinsicRelOp(intrinsic, clsHnd, retType, baseType, simdSize, ops[0], ops[1]);
+            return impSimdAsHWIntrinsicRelOp(intrinsic, sig.paramLayout[0], retType, baseType, simdSize, ops[0],
+                                             ops[1]);
 
         case NI_VectorT128_Max:
         case NI_VectorT128_Min:
@@ -626,6 +607,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
         case NI_VectorT256_Min:
         {
             assert(sig.paramCount == 2);
+            assert((retLayout == sig.paramLayout[0]) && (retLayout == sig.paramLayout[1]));
 
             if ((baseType == TYP_BYTE) || (baseType == TYP_USHORT))
             {
@@ -653,9 +635,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                 GenTree* constVector[3];
                 constVector[0] = gtNewSimdCreateBroadcastNode(retType, constVal, TYP_INT, simdSize,
                                                               /* isSimdAsHWIntrinsic */ true);
-                constVector[0] = impCloneExpr(constVector[0], &constVector[1], clsHnd,
+                constVector[0] = impCloneExpr(constVector[0], &constVector[1], retLayout,
                                               CHECK_SPILL_ALL DEBUGARG("Clone constVector for Vector<T>.Max/Min"));
-                constVector[1] = impCloneExpr(constVector[1], &constVector[2], clsHnd,
+                constVector[1] = impCloneExpr(constVector[1], &constVector[2], retLayout,
                                               CHECK_SPILL_ALL DEBUGARG("Clone constVector for Vector<T>.Max/Min"));
 
                 ops[0] = gtNewSimdAsHWIntrinsicNode(retType, opIntrinsic, opType, simdSize, ops[0], constVector[0]);
@@ -675,16 +657,19 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             intrinsic = MapVectorTIntrinsic(intrinsic, isVectorT256);
 
             GenTree* dup[2];
-            ops[0] = impCloneExpr(ops[0], &dup[0], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Max/Min"));
-            ops[1] = impCloneExpr(ops[1], &dup[1], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Max/Min"));
-            ops[0] = impSimdAsHWIntrinsicRelOp(intrinsic, clsHnd, retType, baseType, simdSize, ops[0], ops[1]);
-            return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, ops[0], dup[0], dup[1]);
+            ops[0] =
+                impCloneExpr(ops[0], &dup[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Max/Min"));
+            ops[1] =
+                impCloneExpr(ops[1], &dup[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Max/Min"));
+            ops[0] = impSimdAsHWIntrinsicRelOp(intrinsic, retLayout, retType, baseType, simdSize, ops[0], ops[1]);
+            return impSimdAsHWIntrinsicCndSel(retLayout, retType, baseType, simdSize, ops[0], dup[0], dup[1]);
         }
 
         case NI_VectorT128_op_Multiply:
         {
             assert(baseType == TYP_INT);
             assert(sig.paramCount == 2);
+            assert((retLayout == sig.paramLayout[0]) && (retLayout == sig.paramLayout[1]));
 
             if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
             {
@@ -693,9 +678,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 
             GenTree* dup[2];
             ops[0] =
-                impCloneExpr(ops[0], &dup[0], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Multiply"));
+                impCloneExpr(ops[0], &dup[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Multiply"));
             ops[1] =
-                impCloneExpr(ops[1], &dup[1], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Multiply"));
+                impCloneExpr(ops[1], &dup[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Multiply"));
 
             ops[0] = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_ShiftRightLogical128BitLane, baseType, simdSize,
                                                 ops[0], gtNewIconNode(4, TYP_INT));
@@ -714,7 +699,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
         case NI_VectorT128_ConditionalSelect:
         case NI_VectorT256_ConditionalSelect:
             assert(sig.paramCount == 3);
-            return impSimdAsHWIntrinsicCndSel(clsHnd, retType, baseType, simdSize, ops[0], ops[1], ops[2]);
+            // TODO-MIKE-Cleanup: Types are messed up - baseType is extracted from the first ConditionalSelect
+            // parameter, this may be different from the return type (int/float, long/double).
+            return impSimdAsHWIntrinsicCndSel(sig.paramLayout[0], retType, baseType, simdSize, ops[0], ops[1], ops[2]);
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
@@ -728,13 +715,16 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
         {
             assert((baseType == TYP_LONG) || (baseType == TYP_ULONG));
             assert(sig.paramCount == 2);
+            assert((retLayout == sig.paramLayout[0]) && (retLayout == sig.paramLayout[1]));
 
             intrinsic = (intrinsic == NI_VectorT128_Max) ? NI_VectorT128_GreaterThan : NI_VectorT128_LessThan;
             intrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType);
 
             GenTree* dup[2];
-            ops[0] = impCloneExpr(ops[0], &dup[0], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Max/Min"));
-            ops[1] = impCloneExpr(ops[1], &dup[1], clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Max/Min"));
+            ops[0] =
+                impCloneExpr(ops[0], &dup[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Max/Min"));
+            ops[1] =
+                impCloneExpr(ops[1], &dup[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Max/Min"));
             ops[0] = gtNewSimdAsHWIntrinsicNode(retType, intrinsic, baseType, simdSize, ops[0], ops[1]);
             return gtNewSimdAsHWIntrinsicNode(retType, NI_AdvSimd_BitwiseSelect, baseType, simdSize, ops[0], dup[0],
                                               dup[1]);
@@ -811,13 +801,13 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrin
 
 #if defined(TARGET_XARCH)
 
-GenTree* Compiler::impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
-                                              var_types            retType,
-                                              var_types            baseType,
-                                              unsigned             simdSize,
-                                              GenTree*             op1,
-                                              GenTree*             op2,
-                                              GenTree*             op3)
+GenTree* Compiler::impSimdAsHWIntrinsicCndSel(ClassLayout* layout,
+                                              var_types    retType,
+                                              var_types    baseType,
+                                              unsigned     simdSize,
+                                              GenTree*     op1,
+                                              GenTree*     op2,
+                                              GenTree*     op3)
 {
     assert(featureSIMD);
     assert(retType != TYP_UNKNOWN);
@@ -838,19 +828,19 @@ GenTree* Compiler::impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,
     orIntrinsic   = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(orIntrinsic, baseType);
 
     GenTree* op1Dup;
-    op1 = impCloneExpr(op1, &op1Dup, clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.ConditionalSelect"));
+    op1 = impCloneExpr(op1, &op1Dup, layout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.ConditionalSelect"));
     op2 = gtNewSimdAsHWIntrinsicNode(retType, andIntrinsic, baseType, simdSize, op2, op1);
     op3 = gtNewSimdAsHWIntrinsicNode(retType, andnIntrinsic, baseType, simdSize, op1Dup, op3);
     return gtNewSimdAsHWIntrinsicNode(retType, orIntrinsic, baseType, simdSize, op2, op3);
 }
 
-GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
-                                             CORINFO_CLASS_HANDLE clsHnd,
-                                             var_types            retType,
-                                             var_types            baseType,
-                                             unsigned             simdSize,
-                                             GenTree*             op1,
-                                             GenTree*             op2)
+GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic intrinsic,
+                                             ClassLayout*   layout,
+                                             var_types      retType,
+                                             var_types      baseType,
+                                             unsigned       simdSize,
+                                             GenTree*       op1,
+                                             GenTree*       op2)
 {
     assert(featureSIMD);
     assert(retType != TYP_UNKNOWN);
@@ -906,7 +896,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
 
                 GenTree* tmp = gtNewSimdAsHWIntrinsicNode(retType, hwIntrinsic, TYP_INT, simdSize, op1, op2);
 
-                tmp = impCloneExpr(tmp, &op1, clsHnd, CHECK_SPILL_ALL DEBUGARG("Clone tmp for Vector<T>.Equals"));
+                tmp = impCloneExpr(tmp, &op1, layout, CHECK_SPILL_ALL DEBUGARG("Clone tmp for Vector<T>.Equals"));
 
                 op2 = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_Shuffle, TYP_INT, simdSize, tmp,
                                                  gtNewIconNode(SHUFFLE_ZWXY, TYP_INT));
@@ -958,12 +948,12 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
             NamedIntrinsic eqIntrinsic = MapVectorTIntrinsic(NI_VectorT128_Equals, isVectorT256);
 
             GenTree* dup[2];
-            op1 = impCloneExpr(op1, &dup[0], clsHnd,
+            op1 = impCloneExpr(op1, &dup[0], layout,
                                CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.GreaterThanOrEqual/LessThanOrEqual"));
-            op2 = impCloneExpr(op2, &dup[1], clsHnd,
+            op2 = impCloneExpr(op2, &dup[1], layout,
                                CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.GreaterThanOrEqual/LessThanOrEqual"));
-            op1 = impSimdAsHWIntrinsicRelOp(eqIntrinsic, clsHnd, retType, baseType, simdSize, op1, op2);
-            op2 = impSimdAsHWIntrinsicRelOp(intrinsic, clsHnd, retType, baseType, simdSize, dup[0], dup[1]);
+            op1 = impSimdAsHWIntrinsicRelOp(eqIntrinsic, layout, retType, baseType, simdSize, op1, op2);
+            op2 = impSimdAsHWIntrinsicRelOp(intrinsic, layout, retType, baseType, simdSize, dup[0], dup[1]);
 
             intrinsic = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseOr, isVectorT256);
             intrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType);
@@ -1022,7 +1012,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
                 constVector[0] = gtNewSimdCreateBroadcastNode(retType, constVal, constVal->GetType(), simdSize,
                                                               /* isSimdAsHWIntrinsic */ true);
                 constVector[0] =
-                    impCloneExpr(constVector[0], &constVector[1], clsHnd,
+                    impCloneExpr(constVector[0], &constVector[1], layout,
                                  CHECK_SPILL_ALL DEBUGARG("Clone constVector for Vector<T>.GreaterThan/LessThan"));
 
                 NamedIntrinsic hwIntrinsic = isVectorT256 ? NI_AVX2_Subtract : NI_SSE2_Subtract;
@@ -1074,20 +1064,20 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(NamedIntrinsic       intrinsic,
                 // result = BitwiseOr(op1, op2)
 
                 GenTree* dup[2][2];
-                op1 = impCloneExpr(op1, &dup[0][0], clsHnd,
+                op1 = impCloneExpr(op1, &dup[0][0], layout,
                                    CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.GreaterThan/LessThan"));
-                dup[0][0] = impCloneExpr(dup[0][0], &dup[0][1], clsHnd,
+                dup[0][0] = impCloneExpr(dup[0][0], &dup[0][1], layout,
                                          CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.GreaterThan/LessThan"));
-                op2 = impCloneExpr(op2, &dup[1][0], clsHnd,
+                op2 = impCloneExpr(op2, &dup[1][0], layout,
                                    CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.GreaterThan/LessThan"));
-                dup[1][0] = impCloneExpr(dup[1][0], &dup[1][1], clsHnd,
+                dup[1][0] = impCloneExpr(dup[1][0], &dup[1][1], layout,
                                          CHECK_SPILL_ALL DEBUGARG("Clone op2 Vector<T>.GreaterThan/LessThan"));
 
-                GenTree* t = impSimdAsHWIntrinsicRelOp(intrinsic, clsHnd, retType, TYP_INT, simdSize, op1, op2);
-                GenTree* u = impSimdAsHWIntrinsicRelOp(NI_VectorT128_Equals, clsHnd, retType, TYP_INT, simdSize,
+                GenTree* t = impSimdAsHWIntrinsicRelOp(intrinsic, layout, retType, TYP_INT, simdSize, op1, op2);
+                GenTree* u = impSimdAsHWIntrinsicRelOp(NI_VectorT128_Equals, layout, retType, TYP_INT, simdSize,
                                                        dup[0][0], dup[1][0]);
                 GenTree* v =
-                    impSimdAsHWIntrinsicRelOp(intrinsic, clsHnd, retType, TYP_UINT, simdSize, dup[0][1], dup[1][1]);
+                    impSimdAsHWIntrinsicRelOp(intrinsic, layout, retType, TYP_UINT, simdSize, dup[0][1], dup[1][1]);
 
                 op1 = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_Shuffle, TYP_INT, simdSize, t,
                                                  gtNewIconNode(SHUFFLE_WWYY, TYP_INT));
