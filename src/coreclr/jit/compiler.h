@@ -3156,10 +3156,8 @@ protected:
                                          unsigned                    simdSize);
 
     GenTree* impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrinsic,
-                                        CORINFO_CLASS_HANDLE        clsHnd,
                                         const HWIntrinsicSignature& signature,
-                                        var_types                   baseType,
-                                        unsigned                    simdSize,
+                                        ClassLayout*                thisLayout,
                                         GenTree*                    newobjThis);
 
     GenTree* impSimdAsHWIntrinsicCndSel(CORINFO_CLASS_HANDLE clsHnd,

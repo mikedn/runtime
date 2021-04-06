@@ -330,7 +330,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 #ifdef TARGET_XARCH
             case NI_VectorT256_CreateBroadcast:
 #endif
-                return impSimdAsHWIntrinsicCreate(intrinsic, clsHnd, signature, baseType, simdSize, newobjThis);
+                return impSimdAsHWIntrinsicCreate(intrinsic, signature, simdLayout, newobjThis);
 
             default:
                 assert(newobjThis == nullptr);
@@ -753,16 +753,12 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 }
 
 GenTree* Compiler::impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrinsic,
-                                              CORINFO_CLASS_HANDLE        clsHnd,
                                               const HWIntrinsicSignature& sig,
-                                              var_types                   baseType,
-                                              unsigned                    simdSize,
+                                              ClassLayout*                thisLayout,
                                               GenTree*                    newobjThis)
 {
-    assert(featureSIMD);
-    assert(varTypeIsArithmetic(baseType));
-    assert(simdSize != 0);
-    assert(SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType) == intrinsic);
+    assert(thisLayout->IsVector());
+    assert(SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, thisLayout->GetElementType()) == intrinsic);
 #if defined(TARGET_XARCH)
     bool isVectorT256 = (SimdAsHWIntrinsicInfo::lookupClassId(intrinsic) == SimdAsHWIntrinsicClassId::VectorT256);
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
@@ -799,12 +795,13 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrin
         }
 #endif
 
-            var_types simdType = getSIMDTypeForSize(simdSize);
-            GenTree*  op2      = impPopArgForHWIntrinsic(sig.paramType[0], nullptr);
-            GenTree*  op1      = impPopArgForHWIntrinsic(simdType, typGetObjLayout(clsHnd), true, newobjThis);
+            GenTree* op2 = impPopArgForHWIntrinsic(sig.paramType[0], nullptr);
+            GenTree* op1 = impPopArgForHWIntrinsic(thisLayout->GetSIMDType(), thisLayout, true, newobjThis);
 
-            return impAssignSIMDAddr(op1, gtNewSimdCreateBroadcastNode(simdType, op2, baseType, simdSize,
-                                                                       /* isSimdAsHWIntrinsic */ true));
+            return impAssignSIMDAddr(op1,
+                                     gtNewSimdCreateBroadcastNode(thisLayout->GetSIMDType(), op2,
+                                                                  thisLayout->GetElementType(), thisLayout->GetSize(),
+                                                                  /* isSimdAsHWIntrinsic */ true));
     }
 
     default:
