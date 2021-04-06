@@ -3151,21 +3151,14 @@ protected:
 
     GenTree* impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
                                          const HWIntrinsicSignature& signature,
-                                         var_types                   baseType,
-                                         unsigned                    simdSize);
+                                         ClassLayout*                layout);
 
     GenTree* impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrinsic,
                                         const HWIntrinsicSignature& signature,
                                         ClassLayout*                thisLayout,
                                         GenTree*                    newobjThis);
 
-    GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout,
-                                        var_types    retType,
-                                        var_types    baseType,
-                                        unsigned     simdSize,
-                                        GenTree*     op1,
-                                        GenTree*     op2,
-                                        GenTree*     op3);
+    GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
                                  CORINFO_CLASS_HANDLE        clsHnd,
@@ -3194,13 +3187,8 @@ protected:
     GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 
-    GenTree* impSimdAsHWIntrinsicRelOp(NamedIntrinsic intrinsic,
-                                       ClassLayout*   layout,
-                                       var_types      retType,
-                                       var_types      baseType,
-                                       unsigned       simdSize,
-                                       GenTree*       op1,
-                                       GenTree*       op2);
+    GenTree* impSimdAsHWIntrinsicRelOp(
+        NamedIntrinsic intrinsic, var_types baseType, ClassLayout* layout, GenTree* op1, GenTree* op2);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
     GenTree* impArrayAccessIntrinsic(CORINFO_CLASS_HANDLE clsHnd,

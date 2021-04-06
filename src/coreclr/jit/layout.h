@@ -179,6 +179,17 @@ public:
 #endif
     }
 
+    unsigned GetElementCount() const
+    {
+#ifdef FEATURE_SIMD
+        return ((m_gcPtrCount > 0) || (m_layoutInfo.vectorKind == VectorKind::None))
+                   ? 0
+                   : (m_size / varTypeSize(m_layoutInfo.elementType));
+#else
+        return 0;
+#endif
+    }
+
     //------------------------------------------------------------------------
     // GetRegisterType: Determine register type for the layout.
     //
