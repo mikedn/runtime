@@ -3229,6 +3229,7 @@ public:
     void impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
     void impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
     Statement* impExtractLastStmt();
+
     GenTree* impCloneExpr(GenTree*             tree,
                           GenTree**            clone,
                           CORINFO_CLASS_HANDLE structHnd,
@@ -3237,6 +3238,21 @@ public:
                           GenTree**    clone,
                           ClassLayout* layout,
                           unsigned spillCheckLevel DEBUGARG(const char* reason));
+    void impMakeMultiUse(GenTree*     tree,
+                         unsigned     useCount,
+                         GenTree**    uses,
+                         ClassLayout* layout,
+                         unsigned spillCheckLevel DEBUGARG(const char* reason));
+
+    template <unsigned useCount>
+    void impMakeMultiUse(GenTree* tree,
+                         GenTree* (&uses)[useCount],
+                         ClassLayout* layout,
+                         unsigned spillCheckLevel DEBUGARG(const char* reason))
+    {
+        impMakeMultiUse(tree, useCount, uses, layout, spillCheckLevel DEBUGARG(reason));
+    }
+
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
     GenTree* impAssignStructPtr(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 

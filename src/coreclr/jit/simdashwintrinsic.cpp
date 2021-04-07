@@ -549,22 +549,18 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                 return gtNewSimdAsHWIntrinsicNode(retType, NI_SSSE3_Abs, retBaseType, retSize, ops[0]);
             }
 
-            GenTree* dup[2];
-            ops[0] = impCloneExpr(ops[0], &dup[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
-            dup[0] = impCloneExpr(dup[0], &dup[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Abs"));
+            GenTree* uses[3];
+            impMakeMultiUse(ops[0], uses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs temp"));
 
-            // op1 = op1 < Zero
-            GenTree* tmp = gtNewSIMDVectorZero(retType, retBaseType, retSize);
+            NamedIntrinsic lessIntrinsic = MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX);
+            NamedIntrinsic subIntrinsic  = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
 
-            ops[0] = impSimdAsHWIntrinsicRelOp(MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX), retBaseType,
-                                               retLayout, ops[0], tmp);
+            GenTree* less = gtNewSIMDVectorZero(retType, retBaseType, retSize);
+            less          = impSimdAsHWIntrinsicRelOp(lessIntrinsic, retBaseType, retLayout, uses[0], less);
+            GenTree* neg  = gtNewSIMDVectorZero(retType, retBaseType, retSize);
+            neg           = gtNewSimdAsHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, neg, uses[1]);
 
-            // tmp = Zero - op1Dup1
-            tmp = gtNewSIMDVectorZero(retType, retBaseType, retSize);
-            tmp = gtNewSimdAsHWIntrinsicNode(retType, isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract, retBaseType, retSize,
-                                             tmp, dup[0]);
-
-            return impSimdAsHWIntrinsicCndSel(retLayout, ops[0], tmp, dup[1]);
+            return impSimdAsHWIntrinsicCndSel(retLayout, less, neg, uses[2]);
         }
 
         case NI_Vector2_op_Division:
@@ -643,95 +639,90 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
 
             if ((retBaseType == TYP_BYTE) || (retBaseType == TYP_USHORT))
             {
-                GenTree*  constVal = nullptr;
-                var_types opType   = retBaseType;
+                intrinsic = (intrinsic == NI_VectorT128_Max) ? NI_SSE2_Max : NI_SSE2_Min;
 
-                NamedIntrinsic opIntrinsic;
+                GenTree*       constVal;
+                NamedIntrinsic preIntrinsic;
+                NamedIntrinsic postIntrinsic;
 
-                switch (retBaseType)
+                if (retBaseType == TYP_BYTE)
                 {
-                    case TYP_BYTE:
-                        constVal = gtNewIconNode(0x80808080, TYP_INT);
-                        opIntrinsic =
-                            SimdAsHWIntrinsicInfo::lookupHWIntrinsic(NI_VectorT128_op_Subtraction, retBaseType);
-                        retBaseType = TYP_UBYTE;
-                        break;
-                    case TYP_USHORT:
-                        constVal    = gtNewIconNode(0x80008000, TYP_INT);
-                        opIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(NI_VectorT128_op_Addition, retBaseType);
-                        retBaseType = TYP_SHORT;
-                        break;
-                    default:
-                        unreached();
+                    constVal      = gtNewIconNode(0x80808080);
+                    preIntrinsic  = NI_SSE2_Subtract;
+                    postIntrinsic = NI_SSE2_Add;
+                    retBaseType   = TYP_UBYTE;
+                }
+                else
+                {
+                    constVal      = gtNewIconNode(0x80008000);
+                    preIntrinsic  = NI_SSE2_Add;
+                    postIntrinsic = NI_SSE2_Subtract;
+                    retBaseType   = TYP_SHORT;
                 }
 
-                GenTree* constVector[3];
-                constVector[0] = gtNewSimdCreateBroadcastNode(retType, constVal, TYP_INT, retSize,
-                                                              /* isSimdAsHWIntrinsic */ true);
-                constVector[0] = impCloneExpr(constVector[0], &constVector[1], retLayout,
-                                              CHECK_SPILL_ALL DEBUGARG("Clone constVector for Vector<T>.Max/Min"));
-                constVector[1] = impCloneExpr(constVector[1], &constVector[2], retLayout,
-                                              CHECK_SPILL_ALL DEBUGARG("Clone constVector for Vector<T>.Max/Min"));
+                GenTree* constVector =
+                    gtNewSimdCreateBroadcastNode(TYP_SIMD16, constVal, TYP_INT, 16, /* isSimdAsHWIntrinsic */ true);
+                GenTree* constUses[3];
+                impMakeMultiUse(constVector, constUses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
 
-                ops[0] = gtNewSimdAsHWIntrinsicNode(retType, opIntrinsic, opType, retSize, ops[0], constVector[0]);
-                ops[1] = gtNewSimdAsHWIntrinsicNode(retType, opIntrinsic, opType, retSize, ops[1], constVector[1]);
-
-                intrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, retBaseType);
-                ops[0]    = gtNewSimdAsHWIntrinsicNode(retType, intrinsic, retBaseType, retSize, ops[0], ops[1]);
-
-                intrinsic = (intrinsic == NI_VectorT128_op_Subtraction) ? NI_VectorT128_op_Addition
-                                                                        : NI_VectorT128_op_Subtraction;
-                intrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, opType);
-                return gtNewSimdAsHWIntrinsicNode(retType, intrinsic, opType, retSize, ops[0], constVector[2]);
+                ops[0] = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, preIntrinsic, retBaseType, 16, ops[0], constUses[0]);
+                ops[1] = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, preIntrinsic, retBaseType, 16, ops[1], constUses[1]);
+                ops[0] = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, intrinsic, retBaseType, 16, ops[0], ops[1]);
+                return gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, postIntrinsic, retBaseType, 16, ops[0], constUses[2]);
             }
 
-            intrinsic = (intrinsic == NI_VectorT128_Max) || (intrinsic == NI_VectorT256_Max) ? NI_VectorT128_GreaterThan
-                                                                                             : NI_VectorT128_LessThan;
-            intrinsic = MapVectorTIntrinsic(intrinsic, isAVX);
+            GenTree* uses[2][2];
+            impMakeMultiUse(ops[0], uses[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+            impMakeMultiUse(ops[1], uses[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
 
-            GenTree* dup[2];
-            ops[0] =
-                impCloneExpr(ops[0], &dup[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Max/Min"));
-            ops[1] =
-                impCloneExpr(ops[1], &dup[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Max/Min"));
+            switch (intrinsic)
+            {
+                case NI_VectorT128_Max:
+                    intrinsic = NI_VectorT128_GreaterThan;
+                    break;
+                case NI_VectorT256_Max:
+                    intrinsic = NI_VectorT256_GreaterThan;
+                    break;
+                case NI_VectorT128_Min:
+                    intrinsic = NI_VectorT128_LessThan;
+                    break;
+                default:
+                    intrinsic = NI_VectorT256_LessThan;
+                    break;
+            }
 
-            ops[0] = impSimdAsHWIntrinsicRelOp(intrinsic, retBaseType, retLayout, ops[0], ops[1]);
-
-            return impSimdAsHWIntrinsicCndSel(retLayout, ops[0], dup[0], dup[1]);
+            GenTree* condition = impSimdAsHWIntrinsicRelOp(intrinsic, retBaseType, retLayout, uses[0][0], uses[1][0]);
+            return impSimdAsHWIntrinsicCndSel(retLayout, condition, uses[0][1], uses[1][1]);
         }
 
         case NI_VectorT128_op_Multiply:
         {
             assert(sig.paramCount == 2);
             assert((retLayout == sig.paramLayout[0]) && (retLayout == sig.paramLayout[1]));
+            assert(retLayout->GetSIMDType() == TYP_SIMD16);
             assert(retLayout->GetElementType() == TYP_INT);
-
-            var_types retBaseType = retLayout->GetElementType();
-            unsigned  retSize     = retLayout->GetSize();
 
             if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
             {
-                return gtNewSimdAsHWIntrinsicNode(retType, NI_SSE41_MultiplyLow, retBaseType, retSize, ops[0], ops[1]);
+                return gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE41_MultiplyLow, TYP_INT, 16, ops[0], ops[1]);
             }
 
-            GenTree* dup[2];
-            ops[0] =
-                impCloneExpr(ops[0], &dup[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Multiply"));
-            ops[1] =
-                impCloneExpr(ops[1], &dup[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Multiply"));
+            GenTree* uses[2][2];
+            impMakeMultiUse(ops[0], uses[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Multiply temp"));
+            impMakeMultiUse(ops[1], uses[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Multiply temp"));
 
-            ops[0] = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_ShiftRightLogical128BitLane, retBaseType, retSize,
-                                                ops[0], gtNewIconNode(4, TYP_INT));
-            ops[1] = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_ShiftRightLogical128BitLane, retBaseType, retSize,
-                                                ops[1], gtNewIconNode(4, TYP_INT));
-            ops[1] = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_Multiply, TYP_ULONG, retSize, ops[1], ops[0]);
-            ops[1] = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_Shuffle, retBaseType, retSize, ops[1],
-                                                gtNewIconNode(SHUFFLE_XXZX, TYP_INT));
-            ops[0] = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_Multiply, TYP_ULONG, retSize, dup[0], dup[1]);
-            ops[0] = gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_Shuffle, retBaseType, retSize, ops[0],
-                                                gtNewIconNode(SHUFFLE_XXZX, TYP_INT));
+            GenTree* t = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, 16,
+                                                    uses[0][0], gtNewIconNode(4));
+            GenTree* u = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, 16,
+                                                    uses[1][0], gtNewIconNode(4));
 
-            return gtNewSimdAsHWIntrinsicNode(retType, NI_SSE2_UnpackLow, retBaseType, retSize, ops[0], ops[1]);
+            u = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_ULONG, 16, u, t);
+            u = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, u, gtNewIconNode(SHUFFLE_XXZX));
+
+            t = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_ULONG, 16, uses[0][1], uses[1][1]);
+            t = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, t, gtNewIconNode(SHUFFLE_XXZX));
+
+            return gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_INT, 16, t, u);
         }
 
         case NI_VectorT128_ConditionalSelect:
@@ -755,34 +746,33 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
         {
             assert(sig.paramCount == 2);
             assert((retLayout == sig.paramLayout[0]) && (retLayout == sig.paramLayout[1]));
+            assert(retLayout->GetSIMDType() == TYP_SIMD16);
             assert(varTypeIsLong(retLayout->GetElementType()));
 
             var_types retBaseType = retLayout->GetElementType();
-            unsigned  retSize     = retLayout->GetSize();
 
-            intrinsic = (intrinsic == NI_VectorT128_Max) ? NI_VectorT128_GreaterThan : NI_VectorT128_LessThan;
-            intrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, retBaseType);
+            intrinsic = (intrinsic == NI_VectorT128_Max) ? NI_AdvSimd_Arm64_CompareGreaterThan
+                                                         : NI_AdvSimd_Arm64_CompareLessThan;
 
-            GenTree* dup[2];
-            ops[0] =
-                impCloneExpr(ops[0], &dup[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.Max/Min"));
-            ops[1] =
-                impCloneExpr(ops[1], &dup[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.Max/Min"));
-            ops[0] = gtNewSimdAsHWIntrinsicNode(retType, intrinsic, retBaseType, retSize, ops[0], ops[1]);
-            return gtNewSimdAsHWIntrinsicNode(retType, NI_AdvSimd_BitwiseSelect, retBaseType, retSize, ops[0], dup[0],
-                                              dup[1]);
+            GenTree* uses[2][2];
+            impMakeMultiUse(ops[0], uses[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+            impMakeMultiUse(ops[1], uses[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+
+            GenTree* condition =
+                gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, intrinsic, retBaseType, 16, uses[0][0], uses[1][0]);
+            return gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, retBaseType, 16, condition,
+                                              uses[0][1], uses[1][1]);
         }
 
         case NI_VectorT128_ConditionalSelect:
-        {
             assert(sig.paramCount == 3);
-            // TODO-MIKE-Cleanup: Types are messed up - baseType is extracted from the first ConditionalSelect
-            // parameter, this may be different from the return type (int/float, long/double).
-            var_types retBaseType = sig.paramLayout[0]->GetElementType();
-            unsigned  retSize     = sig.paramLayout[0]->GetSize();
-            return gtNewSimdAsHWIntrinsicNode(retType, NI_AdvSimd_BitwiseSelect, retBaseType, retSize, ops[0], ops[1],
-                                              ops[2]);
-        }
+            assert(sig.paramLayout[1] == sig.paramLayout[2]);
+            assert(sig.paramLayout[0]->GetSIMDType() == sig.paramLayout[1]->GetSIMDType());
+            assert(retLayout == sig.paramLayout[1]);
+            assert(retLayout->GetSIMDType() == TYP_SIMD16);
+
+            return gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, retLayout->GetElementType(), 16,
+                                              ops[0], ops[1], ops[2]);
 #endif // TARGET_ARM64
 
         default:
@@ -866,10 +856,10 @@ GenTree* Compiler::impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1,
     andnIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(andnIntrinsic, baseType);
     orIntrinsic   = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(orIntrinsic, baseType);
 
-    GenTree* op1Dup;
-    op1 = impCloneExpr(op1, &op1Dup, layout, CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.ConditionalSelect"));
-    op2 = gtNewSimdAsHWIntrinsicNode(type, andIntrinsic, baseType, size, op2, op1);
-    op3 = gtNewSimdAsHWIntrinsicNode(type, andnIntrinsic, baseType, size, op1Dup, op3);
+    GenTree* uses[2];
+    impMakeMultiUse(op1, uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.ConditionalSelect temp"));
+    op2 = gtNewSimdAsHWIntrinsicNode(type, andIntrinsic, baseType, size, op2, uses[0]);
+    op3 = gtNewSimdAsHWIntrinsicNode(type, andnIntrinsic, baseType, size, uses[1], op3);
     return gtNewSimdAsHWIntrinsicNode(type, orIntrinsic, baseType, size, op2, op3);
 }
 
@@ -900,20 +890,18 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
                 return gtNewSimdAsHWIntrinsicNode(type, NI_SSE41_CompareEqual, baseType, size, op1, op2);
             }
 
-            // There is no direct SSE2 support for comparing TYP_LONG vectors.
-            // These have to be implemented in terms of TYP_INT vector comparison operations.
-            //
-            // PAND(PCMPEQD(op1, op2), PSHUFD(PCMPEQD(op1, op2), (2, 3, 0, 1)))
-            //
-            // Shuffle is meant to swap the comparison results of low-32-bits and high 32-bits of
-            // respective long elements.
+            // There is no direct SSE2 support for comparing LONG vectors.
+            // Compare as INT vectors and combine the lo/hi INT result parts
+            // using PSHUFD and AND:
+            //     PAND(PCMPEQD(op1, op2), PSHUFD(PCMPEQD(op1, op2), (2, 3, 0, 1)))
 
             GenTree* eq = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, op1, op2);
-            GenTree* shuffleEq;
-            eq = impCloneExpr(eq, &shuffleEq, layout, CHECK_SPILL_ALL DEBUGARG("Clone tmp for Vector<T>.Equals"));
-            shuffleEq = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, shuffleEq,
-                                                   gtNewIconNode(SHUFFLE_ZWXY, TYP_INT));
-            return gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, baseType, 16, shuffleEq, eq);
+            GenTree* eqUses[2];
+            impMakeMultiUse(eq, eqUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Equals temp"));
+
+            GenTree* shuffleEq = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, eqUses[0],
+                                                            gtNewIconNode(SHUFFLE_ZWXY));
+            return gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, baseType, 16, shuffleEq, eqUses[1]);
         }
 
         case NI_VectorT128_GreaterThanOrEqual:
@@ -924,15 +912,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
             // There is no direct support for doing a combined comparison and equality for integral types.
             // These have to be implemented by performing both halves and combining their results.
             //
-            // op1Dup = op1
-            // op2Dup = op2
-            //
-            // op1 = GreaterThan(op1, op2)
+            // op1 = Greater/LessThan(op1, op2)
             // op2 = Equals(op1Dup, op2Dup)
-            //
-            // result = BitwiseOr(op1, op2)
-            //
-            // Where the GreaterThan(op1, op2) comparison could also be LessThan(op1, op2)
+            // result = POR(op1, op2)
 
             NamedIntrinsic eqIntrinsic;
             NamedIntrinsic orIntrinsic;
@@ -963,15 +945,13 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
                     unreached();
             }
 
-            GenTree* dup[2];
-            op1 = impCloneExpr(op1, &dup[0], layout,
-                               CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.GreaterThanOrEqual/LessThanOrEqual"));
-            op2 = impCloneExpr(op2, &dup[1], layout,
-                               CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.GreaterThanOrEqual/LessThanOrEqual"));
+            GenTree* uses[2][2];
+            impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThanOrEqual temp"));
+            impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThanOrEqual temp"));
 
-            op1 = impSimdAsHWIntrinsicRelOp(eqIntrinsic, baseType, layout, op1, op2);
-            op2 = impSimdAsHWIntrinsicRelOp(intrinsic, baseType, layout, dup[0], dup[1]);
-            return gtNewSimdAsHWIntrinsicNode(type, orIntrinsic, baseType, size, op1, op2);
+            GenTree* eq   = impSimdAsHWIntrinsicRelOp(eqIntrinsic, baseType, layout, uses[0][0], uses[1][0]);
+            GenTree* less = impSimdAsHWIntrinsicRelOp(intrinsic, baseType, layout, uses[0][1], uses[1][1]);
+            return gtNewSimdAsHWIntrinsicNode(type, orIntrinsic, baseType, size, eq, less);
         }
 
         case NI_VectorT128_GreaterThan:
@@ -1014,16 +994,15 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
                         unreached();
                 }
 
-                GenTree* constVector[2];
-                constVector[0] = gtNewSimdCreateBroadcastNode(type, constVal, constVal->GetType(), size,
-                                                              /* isSimdAsHWIntrinsic */ true);
-                constVector[0] =
-                    impCloneExpr(constVector[0], &constVector[1], layout,
-                                 CHECK_SPILL_ALL DEBUGARG("Clone constVector for Vector<T>.GreaterThan/LessThan"));
+                GenTree* constVector = gtNewSimdCreateBroadcastNode(type, constVal, constVal->GetType(), size,
+                                                                    /* isSimdAsHWIntrinsic */ true);
+                GenTree* constUses[2];
+                impMakeMultiUse(constVector, constUses, layout,
+                                CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan const temp"));
 
-                NamedIntrinsic hwIntrinsic = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
-                op1 = gtNewSimdAsHWIntrinsicNode(type, hwIntrinsic, baseType, size, op1, constVector[0]);
-                op2 = gtNewSimdAsHWIntrinsicNode(type, hwIntrinsic, baseType, size, op2, constVector[1]);
+                NamedIntrinsic subIntrinsic = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
+                op1 = gtNewSimdAsHWIntrinsicNode(type, subIntrinsic, baseType, size, op1, constUses[0]);
+                op2 = gtNewSimdAsHWIntrinsicNode(type, subIntrinsic, baseType, size, op2, constUses[1]);
             }
 
             if (isAVX || (baseType != TYP_LONG))
@@ -1052,39 +1031,26 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
             //                    =  (x1, y1) > (x2, y2)
             //                    =  (x1 > x2) || [(x1 == x2) && (y1 > y2)]   - eq (1)
             //
-            // op1Dup1 = op1
-            // op1Dup2 = op1Dup1
-            // op2Dup1 = op2
-            // op2Dup2 = op2Dup1
-            //
             // t = PCMPGTD(op1, op2)
-            // u = PCMPEQD(op1Dup1, op2Dup1)
-            // v = unsigned emulated PCMPGTD(op1Dup2, op2Dup2)
-            //
-            // op1 = PSHUFD(t, (3, 3, 1, 1)) - This corresponds to (x1 > x2) in eq(1) above
-            // v = PSHUFD(v, (2, 2, 0, 0))   - This corresponds to (y1 > y2) in eq(1) above
-            // u = PSHUFD(u, (3, 3, 1, 1))   - This corresponds to (x1 == x2) in eq(1) above
-            // op2 = PAND(v, u)         - This corresponds to [(x1 == x2) && (y1 > y2)] in eq(1) above
-            //
-            // result = POR(op1, op2)
+            // u = PCMPEQD(op1, op2)
+            // v = unsigned emulated PCMPGTD(op1, op2)
+            // t = PSHUFD(t, (3, 3, 1, 1)) - This corresponds to (x1 > x2) in eq(1) above
+            // v = PSHUFD(v, (2, 2, 0, 0)) - This corresponds to (y1 > y2) in eq(1) above
+            // u = PSHUFD(u, (3, 3, 1, 1)) - This corresponds to (x1 == x2) in eq(1) above
+            // v = PAND(v, u)              - This corresponds to [(x1 == x2) && (y1 > y2)] in eq(1) above
+            // result = POR(t, v)
 
-            GenTree* dup[2][2];
-            op1 = impCloneExpr(op1, &dup[0][0], layout,
-                               CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.GreaterThan/LessThan"));
-            dup[0][0] = impCloneExpr(dup[0][0], &dup[0][1], layout,
-                                     CHECK_SPILL_ALL DEBUGARG("Clone op1 for Vector<T>.GreaterThan/LessThan"));
-            op2 = impCloneExpr(op2, &dup[1][0], layout,
-                               CHECK_SPILL_ALL DEBUGARG("Clone op2 for Vector<T>.GreaterThan/LessThan"));
-            dup[1][0] = impCloneExpr(dup[1][0], &dup[1][1], layout,
-                                     CHECK_SPILL_ALL DEBUGARG("Clone op2 Vector<T>.GreaterThan/LessThan"));
+            GenTree* uses[2][3];
+            impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.GreaterLessThan temp"));
+            impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan temp"));
 
-            GenTree* v = impSimdAsHWIntrinsicRelOp(intrinsic, TYP_UINT, layout, op1, op2);
+            GenTree* v = impSimdAsHWIntrinsicRelOp(intrinsic, TYP_UINT, layout, uses[0][0], uses[1][0]);
             v = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, v, gtNewIconNode(SHUFFLE_ZZXX));
             intrinsic = (intrinsic == NI_VectorT128_GreaterThan) ? NI_SSE2_CompareGreaterThan : NI_SSE2_CompareLessThan;
-            GenTree* t = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, intrinsic, TYP_INT, 16, dup[0][0], dup[1][0]);
+            GenTree* t = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, intrinsic, TYP_INT, 16, uses[0][1], uses[1][1]);
             t = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, t, gtNewIconNode(SHUFFLE_WWYY));
             GenTree* u =
-                gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, dup[0][1], dup[1][1]);
+                gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, uses[0][2], uses[1][2]);
             u = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, u, gtNewIconNode(SHUFFLE_WWYY));
             v = gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, TYP_INT, 16, v, u);
             return gtNewSimdAsHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_LONG, 16, t, v);

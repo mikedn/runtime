@@ -2361,6 +2361,39 @@ GenTree* Compiler::impCloneExpr(GenTree*             tree,
     return gtNewLclvNode(lclNum, type);
 }
 
+void Compiler::impMakeMultiUse(GenTree*     tree,
+                               unsigned     useCount,
+                               GenTree**    uses,
+                               ClassLayout* layout,
+                               unsigned spillCheckLevel DEBUGARG(const char* reason))
+{
+    assert(useCount > 1);
+
+    if ((tree->gtFlags & GTF_GLOB_EFFECT) == 0)
+    {
+        uses[0] = tree;
+        uses[1] = gtClone(tree, true);
+
+        if (uses[1] != nullptr)
+        {
+            for (unsigned i = 2; i < useCount; i++)
+            {
+                uses[i] = gtClone(tree, true);
+            }
+            return;
+        }
+    }
+
+    unsigned lclNum = lvaGrabTemp(true DEBUGARG(reason));
+    impAssignTempGen(lclNum, tree, layout, spillCheckLevel);
+    var_types type = varActualType(lvaGetDesc(lclNum)->GetType());
+
+    for (unsigned i = 0; i < useCount; i++)
+    {
+        uses[i] = gtNewLclvNode(lclNum, type);
+    }
+}
+
 /*****************************************************************************
  * Remember the IL offset (including stack-empty info) for the trees we will
  * generate now.
