@@ -716,7 +716,8 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             {
                 return impNonConstFallback(intrinsic, retType, baseType);
             }
-            else if (!mustExpand)
+
+            if (!mustExpand)
             {
                 // When the imm-argument is not a constant and we are not being forced to expand, we need to
                 // return nullptr so a GT_CALL to the intrinsic method is emitted instead. The
@@ -736,7 +737,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (!impIsTableDrivenHWIntrinsic(intrinsic, category))
     {
-        return impSpecialIntrinsic(intrinsic, clsHnd, sigReader, baseType, retType, simdSize);
+        return impSpecialIntrinsic(intrinsic, sigReader, baseType, retType, simdSize);
     }
 
     const bool isScalar = (category == HW_Category_Scalar);

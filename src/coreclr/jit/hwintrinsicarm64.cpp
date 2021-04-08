@@ -288,25 +288,8 @@ GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// impSpecialIntrinsic: Import a hardware intrinsic that requires special handling as a GT_HWINTRINSIC node if possible
-//
-// Arguments:
-//    intrinsic  -- id of the intrinsic function.
-//    clsHnd     -- class handle containing the intrinsic function.
-//    sig        -- signature of the intrinsic call.
-//    baseType   -- generic argument of the intrinsic.
-//    retType    -- return type of the intrinsic.
-//
-// Return Value:
-//    The GT_HWINTRINSIC node, or nullptr if not a supported intrinsic
-//
-GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
-                                       CORINFO_CLASS_HANDLE        clsHnd,
-                                       const HWIntrinsicSignature& sig,
-                                       var_types                   baseType,
-                                       var_types                   retType,
-                                       unsigned                    simdSize)
+GenTree* Compiler::impSpecialIntrinsic(
+    NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, var_types baseType, var_types retType, unsigned simdSize)
 {
     HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrinsic);
 

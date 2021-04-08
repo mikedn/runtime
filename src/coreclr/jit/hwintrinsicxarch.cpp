@@ -457,30 +457,14 @@ GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
     }
 }
 
-//------------------------------------------------------------------------
-// impSpecialIntrinsic: dispatch intrinsics to their own implementation
-//
-// Arguments:
-//    intrinsic  -- id of the intrinsic function.
-//    clsHnd     -- class handle containing the intrinsic function.
-//    sig        -- signature of the intrinsic call.
-//    baseType   -- generic argument of the intrinsic.
-//    retType    -- return type of the intrinsic.
-// Return Value:
-//    the expanded intrinsic.
-//
-GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
-                                       CORINFO_CLASS_HANDLE        clsHnd,
-                                       const HWIntrinsicSignature& sig,
-                                       var_types                   baseType,
-                                       var_types                   retType,
-                                       unsigned                    simdSize)
+GenTree* Compiler::impSpecialIntrinsic(
+    NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, var_types baseType, var_types retType, unsigned simdSize)
 {
     switch (HWIntrinsicInfo::lookupIsa(intrinsic))
     {
         case InstructionSet_Vector128:
         case InstructionSet_Vector256:
-            return impBaseIntrinsic(intrinsic, clsHnd, sig, baseType, retType, simdSize);
+            return impBaseIntrinsic(intrinsic, sig, baseType, retType, simdSize);
         case InstructionSet_SSE:
             return impSSEIntrinsic(intrinsic, sig);
         case InstructionSet_SSE2:
@@ -498,23 +482,8 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic              intrinsic,
     }
 }
 
-//------------------------------------------------------------------------
-// impBaseIntrinsic: dispatch intrinsics to their own implementation
-//
-// Arguments:
-//    intrinsic  -- id of the intrinsic function.
-//    sig        -- signature of the intrinsic call.
-//    baseType   -- generic argument of the intrinsic.
-//    retType    -- return type of the intrinsic.
-// Return Value:
-//    the expanded intrinsic.
-//
-GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic              intrinsic,
-                                    CORINFO_CLASS_HANDLE        clsHnd,
-                                    const HWIntrinsicSignature& sig,
-                                    var_types                   baseType,
-                                    var_types                   retType,
-                                    unsigned                    simdSize)
+GenTree* Compiler::impBaseIntrinsic(
+    NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, var_types baseType, var_types retType, unsigned simdSize)
 {
     GenTree* retNode = nullptr;
     GenTree* op1     = nullptr;
@@ -579,7 +548,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic              intrinsic,
             if (getSIMDVectorRegisterByteLength() == YMM_REGSIZE_BYTES)
             {
                 // Vector<T> is TYP_SIMD32, so we should treat this as a call to Vector128.ToVector256
-                return impBaseIntrinsic(NI_Vector128_ToVector256, clsHnd, sig, baseType, retType, simdSize);
+                return impBaseIntrinsic(NI_Vector128_ToVector256, sig, baseType, retType, simdSize);
             }
 
             assert(getSIMDVectorRegisterByteLength() == XMM_REGSIZE_BYTES);
@@ -627,35 +596,25 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic              intrinsic,
             {
                 case TYP_SIMD8:
                 case TYP_SIMD12:
-                {
                     // TYP_SIMD8 and TYP_SIMD12 currently only expose "safe" versions
                     // which zero the upper elements and so are implemented in managed.
                     unreached();
-                }
 
                 case TYP_SIMD16:
-                {
                     // We fold away the cast here, as it only exists to satisfy
                     // the type system. It is safe to do this here since the retNode type
                     // and the signature return type are both the same SIMD type.
-
                     retNode = impSIMDPopStack(retType);
                     SetOpLclRelatedToSIMDIntrinsic(retNode);
                     assert(retNode->GetType() == sig.retType);
-
                     break;
-                }
 
                 case TYP_SIMD32:
-                {
                     // Vector<T> is TYP_SIMD32, so we should treat this as a call to Vector256.GetLower
-                    return impBaseIntrinsic(NI_Vector256_GetLower, clsHnd, sig, baseType, retType, 32);
-                }
+                    return impBaseIntrinsic(NI_Vector256_GetLower, sig, baseType, retType, 32);
 
                 default:
-                {
                     unreached();
-                }
             }
 
             break;
@@ -688,13 +647,11 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic              intrinsic,
 
                 if (intrinsic == NI_Vector256_AsVector)
                 {
-                    return impBaseIntrinsic(NI_Vector256_GetLower, clsHnd, sig, baseType, retType, simdSize);
+                    return impBaseIntrinsic(NI_Vector256_GetLower, sig, baseType, retType, simdSize);
                 }
-                else
-                {
-                    assert(intrinsic == NI_Vector256_AsVector256);
-                    return impBaseIntrinsic(NI_Vector128_ToVector256, clsHnd, sig, baseType, retType, 16);
-                }
+
+                assert(intrinsic == NI_Vector256_AsVector256);
+                return impBaseIntrinsic(NI_Vector128_ToVector256, sig, baseType, retType, 16);
             }
 
             break;

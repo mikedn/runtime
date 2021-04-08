@@ -3157,7 +3157,6 @@ protected:
     GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
-                                 CORINFO_CLASS_HANDLE        clsHnd,
                                  const HWIntrinsicSignature& sig,
                                  var_types                   baseType,
                                  var_types                   retType,
@@ -3173,7 +3172,6 @@ protected:
 
 #ifdef TARGET_XARCH
     GenTree* impBaseIntrinsic(NamedIntrinsic              intrinsic,
-                              CORINFO_CLASS_HANDLE        clsHnd,
                               const HWIntrinsicSignature& sig,
                               var_types                   baseType,
                               var_types                   retType,
