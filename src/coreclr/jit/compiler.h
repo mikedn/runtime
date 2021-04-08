@@ -2039,9 +2039,6 @@ public:
                                                  GenTree*       op4,
                                                  GenTree*       op5);
 
-    GenTreeHWIntrinsic* gtNewSimdCreateBroadcastNode(
-        var_types type, GenTree* op1, var_types baseType, unsigned size, bool isSimdAsHWIntrinsic);
-
     GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(var_types      type,
                                                    NamedIntrinsic hwIntrinsicID,
                                                    var_types      baseType,
@@ -3153,8 +3150,7 @@ protected:
                                          const HWIntrinsicSignature& signature,
                                          ClassLayout*                layout);
 
-    GenTree* impSimdAsHWIntrinsicCreate(NamedIntrinsic              intrinsic,
-                                        const HWIntrinsicSignature& signature,
+    GenTree* impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& signature,
                                         ClassLayout*                thisLayout,
                                         GenTree*                    newobjThis);
 
