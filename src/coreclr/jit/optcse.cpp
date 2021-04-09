@@ -3466,65 +3466,48 @@ void Compiler::optOptimizeValnumCSEs()
 
 #endif // FEATURE_VALNUM_CSE
 
-/*****************************************************************************
- *
- *  The following determines whether the given expression is a worthy CSE
- *  candidate.
- */
 bool Compiler::optIsCSEcandidate(GenTree* tree)
 {
-    /* No good if the expression contains side effects or if it was marked as DONT CSE */
-
-    if (tree->gtFlags & (GTF_ASG | GTF_DONT_CSE))
+    if ((tree->gtFlags & (GTF_ASG | GTF_DONT_CSE)) != 0)
     {
         return false;
     }
 
-    var_types  type = tree->TypeGet();
-    genTreeOps oper = tree->OperGet();
+    var_types type = tree->GetType();
 
-    if (type == TYP_VOID)
+    if (!varTypeIsEnregisterable(type) || (type == TYP_VOID))
+    {
+        // Don't attempt to CSE expressions having non-enregistrable types (STRUCT).
+
+        // TODO-MIKE-CQ: It may be useful to CSE a small STRUCT load (OBJ), doing so may
+        // may shorten the live range of the address and thus decrease register pressure.
+        // But it gets complicated if the code also contains loads from struct's fields.
+        // It does not make sense to CSE those independently from the struct load itself
+        // so we'd need to use the CSE temp created for the struct load. And for that to
+        // work well we'd need to promote that temp, otherwise it would be in memory and
+        // CSEed field loads would also be done from memory.
+        return false;
+    }
+
+    if (varTypeIsSIMD(type) && (gtGetStructHandleIfPresent(tree) == NO_CLASS_HANDLE))
+    {
+        // Sometimes we cannot retrieve the struct handle from a SIMD tree, we have
+        // to give up because without a handle we cannot create a SIMD temp.
+        return false;
+    }
+
+    if (((compCodeOpt() == SMALL_CODE) ? tree->GetCostSz() : tree->GetCostEx()) < MIN_CSE_COST)
     {
         return false;
     }
 
-    // If this is a struct type (including SIMD*), we can only consider it for CSE-ing
-    // if we can get its handle, so that we can create a temp.
-    if (varTypeIsStruct(type) && (gtGetStructHandleIfPresent(tree) == NO_CLASS_HANDLE))
-    {
-        return false;
-    }
-
-    unsigned cost;
-    if (compCodeOpt() == SMALL_CODE)
-    {
-        cost = tree->GetCostSz();
-    }
-    else
-    {
-        cost = tree->GetCostEx();
-    }
-
-    /* Don't bother if the potential savings are very low */
-    if (cost < MIN_CSE_COST)
-    {
-        return false;
-    }
-
-#if !CSE_CONSTS
-    /* Don't bother with constants */
-    if (tree->OperKind() & GTK_CONST)
-        return false;
-#endif
-
-    /* Check for some special cases */
-
-    switch (oper)
+    switch (tree->GetOper())
     {
         case GT_CALL:
-
-            GenTreeCall* call;
-            call = tree->AsCall();
+            // TODO-MIKE-Review: How could 2 allocator helper calls get the same VN
+            // so CSEing would be a possibility to begin with?!?
+            // Maybe it happens with CORINFO_HELP_STRCNS but then that doesn't sound
+            // like "allocation"...
 
             // Don't mark calls to allocation helpers as CSE candidates.
             // Marking them as CSE candidates usually blocks CSEs rather than enables them.
@@ -3539,60 +3522,51 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
             // more exceptions (NullRef) so we abandon this CSE.
             // If we don't mark CALL ALLOC_HELPER as a CSE candidate, we are able
             // to use GT_IND(x) in [2] as a CSE def.
-            if ((call->gtCallType == CT_HELPER) &&
-                s_helperCallProperties.IsAllocator(eeGetHelperNum(call->gtCallMethHnd)))
+            if ((tree->AsCall()->gtCallType == CT_HELPER) &&
+                s_helperCallProperties.IsAllocator(eeGetHelperNum(tree->AsCall()->gtCallMethHnd)))
             {
                 return false;
             }
+
+            // TODO-MIKE-Review: GTF_PERSISTENT_SIDE_EFFECTS includes GTF_CALL and
+            // that should be present on any call node, helpers included. So what's
+            // the point of this check?!?
 
             // If we have a simple helper call with no other persistent side-effects
-            // then we allow this tree to be a CSE candidate
-            //
-            if (gtTreeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE) == false)
-            {
-                return true;
-            }
-            else
-            {
-                // Calls generally cannot be CSE-ed
-                return false;
-            }
+            // then we allow this tree to be a CSE candidate.
+            return !gtTreeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
 
         case GT_IND:
-            // TODO-CQ: Review this...
-            /* We try to cse GT_ARR_ELEM nodes instead of GT_IND(GT_ARR_ELEM).
-                Doing the first allows cse to also kick in for code like
-                "GT_IND(GT_ARR_ELEM) = GT_IND(GT_ARR_ELEM) + xyz", whereas doing
-                the second would not allow it */
+            // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
+            // be possible to CSE both IND and ARR_ELEM...
 
-            return (tree->AsOp()->gtOp1->gtOper != GT_ARR_ELEM);
+            // We try to CSE GT_ARR_ELEM nodes instead of GT_IND(GT_ARR_ELEM).
+            // Doing the first allows CSE to also kick in for code like
+            // "GT_IND(GT_ARR_ELEM) = GT_IND(GT_ARR_ELEM) + xyz", whereas doing
+            // the second would not allow it
+            return !tree->AsIndir()->GetAddr()->OperIs(GT_ARR_ELEM);
 
-        case GT_CNS_LNG:
-#ifndef TARGET_64BIT
-            return false; // Don't CSE 64-bit constants on 32-bit platforms
-#endif
-        case GT_CNS_INT:
-        case GT_CNS_DBL:
-        case GT_CNS_STR:
-            return true; // We reach here only when CSE_CONSTS is enabled
+        case GT_ADD:
+        case GT_MUL:
+        case GT_LSH:
+            return (tree->gtFlags & GTF_ADDRMODE_NO_CSE) == 0;
+
+        case GT_LCL_VAR:
+            // TODO-MIKE-Review: Huh? What volatile LCL_VAR?!?
+            // In general it doesn't make sense to CSE a LCL_VAR. Though CSEing
+            // a DNER local may be useful...
+            return false; // Can't CSE a volatile LCL_VAR
 
         case GT_ARR_ELEM:
         case GT_ARR_LENGTH:
         case GT_CLS_VAR:
         case GT_LCL_FLD:
-            return true;
-
-        case GT_LCL_VAR:
-            return false; // Can't CSE a volatile LCL_VAR
-
         case GT_NEG:
         case GT_NOT:
         case GT_BSWAP:
         case GT_BSWAP16:
         case GT_CAST:
         case GT_BITCAST:
-            return true; // CSE these Unary Operators
-
         case GT_SUB:
         case GT_DIV:
         case GT_MOD:
@@ -3605,56 +3579,45 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
         case GT_RSZ:
         case GT_ROL:
         case GT_ROR:
-            return true; // CSE these Binary Operators
-
-        case GT_ADD: // Check for ADDRMODE flag on these Binary Operators
-        case GT_MUL:
-        case GT_LSH:
-            if ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0)
-            {
-                return false;
-            }
-            return true;
-
         case GT_EQ:
         case GT_NE:
         case GT_LT:
         case GT_LE:
         case GT_GE:
         case GT_GT:
-            return true; // Allow the CSE of Comparison operators
-
+        case GT_INTRINSIC:
+        case GT_OBJ:
+        case GT_COMMA:
+#if CSE_CONSTS
+#ifdef TARGET_64BIT
+        case GT_CNS_LNG:
+#endif
+        case GT_CNS_INT:
+        case GT_CNS_DBL:
+        case GT_CNS_STR:
+#endif // CSE_CONSTS
 #ifdef FEATURE_SIMD
         case GT_SIMD:
-            return true; // allow SIMD intrinsics to be CSE-ed
-
-#endif // FEATURE_SIMD
+#endif
+            return true;
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-        {
-            GenTreeHWIntrinsic* hwIntrinsicNode = tree->AsHWIntrinsic();
-            assert(hwIntrinsicNode != nullptr);
-            HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwIntrinsicNode->gtHWIntrinsicId);
-
-            switch (category)
+            switch (HWIntrinsicInfo::lookupCategory(tree->AsHWIntrinsic()->GetIntrinsic()))
             {
 #ifdef TARGET_XARCH
                 case HW_Category_SimpleSIMD:
                 case HW_Category_IMM:
-                case HW_Category_Scalar:
                 case HW_Category_SIMDScalar:
-                case HW_Category_Helper:
-                    break;
 #elif defined(TARGET_ARM64)
                 case HW_Category_SIMD:
                 case HW_Category_SIMDByIndexedElement:
                 case HW_Category_ShiftLeftByImmediate:
                 case HW_Category_ShiftRightByImmediate:
+#endif
                 case HW_Category_Scalar:
                 case HW_Category_Helper:
-                    break;
-#endif
+                    return true;
 
                 case HW_Category_MemoryLoad:
                 case HW_Category_MemoryStore:
@@ -3662,44 +3625,11 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
                 default:
                     return false;
             }
-
-            if (hwIntrinsicNode->OperIsMemoryStore())
-            {
-                // NI_BMI2_MultiplyNoFlags, etc...
-                return false;
-            }
-            if (hwIntrinsicNode->OperIsMemoryLoad())
-            {
-                // NI_AVX2_BroadcastScalarToVector128, NI_AVX2_GatherVector128, etc...
-                return false;
-            }
-
-            return true; // allow Hardware Intrinsics to be CSE-ed
-        }
-
 #endif // FEATURE_HW_INTRINSICS
 
-        case GT_INTRINSIC:
-            return true; // allow Intrinsics to be CSE-ed
-
-        case GT_OBJ:
-            return varTypeIsEnregisterable(type); // Allow enregisterable GT_OBJ's to be CSE-ed. (i.e. SIMD types)
-
-        case GT_COMMA:
-            return true; // Allow GT_COMMA nodes to be CSE-ed.
-
-        case GT_COLON:
-        case GT_QMARK:
-        case GT_NOP:
-        case GT_RETURN:
-            return false; // Currently the only special nodes that we hit
-                          // that we know that we don't want to CSE
-
         default:
-            break; // Any new nodes that we might add later...
+            return false;
     }
-
-    return false;
 }
 
 #ifdef DEBUG
