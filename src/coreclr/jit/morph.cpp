@@ -3821,22 +3821,9 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 #error Unknown target.
 #endif
 
-    CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
+    ClassLayout* argLayout = typGetLayoutByNum(argInfo->use->GetSigTypeNum());
 
-    if (argClass == NO_CLASS_HANDLE)
-    {
-        // We may end up with an SIMD type IND node that doesn't have a class handle,
-        // use the call arg's signature type to get one.
-
-        // TODO-MIKE-Cleanup: It would probably make more sense to always use the sig
-        // type. Though if they're different (as in really different - the signature
-        // type being a non-SIMD type) things will get strange. But that should only
-        // happen if the IL is invalid.
-
-        argClass = typGetLayoutByNum(argInfo->use->GetSigTypeNum())->GetClassHandle();
-    }
-
-    unsigned tempLclNum = lvaNewTemp(argClass, true DEBUGARG("multi-reg SIMD arg temp"));
+    unsigned tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
     GenTree* tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, arg->GetType()), arg);
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
@@ -3902,7 +3889,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     if (arg->OperIs(GT_LCL_VAR) && (lvaGetPromotionType(arg->GetLclNum()) == PROMOTION_TYPE_INDEPENDENT))
     {
-        unsigned tempLclNum = abiAllocateStructArgTemp(argLayout->GetClassHandle());
+        unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
         lcl                 = lvaGetDesc(tempLclNum);
 
         tempAssign = gtNewAssignNode(gtNewLclvNode(tempLclNum, lcl->GetType()), arg);
@@ -4231,9 +4218,9 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 
 #endif // FEATURE_MULTIREG_ARGS
 
-unsigned Compiler::abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass)
+unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
 {
-    assert(info.compCompHnd->isValueClass(argClass));
+    assert(argLayout->IsValueClass());
 
     unsigned tempLclNum = BAD_VAR_NUM;
 
@@ -4249,7 +4236,7 @@ unsigned Compiler::abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass)
             indexType lclNum;
             FOREACH_HBV_BIT_SET(lclNum, m_abiStructArgTemps)
             {
-                if ((lvaGetDesc(static_cast<unsigned>(lclNum))->GetLayout()->GetClassHandle() == argClass) &&
+                if ((lvaGetDesc(static_cast<unsigned>(lclNum))->GetLayout() == argLayout) &&
                     !m_abiStructArgTempsInUse->testBit(lclNum))
                 {
                     tempLclNum = static_cast<unsigned>(lclNum);
@@ -4264,7 +4251,7 @@ unsigned Compiler::abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass)
     if (tempLclNum == BAD_VAR_NUM)
     {
         tempLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
-        lvaSetStruct(tempLclNum, argClass, false);
+        lvaSetStruct(tempLclNum, argLayout, false);
 
         if (m_abiStructArgTemps != nullptr)
         {
@@ -4296,7 +4283,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     if (arg->OperIs(GT_MKREFANY))
     {
-        unsigned tempLclNum = abiAllocateStructArgTemp(impGetRefAnyClass());
+        unsigned tempLclNum = abiAllocateStructArgTemp(typGetObjLayout(impGetRefAnyClass()));
         argInfo->SetNode(abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp()));
         argInfo->SetTempLclNum(tempLclNum);
 
@@ -4343,25 +4330,14 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
         }
     }
 
-    JITDUMP("making an outgoing copy for struct arg\n");
+    // Note that this is the parameter's layout rather that the argument's layout.
+    // They should be identical, unless the IL is invalid or we hit the pesky
+    // A<Canon> vs. A<C> issue. In general it doesn't matter if the 2 layouts
+    // do not match. VN might get confused due to mismatched field sequences but
+    // then this temp is never read from.
+    ClassLayout* argLayout = typGetLayoutByNum(argInfo->use->GetSigTypeNum());
 
-    CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(arg);
-
-    if (argClass == NO_CLASS_HANDLE)
-    {
-        // We may end up with an SIMD type IND node that doesn't have a class handle,
-        // use the call arg's signature type to get one.
-
-        // TODO-MIKE-Cleanup: It would probably make more sense to always use the sig
-        // type. If they're different (which shouldn't really happen unless the IL is
-        // invalid) we can leave it to fgMorphCopyBlock to sort it out.
-
-        assert(varTypeIsSIMD(arg->GetType()));
-
-        argClass = typGetLayoutByNum(argInfo->use->GetSigTypeNum())->GetClassHandle();
-    }
-
-    unsigned tempLclNum = abiAllocateStructArgTemp(argClass);
+    unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
 
     // These temps are passed by reference so they're always address taken.
     // TODO-MIKE-Cleanup: Aren't they actually address exposed? If we only

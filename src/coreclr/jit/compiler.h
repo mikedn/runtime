@@ -8894,7 +8894,7 @@ public:
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
 #endif
-    unsigned abiAllocateStructArgTemp(CORINFO_CLASS_HANDLE argClass);
+    unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);
     void abiFreeAllStructArgTemps();
 #if TARGET_64BIT
     void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
