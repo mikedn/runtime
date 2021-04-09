@@ -2358,24 +2358,9 @@ public:
 
         bool      canEnregister = true;
         unsigned  slotCount     = 1;
-        var_types cseLclVarTyp  = genActualType(candidate->Expr()->TypeGet());
-        if (candidate->Expr()->TypeGet() == TYP_STRUCT)
-        {
-            // This is a non-enregisterable struct.
-            canEnregister                  = false;
-            GenTree*             value     = candidate->Expr();
-            CORINFO_CLASS_HANDLE structHnd = m_pCompiler->gtGetStructHandleIfPresent(candidate->Expr());
-            if (structHnd == NO_CLASS_HANDLE)
-            {
-                JITDUMP("Can't determine the struct size, so we can't consider it for CSE promotion\n");
-                return false; //  Do not make this a CSE
-            }
+        var_types cseLclVarTyp  = varActualType(candidate->Expr()->GetType());
 
-            unsigned size = m_pCompiler->info.compCompHnd->getClassSize(structHnd);
-            // Note that the slotCount is used to estimate the reference cost, but it may overestimate this
-            // because it doesn't take into account that we might use a vector register for struct copies.
-            slotCount = (size + TARGET_POINTER_SIZE - 1) / TARGET_POINTER_SIZE;
-        }
+        assert(varTypeIsEnregisterable(cseLclVarTyp));
 
         if (CodeOptKind() == Compiler::SMALL_CODE)
         {
