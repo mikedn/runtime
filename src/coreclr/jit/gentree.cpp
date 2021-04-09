@@ -15566,9 +15566,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
             case GT_FIELD:
                 info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
                 break;
-            case GT_ASG:
-                structHnd = gtGetStructHandleIfPresent(tree->gtGetOp1());
-                break;
             case GT_LCL_VAR:
                 structHnd = lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
                 break;
