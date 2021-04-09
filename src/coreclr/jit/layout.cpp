@@ -39,12 +39,17 @@ class ClassLayoutTable
     // plus another 3 entries for Vector2/3/4.
     static_assert_no_msg(TYP_DOUBLE - TYP_BYTE == 9);
     static constexpr unsigned VectorElementTypesCount = 10;
-    static constexpr unsigned VectorLayoutTableSize =
-#ifdef FEATURE_HW_INTRINSICS
-        2 * VectorElementTypesCount + // Vector64/128<T> (ARM64) or Vector128/256<T> (X86/64)
+#ifdef TARGET_ARM64
+    static constexpr unsigned Vector64BaseIndex  = 0;
+    static constexpr unsigned Vector128BaseIndex = Vector64BaseIndex + VectorElementTypesCount;
+    static constexpr unsigned VectorTBaseIndex   = Vector128BaseIndex + VectorElementTypesCount;
+#elif defined(TARGET_XARCH)
+    static constexpr unsigned Vector128BaseIndex = 0;
+    static constexpr unsigned Vector256BaseIndex = Vector128BaseIndex + VectorElementTypesCount;
+    static constexpr unsigned VectorTBaseIndex   = Vector256BaseIndex + VectorElementTypesCount;
 #endif
-        VectorElementTypesCount + // Vector<T>
-        3;                        // Vector2/3/4
+    static constexpr unsigned Vector234BaseIndex    = VectorTBaseIndex + VectorElementTypesCount;
+    static constexpr unsigned VectorLayoutTableSize = Vector234BaseIndex + 3;
 
     ClassLayout** m_vectorLayoutTable = nullptr;
 #endif
@@ -93,13 +98,143 @@ public:
     }
 
 #ifdef FEATURE_SIMD
+    ClassLayout* GetVectorLayout(var_types simdType, var_types elementType)
+    {
+        if (m_vectorLayoutTable == nullptr)
+        {
+            return nullptr;
+        }
+
+        // TODO-MIKE-Cleanup: This might be more complicated than it needs to be.
+        // Usually we just need a vector layout that happens to have the required
+        // SIMD type, the element type is irrelevant. The layout is usually needed
+        // to create SIMD typed locals and that need is questionable, only a few
+        // places in the JIT code really need the layout (the main one would be
+        // struct promotion because it needs to be able to promoted Vector2/3/4).
+        // For now just try to be reasonably accurate:
+        //     - ignore the vector kind, it's more trouble than it's worth
+        //     - prefer System.Runtime.Intrinsics vector types to System.Numerics ones
+        //     - prefer Vector<T> to Vector2/3/4
+        //     - prefer a layout having the requested element type but allow fallback
+        //       to any other element type
+
+        if (elementType == TYP_UNDEF)
+        {
+            elementType = TYP_FLOAT;
+        }
+
+        unsigned elementTypeIndex = elementType - TYP_BYTE;
+        assert(elementTypeIndex < VectorElementTypesCount);
+
+        auto FindLayout = [this](unsigned baseIndex) -> ClassLayout* {
+            for (unsigned i = 0; i < VectorElementTypesCount; i++)
+            {
+                if (m_vectorLayoutTable[baseIndex + i] != nullptr)
+                {
+                    return m_vectorLayoutTable[baseIndex + i];
+                }
+            }
+            return nullptr;
+        };
+
+        switch (simdType)
+        {
+            ClassLayout* layout;
+
+            case TYP_SIMD8:
+#ifdef TARGET_ARM64
+                layout = m_vectorLayoutTable[Vector64BaseIndex + elementTypeIndex];
+                if (layout != nullptr)
+                {
+                    return layout;
+                }
+                if (elementType == TYP_FLOAT)
+                {
+                    layout = m_vectorLayoutTable[Vector234BaseIndex + 0];
+                    if (layout != nullptr)
+                    {
+                        return layout;
+                    }
+                }
+                layout = FindLayout(Vector64BaseIndex);
+                if (layout != nullptr)
+                {
+                    return layout;
+                }
+#endif
+                return m_vectorLayoutTable[Vector234BaseIndex + 0];
+
+            case TYP_SIMD12:
+                return m_vectorLayoutTable[Vector234BaseIndex + 1];
+
+            case TYP_SIMD16:
+                layout = m_vectorLayoutTable[Vector128BaseIndex + elementTypeIndex];
+                if (layout != nullptr)
+                {
+                    return layout;
+                }
+                layout = m_vectorLayoutTable[VectorTBaseIndex + elementTypeIndex];
+                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD16))
+                {
+                    return layout;
+                }
+                if (elementType == TYP_FLOAT)
+                {
+                    layout = m_vectorLayoutTable[Vector234BaseIndex + 2];
+                    if (layout != nullptr)
+                    {
+                        return layout;
+                    }
+                }
+                layout = FindLayout(Vector128BaseIndex);
+                if (layout != nullptr)
+                {
+                    return layout;
+                }
+                layout = FindLayout(VectorTBaseIndex);
+                if (layout != nullptr)
+                {
+                    return layout;
+                }
+                return m_vectorLayoutTable[Vector234BaseIndex + 2];
+
+#ifdef TARGET_XARCH
+            case TYP_SIMD32:
+                layout = m_vectorLayoutTable[Vector256BaseIndex + elementTypeIndex];
+                if (layout != nullptr)
+                {
+                    return layout;
+                }
+                layout = m_vectorLayoutTable[VectorTBaseIndex + elementTypeIndex];
+                if ((layout != nullptr) && (layout->GetSIMDType() == TYP_SIMD32))
+                {
+                    return layout;
+                }
+                layout = FindLayout(Vector256BaseIndex);
+                if (layout != nullptr)
+                {
+                    return layout;
+                }
+                layout = FindLayout(VectorTBaseIndex);
+                if ((layout != nullptr) && (layout->GetSIMDType() == simdType))
+                {
+                    return layout;
+                }
+                return nullptr;
+#endif
+
+            default:
+                return nullptr;
+        }
+    }
+
     ClassLayout* GetVectorLayout(var_types simdType, var_types elementType, VectorKind kind)
     {
         unsigned index = GetVectorLayoutIndex(simdType, elementType, kind);
         assert(index < VectorLayoutTableSize);
         return m_vectorLayoutTable == nullptr ? nullptr : m_vectorLayoutTable[index];
     }
-#endif
+#endif // FEATURE_SIMD
 
 private:
     bool HasSmallCapacity() const
@@ -439,6 +574,15 @@ var_types Compiler::typGetStructType(ClassLayout* layout, var_types* elementType
 #endif
 
     return TYP_STRUCT;
+}
+
+ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementType)
+{
+#ifdef FEATURE_SIMD
+    return typGetClassLayoutTable()->GetVectorLayout(simdType, elementType);
+#else
+    return nullptr;
+#endif
 }
 
 ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementType, VectorKind kind)

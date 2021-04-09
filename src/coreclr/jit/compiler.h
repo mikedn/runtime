@@ -5562,18 +5562,17 @@ protected:
 
     /* Generic list of nodes - used by the CSE logic */
 
-    struct treeLst
-    {
-        treeLst* tlNext;
-        GenTree* tlTree;
-    };
-
     struct treeStmtLst
     {
         treeStmtLst* tslNext;
         GenTree*     tslTree;  // tree node
         Statement*   tslStmt;  // statement containing the tree
         BasicBlock*  tslBlock; // block containing the statement
+
+        treeStmtLst(GenTree* tree, Statement* stmt, BasicBlock* block)
+            : tslNext(nullptr), tslTree(tree), tslStmt(stmt), tslBlock(block)
+        {
+        }
     };
 
     // The following logic keeps track of expressions via a simple hash table.
@@ -5602,11 +5601,7 @@ protected:
         treeStmtLst* csdTreeList; // list of matching tree nodes: head
         treeStmtLst* csdTreeLast; // list of matching tree nodes: tail
 
-        // ToDo: This can be removed when gtGetStructHandleIfPresent stops guessing
-        // and GT_IND nodes always have valid struct handle.
-        //
-        CORINFO_CLASS_HANDLE csdStructHnd; // The class handle, currently needed to create a SIMD LclVar in PerformCSE
-        bool                 csdStructHndMismatch;
+        ClassLayout* csdLayout; // Layout needed to create struct typed CSE temps.
 
         ValueNum defExcSetPromise; // The exception set that is now required for all defs of this CSE.
                                    // This will be set to NoVN if we decide to abandon this CSE
@@ -5616,6 +5611,30 @@ protected:
         ValueNum defConservNormVN; // if all def occurrences share the same conservative normal value
                                    // number, this will reflect it; otherwise, NoVN.
                                    // not used for shared const CSE's
+
+        CSEdsc(size_t hashKey, GenTree* tree, Statement* stmt, BasicBlock* block)
+            : csdNextInBucket(nullptr)
+            , csdHashKey(hashKey)
+            , csdConstDefValue(0)
+            , csdConstDefVN(ValueNumStore::VNForNull())
+            , csdIndex(0)
+            , csdIsSharedConst(false)
+            , csdLiveAcrossCall(false)
+            , csdDefCount(0)
+            , csdUseCount(0)
+            , csdDefWtCnt(0)
+            , csdUseWtCnt(0)
+            , csdTree(tree)
+            , csdStmt(stmt)
+            , csdBlock(block)
+            , csdTreeList(nullptr)
+            , csdTreeLast(nullptr)
+            , csdLayout(nullptr)
+            , defExcSetPromise(ValueNumStore::VNForEmptyExcSet())
+            , defExcSetCurrent(ValueNumStore::VNForNull())
+            , defConservNormVN(ValueNumStore::VNForNull())
+        {
+        }
     };
 
     static const size_t s_optCSEhashSizeInitial;
@@ -5711,6 +5730,8 @@ protected:
     void     optValnumCSE_Availablity();
     void     optValnumCSE_Heuristic();
 
+    ClassLayout* optValnumCSE_GetStructLayout(GenTree* tree);
+    ClassLayout* optValnumCSE_GetApproximateVectorLayout(GenTree* tree);
 #endif // FEATURE_VALNUM_CSE
 
 #if FEATURE_ANYCSE
@@ -8273,6 +8294,7 @@ public:
     // Get the struct type for the specified layout.
     var_types typGetStructType(ClassLayout* layout, var_types* elementType = nullptr);
     // Get the layout of a Vector2/3/4/T/NT type.
+    ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType, VectorKind kind);
 
 //-------------------------- Global Compiler Data ------------------------------------

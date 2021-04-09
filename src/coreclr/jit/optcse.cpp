@@ -387,6 +387,57 @@ unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
     return hash % optCSEhashSize;
 }
 
+ClassLayout* Compiler::optValnumCSE_GetStructLayout(GenTree* tree)
+{
+    assert(varTypeIsStruct(tree->GetType()));
+
+    tree = tree->SkipComma();
+
+    switch (tree->GetOper())
+    {
+#ifdef FEATURE_SIMD
+        case GT_OBJ:
+            return tree->AsObj()->GetLayout();
+        case GT_LCL_FLD:
+            return tree->AsLclFld()->GetLayout(this);
+        case GT_LCL_VAR:
+            return lvaGetDesc(tree->AsLclVar())->GetLayout();
+#endif
+        case GT_CALL:
+            return tree->AsCall()->GetRetLayout();
+        default:
+            return nullptr;
+    }
+}
+
+ClassLayout* Compiler::optValnumCSE_GetApproximateVectorLayout(GenTree* tree)
+{
+    assert(varTypeIsSIMD(tree->GetType()));
+
+    tree = tree->SkipComma();
+
+    var_types baseType;
+
+    switch (tree->GetOper())
+    {
+#ifdef FEATURE_SIMD
+        case GT_HWINTRINSIC:
+            baseType = tree->AsHWIntrinsic()->GetSIMDBaseType();
+            break;
+        case GT_SIMD:
+            baseType = tree->AsSIMD()->GetSIMDBaseType();
+            break;
+#endif
+        case GT_IND:
+            baseType = TYP_UNDEF;
+            break;
+        default:
+            unreached();
+    }
+
+    return typGetVectorLayout(tree->GetType(), baseType);
+}
+
 //---------------------------------------------------------------------------
 // optValnumCSE_Index:
 //               - Returns the CSE index to use for this tree,
@@ -520,96 +571,44 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
         if (hashDsc->csdHashKey == key)
         {
             // Check for mismatched types on GT_CNS_INT nodes
-            if ((tree->OperGet() == GT_CNS_INT) && (tree->TypeGet() != hashDsc->csdTree->TypeGet()))
+            if (tree->OperIs(GT_CNS_INT) && (tree->GetType() != hashDsc->csdTree->GetType()))
             {
                 continue;
             }
 
-            treeStmtLst* newElem;
-
-            /* Have we started the list of matching nodes? */
-
             if (hashDsc->csdTreeList == nullptr)
             {
-                // Create the new element based upon the matching hashDsc element.
+                // Start the occurrence list now that we found a second occurrence.
 
-                newElem = new (this, CMK_TreeStatementList) treeStmtLst;
+                treeStmtLst* occurrence =
+                    new (this, CMK_CSE) treeStmtLst(hashDsc->csdTree, hashDsc->csdStmt, hashDsc->csdBlock);
 
-                newElem->tslTree  = hashDsc->csdTree;
-                newElem->tslStmt  = hashDsc->csdStmt;
-                newElem->tslBlock = hashDsc->csdBlock;
-                newElem->tslNext  = nullptr;
-
-                /* Start the list with the first CSE candidate recorded */
-
-                hashDsc->csdTreeList  = newElem;
-                hashDsc->csdTreeLast  = newElem;
-                hashDsc->csdStructHnd = NO_CLASS_HANDLE;
-
-                hashDsc->csdIsSharedConst     = isSharedConst;
-                hashDsc->csdStructHndMismatch = false;
-
-                if (varTypeIsStruct(tree->gtType))
-                {
-                    // When we have a GT_IND node with a SIMD type then we don't have a reliable
-                    // struct handle and gtGetStructHandleIfPresent returns a guess that can be wrong
-                    //
-                    if ((hashDsc->csdTree->OperGet() != GT_IND) || !varTypeIsSIMD(tree))
-                    {
-                        hashDsc->csdStructHnd = gtGetStructHandleIfPresent(hashDsc->csdTree);
-                    }
-                }
+                hashDsc->csdTreeList      = occurrence;
+                hashDsc->csdTreeLast      = occurrence;
+                hashDsc->csdIsSharedConst = isSharedConst;
             }
 
-            noway_assert(hashDsc->csdTreeList);
-
-            /* Append this expression to the end of the list */
-
-            newElem = new (this, CMK_TreeStatementList) treeStmtLst;
-
-            newElem->tslTree  = tree;
-            newElem->tslStmt  = stmt;
-            newElem->tslBlock = compCurBB;
-            newElem->tslNext  = nullptr;
-
-            hashDsc->csdTreeLast->tslNext = newElem;
-            hashDsc->csdTreeLast          = newElem;
-
-            if (varTypeIsStruct(newElem->tslTree->gtType))
+            if (varTypeIsSIMD(tree->GetType()) && (hashDsc->csdLayout == nullptr))
             {
-                // When we have a GT_IND node with a SIMD type then we don't have a reliable
-                // struct handle and gtGetStructHandleIfPresent returns a guess that can be wrong
-                //
-                if ((newElem->tslTree->OperGet() != GT_IND) || !varTypeIsSIMD(newElem->tslTree))
-                {
-                    CORINFO_CLASS_HANDLE newElemStructHnd = gtGetStructHandleIfPresent(newElem->tslTree);
-                    if (newElemStructHnd != NO_CLASS_HANDLE)
-                    {
-                        if (hashDsc->csdStructHnd == NO_CLASS_HANDLE)
-                        {
-                            // The previous node(s) were GT_IND's and didn't carry the struct handle info
-                            // The current node does have the struct handle info, so record it now
-                            //
-                            hashDsc->csdStructHnd = newElemStructHnd;
-                        }
-                        else if (newElemStructHnd != hashDsc->csdStructHnd)
-                        {
-                            hashDsc->csdStructHndMismatch = true;
-#ifdef DEBUG
-                            if (verbose)
-                            {
-                                printf("Abandoned - CSE candidate has mismatching struct handles!\n");
-                                printTreeID(newElem->tslTree);
-                            }
-#endif // DEBUG
-                        }
-                    }
-                }
+                // If we haven't yet obtained the SIMD layout try again, maybe we get lucky.
+                // Mostly for the sake of consistency. Otherwise it doesn't really matter.
+                // If we decide to CSE this expression we'll try to get an approximate layout.
+                // The SIMD base type and the kind of vector that's associated with this SIMD
+                // expression is ultimately irrelevant, we just need a layout that has the
+                // same SIMD type as the expression. It also doesn't matter if 2 equivalent
+                // expression somehow have different layouts, as long as the layout SIMD type
+                // is the same.
+
+                hashDsc->csdLayout = optValnumCSE_GetStructLayout(tree);
             }
+
+            treeStmtLst* occurrence = new (this, CMK_CSE) treeStmtLst(tree, stmt, compCurBB);
+
+            hashDsc->csdTreeLast->tslNext = occurrence;
+            hashDsc->csdTreeLast          = occurrence;
 
             optDoCSE = true; // Found a duplicate CSE tree
 
-            /* Have we assigned a CSE index? */
             if (hashDsc->csdIndex == 0)
             {
                 newCSE = true;
@@ -617,14 +616,15 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
             }
 
             assert(FitsIn<signed char>(hashDsc->csdIndex));
-            tree->gtCSEnum = ((signed char)hashDsc->csdIndex);
+            tree->gtCSEnum = static_cast<signed char>(hashDsc->csdIndex);
+
             return hashDsc->csdIndex;
         }
     }
 
     if (!newCSE)
     {
-        /* Not found, create a new entry (unless we have too many already) */
+        // Not found, create a new entry (unless we have too many already)
 
         if (optCSECandidateCount < MAX_CSE_CNT)
         {
@@ -659,29 +659,16 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
             }
 
             ++optCSEhashCount;
-            hashDsc = new (this, CMK_CSE) CSEdsc;
 
-            hashDsc->csdHashKey        = key;
-            hashDsc->csdConstDefValue  = 0;
-            hashDsc->csdConstDefVN     = vnStore->VNForNull(); // uninit value
-            hashDsc->csdIndex          = 0;
-            hashDsc->csdIsSharedConst  = false;
-            hashDsc->csdLiveAcrossCall = false;
-            hashDsc->csdDefCount       = 0;
-            hashDsc->csdUseCount       = 0;
-            hashDsc->csdDefWtCnt       = 0;
-            hashDsc->csdUseWtCnt       = 0;
-            hashDsc->defExcSetPromise  = vnStore->VNForEmptyExcSet();
-            hashDsc->defExcSetCurrent  = vnStore->VNForNull(); // uninit value
-            hashDsc->defConservNormVN  = vnStore->VNForNull(); // uninit value
+            hashDsc = new (this, CMK_CSE) CSEdsc(key, tree, stmt, compCurBB);
 
-            hashDsc->csdTree     = tree;
-            hashDsc->csdStmt     = stmt;
-            hashDsc->csdBlock    = compCurBB;
-            hashDsc->csdTreeList = nullptr;
+            if (varTypeIsStruct(tree->GetType()))
+            {
+                hashDsc->csdLayout = optValnumCSE_GetStructLayout(tree);
+                assert((hashDsc->csdLayout != nullptr) || varTypeIsSIMD(tree->GetType()));
+            }
 
-            /* Append the entry to the hash bucket */
-
+            // Append the entry to the hash bucket
             hashDsc->csdNextInBucket = optCSEhash[hval];
             optCSEhash[hval]         = hashDsc;
         }
@@ -2360,7 +2347,24 @@ public:
         unsigned  slotCount     = 1;
         var_types cseLclVarTyp  = varActualType(candidate->Expr()->GetType());
 
-        assert(varTypeIsEnregisterable(cseLclVarTyp));
+        if (varTypeIsSIMD(cseLclVarTyp) && (candidate->CseDsc()->csdLayout == nullptr))
+        {
+            // If we haven't found an exact layout yet then use any layout that happens
+            // to have the same SIMD type as the expression. Even so, it's possible to
+            // not have a layout, usually due to SIMD typed nodes generated internally
+            // by the JIT, in such cases there's no struct handle and the layout table
+            // isn't populated. In such a case we don't have any option but to reject
+            // this CSE.
+
+            ClassLayout* layout = m_pCompiler->optValnumCSE_GetApproximateVectorLayout(candidate->Expr());
+
+            if (layout == nullptr)
+            {
+                return false;
+            }
+
+            candidate->CseDsc()->csdLayout = layout;
+        }
 
         if (CodeOptKind() == Compiler::SMALL_CODE)
         {
@@ -2762,24 +2766,17 @@ public:
 
         // we will create a  long lifetime temp for the new CSE LclVar
         unsigned  cseLclVarNum = m_pCompiler->lvaGrabTemp(false DEBUGARG(grabTempMessage));
-        var_types cseLclVarTyp = genActualType(successfulCandidate->Expr()->TypeGet());
+        var_types cseLclVarTyp = varActualType(successfulCandidate->Expr()->GetType());
+
         if (varTypeIsStruct(cseLclVarTyp))
         {
-            // Retrieve the struct handle that we recorded while bulding the list of CSE candidates.
-            // If all occurrences were in GT_IND nodes it could still be NO_CLASS_HANDLE
-            //
-            CORINFO_CLASS_HANDLE structHnd = successfulCandidate->CseDsc()->csdStructHnd;
-            if (structHnd == NO_CLASS_HANDLE)
-            {
-                assert(varTypeIsSIMD(cseLclVarTyp));
-                // We are not setting it for `SIMD* indir` during the first path
-                // because it is not precise, see `optValnumCSE_Index`.
-                structHnd = m_pCompiler->gtGetStructHandle(successfulCandidate->CseDsc()->csdTree);
-            }
-            assert(structHnd != NO_CLASS_HANDLE);
-            m_pCompiler->lvaSetStruct(cseLclVarNum, structHnd, false);
+            m_pCompiler->lvaSetStruct(cseLclVarNum, successfulCandidate->CseDsc()->csdLayout, false);
         }
-        m_pCompiler->lvaTable[cseLclVarNum].lvType  = cseLclVarTyp;
+        else
+        {
+            m_pCompiler->lvaTable[cseLclVarNum].SetType(cseLclVarTyp);
+        }
+
         m_pCompiler->lvaTable[cseLclVarNum].lvIsCSE = true;
 
         // Record that we created a new LclVar for use as a CSE temp
@@ -3304,12 +3301,6 @@ public:
                 continue;
             }
 
-            if (dsc->csdStructHndMismatch)
-            {
-                JITDUMP("Abandoned CSE #%02u because we had mismatching struct handles\n", candidate.CseIndex());
-                continue;
-            }
-
             candidate.InitializeCounts();
 
             if (candidate.UseCount() == 0)
@@ -3458,11 +3449,18 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
         return false;
     }
 
+    if (((compCodeOpt() == SMALL_CODE) ? tree->GetCostSz() : tree->GetCostEx()) < MIN_CSE_COST)
+    {
+        return false;
+    }
+
     var_types type = tree->GetType();
 
-    if (!varTypeIsEnregisterable(type) || (type == TYP_VOID))
+    if ((!varTypeIsEnregisterable(type) && !tree->IsCall()) || (type == TYP_VOID))
     {
-        // Don't attempt to CSE expressions having non-enregistrable types (STRUCT).
+        // Don't attempt to CSE expressions having non-enregistrable types (STRUCT),
+        // unless they're calls (some helper calls can be CSEed and do return structs
+        // - CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE).
 
         // TODO-MIKE-CQ: It may be useful to CSE a small STRUCT load (OBJ), doing so may
         // may shorten the live range of the address and thus decrease register pressure.
@@ -3471,18 +3469,6 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
         // so we'd need to use the CSE temp created for the struct load. And for that to
         // work well we'd need to promote that temp, otherwise it would be in memory and
         // CSEed field loads would also be done from memory.
-        return false;
-    }
-
-    if (varTypeIsSIMD(type) && (gtGetStructHandleIfPresent(tree) == NO_CLASS_HANDLE))
-    {
-        // Sometimes we cannot retrieve the struct handle from a SIMD tree, we have
-        // to give up because without a handle we cannot create a SIMD temp.
-        return false;
-    }
-
-    if (((compCodeOpt() == SMALL_CODE) ? tree->GetCostSz() : tree->GetCostEx()) < MIN_CSE_COST)
-    {
         return false;
     }
 
@@ -3512,10 +3498,6 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
             {
                 return false;
             }
-
-            // TODO-MIKE-Review: GTF_PERSISTENT_SIDE_EFFECTS includes GTF_CALL and
-            // that should be present on any call node, helpers included. So what's
-            // the point of this check?!?
 
             // If we have a simple helper call with no other persistent side-effects
             // then we allow this tree to be a CSE candidate.
