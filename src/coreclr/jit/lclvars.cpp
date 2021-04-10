@@ -2775,13 +2775,10 @@ void Compiler::lvaSetStructUsedAsVarArg(unsigned varNum)
 
 void Compiler::lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
 {
-    noway_assert(varNum < lvaCount);
-
-    // Else we should have a type handle.
     assert(clsHnd != nullptr);
 
-    LclVarDsc* varDsc = &lvaTable[varNum];
-    assert(varDsc->lvType == TYP_REF);
+    LclVarDsc* varDsc = lvaGetDesc(varNum);
+    assert(varDsc->TypeIs(TYP_REF));
 
     // We shoud not have any ref type information for this var.
     assert(varDsc->lvClassHnd == NO_CLASS_HANDLE);

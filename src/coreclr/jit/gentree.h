@@ -4498,11 +4498,6 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_FAT_POINTER_CHECK) != 0;
     }
 
-    bool IsGuardedDevirtualizationCandidate() const
-    {
-        return (gtCallMoreFlags & GTF_CALL_M_GUARDED_DEVIRT) != 0;
-    }
-
     bool IsPure(Compiler* compiler) const;
 
     bool HasSideEffects(Compiler* compiler, bool ignoreExceptions = false, bool ignoreCctors = false) const;
@@ -4535,6 +4530,11 @@ public:
     bool IsSuppressGCTransition() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_SUPPRESS_GC_TRANSITION) != 0;
+    }
+
+    bool IsGuardedDevirtualizationCandidate() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_GUARDED_DEVIRT) != 0;
     }
 
     void ClearGuardedDevirtualizationCandidate()
