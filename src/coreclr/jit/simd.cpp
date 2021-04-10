@@ -1359,9 +1359,8 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             assert(!instMethod);
             op2 = impSIMDPopStack(simdType);
             op1 = impSIMDPopStack(simdType);
-            // op1 and op2 are two input Vector<T>.
-            simdTree = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, op1, op2);
-            retVal   = simdTree;
+
+            retVal = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, op1, op2);
         }
         break;
 
@@ -1374,20 +1373,17 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             GenTree* uses[2];
             impMakeMultiUse(op1, uses, typGetObjLayout(clsHnd), CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
 
-            GenTree* wideLo = gtNewSIMDNode(simdType, SIMDIntrinsicWidenLo, baseType, size, uses[0]);
-            GenTree* asgLo  = impAssignSIMDAddr(dstAddrLo, wideLo);
-            GenTree* wideHi = gtNewSIMDNode(simdType, SIMDIntrinsicWidenHi, baseType, size, uses[1]);
-            GenTree* asgHi  = impAssignSIMDAddr(dstAddrHi, wideHi);
-            retVal          = gtNewOperNode(GT_COMMA, simdType, asgLo, asgHi);
+            GenTree* widenLo = gtNewSIMDNode(simdType, SIMDIntrinsicWidenLo, baseType, size, uses[0]);
+            impAppendTree(impAssignSIMDAddr(dstAddrLo, widenLo), CHECK_SPILL_ALL, impCurStmtOffs);
+
+            GenTree* widenHi = gtNewSIMDNode(simdType, SIMDIntrinsicWidenHi, baseType, size, uses[1]);
+            retVal           = impAssignSIMDAddr(dstAddrHi, widenHi);
         }
         break;
 
         case SIMDIntrinsicHWAccel:
-        {
-            GenTreeIntCon* intConstTree = new (this, GT_CNS_INT) GenTreeIntCon(TYP_INT, 1);
-            retVal                      = intConstTree;
-        }
-        break;
+            retVal = gtNewIconNode(1);
+            break;
 
         default:
             assert(!"Unimplemented SIMD Intrinsic");
