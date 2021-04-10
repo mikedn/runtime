@@ -8219,6 +8219,11 @@ public:
         unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
         unsigned compArgsCount;   // Number of arguments (incl. implicit and     hidden)
 
+        unsigned GetParamCount() const
+        {
+            return compArgsCount;
+        }
+
 #if FEATURE_FASTTAILCALL
         unsigned compArgStackSize; // Incoming argument stack size in bytes
 #endif                             // FEATURE_FASTTAILCALL

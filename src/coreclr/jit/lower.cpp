@@ -1477,7 +1477,7 @@ void Lowering::LowerCall(GenTree* node)
 // all argument registers (ECX, EDX), but nothing else.
 //
 // Params:
-//    callNode        - tail call node
+//    rangeEnd        - tail call node
 //    insertionPoint  - if non-null, insert the profiler hook before this point.
 //                      If null, insert the profiler hook before args are setup
 //                      but after all arg side effects are computed.
@@ -1662,17 +1662,17 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         {
             GenTreePutArgStk* put = putargs.Bottom(i)->AsPutArgStk();
 
-            unsigned int overwrittenStart = put->GetSlotOffset();
-            unsigned int overwrittenEnd   = overwrittenStart + put->GetArgSize();
+            unsigned argStartOffset = put->GetSlotOffset();
+            unsigned argEndOffset   = argStartOffset + put->GetArgSize();
 #if !(defined(TARGET_WINDOWS) && defined(TARGET_AMD64))
             int baseOff = -1; // Stack offset of first arg on stack
 #endif
 
-            for (unsigned callerArgLclNum = 0; callerArgLclNum < comp->info.compArgsCount; callerArgLclNum++)
+            for (unsigned paramLclNum = 0; paramLclNum < comp->info.GetParamCount(); paramLclNum++)
             {
-                LclVarDsc* callerArgDsc = comp->lvaGetDesc(callerArgLclNum);
+                LclVarDsc* paramLcl = comp->lvaGetDesc(paramLclNum);
 
-                if (callerArgDsc->lvIsRegArg)
+                if (paramLcl->IsRegParam())
                 {
                     continue;
                 }
@@ -1680,27 +1680,27 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 #if defined(TARGET_WINDOWS) && defined(TARGET_AMD64)
                 // On Windows x64, the argument position determines the stack slot uniquely, and even the
                 // register args take up space in the stack frame (shadow space).
-                unsigned int argStart = callerArgLclNum * TARGET_POINTER_SIZE;
-                unsigned int argEnd   = argStart + static_cast<unsigned int>(callerArgDsc->lvArgStackSize());
+                unsigned paramStartOffset = paramLclNum * TARGET_POINTER_SIZE;
+                unsigned paramEndOffset   = paramStartOffset + static_cast<unsigned>(paramLcl->lvArgStackSize());
 #else
-                assert(callerArgDsc->GetStackOffset() != BAD_STK_OFFS);
+                assert(paramLcl->GetStackOffset() != BAD_STK_OFFS);
 
                 if (baseOff == -1)
                 {
-                    baseOff = callerArgDsc->GetStackOffset();
+                    baseOff = paramLcl->GetStackOffset();
                 }
 
                 // On all ABIs where we fast tail call the stack args should come in order.
-                assert(baseOff <= callerArgDsc->GetStackOffset());
+                assert(baseOff <= paramLcl->GetStackOffset());
 
                 // Compute offset of this stack argument relative to the first stack arg.
                 // This will be its offset into the incoming arg space area.
-                unsigned int argStart = static_cast<unsigned int>(callerArgDsc->GetStackOffset() - baseOff);
-                unsigned int argEnd   = argStart + comp->lvaLclSize(callerArgLclNum);
+                unsigned paramStartOffset = static_cast<unsigned>(paramLcl->GetStackOffset() - baseOff);
+                unsigned paramEndOffset   = paramStartOffset + comp->lvaLclSize(paramLclNum);
 #endif
 
                 // If ranges do not overlap then this PUTARG_STK will not mess up the arg.
-                if ((overwrittenEnd <= argStart) || (overwrittenStart >= argEnd))
+                if ((argEndOffset <= paramStartOffset) || (argStartOffset >= paramEndOffset))
                 {
                     continue;
                 }
@@ -1715,26 +1715,22 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
                 // uses starting from it. Note that we assume that in-place
                 // copies are OK.
                 GenTree* lookForUsesFrom = put->gtNext;
-                if (overwrittenStart != argStart)
+                if (argStartOffset != paramStartOffset)
                 {
                     lookForUsesFrom = insertionPoint;
                 }
 
-                RehomeArgForFastTailCall(callerArgLclNum, insertionPoint, lookForUsesFrom, call);
+                RehomeParamForFastTailCall(paramLclNum, insertionPoint, lookForUsesFrom, call);
                 // The above call can introduce temps and invalidate the pointer.
-                callerArgDsc = comp->lvaGetDesc(callerArgLclNum);
+                paramLcl = comp->lvaGetDesc(paramLclNum);
 
-                // For promoted locals we have more work to do as its fields could also have been invalidated.
-                if (!callerArgDsc->lvPromoted)
+                if (paramLcl->IsPromoted())
                 {
-                    continue;
-                }
-
-                unsigned int fieldsFirst = callerArgDsc->lvFieldLclStart;
-                unsigned int fieldsEnd   = fieldsFirst + callerArgDsc->lvFieldCnt;
-                for (unsigned int j = fieldsFirst; j < fieldsEnd; j++)
-                {
-                    RehomeArgForFastTailCall(j, insertionPoint, lookForUsesFrom, call);
+                    for (unsigned j = 0; j < paramLcl->GetPromotedFieldCount(); j++)
+                    {
+                        RehomeParamForFastTailCall(paramLcl->GetPromotedFieldLclNum(j), insertionPoint, lookForUsesFrom,
+                                                   call);
+                    }
                 }
             }
         }
@@ -1757,63 +1753,49 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     unreached();
 #endif
 }
-//
-//------------------------------------------------------------------------
-// RehomeArgForFastTailCall: Introduce temps for args that may be overwritten
-// during fast tailcall sequence.
-//
-// Arguments:
-//    lclNum - the lcl num of the arg that will be overwritten.
-//    insertTempBefore - the node at which to copy the arg into a temp.
-//    lookForUsesStart - the node where to start scanning and replacing uses of
-//                       the arg specified by lclNum.
-//    callNode - the call node that is being dispatched as a fast tailcall.
-//
-// Assumptions:
-//    all args must be non-null.
-//
-// Notes:
-//     This function scans for uses of the arg specified by lclNum starting
-//     from the lookForUsesStart node. If it finds any uses it introduces a temp
-//     for this argument and updates uses to use this instead. In the situation
-//     where it introduces a temp it can thus invalidate pointers to other
-//     locals.
-//
-void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
-                                        GenTree*     insertTempBefore,
-                                        GenTree*     lookForUsesStart,
-                                        GenTreeCall* callNode)
+
+// Scan the range of nodes [rangeStart, rangeEnd) and update all references
+// to the specified local to use a new temp instead. The temp is initialized
+// with the original local's value before "insertTempBefore".
+// It is assumed that the specified local is not accessed inside the range
+// via an address that originated outside of the range.
+void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
+                                          GenTree* insertTempBefore,
+                                          GenTree* rangeStart,
+                                          GenTree* rangeEnd)
 {
-    unsigned int tmpLclNum = BAD_VAR_NUM;
-    for (GenTree* treeNode = lookForUsesStart; treeNode != callNode; treeNode = treeNode->gtNext)
+    unsigned tmpLclNum = BAD_VAR_NUM;
+
+    for (GenTree* node = rangeStart; node != rangeEnd; node = node->gtNext)
     {
-        if (!treeNode->OperIsLocal() && !treeNode->OperIsLocalAddr())
+        if (!node->OperIsLocal() && !node->OperIsLocalAddr())
         {
             continue;
         }
 
-        // This should not be a GT_PHI_ARG.
-        assert(treeNode->OperGet() != GT_PHI_ARG);
+        assert(!node->OperIs(GT_PHI_ARG));
 
-        GenTreeLclVarCommon* lcl = treeNode->AsLclVarCommon();
+        GenTreeLclVarCommon* lcl = node->AsLclVarCommon();
 
-        if (lcl->GetLclNum() != lclNum)
+        if (lcl->GetLclNum() != paramLclNum)
         {
             continue;
         }
 
-        // Create tmp and use it in place of callerArgDsc
         if (tmpLclNum == BAD_VAR_NUM)
         {
             tmpLclNum = comp->lvaGrabTemp(true DEBUGARG("fast tail call arg temp"));
 
-            LclVarDsc* callerArgDsc                     = comp->lvaGetDesc(lclNum);
-            var_types  tmpTyp                           = genActualType(callerArgDsc->TypeGet());
-            comp->lvaTable[tmpLclNum].lvDoNotEnregister = comp->lvaTable[lcl->GetLclNum()].lvDoNotEnregister;
-            GenTree* value                              = comp->gtNewLclvNode(lclNum, tmpTyp);
+            LclVarDsc* paramLcl = comp->lvaGetDesc(paramLclNum);
+            LclVarDsc* tmpLcl   = comp->lvaGetDesc(tmpLclNum);
+
+            tmpLcl->lvDoNotEnregister = paramLcl->lvDoNotEnregister;
+
+            var_types type  = varActualType(paramLcl->GetType());
+            GenTree*  value = comp->gtNewLclvNode(paramLclNum, type);
 
             // TODO-1stClassStructs: This can be simplified with 1st class structs work.
-            if (tmpTyp == TYP_STRUCT)
+            if (type == TYP_STRUCT)
             {
                 // TODO-MIKE-CQ: This code was previously using GT_STORE_BLK with a block layout.
                 //
@@ -1833,17 +1815,16 @@ void Lowering::RehomeArgForFastTailCall(unsigned int lclNum,
                 // reason why this doesn't cause problems is that this a struct and post
                 // lowering liveness is used by LSRA for reg candidates.
 
-                comp->lvaSetStruct(tmpLclNum, callerArgDsc->GetLayout(), false);
-                GenTree*    addr = comp->gtNewLclVarAddrNode(tmpLclNum);
-                GenTreeObj* store =
-                    new (comp, GT_STORE_OBJ) GenTreeObj(TYP_STRUCT, addr, value, callerArgDsc->GetLayout());
+                comp->lvaSetStruct(tmpLclNum, paramLcl->GetLayout(), false);
+
+                GenTree* store = NewStoreLclVar(tmpLclNum, type, value);
                 BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, store));
                 LowerNode(store);
             }
             else
             {
                 // TODO-MIKE-Cleanup: This creates SIMD locals without calling lvaSetStruct.
-                comp->lvaGetDesc(tmpLclNum)->SetType(tmpTyp);
+                comp->lvaGetDesc(tmpLclNum)->SetType(type);
 
                 GenTree* assignExpr = comp->gtNewTempAssign(tmpLclNum, value);
                 ContainCheckRange(value, assignExpr);
@@ -2791,7 +2772,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 
     if (!store->IsMultiReg() && varTypeIsStruct(lcl->GetType()))
     {
-        // TODO-Cleanup: we want to check `lcl->lvRegStruct` as the last condition instead of `!lcl->lvPromoted`,
+        // TODO-Cleanup: we want to check `lcl->lvRegStruct` as the last condition instead of `!paramLcl->lvPromoted`,
         // but we do not set it for `CSE` vars so it is currently failing.
         assert(lcl->CanBeReplacedWithItsField(comp) || lcl->lvDoNotEnregister || !lcl->IsPromoted());
 
@@ -3474,7 +3455,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
         // For ordering purposes for the special tailcall arguments on x86, we forced the
         // 'this' pointer in this case to a local in Compiler::fgMorphTailCall().
         // We could possibly use this case to remove copies for all architectures and non-tailcall
-        // calls by creating a new lcl var or lcl field reference, as is done in the
+        // calls by creating a new paramLcl var or paramLcl field reference, as is done in the
         // LowerVirtualVtableCall() code.
         assert(originalThisExpr->OperGet() == GT_LCL_VAR);
         lclNum = originalThisExpr->AsLclVarCommon()->GetLclNum();
@@ -4333,7 +4314,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
             unsigned lclNumTmp  = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("lclNumTmp"));
             unsigned lclNumTmp2 = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("lclNumTmp2"));
 
-            GenTreeLclVar* lclvNodeStore = NewStoreLclVar(lclNumTmp, TYP_I_IMPL, result);
+            GenTree* lclvNodeStore = NewStoreLclVar(lclNumTmp, TYP_I_IMPL, result);
 
             GenTree* tmpTree = comp->gtNewLclvNode(lclNumTmp, TYP_I_IMPL);
             tmpTree          = Offset(tmpTree, vtabOffsOfIndirection);
@@ -4342,8 +4323,8 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
             GenTree* offs = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
             result        = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, comp->gtNewLclvNode(lclNumTmp, TYP_I_IMPL), offs);
 
-            GenTree*       base           = OffsetByIndexWithScale(result, tmpTree, 1);
-            GenTreeLclVar* lclvNodeStore2 = NewStoreLclVar(lclNumTmp2, TYP_I_IMPL, base);
+            GenTree* base           = OffsetByIndexWithScale(result, tmpTree, 1);
+            GenTree* lclvNodeStore2 = NewStoreLclVar(lclNumTmp2, TYP_I_IMPL, base);
 
             LIR::Range range = LIR::SeqTree(comp, lclvNodeStore);
             JITDUMP("result of obtaining pointer to virtual table:\n");
