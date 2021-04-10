@@ -5296,17 +5296,12 @@ GenTreeOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1
 
 GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)
 {
+    assert(!compQmarkRationalized);
+
     compQmarkUsed = true;
     cond->gtFlags |= GTF_RELOP_QMARK;
     GenTreeColon* colon = new (this, GT_COLON) GenTreeColon(type, op1, op2);
-    GenTreeQmark* qmark = new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
-#ifdef DEBUG
-    if (compQmarkRationalized)
-    {
-        fgCheckQmarkAllowedForm(qmark);
-    }
-#endif
-    return qmark;
+    return new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
 }
 
 GenTreeIntCon* Compiler::gtNewIconNode(ssize_t value, var_types type)

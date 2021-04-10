@@ -14837,24 +14837,10 @@ GenTree* Compiler::fgInitThisClass()
 }
 
 #ifdef DEBUG
-/*****************************************************************************
- *
- *  Tree walk callback to make sure no GT_QMARK nodes are present in the tree,
- *  except for the allowed ? 1 : 0; pattern.
- */
 Compiler::fgWalkResult Compiler::fgAssertNoQmark(GenTree** tree, fgWalkData* data)
 {
-    if ((*tree)->OperGet() == GT_QMARK)
-    {
-        fgCheckQmarkAllowedForm(*tree);
-    }
+    assert(!(*tree)->IsQmark());
     return WALK_CONTINUE;
-}
-
-void Compiler::fgCheckQmarkAllowedForm(GenTree* tree)
-{
-    assert(tree->OperGet() == GT_QMARK);
-    assert(!"Qmarks beyond morph disallowed.");
 }
 
 /*****************************************************************************
@@ -14878,13 +14864,13 @@ void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
     // there are no qmarks within it.
     if (topQmark == nullptr)
     {
-        fgWalkTreePre(&expr, Compiler::fgAssertNoQmark, nullptr);
+        fgWalkTreePre(&expr, fgAssertNoQmark, nullptr);
     }
     else
     {
         // We could probably expand the cond node also, but don't think the extra effort is necessary,
         // so let's just assert the cond node of a top level qmark doesn't have further top level qmarks.
-        fgWalkTreePre(&topQmark->AsOp()->gtOp1, Compiler::fgAssertNoQmark, nullptr);
+        fgWalkTreePre(&topQmark->AsOp()->gtOp1, fgAssertNoQmark, nullptr);
 
         fgPreExpandQmarkChecks(topQmark->AsOp()->gtOp2->AsOp()->gtOp1);
         fgPreExpandQmarkChecks(topQmark->AsOp()->gtOp2->AsOp()->gtOp2);
@@ -15329,12 +15315,6 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 #endif // DEBUG
 }
 
-/*****************************************************************************
- *
- *  Expand GT_QMARK nodes from the flow graph into basic blocks.
- *
- */
-
 void Compiler::fgExpandQmarkNodes()
 {
     if (compQmarkUsed)
@@ -15344,16 +15324,14 @@ void Compiler::fgExpandQmarkNodes()
             for (Statement* stmt : block->Statements())
             {
                 GenTree* expr = stmt->GetRootNode();
-#ifdef DEBUG
-                fgPreExpandQmarkChecks(expr);
-#endif
+                INDEBUG(fgPreExpandQmarkChecks(expr);)
                 fgExpandQmarkStmt(block, stmt);
             }
         }
-#ifdef DEBUG
-        fgPostExpandQmarkChecks();
-#endif
+
+        INDEBUG(fgPostExpandQmarkChecks();)
     }
+
     compQmarkRationalized = true;
 }
 
@@ -15370,7 +15348,7 @@ void Compiler::fgPostExpandQmarkChecks()
         for (Statement* stmt : block->Statements())
         {
             GenTree* expr = stmt->GetRootNode();
-            fgWalkTreePre(&expr, Compiler::fgAssertNoQmark, nullptr);
+            fgWalkTreePre(&expr, fgAssertNoQmark, nullptr);
         }
     }
 }
