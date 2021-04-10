@@ -1369,12 +1369,14 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
         {
             GenTree* dstAddrHi = impPopStackCoerceArg(TYP_BYREF);
             GenTree* dstAddrLo = impPopStackCoerceArg(TYP_BYREF);
-            op1                = impSIMDPopStack(simdType);
-            GenTree* dupOp1    = fgInsertCommaFormTemp(&op1, clsHnd);
+            GenTree* op1       = impSIMDPopStack(simdType);
 
-            GenTree* wideLo = gtNewSIMDNode(simdType, SIMDIntrinsicWidenLo, baseType, size, op1);
+            GenTree* uses[2];
+            impMakeMultiUse(op1, uses, typGetObjLayout(clsHnd), CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
+
+            GenTree* wideLo = gtNewSIMDNode(simdType, SIMDIntrinsicWidenLo, baseType, size, uses[0]);
             GenTree* asgLo  = impAssignSIMDAddr(dstAddrLo, wideLo);
-            GenTree* wideHi = gtNewSIMDNode(simdType, SIMDIntrinsicWidenHi, baseType, size, dupOp1);
+            GenTree* wideHi = gtNewSIMDNode(simdType, SIMDIntrinsicWidenHi, baseType, size, uses[1]);
             GenTree* asgHi  = impAssignSIMDAddr(dstAddrHi, wideHi);
             retVal          = gtNewOperNode(GT_COMMA, simdType, asgLo, asgHi);
         }

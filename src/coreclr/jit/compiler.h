@@ -4690,9 +4690,7 @@ public:
 private:
     Statement* fgInsertStmtListAfter(BasicBlock* block, Statement* stmtAfter, Statement* stmtList);
 
-    //                  Create a new temporary variable to hold the result of *ppTree,
-    //                  and transform the graph accordingly.
-    GenTree* fgInsertCommaFormTemp(GenTree** ppTree, CORINFO_CLASS_HANDLE structType = nullptr);
+    GenTree* fgInsertCommaFormTemp(GenTree** use);
     GenTree* fgMakeMultiUse(GenTree** ppTree);
 
 private:

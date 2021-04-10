@@ -1417,44 +1417,16 @@ GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
     }
 }
 
-//------------------------------------------------------------------------------
-// fgInsertCommaFormTemp: Create a new temporary variable to hold the result of *ppTree,
-//                        and replace *ppTree with comma(asg(newLcl, *ppTree), newLcl)
-//
-// Arguments:
-//    ppTree     - a pointer to the child node we will be replacing with the comma expression that
-//                 evaluates ppTree to a temp and returns the result
-//
-//    structType - value type handle if the temp created is of TYP_STRUCT.
-//
-// Return Value:
-//    A fresh GT_LCL_VAR node referencing the temp which has not been used
-//
-
-GenTree* Compiler::fgInsertCommaFormTemp(GenTree** ppTree, CORINFO_CLASS_HANDLE structType /*= nullptr*/)
+GenTree* Compiler::fgInsertCommaFormTemp(GenTree** use)
 {
-    GenTree* subTree = *ppTree;
+    GenTree* tree = *use;
+    assert(!varTypeIsStruct(tree->GetType()));
 
-    unsigned lclNum = lvaGrabTemp(true DEBUGARG("fgInsertCommaFormTemp is creating a new local variable"));
-
-    if (varTypeIsStruct(subTree))
-    {
-        assert(structType != nullptr);
-        lvaSetStruct(lclNum, structType, false);
-    }
-
-    // If subTree->TypeGet() == TYP_STRUCT, gtNewTempAssign() will create a GT_COPYBLK tree.
-    // The type of GT_COPYBLK is TYP_VOID.  Therefore, we should use subTree->TypeGet() for
-    // setting type of lcl vars created.
-    GenTree* asg = gtNewTempAssign(lclNum, subTree);
-
-    GenTree* load = new (this, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, subTree->TypeGet(), lclNum);
-
-    GenTree* comma = gtNewOperNode(GT_COMMA, subTree->TypeGet(), asg, load);
-
-    *ppTree = comma;
-
-    return new (this, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, subTree->TypeGet(), lclNum);
+    unsigned lclNum = lvaGrabTemp(true DEBUGARG("fgInsertCommaFormTemp temp"));
+    GenTree* asg    = gtNewTempAssign(lclNum, tree);
+    GenTree* load   = gtNewLclvNode(lclNum, tree->GetType());
+    *use            = gtNewOperNode(GT_COMMA, tree->GetType(), asg, load);
+    return gtNewLclvNode(lclNum, tree->GetType());
 }
 
 //------------------------------------------------------------------------
