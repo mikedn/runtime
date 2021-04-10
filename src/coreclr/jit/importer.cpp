@@ -7421,12 +7421,12 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             // and then push the local holding the value of this
             // new instruction on the stack.
 
-            if (clsFlags & CORINFO_FLG_VALUECLASS)
+            if ((clsFlags & CORINFO_FLG_VALUECLASS) != 0)
             {
-                assert(newobjThis->gtOper == GT_ADDR && newobjThis->AsOp()->gtOp1->gtOper == GT_LCL_VAR);
+                assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
 
-                unsigned tmp = newobjThis->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
-                impPushOnStack(gtNewLclvNode(tmp, lvaGetRealType(tmp)), typeInfo(TI_STRUCT, clsHnd));
+                unsigned tmp = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
+                impPushOnStack(gtNewLclvNode(tmp, lvaGetDesc(tmp)->GetType()), typeInfo(TI_STRUCT, clsHnd));
             }
             else
             {
@@ -9968,7 +9968,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
 
                     lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
-                    op1    = gtNewLclvNode(lclNum, lvaGetActualType(lclNum));
+                    op1    = gtNewLclvNode(lclNum, varActualType(lvaGetDesc(lclNum)->GetType()));
                     goto PUSH_ADRVAR;
                 }
 
@@ -10014,7 +10014,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
             ADRVAR:
-                op1 = gtNewLclvNode(lclNum, lvaGetActualType(lclNum) DEBUGARG(opcodeOffs + sz + 1));
+                op1 = gtNewLclvNode(lclNum, varActualType(lvaGetDesc(lclNum)->GetType()) DEBUGARG(opcodeOffs + sz + 1));
 
             PUSH_ADRVAR:
                 assert(op1->gtOper == GT_LCL_VAR);

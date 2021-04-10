@@ -4763,25 +4763,18 @@ GenTree* Compiler::fgMorphArrayIndex(GenTreeIndex* tree)
     return fgMorphTree(comma);
 }
 
-/*****************************************************************************
- *
- *  Transform the given GT_LCL_VAR tree for code generation.
- */
-
 GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
 {
-    assert(tree->gtOper == GT_LCL_VAR);
+    assert(tree->OperIs(GT_LCL_VAR));
 
-    unsigned   lclNum  = tree->AsLclVarCommon()->GetLclNum();
-    var_types  varType = lvaGetRealType(lclNum);
-    LclVarDsc* varDsc  = &lvaTable[lclNum];
+    unsigned   lclNum  = tree->AsLclVar()->GetLclNum();
+    LclVarDsc* lcl     = lvaGetDesc(lclNum);
+    var_types  lclType = lcl->GetType();
 
-    if (varDsc->lvAddrExposed)
+    if (lcl->lvAddrExposed)
     {
         tree->gtFlags |= GTF_GLOB_REF;
     }
-
-    /* If not during the global morphing phase bail */
 
     if (!fgGlobalMorph && !forceRemorph)
     {
@@ -4790,28 +4783,27 @@ GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
 
     bool varAddr = (tree->gtFlags & GTF_DONT_CSE) != 0;
 
-    noway_assert(!(tree->gtFlags & GTF_VAR_DEF) || varAddr); // GTF_VAR_DEF should always imply varAddr
+    noway_assert(((tree->gtFlags & GTF_VAR_DEF) == 0) || varAddr); // GTF_VAR_DEF should always imply varAddr
 
-    if (!varAddr && varTypeIsSmall(varDsc->TypeGet()) && varDsc->lvNormalizeOnLoad())
+    if (!varAddr && varTypeIsSmall(lclType) && lcl->lvNormalizeOnLoad())
     {
 #if LOCAL_ASSERTION_PROP
-        /* Assertion prop can tell us to omit adding a cast here */
-        if (optLocalAssertionProp && optAssertionIsSubrange(tree, TYP_INT, varType, apFull) != NO_ASSERTION_INDEX)
+        if (!optLocalAssertionProp || (optAssertionIsSubrange(tree, TYP_INT, lclType, apFull) == NO_ASSERTION_INDEX))
         {
-            return tree;
+#endif
+            // Small-typed arguments and aliased locals are normalized on load.
+            // Other small-typed locals are normalized on store.
+            // Also, under the debugger as the debugger could write to the variable.
+            // If this is one of the former, insert a narrowing cast on the load.
+            //         ie. Convert: var-short --> cast-short(var-int)
+
+            tree->SetType(TYP_INT);
+            fgMorphTreeDone(tree);
+            tree = gtNewCastNode(TYP_INT, tree, false, lclType);
+            fgMorphTreeDone(tree);
+#if LOCAL_ASSERTION_PROP
         }
 #endif
-        /* Small-typed arguments and aliased locals are normalized on load.
-           Other small-typed locals are normalized on store.
-           Also, under the debugger as the debugger could write to the variable.
-           If this is one of the former, insert a narrowing cast on the load.
-                   ie. Convert: var-short --> cast-short(var-int) */
-
-        tree->gtType = TYP_INT;
-        fgMorphTreeDone(tree);
-        tree = gtNewCastNode(TYP_INT, tree, false, varType);
-        fgMorphTreeDone(tree);
-        return tree;
     }
 
     return tree;

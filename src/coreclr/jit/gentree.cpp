@@ -13735,18 +13735,20 @@ GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
 
     LclVarDsc* varDsc = lvaGetDesc(tmp);
 
-    if (varDsc->TypeGet() == TYP_I_IMPL && val->TypeGet() == TYP_BYREF)
+    if (varDsc->TypeIs(TYP_I_IMPL) && val->TypeIs(TYP_BYREF))
     {
         impBashVarAddrsToI(val);
     }
 
-    var_types valTyp = val->TypeGet();
-    if (val->OperGet() == GT_LCL_VAR && lvaTable[val->AsLclVar()->GetLclNum()].lvNormalizeOnLoad())
+    var_types valTyp = val->GetType();
+
+    if (val->OperIs(GT_LCL_VAR) && lvaGetDesc(val->AsLclVar())->lvNormalizeOnLoad())
     {
-        valTyp      = lvaGetRealType(val->AsLclVar()->GetLclNum());
-        val->gtType = valTyp;
+        valTyp = lvaGetDesc(val->AsLclVar())->GetType();
+        val->SetType(valTyp);
     }
-    var_types dstTyp = varDsc->TypeGet();
+
+    var_types dstTyp = varDsc->GetType();
 
     /* If the variable's lvType is not yet set then set it here */
     if (dstTyp == TYP_UNDEF)

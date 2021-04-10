@@ -2129,23 +2129,6 @@ inline bool Compiler::lvaIsOriginalThisReadOnly()
     return lvaArg0Var == info.compThisArg;
 }
 
-/*****************************************************************************
- *
- *  The following is used to detect the cases where the same local variable#
- *  is used both as a long/double value and a 32-bit value and/or both as an
- *  integer/address and a float value.
- */
-
-inline var_types Compiler::lvaGetActualType(unsigned lclNum)
-{
-    return genActualType(lvaGetRealType(lclNum));
-}
-
-inline var_types Compiler::lvaGetRealType(unsigned lclNum)
-{
-    return lvaTable[lclNum].TypeGet();
-}
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

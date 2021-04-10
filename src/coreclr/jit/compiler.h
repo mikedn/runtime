@@ -920,6 +920,17 @@ public:
         return lvType;
     }
 
+    bool TypeIs(var_types type) const
+    {
+        return lvType == type;
+    }
+
+    template <typename... T>
+    bool TypeIs(var_types type, T... rest) const
+    {
+        return TypeIs(type) || TypeIs(rest...);
+    }
+
     void SetType(var_types type)
     {
         assert((TYP_UNDEF < type) && (type < TYP_UNKNOWN) && !varTypeIsStruct(type));
@@ -2704,11 +2715,6 @@ public:
     void lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo);
 
     void lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd);
-
-    var_types lvaGetActualType(unsigned lclNum);
-    var_types lvaGetRealType(unsigned lclNum);
-
-    //-------------------------------------------------------------------------
 
     void lvaInit();
 
