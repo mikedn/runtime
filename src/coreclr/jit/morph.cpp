@@ -14858,7 +14858,8 @@ Compiler::fgWalkResult Compiler::fgAssertNoQmark(GenTree** tree, fgWalkData* dat
  */
 void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
 {
-    GenTree* topQmark = fgGetTopLevelQmark(expr);
+    GenTreeLclVar* destLclVar = nullptr;
+    GenTree*       topQmark   = fgGetTopLevelQmark(expr, &destLclVar);
 
     // If the top level Qmark is null, then scan the tree to make sure
     // there are no qmarks within it.
@@ -14878,35 +14879,22 @@ void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
 }
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Get the top level GT_QMARK node in a given "expr", return NULL if such a
- *  node is not present. If the top level GT_QMARK node is assigned to a
- *  GT_LCL_VAR, then return the lcl node in ppDst.
- *
- */
-GenTree* Compiler::fgGetTopLevelQmark(GenTree* expr, GenTree** ppDst /* = NULL */)
+GenTreeQmark* Compiler::fgGetTopLevelQmark(GenTree* expr, GenTreeLclVar** destLclVar)
 {
-    if (ppDst != nullptr)
+    *destLclVar = nullptr;
+
+    if (expr->OperIs(GT_QMARK))
     {
-        *ppDst = nullptr;
+        return expr->AsQmark();
     }
 
-    GenTree* topQmark = nullptr;
-    if (expr->gtOper == GT_QMARK)
+    if (expr->OperIs(GT_ASG) && expr->AsOp()->GetOp(1)->OperIs(GT_QMARK))
     {
-        topQmark = expr;
+        *destLclVar = expr->AsOp()->GetOp(0)->AsLclVar();
+        return expr->AsOp()->GetOp(1)->AsQmark();
     }
-    else if (expr->gtOper == GT_ASG && expr->AsOp()->gtOp2->gtOper == GT_QMARK &&
-             expr->AsOp()->gtOp1->gtOper == GT_LCL_VAR)
-    {
-        topQmark = expr->AsOp()->gtOp2;
-        if (ppDst != nullptr)
-        {
-            *ppDst = expr->AsOp()->gtOp1;
-        }
-    }
-    return topQmark;
+
+    return nullptr;
 }
 
 /*********************************************************************************
@@ -14951,8 +14939,8 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     GenTree* expr = stmt->GetRootNode();
 
-    GenTree* dst   = nullptr;
-    GenTree* qmark = fgGetTopLevelQmark(expr, &dst);
+    GenTreeLclVar* dst   = nullptr;
+    GenTreeQmark*  qmark = fgGetTopLevelQmark(expr, &dst);
     noway_assert(dst != nullptr);
 
     assert(qmark->gtFlags & GTF_QMARK_CAST_INSTOF);
@@ -15058,16 +15046,19 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
     jmpStmt = fgNewStmtFromTree(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(cond2Block, jmpStmt);
 
+    unsigned  dstLclNum = dst->GetLclNum();
+    var_types dstType   = lvaGetDesc(dstLclNum)->GetType();
+
+    assert(varTypeIsI(dstType));
+
     // AsgBlock should get tmp = op1 assignment.
-    trueExpr            = gtNewTempAssign(dst->AsLclVarCommon()->GetLclNum(), trueExpr);
-    Statement* trueStmt = fgNewStmtFromTree(trueExpr, stmt->GetILOffsetX());
-    fgInsertStmtAtEnd(asgBlock, trueStmt);
+    trueExpr = gtNewAssignNode(gtNewLclvNode(dstLclNum, dstType), trueExpr);
+    fgInsertStmtAtEnd(asgBlock, fgNewStmtFromTree(trueExpr, stmt->GetILOffsetX()));
 
     // Since we are adding helper in the JTRUE false path, reverse the cond2 and add the helper.
     gtReverseCond(cond2Expr);
-    GenTree*   helperExpr = gtNewTempAssign(dst->AsLclVarCommon()->GetLclNum(), true2Expr);
-    Statement* helperStmt = fgNewStmtFromTree(helperExpr, stmt->GetILOffsetX());
-    fgInsertStmtAtEnd(helperBlock, helperStmt);
+    true2Expr = gtNewAssignNode(gtNewLclvNode(dstLclNum, dstType), true2Expr);
+    fgInsertStmtAtEnd(helperBlock, fgNewStmtFromTree(true2Expr, stmt->GetILOffsetX()));
 
     // Finally remove the nested qmark stmt.
     fgRemoveStmt(block, stmt);
@@ -15135,15 +15126,15 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 {
     GenTree* expr = stmt->GetRootNode();
 
-    // Retrieve the Qmark node to be expanded.
-    GenTree* dst   = nullptr;
-    GenTree* qmark = fgGetTopLevelQmark(expr, &dst);
+    GenTreeLclVar* dst   = nullptr;
+    GenTreeQmark*  qmark = fgGetTopLevelQmark(expr, &dst);
+
     if (qmark == nullptr)
     {
         return;
     }
 
-    if (qmark->gtFlags & GTF_QMARK_CAST_INSTOF)
+    if ((qmark->gtFlags & GTF_QMARK_CAST_INSTOF) != 0)
     {
         fgExpandQmarkForCastInstOf(block, stmt);
         return;
@@ -15271,39 +15262,40 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     // Remove the original qmark statement.
     fgRemoveStmt(block, stmt);
 
-    // Since we have top level qmarks, we either have a dst for it in which case
-    // we need to create tmps for true and falseExprs, else just don't bother
-    // assigning.
-    unsigned lclNum = BAD_VAR_NUM;
-    if (dst != nullptr)
+    if (dst == nullptr)
     {
-        assert(dst->gtOper == GT_LCL_VAR);
-        lclNum = dst->AsLclVar()->GetLclNum();
+        assert(qmark->TypeIs(TYP_VOID));
     }
     else
     {
-        assert(qmark->TypeGet() == TYP_VOID);
+        unsigned  lclNum  = dst->GetLclNum();
+        var_types lclType = lvaGetDesc(lclNum)->GetType();
+
+        // Other non-struct types should work but such QMARKs are never generated by
+        // the JIT so this cannot be tested. Small int types might have issues.
+
+        assert(varTypeIsI(lclType));
+        assert(lclType == qmark->GetType());
+
+        if (hasTrueExpr)
+        {
+            trueExpr = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), trueExpr);
+        }
+
+        if (hasFalseExpr)
+        {
+            falseExpr = gtNewAssignNode(gtNewLclvNode(lclNum, lclType), falseExpr);
+        }
     }
 
     if (hasTrueExpr)
     {
-        if (dst != nullptr)
-        {
-            trueExpr = gtNewTempAssign(lclNum, trueExpr);
-        }
-        Statement* trueStmt = fgNewStmtFromTree(trueExpr, stmt->GetILOffsetX());
-        fgInsertStmtAtEnd(thenBlock, trueStmt);
+        fgInsertStmtAtEnd(thenBlock, fgNewStmtFromTree(trueExpr, stmt->GetILOffsetX()));
     }
 
-    // Assign the falseExpr into the dst or tmp, insert in elseBlock
     if (hasFalseExpr)
     {
-        if (dst != nullptr)
-        {
-            falseExpr = gtNewTempAssign(lclNum, falseExpr);
-        }
-        Statement* falseStmt = fgNewStmtFromTree(falseExpr, stmt->GetILOffsetX());
-        fgInsertStmtAtEnd(elseBlock, falseStmt);
+        fgInsertStmtAtEnd(elseBlock, fgNewStmtFromTree(falseExpr, stmt->GetILOffsetX()));
     }
 
 #ifdef DEBUG
