@@ -9231,11 +9231,6 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
         condTrue = gtNewIconNode(0, TYP_REF);
     }
 
-#define USE_QMARK_TREES
-
-#ifdef USE_QMARK_TREES
-    GenTree* qmarkMT;
-    //
     // Generate first QMARK - COLON tree
     //
     //  qmarkMT ==>   GT_QMARK
@@ -9244,11 +9239,9 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
     //                      /     \.
     //                condFalse  condTrue
     //
-    temp    = new (this, GT_COLON) GenTreeColon(TYP_REF, condTrue, condFalse);
-    qmarkMT = gtNewQmarkNode(TYP_REF, condMT, temp);
+    temp             = new (this, GT_COLON) GenTreeColon(TYP_REF, condTrue, condFalse);
+    GenTree* qmarkMT = gtNewQmarkNode(TYP_REF, condMT, temp);
 
-    GenTree* qmarkNull;
-    //
     // Generate second QMARK - COLON tree
     //
     //  qmarkNull ==>  GT_QMARK
@@ -9257,8 +9250,8 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
     //                      /     \.
     //                qmarkMT   op1Copy
     //
-    temp      = new (this, GT_COLON) GenTreeColon(TYP_REF, gtClone(op1), qmarkMT);
-    qmarkNull = gtNewQmarkNode(TYP_REF, condNull, temp);
+    temp               = new (this, GT_COLON) GenTreeColon(TYP_REF, gtClone(op1), qmarkMT);
+    GenTree* qmarkNull = gtNewQmarkNode(TYP_REF, condNull, temp);
     qmarkNull->gtFlags |= GTF_QMARK_CAST_INSTOF;
 
     // Make QMark node a top level node by spilling it.
@@ -9275,7 +9268,6 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
     JITDUMP("Marked V%02u as a single def temp\n", tmp);
     lvaSetClass(tmp, pResolvedToken->hClass);
     return gtNewLclvNode(tmp, TYP_REF);
-#endif
 }
 
 #ifndef DEBUG
