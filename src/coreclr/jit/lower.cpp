@@ -4330,20 +4330,20 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
             // tmp2 = tmp1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [tmp1 + vtabOffsOfIndirection]
             // result = tmp2 + [tmp2]
             //
-            unsigned lclNumTmp  = comp->lvaGrabTemp(true DEBUGARG("lclNumTmp"));
-            unsigned lclNumTmp2 = comp->lvaGrabTemp(true DEBUGARG("lclNumTmp2"));
+            unsigned lclNumTmp  = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("lclNumTmp"));
+            unsigned lclNumTmp2 = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("lclNumTmp2"));
 
-            GenTree* lclvNodeStore = comp->gtNewTempAssign(lclNumTmp, result);
+            GenTreeLclVar* lclvNodeStore = NewStoreLclVar(lclNumTmp, TYP_I_IMPL, result);
 
-            GenTree* tmpTree = comp->gtNewLclvNode(lclNumTmp, result->TypeGet());
+            GenTree* tmpTree = comp->gtNewLclvNode(lclNumTmp, TYP_I_IMPL);
             tmpTree          = Offset(tmpTree, vtabOffsOfIndirection);
 
             tmpTree       = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, tmpTree, false);
             GenTree* offs = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_INT);
-            result = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, comp->gtNewLclvNode(lclNumTmp, result->TypeGet()), offs);
+            result        = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, comp->gtNewLclvNode(lclNumTmp, TYP_I_IMPL), offs);
 
-            GenTree* base           = OffsetByIndexWithScale(result, tmpTree, 1);
-            GenTree* lclvNodeStore2 = comp->gtNewTempAssign(lclNumTmp2, base);
+            GenTree*       base           = OffsetByIndexWithScale(result, tmpTree, 1);
+            GenTreeLclVar* lclvNodeStore2 = NewStoreLclVar(lclNumTmp2, TYP_I_IMPL, base);
 
             LIR::Range range = LIR::SeqTree(comp, lclvNodeStore);
             JITDUMP("result of obtaining pointer to virtual table:\n");
@@ -4356,9 +4356,8 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
             DISPRANGE(range2);
             BlockRange().InsertAfter(lclvNodeStore, std::move(range2));
 
-            result = Ind(comp->gtNewLclvNode(lclNumTmp2, result->TypeGet()));
-            result =
-                comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, result, comp->gtNewLclvNode(lclNumTmp2, result->TypeGet()));
+            result = Ind(comp->gtNewLclvNode(lclNumTmp2, TYP_I_IMPL));
+            result = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, result, comp->gtNewLclvNode(lclNumTmp2, TYP_I_IMPL));
         }
         else
         {

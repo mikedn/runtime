@@ -212,6 +212,17 @@ private:
         return new (comp, GT_LEA) GenTreeAddrMode(resultType, base, index, scale, 0);
     }
 
+    GenTreeLclVar* NewStoreLclVar(unsigned lclNum, var_types type, GenTree* value)
+    {
+        // Don't bother with GTF_GLOB_REF for now, it's unlikely to be ever needed in LIR.
+        assert(!comp->lvaGetDesc(lclNum)->lvAddrExposed);
+
+        GenTreeLclVar* store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, type, lclNum);
+        store->gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        store->SetOp(0, value);
+        return store;
+    }
+
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
     GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM)
