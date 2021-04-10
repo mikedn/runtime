@@ -206,7 +206,7 @@ void Compiler::optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, Lc
             continue;
         }
         if (gsShadowVarInfo != nullptr && lvaTable[newLclNum].lvIsParam &&
-            gsShadowVarInfo[newLclNum].shadowCopy == lclNum)
+            gsShadowVarInfo[newLclNum].shadowLclNum == lclNum)
         {
             continue;
         }

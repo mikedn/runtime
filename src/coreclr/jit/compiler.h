@@ -8667,45 +8667,12 @@ public:
     struct ShadowParamVarInfo
     {
         FixedBitVect* assignGroup; // the closure set of variables whose values depend on each other
-        unsigned      shadowCopy;  // Lcl var num, valid only if not set to NO_SHADOW_COPY
-
-        static bool mayNeedShadowCopy(LclVarDsc* varDsc)
-        {
-#if defined(TARGET_AMD64)
-            // GS cookie logic to create shadow slots, create trees to copy reg args to shadow
-            // slots and update all trees to refer to shadow slots is done immediately after
-            // fgMorph().  Lsra could potentially mark a param as DoNotEnregister after JIT determines
-            // not to shadow a parameter.  Also, LSRA could potentially spill a param which is passed
-            // in register. Therefore, conservatively all params may need a shadow copy.  Note that
-            // GS cookie logic further checks whether the param is a ptr or an unsafe buffer before
-            // creating a shadow slot even though this routine returns true.
-            //
-            // TODO-AMD64-CQ: Revisit this conservative approach as it could create more shadow slots than
-            // required. There are two cases under which a reg arg could potentially be used from its
-            // home location:
-            //   a) LSRA marks it as DoNotEnregister (see LinearScan::identifyCandidates())
-            //   b) LSRA spills it
-            //
-            // Possible solution to address case (a)
-            //   - The conditions under which LSRA marks a varDsc as DoNotEnregister could be checked
-            //     in this routine.  Note that live out of exception handler is something we may not be
-            //     able to do it here since GS cookie logic is invoked ahead of liveness computation.
-            //     Therefore, for methods with exception handling and need GS cookie check we might have
-            //     to take conservative approach.
-            //
-            // Possible solution to address case (b)
-            //   - Whenver a parameter passed in an argument register needs to be spilled by LSRA, we
-            //     create a new spill temp if the method needs GS cookie check.
-            return varDsc->lvIsParam;
-#else // !defined(TARGET_AMD64)
-            return varDsc->lvIsParam && !varDsc->lvIsRegArg;
-#endif
-        }
+        unsigned      shadowLclNum;
 
 #ifdef DEBUG
         void Print()
         {
-            printf("assignGroup [%p]; shadowCopy: [%d];\n", assignGroup, shadowCopy);
+            printf("assignGroup [%p]; shadowCopy: %V02u;\n", assignGroup, shadowLclNum);
         }
 #endif
     };

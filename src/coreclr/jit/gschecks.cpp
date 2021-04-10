@@ -25,8 +25,6 @@ void Compiler::gsGSChecksInitCookie()
     info.compCompHnd->getGSCookie(&gsGlobalSecurityCookieVal, &gsGlobalSecurityCookieAddr);
 }
 
-const unsigned NO_SHADOW_COPY = UINT_MAX;
-
 /*****************************************************************************
  * gsCopyShadowParams
  * The current function has an unsafe buffer on the stack.  Search for vulnerable
@@ -363,75 +361,99 @@ bool Compiler::gsFindVulnerableParams()
     return hasOneVulnerable;
 }
 
-//-------------------------------------------------------------------------------
-// gsParamsToShadows: Copy each vulnerable param ptr or buffer to a local shadow
-//                    copy and replace uses of the param by the shadow copy.
+static bool MayNeedShadowCopy(LclVarDsc* lcl)
+{
+#if defined(TARGET_AMD64)
+    // GS cookie logic to create shadow slots, create trees to copy reg args to shadow
+    // slots and update all trees to refer to shadow slots is done immediately after
+    // fgMorph().  Lsra could potentially mark a param as DoNotEnregister after JIT determines
+    // not to shadow a parameter.  Also, LSRA could potentially spill a param which is passed
+    // in register. Therefore, conservatively all params may need a shadow copy.  Note that
+    // GS cookie logic further checks whether the param is a ptr or an unsafe buffer before
+    // creating a shadow slot even though this routine returns true.
+    //
+    // TODO-AMD64-CQ: Revisit this conservative approach as it could create more shadow slots than
+    // required. There are two cases under which a reg arg could potentially be used from its
+    // home location:
+    //   a) LSRA marks it as DoNotEnregister (see LinearScan::identifyCandidates())
+    //   b) LSRA spills it
+    //
+    // Possible solution to address case (a)
+    //   - The conditions under which LSRA marks a varDsc as DoNotEnregister could be checked
+    //     in this routine.  Note that live out of exception handler is something we may not be
+    //     able to do it here since GS cookie logic is invoked ahead of liveness computation.
+    //     Therefore, for methods with exception handling and need GS cookie check we might have
+    //     to take conservative approach.
+    //
+    // Possible solution to address case (b)
+    //   - Whenver a parameter passed in an argument register needs to be spilled by LSRA, we
+    //     create a new spill temp if the method needs GS cookie check.
+    return lcl->lvIsParam;
+#else // !defined(TARGET_AMD64)
+    return lcl->lvIsParam && !lcl->lvIsRegArg;
+#endif
+}
+
+// Copy each vulnerable param ptr or buffer to a local shadow
+// copy and replace uses of the param by the shadow copy.
 void Compiler::gsParamsToShadows()
 {
-    // Cache old count since we'll add new variables, and
-    // gsShadowVarInfo will not grow to accomodate the new ones.
-    UINT lvaOldCount = lvaCount;
+    unsigned lvaOldCount = lvaCount;
 
-    // Create shadow copy for each param candidate
-    for (UINT lclNum = 0; lclNum < lvaOldCount; lclNum++)
+    for (unsigned lclNum = 0; lclNum < lvaOldCount; lclNum++)
     {
-        LclVarDsc* varDsc                  = &lvaTable[lclNum];
-        gsShadowVarInfo[lclNum].shadowCopy = NO_SHADOW_COPY;
+        gsShadowVarInfo[lclNum].shadowLclNum = BAD_VAR_NUM;
 
-        // Only care about params whose values are on the stack
-        if (!ShadowParamVarInfo::mayNeedShadowCopy(varDsc))
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (!MayNeedShadowCopy(lcl))
         {
             continue;
         }
 
-        if (!varDsc->lvIsPtr && !varDsc->lvIsUnsafeBuffer)
+        if (!lcl->lvIsPtr && !lcl->lvIsUnsafeBuffer)
         {
             continue;
         }
 
-        int shadowVarNum = lvaGrabTemp(false DEBUGARG("shadowVar"));
-        // reload varDsc as lvaGrabTemp may realloc the lvaTable[]
-        varDsc                  = &lvaTable[lclNum];
-        LclVarDsc* shadowVarDsc = &lvaTable[shadowVarNum];
+        unsigned shadowLclNum = lvaGrabTemp(false DEBUGARG("shadow copy"));
+        JITDUMP("V%02u is shadow param candidate. Shadow copy is V%02u.\n", lclNum, shadowLclNum);
+        gsShadowVarInfo[lclNum].shadowLclNum = shadowLclNum;
 
-        // Copy some info
+        LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
+        // Get lcl again as lvaGrabTemp may have resized the local table.
+        lcl = lvaGetDesc(lclNum);
 
-        var_types type       = varTypeIsSmall(varDsc->TypeGet()) ? TYP_INT : varDsc->TypeGet();
-        shadowVarDsc->lvType = type;
+        // TODO-MIKE-Cleanup: varActualType is likely useless, there should be no need to shadow
+        // copy small int locals.
+        var_types type = varActualType(lcl->GetType());
 
-        shadowVarDsc->lvRegStruct = varDsc->lvRegStruct;
+        shadowLcl->lvType = type;
 
-        shadowVarDsc->lvAddrExposed     = varDsc->lvAddrExposed;
-        shadowVarDsc->lvDoNotEnregister = varDsc->lvDoNotEnregister;
-#ifdef DEBUG
-        shadowVarDsc->lvLiveInOutOfHndlr = varDsc->lvLiveInOutOfHndlr;
-        shadowVarDsc->lvLclFieldExpr     = varDsc->lvLclFieldExpr;
-        shadowVarDsc->lvLiveAcrossUCall  = varDsc->lvLiveAcrossUCall;
-#endif
-        shadowVarDsc->lvIsThisPtr = varDsc->lvIsThisPtr;
         if (varTypeIsStruct(type))
         {
-            // We don't need unsafe value cls check here since we are copying the params and this flag
-            // would have been set on the original param before reaching here.
-            lvaSetStruct(shadowVarNum, varDsc->GetLayout(), false);
+            // We don't need checkUnsafeBuffer here since we are copying the params and
+            // this flag would have been set on the original param before reaching here.
+            lvaSetStruct(shadowLclNum, lcl->GetLayout(), /* checkUnsafeBuffer */ false);
 
-            shadowVarDsc->lvIsMultiRegArg = varDsc->lvIsMultiRegArg;
-            shadowVarDsc->lvIsMultiRegRet = varDsc->lvIsMultiRegRet;
+            shadowLcl->lvIsMultiRegArg = lcl->lvIsMultiRegArg;
+            shadowLcl->lvIsMultiRegRet = lcl->lvIsMultiRegRet;
 #ifdef FEATURE_SIMD
-            shadowVarDsc->lvUsedInSIMDIntrinsic = varDsc->lvUsedInSIMDIntrinsic;
+            shadowLcl->lvUsedInSIMDIntrinsic = lcl->lvUsedInSIMDIntrinsic;
 #endif
         }
-        shadowVarDsc->lvIsUnsafeBuffer = varDsc->lvIsUnsafeBuffer;
-        shadowVarDsc->lvIsPtr          = varDsc->lvIsPtr;
 
+        shadowLcl->lvRegStruct       = lcl->lvRegStruct;
+        shadowLcl->lvAddrExposed     = lcl->lvAddrExposed;
+        shadowLcl->lvDoNotEnregister = lcl->lvDoNotEnregister;
+        shadowLcl->lvIsThisPtr       = lcl->lvIsThisPtr;
+        shadowLcl->lvIsUnsafeBuffer  = lcl->lvIsUnsafeBuffer;
+        shadowLcl->lvIsPtr           = lcl->lvIsPtr;
 #ifdef DEBUG
-        if (verbose)
-        {
-            printf("Var V%02u is shadow param candidate. Shadow copy is V%02u.\n", lclNum, shadowVarNum);
-        }
+        shadowLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
+        shadowLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
+        shadowLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
 #endif
-
-        gsShadowVarInfo[lclNum].shadowCopy = shadowVarNum;
     }
 
     class ReplaceShadowParamsVisitor final : public GenTreeVisitor<ReplaceShadowParamsVisitor>
@@ -454,25 +476,24 @@ void Compiler::gsParamsToShadows()
         {
             GenTree* tree = *use;
 
-            unsigned int lclNum       = tree->AsLclVarCommon()->GetLclNum();
-            unsigned int shadowLclNum = m_compiler->gsShadowVarInfo[lclNum].shadowCopy;
+            unsigned lclNum       = tree->AsLclVarCommon()->GetLclNum();
+            unsigned shadowLclNum = m_compiler->gsShadowVarInfo[lclNum].shadowLclNum;
 
-            if (shadowLclNum != NO_SHADOW_COPY)
+            if (shadowLclNum != BAD_VAR_NUM)
             {
-                LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-                assert(ShadowParamVarInfo::mayNeedShadowCopy(varDsc));
+                LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
 
                 tree->AsLclVarCommon()->SetLclNum(shadowLclNum);
 
-                if (varTypeIsSmall(varDsc->TypeGet()))
+                if (varTypeIsSmall(lcl->GetType()))
                 {
                     if (tree->OperIs(GT_LCL_VAR))
                     {
-                        tree->gtType = TYP_INT;
+                        tree->SetType(TYP_INT);
 
-                        if (user->OperIs(GT_ASG) && user->gtGetOp1() == tree)
+                        if (user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == tree))
                         {
-                            user->gtType = TYP_INT;
+                            user->SetType(TYP_INT);
                         }
                     }
                 }
@@ -492,21 +513,16 @@ void Compiler::gsParamsToShadows()
     }
 
     // Now insert code to copy the params to their shadow copy.
-    for (UINT lclNum = 0; lclNum < lvaOldCount; lclNum++)
+    for (unsigned lclNum = 0; lclNum < lvaOldCount; lclNum++)
     {
-        const LclVarDsc* varDsc = &lvaTable[lclNum];
-
-        const unsigned shadowVarNum = gsShadowVarInfo[lclNum].shadowCopy;
-        if (shadowVarNum == NO_SHADOW_COPY)
+        unsigned shadowLclNum = gsShadowVarInfo[lclNum].shadowLclNum;
+        if (shadowLclNum == BAD_VAR_NUM)
         {
             continue;
         }
 
-        LclVarDsc* shadowVarDsc = &lvaTable[shadowVarNum];
-        var_types  type         = shadowVarDsc->TypeGet();
-
-        GenTree* src = gtNewLclvNode(lclNum, varDsc->TypeGet());
-        GenTree* dst = gtNewLclvNode(shadowVarNum, type);
+        GenTree* src = gtNewLclvNode(lclNum, lvaGetDesc(lclNum)->GetType());
+        GenTree* dst = gtNewLclvNode(shadowLclNum, lvaGetDesc(shadowLclNum)->GetType());
 
         src->gtFlags |= GTF_DONT_CSE;
         dst->gtFlags |= GTF_DONT_CSE;
@@ -521,32 +537,23 @@ void Compiler::gsParamsToShadows()
     {
         // There could be more than one basic block ending with a "Jmp" type tail call.
         // We would have to insert assignments in all such blocks, just before GT_JMP stmnt.
-        for (BasicBlock* block = fgFirstBB; block; block = block->bbNext)
+        for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
         {
-            if (block->bbJumpKind != BBJ_RETURN)
+            if ((block->bbJumpKind != BBJ_RETURN) || ((block->bbFlags & BBF_HAS_JMP) == 0))
             {
                 continue;
             }
 
-            if ((block->bbFlags & BBF_HAS_JMP) == 0)
+            for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
             {
-                continue;
-            }
-
-            for (UINT lclNum = 0; lclNum < info.compArgsCount; lclNum++)
-            {
-                const LclVarDsc* varDsc = &lvaTable[lclNum];
-
-                const unsigned shadowVarNum = gsShadowVarInfo[lclNum].shadowCopy;
-                if (shadowVarNum == NO_SHADOW_COPY)
+                unsigned shadowLclNum = gsShadowVarInfo[lclNum].shadowLclNum;
+                if (shadowLclNum == BAD_VAR_NUM)
                 {
                     continue;
                 }
 
-                const LclVarDsc* shadowVarDsc = &lvaTable[shadowVarNum];
-
-                GenTree* src = gtNewLclvNode(shadowVarNum, shadowVarDsc->TypeGet());
-                GenTree* dst = gtNewLclvNode(lclNum, varDsc->TypeGet());
+                GenTree* src = gtNewLclvNode(shadowLclNum, lvaGetDesc(shadowLclNum)->GetType());
+                GenTree* dst = gtNewLclvNode(lclNum, lvaGetDesc(lclNum)->GetType());
 
                 src->gtFlags |= GTF_DONT_CSE;
                 dst->gtFlags |= GTF_DONT_CSE;
