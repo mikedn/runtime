@@ -940,7 +940,7 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
  *  that may need to be fixed up).
  */
 
-inline GenTree* Compiler::gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fieldSeq)
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fieldSeq)
 {
     assert((flags & GTF_ICON_HDL_MASK) != 0);
 
@@ -949,7 +949,7 @@ inline GenTree* Compiler::gtNewIconHandleNode(size_t value, unsigned flags, Fiel
         fieldSeq = FieldSeqStore::NotAField();
     }
 
-    GenTree* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fieldSeq);
+    GenTreeIntCon* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fieldSeq);
     node->gtFlags |= flags;
     return node;
 }
@@ -3695,14 +3695,12 @@ inline GenTree* Compiler::impCheckForNullPointer(GenTree* obj)
             return obj;
         }
 
-        unsigned tmp = lvaGrabTemp(true DEBUGARG("CheckForNullPointer"));
+        unsigned tmp = lvaNewTemp(obj->GetType(), true DEBUGARG("CheckForNullPointer"));
+        GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, obj->GetType()), obj);
+        // We don't need to spill while appending as we are assigning a constant to a new temp.
+        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
 
-        // We don't need to spill while appending as we are only assigning
-        // NULL to a freshly-grabbed temp.
-
-        impAssignTempGen(tmp, obj, (unsigned)CHECK_SPILL_NONE);
-
-        obj = gtNewLclvNode(tmp, obj->gtType);
+        obj = gtNewLclvNode(tmp, obj->GetType());
     }
 
     return obj;

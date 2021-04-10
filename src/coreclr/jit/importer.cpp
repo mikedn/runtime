@@ -991,20 +991,10 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-//------------------------------------------------------------------------
-// impAssignStruct: Create a struct assignment
-//
-// Arguments:
-//    dest         - the destination of the assignment
-//    src          - the value to be assigned
-//    structHnd    - handle representing the struct type
-//    curLevel     - stack level for which a spill may be being done
-//
-// Return Value:
-//    The tree that should be appended to the statement list that represents the assignment.
-//
-// Notes:
-//    Temp assignments may be appended to impStmtList if spilling is necessary.
+GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel)
+{
+    return impAssignStruct(dest, src, layout->GetClassHandle(), curLevel);
+}
 
 GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel)
 {
@@ -1605,7 +1595,7 @@ GenTree* Compiler::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
         }
         else
         {
-            handleToTrack = (size_t)compileTimeHandle;
+            handleToTrack = reinterpret_cast<size_t>(compileTimeHandle);
         }
 
         if (handle != nullptr)
@@ -1614,7 +1604,7 @@ GenTree* Compiler::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
         }
         else
         {
-            addr->gtGetOp1()->AsIntCon()->gtTargetHandle = handleToTrack;
+            addr->AsIndir()->GetAddr()->AsIntCon()->gtTargetHandle = handleToTrack;
         }
 #endif
         return addr;
@@ -1812,7 +1802,7 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     GenTree* lastIndOfTree = nullptr;
 
     // Applied repeated indirections
-    for (WORD i = 0; i < pRuntimeLookup->indirections; i++)
+    for (uint16_t i = 0; i < pRuntimeLookup->indirections; i++)
     {
         if ((i == 1 && pRuntimeLookup->indirectFirstOffset) || (i == 2 && pRuntimeLookup->indirectSecondOffset))
         {
@@ -1870,8 +1860,9 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
         impSpillSideEffects(true, CHECK_SPILL_ALL DEBUGARG("bubbling QMark0"));
 
-        unsigned slotLclNum = lvaGrabTemp(true DEBUGARG("impRuntimeLookup test"));
-        impAssignTempGen(slotLclNum, slotPtrTree, CHECK_SPILL_ALL);
+        unsigned slotLclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("impRuntimeLookup test"));
+        GenTree* asg        = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), slotPtrTree);
+        impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
 
         GenTree* slot = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
 #ifdef TARGET_64BIT
@@ -1887,11 +1878,9 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         GenTree* indir = gtNewOperNode(GT_IND, TYP_I_IMPL, add);
         indir->gtFlags |= GTF_IND_NONFAULTING;
         indir->gtFlags |= GTF_IND_INVARIANT;
+        asg = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), indir);
 
-        slot           = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
-        GenTree* asg   = gtNewAssignNode(slot, indir);
-        GenTree* colon = new (this, GT_COLON) GenTreeColon(TYP_VOID, gtNewNothingNode(), asg);
-        GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, colon);
+        GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, gtNewNothingNode(), asg);
         impAppendTree(qmark, CHECK_SPILL_NONE, impCurStmtOffs);
 
         return gtNewLclvNode(slotLclNum, TYP_I_IMPL);
@@ -1947,13 +1936,12 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     }
     else
     {
-        GenTreeColon* colonNullCheck = new (this, GT_COLON) GenTreeColon(TYP_I_IMPL, handleForResult, helperCall);
-        result                       = gtNewQmarkNode(TYP_I_IMPL, nullCheck, colonNullCheck);
+        result = gtNewQmarkNode(TYP_I_IMPL, nullCheck, handleForResult, helperCall);
     }
 
-    unsigned tmp = lvaGrabTemp(true DEBUGARG("spilling Runtime Lookup tree"));
-
-    impAssignTempGen(tmp, result, (unsigned)CHECK_SPILL_NONE);
+    unsigned tmp = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"));
+    GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, TYP_I_IMPL), result);
+    impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
     return gtNewLclvNode(tmp, TYP_I_IMPL);
 }
 
@@ -2278,7 +2266,7 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
 
         // Spill into a temp.
         unsigned   tempNum = lvaNewTemp(TYP_REF, false DEBUGARG("CATCH_ARG spill temp"));
-        GenTree*   argAsg  = gtNewTempAssign(tempNum, impNewCatchArg());
+        GenTree*   argAsg  = gtNewAssignNode(gtNewLclvNode(tempNum, TYP_REF), impNewCatchArg());
         Statement* argStmt;
 
         if (info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
@@ -3687,14 +3675,14 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 return nullptr;
             }
 
-            noway_assert(genTypeSize(rawHandle->TypeGet()) == genTypeSize(TYP_I_IMPL));
+            noway_assert(rawHandle->TypeIs(TYP_I_IMPL));
 
-            unsigned rawHandleSlot = lvaGrabTemp(true DEBUGARG("rawHandle"));
-            impAssignTempGen(rawHandleSlot, rawHandle, clsHnd, (unsigned)CHECK_SPILL_NONE);
+            unsigned rawHandleSlot = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("rawHandle"));
+            GenTree* asg           = gtNewAssignNode(gtNewLclvNode(rawHandleSlot, TYP_I_IMPL), rawHandle);
+            impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+            GenTree* lclVarAddr = gtNewAddrNode(gtNewLclvNode(rawHandleSlot, TYP_I_IMPL), TYP_I_IMPL);
 
-            GenTree*  lclVarAddr = gtNewAddrNode(gtNewLclvNode(rawHandleSlot, TYP_I_IMPL), TYP_I_IMPL);
-            var_types resultType = JITtype2varType(sig->retType);
-            retNode              = gtNewOperNode(GT_IND, resultType, lclVarAddr);
+            retNode = gtNewOperNode(GT_IND, JITtype2varType(sig->retType), lclVarAddr);
 
             break;
         }
@@ -6738,16 +6726,15 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 
                     GenTree* stubAddr = impRuntimeLookupToTree(pResolvedToken, &callInfo->stubLookup, methHnd);
                     assert(!compDonotInline());
-
-                    // This is the rough code to set up an indirect stub call
-                    assert(stubAddr != nullptr);
+                    assert(stubAddr->TypeIs(TYP_I_IMPL));
 
                     // The stubAddr may be a
                     // complex expression. As it is evaluated after the args,
                     // it may cause registered args to be spilled. Simply spill it.
 
-                    unsigned lclNum = lvaGrabTemp(true DEBUGARG("VirtualCall with runtime lookup"));
-                    impAssignTempGen(lclNum, stubAddr, (unsigned)CHECK_SPILL_NONE);
+                    unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall with runtime lookup"));
+                    GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), stubAddr);
+                    impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
                     stubAddr = gtNewLclvNode(lclNum, TYP_I_IMPL);
 
                     // Create the actual call node
@@ -6837,14 +6824,15 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                                        CHECK_SPILL_ALL DEBUGARG("LDVIRTFTN this pointer"));
 
                 GenTree* fptr = impImportLdvirtftn(thisPtr, pResolvedToken, callInfo);
-                assert(fptr != nullptr);
+                assert(fptr->TypeIs(TYP_I_IMPL));
 
                 thisPtr = nullptr; // can't reuse it
 
                 // Now make an indirect call through the function pointer
 
-                unsigned lclNum = lvaGrabTemp(true DEBUGARG("VirtualCall through function pointer"));
-                impAssignTempGen(lclNum, fptr, (unsigned)CHECK_SPILL_ALL);
+                unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall through function pointer"));
+                GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), fptr);
+                impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
                 fptr = gtNewLclvNode(lclNum, TYP_I_IMPL);
 
                 // Create the actual call node
@@ -6917,8 +6905,11 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 
                 // Now make an indirect call through the function pointer
 
-                unsigned lclNum = lvaGrabTemp(true DEBUGARG("Indirect call through function pointer"));
-                impAssignTempGen(lclNum, fptr, (unsigned)CHECK_SPILL_ALL);
+                assert(fptr->TypeIs(TYP_I_IMPL));
+
+                unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Indirect call through function pointer"));
+                GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), fptr);
+                impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
                 fptr = gtNewLclvNode(lclNum, TYP_I_IMPL);
 
                 call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
@@ -7752,8 +7743,7 @@ DONE_INTRINSIC:
                     if (call->OperGet() != GT_LCL_VAR) // can be already converted by impCanonicalizeMultiRegCall.
                     {
                         unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli"));
-                        impAssignTempGen(calliTempLclNum, call, sig->retTypeClass, (unsigned)CHECK_SPILL_NONE);
-                        // impAssignTempGen can change src arg list and return type for call that returns struct.
+                        impAssignTempGen(calliTempLclNum, call, sig->retTypeClass, CHECK_SPILL_NONE);
                         call = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
                     }
                 }
@@ -7876,13 +7866,15 @@ GenTree* Compiler::impCanonicalizeMultiRegCall(GenTreeCall* call)
     assert(varTypeIsStruct(call->GetType()));
     assert((call->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate());
 
-    unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
-    impAssignTempGen(tempLclNum, call, call->GetRetLayout(), CHECK_SPILL_ALL);
-    LclVarDsc* tempLcl = lvaGetDesc(tempLclNum);
+    unsigned tempLclNum = lvaNewTemp(call->GetRetLayout(), true DEBUGARG("multireg return call temp"));
+    // Make sure that this local doesn't get promoted.
+    lvaGetDesc(tempLclNum)->lvIsMultiRegRet = true;
 
-    GenTree* temp = gtNewLclvNode(tempLclNum, tempLcl->GetType());
-    // Make sure that this struct stays in memory and doesn't get promoted.
-    tempLcl->lvIsMultiRegRet = true;
+    GenTree* temp = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
+    GenTree* asg  = impAssignStruct(temp, call, call->GetRetLayout(), CHECK_SPILL_ALL);
+    impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+
+    temp = gtNewLclvNode(tempLclNum, temp->GetType());
     // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
     temp->gtFlags |= GTF_DONT_CSE;
 
@@ -7936,10 +7928,12 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
     if (lcl == nullptr)
     {
-        unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
-        impAssignTempGen(tempLclNum, value, retClass, CHECK_SPILL_ALL);
-        lcl = lvaGetDesc(tempLclNum);
+        unsigned tempLclNum = lvaNewTemp(retClass, true DEBUGARG("multireg return temp"));
+        GenTree* temp       = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
+        GenTree* asg        = impAssignStruct(temp, value, retClass, CHECK_SPILL_ALL);
+        impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
 
+        lcl   = lvaGetDesc(tempLclNum);
         value = gtNewLclvNode(tempLclNum, lcl->GetType());
     }
 
@@ -9221,32 +9215,14 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
         condTrue = gtNewIconNode(0, TYP_REF);
     }
 
-    // Generate first QMARK - COLON tree
-    //
-    //  qmarkMT ==>   GT_QMARK
-    //                 /     \.
-    //            condMT   GT_COLON
-    //                      /     \.
-    //                condFalse  condTrue
-    //
-    temp             = new (this, GT_COLON) GenTreeColon(TYP_REF, condTrue, condFalse);
-    GenTree* qmarkMT = gtNewQmarkNode(TYP_REF, condMT, temp);
-
-    // Generate second QMARK - COLON tree
-    //
-    //  qmarkNull ==>  GT_QMARK
-    //                 /     \.
-    //           condNull  GT_COLON
-    //                      /     \.
-    //                qmarkMT   op1Copy
-    //
-    temp               = new (this, GT_COLON) GenTreeColon(TYP_REF, gtClone(op1), qmarkMT);
-    GenTree* qmarkNull = gtNewQmarkNode(TYP_REF, condNull, temp);
+    GenTree* qmarkMT   = gtNewQmarkNode(TYP_REF, condMT, condTrue, condFalse);
+    GenTree* qmarkNull = gtNewQmarkNode(TYP_REF, condNull, gtClone(op1), qmarkMT);
     qmarkNull->gtFlags |= GTF_QMARK_CAST_INSTOF;
 
     // Make QMark node a top level node by spilling it.
-    unsigned tmp = lvaGrabTemp(true DEBUGARG("spilling QMark2"));
-    impAssignTempGen(tmp, qmarkNull, (unsigned)CHECK_SPILL_NONE);
+    unsigned tmp = lvaNewTemp(TYP_REF, true DEBUGARG("spilling QMark2"));
+    GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, TYP_REF), qmarkNull);
+    impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
 
     // TODO-CQ: Is it possible op1 has a better type?
     //
@@ -11831,8 +11807,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     else
                     {
-                        const BOOL useParent = TRUE;
-                        op1                  = gtNewAllocObjNode(&resolvedToken, useParent);
+                        op1 = gtNewAllocObjNode(&resolvedToken, /* useParent */ true);
                         if (op1 == nullptr)
                         {
                             return;
@@ -11841,6 +11816,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Remember that this basic block contains 'new' of an object
                         block->bbFlags |= BBF_HAS_NEWOBJ;
                         optMethodFlags |= OMF_HAS_NEWOBJ;
+
+                        LclVarDsc* lcl = lvaGetDesc(lclNum);
+                        lcl->SetType(TYP_REF);
+                        assert(lcl->lvSingleDef == 0);
+                        lcl->lvSingleDef = 1;
+                        JITDUMP("Marked V%02u as a single def local\n", lclNum);
+                        lvaSetClass(lclNum, resolvedToken.hClass, /* isExact */ true);
 
                         // Append the assignment to the temp/local. Dont need to spill
                         // at all as we are just calling an EE-Jit helper which can only
@@ -11851,13 +11833,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // by ObjectAllocator phase to be able to determine GT_ALLOCOBJ nodes
                         // without exhaustive walk over all expressions.
 
-                        impAssignTempGen(lclNum, op1, (unsigned)CHECK_SPILL_NONE);
-
-                        assert(lvaTable[lclNum].lvSingleDef == 0);
-                        lvaTable[lclNum].lvSingleDef = 1;
-                        JITDUMP("Marked V%02u as a single def local\n", lclNum);
-                        lvaSetClass(lclNum, resolvedToken.hClass, true /* is Exact */);
-
+                        GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_REF), op1);
+                        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
                         newObjThisPtr = gtNewLclvNode(lclNum, TYP_REF);
                     }
                 }
@@ -12864,8 +12841,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (op1->OperIs(GT_CALL, GT_RET_EXPR))
                 {
-                    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanyval temp"));
-                    impAssignTempGen(tmpNum, op1, impGetRefAnyClass(), (unsigned)CHECK_SPILL_ALL);
+                    ClassLayout* layout = typGetObjLayout(impGetRefAnyClass());
+                    unsigned     tmpNum = lvaNewTemp(layout, true DEBUGARG("refanyval temp"));
+                    GenTree*     asg = impAssignStruct(gtNewLclvNode(tmpNum, TYP_STRUCT), op1, layout, CHECK_SPILL_ALL);
+                    impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
                     op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
                 }
 
@@ -12891,8 +12870,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
                 {
-                    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanytype temp"));
-                    impAssignTempGen(tmpNum, op1, impGetRefAnyClass(), (unsigned)CHECK_SPILL_ALL);
+                    ClassLayout* layout = typGetObjLayout(impGetRefAnyClass());
+                    unsigned     tmpNum = lvaNewTemp(layout, true DEBUGARG("refanytype temp"));
+                    GenTree*     asg = impAssignStruct(gtNewLclvNode(tmpNum, TYP_STRUCT), op1, layout, CHECK_SPILL_ALL);
+                    impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
                     op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
                 }
 
@@ -13076,15 +13057,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         return;
                     }
                     op1 = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(op2, op1));
-
-                    op1 = new (this, GT_COLON) GenTreeColon(TYP_VOID, gtNewNothingNode(), op1);
-                    op1 = gtNewQmarkNode(TYP_VOID, condBox, op1);
+                    op1 = gtNewQmarkNode(TYP_VOID, condBox, gtNewNothingNode(), op1);
 
                     // QMARK nodes cannot reside on the evaluation stack. Because there
                     // may be other trees on the evaluation stack that side-effect the
                     // sources of the UNBOX operation we must spill the stack.
 
-                    impAppendTree(op1, (unsigned)CHECK_SPILL_ALL, impCurStmtOffs);
+                    impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
 
                     // Create the address-expression to reference past the object header
                     // to the beginning of the value-type. Today this means adjusting
@@ -16246,7 +16225,7 @@ private:
         assert(retExpr->OperGet() == GT_RET_EXPR);
         const unsigned tmp = comp->lvaGrabTemp(true DEBUGARG("spilling ret_expr"));
         JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", comp->dspTreeID(retExpr), tmp);
-        comp->impAssignTempGen(tmp, retExpr, (unsigned)Compiler::CHECK_SPILL_NONE);
+        comp->impAssignTempGen(tmp, retExpr, Compiler::CHECK_SPILL_NONE);
         *pRetExpr = comp->gtNewLclvNode(tmp, retExpr->TypeGet());
 
         if (retExpr->TypeGet() == TYP_REF)

@@ -2647,12 +2647,11 @@ void Compiler::fgAddInternal()
         // Create the callback which will yield the final answer
 
         GenTree* callback = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
-        callback          = new (this, GT_COLON) GenTreeColon(TYP_VOID, gtNewNothingNode(), callback);
 
         // Stick the conditional call at the start of the method
 
         fgEnsureFirstBBisScratch();
-        fgNewStmtAtEnd(fgFirstBB, gtNewQmarkNode(TYP_VOID, guardCheckCond, callback));
+        fgNewStmtAtEnd(fgFirstBB, gtNewQmarkNode(TYP_VOID, guardCheckCond, gtNewNothingNode(), callback));
     }
 
 #if !defined(FEATURE_EH_FUNCLETS)

@@ -438,8 +438,7 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
 
     // Compare Basic-Block count value against zero
     GenTree*   relop = m_comp->gtNewOperNode(GT_NE, TYP_INT, valueNode, m_comp->gtNewIconNode(0, TYP_INT));
-    GenTree*   colon = new (m_comp, GT_COLON) GenTreeColon(TYP_VOID, m_comp->gtNewNothingNode(), call);
-    GenTree*   cond  = m_comp->gtNewQmarkNode(TYP_VOID, relop, colon);
+    GenTree*   cond  = m_comp->gtNewQmarkNode(TYP_VOID, relop, m_comp->gtNewNothingNode(), call);
     Statement* stmt  = m_comp->gtNewStmt(cond);
 
     m_comp->fgEnsureFirstBBisScratch();

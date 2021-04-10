@@ -395,9 +395,11 @@ GenTree* Compiler::impSIMDPopStack(var_types type)
 
         ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
 
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
-        impAssignTempGen(tmpNum, tree, layout->GetClassHandle(), CHECK_SPILL_ALL);
-        tree = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
+        unsigned tmpNum = lvaNewTemp(layout, true DEBUGARG("struct address for call/obj"));
+        GenTree* tmp    = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
+        GenTree* asg    = impAssignStruct(tmp, tree, layout, CHECK_SPILL_ALL);
+        impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+        tree = gtNewLclvNode(tmpNum, tmp->GetType());
     }
 
     assert(tree->GetType() == type);

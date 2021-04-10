@@ -5294,18 +5294,19 @@ GenTreeOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1
     return new (this, oper) GenTreeOp(oper, type, op1, op2);
 }
 
-GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* colon)
+GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)
 {
     compQmarkUsed = true;
     cond->gtFlags |= GTF_RELOP_QMARK;
-    GenTreeQmark* result = new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
+    GenTreeColon* colon = new (this, GT_COLON) GenTreeColon(type, op1, op2);
+    GenTreeQmark* qmark = new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
 #ifdef DEBUG
     if (compQmarkRationalized)
     {
-        fgCheckQmarkAllowedForm(result);
+        fgCheckQmarkAllowedForm(qmark);
     }
 #endif
-    return result;
+    return qmark;
 }
 
 GenTreeIntCon* Compiler::gtNewIconNode(ssize_t value, var_types type)
@@ -5436,8 +5437,7 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, unsigned iconF
         // When 'value' is non-null, pValue is required to be null
         assert(pValue == nullptr);
 
-        // use 'value' to construct an integer constant node
-        iconNode = gtNewIconHandleNode((size_t)value, iconFlags);
+        iconNode = gtNewIconHandleNode(reinterpret_cast<size_t>(value), iconFlags);
 
         // 'value' is the handle
         handleNode = iconNode;
@@ -5447,22 +5447,13 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, unsigned iconF
         // When 'value' is null, pValue is required to be non-null
         assert(pValue != nullptr);
 
-        // use 'pValue' to construct an integer constant node
-        iconNode = gtNewIconHandleNode((size_t)pValue, iconFlags);
-
-        // 'pValue' is an address of a location that contains the handle
-
-        // construct the indirection of 'pValue'
+        // 'pValue' is the address of a location that contains the handle
+        iconNode   = gtNewIconHandleNode(reinterpret_cast<size_t>(pValue), iconFlags);
         handleNode = gtNewOperNode(GT_IND, TYP_I_IMPL, iconNode);
-
-        // This indirection won't cause an exception.
-        handleNode->gtFlags |= GTF_IND_NONFAULTING;
-
-        // This indirection also is invariant.
-        handleNode->gtFlags |= GTF_IND_INVARIANT;
+        handleNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
     }
 
-    iconNode->AsIntCon()->gtCompileTimeHandle = (size_t)compileTimeHandle;
+    iconNode->AsIntCon()->gtCompileTimeHandle = reinterpret_cast<size_t>(compileTimeHandle);
 
     return handleNode;
 }

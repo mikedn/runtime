@@ -1913,7 +1913,7 @@ public:
     // For binary opers.
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
 
-    GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* colon);
+    GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
 
     GenTree* gtNewLargeOperNode(genTreeOps oper,
                                 var_types  type = TYP_I_IMPL,
@@ -1929,7 +1929,7 @@ public:
 
     GenTree* gtNewIndOfIconHandleNode(var_types indType, size_t value, unsigned iconFlags, bool isInvariant);
 
-    GenTree* gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fields = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fields = nullptr);
 
     unsigned gtTokenToIconFlags(unsigned token);
 
@@ -3255,6 +3255,7 @@ public:
         impMakeMultiUse(tree, useCount, uses, layout, spillCheckLevel DEBUGARG(reason));
     }
 
+    GenTree* impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
     GenTree* impAssignStructPtr(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
