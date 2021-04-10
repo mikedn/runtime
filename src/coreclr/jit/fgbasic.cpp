@@ -127,10 +127,9 @@ void Compiler::fgInit()
     ehMaxHndNestingCount = 0;
 #endif // !FEATURE_EH_FUNCLETS
 
-    /* Init the fgBigOffsetMorphingTemps to be BAD_VAR_NUM. */
-    for (int i = 0; i < TYP_COUNT; i++)
+    for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
     {
-        fgBigOffsetMorphingTemps[i] = BAD_VAR_NUM;
+        fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
     }
 
     fgNoStructPromotion      = false;

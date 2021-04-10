@@ -165,9 +165,9 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
         // We generate an assignment to native int and then do the cast from native int.
         // With this we avoid the gc problem and we allow casts to bytes, longs,  etc...
-        unsigned lclNum = lvaGrabTemp(true DEBUGARG("Cast away GC"));
+        unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Cast away GC"));
         src->SetType(TYP_I_IMPL);
-        GenTree* asg = gtNewTempAssign(lclNum, src);
+        GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), src);
         src->SetType(srcType);
         src = gtNewLclvNode(lclNum, TYP_I_IMPL);
         src = gtNewOperNode(GT_COMMA, TYP_I_IMPL, asg, src);
@@ -4817,28 +4817,17 @@ GenTree* Compiler::fgMorphLocalVar(GenTree* tree, bool forceRemorph)
     return tree;
 }
 
-/*****************************************************************************
-  Grab a temp for big offset morphing.
-  This method will grab a new temp if no temp of this "type" has been created.
-  Or it will return the same cached one if it has been created.
-*/
-unsigned Compiler::fgGetBigOffsetMorphingTemp(var_types type)
+unsigned Compiler::fgGetLargeFieldOffsetNullCheckTemp(var_types type)
 {
-    unsigned lclNum = fgBigOffsetMorphingTemps[type];
+    assert(varTypeIsI(type));
 
-    if (lclNum == BAD_VAR_NUM)
+    if (fgLargeFieldOffsetNullCheckTemps[type] == BAD_VAR_NUM)
     {
-        // We haven't created a temp for this kind of type. Create one now.
-        lclNum                         = lvaGrabTemp(false DEBUGARG("Big Offset Morphing"));
-        fgBigOffsetMorphingTemps[type] = lclNum;
-    }
-    else
-    {
-        // We better get the right type.
-        noway_assert(lvaTable[lclNum].TypeGet() == type);
+        fgLargeFieldOffsetNullCheckTemps[type] = lvaNewTemp(type, false DEBUGARG("large field offset null check temp"));
     }
 
-    noway_assert(lclNum != BAD_VAR_NUM);
+    unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[type];
+    assert(lvaGetDesc(lclNum)->GetType() == type);
     return lclNum;
 }
 
@@ -5031,10 +5020,8 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 
         if (objRef->gtOper != GT_LCL_VAR)
         {
-            lclNum = fgGetBigOffsetMorphingTemp(genActualType(objRef->TypeGet()));
-
-            // Create the "asg" node
-            asg = gtNewTempAssign(lclNum, objRef);
+            lclNum = fgGetLargeFieldOffsetNullCheckTemp(objRef->GetType());
+            asg    = gtNewAssignNode(gtNewLclvNode(lclNum, objRef->GetType()), objRef);
         }
         else
         {
@@ -6249,10 +6236,10 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
             // Create a temp and spill "this" to the temp if "this" has side effects or "this" was too complex to clone.
             if (thisPtr == nullptr)
             {
-                const unsigned lclNum = lvaGrabTemp(true DEBUGARG("tail call thisptr"));
+                unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
 
                 // tmp = "this"
-                doBeforeStoreArgsStub = gtNewTempAssign(lclNum, objp);
+                doBeforeStoreArgsStub = gtNewAssignNode(gtNewLclvNode(lclNum, objp->GetType()), objp);
 
                 if (callNeedsNullCheck)
                 {
@@ -6633,25 +6620,28 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 
     ArrayStack<GenTree*> stmts(getAllocator(CMK_ArrayStack));
 
-    auto cloneTree = [&](GenTree** tree DEBUGARG(const char* reason)) -> GenTree* {
-        if (!((*tree)->gtFlags & GTF_GLOB_EFFECT))
-        {
-            GenTree* clone = gtClone(*tree, true);
+    auto cloneTree = [&](GenTree** use DEBUGARG(const char* reason)) -> GenTree* {
+        GenTree* tree = *use;
 
-            if (clone)
+        if ((tree->gtFlags & GTF_GLOB_EFFECT) == 0)
+        {
+            GenTree* clone = gtClone(tree, true);
+
+            if (clone != nullptr)
             {
                 return clone;
             }
         }
 
-        unsigned temp = lvaGrabTemp(true DEBUGARG(reason));
-        stmts.Push(gtNewTempAssign(temp, *tree));
-        *tree = gtNewLclvNode(temp, lvaGetActualType(temp));
-        return gtNewLclvNode(temp, lvaGetActualType(temp));
+        assert(varTypeIsI(tree->GetType()));
+        unsigned temp = lvaNewTemp(tree->GetType(), true DEBUGARG(reason));
+        stmts.Push(gtNewAssignNode(gtNewLclvNode(temp, tree->GetType()), tree));
+        *use = gtNewLclvNode(temp, tree->GetType());
+        return gtNewLclvNode(temp, tree->GetType());
     };
 
     // Apply repeated indirections
-    for (WORD i = 0; i < pRuntimeLookup->indirections; i++)
+    for (unsigned i = 0; i < pRuntimeLookup->indirections; i++)
     {
         GenTree* preInd = nullptr;
         if ((i == 1 && pRuntimeLookup->indirectFirstOffset) || (i == 2 && pRuntimeLookup->indirectSecondOffset))
@@ -6839,8 +6829,8 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
         if ((call->IsDelegateInvoke() || call->IsVirtualVtable()) && !objp->IsLocal())
         {
             // tmp = "this"
-            unsigned lclNum = lvaGrabTemp(true DEBUGARG("tail call thisptr"));
-            GenTree* asg    = gtNewTempAssign(lclNum, objp);
+            unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
+            GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, objp->GetType()), objp);
 
             // COMMA(tmp = "this", tmp)
             var_types vt  = objp->TypeGet();
@@ -6864,8 +6854,8 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
                 // create a temp if either "this" has side effects or "this" is too complex to clone.
 
                 // tmp = "this"
-                unsigned lclNum = lvaGrabTemp(true DEBUGARG("tail call thisptr"));
-                GenTree* asg    = gtNewTempAssign(lclNum, objp);
+                unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
+                GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, objp->GetType()), objp);
 
                 // COMMA(tmp = "this", deref(tmp))
                 GenTree* tmp       = gtNewLclvNode(lclNum, vt);
@@ -7598,9 +7588,9 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
             // var2 = var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [var1 + vtabOffsOfIndirection]
             // result = [var2] + var2
             //
-            unsigned varNum1 = lvaGrabTemp(true DEBUGARG("var1 - vtab"));
-            unsigned varNum2 = lvaGrabTemp(true DEBUGARG("var2 - relative"));
-            GenTree* asgVar1 = gtNewTempAssign(varNum1, vtab); // var1 = vtab
+            unsigned varNum1 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var1 - vtab"));
+            unsigned varNum2 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var2 - relative"));
+            GenTree* asgVar1 = gtNewAssignNode(gtNewLclvNode(varNum1, TYP_I_IMPL), vtab);
 
             // [tmp + vtabOffsOfIndirection]
             GenTree* tmpTree1 = gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclvNode(varNum1, TYP_I_IMPL),
@@ -7615,7 +7605,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
 
             // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [var1 + vtabOffsOfIndirection]
             tmpTree2         = gtNewOperNode(GT_ADD, TYP_I_IMPL, tmpTree2, tmpTree1);
-            GenTree* asgVar2 = gtNewTempAssign(varNum2, tmpTree2); // var2 = <expression>
+            GenTree* asgVar2 = gtNewAssignNode(gtNewLclvNode(varNum2, TYP_I_IMPL), tmpTree2);
 
             // This last indirection is not invariant, but is non-faulting
             result = gtNewOperNode(GT_IND, TYP_I_IMPL, gtNewLclvNode(varNum2, TYP_I_IMPL), false); // [var2]

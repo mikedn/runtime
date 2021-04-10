@@ -4902,8 +4902,8 @@ private:
 
     Statement* fgMorphStmt;
 
-    unsigned fgGetBigOffsetMorphingTemp(var_types type); // We cache one temp per type to be
-                                                         // used when morphing big offset.
+    unsigned fgGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
+                                                                 // used when morphing big offset.
 
     //----------------------- Liveness analysis -------------------------------
 
@@ -5006,7 +5006,7 @@ private:
     unsigned fgThrowHlpBlkStkLevel(BasicBlock* block);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-    unsigned fgBigOffsetMorphingTemps[TYP_COUNT];
+    unsigned fgLargeFieldOffsetNullCheckTemps[TYP_COUNT];
 
 #ifdef DEBUG
     void               CheckNoTransformableIndirectCallsRemain();
