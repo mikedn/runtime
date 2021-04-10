@@ -1422,11 +1422,12 @@ GenTree* Compiler::fgInsertCommaFormTemp(GenTree** use)
     GenTree* tree = *use;
     assert(!varTypeIsStruct(tree->GetType()));
 
-    unsigned lclNum = lvaGrabTemp(true DEBUGARG("fgInsertCommaFormTemp temp"));
-    GenTree* asg    = gtNewTempAssign(lclNum, tree);
-    GenTree* load   = gtNewLclvNode(lclNum, tree->GetType());
-    *use            = gtNewOperNode(GT_COMMA, tree->GetType(), asg, load);
-    return gtNewLclvNode(lclNum, tree->GetType());
+    unsigned  lclNum = lvaGrabTemp(true DEBUGARG("fgInsertCommaFormTemp temp"));
+    GenTree*  asg    = gtNewTempAssign(lclNum, tree);
+    var_types type   = lvaGetDesc(lclNum)->GetType();
+    GenTree*  load   = gtNewLclvNode(lclNum, type);
+    *use             = gtNewOperNode(GT_COMMA, type, asg, load);
+    return gtNewLclvNode(lclNum, type);
 }
 
 //------------------------------------------------------------------------
