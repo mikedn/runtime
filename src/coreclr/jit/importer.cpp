@@ -1306,47 +1306,20 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     return asgNode;
 }
 
-/*****************************************************************************
-   Given a struct value, and the class handle for that structure, return
-   the expression for the address for that structure value.
-
-   willDeref - does the caller guarantee to dereference the pointer.
-*/
-
-GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
+GenTree* Compiler::impGetStructAddr(GenTree*             value,
                                     CORINFO_CLASS_HANDLE structHnd,
                                     unsigned             curLevel,
-                                    bool                 willDeref)
+                                    bool                 willDereference)
 {
-    assert(varTypeIsStruct(structVal) || eeIsValueClass(structHnd));
+    assert(varTypeIsStruct(value->GetType()) || info.compCompHnd->isValueClass(structHnd));
 
-    var_types type = structVal->TypeGet();
-
-    genTreeOps oper = structVal->gtOper;
-
-    if (oper == GT_OBJ && willDeref)
+    if (value->OperIs(GT_COMMA))
     {
-        assert(structVal->AsObj()->GetLayout()->GetClassHandle() == structHnd);
-        return (structVal->AsObj()->Addr());
-    }
-    else if (oper == GT_CALL || oper == GT_RET_EXPR || oper == GT_OBJ || oper == GT_MKREFANY ||
-             structVal->OperIsSimdOrHWintrinsic())
-    {
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
+        assert(value->AsOp()->GetOp(1)->GetType() == value->GetType());
 
-        impAssignTempGen(tmpNum, structVal, structHnd, curLevel);
-
-        // The 'return value' is now the temp itself
-
-        return gtNewAddrNode(gtNewLclvNode(tmpNum, varActualType(lvaGetDesc(tmpNum)->GetType())));
-    }
-    else if (oper == GT_COMMA)
-    {
-        assert(structVal->AsOp()->gtOp2->gtType == type); // Second thing is the struct
-
-        Statement* oldLastStmt   = impLastStmt;
-        structVal->AsOp()->gtOp2 = impGetStructAddr(structVal->AsOp()->gtOp2, structHnd, curLevel, willDeref);
-        structVal->gtType        = TYP_BYREF;
+        Statement* oldLastStmt = impLastStmt;
+        value->AsOp()->SetOp(1, impGetStructAddr(value->AsOp()->GetOp(1), structHnd, curLevel, willDereference));
+        value->SetType(TYP_BYREF);
 
         if (oldLastStmt != impLastStmt)
         {
@@ -1366,14 +1339,31 @@ GenTree* Compiler::impGetStructAddr(GenTree*             structVal,
                 beforeStmt = oldLastStmt->GetNextStmt();
             }
 
-            impInsertTreeBefore(structVal->AsOp()->gtOp1, impCurStmtOffs, beforeStmt);
-            structVal->AsOp()->gtOp1 = gtNewNothingNode();
+            impInsertTreeBefore(value->AsOp()->GetOp(0), impCurStmtOffs, beforeStmt);
+            value->AsOp()->SetOp(0, gtNewNothingNode());
         }
 
-        return structVal;
+        return value;
     }
 
-    return gtNewAddrNode(structVal);
+    if (value->OperIs(GT_OBJ) && willDereference)
+    {
+        assert(value->AsObj()->GetLayout()->GetClassHandle() == structHnd);
+        return value->AsObj()->GetAddr();
+    }
+
+    if (value->OperIs(GT_CALL, GT_RET_EXPR, GT_OBJ, GT_MKREFANY) || value->OperIsSimdOrHWintrinsic())
+    {
+        unsigned tmpNum = lvaNewTemp(structHnd, true DEBUGARG("struct address temp"));
+        GenTree* tmp    = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
+        GenTree* asg    = impAssignStruct(tmp, value, structHnd, curLevel);
+        impAppendTree(asg, curLevel, impCurStmtOffs);
+        return gtNewAddrNode(gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType()));
+    }
+
+    assert(value->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD));
+
+    return gtNewAddrNode(value);
 }
 
 GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
@@ -5285,9 +5275,9 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
             return;
         }
 
-        GenTreeCall::Use* args =
-            gtNewCallArgs(op2, impGetStructAddr(exprToBox, operCls, (unsigned)CHECK_SPILL_ALL, true));
-        op1 = gtNewHelperCallNode(boxHelper, TYP_REF, args);
+        GenTree* addr = impGetStructAddr(exprToBox, operCls, CHECK_SPILL_ALL, true);
+
+        op1 = gtNewHelperCallNode(boxHelper, TYP_REF, gtNewCallArgs(op2, addr));
     }
 
     // Push the result back on the stack, even if clsHnd is a value class we want the TI_REF
