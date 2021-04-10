@@ -5832,35 +5832,24 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     unreached();
 }
 
-/*****************************************************************************
- *
- *  Create a node that will assign 'src' to 'dst'.
- */
-
 GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 {
     assert(!src->TypeIs(TYP_VOID));
-    /* Mark the target as being assigned */
 
-    if ((dst->gtOper == GT_LCL_VAR) || (dst->OperGet() == GT_LCL_FLD))
+    dst->gtFlags |= GTF_DONT_CSE;
+
+    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         dst->gtFlags |= GTF_VAR_DEF;
+
         if (dst->IsPartialLclFld(this))
         {
-            // We treat these partial writes as combined uses and defs.
             dst->gtFlags |= GTF_VAR_USEASG;
         }
     }
-    dst->gtFlags |= GTF_DONT_CSE;
 
-    /* Create the assignment node */
-
-    GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->TypeGet(), dst, src);
-
-    /* Mark the expression as containing an assignment */
-
+    GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
     asg->gtFlags |= GTF_ASG;
-
     return asg;
 }
 
@@ -13707,12 +13696,7 @@ DONE:
 #pragma warning(pop)
 #endif
 
-//------------------------------------------------------------------------
-// gtNewTempAssign: Create an assignment of the given value to a temp.
-//
-// Arguments:
-//    tmp         - local number for a compiler temp
-//    val         - value to assign to the temp
+// Create an assignment of the given value to a temp.
 //
 // Return Value:
 //    Normally a new assignment node.
@@ -13720,154 +13704,139 @@ DONE:
 //
 // Notes:
 //    Self-assignments may be represented via NOPs.
-//
 //    May update the type of the temp, if it was previously unknown.
-//
 //    May set compFloatingPointUsed.
 
-GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
+GenTree* Compiler::gtNewTempAssign(unsigned lclNum, GenTree* val)
 {
-    // Self-assignment is a nop.
-    if (val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == tmp))
+    if (val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == lclNum))
     {
         return gtNewNothingNode();
     }
 
-    LclVarDsc* varDsc = lvaGetDesc(tmp);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    if (varDsc->TypeIs(TYP_I_IMPL) && val->TypeIs(TYP_BYREF))
+    if (lcl->TypeIs(TYP_I_IMPL) && val->TypeIs(TYP_BYREF))
     {
         impBashVarAddrsToI(val);
     }
 
-    var_types valTyp = val->GetType();
+    var_types valType = val->GetType();
 
     if (val->OperIs(GT_LCL_VAR) && lvaGetDesc(val->AsLclVar())->lvNormalizeOnLoad())
     {
-        valTyp = lvaGetDesc(val->AsLclVar())->GetType();
-        val->SetType(valTyp);
+        valType = lvaGetDesc(val->AsLclVar())->GetType();
+        val->SetType(valType);
     }
 
-    var_types dstTyp = varDsc->GetType();
+    var_types lclType = lcl->GetType();
 
-    /* If the variable's lvType is not yet set then set it here */
-    if (dstTyp == TYP_UNDEF)
+    if (lclType == TYP_UNDEF)
     {
         // TODO-MIKE-Cleanup: This sets the temp's type only to overwrite later by calling lvaSetStruct.
-        varDsc->lvType = dstTyp = genActualType(valTyp);
+        lclType     = varActualType(valType);
+        lcl->lvType = lclType;
     }
 
 #ifdef DEBUG
-    // Make sure the actual types match.
-    if (genActualType(valTyp) != genActualType(dstTyp))
+    if (varActualType(valType) != varActualType(lclType))
     {
-        // Plus some other exceptions that are apparently legal:
-        // 1) TYP_REF or BYREF = TYP_I_IMPL
-        bool ok = false;
-        if (varTypeIsGC(dstTyp) && (valTyp == TYP_I_IMPL))
+        bool typesMatch = false;
+
+        if (varTypeIsGC(lclType) && (valType == TYP_I_IMPL))
         {
-            ok = true;
+            typesMatch = true;
         }
-        // 2) TYP_DOUBLE = TYP_FLOAT or TYP_FLOAT = TYP_DOUBLE
-        else if (varTypeIsFloating(dstTyp) && varTypeIsFloating(valTyp))
+        else if (varTypeIsFloating(lclType) && varTypeIsFloating(valType))
         {
-            ok = true;
+            // TODO-MIKE-Cleanup: No, FLOAT/DOUBLE do not match...
+            typesMatch = true;
         }
-        // 3) TYP_BYREF = TYP_REF when object stack allocation is enabled
-        else if (JitConfig.JitObjectStackAllocation() && (dstTyp == TYP_BYREF) && (valTyp == TYP_REF))
+        else if (JitConfig.JitObjectStackAllocation() && (lclType == TYP_BYREF) && (valType == TYP_REF))
         {
-            ok = true;
+            typesMatch = true;
         }
-        else if (!varTypeIsGC(dstTyp) && (genTypeSize(valTyp) == genTypeSize(dstTyp)))
+        else if (!varTypeIsGC(lclType) && (varTypeSize(valType) == varTypeSize(lclType)))
         {
             // We can have assignments that require a change of register file, e.g. for arguments
             // and call returns. Lowering and Codegen will handle these.
-            ok = true;
+            typesMatch = true;
         }
-        else if ((dstTyp == TYP_STRUCT) && (valTyp == TYP_INT))
+        else if ((lclType == TYP_STRUCT) && (valType == TYP_INT))
         {
-            // It could come from `ASG(struct, 0)` that was propagated to `RETURN struct(0)`,
-            // and now it is merging to a struct again.
-            assert(tmp == genReturnLocal);
-            ok = true;
+            typesMatch = true;
         }
-        else if (varTypeIsSIMD(dstTyp) && (valTyp == TYP_STRUCT))
+        else if (varTypeIsSIMD(lclType) && (valType == TYP_STRUCT))
         {
+            // TODO-MIKE-Cleanup: This should not be needed anymore.
             assert(val->IsCall());
-            ok = true;
+            typesMatch = true;
         }
 
-        if (!ok)
+        if (!typesMatch)
         {
             gtDispTree(val);
-            assert(!"Incompatible types for gtNewTempAssign");
+            assert(!"Incompatible assignment types");
         }
     }
-#endif
+#endif // DEBUG
 
     // Added this noway_assert for runtime\issue 44895, to protect against silent bad codegen
-    //
-    if ((dstTyp == TYP_STRUCT) && (valTyp == TYP_REF))
+    if ((lclType == TYP_STRUCT) && (valType == TYP_REF))
     {
-        noway_assert(!"Incompatible types for gtNewTempAssign");
+        noway_assert(!"Incompatible assignment types");
     }
 
-    // Floating Point assignments can be created during inlining
-    // see "Zero init inlinee locals:" in inlPrependStatements
-    // thus we may need to set compFloatingPointUsed to true here.
-    //
-    if (varTypeUsesFloatReg(dstTyp) && (compFloatingPointUsed == false))
+    if (varTypeUsesFloatReg(lclType) && !compFloatingPointUsed)
     {
+        // Floating point assignments can be created during inlining (see inlInitInlineeLocals)
+        // thus we may need to set compFloatingPointUsed to true here.
         compFloatingPointUsed = true;
     }
-
-    /* Create the assignment node */
-
-    GenTree* asg;
-    GenTree* dest = gtNewLclvNode(tmp, dstTyp);
-    dest->gtFlags |= GTF_VAR_DEF;
 
     // With first-class structs, we should be propagating the class handle on all non-primitive
     // struct types. We don't have a convenient way to do that for all SIMD temps, since some
     // internal trees use SIMD types that are not used by the input IL. In this case, we allow
     // a null type handle and derive the necessary information about the type from its varType.
     CORINFO_CLASS_HANDLE valStructHnd = gtGetStructHandleIfPresent(val);
-    if (varTypeIsStruct(varDsc) && (valStructHnd == NO_CLASS_HANDLE) && !varTypeIsSIMD(valTyp))
+
+    if (varTypeIsStruct(lclType) && (valStructHnd == NO_CLASS_HANDLE) && !varTypeIsSIMD(valType))
     {
-        // There are 2 special cases:
-        // 1. we have lost classHandle from a FIELD node  because the parent struct has overlapping fields,
-        //     the field was transformed as IND opr GT_LCL_FLD;
-        // 2. we are propagation `ASG(struct V01, 0)` to `RETURN(struct V01)`, `CNT_INT` doesn't `structHnd`;
+        // There have 2 special cases:
+        // 1. the value is a struct IND generated from a struct FIELD, when a struct FIELD is
+        //    used by a RETURN the FIELD isn't wrapped in an OBJ like
+        // 2. we have propagated ASG(struct V01, 0) to RETURN(V01), CNS_INT doesn't have layout
         // in these cases, we can use the type of the merge return for the assignment.
         assert(val->OperIs(GT_IND, GT_LCL_FLD, GT_CNS_INT));
-        assert(tmp == genReturnLocal);
-        valStructHnd = varDsc->GetLayout()->GetClassHandle();
-        assert(valStructHnd != NO_CLASS_HANDLE);
+        assert(lclNum == genReturnLocal);
+
+        valStructHnd = lcl->GetLayout()->GetClassHandle();
     }
+
+    GenTree* dest = gtNewLclvNode(lclNum, lclType);
+    GenTree* asg;
 
     if ((valStructHnd != NO_CLASS_HANDLE) && val->IsConstInitVal())
     {
         asg = gtNewAssignNode(dest, val);
     }
-    else if (varTypeIsStruct(varDsc) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valTyp)))
+    else if (varTypeIsStruct(lclType) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valType)))
     {
-        // The struct value may be be a child of a GT_COMMA.
-        GenTree* valx = val->gtEffectiveVal(/*commaOnly*/ true);
+        GenTree* commaValue = val->SkipComma();
 
         if (valStructHnd != NO_CLASS_HANDLE)
         {
-            lvaSetStruct(tmp, valStructHnd, false);
+            lvaSetStruct(lclNum, valStructHnd, false);
         }
         else
         {
-            assert(valx->gtOper != GT_OBJ);
+            assert(!commaValue->IsObj());
         }
 
-        dest->gtFlags |= GTF_DONT_CSE;
-        valx->gtFlags |= GTF_DONT_CSE;
+        commaValue->gtFlags |= GTF_DONT_CSE;
+        dest->gtFlags |= GTF_VAR_DEF;
 
-        GenTree* destAddr = gtNewAddrNode(dest);
-        asg               = impAssignStructPtr(destAddr, val, valStructHnd, CHECK_SPILL_NONE);
+        asg = impAssignStructPtr(gtNewAddrNode(dest), val, valStructHnd, CHECK_SPILL_NONE);
     }
     else
     {
@@ -13875,8 +13844,10 @@ GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
         // when the ABI calls for returning a struct as a primitive type.
         // TODO-1stClassStructs: When we stop "lying" about the types for ABI purposes, the
         // 'genReturnLocal' should be the original struct type.
-        assert(!varTypeIsStruct(valTyp) || ((valStructHnd != NO_CLASS_HANDLE) &&
-                                            (typGetObjLayout(valStructHnd)->GetSize() == genTypeSize(varDsc))));
+
+        assert(!varTypeIsStruct(valType) || ((valStructHnd != NO_CLASS_HANDLE) &&
+                                             (typGetObjLayout(valStructHnd)->GetSize() == varTypeSize(lclType))));
+
         asg = gtNewAssignNode(dest, val);
     }
 
