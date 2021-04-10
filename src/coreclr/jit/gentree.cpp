@@ -12226,10 +12226,10 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     // Our trial removals above should guarantee successful removals here.
     assert(thisVal != nullptr);
     assert(flagVal != nullptr);
-    assert(genActualType(thisVal->TypeGet()) == genActualType(flagVal->TypeGet()));
 
     // Type to use for optimized check
-    var_types type = genActualType(thisVal->TypeGet());
+    var_types type = varActualType(thisVal->GetType());
+    assert(type == varActualType(flagVal->GetType()));
 
     // The thisVal and flagVal trees come from earlier statements.
     //
@@ -12248,9 +12248,9 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        const unsigned thisTmp     = lvaGrabTemp(true DEBUGARG("Enum:HasFlag this temp"));
-        GenTree*       thisAsg     = gtNewTempAssign(thisTmp, thisVal);
-        Statement*     thisAsgStmt = thisOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
+        unsigned   thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
+        GenTree*   thisAsg     = gtNewAssignNode(gtNewLclvNode(thisTmp, type), thisVal);
+        Statement* thisAsgStmt = thisOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
         thisAsgStmt->SetRootNode(thisAsg);
         thisValOpt = gtNewLclvNode(thisTmp, type);
     }
@@ -12264,9 +12264,9 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        const unsigned flagTmp     = lvaGrabTemp(true DEBUGARG("Enum:HasFlag flag temp"));
-        GenTree*       flagAsg     = gtNewTempAssign(flagTmp, flagVal);
-        Statement*     flagAsgStmt = flagOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
+        unsigned   flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
+        GenTree*   flagAsg     = gtNewAssignNode(gtNewLclvNode(flagTmp, type), flagVal);
+        Statement* flagAsgStmt = flagOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
         flagAsgStmt->SetRootNode(flagAsg);
         flagValOpt     = gtNewLclvNode(flagTmp, type);
         flagValOptCopy = gtNewLclvNode(flagTmp, type);
