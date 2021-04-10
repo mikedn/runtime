@@ -428,8 +428,6 @@ void Compiler::gsParamsToShadows()
         // copy small int locals.
         var_types type = varActualType(lcl->GetType());
 
-        shadowLcl->lvType = type;
-
         if (varTypeIsStruct(type))
         {
             // We don't need checkUnsafeBuffer here since we are copying the params and
@@ -441,6 +439,14 @@ void Compiler::gsParamsToShadows()
 #ifdef FEATURE_SIMD
             shadowLcl->lvUsedInSIMDIntrinsic = lcl->lvUsedInSIMDIntrinsic;
 #endif
+        }
+        else if (type == TYP_BLK)
+        {
+            shadowLcl->SetBlockType(lcl->GetBlockSize());
+        }
+        else
+        {
+            shadowLcl->SetType(type);
         }
 
         shadowLcl->lvRegStruct       = lcl->lvRegStruct;
