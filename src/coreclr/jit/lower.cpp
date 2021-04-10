@@ -1775,26 +1775,33 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
 
         assert(!node->OperIs(GT_PHI_ARG));
 
-        GenTreeLclVarCommon* lcl = node->AsLclVarCommon();
-
-        if (lcl->GetLclNum() != paramLclNum)
+        if (node->AsLclVarCommon()->GetLclNum() != paramLclNum)
         {
             continue;
         }
 
         if (tmpLclNum == BAD_VAR_NUM)
         {
-            tmpLclNum = comp->lvaGrabTemp(true DEBUGARG("fast tail call arg temp"));
+            tmpLclNum = comp->lvaGrabTemp(true DEBUGARG("fast tail call param temp"));
 
             LclVarDsc* paramLcl = comp->lvaGetDesc(paramLclNum);
             LclVarDsc* tmpLcl   = comp->lvaGetDesc(tmpLclNum);
 
             tmpLcl->lvDoNotEnregister = paramLcl->lvDoNotEnregister;
 
-            var_types type  = varActualType(paramLcl->GetType());
-            GenTree*  value = comp->gtNewLclvNode(paramLclNum, type);
+            var_types type = varActualType(paramLcl->GetType());
 
-            // TODO-1stClassStructs: This can be simplified with 1st class structs work.
+            if (varTypeIsStruct(type))
+            {
+                comp->lvaSetStruct(tmpLclNum, paramLcl->GetLayout(), /* checkUnsafeBuffer */ false);
+            }
+            else
+            {
+                tmpLcl->SetType(type);
+            }
+
+            GenTree* value = comp->gtNewLclvNode(paramLclNum, type);
+
             if (type == TYP_STRUCT)
             {
                 // TODO-MIKE-CQ: This code was previously using GT_STORE_BLK with a block layout.
@@ -1811,28 +1818,31 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
                 // maybe it's best to leave GT_STORE_OBJ as is and insert the copy before the
                 // no-GC region.
 
-                // TODO-MIKE-Review: This code doesn't set GTF_VAR_DEF, probably the only
-                // reason why this doesn't cause problems is that this a struct and post
-                // lowering liveness is used by LSRA for reg candidates.
-
-                comp->lvaSetStruct(tmpLclNum, paramLcl->GetLayout(), false);
-
                 GenTree* store = NewStoreLclVar(tmpLclNum, type, value);
                 BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, store));
                 LowerNode(store);
             }
             else
             {
-                // TODO-MIKE-Cleanup: This creates SIMD locals without calling lvaSetStruct.
-                comp->lvaGetDesc(tmpLclNum)->SetType(type);
+                // TODO-MIKE-Review: This code came from gtNewTempAssign and it's not clear if it's
+                // needed and if it's corect. Load "normalization" is done with casts, not by having
+                // the LCL_VAR node type set to the small int type of the local. If a cast already
+                // exists doing this is pointless. If a cast does not exist then it means that morph
+                // decided that it's not needed and changing the type here is also pointless.
+                // Removing this results in one byte diff in corelib PMI diff due to a movzx being
+                // changed to a mov. The movzx was indeed redundant.
 
-                GenTree* assignExpr = comp->gtNewTempAssign(tmpLclNum, value);
-                ContainCheckRange(value, assignExpr);
-                BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, assignExpr));
+                if (paramLcl->lvNormalizeOnLoad())
+                {
+                    value->SetType(paramLcl->GetType());
+                }
+
+                GenTree* store = NewStoreLclVar(tmpLclNum, type, value);
+                BlockRange().InsertBefore(insertTempBefore, LIR::SeqTree(comp, store));
             }
         }
 
-        lcl->SetLclNum(tmpLclNum);
+        node->AsLclVarCommon()->SetLclNum(tmpLclNum);
     }
 }
 
