@@ -4339,7 +4339,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
             tmpTree          = Offset(tmpTree, vtabOffsOfIndirection);
 
             tmpTree       = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, tmpTree, false);
-            GenTree* offs = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_INT);
+            GenTree* offs = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
             result        = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, comp->gtNewLclvNode(lclNumTmp, TYP_I_IMPL), offs);
 
             GenTree*       base           = OffsetByIndexWithScale(result, tmpTree, 1);
