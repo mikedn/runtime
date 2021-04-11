@@ -2757,7 +2757,6 @@ public:
     }
 
     unsigned lvaLclSize(unsigned varNum);
-    unsigned lvaLclExactSize(unsigned varNum);
 
     bool lvaHaveManyLocals() const;
 

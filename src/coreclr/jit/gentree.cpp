@@ -14650,24 +14650,28 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarComm
             *pLclVarTree                    = addrArgLcl;
             if (pIsEntire != nullptr)
             {
-                unsigned lclOffset = addrArgLcl->GetLclOffs();
-
-                if (lclOffset != 0)
+                if (addrArgLcl->GetLclOffs() != 0)
                 {
                     // We aren't updating the bytes at [0..lclOffset-1] so *pIsEntire should be set to false
                     *pIsEntire = false;
                 }
                 else
                 {
-                    unsigned lclNum   = addrArgLcl->GetLclNum();
-                    unsigned varWidth = comp->lvaLclExactSize(lclNum);
-                    if (comp->lvaTable[lclNum].lvNormalizeOnStore())
+                    LclVarDsc* lcl = comp->lvaGetDesc(addrArgLcl);
+                    unsigned   lclSize;
+
+                    if (lcl->lvNormalizeOnStore())
                     {
                         // It's normalize on store, so use the full storage width -- writing to low bytes won't
                         // necessarily yield a normalized value.
-                        varWidth = genTypeStSz(var_types(comp->lvaTable[lclNum].lvType)) * sizeof(int);
+                        lclSize = varTypeSize(TYP_INT);
                     }
-                    *pIsEntire = (varWidth == width);
+                    else
+                    {
+                        lclSize = lcl->GetSize();
+                    }
+
+                    *pIsEntire = (lclSize == width);
                 }
             }
             return true;

@@ -1393,9 +1393,7 @@ private:
 
             if (indir->OperIs(GT_LCL_FLD))
             {
-                unsigned indirSize = (indirLayout == nullptr) ? varTypeSize(indir->GetType()) : indirLayout->GetSize();
-
-                if (indirSize < m_compiler->lvaLclExactSize(val.LclNum()))
+                if ((val.Offset() != 0) || (indirSize < m_compiler->lvaGetDesc(val.LclNum())->GetSize()))
                 {
                     flags |= GTF_VAR_USEASG;
                 }

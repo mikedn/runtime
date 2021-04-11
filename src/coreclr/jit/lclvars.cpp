@@ -2947,18 +2947,6 @@ unsigned Compiler::lvaLclSize(unsigned lclNum)
     }
 }
 
-unsigned Compiler::lvaLclExactSize(unsigned lclNum)
-{
-#if FEATURE_FIXED_OUT_ARGS
-    if (lclNum == lvaOutgoingArgSpaceVar)
-    {
-        return lvaOutgoingArgSpaceSize.GetValue();
-    }
-#endif
-
-    return lvaGetDesc(lclNum)->GetSize();
-}
-
 // getCalledCount -- get the value used to normalized weights for this method
 //  if we don't have profile data then getCalledCount will return BB_UNITY_WEIGHT (100)
 //  otherwise it returns the number of times that profile data says the method was called.

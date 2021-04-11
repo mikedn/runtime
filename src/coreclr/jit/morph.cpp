@@ -3923,7 +3923,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     unsigned lclNum    = arg->GetLclNum();
     unsigned lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
-    unsigned lclSize   = lvaLclExactSize(lclNum);
+    unsigned lclSize   = lcl->GetSize();
 #ifdef FEATURE_SIMD
     bool lclIsSIMD = varTypeIsSIMD(lcl->GetType()) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
 #endif
@@ -7946,7 +7946,7 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 
     if ((destLclVar != nullptr) && (destSize != 0) && (destLclVar->GetType() != TYP_BLK))
     {
-        unsigned destLclVarSize = lvaLclExactSize(destLclNum);
+        unsigned destLclVarSize = destLclVar->GetSize();
 
         if (destLclVar->lvPromoted && (destLclOffs == 0) && (destSize == destLclVarSize))
         {
