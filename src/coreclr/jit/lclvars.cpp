@@ -479,20 +479,9 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
         lvaArg0Var = info.compThisArg = varDscInfo->varNum;
         noway_assert(info.compThisArg == 0);
 
-        if (eeIsValueClass(info.compClassHnd))
+        if (info.compCompHnd->isValueClass(info.compClassHnd))
         {
             varDsc->SetType(TYP_BYREF);
-
-#ifdef FEATURE_SIMD
-            if (supportSIMDTypes())
-            {
-                var_types type = typGetStructType(info.compClassHnd);
-                if (varTypeIsSIMD(type))
-                {
-                    varDsc->lvExactSize = varTypeSize(type);
-                }
-            }
-#endif // FEATURE_SIMD
         }
         else
         {
@@ -561,12 +550,6 @@ void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBuf
             // The VM has disabled this optimization a long time ago.
             assert(!info.compCompHnd->isStructRequiringStackAllocRetBuf(sigInfo.retTypeClass));
         }
-#ifdef FEATURE_SIMD
-        else if (varTypeIsSIMD(info.GetRetSigType()))
-        {
-            varDsc->lvExactSize = info.GetRetLayout()->GetSize();
-        }
-#endif
 
         assert(!varDsc->lvIsRegArg || isValidIntArgReg(varDsc->GetArgReg()));
 
@@ -2198,10 +2181,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         {
             fieldVarDsc->SetType(pFieldInfo->fldType);
 
-            // TODO-MIKE-Cleanup: This code is likely bogus, lvExactSize is relevant only for struct/block typed locals.
-            fieldVarDsc->lvExactSize = pFieldInfo->fldSize;
-
-            if (fieldVarDsc->GetType() == TYP_LONG)
+            if (fieldVarDsc->TypeIs(TYP_LONG))
             {
                 compiler->compLongUsed = true;
             }
@@ -2325,7 +2305,6 @@ void Compiler::lvaPromoteLongVars()
             unsigned varNum = lvaNewTemp(TYP_INT, false DEBUGARG(bufp));
 
             LclVarDsc* fieldVarDsc       = lvaGetDesc(varNum);
-            fieldVarDsc->lvExactSize     = varTypeSize(TYP_INT);
             fieldVarDsc->lvIsStructField = true;
             fieldVarDsc->lvFldOffset     = static_cast<uint8_t>(index * varTypeSize(TYP_INT));
             fieldVarDsc->lvFldOrdinal    = static_cast<uint8_t>(index);
