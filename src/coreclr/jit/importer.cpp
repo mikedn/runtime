@@ -1219,28 +1219,48 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
 
     if ((dest == nullptr) && destAddr->OperIs(GT_ADDR))
     {
-        GenTree*  destLocation = destAddr->AsUnOp()->GetOp(0);
-        var_types destType     = destLocation->GetType();
+        GenTree* destLocation = destAddr->AsUnOp()->GetOp(0);
 
-        if (destLocation->OperIs(GT_LCL_VAR, GT_INDEX, GT_OBJ))
+        if (destLocation->GetType() == srcType)
         {
-            // If the actual destination is a local, a GT_INDEX or a block node, or is a node that
-            // will be morphed, don't insert an OBJ(ADDR) if it already has the right type.
-
-            if ((destType == srcType) &&
-                (varTypeIsSIMD(srcType) || (gtGetStructHandleIfPresent(destLocation) == structHnd)))
+            if (destLocation->OperIs(GT_LCL_VAR, GT_INDEX, GT_OBJ))
             {
-                dest = destLocation;
+                if (varTypeIsSIMD(srcType))
+                {
+                    dest = destLocation;
+                }
+                else
+                {
+                    ClassLayout* layout;
+
+                    switch (destLocation->GetOper())
+                    {
+                        case GT_LCL_VAR:
+                            layout = lvaGetDesc(destLocation->AsLclVar())->GetLayout();
+                            break;
+                        case GT_INDEX:
+                            layout = destLocation->AsIndex()->GetLayout();
+                            break;
+                        default:
+                            layout = destLocation->AsObj()->GetLayout();
+                            break;
+                    }
+
+                    if (layout->GetClassHandle() == structHnd)
+                    {
+                        dest = destLocation;
+                    }
+                }
             }
-        }
-        else if (destLocation->OperIs(GT_FIELD))
-        {
-            // SIMD typed FIELDs can be used directly, STRUCT typed fields need to be wrapped into
-            // an OBJ to avoid the sruct type getting lost due to single field struct promotion.
-
-            if ((destType == srcType) && varTypeIsSIMD(srcType))
+            else if (destLocation->OperIs(GT_FIELD))
             {
-                dest = destLocation;
+                // SIMD typed FIELDs can be used directly, STRUCT typed fields need to be wrapped into
+                // an OBJ to avoid the struct type getting lost due to single field struct promotion.
+
+                if (varTypeIsSIMD(srcType))
+                {
+                    dest = destLocation;
+                }
             }
         }
     }
