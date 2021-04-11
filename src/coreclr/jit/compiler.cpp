@@ -5182,7 +5182,7 @@ bool Compiler::compQuirkForPPP()
         }
 
         // Look for a 32-byte address exposed Struct and record its varDsc
-        if ((varDsc->TypeGet() == TYP_STRUCT) && varDsc->lvAddrExposed && (varDsc->lvExactSize == 32))
+        if (varDsc->TypeIs(TYP_STRUCT) && varDsc->lvAddrExposed && (varDsc->GetLayout()->GetSize() == 32))
         {
             varDscExposedStruct = varDsc;
         }
@@ -5194,21 +5194,11 @@ bool Compiler::compQuirkForPPP()
     //
     if (hasOutArgs && (varDscExposedStruct != nullptr))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
-        }
-#endif // DEBUG
+        JITDUMP("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
 
-        // Increase the exact size of this struct by 32 bytes
+        // Increase the exact size of this struct to 64 bytes.
         // This fixes the PPP backward compat issue
         varDscExposedStruct->lvExactSize += 32;
-
-        // The struct is now 64 bytes.
-        // We're on x64 so this should be 8 pointer slots.
-        assert((varDscExposedStruct->lvExactSize / TARGET_POINTER_SIZE) == 8);
-
         varDscExposedStruct->SetLayout(
             varDscExposedStruct->GetLayout()->GetPPPQuirkLayout(getAllocator(CMK_ClassLayout)));
 

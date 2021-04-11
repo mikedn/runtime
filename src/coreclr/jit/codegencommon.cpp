@@ -5827,14 +5827,13 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
                 continue;
             }
 
-            if ((varDsc->TypeGet() == TYP_STRUCT) && !compiler->info.compInitMem &&
-                (varDsc->lvExactSize >= TARGET_POINTER_SIZE))
+            if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem &&
+                (varDsc->GetLayout()->GetSize() >= TARGET_POINTER_SIZE))
             {
                 // We only initialize the GC variables in the TYP_STRUCT
-                const unsigned slots  = (unsigned)compiler->lvaLclSize(varNum) / REGSIZE_BYTES;
-                ClassLayout*   layout = varDsc->GetLayout();
+                ClassLayout* layout = varDsc->GetLayout();
 
-                for (unsigned i = 0; i < slots; i++)
+                for (unsigned i = 0; i < layout->GetSlotCount(); i++)
                 {
                     if (layout->IsGCPtr(i))
                     {

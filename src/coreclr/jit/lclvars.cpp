@@ -654,7 +654,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         else if (varTypeIsStruct(varDsc->GetType()))
         {
             structPassingKind howToReturnStruct;
-            getArgTypeForStruct(typeHnd, &howToReturnStruct, info.compIsVarArgs, varDsc->lvExactSize);
+            getArgTypeForStruct(typeHnd, &howToReturnStruct, info.compIsVarArgs, varDsc->GetSize());
 
             if (howToReturnStruct == SPK_ByReference)
             {
@@ -2540,7 +2540,7 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
         CORINFO_CLASS_HANDLE clsHnd = varDsc->GetLayout()->GetClassHandle();
         structPassingKind    howToPassStruct;
 
-        var_types type = getArgTypeForStruct(clsHnd, &howToPassStruct, isVarArg, varDsc->lvExactSize);
+        var_types type = getArgTypeForStruct(clsHnd, &howToPassStruct, isVarArg, varDsc->GetLayout()->GetSize());
 
 #ifdef FEATURE_HFA
         if (howToPassStruct == SPK_ByValueAsHfa)
@@ -2970,24 +2970,14 @@ unsigned Compiler::lvaLclSize(unsigned lclNum)
 
 unsigned Compiler::lvaLclExactSize(unsigned lclNum)
 {
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-    switch (lcl->GetType())
-    {
-        case TYP_BLK:
 #if FEATURE_FIXED_OUT_ARGS
-            if (lclNum == lvaOutgoingArgSpaceVar)
-            {
-                return lvaOutgoingArgSpaceSize.GetValue();
-            }
-#endif
-            FALLTHROUGH;
-        case TYP_STRUCT:
-            return lcl->lvExactSize;
-
-        default:
-            return varTypeSize(lcl->GetType());
+    if (lclNum == lvaOutgoingArgSpaceVar)
+    {
+        return lvaOutgoingArgSpaceSize.GetValue();
     }
+#endif
+
+    return lvaGetDesc(lclNum)->GetSize();
 }
 
 // getCalledCount -- get the value used to normalized weights for this method
@@ -3465,12 +3455,14 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
 
     assert(varTypeIsStruct(lvType) || (lvType == TYP_BLK));
 
+    unsigned size = GetSize();
+
     if (lvIsParam)
     {
         assert(varTypeIsStruct(lvType));
-        const bool     isFloatHfa   = (lvIsHfa() && (GetHfaType() == TYP_FLOAT));
-        const unsigned argAlignment = Compiler::eeGetArgAlignment(lvType, isFloatHfa);
-        return roundUp(lvExactSize, argAlignment);
+        bool     isFloatHfa   = (lvIsHfa() && (GetHfaType() == TYP_FLOAT));
+        unsigned argAlignment = Compiler::eeGetArgAlignment(lvType, isFloatHfa);
+        return roundUp(size, argAlignment);
     }
 
 #if defined(FEATURE_SIMD) && !defined(TARGET_64BIT)
@@ -3480,13 +3472,12 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     // (Note that for 64-bits, we are already rounding up to 16.)
     if (lvType == TYP_SIMD12)
     {
-        assert(!lvIsParam);
-        assert(lvExactSize == 12);
+        assert(size == 12);
         return 16;
     }
 #endif // defined(FEATURE_SIMD) && !defined(TARGET_64BIT)
 
-    return roundUp(lvExactSize, TARGET_POINTER_SIZE);
+    return roundUp(size, TARGET_POINTER_SIZE);
 }
 
 /**********************************************************************************
@@ -3536,7 +3527,7 @@ size_t LclVarDsc::lvArgStackSize() const
 */
 var_types LclVarDsc::lvaArgType()
 {
-    var_types type = TypeGet();
+    var_types type = lvType;
 
 #ifdef TARGET_AMD64
 #ifdef UNIX_AMD64_ABI
@@ -3547,7 +3538,7 @@ var_types LclVarDsc::lvaArgType()
 #else  //! UNIX_AMD64_ABI
     if (type == TYP_STRUCT)
     {
-        switch (lvExactSize)
+        switch (m_layout->GetSize())
         {
             case 1:
                 type = TYP_BYTE;

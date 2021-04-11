@@ -653,7 +653,7 @@ public:
         assert(lvIsHfa());
         assert(varTypeIsStruct(lvType));
         unsigned slots = 0;
-        unsigned size  = lvExactSize;
+        unsigned size  = GetSize();
 #ifdef TARGET_ARM
         slots = size / sizeof(float);
         assert(slots <= 8);
@@ -947,6 +947,19 @@ public:
     {
         assert(lvType == TYP_BLK);
         return lvExactSize;
+    }
+
+    unsigned GetSize() const
+    {
+        switch (lvType)
+        {
+            case TYP_BLK:
+                return lvExactSize;
+            case TYP_STRUCT:
+                return m_layout->GetSize();
+            default:
+                return varTypeSize(lvType);
+        }
     }
 
     var_types TypeGet() const
@@ -2914,7 +2927,7 @@ public:
     bool lvaMapSimd12ToSimd16(const LclVarDsc* varDsc)
     {
         assert(varDsc->lvType == TYP_SIMD12);
-        assert(varDsc->lvExactSize == 12);
+        assert(varDsc->GetSize() == 12);
 
 #if defined(TARGET_64BIT) && !defined(OSX_ARM64_ABI)
         assert(varDsc->lvSize() == 16);

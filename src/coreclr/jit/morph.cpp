@@ -7900,7 +7900,7 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
         {
             if (destLclNode->TypeIs(TYP_STRUCT))
             {
-                destSize = destLclVar->lvExactSize;
+                destSize = destLclVar->GetLayout()->GetSize();
             }
             else
             {
@@ -8736,7 +8736,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
     }
 
     if ((destLclVar != nullptr) && destLclVar->IsPromoted() && (destLclOffs == 0) &&
-        (destLclVar->lvExactSize == destSize) &&
+        (destLclVar->GetSize() == destSize) &&
         (!destLclVar->lvDoNotEnregister || (destLclVar->GetPromotedFieldCount() == 1)))
     {
         assert(varTypeIsStruct(destLclVar->GetType()));
@@ -8752,8 +8752,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         JITDUMP(" with mismatched dest offset/size");
     }
 
-    if ((srcLclVar != nullptr) && srcLclVar->IsPromoted() && (srcLclOffs == 0) &&
-        (srcLclVar->lvExactSize == destSize) &&
+    if ((srcLclVar != nullptr) && srcLclVar->IsPromoted() && (srcLclOffs == 0) && (srcLclVar->GetSize() == destSize) &&
         (!srcLclVar->lvDoNotEnregister || (srcLclVar->GetPromotedFieldCount() == 1)))
     {
         assert(varTypeIsStruct(srcLclVar->GetType()));
@@ -9055,8 +9054,8 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             }
             else if (src->TypeIs(TYP_STRUCT))
             {
-                if ((srcLclNode != nullptr) && srcLclNode->OperIs(GT_LCL_VAR) && (srcLclVar->GetType() == TYP_STRUCT) &&
-                    (srcLclOffs == 0) && (srcLclVar->lvExactSize == destSize))
+                if ((srcLclNode != nullptr) && srcLclNode->OperIs(GT_LCL_VAR) && srcLclVar->TypeIs(TYP_STRUCT) &&
+                    (srcLclOffs == 0) && (srcLclVar->GetLayout()->GetSize() == destSize))
                 {
                     src = srcLclNode;
                 }
@@ -11960,12 +11959,9 @@ DONE_MORPHING_CHILDREN:
             {
                 assert(temp->OperIsLocal());
 
-                const unsigned   lclNum = temp->AsLclVarCommon()->GetLclNum();
-                LclVarDsc* const varDsc = &lvaTable[lclNum];
-
-                const var_types tempTyp      = temp->TypeGet();
-                const bool      useExactSize = varTypeIsStruct(tempTyp) || (tempTyp == TYP_BLK);
-                const unsigned  varSize      = useExactSize ? varDsc->lvExactSize : genTypeSize(temp);
+                const unsigned   lclNum  = temp->AsLclVarCommon()->GetLclNum();
+                LclVarDsc* const varDsc  = lvaGetDesc(lclNum);
+                const unsigned   varSize = varDsc->GetSize();
 
                 // Make sure we do not enregister this lclVar.
                 lvaSetVarDoNotEnregister(lclNum DEBUGARG(DNER_LocalField));
@@ -12537,13 +12533,14 @@ GenTree* Compiler::fgMorphRetInd(GenTreeUnOp* ret)
 
     unsigned lclSize;
 
-    if (lcl->GetType() != TYP_STRUCT)
+    if (lcl->TypeIs(TYP_STRUCT))
     {
-        lclSize = varTypeSize(lcl->GetType());
+        lclSize = lcl->GetLayout()->GetSize();
     }
     else
     {
-        lclSize = lcl->lvExactSize;
+        assert(!lcl->TypeIs(TYP_BLK));
+        lclSize = varTypeSize(lcl->GetType());
     }
 
     // If `return` retypes LCL_VAR as a smaller struct it should not set `doNotEnregister` on that LclVar.

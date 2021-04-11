@@ -5655,12 +5655,12 @@ GenTreeCall* Compiler::gtNewCallNode(
 GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
 #ifdef DEBUG
-    LclVarDsc* lcl = lvaGetDesc(lnum);
-
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
     {
+        LclVarDsc* lcl = lvaGetDesc(lnum);
+
         // Make an exception for implicit by-ref parameters during global morph, since
         // their lvType has been updated to byref but their appearances have not yet all
         // been rewritten and so may have struct type still.
@@ -5670,9 +5670,8 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL
         // TODO-1stClassStructs: When we stop "lying" about the types for ABI purposes, we
         // should be able to remove this exception and handle the assignment mismatch in
         // Lowering.
-        assert((type == lcl->GetType()) ||
-               (lcl->IsImplicitByRefParam() && fgGlobalMorph && (lcl->GetType() == TYP_BYREF)) ||
-               ((lcl->GetType() == TYP_STRUCT) && (varTypeSize(type) == lcl->lvExactSize)));
+        assert((type == lcl->GetType()) || (lcl->IsImplicitByRefParam() && fgGlobalMorph && lcl->TypeIs(TYP_BYREF)) ||
+               (lcl->TypeIs(TYP_STRUCT) && (varTypeSize(type) == lcl->GetLayout()->GetSize())));
     }
 #endif
 
@@ -14551,6 +14550,13 @@ bool GenTree::IsPhiDefn()
 
 bool GenTree::IsPartialLclFld(Compiler* comp)
 {
+    // TODO-MIKE-Cleanup: Fix this mess.
+    // STRUCT LCL_FLDs always pass as partial because varTypeSize(TYP_STRUCT) is 0.
+    // Primitive typed LCL_FLDs referencing primitive typed locals also pass as partial
+    // because lvExactSize is 0 on such locals.
+    // Field offset is ignored so odd LCL_FLDs that have the same size as the local but
+    // do not have 0 offset are not considered partial.
+
     return ((gtOper == GT_LCL_FLD) &&
             (comp->lvaTable[this->AsLclVarCommon()->GetLclNum()].lvExactSize != genTypeSize(gtType)));
 }

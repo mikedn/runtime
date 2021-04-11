@@ -4163,7 +4163,7 @@ void GCInfo::gcMakeRegPtrTable(
 
         // If this is a TYP_STRUCT, handle its GC pointers.
         // Note that the enregisterable struct types cannot have GC pointers in them.
-        if ((varDsc->TypeGet() == TYP_STRUCT) && varDsc->lvOnFrame && (varDsc->lvExactSize >= TARGET_POINTER_SIZE))
+        if (varDsc->TypeIs(TYP_STRUCT) && varDsc->lvOnFrame && (varDsc->GetLayout()->GetSize() >= TARGET_POINTER_SIZE))
         {
             ClassLayout* layout = varDsc->GetLayout();
             unsigned     slots  = layout->GetSlotCount();
