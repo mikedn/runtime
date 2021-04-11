@@ -5827,8 +5827,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
                 continue;
             }
 
-            if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem &&
-                (varDsc->GetLayout()->GetSize() >= TARGET_POINTER_SIZE))
+            if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem && varDsc->HasGCPtr())
             {
                 // We only initialize the GC variables in the TYP_STRUCT
                 ClassLayout* layout = varDsc->GetLayout();
