@@ -14539,26 +14539,31 @@ bool GenTree::IsPhiDefn()
            (OperIs(GT_STORE_LCL_VAR) && AsLclVar()->GetOp(0)->OperIs(GT_PHI));
 }
 
-// IsPartialLclFld: Check for a GT_LCL_FLD whose type is a different size than the lclVar.
-//
-// Arguments:
-//    comp      - the Compiler object.
-//
-// Return Value:
-//    Returns "true" iff 'this' is a GT_LCL_FLD or GT_STORE_LCL_FLD on which the type
-//    is not the same size as the type of the GT_LCL_VAR
-
 bool GenTree::IsPartialLclFld(Compiler* comp)
 {
-    // TODO-MIKE-Cleanup: Fix this mess.
-    // STRUCT LCL_FLDs always pass as partial because varTypeSize(TYP_STRUCT) is 0.
-    // Primitive typed LCL_FLDs referencing primitive typed locals also pass as partial
-    // because lvExactSize is 0 on such locals.
-    // Field offset is ignored so odd LCL_FLDs that have the same size as the local but
-    // do not have 0 offset are not considered partial.
+    if (gtOper != GT_LCL_FLD)
+    {
+        return false;
+    }
 
-    return ((gtOper == GT_LCL_FLD) &&
-            (comp->lvaTable[this->AsLclVarCommon()->GetLclNum()].lvExactSize != genTypeSize(gtType)));
+    if (AsLclFld()->GetLclOffs() != 0)
+    {
+        return true;
+    }
+
+    unsigned lclSize = comp->lvaGetDesc(AsLclFld())->GetSize();
+    unsigned lclFldSize;
+
+    if (gtType == TYP_STRUCT)
+    {
+        lclFldSize = AsLclFld()->GetLayout(comp)->GetSize();
+    }
+    else
+    {
+        lclFldSize = varTypeSize(gtType);
+    }
+
+    return lclFldSize < lclSize;
 }
 
 bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire)
@@ -14572,20 +14577,7 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bo
             *pLclVarTree                    = lclVarTree;
             if (pIsEntire != nullptr)
             {
-                if (lclVarTree->OperIs(GT_LCL_FLD) && lclVarTree->TypeIs(TYP_STRUCT))
-                {
-                    *pIsEntire = (lclVarTree->AsLclFld()->GetLclOffs() == 0) &&
-                                 (lclVarTree->AsLclFld()->GetLayout(comp)->GetSize() >=
-                                  comp->lvaLclExactSize(lclVarTree->GetLclNum()));
-                }
-                else if (lclVarTree->IsPartialLclFld(comp))
-                {
-                    *pIsEntire = false;
-                }
-                else
-                {
-                    *pIsEntire = true;
-                }
+                *pIsEntire = !lclVarTree->IsPartialLclFld(comp);
             }
             return true;
         }
