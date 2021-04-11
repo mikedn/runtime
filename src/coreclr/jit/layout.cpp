@@ -228,11 +228,68 @@ public:
         }
     }
 
-    ClassLayout* GetVectorLayout(var_types simdType, var_types elementType, VectorKind kind)
+    ClassLayout* GetRuntimeVectorLayout(var_types simdType, var_types elementType)
     {
-        unsigned index = GetVectorLayoutIndex(simdType, elementType, kind);
-        assert(index < VectorLayoutTableSize);
-        return m_vectorLayoutTable == nullptr ? nullptr : m_vectorLayoutTable[index];
+        unsigned elementTypeIndex = elementType - TYP_BYTE;
+
+        if (elementTypeIndex >= VectorElementTypesCount)
+        {
+            return nullptr;
+        }
+
+        switch (simdType)
+        {
+#ifdef TARGET_ARM64
+            case TYP_SIMD8:
+                return m_vectorLayoutTable[Vector64BaseIndex + elementTypeIndex];
+#endif
+            case TYP_SIMD16:
+                return m_vectorLayoutTable[Vector128BaseIndex + elementTypeIndex];
+#ifdef TARGET_XARCH
+            case TYP_SIMD32:
+                return m_vectorLayoutTable[Vector256BaseIndex + elementTypeIndex];
+#endif
+            default:
+                return nullptr;
+        }
+    }
+
+    ClassLayout* GetNumericsVectorLayout(var_types simdType, var_types elementType)
+    {
+        if (elementType == TYP_FLOAT)
+        {
+            switch (simdType)
+            {
+                case TYP_SIMD8:
+                    return m_vectorLayoutTable[Vector234BaseIndex + 0];
+                case TYP_SIMD12:
+                    return m_vectorLayoutTable[Vector234BaseIndex + 1];
+                case TYP_SIMD16:
+                    if (m_vectorLayoutTable[Vector234BaseIndex + 2] == nullptr)
+                    {
+                        break;
+                    }
+                    return m_vectorLayoutTable[Vector234BaseIndex + 2];
+                default:
+                    break;
+            }
+        }
+
+        unsigned elementTypeIndex = elementType - TYP_BYTE;
+
+        if (elementTypeIndex >= VectorElementTypesCount)
+        {
+            return nullptr;
+        }
+
+        ClassLayout* layout = m_vectorLayoutTable[VectorTBaseIndex + elementTypeIndex];
+
+        if ((layout != nullptr) && (layout->GetSIMDType() == simdType))
+        {
+            return layout;
+        }
+
+        return nullptr;
     }
 #endif // FEATURE_SIMD
 
@@ -438,36 +495,44 @@ private:
 
     unsigned GetVectorLayoutIndex(var_types simdType, var_types elementType, VectorKind kind)
     {
-        unsigned elementTypeIndex = elementType - TYP_BYTE;
-        assert(elementTypeIndex < VectorElementTypesCount);
-
-#ifdef FEATURE_HW_INTRINSICS
-        if (kind == VectorKind::VectorNT)
+        if (kind == VectorKind::Vector234)
         {
-            if (simdType != TYP_SIMD16)
+            assert(elementType == TYP_FLOAT);
+
+            switch (simdType)
             {
-#ifdef TARGET_XARCH
-                assert(simdType == TYP_SIMD32);
-#elif defined(TARGET_ARM64)
-                assert(simdType == TYP_SIMD8);
-#endif
-
-                elementTypeIndex += VectorElementTypesCount;
+                case TYP_SIMD8:
+                    return Vector234BaseIndex + 0;
+                case TYP_SIMD12:
+                    return Vector234BaseIndex + 1;
+                default:
+                    assert(simdType == TYP_SIMD16);
+                    return Vector234BaseIndex + 2;
             }
-
-            return elementTypeIndex;
         }
-#endif
 
-        if (kind == VectorKind::VectorT)
+        unsigned index = elementType - TYP_BYTE;
+        assert(index < VectorElementTypesCount);
+
+        switch (simdType)
         {
-            return 2 * VectorElementTypesCount + elementTypeIndex;
+#ifdef TARGET_ARM64
+            case TYP_SIMD8:
+                index += Vector64BaseIndex;
+                break;
+#endif
+#ifdef TARGET_XARCH
+            case TYP_SIMD32:
+                index += (kind == VectorKind::VectorNT ? Vector256BaseIndex : VectorTBaseIndex);
+                break;
+#endif
+            default:
+                assert(simdType == TYP_SIMD16);
+                index += (kind == VectorKind::VectorNT ? Vector128BaseIndex : VectorTBaseIndex);
+                break;
         }
 
-        assert(kind == VectorKind::Vector234);
-        assert(elementType == TYP_FLOAT);
-
-        return 3 * VectorElementTypesCount + ((varTypeSize(simdType) / 4) - 2);
+        return index;
     }
 #endif // FEATURE_SIMD
 };
@@ -585,10 +650,19 @@ ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementT
 #endif
 }
 
-ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementType, VectorKind kind)
+ClassLayout* Compiler::typGetRuntimeVectorLayout(var_types simdType, var_types elementType)
 {
 #ifdef FEATURE_SIMD
-    return typGetClassLayoutTable()->GetVectorLayout(simdType, elementType, kind);
+    return typGetClassLayoutTable()->GetRuntimeVectorLayout(simdType, elementType);
+#else
+    return nullptr;
+#endif
+}
+
+ClassLayout* Compiler::typGetNumericsVectorLayout(var_types simdType, var_types elementType)
+{
+#ifdef FEATURE_SIMD
+    return typGetClassLayoutTable()->GetNumericsVectorLayout(simdType, elementType);
 #else
     return nullptr;
 #endif

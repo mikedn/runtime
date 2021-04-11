@@ -2115,7 +2115,6 @@ public:
                                                    GenTree*       op2);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
-    CORINFO_CLASS_HANDLE gtGetStructHandleForHWSIMD(var_types simdType, var_types simdBaseType);
     var_types impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
                                                CORINFO_SIG_INFO* sig,
                                                var_types         baseType,
@@ -7202,41 +7201,6 @@ private:
     // Get an appropriate "zero" for the given type and class handle.
     GenTree* gtGetSIMDZero(ClassLayout* layout);
 
-    // Get the handle for a SIMD type.
-    CORINFO_CLASS_HANDLE gtGetStructHandleForSIMD(var_types simdType, var_types simdBaseType)
-    {
-        ClassLayout* layout = typGetSystemNumericsVectorLayout(simdType, simdBaseType);
-        return layout == nullptr ? nullptr : layout->GetClassHandle();
-    }
-
-    ClassLayout* typGetSystemNumericsVectorLayout(var_types simdType, var_types elementType)
-    {
-        if (elementType == TYP_FLOAT)
-        {
-            switch (simdType)
-            {
-                case TYP_SIMD8:
-                case TYP_SIMD12:
-                    return typGetVectorLayout(simdType, TYP_FLOAT, VectorKind::Vector234);
-                case TYP_SIMD16:
-                {
-                    ClassLayout* layout = typGetVectorLayout(TYP_SIMD16, TYP_FLOAT, VectorKind::Vector234);
-                    if (layout != nullptr)
-                    {
-                        return layout;
-                    }
-                    break;
-                }
-                case TYP_SIMD32:
-                    break;
-                default:
-                    unreached();
-            }
-        }
-
-        return typGetVectorLayout(simdType, elementType, VectorKind::VectorT);
-    }
-
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
         if (!isIntrinsicType(clsHnd))
@@ -8334,7 +8298,8 @@ public:
     var_types typGetStructType(ClassLayout* layout, var_types* elementType = nullptr);
     // Get the layout of a Vector2/3/4/T/NT type.
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
-    ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType, VectorKind kind);
+    ClassLayout* typGetRuntimeVectorLayout(var_types simdType, var_types elementType);
+    ClassLayout* typGetNumericsVectorLayout(var_types simdType, var_types elementType);
 
 //-------------------------- Global Compiler Data ------------------------------------
 

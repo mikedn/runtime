@@ -15492,79 +15492,76 @@ GenTree* Compiler::gtGetSIMDZero(ClassLayout* layout)
 
 CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
 {
-    CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
-    tree                           = tree->gtEffectiveVal();
-    if (varTypeIsStruct(tree->gtType))
+    if (!varTypeIsStruct(tree->GetType()))
     {
-        switch (tree->gtOper)
-        {
-            default:
-                break;
-            case GT_MKREFANY:
-                structHnd = impGetRefAnyClass();
-                break;
-            case GT_OBJ:
-                structHnd = tree->AsObj()->GetLayout()->GetClassHandle();
-                break;
-            case GT_CALL:
-                structHnd = tree->AsCall()->GetRetLayout()->GetClassHandle();
-                break;
-            case GT_RET_EXPR:
-                structHnd = tree->AsRetExpr()->GetLayout()->GetClassHandle();
-                break;
-            case GT_INDEX:
-                structHnd = tree->AsIndex()->GetLayout()->GetClassHandle();
-                break;
-            case GT_FIELD:
-                info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
-                break;
-            case GT_LCL_VAR:
-                structHnd = lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
-                break;
-            case GT_LCL_FLD:
-                ClassLayout* layout;
-                layout = tree->AsLclFld()->GetLayout(this);
-                if ((layout != nullptr) && !layout->IsBlockLayout())
-                {
-                    structHnd = layout->GetClassHandle();
-                    break;
-                }
-#ifdef FEATURE_SIMD
-                FALLTHROUGH;
-            case GT_IND:
-                if (varTypeIsSIMD(tree->GetType()))
-                {
-                    structHnd = gtGetStructHandleForSIMD(tree->GetType(), TYP_FLOAT);
+        return NO_CLASS_HANDLE;
+    }
+
+    tree = tree->gtEffectiveVal();
+
+    switch (tree->GetOper())
+    {
+        ClassLayout*         layout;
+        CORINFO_CLASS_HANDLE structHnd;
+
+        case GT_MKREFANY:
+            return impGetRefAnyClass();
+        case GT_OBJ:
+            return tree->AsObj()->GetLayout()->GetClassHandle();
+        case GT_CALL:
+            return tree->AsCall()->GetRetLayout()->GetClassHandle();
+        case GT_RET_EXPR:
+            return tree->AsRetExpr()->GetLayout()->GetClassHandle();
+        case GT_INDEX:
+            return tree->AsIndex()->GetLayout()->GetClassHandle();
+        case GT_FIELD:
+            info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
+            return structHnd;
+        case GT_LCL_VAR:
+            return lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
+
+        case GT_LCL_FLD:
+            layout = tree->AsLclFld()->GetLayout(this);
+
+            if (layout != nullptr)
+            {
+                return layout->IsBlockLayout() ? NO_CLASS_HANDLE : layout->GetClassHandle();
+            }
+#ifndef FEATURE_SIMD
+            return NO_CLASS_HANDLE;
+#else
+            FALLTHROUGH;
+        case GT_IND:
+            if (!varTypeIsSIMD(tree->GetType()))
+            {
+                return NO_CLASS_HANDLE;
+            }
+
+            layout = typGetVectorLayout(tree->GetType(), TYP_UNDEF);
+            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
+
+        case GT_SIMD:
+            layout = typGetNumericsVectorLayout(tree->GetType(), tree->AsSIMD()->GetSIMDBaseType());
+            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
+
 #ifdef FEATURE_HW_INTRINSICS
-                    if (structHnd == NO_CLASS_HANDLE)
-                    {
-                        structHnd = gtGetStructHandleForHWSIMD(tree->GetType(), TYP_FLOAT);
-                    }
-#endif
-                }
-                break;
-            case GT_SIMD:
-                structHnd = gtGetStructHandleForSIMD(tree->gtType, tree->AsSIMD()->gtSIMDBaseType);
-                break;
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-                if ((tree->gtFlags & GTF_SIMDASHW_OP) != 0)
-                {
-                    structHnd = gtGetStructHandleForSIMD(tree->gtType, tree->AsHWIntrinsic()->gtSIMDBaseType);
-                }
-                else
-                {
-                    structHnd = gtGetStructHandleForHWSIMD(tree->gtType, tree->AsHWIntrinsic()->gtSIMDBaseType);
-                }
+        case GT_HWINTRINSIC:
+            if ((tree->gtFlags & GTF_SIMDASHW_OP) != 0)
+            {
+                layout = typGetNumericsVectorLayout(tree->GetType(), tree->AsHWIntrinsic()->GetSIMDBaseType());
+            }
+            else
+            {
+                layout = typGetRuntimeVectorLayout(tree->GetType(), tree->AsHWIntrinsic()->GetSIMDBaseType());
+            }
+
+            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
 #endif
 #endif // FEATURE_SIMD
-                break;
-        }
-        // TODO-1stClassStructs: add a check that `structHnd != NO_CLASS_HANDLE`,
-        // nowadays it won't work because the right part of an ASG could have struct type without a handle
-        // (check `fgMorphBlockOperand(isBlkReqd`) and a few other cases.
+
+        default:
+            return NO_CLASS_HANDLE;
     }
-    return structHnd;
 }
 
 CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)

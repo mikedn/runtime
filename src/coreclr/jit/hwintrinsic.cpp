@@ -75,12 +75,6 @@ var_types Compiler::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic
     return (*argLayout)->GetElementType();
 }
 
-CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleForHWSIMD(var_types simdType, var_types simdBaseType)
-{
-    ClassLayout* layout = typGetVectorLayout(simdType, simdBaseType, VectorKind::VectorNT);
-    return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
-}
-
 //------------------------------------------------------------------------
 // vnEncodesResultTypeForHWIntrinsic(NamedIntrinsic hwIntrinsicID):
 //
