@@ -1387,11 +1387,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             const var_types fieldType   = fieldNode->TypeGet();
             const unsigned  fieldOffset = use.GetOffset();
 
-#ifdef TARGET_X86
-            assert(fieldType != TYP_LONG);
-#endif // TARGET_X86
-
-#if defined(FEATURE_SIMD)
+#ifdef FEATURE_SIMD
             // Note that we need to check the GT_FIELD_LIST type, not 'fieldType'. This is because the
             // GT_FIELD_LIST will be TYP_SIMD12 whereas the fieldType might be TYP_SIMD16 for lclVar, where
             // we "round up" to 16.
@@ -1399,9 +1395,11 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             {
                 simdTemp = buildInternalFloatRegisterDefForNode(putArgStk);
             }
-#endif // defined(FEATURE_SIMD)
+#endif
 
 #ifdef TARGET_X86
+            assert(fieldType != TYP_LONG);
+
             if (putArgStk->gtPutArgStkKind == GenTreePutArgStk::Kind::Push)
             {
                 // We can treat as a slot any field that is stored at a slot boundary, where the previous
@@ -1436,6 +1434,7 @@ int LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 srcCount++;
             }
         }
+
         buildInternalRegisterUses();
 
         return srcCount;

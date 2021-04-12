@@ -1711,17 +1711,29 @@ void CodeGen::genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode)
 //    own incoming argument area.
 //
 #ifndef TARGET_X86
-void CodeGen::genPutArgStkFieldList(GenTreeFieldList* fieldList,
+void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
                                     unsigned          outArgLclNum,
                                     unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
-    for (GenTreeFieldList::Use& use : fieldList->Uses())
+    regNumber tmpReg = putArg->AvailableTempRegCount() ? putArg->GetSingleTempReg() : REG_NA;
+
+    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
     {
         unsigned dstOffset = outArgLclOffs + use.GetOffset();
 
         GenTree*  src     = use.GetNode();
-        var_types srcType = use.GetNode()->GetType();
+        var_types srcType = use.GetType();
         regNumber srcReg;
+
+        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
+
+#ifdef FEATURE_SIMD
+        if (srcType == TYP_SIMD12)
+        {
+            genStoreSIMD12(GenAddrMode(outArgLclNum, dstOffset), src, tmpReg);
+            continue;
+        }
+#endif
 
 #ifdef TARGET_ARM64
         if (src->isContained())
@@ -1734,8 +1746,6 @@ void CodeGen::genPutArgStkFieldList(GenTreeFieldList* fieldList,
         {
             srcReg = genConsumeReg(src);
         }
-
-        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
 
         GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, dstOffset);
     }

@@ -1724,12 +1724,8 @@ void CodeGen::genSIMDIntrinsicSetItem(GenTreeSIMD* simdNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two writes: 8 byte followed by 4-byte.
 //
-void CodeGen::genStoreSIMD12(GenTree* store, GenTree* value)
+void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
 {
-    GenAddrMode dst(store, this);
-
-    regNumber tmpReg = store->GetSingleTempReg();
-
     if (value->isContained())
     {
         GenAddrMode src(value, this);

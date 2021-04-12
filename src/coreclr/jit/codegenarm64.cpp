@@ -4307,18 +4307,14 @@ void CodeGen::genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode)
 // Since Vector3 is not a hardware supported write size, it is performed
 // as two writes: 8 byte followed by 4-byte.
 //
-void CodeGen::genStoreSIMD12(GenTree* store, GenTree* value)
+void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
 {
-    GenAddrMode dst(store, this);
-
     if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
     {
         inst_AM_R(INS_str, EA_8BYTE, REG_ZR, dst, 0);
         inst_AM_R(INS_str, EA_4BYTE, REG_ZR, dst, 8);
         return;
     }
-
-    regNumber tmpReg = store->GetSingleTempReg();
 
     if (value->isContained())
     {

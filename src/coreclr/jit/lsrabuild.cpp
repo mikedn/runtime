@@ -1351,8 +1351,7 @@ RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* tree, reg
     // The candidate set should contain only float registers.
     assert((internalCands & ~allRegs(TYP_FLOAT)) == RBM_NONE);
 
-    RefPosition* defRefPosition = defineNewInternalTemp(tree, FloatRegisterType, internalCands);
-    return defRefPosition;
+    return defineNewInternalTemp(tree, FloatRegisterType, internalCands);
 }
 
 //------------------------------------------------------------------------

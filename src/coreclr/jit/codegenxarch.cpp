@@ -6971,7 +6971,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #else
         INDEBUG(unsigned outArgLclSize = compiler->lvaLclSize(outArgLclNum);)
 #endif
-        genPutArgStkFieldList(src->AsFieldList(), outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        genPutArgStkFieldList(putArgStk, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
 #else
         genPutArgStkFieldList(putArgStk);
 #endif

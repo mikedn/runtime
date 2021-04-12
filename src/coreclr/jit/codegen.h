@@ -1013,7 +1013,6 @@ protected:
     void genSIMDIntrinsicWiden(GenTreeSIMD* simdNode);
     void genSIMDIntrinsic(GenTreeSIMD* simdNode);
 
-    void genStoreSIMD12(GenTree* store, GenTree* value);
     void genLoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
@@ -1222,7 +1221,7 @@ protected:
 #endif
 
 #ifndef TARGET_X86
-    void genPutArgStkFieldList(GenTreeFieldList* fieldList,
+    void genPutArgStkFieldList(GenTreePutArgStk* putArg,
                                unsigned          outArgLclNum,
                                unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
 #endif // !TARGET_X86
@@ -1420,6 +1419,11 @@ public:
         unsigned  m_lclNum;
 
     public:
+        GenAddrMode(unsigned lclNum, unsigned lclOffs)
+            : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(lclOffs), m_lclNum(lclNum)
+        {
+        }
+
         GenAddrMode(GenTree* tree, CodeGen* codeGen);
 
         regNumber Base() const
@@ -1460,6 +1464,16 @@ public:
             return m_lclNum;
         }
     };
+
+#ifdef FEATURE_SIMD
+    void genStoreSIMD12(GenTree* store, GenTree* value)
+    {
+        genStoreSIMD12(GenAddrMode(store, this), value,
+                       store->AvailableTempRegCount() ? store->GetSingleTempReg() : REG_NA);
+    }
+
+    void genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg);
+#endif
 
     void inst_R_AM(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
     void inst_AM_R(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
