@@ -5821,20 +5821,30 @@ bool Compiler::optNarrowTree(GenTree* tree, var_types srct, var_types dstt, Valu
 
                 return true;
 
-            /* Operands that are in memory can usually be narrowed
-               simply by changing their gtType */
-
             case GT_LCL_VAR:
-                /* We only allow narrowing long -> int for a GT_LCL_VAR */
-                if (dstSize == sizeof(int))
+                // Allow implicit narrowing to INT of LONG locals.
+                if (dstSize != varTypeSize(TYP_INT))
                 {
-                    goto NARROW_IND;
+                    return false;
                 }
-                break;
+
+                assert(tree->TypeIs(TYP_LONG));
+
+                if (doit)
+                {
+                    tree->SetType(genSignedType(dstt));
+                    tree->SetVNs(vnpNarrow);
+                    tree->gtFlags |= GTF_VAR_CAST;
+                }
+
+                return true;
 
             case GT_CLS_VAR:
             case GT_LCL_FLD:
+                // Operands that are in memory can usually be narrowed
+                // simply by changing their type.
                 goto NARROW_IND;
+
             default:
                 break;
         }

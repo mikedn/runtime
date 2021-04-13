@@ -3811,28 +3811,7 @@ void Compiler::lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, S
                      (tree->TypeIs(TYP_UBYTE) && varDsc->TypeIs(TYP_BOOL)) ||
                      (tree->TypeIs(TYP_BYREF) && varDsc->TypeIs(TYP_I_IMPL)) ||
                      (tree->TypeIs(TYP_I_IMPL) && varDsc->TypeIs(TYP_BYREF)) ||
-                     (tree->TypeIs(TYP_INT) && varDsc->TypeIs(TYP_LONG) && (tree->gtFlags & GTF_VAR_CAST) != 0));
-
-#ifdef DEBUG
-        if (tree->gtFlags & GTF_VAR_CAST)
-        {
-            // it should never be bigger than the variable slot
-
-            // Trees don't store the full information about structs
-            // so we can't check them.
-            if (tree->TypeGet() != TYP_STRUCT)
-            {
-                unsigned treeSize = genTypeSize(tree->TypeGet());
-                unsigned varSize  = genTypeSize(varDsc->TypeGet());
-                if (varDsc->TypeGet() == TYP_STRUCT)
-                {
-                    varSize = varDsc->lvSize();
-                }
-
-                assert(treeSize <= varSize);
-            }
-        }
-#endif
+                     (tree->TypeIs(TYP_INT) && varDsc->TypeIs(TYP_LONG) && (tree->gtFlags & GTF_VAR_DEF) == 0));
     }
 }
 
