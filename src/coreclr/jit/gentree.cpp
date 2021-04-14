@@ -16853,15 +16853,11 @@ void ReturnTypeDesc::InitializeStruct(Compiler*         comp,
         case SPK_ByValueAsHfa:
         {
             assert(varTypeIsStruct(retKindType));
-            var_types regType = comp->GetHfaType(retLayout->GetClassHandle());
-            assert(varTypeIsValidHfaType(regType));
 
-            // Note that the retail build issues a warning about a potential divsion by zero without this Max function
-            unsigned elemSize = Max(1u, varTypeSize(regType));
-
-            assert((retLayout->GetSize() % elemSize) == 0);
-            m_regCount = static_cast<uint8_t>(retLayout->GetSize() / elemSize);
+            m_regCount = retLayout->GetHfaElementCount();
             assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
+
+            var_types regType = retLayout->GetHfaElementType();
 
             for (unsigned i = 0; i < m_regCount; ++i)
             {

@@ -393,9 +393,12 @@ unsigned Compiler::eeGetArgSize(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* 
 
     if (varTypeIsStruct(argType))
     {
-        hfaType             = GetHfaType(argClass);
-        isHfa               = (hfaType != TYP_UNDEF);
-        unsigned structSize = info.compCompHnd->getClassSize(argClass);
+        ClassLayout* layout = typGetObjLayout(argClass);
+        layout->EnsureHfaInfo(this);
+
+        isHfa               = layout->IsHfa();
+        hfaType             = isHfa ? layout->GetHfaElementType() : TYP_UNDEF;
+        unsigned structSize = layout->GetSize();
 
         // make certain the EE passes us back the right thing for refanys
         assert(argTypeJit != CORINFO_TYPE_REFANY || structSize == 2 * TARGET_POINTER_SIZE);

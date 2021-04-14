@@ -9198,61 +9198,6 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
 
 #endif // defined(TARGET_XARCH)
 
-//----------------------------------------------
-// Methods that support HFA's for ARM32/ARM64
-//----------------------------------------------
-
-bool Compiler::IsHfa(CORINFO_CLASS_HANDLE hClass)
-{
-    return varTypeIsValidHfaType(GetHfaType(hClass));
-}
-
-var_types Compiler::GetHfaType(CORINFO_CLASS_HANDLE hClass)
-{
-#ifdef FEATURE_HFA
-    if (hClass != NO_CLASS_HANDLE)
-    {
-        CorInfoHFAElemType elemKind = info.compCompHnd->getHFAType(hClass);
-        if (elemKind != CORINFO_HFA_ELEM_NONE)
-        {
-            // This type may not appear elsewhere, but it will occupy a floating point register.
-            compFloatingPointUsed = true;
-        }
-        return HfaTypeFromElemKind(elemKind);
-    }
-#endif // FEATURE_HFA
-    return TYP_UNDEF;
-}
-
-//------------------------------------------------------------------------
-// GetHfaCount: Given a  class handle for an HFA struct
-//    return the number of registers needed to hold the HFA
-//
-//    Note that on ARM32 the single precision registers overlap with
-//        the double precision registers and for that reason each
-//        double register is considered to be two single registers.
-//        Thus for ARM32 an HFA of 4 doubles this function will return 8.
-//    On ARM64 given an HFA of 4 singles or 4 doubles this function will
-//         will return 4 for both.
-// Arguments:
-//    hClass: the class handle of a HFA struct
-//
-unsigned Compiler::GetHfaCount(CORINFO_CLASS_HANDLE hClass)
-{
-    assert(IsHfa(hClass));
-#ifdef TARGET_ARM
-    // A HFA of doubles is twice as large as an HFA of singles for ARM32
-    // (i.e. uses twice the number of single precison registers)
-    return info.compCompHnd->getClassSize(hClass) / REGSIZE_BYTES;
-#else  // TARGET_ARM64
-    var_types hfaType   = GetHfaType(hClass);
-    unsigned  classSize = info.compCompHnd->getClassSize(hClass);
-    // Note that the retail build issues a warning about a potential divsion by zero without the Max function
-    unsigned elemSize = Max((unsigned)1, EA_SIZE_IN_BYTES(emitActualTypeSize(hfaType)));
-    return classSize / elemSize;
-#endif // TARGET_ARM64
-}
-
 #ifdef TARGET_XARCH
 
 //------------------------------------------------------------------------

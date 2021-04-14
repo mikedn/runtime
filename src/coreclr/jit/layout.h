@@ -40,7 +40,7 @@ class ClassLayout
         VectorKind vectorKind;
         var_types  simdType;
         var_types  elementType;
-        bool       isHFA;
+        var_types  hfaElementType;
     };
 
     union {
@@ -100,6 +100,8 @@ class ClassLayout
     }
 
 public:
+    void EnsureHfaInfo(Compiler* compiler);
+
 #ifdef TARGET_AMD64
     // Get the layout for the PPP quirk - see Compiler::compQuirkForPPP for details.
     ClassLayout* GetPPPQuirkLayout(CompAllocator alloc);
@@ -132,6 +134,33 @@ public:
     unsigned GetSize() const
     {
         return m_size;
+    }
+
+    bool IsHfa() const
+    {
+#ifdef FEATURE_HFA
+        if (m_gcPtrCount != 0)
+        {
+            return false;
+        }
+
+        assert(m_layoutInfo.hfaElementType != TYP_UNDEF);
+        return m_layoutInfo.hfaElementType != TYP_UNKNOWN;
+#else
+        return false;
+#endif
+    }
+
+    var_types GetHfaElementType() const
+    {
+        assert(IsHfa());
+        return m_layoutInfo.hfaElementType;
+    }
+
+    uint8_t GetHfaElementCount() const
+    {
+        assert(IsHfa());
+        return static_cast<uint8_t>(m_size / varTypeSize(m_layoutInfo.hfaElementType));
     }
 
     bool IsVector() const

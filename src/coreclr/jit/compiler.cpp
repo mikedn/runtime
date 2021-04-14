@@ -530,9 +530,6 @@ bool Compiler::isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd)
 //
 var_types Compiler::getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg)
 {
-    CORINFO_CLASS_HANDLE clsHnd     = layout->GetClassHandle();
-    unsigned             structSize = layout->GetSize();
-
 #ifdef FEATURE_HFA
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
     // Arm64 Windows VarArg methods arguments will not classify HFA types, they will need to be treated
@@ -540,26 +537,14 @@ var_types Compiler::getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg
     if (!isVarArg)
 #endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
     {
-        switch (structSize)
+        if (layout->IsHfa())
         {
-            case 4:
-            case 8:
-#ifdef TARGET_ARM64
-            case 16:
-#endif
-            {
-                var_types hfaType = GetHfaType(clsHnd);
-                if (hfaType != TYP_UNDEF)
-                {
-                    return (varTypeSize(hfaType) == structSize) ? hfaType : TYP_UNKNOWN;
-                }
-            }
-            break;
+            return layout->GetHfaElementCount() == 1 ? layout->GetHfaElementType() : TYP_UNKNOWN;
         }
     }
 #endif // FEATURE_HFA
 
-    switch (structSize)
+    switch (layout->GetSize())
     {
         case 1:
             return TYP_BYTE;
@@ -693,14 +678,14 @@ var_types Compiler::getArgTypeForStruct(ClassLayout* layout, structPassingKind* 
             else
 #endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
             {
-                hfaType = GetHfaType(clsHnd);
+                hfaType = layout->IsHfa() ? layout->GetHfaElementType() : TYP_UNDEF;
             }
 
 #ifdef FEATURE_HFA
-            if (varTypeIsValidHfaType(hfaType))
+            if (hfaType != TYP_UNDEF)
             {
-                // HFA's of count one should have been handled by getPrimitiveTypeForStruct
-                assert(GetHfaCount(clsHnd) >= 2);
+                // Single element HFAs should have been handled by getPrimitiveTypeForStruct
+                assert(layout->GetHfaElementCount() > 1);
 
                 // setup wbPassType and useType indicate that this is passed by value as an HFA
                 //  using multiple registers
@@ -711,7 +696,6 @@ var_types Compiler::getArgTypeForStruct(ClassLayout* layout, structPassingKind* 
             else
 #endif
             {
-
 #ifdef UNIX_AMD64_ABI
                 // The case of (structDesc.eightByteCount == 1) should have already been handled
                 if ((structDesc.eightByteCount > 1) || !structDesc.passedInRegisters)
@@ -848,6 +832,8 @@ var_types Compiler::getReturnTypeForStruct(ClassLayout*             layout,
                                            CorInfoCallConvExtension callConv,
                                            structPassingKind*       wbReturnStruct)
 {
+    layout->EnsureHfaInfo(this);
+
     CORINFO_CLASS_HANDLE clsHnd              = layout->GetClassHandle();
     unsigned             structSize          = layout->GetSize();
     var_types            useType             = TYP_UNKNOWN;
@@ -938,10 +924,10 @@ var_types Compiler::getReturnTypeForStruct(ClassLayout*             layout,
         {
 #ifdef FEATURE_HFA
             // Structs that are HFA's are returned in multiple registers
-            if (IsHfa(clsHnd))
+            if (layout->IsHfa())
             {
-                // HFA's of count one should have been handled by getPrimitiveTypeForStruct
-                assert(GetHfaCount(clsHnd) >= 2);
+                // Single element HFAs should have been handled by getPrimitiveTypeForStruct
+                assert(layout->GetHfaElementCount() > 1);
 
                 // setup wbPassType and useType indicate that this is returned by value as an HFA
                 //  using multiple registers

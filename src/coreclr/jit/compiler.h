@@ -1570,19 +1570,6 @@ public:
 #endif
 
     //-------------------------------------------------------------------------
-    // Functions to handle homogeneous floating-point aggregates (HFAs) in ARM/ARM64.
-    // HFAs are one to four element structs where each element is the same
-    // type, either all float or all double. We handle HVAs (one to four elements of
-    // vector types) uniformly with HFAs. HFAs are treated specially
-    // in the ARM/ARM64 Procedure Call Standards, specifically, they are passed in
-    // floating-point registers instead of the general purpose registers.
-    //
-
-    bool IsHfa(CORINFO_CLASS_HANDLE hClass);
-    var_types GetHfaType(CORINFO_CLASS_HANDLE hClass);
-    unsigned GetHfaCount(CORINFO_CLASS_HANDLE hClass);
-
-    //-------------------------------------------------------------------------
     // The following is used for validating format of EH table
     //
 

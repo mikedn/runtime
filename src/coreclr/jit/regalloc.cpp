@@ -163,12 +163,18 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
 #endif // TARGET_ARM
 
 #if FEATURE_MULTIREG_ARGS
-    if (varTypeIsStruct(argDsc->lvType))
+    if (varTypeIsStruct(argDsc->GetType()))
     {
         if (argDsc->lvIsHfaRegArg())
         {
             assert(regState->rsIsFloat);
-            unsigned cSlots = GetHfaCount(argDsc->GetLayout()->GetClassHandle());
+            unsigned cSlots = argDsc->GetLayout()->GetHfaElementCount();
+#ifdef TARGET_ARM
+            if (argDsc->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
+            {
+                cSlots *= 2;
+            }
+#endif
             for (unsigned i = 1; i < cSlots; i++)
             {
                 assert(inArgReg + i <= LAST_FP_ARGREG);

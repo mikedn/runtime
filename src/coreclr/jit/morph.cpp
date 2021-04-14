@@ -1899,13 +1899,18 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             if (!callIsVararg)
 #endif
             {
-                hfaType = GetHfaType(objClass);
+                layout->EnsureHfaInfo(this);
 
-                if (hfaType != TYP_UNDEF)
+                if (layout->IsHfa())
                 {
-                    assert(varTypeIsValidHfaType(hfaType));
-
-                    hfaSlots = GetHfaCount(objClass);
+                    hfaType  = layout->GetHfaElementType();
+                    hfaSlots = layout->GetHfaElementCount();
+#ifdef TARGET_ARM
+                    if (hfaType == TYP_DOUBLE)
+                    {
+                        hfaSlots *= 2;
+                    }
+#endif
 
                     // If we have a HFA struct it's possible we transition from a method that originally
                     // only had integer types to now start having FP types.  We have to communicate this

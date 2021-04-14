@@ -96,8 +96,7 @@ void Compiler::lvaInitTypeRef()
     }
     else
     {
-        ClassLayout* retLayout = typGetObjLayout(info.compMethodInfo->args.retTypeClass);
-
+        ClassLayout*      retLayout   = typGetObjLayout(info.compMethodInfo->args.retTypeClass);
         structPassingKind retKind     = SPK_Unknown;
         var_types         retKindType = getReturnTypeForStruct(retLayout, info.compCallConv, &retKind);
 
@@ -124,8 +123,8 @@ void Compiler::lvaInitTypeRef()
         else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
         {
             // TODO-MIKE-Throughput: Both getReturnTypeForStruct and InitializeStruct call
-            // getSystemVAmd64PassStructInRegisterDescriptor/getHFAType and those are rather
-            // expensive. Ideally getReturnTypeForStruct would just return all the necessary
+            // getSystemVAmd64PassStructInRegisterDescriptor and that's rather expensive.
+            // Ideally getReturnTypeForStruct would just return all the necessary
             // information (or just initialize retDesc directly). impInitializeStructCall
             // has similar logic and the same problem.
 
@@ -673,8 +672,8 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
             if (varTypeIsStruct(argType))
             {
                 // hfaType is set to float, double, or SIMD type if it is an HFA, otherwise TYP_UNDEF
-                hfaType  = GetHfaType(typeHnd);
-                isHfaArg = varTypeIsValidHfaType(hfaType);
+                isHfaArg = varDsc->GetLayout()->IsHfa();
+                hfaType  = isHfaArg ? varDsc->GetLayout()->GetHfaElementType() : TYP_UNDEF;
             }
         }
         else if (info.compIsVarArgs)
@@ -1669,9 +1668,15 @@ bool Compiler::StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE 
     }
 
     // Don't struct promote if we have an CUSTOMLAYOUT flag on an HFA type
-    if (StructHasCustomLayout(typeFlags) && compiler->IsHfa(typeHnd))
+    if (StructHasCustomLayout(typeFlags))
     {
-        return false;
+        ClassLayout* layout = compiler->typGetObjLayout(typeHnd);
+        layout->EnsureHfaInfo(compiler);
+
+        if (layout->IsHfa())
+        {
+            return false;
+        }
     }
 
 #ifdef TARGET_ARM
@@ -2613,21 +2618,12 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
             }
 #endif
 
-#ifdef FEATURE_HFA
-            if (layout->GetSize() <= MAX_PASS_MULTIREG_BYTES)
+            layout->EnsureHfaInfo(this);
+
+            if (layout->IsHfa())
             {
-                var_types hfaType = GetHfaType(layout->GetClassHandle());
-
-                if (hfaType != TYP_UNDEF)
-                {
-                    assert(!layout->HasGCPtr());
-                    assert((layout->GetSize() % varTypeSize(hfaType)) == 0);
-                    assert((layout->GetSize() / varTypeSize(hfaType)) <= MAX_ARG_REG_COUNT);
-
-                    varDsc->SetHfaType(hfaType);
-                }
+                varDsc->SetHfaType(layout->GetHfaElementType());
             }
-#endif
         }
     }
 
@@ -2681,9 +2677,10 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
     {
         return;
     }
-    assert(structHandle != NO_CLASS_HANDLE);
-    (void)typGetObjLayout(structHandle);
-    DWORD typeFlags = info.compCompHnd->getClassAttribs(structHandle);
+
+    ClassLayout* layout = typGetObjLayout(structHandle);
+
+    uint32_t typeFlags = info.compCompHnd->getClassAttribs(structHandle);
     if (StructHasNoPromotionFlagSet(typeFlags))
     {
         // In AOT ReadyToRun compilation, don't query fields of types
@@ -2693,7 +2690,7 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
     unsigned fieldCnt = info.compCompHnd->getClassNumInstanceFields(structHandle);
     typGetStructType(structHandle);
 #ifdef TARGET_ARMARCH
-    GetHfaType(structHandle);
+    layout->EnsureHfaInfo(this);
 #endif
     for (unsigned int i = 0; i < fieldCnt; i++)
     {

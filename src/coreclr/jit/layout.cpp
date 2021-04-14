@@ -770,6 +770,53 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     noway_assert(!m_isValueClass || (m_gcPtrCount == 0) || (roundUp(m_size, REGSIZE_BYTES) == m_size));
 }
 
+void ClassLayout::EnsureHfaInfo(Compiler* compiler)
+{
+    assert(m_classHandle != NO_CLASS_HANDLE);
+
+    if ((m_gcPtrCount != 0) || (m_layoutInfo.hfaElementType != TYP_UNDEF))
+    {
+        return;
+    }
+
+#ifndef FEATURE_HFA
+    m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+#else
+    if (m_size > MAX_PASS_MULTIREG_BYTES)
+    {
+        m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+
+        return;
+    }
+
+    CorInfoHFAElemType hfaType = compiler->info.compCompHnd->getHFAType(m_classHandle);
+
+    switch (hfaType)
+    {
+        case CORINFO_HFA_ELEM_FLOAT:
+            m_layoutInfo.hfaElementType = TYP_FLOAT;
+            break;
+        case CORINFO_HFA_ELEM_DOUBLE:
+            m_layoutInfo.hfaElementType = TYP_DOUBLE;
+            break;
+#ifdef FEATURE_SIMD
+        case CORINFO_HFA_ELEM_VECTOR64:
+            m_layoutInfo.hfaElementType = TYP_SIMD8;
+            break;
+        case CORINFO_HFA_ELEM_VECTOR128:
+            m_layoutInfo.hfaElementType = TYP_SIMD16;
+            break;
+#endif
+        default:
+            assert(hfaType == CORINFO_HFA_ELEM_NONE);
+            m_layoutInfo.hfaElementType = TYP_UNKNOWN;
+            break;
+    }
+
+    assert((m_layoutInfo.hfaElementType == TYP_UNKNOWN) || (m_size % varTypeSize(m_layoutInfo.hfaElementType) == 0));
+#endif
+}
+
 #ifdef FEATURE_SIMD
 
 ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
@@ -783,17 +830,17 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
     {
         if (strcmp(className, "Vector2") == 0)
         {
-            return {VectorKind::Vector234, TYP_SIMD8, TYP_FLOAT, true};
+            return {VectorKind::Vector234, TYP_SIMD8, TYP_FLOAT};
         }
 
         if (strcmp(className, "Vector3") == 0)
         {
-            return {VectorKind::Vector234, TYP_SIMD12, TYP_FLOAT, true};
+            return {VectorKind::Vector234, TYP_SIMD12, TYP_FLOAT};
         }
 
         if (strcmp(className, "Vector4") == 0)
         {
-            return {VectorKind::Vector234, TYP_SIMD16, TYP_FLOAT, true};
+            return {VectorKind::Vector234, TYP_SIMD16, TYP_FLOAT};
         }
     }
 
@@ -801,7 +848,7 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
 
     if (elementTypeHandle == NO_CLASS_HANDLE)
     {
-        return {VectorKind::None, TYP_UNDEF, TYP_UNDEF, false};
+        return {VectorKind::None, TYP_UNDEF, TYP_UNDEF};
     }
 
     CorInfoType elementCorType = vm->getTypeForPrimitiveNumericClass(elementTypeHandle);
@@ -809,7 +856,7 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
     if (elementCorType == CORINFO_TYPE_UNDEF)
     {
         JITDUMP("Unexpected vector element type %s.%s\n", vm->getClassName(elementTypeHandle));
-        return {VectorKind::None, TYP_UNDEF, TYP_UNDEF, false};
+        return {VectorKind::None, TYP_UNDEF, TYP_UNDEF};
     }
 
     assert((elementCorType >= CORINFO_TYPE_BYTE) && (elementCorType <= CORINFO_TYPE_DOUBLE));
@@ -834,19 +881,19 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
     {
         unsigned size = compiler->getSIMDVectorRegisterByteLength();
         assert((size == 16) || (size == 32));
-        return {VectorKind::VectorT, size == 32 ? TYP_SIMD32 : TYP_SIMD16, elementType, false};
+        return {VectorKind::VectorT, size == 32 ? TYP_SIMD32 : TYP_SIMD16, elementType};
     }
 
 #ifdef FEATURE_HW_INTRINSICS
     if (strcmp(className, "Vector128`1") == 0)
     {
-        return {VectorKind::VectorNT, TYP_SIMD16, elementType, false};
+        return {VectorKind::VectorNT, TYP_SIMD16, elementType};
     }
 
 #ifdef TARGET_ARM64
     if (strcmp(className, "Vector64`1") == 0)
     {
-        return {VectorKind::VectorNT, TYP_SIMD8, elementType, false};
+        return {VectorKind::VectorNT, TYP_SIMD8, elementType};
     }
 #endif
 
@@ -856,16 +903,16 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
         if (!compiler->compExactlyDependsOn(InstructionSet_AVX))
         {
             JITDUMP("SIMD32/AVX is not available\n");
-            return {VectorKind::None, TYP_UNDEF, TYP_UNDEF, false};
+            return {VectorKind::None, TYP_UNDEF, TYP_UNDEF};
         }
 
-        return {VectorKind::VectorNT, TYP_SIMD32, elementType, false};
+        return {VectorKind::VectorNT, TYP_SIMD32, elementType};
     }
 #endif
 
 #endif // FEATURE_HW_INTRINSICS
 
-    return {VectorKind::None, TYP_UNDEF, TYP_UNDEF, false};
+    return {VectorKind::None, TYP_UNDEF, TYP_UNDEF};
 }
 
 #endif // FEATURE_SIMD
