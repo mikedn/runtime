@@ -96,11 +96,10 @@ void Compiler::lvaInitTypeRef()
     }
     else
     {
-        CORINFO_CLASS_HANDLE retClass     = info.compMethodInfo->args.retTypeClass;
-        ClassLayout*         retLayout    = typGetObjLayout(retClass);
-        unsigned             retClassSize = retLayout->GetSize();
-        structPassingKind    retKind      = SPK_Unknown;
-        var_types            retKindType  = getReturnTypeForStruct(retClass, info.compCallConv, &retKind, retClassSize);
+        ClassLayout* retLayout = typGetObjLayout(info.compMethodInfo->args.retTypeClass);
+
+        structPassingKind retKind     = SPK_Unknown;
+        var_types         retKindType = getReturnTypeForStruct(retLayout, info.compCallConv, &retKind);
 
         info.compRetType = typGetStructType(retLayout);
         info.retLayout   = retLayout;
@@ -130,7 +129,7 @@ void Compiler::lvaInitTypeRef()
             // information (or just initialize retDesc directly). impInitializeStructCall
             // has similar logic and the same problem.
 
-            info.retDesc.InitializeStruct(this, retClass, retClassSize, retKind, retKindType);
+            info.retDesc.InitializeStruct(this, retLayout, retKind, retKindType);
         }
 #endif
         else
@@ -637,7 +636,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         else if (varTypeIsStruct(varDsc->GetType()))
         {
             structPassingKind howToReturnStruct;
-            getArgTypeForStruct(typeHnd, &howToReturnStruct, info.compIsVarArgs, varDsc->GetSize());
+            getArgTypeForStruct(varDsc->GetLayout(), &howToReturnStruct, info.compIsVarArgs);
 
             if (howToReturnStruct == SPK_ByReference)
             {
@@ -2514,12 +2513,10 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
 //
 bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
 {
-    if (varTypeIsStruct(varDsc->TypeGet()))
+    if (varTypeIsStruct(varDsc->GetType()))
     {
-        CORINFO_CLASS_HANDLE clsHnd = varDsc->GetLayout()->GetClassHandle();
-        structPassingKind    howToPassStruct;
-
-        var_types type = getArgTypeForStruct(clsHnd, &howToPassStruct, isVarArg, varDsc->GetLayout()->GetSize());
+        structPassingKind howToPassStruct;
+        var_types         type = getArgTypeForStruct(varDsc->GetLayout(), &howToPassStruct, isVarArg);
 
 #ifdef FEATURE_HFA
         if (howToPassStruct == SPK_ByValueAsHfa)

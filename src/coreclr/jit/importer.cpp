@@ -7839,8 +7839,8 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     call->SetRetLayout(layout);
 
     structPassingKind retKind;
-    var_types retKindType = getReturnTypeForStruct(retClass, call->GetUnmanagedCallConv(), &retKind, layout->GetSize());
-    ReturnTypeDesc* retDesc = call->GetRetDesc();
+    var_types         retKindType = getReturnTypeForStruct(layout, call->GetUnmanagedCallConv(), &retKind);
+    ReturnTypeDesc*   retDesc     = call->GetRetDesc();
 
     if (retKind == SPK_PrimitiveType)
     {
@@ -7849,7 +7849,7 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
 #if FEATURE_MULTIREG_RET
     else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
     {
-        retDesc->InitializeStruct(this, retClass, layout->GetSize(), retKind, retKindType);
+        retDesc->InitializeStruct(this, layout, retKind, retKindType);
     }
 #endif
     else
@@ -13158,9 +13158,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // be useful because it avoids dependent promotion. But's probably something
                 // that impAssignStructPtr could handle as well.
 
+                ClassLayout*      layout = typGetObjLayout(resolvedToken.hClass);
                 structPassingKind retKind;
-                var_types         retKindType =
-                    getReturnTypeForStruct(resolvedToken.hClass, CorInfoCallConvExtension::Managed, &retKind);
+                var_types retKindType = getReturnTypeForStruct(layout, CorInfoCallConvExtension::Managed, &retKind);
 
                 if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
                 {
@@ -13170,7 +13170,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a register returnable nullable"));
                     lvaTable[tmp].lvIsMultiRegArg = true;
-                    lvaSetStruct(tmp, resolvedToken.hClass, /* checkUnsafeBuffer */ true);
+                    lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
                     op2 = gtNewLclvNode(tmp, TYP_STRUCT);
                     op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);

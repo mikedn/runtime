@@ -427,47 +427,6 @@ Histogram loopExitCountTable(loopExitCountBuckets);
 
 #endif // COUNT_LOOPS
 
-//------------------------------------------------------------------------
-// getJitGCType: Given the VM's CorInfoGCType convert it to the JIT's var_types
-//
-// Arguments:
-//    gcType    - an enum value that originally came from an element
-//                of the BYTE[] returned from getClassGClayout()
-//
-// Return Value:
-//    The corresponsing enum value from the JIT's var_types
-//
-// Notes:
-//   The gcLayout of each field of a struct is returned from getClassGClayout()
-//   as a BYTE[] but each BYTE element is actually a CorInfoGCType value
-//   Note when we 'know' that there is only one element in theis array
-//   the JIT will often pass the address of a single BYTE, instead of a BYTE[]
-//
-
-var_types Compiler::getJitGCType(BYTE gcType)
-{
-    var_types     result      = TYP_UNKNOWN;
-    CorInfoGCType corInfoType = (CorInfoGCType)gcType;
-
-    if (corInfoType == TYPE_GC_NONE)
-    {
-        result = TYP_I_IMPL;
-    }
-    else if (corInfoType == TYPE_GC_REF)
-    {
-        result = TYP_REF;
-    }
-    else if (corInfoType == TYPE_GC_BYREF)
-    {
-        result = TYP_BYREF;
-    }
-    else
-    {
-        noway_assert(!"Bad value of 'gcType'");
-    }
-    return result;
-}
-
 #ifdef TARGET_X86
 //---------------------------------------------------------------------------
 // isTrivialPointerSizedStruct:
@@ -555,11 +514,6 @@ bool Compiler::isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd)
 //     If the struct is a one element HFA/HVA, we will return the
 //     proper floating point or vector type.
 //
-// Arguments:
-//    structSize - the size of the struct type, cannot be zero
-//    clsHnd     - the handle for the struct type, used when may have
-//                 an HFA or if we need the GC layout for an object ref.
-//
 // Return Value:
 //    The primitive type (i.e. byte, short, int, long, ref, float, double)
 //    used to pass or return structs of this size.
@@ -574,11 +528,11 @@ bool Compiler::isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd)
 //    For vector calling conventions, a vector is considered a "primitive"
 //    type, as it is passed in a single register.
 //
-var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS_HANDLE clsHnd, bool isVarArg)
+var_types Compiler::getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg)
 {
-    assert(structSize != 0);
+    CORINFO_CLASS_HANDLE clsHnd     = layout->GetClassHandle();
+    unsigned             structSize = layout->GetSize();
 
-// Start by determining if we have an HFA/HVA with a single element.
 #ifdef FEATURE_HFA
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
     // Arm64 Windows VarArg methods arguments will not classify HFA types, they will need to be treated
@@ -605,24 +559,19 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
     }
 #endif // FEATURE_HFA
 
-    // Now deal with non-HFA/HVA structs.
     switch (structSize)
     {
         case 1:
             return TYP_BYTE;
-
         case 2:
             return TYP_SHORT;
-
 #if !defined(TARGET_XARCH) || defined(UNIX_AMD64_ABI)
         case 3:
             return TYP_INT;
 #endif
-
 #ifdef TARGET_64BIT
         case 4:
             return TYP_INT;
-
 #if !defined(TARGET_XARCH) || defined(UNIX_AMD64_ABI)
         case 5:
         case 6:
@@ -630,16 +579,8 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
             return TYP_I_IMPL;
 #endif
 #endif
-
         case TARGET_POINTER_SIZE:
-        {
-            BYTE gcPtr = 0;
-            // Check if this pointer-sized struct is wrapping a GC object
-            info.compCompHnd->getClassGClayout(clsHnd, &gcPtr);
-            return getJitGCType(gcPtr);
-        }
-        break;
-
+            return layout->GetGCPtrType(0);
         default:
             return TYP_UNKNOWN;
     }
@@ -653,12 +594,10 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
 //     an extra call to getClassSize(clsHnd)
 //
 // Arguments:
-//    clsHnd       - the handle for the struct type
+//    layout       - the layout of the struct type
 //    wbPassStruct - An "out" argument with information about how
 //                   the struct is to be passed
 //    isVarArg     - is vararg, used to ignore HFA types for Arm64 windows varargs
-//    structSize   - the size of the struct type,
-//                   or zero if we should call getClassSize(clsHnd)
 //
 // Return Value:
 //    For wbPassStruct you can pass a 'nullptr' and nothing will be written
@@ -671,10 +610,6 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
 //       is always TYP_STRUCT and the struct type is passed by value either
 //       using multiple registers or on the stack.
 //
-// Assumptions:
-//    The size must be the size of the given type.
-//    The given class handle must be for a value type (struct).
-//
 // Notes:
 //    About HFA types:
 //        When the clsHnd is a one element HFA type we return the appropriate
@@ -682,15 +617,12 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
 //        If there are two or more elements in the HFA type then the this method's
 //         return value is TYP_STRUCT and *wbPassStruct is SPK_ByValueAsHfa
 //
-var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
-                                        structPassingKind*   wbPassStruct,
-                                        bool                 isVarArg,
-                                        unsigned             structSize)
+var_types Compiler::getArgTypeForStruct(ClassLayout* layout, structPassingKind* wbPassStruct, bool isVarArg)
 {
-    var_types         useType         = TYP_UNKNOWN;
-    structPassingKind howToPassStruct = SPK_Unknown; // We must change this before we return
-
-    assert(structSize != 0);
+    CORINFO_CLASS_HANDLE clsHnd          = layout->GetClassHandle();
+    unsigned             structSize      = layout->GetSize();
+    var_types            useType         = TYP_UNKNOWN;
+    structPassingKind    howToPassStruct = SPK_Unknown; // We must change this before we return
 
 // Determine if we can pass the struct as a primitive type.
 // Note that on x86 we only pass specific pointer-sized structs that satisfy isTrivialPointerSizedStruct checks.
@@ -726,7 +658,7 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
     {
         // We set the "primitive" useType based upon the structSize
         // and also examine the clsHnd to see if it is an HFA of count one
-        useType = getPrimitiveTypeForStruct(structSize, clsHnd, isVarArg);
+        useType = getPrimitiveTypeForStruct(layout, isVarArg);
     }
 #else
     if (isTrivialPointerSizedStruct(clsHnd))
@@ -864,13 +796,8 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
         }
     }
 
-    // 'howToPassStruct' must be set to one of the valid values before we return
     assert(howToPassStruct != SPK_Unknown);
-    if (wbPassStruct != nullptr)
-    {
-        *wbPassStruct = howToPassStruct;
-    }
-
+    *wbPassStruct = howToPassStruct;
     return useType;
 }
 
@@ -882,13 +809,11 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
 //     an extra call to getClassSize(clsHnd)
 //
 // Arguments:
-//    clsHnd         - the handle for the struct type
+//    layout         - the layout of the struct type
 //    callConv       - the calling convention of the function
 //                     that returns this struct.
 //    wbReturnStruct - An "out" argument with information about how
 //                     the struct is to be returned
-//    structSize     - the size of the struct type,
-//                     or zero if we should call getClassSize(clsHnd)
 //
 // Return Value:
 //    For wbReturnStruct you can pass a 'nullptr' and nothing will be written
@@ -919,22 +844,15 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
 //        Whenever this method's return value is TYP_STRUCT it always means
 //         that multiple registers are used to return this struct.
 //
-var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE     clsHnd,
+var_types Compiler::getReturnTypeForStruct(ClassLayout*             layout,
                                            CorInfoCallConvExtension callConv,
-                                           structPassingKind*       wbReturnStruct /* = nullptr */,
-                                           unsigned                 structSize /* = 0 */)
+                                           structPassingKind*       wbReturnStruct)
 {
-    var_types         useType             = TYP_UNKNOWN;
-    structPassingKind howToReturnStruct   = SPK_Unknown; // We must change this before we return
-    bool              canReturnInRegister = true;
-
-    assert(clsHnd != NO_CLASS_HANDLE);
-
-    if (structSize == 0)
-    {
-        structSize = info.compCompHnd->getClassSize(clsHnd);
-    }
-    assert(structSize > 0);
+    CORINFO_CLASS_HANDLE clsHnd              = layout->GetClassHandle();
+    unsigned             structSize          = layout->GetSize();
+    var_types            useType             = TYP_UNKNOWN;
+    structPassingKind    howToReturnStruct   = SPK_Unknown; // We must change this before we return
+    bool                 canReturnInRegister = true;
 
 #ifdef UNIX_AMD64_ABI
     // An 8-byte struct may need to be returned in a floating point register
@@ -996,7 +914,7 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE     clsHnd,
         //
         // The ABI for struct returns in varArg methods, is same as the normal case,
         // so pass false for isVararg
-        useType = getPrimitiveTypeForStruct(structSize, clsHnd, /*isVararg=*/false);
+        useType = getPrimitiveTypeForStruct(layout, /*isVararg=*/false);
 
         if (useType != TYP_UNKNOWN)
         {
@@ -1112,13 +1030,8 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE     clsHnd,
         }
     }
 
-    // 'howToReturnStruct' must be set to one of the valid values before we return
     assert(howToReturnStruct != SPK_Unknown);
-    if (wbReturnStruct != nullptr)
-    {
-        *wbReturnStruct = howToReturnStruct;
-    }
-
+    *wbReturnStruct = howToReturnStruct;
     return useType;
 }
 

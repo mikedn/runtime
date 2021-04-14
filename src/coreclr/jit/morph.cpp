@@ -1959,7 +1959,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             structSize = (structSize == 0) ? TARGET_POINTER_SIZE : structSize;
 
             structPassingKind howToPassStruct;
-            structBaseType  = getArgTypeForStruct(objClass, &howToPassStruct, callIsVararg, structSize);
+            structBaseType  = getArgTypeForStruct(layout, &howToPassStruct, callIsVararg);
             passStructByRef = (howToPassStruct == SPK_ByReference);
 
             if (howToPassStruct == SPK_PrimitiveType)

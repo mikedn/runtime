@@ -3764,11 +3764,7 @@ public:
     {
     }
 
-    void InitializeStruct(Compiler*            comp,
-                          CORINFO_CLASS_HANDLE retClass,
-                          unsigned             retClassSize,
-                          structPassingKind    retKind,
-                          var_types            retKindType);
+    void InitializeStruct(Compiler* comp, ClassLayout* retLayout, structPassingKind retKind, var_types retKindType);
 
     void InitializePrimitive(var_types regType);
 

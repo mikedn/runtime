@@ -4143,40 +4143,29 @@ public:
     // memory yields an unknown value.
     ValueNum fgCurMemoryVN[MemoryKindCount];
 
-    // Convert a BYTE which represents the VM's CorInfoGCtype to the JIT's var_types
-    var_types getJitGCType(BYTE gcType);
-
-    bool Compiler::isTrivialPointerSizedStruct(CORINFO_CLASS_HANDLE clsHnd) const;
+    bool isTrivialPointerSizedStruct(CORINFO_CLASS_HANDLE clsHnd) const;
 
     // Returns true if the provided type should be treated as a primitive type
     // for the unmanaged calling conventions.
     bool isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd);
 
-    // Get the "primitive" type that is is used when we are given a struct of size 'structSize'.
-    // For pointer sized structs the 'clsHnd' is used to determine if the struct contains GC ref.
+    // Get the "primitive" type that is is used for the given struct layout.
     // A "primitive" type is one of the scalar types: byte, short, int, long, ref, float, double
     // If we can't or shouldn't use a "primitive" type then TYP_UNKNOWN is returned.
     //
     // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
     // hfa types.
-    //
-    var_types getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS_HANDLE clsHnd, bool isVarArg);
+    var_types getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg);
 
     // Get the type that is used to pass values of the given struct type.
     // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
     // hfa types.
-    //
-    var_types getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
-                                  structPassingKind*   wbPassStruct,
-                                  bool                 isVarArg,
-                                  unsigned             structSize);
+    var_types getArgTypeForStruct(ClassLayout* layout, structPassingKind* wbPassStruct, bool isVarArg);
 
     // Get the type that is used to return values of the given struct type.
-    // If the size is unknown, pass 0 and it will be determined from 'clsHnd'.
-    var_types getReturnTypeForStruct(CORINFO_CLASS_HANDLE     clsHnd,
+    var_types getReturnTypeForStruct(ClassLayout*             layout,
                                      CorInfoCallConvExtension callConv,
-                                     structPassingKind*       wbPassStruct = nullptr,
-                                     unsigned                 structSize   = 0);
+                                     structPassingKind*       wbPassStruct);
 
 #ifdef DEBUG
     // Print a representation of "vnp" or "vn" on standard output.

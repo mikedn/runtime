@@ -16834,11 +16834,10 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
     return node;
 }
 
-void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
-                                      CORINFO_CLASS_HANDLE retClass,
-                                      unsigned             retClassSize,
-                                      structPassingKind    retKind,
-                                      var_types            retKindType)
+void ReturnTypeDesc::InitializeStruct(Compiler*         comp,
+                                      ClassLayout*      retLayout,
+                                      structPassingKind retKind,
+                                      var_types         retKindType)
 {
     switch (retKind)
     {
@@ -16854,14 +16853,14 @@ void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
         case SPK_ByValueAsHfa:
         {
             assert(varTypeIsStruct(retKindType));
-            var_types regType = comp->GetHfaType(retClass);
+            var_types regType = comp->GetHfaType(retLayout->GetClassHandle());
             assert(varTypeIsValidHfaType(regType));
 
             // Note that the retail build issues a warning about a potential divsion by zero without this Max function
             unsigned elemSize = Max(1u, varTypeSize(regType));
 
-            assert((retClassSize % elemSize) == 0);
-            m_regCount = static_cast<uint8_t>(retClassSize / elemSize);
+            assert((retLayout->GetSize() % elemSize) == 0);
+            m_regCount = static_cast<uint8_t>(retLayout->GetSize() / elemSize);
             assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
 
             for (unsigned i = 0; i < m_regCount; ++i)
@@ -16879,7 +16878,7 @@ void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
 
 #ifdef UNIX_AMD64_ABI
             SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retClass, &structDesc);
+            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retLayout->GetClassHandle(), &structDesc);
 
             assert(structDesc.passedInRegisters);
             assert(structDesc.eightByteCount == 2);
@@ -16890,29 +16889,14 @@ void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
             {
                 m_regType[i] = comp->GetEightByteType(structDesc, i);
             }
-#elif defined(TARGET_ARM64)
-            assert((retClassSize > REGSIZE_BYTES) && (retClassSize <= (2 * REGSIZE_BYTES)));
-
-            BYTE gcPtrs[2]{TYPE_GC_NONE, TYPE_GC_NONE};
-            comp->info.compCompHnd->getClassGClayout(retClass, &gcPtrs[0]);
+#elif defined(TARGET_ARM64) || defined(TARGET_X86)
+            assert(retLayout->GetSlotCount() == 2);
 
             m_regCount = 2;
 
-            for (unsigned i = 0; i < 2; ++i)
+            for (unsigned i = 0; i < 2; i++)
             {
-                m_regType[i] = comp->getJitGCType(gcPtrs[i]);
-            }
-#elif defined(TARGET_X86)
-            assert(retClassSize == 2 * REGSIZE_BYTES);
-
-            BYTE gcPtrs[2] = {TYPE_GC_NONE, TYPE_GC_NONE};
-            comp->info.compCompHnd->getClassGClayout(retClass, &gcPtrs[0]);
-
-            m_regCount = 2;
-
-            for (unsigned i = 0; i < 2; ++i)
-            {
-                m_regType[i] = comp->getJitGCType(gcPtrs[i]);
+                m_regType[i] = retLayout->GetGCPtrType(i);
             }
 #else
             unreached();
