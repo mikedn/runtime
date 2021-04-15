@@ -683,8 +683,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
 
                 hfaType = varDsc->GetLayout()->GetHfaElementType();
                 argType = hfaType; // TODO-Cleanup: remove this asignment and mark `argType` as const.
-                varDsc->SetHfaType(hfaType);
-                cSlots = varDsc->lvHfaSlots();
+                cSlots  = varDsc->lvHfaSlots();
             }
         }
 
@@ -2611,6 +2610,8 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
             }
 #endif
 
+            // TODO-MIKE-Cleanup: This should only be needed on params and only if HFAs are
+            // available (i.e. not in varargs methods on win-arm64).
             layout->EnsureHfaInfo(this);
 
             if (layout->IsHfa())
