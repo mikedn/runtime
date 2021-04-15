@@ -3463,7 +3463,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     destRegNum = varDsc->GetRegNum();
                 }
 #if defined(TARGET_ARM64) && defined(FEATURE_SIMD)
-                else if (varDsc->lvIsHfa())
+                else if (varDsc->lvIsHfaRegArg())
                 {
                     // This must be a SIMD type that's fully enregistered, but is passed as an HFA.
                     // Each field will be inserted into the same destination register.
@@ -4181,7 +4181,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 #ifdef TARGET_ARMARCH
-            if (varDsc->lvIsHfa())
+            if (varDsc->lvIsHfaRegArg())
             {
                 // This includes both fixed-size SIMD types that are independently promoted, as well
                 // as other HFA structs.

@@ -2206,7 +2206,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
                     {
                         fieldRegNum = parentArgReg;
                     }
-                    else if (varDsc->lvIsHfa())
+                    else if (varDsc->lvIsHfaRegArg())
                     {
                         unsigned regIncrement = fieldVarDsc->lvFldOrdinal;
 #ifdef TARGET_ARM
@@ -3390,7 +3390,7 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     if (lvIsParam)
     {
         assert(varTypeIsStruct(lvType));
-        bool     isFloatHfa   = (lvIsHfa() && (GetHfaType() == TYP_FLOAT));
+        bool     isFloatHfa   = lvIsHfa() && (GetHfaType() == TYP_FLOAT);
         unsigned argAlignment = Compiler::eeGetArgAlignment(lvType, isFloatHfa);
         return roundUp(size, argAlignment);
     }
@@ -3416,20 +3416,20 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
 size_t LclVarDsc::lvArgStackSize() const
 {
     // Make sure this will have a stack size
-    assert(!this->lvIsRegArg);
+    assert(!lvIsRegArg);
 
     size_t stackSize = 0;
-    if (varTypeIsStruct(this))
+    if (varTypeIsStruct(lvType))
     {
 #if defined(WINDOWS_AMD64_ABI)
         // Structs are either passed by reference or can be passed by value using one pointer
         stackSize = TARGET_POINTER_SIZE;
 #elif defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
         // lvSize performs a roundup.
-        stackSize = this->lvSize();
+        stackSize = lvSize();
 
 #if defined(TARGET_ARM64)
-        if ((stackSize > TARGET_POINTER_SIZE * 2) && (!this->lvIsHfa()))
+        if ((stackSize > TARGET_POINTER_SIZE * 2) && !lvIsHfa())
         {
             // If the size is greater than 16 bytes then it will
             // be passed by reference.
@@ -5568,10 +5568,10 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
                 break;
         }
 #endif // TARGET_ARM
-        const bool     isFloatHfa   = (varDsc->lvIsHfa() && (varDsc->GetHfaType() == TYP_FLOAT));
-        const unsigned argAlignment = eeGetArgAlignment(varDsc->lvType, isFloatHfa);
+        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetHfaType() == TYP_FLOAT);
+        unsigned argAlignment = eeGetArgAlignment(varDsc->lvType, isFloatHfa);
 #if defined(OSX_ARM64_ABI)
-        argOffs                     = roundUp(argOffs, argAlignment);
+        argOffs               = roundUp(argOffs, argAlignment);
 #endif // OSX_ARM64_ABI
 
         assert((argSize % argAlignment) == 0);
