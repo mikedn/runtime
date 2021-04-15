@@ -782,7 +782,7 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
 #ifndef FEATURE_HFA
     m_layoutInfo.hfaElementType = TYP_UNKNOWN;
 #else
-    if (m_size > MAX_PASS_MULTIREG_BYTES)
+    if ((m_size > MAX_PASS_MULTIREG_BYTES) || compiler->opts.compUseSoftFP)
     {
         m_layoutInfo.hfaElementType = TYP_UNKNOWN;
 

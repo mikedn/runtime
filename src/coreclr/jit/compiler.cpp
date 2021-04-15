@@ -532,10 +532,8 @@ var_types Compiler::getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg
 {
 #ifdef FEATURE_HFA
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-    // Arm64 Windows VarArg methods arguments will not classify HFA types, they will need to be treated
-    // as if they are not HFA types.
-    if (!isVarArg)
-#endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
+    if (!isVarArg) // win-arm64 varargs ABI does not use HFAs
+#endif
     {
         if (layout->IsHfa())
         {

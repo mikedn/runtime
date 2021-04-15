@@ -619,6 +619,18 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
     for (unsigned i = 0; i < numUserArgs;
          i++, varDscInfo->varNum++, varDscInfo->varDsc++, argLst = info.compCompHnd->getArgNext(argLst))
     {
+#ifdef TARGET_UNIX
+        if (info.compIsVarArgs)
+        {
+            // Currently native varargs is not implemented on non windows targets.
+            //
+            // Note that some targets like Arm64 Unix should not need much work as
+            // the ABI is the same. While other targets may only need small changes
+            // such as amd64 Unix, which just expects RAX to pass numFPArguments.
+            NYI("InitUserArgs for Vararg callee is not yet implemented on non Windows targets.");
+        }
+#endif
+
         LclVarDsc*           varDsc  = varDscInfo->varDsc;
         CORINFO_CLASS_HANDLE typeHnd = nullptr;
         CorInfoType corInfoType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd));
@@ -657,46 +669,25 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         unsigned argSize          = eeGetArgSize(argLst, &info.compMethodInfo->args);
         unsigned cSlots =
             (argSize + TARGET_POINTER_SIZE - 1) / TARGET_POINTER_SIZE; // the total number of slots of this argument
-        bool      isHfaArg = false;
-        var_types hfaType  = TYP_UNDEF;
+        var_types hfaType = TYP_UNDEF;
 
-#if defined(TARGET_ARM64) && defined(TARGET_UNIX)
-        // Native varargs on arm64 unix use the regular calling convention.
-        if (!opts.compUseSoftFP)
-#else
-        // Methods that use VarArg or SoftFP cannot have HFA arguments
-        if (!info.compIsVarArgs && !opts.compUseSoftFP)
-#endif // defined(TARGET_ARM64) && defined(TARGET_UNIX)
+#if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
+        if (!info.compIsVarArgs) // win-arm64 varargs ABI does not use HFAs
+#endif
         {
-            // If the argType is a struct, then check if it is an HFA
-            if (varTypeIsStruct(argType))
+            if (varTypeIsStruct(argType) && varDsc->GetLayout()->IsHfa())
             {
-                // hfaType is set to float, double, or SIMD type if it is an HFA, otherwise TYP_UNDEF
-                isHfaArg = varDsc->GetLayout()->IsHfa();
-                hfaType  = isHfaArg ? varDsc->GetLayout()->GetHfaElementType() : TYP_UNDEF;
+                // We have an HFA argument, so from here on out treat the type as a float, double, or vector.
+                // The orginal struct type is available by using origArgType.
+                // We also update the cSlots to be the number of float/double/vector fields in the HFA.
+
+                hfaType = varDsc->GetLayout()->GetHfaElementType();
+                argType = hfaType; // TODO-Cleanup: remove this asignment and mark `argType` as const.
+                varDsc->SetHfaType(hfaType);
+                cSlots = varDsc->lvHfaSlots();
             }
         }
-        else if (info.compIsVarArgs)
-        {
-#ifdef TARGET_UNIX
-            // Currently native varargs is not implemented on non windows targets.
-            //
-            // Note that some targets like Arm64 Unix should not need much work as
-            // the ABI is the same. While other targets may only need small changes
-            // such as amd64 Unix, which just expects RAX to pass numFPArguments.
-            NYI("InitUserArgs for Vararg callee is not yet implemented on non Windows targets.");
-#endif
-        }
 
-        if (isHfaArg)
-        {
-            // We have an HFA argument, so from here on out treat the type as a float, double, or vector.
-            // The orginal struct type is available by using origArgType.
-            // We also update the cSlots to be the number of float/double/vector fields in the HFA.
-            argType = hfaType; // TODO-Cleanup: remove this asignment and mark `argType` as const.
-            varDsc->SetHfaType(hfaType);
-            cSlots = varDsc->lvHfaSlots();
-        }
         // The number of slots that must be enregistered if we are to consider this argument enregistered.
         // This is normally the same as cSlots, since we normally either enregister the entire object,
         // or none of it. For structs on ARM, however, we only need to enregister a single slot to consider
@@ -710,7 +701,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         // We will only do this for calls to vararg methods on Windows Arm64
         //
         // !!This does not affect the normal arm64 calling convention or Unix Arm64!!
-        if (this->info.compIsVarArgs && argType == TYP_STRUCT)
+        if (info.compIsVarArgs && (argType == TYP_STRUCT))
         {
             if (varDscInfo->canEnreg(TYP_INT, 1) &&     // The beginning of the struct can go in a register
                 !varDscInfo->canEnreg(TYP_INT, cSlots)) // The end of the struct can't fit in a register
@@ -736,7 +727,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
 
                 // HFA arguments go on the stack frame. They don't get spilled in the prolog like struct
                 // arguments passed in the integer registers but get homed immediately after the prolog.
-                if (!isHfaArg)
+                if (hfaType == TYP_UNDEF)
                 {
                     // TODO-Arm32-Windows: vararg struct should be forced to split like
                     // ARM64 above.
@@ -896,7 +887,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
                 firstAllocatedRegArgNum = varDscInfo->allocRegArg(argType, cSlots);
             }
 
-            if (isHfaArg)
+            if (hfaType != TYP_UNDEF)
             {
                 // We need to save the fact that this HFA is enregistered
                 // Note that we can have HVAs of SIMD types even if we are not recognizing intrinsics.
