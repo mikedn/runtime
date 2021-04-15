@@ -558,7 +558,7 @@ void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBuf
         }
 #endif
 
-        /* Update the total argument size, count and varDsc */
+        /* Update the total argument size, count and lcl */
 
         compArgSize += TARGET_POINTER_SIZE;
         varDscInfo->varNum++;
@@ -890,7 +890,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
             {
                 // We need to save the fact that this HFA is enregistered
                 // Note that we can have HVAs of SIMD types even if we are not recognizing intrinsics.
-                // In that case, we won't have normalized the vector types on the varDsc, so if we have a single vector
+                // In that case, we won't have normalized the vector types on the lcl, so if we have a single vector
                 // register, we need to set the type now. Otherwise, later we'll assume this is passed by reference.
                 if (varDsc->lvHfaSlots() != 1)
                 {
@@ -1247,7 +1247,7 @@ void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)
 #endif // FEATURE_FASTTAILCALL
         }
 
-        /* Update the total argument size, count and varDsc */
+        /* Update the total argument size, count and lcl */
 
         compArgSize += TARGET_POINTER_SIZE;
 
@@ -1954,7 +1954,7 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
 #if FEATURE_MULTIREG_STRUCT_PROMOTE
         // Is this a variable holding a value with exactly two fields passed in
         // multiple registers?
-        if (compiler->lvaIsMultiregStruct(varDsc, compiler->info.compIsVarArgs))
+        if (compiler->lvaIsMultiRegStructParam(varDsc))
         {
             if ((structPromotionInfo.fieldCnt != 2) &&
                 !((structPromotionInfo.fieldCnt == 1) && varTypeIsSIMD(structPromotionInfo.fields[0].fldType)))
@@ -2155,7 +2155,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         // Lifetime of field locals might span multiple BBs, so they must be long lifetime temps.
         const unsigned varNum = compiler->lvaGrabTemp(false DEBUGARG(bufp));
 
-        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached varDsc for lclNum.
+        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
         varDsc = compiler->lvaGetDesc(lclNum);
 
         LclVarDsc* fieldVarDsc       = compiler->lvaGetDesc(varNum);
@@ -2329,7 +2329,7 @@ void Compiler::lvaPromoteLongVars()
 // lvaGetFieldLocal - returns the local var index for a promoted field in a promoted struct var.
 //
 // Arguments:
-//   varDsc    - the promoted struct var descriptor;
+//   lcl    - the promoted struct var descriptor;
 //   fldOffset - field offset in the struct.
 //
 // Return value:
@@ -2503,35 +2503,38 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
 #endif
 }
 
-// Returns true if this local var is a multireg struct.
-// TODO-Throughput: This does a lookup on the class handle, and in the outgoing arg context
-// this information is already available on the fgArgTabEntry, and shouldn't need to be
-// recomputed.
-//
-bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVarArg)
+bool Compiler::lvaIsMultiRegStructParam(LclVarDsc* lcl)
 {
-    if (varTypeIsStruct(varDsc->GetType()))
+    assert(lcl->IsParam());
+
+    if (!varTypeIsStruct(lcl->GetType()))
     {
-        structPassingKind howToPassStruct;
-        var_types         type = getArgTypeForStruct(varDsc->GetLayout(), &howToPassStruct, isVarArg);
+        return false;
+    }
+
+    // TODO-MIKE-Throughput: Isn't there enough information in LclVarDsc
+    // to avoid calling getArgTypeForStruct again?
+
+    structPassingKind howToPassStruct;
+    var_types         type = getArgTypeForStruct(lcl->GetLayout(), &howToPassStruct, info.compIsVarArgs);
 
 #ifdef FEATURE_HFA
-        if (howToPassStruct == SPK_ByValueAsHfa)
-        {
-            assert(type == TYP_STRUCT);
-            return true;
-        }
+    if (howToPassStruct == SPK_ByValueAsHfa)
+    {
+        assert(type == TYP_STRUCT);
+        return true;
+    }
 #endif
 
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-        // TODO-MIKE-Review: Why is this excluded on ARM?
-        if (howToPassStruct == SPK_ByValue)
-        {
-            assert(type == TYP_STRUCT);
-            return true;
-        }
-#endif
+    // TODO-MIKE-Review: Why is this excluded on ARM?
+    if (howToPassStruct == SPK_ByValue)
+    {
+        assert(type == TYP_STRUCT);
+        return true;
     }
+#endif
+
     return false;
 }
 
@@ -3411,7 +3414,7 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
 }
 
 /**********************************************************************************
-* Get stack size of the varDsc.
+* Get stack size of the lcl.
 */
 size_t LclVarDsc::lvArgStackSize() const
 {
@@ -3794,7 +3797,7 @@ bool Compiler::IsDominatedByExceptionalEntry(BasicBlock* block)
 // SetVolatileHint: Set a local var's volatile hint.
 //
 // Arguments:
-//    varDsc - the local variable that needs the hint.
+//    lcl - the local variable that needs the hint.
 //
 void Compiler::SetVolatileHint(LclVarDsc* varDsc)
 {
@@ -4766,7 +4769,7 @@ void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
  *  adjust all the offsets appropriately.
  *
  *  This routine fixes virtual offset to be relative to frame pointer or SP
- *  based on whether varDsc->lvFramePointerBased is true or false respectively.
+ *  based on whether lcl->lvFramePointerBased is true or false respectively.
  */
 void Compiler::lvaFixVirtualFrameOffsets()
 {
@@ -4960,7 +4963,7 @@ bool Compiler::lvaIsPreSpilled(unsigned lclNum, regMaskTP preSpillMask)
 //                             to the one assigned by the register allocator.
 //
 // Arguments:
-//    varDsc - the local variable descriptor
+//    lcl - the local variable descriptor
 //
 void Compiler::lvaUpdateArgWithInitialReg(LclVarDsc* varDsc)
 {

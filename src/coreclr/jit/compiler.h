@@ -2801,8 +2801,7 @@ public:
         return lvaGetDesc(varNum)->IsImplicitByRefParam();
     }
 
-    // Returns true if this local var is a multireg struct
-    bool lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVararg);
+    bool lvaIsMultiRegStructParam(LclVarDsc* lcl);
 
     void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);

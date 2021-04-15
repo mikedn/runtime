@@ -2811,7 +2811,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 regSet.AddMaskVars(genRegMask(argReg));
                 gcInfo.gcMarkRegPtrVal(argReg, loadType);
 
-                if (compiler->lvaIsMultiregStruct(varDsc, compiler->info.compIsVarArgs))
+                if (compiler->lvaIsMultiRegStructParam(varDsc))
                 {
                     // Restore the second register.
                     argRegNext = genRegArgNext(argReg);
@@ -2839,7 +2839,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
             fixedIntArgMask |= genRegMask(argReg);
 
-            if (compiler->lvaIsMultiregStruct(varDsc, compiler->info.compIsVarArgs))
+            if (compiler->lvaIsMultiRegStructParam(varDsc))
             {
                 assert(argRegNext != REG_NA);
                 fixedIntArgMask |= genRegMask(argRegNext);

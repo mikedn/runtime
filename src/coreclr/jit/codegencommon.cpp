@@ -3249,7 +3249,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             slots = 1;
 
 #if FEATURE_MULTIREG_ARGS
-            if (compiler->lvaIsMultiregStruct(varDsc, compiler->info.compIsVarArgs))
+            if (compiler->lvaIsMultiRegStructParam(varDsc))
             {
                 if (varDsc->lvIsHfaRegArg())
                 {
