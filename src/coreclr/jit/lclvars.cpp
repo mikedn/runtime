@@ -1298,10 +1298,12 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
     {
         lvaSetStruct(varNum, typeHnd, true);
 
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
         if (info.compIsVarArgs)
         {
-            lvaSetStructUsedAsVarArg(varNum);
+            varDsc->SetHfaType(TYP_UNDEF);
         }
+#endif
     }
     else
     {
@@ -2700,31 +2702,6 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
     }
 }
 #endif // DEBUG
-
-//------------------------------------------------------------------------
-// lvaSetStructUsedAsVarArg: update hfa information for vararg struct args
-//
-// Arguments:
-//    varNum   -- number of the variable
-//
-// Notes:
-//    This only affects arm64 varargs on windows where we need to pass
-//    hfa arguments as if they are not HFAs.
-//
-//    This function should only be called if the struct is used in a varargs
-//    method.
-
-void Compiler::lvaSetStructUsedAsVarArg(unsigned varNum)
-{
-#ifdef FEATURE_HFA
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-    LclVarDsc* varDsc = &lvaTable[varNum];
-    // For varargs methods incoming and outgoing arguments should not be treated
-    // as HFA.
-    varDsc->SetHfaType(TYP_UNDEF);
-#endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-#endif // FEATURE_HFA
-}
 
 //------------------------------------------------------------------------
 // lvaSetClass: set class information for a local var.

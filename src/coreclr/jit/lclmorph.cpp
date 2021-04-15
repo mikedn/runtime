@@ -2283,12 +2283,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
                 lcl = lvaGetDesc(lclNum);
 
-                // TODO-MIKE-Review: What do varargs have to do with this temp?!?
-                if (info.compIsVarArgs)
-                {
-                    lvaSetStructUsedAsVarArg(structLclNum);
-                }
-
                 LclVarDsc* structLcl       = lvaGetDesc(structLclNum);
                 structLcl->lvPromoted      = true;
                 structLcl->lvFieldLclStart = lcl->lvFieldLclStart;
@@ -2306,6 +2300,14 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 structLcl->lvLiveAcrossUCall  = lcl->lvLiveAcrossUCall;
                 structLcl->lvKeepType         = true;
 #endif // DEBUG
+
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
+                // TODO-MIKE-Review: What do varargs/HFA have to do with this temp?!?
+                if (info.compIsVarArgs)
+                {
+                    structLcl->SetHfaType(TYP_UNDEF);
+                }
+#endif
 
                 fgEnsureFirstBBisScratch();
                 GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());
