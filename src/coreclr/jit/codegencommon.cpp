@@ -4212,7 +4212,6 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                         // the code above copies the first argument register into the lower 4 or 8 bytes
                         // of the target register. Here we must handle the subsequent fields by
                         // inserting them into the upper bytes of the target SIMD floating point register.
-                        argRegCount = varDsc->lvHfaSlots();
                         for (int i = 1; i < argRegCount; i++)
                         {
                             int         nextArgNum  = argNum + i;
