@@ -328,39 +328,6 @@ inline bool varTypeUsesFloatArgReg(T vt)
 #endif
 }
 
-//------------------------------------------------------------------------
-// varTypeIsValidHfaType: Determine if the type is a valid HFA type
-//
-// Arguments:
-//    vt - the type of interest
-//
-// Return Value:
-//    Returns true iff the type is a valid HFA type.
-//
-// Notes:
-//    This should only be called with the return value from GetHfaType().
-//    The only valid values are TYP_UNDEF, for which this returns false,
-//    TYP_FLOAT, TYP_DOUBLE, or (ARM64-only) TYP_SIMD*.
-//
-template <class T>
-inline bool varTypeIsValidHfaType(T vt)
-{
-#ifdef FEATURE_HFA
-    bool isValid = (TypeGet(vt) != TYP_UNDEF);
-    if (isValid)
-    {
-#ifdef TARGET_ARM64
-        assert(varTypeUsesFloatReg(vt));
-#else  // !TARGET_ARM64
-        assert(varTypeIsFloating(vt));
-#endif // !TARGET_ARM64
-    }
-    return isValid;
-#else  // !FEATURE_HFA
-    return false;
-#endif // !FEATURE_HFA
-}
-
 extern const BYTE genTypeSizes[TYP_COUNT];
 
 inline unsigned varTypeSize(var_types type)

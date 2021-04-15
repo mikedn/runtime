@@ -6177,7 +6177,7 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
         LclVarDsc* lcl = comp->lvaGetDesc(src->AsLclVar());
 
         // This must be a multi-reg return or an HFA of a single element.
-        assert(!lcl->IsPromoted() || lcl->lvIsMultiRegRet || (lcl->lvIsHfa() && varTypeIsValidHfaType(lcl->GetType())));
+        assert(!lcl->IsPromoted() || lcl->lvIsMultiRegRet || (lcl->lvIsHfa() && varTypeUsesFloatReg(lcl->GetType())));
 
         // Mark var as contained if not enregisterable.
         if (!varTypeIsEnregisterable(src->GetType()) && !src->AsLclVar()->IsMultiReg())
