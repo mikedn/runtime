@@ -886,16 +886,13 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
                 firstAllocatedRegArgNum = varDscInfo->allocRegArg(argType, cSlots);
             }
 
-            if (hfaType != TYP_UNDEF)
+            // We need to save the fact that this HFA is enregistered
+            // Note that we can have HVAs of SIMD types even if we are not recognizing intrinsics.
+            // In that case, we won't have normalized the vector types on the lcl, so if we have a single vector
+            // register, we need to set the type now. Otherwise, later we'll assume this is passed by reference.
+            if ((hfaType != TYP_UNDEF) && (varDsc->GetLayout()->GetHfaElementCount() > 1))
             {
-                // We need to save the fact that this HFA is enregistered
-                // Note that we can have HVAs of SIMD types even if we are not recognizing intrinsics.
-                // In that case, we won't have normalized the vector types on the lcl, so if we have a single vector
-                // register, we need to set the type now. Otherwise, later we'll assume this is passed by reference.
-                if (varDsc->lvHfaSlots() != 1)
-                {
-                    varDsc->lvIsMultiRegArg = true;
-                }
+                varDsc->lvIsMultiRegArg = true;
             }
 
             varDsc->lvIsRegArg = 1;
