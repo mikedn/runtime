@@ -3039,18 +3039,17 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         // In other cases, we simply use the type of the lclVar to determine the type of the register.
         var_types getRegType(Compiler* compiler)
         {
-            const LclVarDsc& varDsc = compiler->lvaTable[varNum];
-            // Check if this is an HFA register arg and return the HFA type
-            if (varDsc.lvIsHfaRegArg())
+            LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+
+            if (varDsc->lvIsHfaRegArg())
             {
-#if defined(TARGET_WINDOWS)
-                // Cannot have hfa types on windows arm targets
-                // in vararg methods.
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
                 assert(!compiler->info.compIsVarArgs);
-#endif // defined(TARGET_WINDOWS)
-                return varDsc.GetHfaType();
+#endif
+                return varDsc->GetLayout()->GetHfaElementType();
             }
-            return compiler->mangleVarArgsType(varDsc.lvType);
+
+            return compiler->mangleVarArgsType(varDsc->GetType());
         }
 
 #endif // !UNIX_AMD64_ABI
@@ -3115,12 +3114,9 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         if (varDsc->lvIsHfaRegArg())
         {
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            if (compiler->info.compIsVarArgs)
-            {
-                assert(!"Illegal incoming HFA arg encountered in Vararg method.");
-            }
-#endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            regType = varDsc->GetHfaType();
+            assert(!compiler->info.compIsVarArgs);
+#endif
+            regType = varDsc->GetLayout()->GetHfaElementType();
         }
 
 #if defined(UNIX_AMD64_ABI)
@@ -3633,7 +3629,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 storeType = TYP_FLOAT;
                 slotSize  = (unsigned)emitActualTypeSize(storeType);
 #else  // TARGET_ARM64
-                storeType = genActualType(varDsc->GetHfaType());
+                storeType = varDsc->GetLayout()->GetHfaElementType();
                 slotSize  = (unsigned)emitActualTypeSize(storeType);
 #endif // TARGET_ARM64
             }

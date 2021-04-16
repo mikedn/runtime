@@ -1944,7 +1944,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     if (store->IsMultiReg())
     {
         // This is the case of storing to a multi-reg HFA local from a fixed-size SIMD type.
-        assert(varTypeIsSIMD(src->GetType()) && lcl->lvIsHfa() && (lcl->GetHfaType() == TYP_FLOAT));
+        assert(varTypeIsSIMD(src->GetType()) && lcl->lvIsHfa() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
 
         regNumber srcReg = genConsumeReg(src);
 

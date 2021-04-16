@@ -2209,7 +2209,7 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
                         unsigned regIncrement = fieldVarDsc->lvFldOrdinal;
 #ifdef TARGET_ARM
                         // TODO: Need to determine if/how to handle split args.
-                        if (varDsc->GetHfaType() == TYP_DOUBLE)
+                        if (varDsc->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
                         {
                             regIncrement *= 2;
                         }
@@ -3391,7 +3391,7 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     if (lvIsParam)
     {
         assert(varTypeIsStruct(lvType));
-        bool     isFloatHfa   = lvIsHfa() && (GetHfaType() == TYP_FLOAT);
+        bool     isFloatHfa   = lvIsHfa() && (m_layout->GetHfaElementType() == TYP_FLOAT);
         unsigned argAlignment = Compiler::eeGetArgAlignment(lvType, isFloatHfa);
         return roundUp(size, argAlignment);
     }
@@ -5527,8 +5527,8 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
                 break;
         }
 #endif // TARGET_ARM
-        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetHfaType() == TYP_FLOAT);
-        unsigned argAlignment = eeGetArgAlignment(varDsc->lvType, isFloatHfa);
+        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
+        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
 #if defined(OSX_ARM64_ABI)
         argOffs               = roundUp(argOffs, argAlignment);
 #endif // OSX_ARM64_ABI
@@ -6901,7 +6901,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
 
     if (varDsc->lvIsHfa())
     {
-        printf(" HFA(%s) ", varTypeName(varDsc->GetHfaType()));
+        printf(" HFA(%s) ", varTypeName(varDsc->GetLayout()->GetHfaElementType()));
     }
 
     if (varDsc->lvLiveInOutOfHndlr)

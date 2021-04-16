@@ -1605,7 +1605,7 @@ void CodeGen::psiBegProlog()
                 var_types regType = compiler->mangleVarArgsType(lclVarDsc->TypeGet());
                 if (lclVarDsc->lvIsHfaRegArg())
                 {
-                    regType = lclVarDsc->GetHfaType();
+                    regType = lclVarDsc->GetLayout()->GetHfaElementType();
                 }
                 assert(genMapRegNumToRegArgNum(lclVarDsc->GetArgReg(), regType) != (unsigned)-1);
 #endif // DEBUG

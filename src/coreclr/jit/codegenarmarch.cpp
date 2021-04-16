@@ -2865,7 +2865,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         }
         else if (varDsc->lvIsHfaRegArg())
         {
-            loadType           = varDsc->GetHfaType();
+            loadType           = varDsc->GetLayout()->GetHfaElementType();
             regNumber fieldReg = argReg;
             emitAttr  loadSize = emitActualTypeSize(loadType);
             unsigned  maxSize  = min(varDsc->lvSize(), (LAST_FP_ARGREG + 1 - argReg) * REGSIZE_BYTES);

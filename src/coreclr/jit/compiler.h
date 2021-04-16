@@ -129,35 +129,7 @@ const unsigned FLG_CCTOR = (CORINFO_FLG_CONSTRUCTOR | CORINFO_FLG_STATIC);
 const int BAD_STK_OFFS = 0xBAADF00D; // for LclVarDsc::lvStkOffs
 #endif
 
-//------------------------------------------------------------------------
-// HFA info shared by LclVarDsc and fgArgTabEntry
-//------------------------------------------------------------------------
 #ifdef FEATURE_HFA
-inline bool IsHfa(CorInfoHFAElemType kind)
-{
-    return kind != CORINFO_HFA_ELEM_NONE;
-}
-inline var_types HfaTypeFromElemKind(CorInfoHFAElemType kind)
-{
-    switch (kind)
-    {
-        case CORINFO_HFA_ELEM_FLOAT:
-            return TYP_FLOAT;
-        case CORINFO_HFA_ELEM_DOUBLE:
-            return TYP_DOUBLE;
-#ifdef FEATURE_SIMD
-        case CORINFO_HFA_ELEM_VECTOR64:
-            return TYP_SIMD8;
-        case CORINFO_HFA_ELEM_VECTOR128:
-            return TYP_SIMD16;
-#endif
-        case CORINFO_HFA_ELEM_NONE:
-            return TYP_UNDEF;
-        default:
-            assert(!"Invalid HfaElemKind");
-            return TYP_UNDEF;
-    }
-}
 inline CorInfoHFAElemType HfaElemKindFromType(var_types type)
 {
     switch (type)
@@ -626,7 +598,7 @@ public:
     bool lvIsHfa() const
     {
 #ifdef FEATURE_HFA
-        return IsHfa(_lvHfaElemKind);
+        return _lvHfaElemKind != CORINFO_HFA_ELEM_NONE;
 #else
         return false;
 #endif
@@ -947,16 +919,6 @@ public:
     bool IsFloatRegType() const
     {
         return varTypeUsesFloatReg(lvType) || lvIsHfaRegArg();
-    }
-
-    var_types GetHfaType() const
-    {
-#ifdef FEATURE_HFA
-        assert(lvIsHfa());
-        return HfaTypeFromElemKind(_lvHfaElemKind);
-#else
-        return TYP_UNDEF;
-#endif // FEATURE_HFA
     }
 
     void SetHfaType(var_types type)
