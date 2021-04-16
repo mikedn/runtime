@@ -129,30 +129,6 @@ const unsigned FLG_CCTOR = (CORINFO_FLG_CONSTRUCTOR | CORINFO_FLG_STATIC);
 const int BAD_STK_OFFS = 0xBAADF00D; // for LclVarDsc::lvStkOffs
 #endif
 
-#ifdef FEATURE_HFA
-inline CorInfoHFAElemType HfaElemKindFromType(var_types type)
-{
-    switch (type)
-    {
-        case TYP_FLOAT:
-            return CORINFO_HFA_ELEM_FLOAT;
-        case TYP_DOUBLE:
-            return CORINFO_HFA_ELEM_DOUBLE;
-#ifdef FEATURE_SIMD
-        case TYP_SIMD8:
-            return CORINFO_HFA_ELEM_VECTOR64;
-        case TYP_SIMD16:
-            return CORINFO_HFA_ELEM_VECTOR128;
-#endif
-        case TYP_UNDEF:
-            return CORINFO_HFA_ELEM_NONE;
-        default:
-            assert(!"Invalid HFA Type");
-            return CORINFO_HFA_ELEM_NONE;
-    }
-}
-#endif // FEATURE_HFA
-
 // The following holds the Local var info (scope information)
 typedef const char* VarName; // Actual ASCII string
 struct VarScopeDsc
@@ -470,8 +446,8 @@ public:
     unsigned char lvIsMultiRegRet : 1; // true if this is a multireg LclVar struct assigned from a multireg call
 
 #ifdef FEATURE_HFA
-    CorInfoHFAElemType _lvHfaElemKind : 3; // What kind of an HFA this is (CORINFO_HFA_ELEM_NONE if it is not an HFA).
-#endif                                     // FEATURE_HFA
+    unsigned char m_isHfa : 1;
+#endif
 
     unsigned char lvLRACandidate : 1; // Tracked for linear scan register allocation purposes
 
@@ -598,7 +574,7 @@ public:
     bool lvIsHfa() const
     {
 #ifdef FEATURE_HFA
-        return _lvHfaElemKind != CORINFO_HFA_ELEM_NONE;
+        return m_isHfa;
 #else
         return false;
 #endif
@@ -921,14 +897,11 @@ public:
         return varTypeUsesFloatReg(lvType) || lvIsHfaRegArg();
     }
 
-    void SetHfaType(var_types type)
+    void SetIsHfa(bool isHfa)
     {
 #ifdef FEATURE_HFA
-        CorInfoHFAElemType elemKind = HfaElemKindFromType(type);
-        _lvHfaElemKind              = elemKind;
-        // Ensure we've allocated enough bits.
-        assert(_lvHfaElemKind == elemKind);
-#endif // FEATURE_HFA
+        m_isHfa = isHfa;
+#endif
     }
 
     var_types lvaArgType();

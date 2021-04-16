@@ -1298,7 +1298,7 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
         if (info.compIsVarArgs)
         {
-            varDsc->SetHfaType(TYP_UNDEF);
+            varDsc->SetIsHfa(false);
         }
 #endif
     }
@@ -2614,11 +2614,7 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
             // TODO-MIKE-Cleanup: This should only be needed on params and only if HFAs are
             // available (i.e. not in varargs methods on win-arm64).
             layout->EnsureHfaInfo(this);
-
-            if (layout->IsHfa())
-            {
-                varDsc->SetHfaType(layout->GetHfaElementType());
-            }
+            varDsc->SetIsHfa(layout->IsHfa());
         }
     }
 

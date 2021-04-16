@@ -2305,7 +2305,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 // TODO-MIKE-Review: What do varargs/HFA have to do with this temp?!?
                 if (info.compIsVarArgs)
                 {
-                    structLcl->SetHfaType(TYP_UNDEF);
+                    structLcl->SetIsHfa(false);
                 }
 #endif
 
