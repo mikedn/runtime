@@ -3247,8 +3247,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 if (varDsc->lvIsHfaRegArg())
                 {
-                    // We have an HFA argument, set slots to the number of registers used
-                    slots = varDsc->lvHfaSlots();
+                    slots = varDsc->GetLayout()->GetHfaRegCount();
                 }
                 else
                 {
@@ -3462,7 +3461,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     // This must be a SIMD type that's fully enregistered, but is passed as an HFA.
                     // Each field will be inserted into the same destination register.
                     assert(varTypeIsSIMD(varDsc->GetType()) && !varDsc->GetLayout()->IsOpaqueVector());
-                    assert(regArgTab[argNum].slot <= (int)varDsc->lvHfaSlots());
+                    assert(regArgTab[argNum].slot <= static_cast<int>(varDsc->GetLayout()->GetHfaRegCount()));
                     assert(argNum > 0);
                     assert(regArgTab[argNum - 1].varNum == varNum);
                     regArgMaskLive &= ~genRegMask(regNum);
@@ -4179,7 +4178,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 // This includes both fixed-size SIMD types that are independently promoted, as well
                 // as other HFA structs.
-                argRegCount = varDsc->lvHfaSlots();
+                argRegCount = static_cast<int>(varDsc->GetLayout()->GetHfaRegCount());
+
                 if (argNum < (argMax - argRegCount + 1))
                 {
                     if (compiler->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT)

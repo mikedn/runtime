@@ -168,14 +168,9 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
         if (argDsc->lvIsHfaRegArg())
         {
             assert(regState->rsIsFloat);
-            unsigned cSlots = argDsc->GetLayout()->GetHfaElementCount();
-#ifdef TARGET_ARM
-            if (argDsc->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
-            {
-                cSlots *= 2;
-            }
-#endif
-            for (unsigned i = 1; i < cSlots; i++)
+            unsigned regCount = argDsc->GetLayout()->GetHfaRegCount();
+
+            for (unsigned i = 1; i < regCount; i++)
             {
                 assert(inArgReg + i <= LAST_FP_ARGREG);
                 regState->rsCalleeRegArgMaskLiveIn |= genRegMask(static_cast<regNumber>(inArgReg + i));

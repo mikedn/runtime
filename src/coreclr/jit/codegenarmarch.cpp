@@ -2742,8 +2742,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef TARGET_ARM64
         if (varDsc->GetRegNum() != argReg)
         {
-            var_types loadType = TYP_UNDEF;
-
             if (varDsc->lvIsHfaRegArg())
             {
                 // Note that for HFA, the argument is currently marked address exposed so lvRegNum will always be
@@ -2753,12 +2751,12 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
                 assert(!compiler->info.compIsVarArgs);
 
-                loadType           = varDsc->GetHfaType();
+                var_types loadType = varDsc->GetLayout()->GetHfaElementType();
                 regNumber fieldReg = argReg;
                 emitAttr  loadSize = emitActualTypeSize(loadType);
-                unsigned  cSlots   = varDsc->lvHfaSlots();
+                unsigned  regCount = varDsc->GetLayout()->GetHfaRegCount();
 
-                for (unsigned ofs = 0, cSlot = 0; cSlot < cSlots; cSlot++, ofs += (unsigned)loadSize)
+                for (unsigned ofs = 0, i = 0; i < regCount; i++, ofs += EA_SIZE(loadSize))
                 {
                     GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, fieldReg, varNum, ofs);
                     assert(genIsValidFloatReg(fieldReg)); // No GC register tracking for floating point registers.
@@ -2767,7 +2765,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             }
             else
             {
-                if (varTypeIsStruct(varDsc))
+                var_types loadType;
+
+                if (varTypeIsStruct(varDsc->GetType()))
                 {
                     // Must be <= 16 bytes or else it wouldn't be passed in registers, except for HFA,
                     // which can be bigger (and is handled above).
@@ -2778,6 +2778,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 {
                     loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
                 }
+
                 emitAttr loadSize = emitActualTypeSize(loadType);
                 GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argReg, varNum, 0);
 

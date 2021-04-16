@@ -163,6 +163,19 @@ public:
         return static_cast<uint8_t>(m_size / varTypeSize(m_layoutInfo.hfaElementType));
     }
 
+    unsigned GetHfaRegCount() const
+    {
+        unsigned count = GetHfaElementCount();
+#ifdef TARGET_ARM
+        if (m_layoutInfo.hfaElementType == TYP_DOUBLE)
+        {
+            // On ARM32 each double HFA element requires 2 float registers.
+            count *= 2;
+        }
+#endif
+        return count;
+    }
+
     bool IsVector() const
     {
 #ifdef FEATURE_SIMD

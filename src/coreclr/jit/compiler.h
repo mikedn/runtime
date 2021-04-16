@@ -641,49 +641,6 @@ public:
 #endif
     }
 
-    //------------------------------------------------------------------------------
-    // lvHfaSlots: Get the number of slots used by an HFA local
-    //
-    // Return Value:
-    //    On Arm64 - Returns 1-4 indicating the number of register slots used by the HFA
-    //    On Arm32 - Returns the total number of single FP register slots used by the HFA, max is 8
-    //
-    unsigned lvHfaSlots() const
-    {
-        assert(lvIsHfa());
-        assert(varTypeIsStruct(lvType));
-        unsigned slots = 0;
-        unsigned size  = GetSize();
-#ifdef TARGET_ARM
-        slots = size / sizeof(float);
-        assert(slots <= 8);
-#elif defined(TARGET_ARM64)
-        switch (_lvHfaElemKind)
-        {
-            case CORINFO_HFA_ELEM_NONE:
-                assert(!"lvHfaSlots called for non-HFA");
-                break;
-            case CORINFO_HFA_ELEM_FLOAT:
-                assert((size % 4) == 0);
-                slots = size / 4;
-                break;
-            case CORINFO_HFA_ELEM_DOUBLE:
-            case CORINFO_HFA_ELEM_VECTOR64:
-                assert((size % 8) == 0);
-                slots = size / 8;
-                break;
-            case CORINFO_HFA_ELEM_VECTOR128:
-                assert((size % 16) == 0);
-                slots = size / 16;
-                break;
-            default:
-                unreached();
-        }
-        assert(slots <= 4);
-#endif //  TARGET_ARM64
-        return slots;
-    }
-
 private:
     regNumberSmall _lvRegNum; // Used to store the register this variable is in (or, the low register of a
                               // register pair). It is set during codegen any time the

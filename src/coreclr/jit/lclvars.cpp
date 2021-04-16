@@ -682,8 +682,9 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
                 // We also update the cSlots to be the number of float/double/vector fields in the HFA.
 
                 hfaType = varDsc->GetLayout()->GetHfaElementType();
+                cSlots  = varDsc->GetLayout()->GetHfaRegCount();
+
                 argType = hfaType; // TODO-Cleanup: remove this asignment and mark `argType` as const.
-                cSlots  = varDsc->lvHfaSlots();
             }
         }
 
