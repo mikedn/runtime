@@ -3411,48 +3411,6 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
 }
 
 /**********************************************************************************
-* Get stack size of the lcl.
-*/
-size_t LclVarDsc::lvArgStackSize() const
-{
-    // Make sure this will have a stack size
-    assert(!lvIsRegArg);
-
-    size_t stackSize = 0;
-    if (varTypeIsStruct(lvType))
-    {
-#if defined(WINDOWS_AMD64_ABI)
-        // Structs are either passed by reference or can be passed by value using one pointer
-        stackSize = TARGET_POINTER_SIZE;
-#elif defined(TARGET_ARM64) || defined(UNIX_AMD64_ABI)
-        // lvSize performs a roundup.
-        stackSize = lvSize();
-
-#if defined(TARGET_ARM64)
-        if ((stackSize > TARGET_POINTER_SIZE * 2) && !lvIsHfa())
-        {
-            // If the size is greater than 16 bytes then it will
-            // be passed by reference.
-            stackSize = TARGET_POINTER_SIZE;
-        }
-#endif // defined(TARGET_ARM64)
-
-#else // !TARGET_ARM64 !WINDOWS_AMD64_ABI !UNIX_AMD64_ABI
-
-        NYI("Unsupported target.");
-        unreached();
-
-#endif //  !TARGET_ARM64 !WINDOWS_AMD64_ABI !UNIX_AMD64_ABI
-    }
-    else
-    {
-        stackSize = TARGET_POINTER_SIZE;
-    }
-
-    return stackSize;
-}
-
-/**********************************************************************************
 * Get type of a variable when passed as an argument.
 */
 var_types LclVarDsc::lvaArgType()

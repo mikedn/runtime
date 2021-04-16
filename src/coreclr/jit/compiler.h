@@ -887,8 +887,6 @@ public:
 
     unsigned lvSize() const;
 
-    size_t lvArgStackSize() const;
-
     unsigned lvSlotNum; // original slot # (if remapped)
 
     // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
