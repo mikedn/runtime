@@ -557,7 +557,7 @@ void CodeGen::genCodeForBswap(GenTree* tree)
     else
     {
         // 16-bit byte swaps use "ror reg.16, 8"
-        inst_RV_IV(INS_ror_N, targetReg, 8 /* val */, emitAttr::EA_2BYTE);
+        inst_RV_IV(INS_ror_N, targetReg, 8 /* val */, EA_2BYTE);
     }
 
     genProduceReg(tree);
@@ -674,7 +674,7 @@ void CodeGen::genCodeForLongUMod(GenTreeOp* node)
 
     //   cmp edx, divisor->GetRegNum()
     //   jb noOverflow
-    inst_RV_RV(INS_cmp, REG_EDX, divisor->GetRegNum());
+    inst_RV_RV(INS_cmp, REG_EDX, divisor->GetRegNum(), TYP_I_IMPL);
     inst_JMP(EJ_jb, noOverflow);
 
     //   mov temp, eax
@@ -1515,7 +1515,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_LCL_FLD_ADDR:
         case GT_LCL_VAR_ADDR:
-            genCodeForLclAddr(treeNode);
+            genCodeForLclAddr(treeNode->AsLclVarCommon());
             break;
 
         case GT_LCL_FLD:
@@ -2045,7 +2045,7 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
 //
 void CodeGen::genStackPointerConstantAdjustmentWithProbe(ssize_t spDelta, regNumber regTmp)
 {
-    GetEmitter()->emitIns_AR_R(INS_TEST, EA_4BYTE, REG_SPBASE, REG_SPBASE, 0);
+    GetEmitter()->emitIns_AR_R(INS_test, EA_4BYTE, REG_SPBASE, REG_SPBASE, 0);
     genStackPointerConstantAdjustment(spDelta, regTmp);
 }
 
@@ -2154,7 +2154,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
 
     // Tickle the decremented value. Note that it must be done BEFORE the update of ESP since ESP might already
     // be on the guard page. It is OK to leave the final value of ESP on the guard page.
-    GetEmitter()->emitIns_AR_R(INS_TEST, EA_4BYTE, REG_SPBASE, REG_SPBASE, 0);
+    GetEmitter()->emitIns_AR_R(INS_test, EA_4BYTE, REG_SPBASE, REG_SPBASE, 0);
 
     // Subtract a page from ESP. This is a trick to avoid the emitter trying to track the
     // decrement of the ESP - we do the subtraction in another reg instead of adjusting ESP directly.
@@ -2166,7 +2166,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     inst_JMP(EJ_jae, loop);
 
     // Move the final value to ESP
-    inst_RV_RV(INS_mov, REG_SPBASE, regSpDelta);
+    inst_RV_RV(INS_mov, REG_SPBASE, regSpDelta, TYP_I_IMPL);
 }
 
 //------------------------------------------------------------------------
@@ -2283,12 +2283,12 @@ void CodeGen::genLclHeap(GenTree* tree)
             // added above, so there is no need for an 'and' instruction.
 
             // --- shr regCnt, 2 (or 4) ---
-            inst_RV_SH(INS_SHIFT_RIGHT_LOGICAL, EA_PTRSIZE, regCnt, STACK_ALIGN_SHIFT);
+            inst_RV_SH(INS_shr, EA_PTRSIZE, regCnt, STACK_ALIGN_SHIFT);
         }
         else
         {
             // Otherwise, mask off the low bits to align the byte count.
-            inst_RV_IV(INS_AND, regCnt, ~(STACK_ALIGN - 1), emitActualTypeSize(type));
+            inst_RV_IV(INS_and, regCnt, ~(STACK_ALIGN - 1), emitActualTypeSize(type));
         }
     }
 
@@ -2415,7 +2415,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // Negate this value before calling the function to adjust the stack (which
         // adds to ESP).
 
-        inst_RV(INS_NEG, regCnt, TYP_I_IMPL);
+        inst_RV(INS_neg, regCnt, TYP_I_IMPL);
         regNumber regTmp = tree->GetSingleTempReg();
         genStackPointerDynamicAdjustmentWithProbe(regCnt, regTmp);
 
@@ -3433,11 +3433,11 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
 
         GetEmitter()->emitIns_R_AR(INS_mov, emitActualTypeSize(TYP_INT), tmpReg, arrReg,
                                    genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
-        inst_RV_RV(INS_imul, tmpReg, offsetReg);
+        inst_RV_RV(INS_imul, tmpReg, offsetReg, TYP_I_IMPL);
 
         if (tmpReg == tgtReg)
         {
-            inst_RV_RV(INS_add, tmpReg, indexReg);
+            inst_RV_RV(INS_add, tmpReg, indexReg, TYP_I_IMPL);
         }
         else
         {
@@ -3445,7 +3445,7 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
             {
                 inst_RV_RV(INS_mov, tgtReg, indexReg, TYP_I_IMPL);
             }
-            inst_RV_RV(INS_add, tgtReg, tmpReg);
+            inst_RV_RV(INS_add, tgtReg, tmpReg, TYP_I_IMPL);
         }
     }
     else
@@ -3458,12 +3458,38 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
     genProduceReg(arrOffset);
 }
 
+instruction CodeGen::ins_FloatCompare(var_types type)
+{
+    return (type == TYP_FLOAT) ? INS_ucomiss : INS_ucomisd;
+}
+
+instruction CodeGen::ins_FloatSqrt(var_types type)
+{
+    return (type == TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
+}
+
+instruction CodeGen::ins_MathOp(genTreeOps oper, var_types type)
+{
+    switch (oper)
+    {
+        case GT_ADD:
+            return type == TYP_DOUBLE ? INS_addsd : INS_addss;
+        case GT_SUB:
+            return type == TYP_DOUBLE ? INS_subsd : INS_subss;
+        case GT_MUL:
+            return type == TYP_DOUBLE ? INS_mulsd : INS_mulss;
+        case GT_DIV:
+            return type == TYP_DOUBLE ? INS_divsd : INS_divss;
+        default:
+            unreached();
+    }
+}
+
 instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
 {
-    instruction ins;
-
     // Operations on SIMD vectors shouldn't come this path
     assert(!varTypeIsSIMD(type));
+
     if (varTypeIsFloating(type))
     {
         return ins_MathOp(oper, type);
@@ -3472,69 +3498,48 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
     switch (oper)
     {
         case GT_ADD:
-            ins = INS_add;
-            break;
+            return INS_add;
         case GT_AND:
-            ins = INS_and;
-            break;
+            return INS_and;
         case GT_LSH:
-            ins = INS_shl;
-            break;
+            return INS_shl;
         case GT_MUL:
-            ins = INS_imul;
-            break;
+            return INS_imul;
         case GT_NEG:
-            ins = INS_neg;
-            break;
+            return INS_neg;
         case GT_NOT:
-            ins = INS_not;
-            break;
+            return INS_not;
         case GT_OR:
-            ins = INS_or;
-            break;
+            return INS_or;
         case GT_ROL:
-            ins = INS_rol;
-            break;
+            return INS_rol;
         case GT_ROR:
-            ins = INS_ror;
-            break;
+            return INS_ror;
         case GT_RSH:
-            ins = INS_sar;
-            break;
+            return INS_sar;
         case GT_RSZ:
-            ins = INS_shr;
-            break;
+            return INS_shr;
         case GT_SUB:
-            ins = INS_sub;
-            break;
+            return INS_sub;
         case GT_XOR:
-            ins = INS_xor;
-            break;
+            return INS_xor;
 #if !defined(TARGET_64BIT)
         case GT_ADD_LO:
-            ins = INS_add;
-            break;
+            return INS_add;
         case GT_ADD_HI:
-            ins = INS_adc;
-            break;
+            return INS_adc;
         case GT_SUB_LO:
-            ins = INS_sub;
-            break;
+            return INS_sub;
         case GT_SUB_HI:
-            ins = INS_sbb;
-            break;
+            return INS_sbb;
         case GT_LSH_HI:
-            ins = INS_shld;
-            break;
+            return INS_shld;
         case GT_RSH_LO:
-            ins = INS_shrd;
-            break;
-#endif // !defined(TARGET_64BIT)
+            return INS_shrd;
+#endif
         default:
             unreached();
-            break;
     }
-    return ins;
 }
 
 //------------------------------------------------------------------------
@@ -3624,7 +3629,7 @@ void CodeGen::genCodeForShift(GenTree* tree)
         {
             inst_RV_RV(INS_mov, tree->GetRegNum(), operandReg, targetType);
         }
-        inst_RV_CL(ins, tree->GetRegNum(), targetType);
+        inst_RV(ins, tree->GetRegNum(), targetType);
     }
 
     genProduceReg(tree);
@@ -3748,28 +3753,6 @@ void CodeGen::genCodeForShiftRMW(GenTreeStoreInd* storeInd)
         // The shiftBy operand is implicit, so call the unary version of emitInsRMW.
         GetEmitter()->emitInsRMW(ins, attr, storeInd);
     }
-}
-
-//------------------------------------------------------------------------
-// genCodeForLclAddr: Generates the code for GT_LCL_FLD_ADDR/GT_LCL_VAR_ADDR.
-//
-// Arguments:
-//    tree - the node.
-//
-void CodeGen::genCodeForLclAddr(GenTree* tree)
-{
-    assert(tree->OperIs(GT_LCL_FLD_ADDR, GT_LCL_VAR_ADDR));
-
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-
-    // Address of a local var.
-    noway_assert((targetType == TYP_BYREF) || (targetType == TYP_I_IMPL));
-
-    emitAttr size = emitTypeSize(targetType);
-
-    inst_RV_TT(INS_lea, targetReg, tree, 0, size);
-    genProduceReg(tree);
 }
 
 //------------------------------------------------------------------------
@@ -5274,7 +5257,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
                     // also load it in corresponding float arg reg
                     regNumber floatReg = compiler->getCallArgFloatRegister(argReg);
-                    inst_RV_RV(ins_Copy(argReg, TYP_DOUBLE), floatReg, argReg);
+                    inst_RV_RV(ins_Copy(argReg, TYP_DOUBLE), floatReg, argReg, TYP_I_IMPL);
                 }
 
                 argOffset += REGSIZE_BYTES;
@@ -6853,15 +6836,16 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 else
                 {
                     assert(varTypeIsIntegralOrI(fieldNode));
-                    switch (fieldNode->OperGet())
+                    switch (fieldNode->GetOper())
                     {
                         case GT_LCL_VAR:
-                            inst_TT(INS_push, fieldNode, 0, 0, emitActualTypeSize(fieldNode->TypeGet()));
+                            inst_TT(INS_push, fieldNode->AsLclVar());
                             break;
                         case GT_CNS_INT:
                             if (fieldNode->IsIconHandle())
                             {
-                                inst_IV_handle(INS_push, fieldNode->AsIntCon()->gtIconVal);
+                                GetEmitter()->emitIns_I(INS_push, EA_HANDLE_CNS_RELOC,
+                                                        fieldNode->AsIntCon()->GetValue());
                             }
                             else
                             {
@@ -6882,7 +6866,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 switch (fieldNode->OperGet())
                 {
                     case GT_LCL_VAR:
-                        inst_RV_TT(INS_mov, intTmpReg, fieldNode);
+                        inst_RV_TT(INS_mov, emitTypeSize(fieldNode->GetType()), intTmpReg, fieldNode->AsLclVar());
                         break;
                     case GT_CNS_INT:
                         genSetRegToConst(intTmpReg, fieldNode->TypeGet(), fieldNode);
@@ -7026,11 +7010,11 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         }
         else if (src->IsIconHandle())
         {
-            inst_IV_handle(INS_push, src->AsIntCon()->GetValue());
+            GetEmitter()->emitIns_I(INS_push, EA_HANDLE_CNS_RELOC, src->AsIntCon()->GetValue());
         }
         else
         {
-            inst_IV(INS_push, src->AsIntCon()->GetValue());
+            GetEmitter()->emitIns_I(INS_push, EA_PTRSIZE, src->AsIntCon()->GetValue());
         }
         AddStackLevel(REGSIZE_BYTES);
 #endif

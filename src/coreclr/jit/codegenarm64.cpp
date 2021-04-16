@@ -2301,7 +2301,7 @@ ALLOC_DONE:
     else // stackAdjustment == 0
     {
         // Move the final value of SP to targetReg
-        inst_RV_RV(INS_mov, targetReg, REG_SPBASE);
+        inst_RV_RV(INS_mov, targetReg, REG_SPBASE, TYP_I_IMPL);
     }
 
 BAILOUT:

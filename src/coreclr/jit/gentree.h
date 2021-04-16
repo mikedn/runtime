@@ -1769,8 +1769,6 @@ public:
 
     size_t GetNodeSize() const;
 
-    bool IsNodeProperlySized() const;
-
     void ReplaceWith(GenTree* src, Compiler* comp);
 
     static genTreeOps ReverseRelop(genTreeOps relop);

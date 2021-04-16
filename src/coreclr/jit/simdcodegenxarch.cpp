@@ -290,7 +290,7 @@ void CodeGen::genSIMDScalarMove(
                 else
                 {
                     genSIMDZero(targetType, TYP_FLOAT, targetReg);
-                    inst_RV_RV(ins_Store(baseType), targetReg, srcReg);
+                    inst_RV_RV(ins_Store(baseType), targetReg, srcReg, TYP_I_IMPL);
                 }
             }
             break;
@@ -1573,7 +1573,7 @@ void CodeGen::genSIMDIntrinsicGetItem(GenTreeSIMD* simdNode)
                 if ((op2->AsIntCon()->gtIconVal % 2) == 1)
                 {
                     // Right shift extracted word by 8-bits if index is odd if we are extracting a byte sized element.
-                    inst_RV_SH(INS_SHIFT_RIGHT_LOGICAL, EA_4BYTE, targetReg, 8);
+                    inst_RV_SH(INS_shr, EA_4BYTE, targetReg, 8);
 
                     // Since Pextrw zero extends to 32-bits, we need sign extension in case of TYP_BYTE
                     ZeroOrSignExtnReqd = (baseType == TYP_BYTE);
@@ -1706,7 +1706,7 @@ void CodeGen::genSIMDIntrinsicSetItem(GenTreeSIMD* simdNode)
         GetEmitter()->emitIns_R_R_I(INS_pinsrw, emitTypeSize(TYP_INT), targetReg, tmpReg, 2 * index);
 
         // Logical right shift tmpReg by 16-bits and insert in targetReg at 2*index + 1 position
-        inst_RV_SH(INS_SHIFT_RIGHT_LOGICAL, EA_4BYTE, tmpReg, 16);
+        inst_RV_SH(INS_shr, EA_4BYTE, tmpReg, 16);
         GetEmitter()->emitIns_R_R_I(INS_pinsrw, emitTypeSize(TYP_INT), targetReg, tmpReg, 2 * index + 1);
     }
     else

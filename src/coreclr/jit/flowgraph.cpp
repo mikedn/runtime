@@ -1925,30 +1925,6 @@ void Compiler::fgAddReversePInvokeEnterExit()
 #endif
 }
 
-/*****************************************************************************
- *
- *  Return 'true' if there is more than one BBJ_RETURN block.
- */
-
-bool Compiler::fgMoreThanOneReturnBlock()
-{
-    unsigned retCnt = 0;
-
-    for (BasicBlock* block = fgFirstBB; block; block = block->bbNext)
-    {
-        if (block->bbJumpKind == BBJ_RETURN)
-        {
-            retCnt++;
-            if (retCnt > 1)
-            {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
 namespace
 {
 // Define a helper class for merging return blocks (which we do when the input has

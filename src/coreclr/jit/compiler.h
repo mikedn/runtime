@@ -3845,8 +3845,6 @@ public:
 
     void fgAddReversePInvokeEnterExit();
 
-    bool fgMoreThanOneReturnBlock();
-
     // The number of separate return points in the method.
     unsigned fgReturnCount;
 
@@ -8421,8 +8419,6 @@ public:
     const char* compLocalVarName(unsigned varNum, unsigned offs);
     VarName compVarName(regNumber reg, bool isFloatReg = false);
     const char* compRegVarName(regNumber reg, bool displayVar = false, bool isFloatReg = false);
-    const char* compRegNameForSize(regNumber reg, size_t size);
-    const char* compFPregVarName(unsigned fpReg, bool displayVar = false);
     void compDspSrcLinesByNativeIP(UNATIVE_OFFSET curIP);
     void compDspSrcLinesByLineNum(unsigned line, bool seek = false);
 #endif // DEBUG
@@ -9999,72 +9995,6 @@ extern unsigned fatal_noWayAssertBodyArgs;
 #endif // DEBUG
 extern unsigned fatal_NYI;
 #endif // MEASURE_FATAL
-
-/*****************************************************************************
- * Codegen
- */
-
-#ifdef TARGET_XARCH
-
-const instruction INS_SHIFT_LEFT_LOGICAL  = INS_shl;
-const instruction INS_SHIFT_RIGHT_LOGICAL = INS_shr;
-const instruction INS_SHIFT_RIGHT_ARITHM  = INS_sar;
-
-const instruction INS_AND             = INS_and;
-const instruction INS_OR              = INS_or;
-const instruction INS_XOR             = INS_xor;
-const instruction INS_NEG             = INS_neg;
-const instruction INS_TEST            = INS_test;
-const instruction INS_MUL             = INS_imul;
-const instruction INS_SIGNED_DIVIDE   = INS_idiv;
-const instruction INS_UNSIGNED_DIVIDE = INS_div;
-const instruction INS_BREAKPOINT      = INS_int3;
-const instruction INS_ADDC            = INS_adc;
-const instruction INS_SUBC            = INS_sbb;
-const instruction INS_NOT             = INS_not;
-
-#endif // TARGET_XARCH
-
-#ifdef TARGET_ARM
-
-const instruction INS_SHIFT_LEFT_LOGICAL  = INS_lsl;
-const instruction INS_SHIFT_RIGHT_LOGICAL = INS_lsr;
-const instruction INS_SHIFT_RIGHT_ARITHM  = INS_asr;
-
-const instruction INS_AND             = INS_and;
-const instruction INS_OR              = INS_orr;
-const instruction INS_XOR             = INS_eor;
-const instruction INS_NEG             = INS_rsb;
-const instruction INS_TEST            = INS_tst;
-const instruction INS_MUL             = INS_mul;
-const instruction INS_MULADD          = INS_mla;
-const instruction INS_SIGNED_DIVIDE   = INS_sdiv;
-const instruction INS_UNSIGNED_DIVIDE = INS_udiv;
-const instruction INS_BREAKPOINT      = INS_bkpt;
-const instruction INS_ADDC            = INS_adc;
-const instruction INS_SUBC            = INS_sbc;
-const instruction INS_NOT             = INS_mvn;
-
-const instruction INS_ABS  = INS_vabs;
-const instruction INS_SQRT = INS_vsqrt;
-
-#endif // TARGET_ARM
-
-#ifdef TARGET_ARM64
-
-const instruction INS_MULADD = INS_madd;
-#if defined(TARGET_UNIX)
-const instruction INS_BREAKPOINT = INS_brk;
-#else
-const instruction INS_BREAKPOINT = INS_bkpt;
-#endif
-
-const instruction INS_ABS  = INS_fabs;
-const instruction INS_SQRT = INS_fsqrt;
-
-#endif // TARGET_ARM64
-
-/*****************************************************************************/
 
 extern const BYTE genTypeSizes[];
 extern const BYTE genTypeAlignments[];

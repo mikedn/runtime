@@ -410,7 +410,7 @@ void CodeGenInterface::siVarLoc::siFillRegisterVarLoc(
 
         case TYP_FLOAT:
         case TYP_DOUBLE:
-            if (isFloatRegType(type))
+            if (varTypeUsesFloatReg(type))
             {
                 this->vlType         = VLT_FPSTK;
                 this->vlFPstk.vlfReg = varDsc->GetRegNum();

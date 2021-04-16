@@ -80,22 +80,18 @@ void CodeGenInterface::setFramePointerRequiredEH(bool value)
 #endif // JIT32_GCENCODER
 }
 
-/*****************************************************************************/
 CodeGenInterface* getCodeGenerator(Compiler* comp)
 {
     return new (comp, CMK_Codegen) CodeGen(comp);
 }
 
-// CodeGen constructor
-CodeGenInterface::CodeGenInterface(Compiler* theCompiler)
-    : gcInfo(theCompiler), regSet(theCompiler, gcInfo), compiler(theCompiler), treeLifeUpdater(nullptr)
+CodeGenInterface::CodeGenInterface(Compiler* compiler)
+    : gcInfo(compiler), regSet(compiler, gcInfo), compiler(compiler), treeLifeUpdater(nullptr)
 {
 }
 
-/*****************************************************************************/
-
-CodeGen::CodeGen(Compiler* theCompiler)
-    : CodeGenInterface(theCompiler)
+CodeGen::CodeGen(Compiler* compiler)
+    : CodeGenInterface(compiler)
 #if defined(TARGET_XARCH)
     , negBitmaskFlt(nullptr)
     , negBitmaskDbl(nullptr)
@@ -120,8 +116,6 @@ CodeGen::CodeGen(Compiler* theCompiler)
 #endif // DEBUG
 
     regSet.tmpInit();
-
-    instInit();
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
@@ -4598,7 +4592,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     // need an unwind code. We don't want to generate a "NOP" code for this
     // temp register load; we want the unwind codes to start after that.
 
-    if (arm_Valid_Imm_For_Instr(INS_add, frameSize, INS_FLAGS_DONT_CARE))
+    if (validImmForInstr(INS_add, frameSize, INS_FLAGS_DONT_CARE))
     {
         if (!*pUnwindStarted)
         {
@@ -4912,7 +4906,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
             {
                 // Restore sp from fp
                 //      mov sp, fp
-                inst_RV_RV(INS_mov, REG_SPBASE, REG_FPBASE);
+                inst_RV_RV(INS_mov, REG_SPBASE, REG_FPBASE, TYP_I_IMPL);
                 compiler->unwindSetFrameReg(REG_FPBASE, 0);
             }
 
@@ -5874,7 +5868,8 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
 
             // printf("initialize untracked spillTmp [EBP-%04X]\n", stkOffs);
 
-            inst_ST_RV(ins_Store(TYP_I_IMPL), tempThis, 0, genGetZeroReg(initReg, pInitRegZeroed), TYP_I_IMPL);
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, genGetZeroReg(initReg, pInitRegZeroed),
+                                      tempThis->tdTempNum(), 0);
         }
     }
 
@@ -6964,7 +6959,7 @@ void CodeGen::genFnProlog()
             noway_assert(isFramePointerUsed() == false);
             noway_assert(!regSet.rsRegsModified(RBM_FPBASE)); /* Trashing EBP is out.    */
 
-            inst_RV_IV(INS_AND, REG_SPBASE, -8, EA_PTRSIZE);
+            inst_RV_IV(INS_and, REG_SPBASE, -8, EA_PTRSIZE);
         }
 #endif // DOUBLE_ALIGN
     }
@@ -7430,7 +7425,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         }
 
         // mov R9 into SP
-        inst_RV_RV(INS_mov, REG_SP, REG_SAVED_LOCALLOC_SP);
+        inst_RV_RV(INS_mov, REG_SP, REG_SAVED_LOCALLOC_SP, TYP_I_IMPL);
         compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
     }
 
@@ -7912,7 +7907,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         if (needMovEspEbp)
         {
             // mov esp, ebp
-            inst_RV_RV(INS_mov, REG_SPBASE, REG_FPBASE);
+            inst_RV_RV(INS_mov, REG_SPBASE, REG_FPBASE, TYP_I_IMPL);
         }
 #endif // !TARGET_AMD64
 

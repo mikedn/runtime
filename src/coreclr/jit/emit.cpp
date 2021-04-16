@@ -458,25 +458,6 @@ const unsigned short emitTypeActSz[] = {
 #undef DEF_TP
 };
 
-/*****************************************************************************/
-/*****************************************************************************
- *
- *  Initialize the emitter - called once, at DLL load time.
- */
-
-void emitter::emitInit()
-{
-}
-
-/*****************************************************************************
- *
- *  Shut down the emitter - called once, at DLL exit time.
- */
-
-void emitter::emitDone()
-{
-}
-
 /*****************************************************************************
  *
  *  Allocate memory.
@@ -7915,8 +7896,7 @@ cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
         regNumber baseReg;
         int       offs = id->idAddr()->iiaLclVar.lvaOffset();
 #if defined(TARGET_ARM)
-        int adr =
-            emitComp->lvaFrameAddress(varNum, id->idIsLclFPBase(), &baseReg, offs, CodeGen::instIsFP(id->idIns()));
+        int adr = emitComp->lvaFrameAddress(varNum, id->idIsLclFPBase(), &baseReg, offs, instIsFP(id->idIns()));
         int dsp = adr + offs;
         if ((id->idIns() == INS_sub) || (id->idIns() == INS_subw))
             dsp = -dsp;

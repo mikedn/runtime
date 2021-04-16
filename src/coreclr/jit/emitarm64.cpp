@@ -1416,7 +1416,7 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
 #define NRW 64
 
 // clang-format off
-/*static*/ const BYTE CodeGenInterface::instInfo[] =
+const BYTE emitter::instInfo[] =
 {
     #define INST1(id, nm, info, fmt, e1                                ) info,
     #define INST2(id, nm, info, fmt, e1, e2                            ) info,
@@ -1429,100 +1429,49 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
 };
 // clang-format on
 
-//------------------------------------------------------------------------
-// emitInsIsCompare: Returns true if the instruction is some kind of compare or test instruction.
-//
 bool emitter::emitInsIsCompare(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & CMP) != 0;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & CMP) != 0);
 }
 
-//------------------------------------------------------------------------
-// emitInsIsLoad: Returns true if the instruction is some kind of load instruction.
-//
 bool emitter::emitInsIsLoad(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & LD) != 0;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
 }
 
-//------------------------------------------------------------------------
-// emitInsIsStore: Returns true if the instruction is some kind of store instruction.
-//
 bool emitter::emitInsIsStore(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & ST) != 0;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & ST) != 0);
 }
 
-//------------------------------------------------------------------------
-// emitInsIsLoadOrStore: Returns true if the instruction is some kind of load or store instruction.
-//
 bool emitter::emitInsIsLoadOrStore(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & (LD | ST)) != 0;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & (LD | ST)) != 0);
 }
 
-//------------------------------------------------------------------------
-// emitInsIsVectorRightShift: Returns true if the instruction is ASIMD right shift.
-//
 bool emitter::emitInsIsVectorRightShift(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & RSH) != 0;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & RSH) != 0);
 }
 
-//------------------------------------------------------------------------
-// emitInsIsVectorLong: Returns true if the instruction has the destination register that is double that of both source
-// operands. Indicated by the suffix L.
-//
 bool emitter::emitInsIsVectorLong(instruction ins)
 {
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & LNG) != 0;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & LNG) != 0);
 }
 
-//------------------------------------------------------------------------
-// emitInsIsVectorNarrow: Returns true if the element width of the destination register of the instruction is half that
-// of both source operands. Indicated by the suffix N.
-//
 bool emitter::emitInsIsVectorNarrow(instruction ins)
 {
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & NRW) != 0;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & NRW) != 0);
 }
 
-//------------------------------------------------------------------------
-// emitInsIsVectorWide: Returns true if the element width of the destination register and the first source operand of
-// the instruction is double that of the second source operand. Indicated by the suffix W.
-//
 bool emitter::emitInsIsVectorWide(instruction ins)
 {
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & WID) != 0;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & WID) != 0);
 }
 
 #undef LD

@@ -696,13 +696,13 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
     return insFormats[ins];
 }
 
-// INST_FP is 1
+#define INST_FP 1
 #define LD 2
 #define ST 4
 #define CMP 8
 
 // clang-format off
-/*static*/ const BYTE CodeGenInterface::instInfo[] =
+const uint8_t emitter::instInfo[] =
 {
     #define INST1(id, nm, fp, ldst, fmt, e1                                ) ldst | INST_FP*fp,
     #define INST2(id, nm, fp, ldst, fmt, e1, e2                            ) ldst | INST_FP*fp,
@@ -716,60 +716,34 @@ emitter::insFormat emitter::emitInsFormat(instruction ins)
 };
 // clang-format on
 
-/*****************************************************************************
- *
- *  Returns true if the instruction is some kind of load instruction
- */
+bool emitter::instIsFP(instruction ins)
+{
+    assert(ins < _countof(instInfo));
+    return (instInfo[ins] & INST_FP) != 0;
+}
 
 bool emitter::emitInsIsLoad(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & LD) ? true : false;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
 }
-
-/*****************************************************************************
- *
- *  Returns true if the instruction is some kind of compare or test instruction
- */
 
 bool emitter::emitInsIsCompare(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & CMP) ? true : false;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & CMP) != 0);
 }
-
-/*****************************************************************************
- *
- *  Returns true if the instruction is some kind of store instruction
- */
 
 bool emitter::emitInsIsStore(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & ST) ? true : false;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & ST) != 0);
 }
-
-/*****************************************************************************
- *
- *  Returns true if the instruction is some kind of load/store instruction
- */
 
 bool emitter::emitInsIsLoadOrStore(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    if (ins < ArrLen(CodeGenInterface::instInfo))
-        return (CodeGenInterface::instInfo[ins] & (LD | ST)) ? true : false;
-    else
-        return false;
+    return (ins < _countof(instInfo)) && ((instInfo[ins] & (LD | ST)) != 0);
 }
 
 #undef LD
@@ -3562,8 +3536,8 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int va
     int      disp;
     unsigned undisp;
 
-    base = emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &reg2, offs,
-                                     CodeGen::instIsFP(ins));
+    base =
+        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &reg2, offs, instIsFP(ins));
     if (pBaseReg != nullptr)
     {
         *pBaseReg = reg2;
@@ -3572,7 +3546,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int va
     disp   = base + offs;
     undisp = unsigned_abs(disp);
 
-    if (CodeGen::instIsFP(ins))
+    if (instIsFP(ins))
     {
         // all fp mem ops take 8 bit immediate, multiplied by 4, plus sign
         //
@@ -3752,13 +3726,13 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
     int      disp;
     unsigned undisp;
 
-    base = emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &reg2, offs,
-                                     CodeGen::instIsFP(ins));
+    base =
+        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &reg2, offs, instIsFP(ins));
 
     disp   = base + offs;
     undisp = unsigned_abs(disp);
 
-    if (CodeGen::instIsFP(ins))
+    if (instIsFP(ins))
     {
         // all fp mem ops take 8 bit immediate, multiplied by 4, plus sign
         //
@@ -4673,7 +4647,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_ADDR);
 
         // if addr is nullptr then this call is treated as a recursive call.
-        assert(addr == nullptr || codeGen->arm_Valid_Imm_For_BL((ssize_t)addr));
+        assert(addr == nullptr || codeGen->validImmForBL((ssize_t)addr));
 
         if (isJump)
         {

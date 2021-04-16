@@ -1243,10 +1243,6 @@ void Compiler::compStartup()
     GCInfo::gcInitEncoderLookupTable();
 #endif
 
-    /* Initialize the emitter */
-
-    emitter::emitInit();
-
     // Static vars of ValueNumStore
     ValueNumStore::InitValueNumStoreStatics();
 
@@ -1278,10 +1274,6 @@ void Compiler::compShutdown()
 #if MEASURE_NOWAY
     DisplayNowayAssertMap();
 #endif // MEASURE_NOWAY
-
-    /* Shut down the emitter */
-
-    emitter::emitDone();
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     // Finish reading and/or writing inline xml
@@ -2014,61 +2006,6 @@ const char* Compiler::compRegVarName(regNumber reg, bool displayVar, bool isFloa
        -> return standard name */
 
     return getRegName(reg);
-}
-
-const char* Compiler::compRegNameForSize(regNumber reg, size_t size)
-{
-    if (size == 0 || size >= 4)
-    {
-        return compRegVarName(reg, true);
-    }
-
-    // clang-format off
-    static
-    const char  *   sizeNames[][2] =
-    {
-        { "al", "ax" },
-        { "cl", "cx" },
-        { "dl", "dx" },
-        { "bl", "bx" },
-#ifdef TARGET_AMD64
-        {  "spl",   "sp" }, // ESP
-        {  "bpl",   "bp" }, // EBP
-        {  "sil",   "si" }, // ESI
-        {  "dil",   "di" }, // EDI
-        {  "r8b",  "r8w" },
-        {  "r9b",  "r9w" },
-        { "r10b", "r10w" },
-        { "r11b", "r11w" },
-        { "r12b", "r12w" },
-        { "r13b", "r13w" },
-        { "r14b", "r14w" },
-        { "r15b", "r15w" },
-#endif // TARGET_AMD64
-    };
-    // clang-format on
-
-    assert(isByteReg(reg));
-    assert(genRegMask(reg) & RBM_BYTE_REGS);
-    assert(size == 1 || size == 2);
-
-    return sizeNames[reg][size - 1];
-}
-
-const char* Compiler::compFPregVarName(unsigned fpReg, bool displayVar)
-{
-    const int   NAME_VAR_REG_BUFFER_LEN = 4 + 256 + 1;
-    static char nameVarReg[2][NAME_VAR_REG_BUFFER_LEN]; // to avoid overwriting the buffer when have 2 consecutive calls
-                                                        // before printing
-    static int index = 0;                               // for circular index into the name array
-
-    index = (index + 1) % 2; // circular reuse of index
-
-    /* no debug info required or no variable in that register
-       -> return standard name */
-
-    sprintf_s(nameVarReg[index], NAME_VAR_REG_BUFFER_LEN, "ST(%d)", fpReg);
-    return nameVarReg[index];
 }
 
 const char* Compiler::compLocalVarName(unsigned varNum, unsigned offs)

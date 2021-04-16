@@ -3000,8 +3000,8 @@ public:
         // legacy backend. It should be enabled and verified.
 
         // Force integer candidates to sort above float candidates.
-        const bool isFloat1 = isFloatRegType(dsc1->lvType);
-        const bool isFloat2 = isFloatRegType(dsc2->lvType);
+        const bool isFloat1 = varTypeUsesFloatReg(dsc1->lvType);
+        const bool isFloat2 = varTypeUsesFloatReg(dsc2->lvType);
 
         if (isFloat1 != isFloat2)
         {
@@ -3109,8 +3109,8 @@ public:
         // legacy backend. It should be enabled and verified.
 
         // Force integer candidates to sort above float candidates.
-        const bool isFloat1 = isFloatRegType(dsc1->lvType);
-        const bool isFloat2 = isFloatRegType(dsc2->lvType);
+        const bool isFloat1 = varTypeUsesFloatReg(dsc1->lvType);
+        const bool isFloat2 = varTypeUsesFloatReg(dsc2->lvType);
 
         if (isFloat1 != isFloat2)
         {

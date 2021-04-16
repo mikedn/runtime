@@ -4155,7 +4155,7 @@ void LinearScan::unassignPhysReg(RegRecord* regRec, RefPosition* spillRefPositio
     // Prepare second half RegRecord of a double register for TYP_DOUBLE
     if (assignedInterval->registerType == TYP_DOUBLE)
     {
-        assert(isFloatRegType(regRec->registerType));
+        assert(varTypeUsesFloatReg(regRec->registerType));
         RegRecord* doubleRegRec;
         if (genIsValidDoubleReg(thisRegNum))
         {

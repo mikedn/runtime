@@ -1,14 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//
-// This class contains all the data & functionality for code generation
-// of a method, except for the target-specific elements, which are
-// primarily in the Target class.
-//
+#ifndef CODEGEN_H
+#define CODEGEN_H
 
-#ifndef _CODEGEN_H_
-#define _CODEGEN_H_
 #include "codegeninterface.h"
 #include "compiler.h" // temporary??
 #include "regset.h"
@@ -28,8 +23,7 @@ class CodeGen final : public CodeGenInterface
     friend class DisAssembler;
 
 public:
-    // This could use further abstraction
-    CodeGen(Compiler* theCompiler);
+    CodeGen(Compiler* compiler);
 
     virtual void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode);
 
@@ -223,10 +217,6 @@ protected:
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);
     unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);
 
-#ifdef DEBUG
-    static const char* genSizeStr(emitAttr size);
-#endif // DEBUG
-
     void genInitialize();
 
     void genInitializeRegisterState();
@@ -234,7 +224,7 @@ protected:
     void genCodeForBBlist();
 
 public:
-    void genSpillVar(GenTree* tree);
+    void genSpillVar(GenTreeLclVar* node);
 
 protected:
     void genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, regNumber callTarget = REG_NA);
@@ -357,8 +347,6 @@ protected:
     void genPushFltRegs(regMaskTP regMask);
     void genPopFltRegs(regMaskTP regMask);
     regMaskTP genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat);
-
-    regMaskTP genJmpCallArgMask();
 
     void genFreeLclFrame(unsigned           frameSize,
                          /* IN OUT */ bool* pUnwindStarted);
@@ -844,7 +832,6 @@ protected:
     void genCodeForMul(GenTreeOp* treeNode);
     void genCodeForMulHi(GenTreeOp* treeNode);
     void genLeaInstruction(GenTreeAddrMode* lea);
-    void genSetRegToCond(regNumber dstReg, GenTree* tree);
 
 #if defined(TARGET_ARMARCH)
     void genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale);
@@ -1158,7 +1145,7 @@ protected:
 #endif // TARGET_XARCH
 
     void genCodeForCast(GenTreeCast* cast);
-    void genCodeForLclAddr(GenTree* tree);
+    void genCodeForLclAddr(GenTreeLclVarCommon* tree);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
     void genCodeForIndir(GenTreeIndir* tree);
     void genCodeForNegNot(GenTree* tree);
@@ -1318,97 +1305,32 @@ protected:
     GenTree* lastConsumedNode;
     void genNumberOperandUse(GenTree* const operand, int& useNum) const;
     void genCheckConsumeNode(GenTree* const node);
-#else  // !DEBUG
-    inline void genCheckConsumeNode(GenTree* treeNode)
+#else
+    void genCheckConsumeNode(GenTree* treeNode)
     {
     }
-#endif // DEBUG
-
-    /*
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XX                                                                           XX
-    XX                           Instruction                                     XX
-    XX                                                                           XX
-    XX  The interface to generate a machine-instruction.                         XX
-    XX  Currently specific to x86                                                XX
-    XX  TODO-Cleanup: Consider factoring this out of CodeGen                     XX
-    XX                                                                           XX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    */
+#endif
 
 public:
-    void instInit();
-
     void instGen(instruction ins);
-
     void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
-
     void inst_SET(emitJumpKind condition, regNumber reg);
-
     void inst_RV(instruction ins, regNumber reg, var_types type, emitAttr size = EA_UNKNOWN);
-
-    void inst_RV_RV(instruction ins,
-                    regNumber   reg1,
-                    regNumber   reg2,
-                    var_types   type  = TYP_I_IMPL,
-                    emitAttr    size  = EA_UNKNOWN,
-                    insFlags    flags = INS_FLAGS_DONT_CARE);
-
-    void inst_RV_RV_RV(instruction ins,
-                       regNumber   reg1,
-                       regNumber   reg2,
-                       regNumber   reg3,
-                       emitAttr    size,
-                       insFlags    flags = INS_FLAGS_DONT_CARE);
-
+    void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size = EA_UNKNOWN);
+    void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
     void inst_IV(instruction ins, cnsval_ssize_t val);
-    void inst_IV_handle(instruction ins, cnsval_ssize_t val);
-
-    void inst_RV_IV(
-        instruction ins, regNumber reg, target_ssize_t val, emitAttr size, insFlags flags = INS_FLAGS_DONT_CARE);
-
-    void inst_ST_RV(instruction ins, TempDsc* tmp, unsigned ofs, regNumber reg, var_types type);
-    void inst_ST_IV(instruction ins, TempDsc* tmp, unsigned ofs, int val, var_types type);
-
-    void inst_SA_RV(instruction ins, unsigned ofs, regNumber reg, var_types type);
-    void inst_SA_IV(instruction ins, unsigned ofs, int val, var_types type);
-
-    void inst_TT(instruction ins, GenTree* tree, unsigned offs = 0, int shfv = 0, emitAttr size = EA_UNKNOWN);
-
-    void inst_TT_RV(instruction ins, emitAttr size, GenTree* tree, regNumber reg);
-
-    void inst_RV_TT(instruction ins,
-                    regNumber   reg,
-                    GenTree*    tree,
-                    unsigned    offs  = 0,
-                    emitAttr    size  = EA_UNKNOWN,
-                    insFlags    flags = INS_FLAGS_DONT_CARE);
-
-    void inst_FS_TT(instruction ins, GenTree* tree);
-
-    void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val, insFlags flags = INS_FLAGS_DONT_CARE);
-
-    void inst_TT_SH(instruction ins, GenTree* tree, unsigned val, unsigned offs = 0);
-
-    void inst_RV_CL(instruction ins, regNumber reg, var_types type = TYP_I_IMPL);
-
-    void inst_TT_CL(instruction ins, GenTree* tree, unsigned offs = 0);
-
+    void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
+    void inst_TT(instruction ins, GenTreeLclVar* node);
+    void inst_TT_RV(instruction ins, emitAttr size, GenTreeLclVar* node, regNumber reg);
+    void inst_RV_TT(instruction ins, emitAttr size, regNumber reg, GenTreeLclVarCommon* tree);
+    void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
 #if defined(TARGET_XARCH)
     void inst_RV_RV_IV(instruction ins, emitAttr size, regNumber reg1, regNumber reg2, unsigned ival);
     void inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival);
     void inst_RV_RV_TT(instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW);
 #endif
 
-    void inst_RV_RR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);
-
-    void inst_RV_ST(instruction ins, emitAttr size, regNumber reg, GenTree* tree);
-
-    void inst_mov_RV_ST(regNumber reg, GenTree* tree);
-
-    void inst_set_SV_var(GenTree* tree);
+    void inst_set_SV_var(GenTreeLclVar* node);
 
     class GenAddrMode
     {
@@ -1479,16 +1401,8 @@ public:
     void inst_AM_R(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
 
 #ifdef TARGET_ARM
-    bool arm_Valid_Imm_For_Instr(instruction ins, target_ssize_t imm, insFlags flags);
-    bool arm_Valid_Disp_For_LdSt(target_ssize_t disp, var_types type);
-    bool arm_Valid_Imm_For_Alu(target_ssize_t imm);
-    bool arm_Valid_Imm_For_Mov(target_ssize_t imm);
-    bool arm_Valid_Imm_For_Small_Mov(regNumber reg, target_ssize_t imm, insFlags flags);
     bool arm_Valid_Imm_For_Add(target_ssize_t imm, insFlags flag);
     bool arm_Valid_Imm_For_Add_SP(target_ssize_t imm);
-    bool arm_Valid_Imm_For_BL(ssize_t addr);
-
-    bool ins_Writes_Dest(instruction ins);
 #endif
 
     bool isMoveIns(instruction ins);
@@ -1496,11 +1410,11 @@ public:
 
     instruction ins_Copy(var_types dstType);
     instruction ins_Copy(regNumber srcReg, var_types dstType);
-    static instruction ins_FloatStore(var_types type = TYP_DOUBLE);
-    static instruction ins_FloatCopy(var_types type = TYP_DOUBLE);
-    instruction ins_FloatCompare(var_types type);
     instruction ins_MathOp(genTreeOps oper, var_types type);
+#ifdef TARGET_XARCH
+    instruction ins_FloatCompare(var_types type);
     instruction ins_FloatSqrt(var_types type);
+#endif
 
     void instGen_Return(unsigned stkArgSize);
 
@@ -1519,20 +1433,6 @@ public:
                                 ssize_t   imm,
                                 insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(size_t targetHandle = 0)
                                     DEBUGARG(unsigned gtFlags = 0));
-
-    void instGen_Compare_Reg_To_Zero(emitAttr size, regNumber reg);
-
-    void instGen_Compare_Reg_To_Reg(emitAttr size, regNumber reg1, regNumber reg2);
-
-    void instGen_Compare_Reg_To_Imm(emitAttr size, regNumber reg, target_ssize_t imm);
-
-    void instGen_Load_Reg_From_Lcl(var_types srcType, regNumber dstReg, int varNum, int offs);
-
-    void instGen_Store_Reg_Into_Lcl(var_types dstType, regNumber srcReg, int varNum, int offs);
-
-#ifdef DEBUG
-    void __cdecl instDisp(instruction ins, bool noNL, const char* fmt, ...);
-#endif
 
 #ifdef TARGET_XARCH
     instruction genMapShiftInsToShiftByConstantIns(instruction ins, int shiftByValue);
@@ -1585,73 +1485,29 @@ public:
     INDEBUG(bool IsValidSourceType(var_types instrType, var_types sourceType);)
 };
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                       Instruction                                         XX
-XX                      Inline functions                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-#ifdef TARGET_XARCH
-/*****************************************************************************
- *
- *  Generate a floating-point instruction that has one operand given by
- *  a tree (which has been made addressable).
- */
-
-inline void CodeGen::inst_FS_TT(instruction ins, GenTree* tree)
+inline void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 {
-    assert(instIsFP(ins));
-
-    assert(varTypeIsFloating(tree->gtType));
-
-    inst_TT(ins, tree, 0);
-}
-#endif
-
-/*****************************************************************************
- *
- *  Generate a "shift reg, cl" instruction.
- */
-
-inline void CodeGen::inst_RV_CL(instruction ins, regNumber reg, var_types type)
-{
-    inst_RV(ins, reg, type);
-}
-
-/*****************************************************************************/
-
-// A simple phase that just invokes a method on the codegen instance
-//
-class CodeGenPhase final : public Phase
-{
-public:
-    CodeGenPhase(CodeGen* _codeGen, Phases _phase, void (CodeGen::*_action)())
-        : Phase(_codeGen->GetCompiler(), _phase), codeGen(_codeGen), action(_action)
+    class CodeGenPhase final : public Phase
     {
-    }
+        CodeGen* codeGen;
+        void (CodeGen::*action)();
 
-protected:
-    virtual PhaseStatus DoPhase() override
-    {
-        (codeGen->*action)();
-        return PhaseStatus::MODIFIED_EVERYTHING;
-    }
+    public:
+        CodeGenPhase(CodeGen* codeGen, Phases phase, void (CodeGen::*action)())
+            : Phase(codeGen->GetCompiler(), phase), codeGen(codeGen), action(action)
+        {
+        }
 
-private:
-    CodeGen* codeGen;
-    void (CodeGen::*action)();
-};
+    protected:
+        virtual PhaseStatus DoPhase() override
+        {
+            (codeGen->*action)();
+            return PhaseStatus::MODIFIED_EVERYTHING;
+        }
+    };
 
-// Wrapper for using CodeGenPhase
-//
-inline void DoPhase(CodeGen* _codeGen, Phases _phase, void (CodeGen::*_action)())
-{
-    CodeGenPhase phase(_codeGen, _phase, _action);
+    CodeGenPhase phase(codeGen, phaseId, action);
     phase.Run();
 }
 
-#endif // _CODEGEN_H_
+#endif // CODEGEN_H

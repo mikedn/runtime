@@ -258,7 +258,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_LCL_FLD_ADDR:
         case GT_LCL_VAR_ADDR:
-            genCodeForLclAddr(treeNode);
+            genCodeForLclAddr(treeNode->AsLclVarCommon());
             break;
 
         case GT_LCL_FLD:
@@ -1531,28 +1531,6 @@ void CodeGen::genCodeForShift(GenTree* tree)
 }
 
 //------------------------------------------------------------------------
-// genCodeForLclAddr: Generates the code for GT_LCL_FLD_ADDR/GT_LCL_VAR_ADDR.
-//
-// Arguments:
-//    tree - the node.
-//
-void CodeGen::genCodeForLclAddr(GenTree* tree)
-{
-    assert(tree->OperIs(GT_LCL_FLD_ADDR, GT_LCL_VAR_ADDR));
-
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-
-    // Address of a local var.
-    noway_assert((targetType == TYP_BYREF) || (targetType == TYP_I_IMPL));
-
-    emitAttr size = emitTypeSize(targetType);
-
-    inst_RV_TT(INS_lea, targetReg, tree, 0, size);
-    genProduceReg(tree);
-}
-
-//------------------------------------------------------------------------
 // genCodeForLclFld: Produce code for a GT_LCL_FLD node.
 //
 // Arguments:
@@ -2390,7 +2368,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // Use IP0 on ARM64 and R12 on ARM32 as the call target register.
             if (target->GetRegNum() != REG_FASTTAILCALL_TARGET)
             {
-                inst_RV_RV(INS_mov, REG_FASTTAILCALL_TARGET, target->GetRegNum());
+                inst_RV_RV(INS_mov, REG_FASTTAILCALL_TARGET, target->GetRegNum(), TYP_I_IMPL);
             }
         }
 
@@ -2510,7 +2488,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
 // Non-virtual direct call to known addresses
 #ifdef TARGET_ARM
-        if (!arm_Valid_Imm_For_BL((ssize_t)addr))
+        if (!validImmForBL((ssize_t)addr))
         {
             regNumber tmpReg = call->GetSingleTempReg();
             instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, tmpReg, (ssize_t)addr);

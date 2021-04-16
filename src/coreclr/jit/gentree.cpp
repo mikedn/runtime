@@ -326,25 +326,6 @@ size_t GenTree::GetNodeSize() const
     return GenTree::s_gtNodeSizes[gtOper];
 }
 
-#ifdef DEBUG
-bool GenTree::IsNodeProperlySized() const
-{
-    size_t size;
-
-    if (gtDebugFlags & GTF_DEBUG_NODE_SMALL)
-    {
-        size = TREE_NODE_SZ_SMALL;
-    }
-    else
-    {
-        assert(gtDebugFlags & GTF_DEBUG_NODE_LARGE);
-        size = TREE_NODE_SZ_LARGE;
-    }
-
-    return GenTree::s_gtNodeSizes[gtOper] <= size;
-}
-#endif
-
 //------------------------------------------------------------------------
 // ReplaceWith: replace this with the src node. The source must be an isolated node
 //              and cannot be used after the replacement.

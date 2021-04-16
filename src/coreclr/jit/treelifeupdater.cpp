@@ -442,7 +442,7 @@ void TreeLifeUpdater<ForCodeGen>::UpdateLifeVar(GenTree* tree)
     if (ForCodeGen && spill)
     {
         assert(!varDsc->lvPromoted);
-        compiler->codeGen->genSpillVar(tree);
+        compiler->codeGen->genSpillVar(tree->AsLclVar());
         if (VarSetOps::IsMember(compiler, compiler->codeGen->gcInfo.gcTrkStkPtrLcls, varDsc->lvVarIndex))
         {
             if (!VarSetOps::IsMember(compiler, compiler->codeGen->gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
