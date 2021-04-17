@@ -8045,8 +8045,12 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
 #endif
                         )
                 {
-                    initType     = destLclVar->GetType();
-                    initBaseType = destLclVar->GetSIMDBaseType();
+                    initType = destLclVar->GetType();
+
+                    if (varTypeIsSIMD(initType))
+                    {
+                        initBaseType = destLclVar->GetLayout()->GetElementType();
+                    }
 
                     destLclNode->ChangeOper(GT_LCL_VAR);
                 }
@@ -8335,16 +8339,17 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* 
     for (unsigned i = 0; i < destLclVar->GetPromotedFieldCount(); ++i)
     {
         unsigned   destFieldLclNum = destLclVar->GetPromotedFieldLclNum(i);
-        LclVarDsc* destFieldLclVar = lvaGetDesc(destFieldLclNum);
+        LclVarDsc* destFieldLcl    = lvaGetDesc(destFieldLclNum);
 
-        GenTree* destField = gtNewLclvNode(destFieldLclNum, destFieldLclVar->GetType());
-        destField->gtFlags |= destFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+        GenTree* destField = gtNewLclvNode(destFieldLclNum, destFieldLcl->GetType());
+        destField->gtFlags |= destFieldLcl->lvAddrExposed ? GTF_GLOB_REF : 0;
+
+        var_types type     = destFieldLcl->GetType();
+        var_types baseType = varTypeIsSIMD(type) ? destFieldLcl->GetLayout()->GetElementType() : TYP_UNDEF;
 
         GenTree* asg =
-            gtNewAssignNode(destField,
-                            fgMorphInitBlockConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()),
-                                                     destFieldLclVar->GetType(), destFieldLclVar->lvNormalizeOnStore(),
-                                                     destFieldLclVar->GetSIMDBaseType()));
+            gtNewAssignNode(destField, fgMorphInitBlockConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
+                                                                destFieldLcl->lvNormalizeOnStore(), baseType));
 
 #if LOCAL_ASSERTION_PROP
         if (optLocalAssertionProp)

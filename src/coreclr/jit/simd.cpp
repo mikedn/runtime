@@ -684,7 +684,8 @@ GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDGetItem(GenTree* node)
         return nullptr;
     }
 
-    assert(getItem->GetSIMDBaseType() == TYP_FLOAT);
+    // Morph may generate SIMDIntrinsicGetItem having other types but at this point
+    // we only expect to see SIMDIntrinsicGetItem generated from Vector2/3/4 fields.
     assert(getItem->TypeIs(TYP_FLOAT));
 
     return getItem->GetOp(0)->AsLclVar();

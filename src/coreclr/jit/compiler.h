@@ -453,24 +453,11 @@ public:
 
 #ifdef FEATURE_SIMD
     unsigned char lvUsedInSIMDIntrinsic : 1; // This tells lclvar is used for simd intrinsic
-    var_types     lvBaseType : 5;            // Note: this only packs because var_types is a typedef of unsigned char
 #endif                                       // FEATURE_SIMD
     unsigned char lvRegStruct : 1;           // This is a reg-sized non-field-addressed struct.
 
-    var_types GetSIMDBaseType() const
-    {
-#ifdef FEATURE_SIMD
-        return lvBaseType;
-#else
-        return TYP_UNDEF;
-#endif
-    }
-
-    unsigned char lvClassIsExact : 1; // lvClassHandle is the exact type
-
-#ifdef DEBUG
-    unsigned char lvClassInfoUpdated : 1; // true if this var has updated class handle or exactness
-#endif
+    unsigned char lvClassIsExact : 1;              // lvClassHandle is the exact type
+    INDEBUG(unsigned char lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness
 
     unsigned char lvImplicitlyReferenced : 1; // true if there are non-IR references to this local (prolog, epilog, gc,
                                               // eh)
@@ -8157,7 +8144,7 @@ public:
     // Get the struct type for the specified class handle.
     var_types typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType = nullptr);
     // Get the struct type for the specified layout.
-    var_types typGetStructType(ClassLayout* layout, var_types* elementType = nullptr);
+    var_types typGetStructType(ClassLayout* layout);
     // Get the layout of a Vector2/3/4/T/NT type.
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
     ClassLayout* typGetRuntimeVectorLayout(var_types simdType, var_types elementType);

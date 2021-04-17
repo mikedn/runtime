@@ -6935,19 +6935,8 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
     saveLcl->SetRegNum(lclVarReg);
     SetLsraAdded(saveLcl);
 
-    var_types baseType = lcl->GetSIMDBaseType();
-
-    if (baseType == TYP_UNDEF)
-    {
-        // There are a few scenarios where we can get a LCL_VAR which
-        // doesn't know the underlying baseType. In that scenario, we
-        // will just lie and say it is a float. Codegen doesn't actually
-        // care what the type is but this avoids an assert that would
-        // otherwise be fired from the more general checks that happen.
-        baseType = TYP_FLOAT;
-    }
-
-    GenTree* simdNode = compiler->gtNewSIMDNode(LargeVectorSaveType, SIMDIntrinsicUpperSave, baseType,
+    // The base type is irrelevant, just set it to something valid so bogus asserts don't fire.
+    GenTree* simdNode = compiler->gtNewSIMDNode(LargeVectorSaveType, SIMDIntrinsicUpperSave, TYP_FLOAT,
                                                 varTypeSize(lcl->GetType()), saveLcl);
 
     SetLsraAdded(simdNode);
@@ -7003,19 +6992,8 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     restoreLcl->SetRegNum(lclVarReg);
     SetLsraAdded(restoreLcl);
 
-    var_types baseType = lcl->GetSIMDBaseType();
-
-    if (baseType == TYP_UNDEF)
-    {
-        // There are a few scenarios where we can get a LCL_VAR which
-        // doesn't know the underlying baseType. In that scenario, we
-        // will just lie and say it is a float. Codegen doesn't actually
-        // care what the type is but this avoids an assert that would
-        // otherwise be fired from the more general checks that happen.
-        baseType = TYP_FLOAT;
-    }
-
-    GenTree* simdNode = compiler->gtNewSIMDNode(lcl->GetType(), SIMDIntrinsicUpperRestore, baseType,
+    // The base type is irrelevant, just set it to something valid so bogus asserts don't fire.
+    GenTree* simdNode = compiler->gtNewSIMDNode(lcl->GetType(), SIMDIntrinsicUpperRestore, TYP_FLOAT,
                                                 varTypeSize(lcl->GetType()), restoreLcl);
 
     regNumber restoreReg = upperVectorInterval->physReg;

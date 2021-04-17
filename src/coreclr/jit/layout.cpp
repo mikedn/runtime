@@ -625,15 +625,11 @@ var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types
     return TYP_STRUCT;
 }
 
-var_types Compiler::typGetStructType(ClassLayout* layout, var_types* elementType)
+var_types Compiler::typGetStructType(ClassLayout* layout)
 {
 #ifdef FEATURE_SIMD
     if (layout->IsVector())
     {
-        if (elementType != nullptr)
-        {
-            *elementType = layout->GetElementType();
-        }
         return layout->GetSIMDType();
     }
 #endif

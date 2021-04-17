@@ -2598,16 +2598,12 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         if (layout->IsValueClass())
         {
 #if FEATURE_SIMD
-            var_types simdBaseType = TYP_UNKNOWN;
-            var_types simdType     = typGetStructType(layout, &simdBaseType);
+            var_types simdType = typGetStructType(layout);
 
             if (simdType != TYP_STRUCT)
             {
                 assert(varTypeIsSIMD(simdType));
-                assert(varTypeIsArithmetic(simdBaseType));
-
-                varDsc->lvType     = simdType;
-                varDsc->lvBaseType = simdBaseType;
+                varDsc->lvType = simdType;
             }
 #endif
 
