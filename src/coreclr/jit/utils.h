@@ -362,6 +362,21 @@ public:
         return m_value;
     }
 
+    T GetValue() const
+    {
+        assert(m_initialized);
+        INDEBUG((const_cast<PhasedVar*>(this))->m_writePhase = false;)
+        return m_value;
+    }
+
+    void SetFinalValue(T value)
+    {
+        assert(m_writePhase);
+        INDEBUG(m_initialized = true;)
+        m_value = value;
+        INDEBUG((const_cast<PhasedVar*>(this))->m_writePhase = false;)
+    }
+
     // Mark the value as read only; explicitly change the variable to the "read" phase.
     void MarkAsReadOnly() const
     {

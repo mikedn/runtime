@@ -46,10 +46,6 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
         unsigned   varNum = store->GetLclNum();
         LclVarDsc* varDsc = comp->lvaTable + varNum;
 
-        if (varDsc->lvIsSIMDType())
-        {
-            noway_assert(store->gtType != TYP_STRUCT);
-        }
         unsigned size = genTypeSize(store);
         // If we are storing a constant into a local variable
         // we extend the size of the store here
@@ -4612,12 +4608,6 @@ void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
             }
         }
         break;
-
-        case SIMDIntrinsicShuffleSSE2:
-            // Second operand is an integer constant and marked as contained.
-            assert(simdNode->GetOp(1)->IsCnsIntOrI());
-            MakeSrcContained(simdNode, simdNode->GetOp(1));
-            break;
 
         default:
             break;

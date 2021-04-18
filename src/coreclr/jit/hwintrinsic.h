@@ -308,13 +308,11 @@ struct HWIntrinsicInfo
                                    const char*       enclosingClassName);
     static CORINFO_InstructionSet lookupIsa(const char* className, const char* enclosingClassName);
 
-    static unsigned lookupSimdSize(Compiler* comp, NamedIntrinsic id, CORINFO_SIG_INFO* sig);
-
 #if defined(TARGET_XARCH)
     static int lookupImmUpperBound(NamedIntrinsic intrinsic);
 #elif defined(TARGET_ARM64)
     static void lookupImmBounds(
-        NamedIntrinsic intrinsic, int simdSize, var_types baseType, int* lowerBound, int* upperBound);
+        NamedIntrinsic intrinsic, unsigned simdSize, var_types baseType, int* lowerBound, int* upperBound);
 #else
 #error Unsupported platform
 #endif
@@ -551,17 +549,6 @@ struct HWIntrinsicInfo
     }
 #endif
 
-    static bool tryLookupSimdSize(NamedIntrinsic id, unsigned* pSimdSize)
-    {
-        bool succeeded = false;
-        if (lookup(id).simdSize != -1)
-        {
-            *pSimdSize = lookup(id).simdSize;
-            succeeded  = true;
-        }
-        return succeeded;
-    }
-
     static int lookupNumArgs(NamedIntrinsic id)
     {
         return lookup(id).numArgs;
@@ -712,6 +699,18 @@ struct HWIntrinsicInfo
         return (flags & HW_Flag_HasImmediateOperand) != 0;
     }
 #endif // TARGET_ARM64
+};
+
+struct HWIntrinsicSignature final
+{
+    var_types    retType;
+    ClassLayout* retLayout;
+    bool         hasThisParam;
+    unsigned     paramCount;
+    var_types    paramType[5];
+    ClassLayout* paramLayout[5];
+
+    void Read(class Compiler* compiler, CORINFO_SIG_INFO* sig);
 };
 
 #ifdef TARGET_ARM64

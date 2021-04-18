@@ -1769,8 +1769,6 @@ public:
 
     size_t GetNodeSize() const;
 
-    bool IsNodeProperlySized() const;
-
     void ReplaceWith(GenTree* src, Compiler* comp);
 
     static genTreeOps ReverseRelop(genTreeOps relop);
@@ -3764,11 +3762,7 @@ public:
     {
     }
 
-    void InitializeStruct(Compiler*            comp,
-                          CORINFO_CLASS_HANDLE retClass,
-                          unsigned             retClassSize,
-                          structPassingKind    retKind,
-                          var_types            retKindType);
+    void InitializeStruct(Compiler* comp, ClassLayout* retLayout, structPassingKind retKind, var_types retKindType);
 
     void InitializePrimitive(var_types regType);
 
@@ -4498,11 +4492,6 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_FAT_POINTER_CHECK) != 0;
     }
 
-    bool IsGuardedDevirtualizationCandidate() const
-    {
-        return (gtCallMoreFlags & GTF_CALL_M_GUARDED_DEVIRT) != 0;
-    }
-
     bool IsPure(Compiler* compiler) const;
 
     bool HasSideEffects(Compiler* compiler, bool ignoreExceptions = false, bool ignoreCctors = false) const;
@@ -4535,6 +4524,11 @@ public:
     bool IsSuppressGCTransition() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_SUPPRESS_GC_TRANSITION) != 0;
+    }
+
+    bool IsGuardedDevirtualizationCandidate() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_GUARDED_DEVIRT) != 0;
     }
 
     void ClearGuardedDevirtualizationCandidate()

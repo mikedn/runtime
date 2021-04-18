@@ -1520,7 +1520,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         return false;
     }
 
-    switch (genActualType(varDsc->TypeGet()))
+    switch (varActualType(varDsc->GetType()))
     {
         case TYP_FLOAT:
         case TYP_DOUBLE:
@@ -1530,7 +1530,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         case TYP_LONG:
         case TYP_REF:
         case TYP_BYREF:
-            break;
+            return true;
 
 #ifdef FEATURE_SIMD
         case TYP_SIMD8:
@@ -1546,14 +1546,10 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         case TYP_UNDEF:
         case TYP_UNKNOWN:
             noway_assert(!"lvType not set correctly");
-            varDsc->lvType = TYP_INT;
-            return false;
-
+            FALLTHROUGH;
         default:
             return false;
     }
-
-    return true;
 }
 
 // Identify locals & compiler temps that are register candidates
@@ -4159,7 +4155,7 @@ void LinearScan::unassignPhysReg(RegRecord* regRec, RefPosition* spillRefPositio
     // Prepare second half RegRecord of a double register for TYP_DOUBLE
     if (assignedInterval->registerType == TYP_DOUBLE)
     {
-        assert(isFloatRegType(regRec->registerType));
+        assert(varTypeUsesFloatReg(regRec->registerType));
         RegRecord* doubleRegRec;
         if (genIsValidDoubleReg(thisRegNum))
         {
@@ -6917,8 +6913,8 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
         return;
     }
 
-    LclVarDsc* varDsc = compiler->lvaTable + lclVarInterval->varNum;
-    assert(varTypeNeedsPartialCalleeSave(varDsc->lvType));
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclVarInterval->varNum);
+    assert(varTypeNeedsPartialCalleeSave(lcl->GetType()));
 
     // On Arm64, we must always have a register to save the upper half,
     // while on x86 we can spill directly to memory.
@@ -6935,22 +6931,13 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 
     // Insert the save before the call.
 
-    GenTree* saveLcl = compiler->gtNewLclvNode(lclVarInterval->varNum, varDsc->lvType);
+    GenTree* saveLcl = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
     saveLcl->SetRegNum(lclVarReg);
     SetLsraAdded(saveLcl);
 
-    GenTreeSIMD* simdNode = compiler->gtNewSIMDNode(LargeVectorSaveType, SIMDIntrinsicUpperSave, varDsc->lvBaseType,
-                                                    genTypeSize(varDsc->lvType), saveLcl);
-
-    if (simdNode->gtSIMDBaseType == TYP_UNDEF)
-    {
-        // There are a few scenarios where we can get a LCL_VAR which
-        // doesn't know the underlying baseType. In that scenario, we
-        // will just lie and say it is a float. Codegen doesn't actually
-        // care what the type is but this avoids an assert that would
-        // otherwise be fired from the more general checks that happen.
-        simdNode->gtSIMDBaseType = TYP_FLOAT;
-    }
+    // The base type is irrelevant, just set it to something valid so bogus asserts don't fire.
+    GenTree* simdNode = compiler->gtNewSIMDNode(LargeVectorSaveType, SIMDIntrinsicUpperSave, TYP_FLOAT,
+                                                varTypeSize(lcl->GetType()), saveLcl);
 
     SetLsraAdded(simdNode);
     simdNode->SetRegNum(spillReg);
@@ -6997,26 +6984,17 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     // We should not call this method if the lclVar is not in a register (we should have simply marked the entire
     // lclVar as spilled).
     assert(lclVarReg != REG_NA);
-    LclVarDsc* varDsc = compiler->lvaTable + lclVarInterval->varNum;
-    assert(varTypeNeedsPartialCalleeSave(varDsc->lvType));
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclVarInterval->varNum);
+    assert(varTypeNeedsPartialCalleeSave(lcl->GetType()));
 
     GenTree* restoreLcl = nullptr;
-    restoreLcl          = compiler->gtNewLclvNode(lclVarInterval->varNum, varDsc->lvType);
+    restoreLcl          = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
     restoreLcl->SetRegNum(lclVarReg);
     SetLsraAdded(restoreLcl);
 
-    GenTreeSIMD* simdNode = compiler->gtNewSIMDNode(varDsc->lvType, SIMDIntrinsicUpperRestore, varDsc->lvBaseType,
-                                                    genTypeSize(varDsc->lvType), restoreLcl);
-
-    if (simdNode->gtSIMDBaseType == TYP_UNDEF)
-    {
-        // There are a few scenarios where we can get a LCL_VAR which
-        // doesn't know the underlying baseType. In that scenario, we
-        // will just lie and say it is a float. Codegen doesn't actually
-        // care what the type is but this avoids an assert that would
-        // otherwise be fired from the more general checks that happen.
-        simdNode->gtSIMDBaseType = TYP_FLOAT;
-    }
+    // The base type is irrelevant, just set it to something valid so bogus asserts don't fire.
+    GenTree* simdNode = compiler->gtNewSIMDNode(lcl->GetType(), SIMDIntrinsicUpperRestore, TYP_FLOAT,
+                                                varTypeSize(lcl->GetType()), restoreLcl);
 
     regNumber restoreReg = upperVectorInterval->physReg;
     SetLsraAdded(simdNode);

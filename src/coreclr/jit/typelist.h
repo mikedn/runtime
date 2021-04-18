@@ -53,7 +53,6 @@ DEF_TP(BYREF   ,"byref"   , TYP_BYREF,   TI_ERROR,PS,BRS,BRS, PST,PS, VTF_ANY|VT
 DEF_TP(STRUCT  ,"struct"  , TYP_STRUCT,  TI_STRUCT,0,  0,  0,   1, 4, VTF_S)
 
 DEF_TP(BLK     ,"blk"     , TYP_BLK,     TI_ERROR, 0,  0,  0,   1, 4, VTF_ANY) // blob of memory
-DEF_TP(LCLBLK  ,"lclBlk"  , TYP_LCLBLK,  TI_ERROR, 0,  0,  0,   1, 4, VTF_ANY) // preallocated memory for locspace
 
 #ifdef FEATURE_SIMD
 // Amd64: The size and alignment of SIMD vector varies at JIT time based on whether target arch supports AVX or SSE2.

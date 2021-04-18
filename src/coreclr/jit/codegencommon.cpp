@@ -80,22 +80,18 @@ void CodeGenInterface::setFramePointerRequiredEH(bool value)
 #endif // JIT32_GCENCODER
 }
 
-/*****************************************************************************/
 CodeGenInterface* getCodeGenerator(Compiler* comp)
 {
     return new (comp, CMK_Codegen) CodeGen(comp);
 }
 
-// CodeGen constructor
-CodeGenInterface::CodeGenInterface(Compiler* theCompiler)
-    : gcInfo(theCompiler), regSet(theCompiler, gcInfo), compiler(theCompiler), treeLifeUpdater(nullptr)
+CodeGenInterface::CodeGenInterface(Compiler* compiler)
+    : gcInfo(compiler), regSet(compiler, gcInfo), compiler(compiler), treeLifeUpdater(nullptr)
 {
 }
 
-/*****************************************************************************/
-
-CodeGen::CodeGen(Compiler* theCompiler)
-    : CodeGenInterface(theCompiler)
+CodeGen::CodeGen(Compiler* compiler)
+    : CodeGenInterface(compiler)
 #if defined(TARGET_XARCH)
     , negBitmaskFlt(nullptr)
     , negBitmaskDbl(nullptr)
@@ -120,8 +116,6 @@ CodeGen::CodeGen(Compiler* theCompiler)
 #endif // DEBUG
 
     regSet.tmpInit();
-
-    instInit();
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
@@ -3045,18 +3039,17 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         // In other cases, we simply use the type of the lclVar to determine the type of the register.
         var_types getRegType(Compiler* compiler)
         {
-            const LclVarDsc& varDsc = compiler->lvaTable[varNum];
-            // Check if this is an HFA register arg and return the HFA type
-            if (varDsc.lvIsHfaRegArg())
+            LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+
+            if (varDsc->lvIsHfaRegArg())
             {
-#if defined(TARGET_WINDOWS)
-                // Cannot have hfa types on windows arm targets
-                // in vararg methods.
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
                 assert(!compiler->info.compIsVarArgs);
-#endif // defined(TARGET_WINDOWS)
-                return varDsc.GetHfaType();
+#endif
+                return varDsc->GetLayout()->GetHfaElementType();
             }
-            return compiler->mangleVarArgsType(varDsc.lvType);
+
+            return compiler->mangleVarArgsType(varDsc->GetType());
         }
 
 #endif // !UNIX_AMD64_ABI
@@ -3121,12 +3114,9 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         if (varDsc->lvIsHfaRegArg())
         {
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            if (compiler->info.compIsVarArgs)
-            {
-                assert(!"Illegal incoming HFA arg encountered in Vararg method.");
-            }
-#endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            regType = varDsc->GetHfaType();
+            assert(!compiler->info.compIsVarArgs);
+#endif
+            regType = varDsc->GetLayout()->GetHfaElementType();
         }
 
 #if defined(UNIX_AMD64_ABI)
@@ -3249,12 +3239,11 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             slots = 1;
 
 #if FEATURE_MULTIREG_ARGS
-            if (compiler->lvaIsMultiregStruct(varDsc, compiler->info.compIsVarArgs))
+            if (compiler->lvaIsMultiRegStructParam(varDsc))
             {
                 if (varDsc->lvIsHfaRegArg())
                 {
-                    // We have an HFA argument, set slots to the number of registers used
-                    slots = varDsc->lvHfaSlots();
+                    slots = varDsc->GetLayout()->GetHfaRegCount();
                 }
                 else
                 {
@@ -3463,12 +3452,12 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     destRegNum = varDsc->GetRegNum();
                 }
 #if defined(TARGET_ARM64) && defined(FEATURE_SIMD)
-                else if (varDsc->lvIsHfa())
+                else if (varDsc->lvIsHfaRegArg())
                 {
                     // This must be a SIMD type that's fully enregistered, but is passed as an HFA.
                     // Each field will be inserted into the same destination register.
-                    assert(varTypeIsSIMD(varDsc) && !compiler->isOpaqueSIMDType(varDsc->GetLayout()->GetClassHandle()));
-                    assert(regArgTab[argNum].slot <= (int)varDsc->lvHfaSlots());
+                    assert(varTypeIsSIMD(varDsc->GetType()) && !varDsc->GetLayout()->IsOpaqueVector());
+                    assert(regArgTab[argNum].slot <= static_cast<int>(varDsc->GetLayout()->GetHfaRegCount()));
                     assert(argNum > 0);
                     assert(regArgTab[argNum - 1].varNum == varNum);
                     regArgMaskLive &= ~genRegMask(regNum);
@@ -3640,7 +3629,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 storeType = TYP_FLOAT;
                 slotSize  = (unsigned)emitActualTypeSize(storeType);
 #else  // TARGET_ARM64
-                storeType = genActualType(varDsc->GetHfaType());
+                storeType = varDsc->GetLayout()->GetHfaElementType();
                 slotSize  = (unsigned)emitActualTypeSize(storeType);
 #endif // TARGET_ARM64
             }
@@ -4181,11 +4170,12 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 #ifdef TARGET_ARMARCH
-            if (varDsc->lvIsHfa())
+            if (varDsc->lvIsHfaRegArg())
             {
                 // This includes both fixed-size SIMD types that are independently promoted, as well
                 // as other HFA structs.
-                argRegCount = varDsc->lvHfaSlots();
+                argRegCount = static_cast<int>(varDsc->GetLayout()->GetHfaRegCount());
+
                 if (argNum < (argMax - argRegCount + 1))
                 {
                     if (compiler->lvaGetPromotionType(varDsc) == Compiler::PROMOTION_TYPE_INDEPENDENT)
@@ -4212,7 +4202,6 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                         // the code above copies the first argument register into the lower 4 or 8 bytes
                         // of the target register. Here we must handle the subsequent fields by
                         // inserting them into the upper bytes of the target SIMD floating point register.
-                        argRegCount = varDsc->lvHfaSlots();
                         for (int i = 1; i < argRegCount; i++)
                         {
                             int         nextArgNum  = argNum + i;
@@ -4599,7 +4588,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     // need an unwind code. We don't want to generate a "NOP" code for this
     // temp register load; we want the unwind codes to start after that.
 
-    if (arm_Valid_Imm_For_Instr(INS_add, frameSize, INS_FLAGS_DONT_CARE))
+    if (validImmForInstr(INS_add, frameSize, INS_FLAGS_DONT_CARE))
     {
         if (!*pUnwindStarted)
         {
@@ -4913,7 +4902,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
             {
                 // Restore sp from fp
                 //      mov sp, fp
-                inst_RV_RV(INS_mov, REG_SPBASE, REG_FPBASE);
+                inst_RV_RV(INS_mov, REG_SPBASE, REG_FPBASE, TYP_I_IMPL);
                 compiler->unwindSetFrameReg(REG_FPBASE, 0);
             }
 
@@ -5827,14 +5816,12 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
                 continue;
             }
 
-            if ((varDsc->TypeGet() == TYP_STRUCT) && !compiler->info.compInitMem &&
-                (varDsc->lvExactSize >= TARGET_POINTER_SIZE))
+            if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem && varDsc->HasGCPtr())
             {
                 // We only initialize the GC variables in the TYP_STRUCT
-                const unsigned slots  = (unsigned)compiler->lvaLclSize(varNum) / REGSIZE_BYTES;
-                ClassLayout*   layout = varDsc->GetLayout();
+                ClassLayout* layout = varDsc->GetLayout();
 
-                for (unsigned i = 0; i < slots; i++)
+                for (unsigned i = 0; i < layout->GetSlotCount(); i++)
                 {
                     if (layout->IsGCPtr(i))
                     {
@@ -5877,7 +5864,8 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
 
             // printf("initialize untracked spillTmp [EBP-%04X]\n", stkOffs);
 
-            inst_ST_RV(ins_Store(TYP_I_IMPL), tempThis, 0, genGetZeroReg(initReg, pInitRegZeroed), TYP_I_IMPL);
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, genGetZeroReg(initReg, pInitRegZeroed),
+                                      tempThis->tdTempNum(), 0);
         }
     }
 
@@ -6967,7 +6955,7 @@ void CodeGen::genFnProlog()
             noway_assert(isFramePointerUsed() == false);
             noway_assert(!regSet.rsRegsModified(RBM_FPBASE)); /* Trashing EBP is out.    */
 
-            inst_RV_IV(INS_AND, REG_SPBASE, -8, EA_PTRSIZE);
+            inst_RV_IV(INS_and, REG_SPBASE, -8, EA_PTRSIZE);
         }
 #endif // DOUBLE_ALIGN
     }
@@ -7433,7 +7421,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         }
 
         // mov R9 into SP
-        inst_RV_RV(INS_mov, REG_SP, REG_SAVED_LOCALLOC_SP);
+        inst_RV_RV(INS_mov, REG_SP, REG_SAVED_LOCALLOC_SP, TYP_I_IMPL);
         compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
     }
 
@@ -7915,7 +7903,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         if (needMovEspEbp)
         {
             // mov esp, ebp
-            inst_RV_RV(INS_mov, REG_SPBASE, REG_FPBASE);
+            inst_RV_RV(INS_mov, REG_SPBASE, REG_FPBASE, TYP_I_IMPL);
         }
 #endif // !TARGET_AMD64
 
@@ -9199,61 +9187,6 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
 }
 
 #endif // defined(TARGET_XARCH)
-
-//----------------------------------------------
-// Methods that support HFA's for ARM32/ARM64
-//----------------------------------------------
-
-bool Compiler::IsHfa(CORINFO_CLASS_HANDLE hClass)
-{
-    return varTypeIsValidHfaType(GetHfaType(hClass));
-}
-
-var_types Compiler::GetHfaType(CORINFO_CLASS_HANDLE hClass)
-{
-#ifdef FEATURE_HFA
-    if (hClass != NO_CLASS_HANDLE)
-    {
-        CorInfoHFAElemType elemKind = info.compCompHnd->getHFAType(hClass);
-        if (elemKind != CORINFO_HFA_ELEM_NONE)
-        {
-            // This type may not appear elsewhere, but it will occupy a floating point register.
-            compFloatingPointUsed = true;
-        }
-        return HfaTypeFromElemKind(elemKind);
-    }
-#endif // FEATURE_HFA
-    return TYP_UNDEF;
-}
-
-//------------------------------------------------------------------------
-// GetHfaCount: Given a  class handle for an HFA struct
-//    return the number of registers needed to hold the HFA
-//
-//    Note that on ARM32 the single precision registers overlap with
-//        the double precision registers and for that reason each
-//        double register is considered to be two single registers.
-//        Thus for ARM32 an HFA of 4 doubles this function will return 8.
-//    On ARM64 given an HFA of 4 singles or 4 doubles this function will
-//         will return 4 for both.
-// Arguments:
-//    hClass: the class handle of a HFA struct
-//
-unsigned Compiler::GetHfaCount(CORINFO_CLASS_HANDLE hClass)
-{
-    assert(IsHfa(hClass));
-#ifdef TARGET_ARM
-    // A HFA of doubles is twice as large as an HFA of singles for ARM32
-    // (i.e. uses twice the number of single precison registers)
-    return info.compCompHnd->getClassSize(hClass) / REGSIZE_BYTES;
-#else  // TARGET_ARM64
-    var_types hfaType   = GetHfaType(hClass);
-    unsigned  classSize = info.compCompHnd->getClassSize(hClass);
-    // Note that the retail build issues a warning about a potential divsion by zero without the Max function
-    unsigned elemSize = Max((unsigned)1, EA_SIZE_IN_BYTES(emitActualTypeSize(hfaType)));
-    return classSize / elemSize;
-#endif // TARGET_ARM64
-}
 
 #ifdef TARGET_XARCH
 

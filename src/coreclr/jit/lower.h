@@ -152,10 +152,10 @@ private:
     GenTree* LowerNonvirtPinvokeCall(GenTreeCall* call);
     GenTree* LowerTailCallViaJitHelper(GenTreeCall* callNode, GenTree* callTarget);
     void LowerFastTailCall(GenTreeCall* callNode);
-    void RehomeArgForFastTailCall(unsigned int lclNum,
-                                  GenTree*     insertTempBefore,
-                                  GenTree*     lookForUsesStart,
-                                  GenTreeCall* callNode);
+    void RehomeParamForFastTailCall(unsigned paramLclNum,
+                                    GenTree* insertTempBefore,
+                                    GenTree* rangeStart,
+                                    GenTree* rangeEnd);
     void InsertProfTailCallHook(GenTreeCall* callNode, GenTree* insertionPoint);
     GenTree* LowerVirtualVtableCall(GenTreeCall* call);
     GenTree* LowerVirtualStubCall(GenTreeCall* call);
@@ -210,6 +210,29 @@ private:
     {
         var_types resultType = (base->TypeGet() == TYP_REF) ? TYP_BYREF : base->TypeGet();
         return new (comp, GT_LEA) GenTreeAddrMode(resultType, base, index, scale, 0);
+    }
+
+    GenTree* NewStoreLclVar(unsigned lclNum, var_types type, GenTree* value)
+    {
+        // Don't bother with GTF_GLOB_REF for now, it's unlikely to be ever needed in LIR.
+        assert(!comp->lvaGetDesc(lclNum)->lvAddrExposed);
+
+        if (type == TYP_STRUCT)
+        {
+            LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+            assert(lcl->TypeIs(TYP_STRUCT));
+            GenTree* addr = comp->gtNewLclVarAddrNode(lclNum);
+            addr->gtFlags |= GTF_VAR_DEF;
+            GenTreeObj* store = new (comp, GT_STORE_OBJ) GenTreeObj(TYP_STRUCT, addr, value, lcl->GetLayout());
+            store->gtFlags |= GTF_IND_NONFAULTING;
+            store->gtFlags &= ~GTF_GLOB_REF;
+            return store;
+        }
+
+        GenTreeLclVar* store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, type, lclNum);
+        store->gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        store->SetOp(0, value);
+        return store;
     }
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
@@ -322,7 +345,7 @@ private:
 
     bool TryTransformStoreObjAsStoreInd(GenTreeBlk* blkNode);
 
-    GenTree* LowerSwitch(GenTree* node);
+    GenTree* LowerSwitch(GenTreeUnOp* node);
     bool TryLowerSwitchToBitTest(
         BasicBlock* jumpTable[], unsigned jumpCount, unsigned targetCount, BasicBlock* bbSwitch, GenTree* switchValue);
 

@@ -326,25 +326,6 @@ size_t GenTree::GetNodeSize() const
     return GenTree::s_gtNodeSizes[gtOper];
 }
 
-#ifdef DEBUG
-bool GenTree::IsNodeProperlySized() const
-{
-    size_t size;
-
-    if (gtDebugFlags & GTF_DEBUG_NODE_SMALL)
-    {
-        size = TREE_NODE_SZ_SMALL;
-    }
-    else
-    {
-        assert(gtDebugFlags & GTF_DEBUG_NODE_LARGE);
-        size = TREE_NODE_SZ_LARGE;
-    }
-
-    return GenTree::s_gtNodeSizes[gtOper] <= size;
-}
-#endif
-
 //------------------------------------------------------------------------
 // ReplaceWith: replace this with the src node. The source must be an isolated node
 //              and cannot be used after the replacement.
@@ -2560,8 +2541,7 @@ bool Compiler::gtIsLikelyRegVar(GenTree* tree)
         return false;
     }
 
-    assert(tree->AsLclVar()->GetLclNum() < lvaTableCnt);
-    LclVarDsc* varDsc = lvaTable + tree->AsLclVar()->GetLclNum();
+    LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
 
     if (varDsc->lvDoNotEnregister)
     {
@@ -5295,18 +5275,14 @@ GenTreeOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1
     return new (this, oper) GenTreeOp(oper, type, op1, op2);
 }
 
-GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* colon)
+GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)
 {
+    assert(!compQmarkRationalized);
+
     compQmarkUsed = true;
     cond->gtFlags |= GTF_RELOP_QMARK;
-    GenTreeQmark* result = new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
-#ifdef DEBUG
-    if (compQmarkRationalized)
-    {
-        fgCheckQmarkAllowedForm(result);
-    }
-#endif
-    return result;
+    GenTreeColon* colon = new (this, GT_COLON) GenTreeColon(type, op1, op2);
+    return new (this, GT_QMARK) GenTreeQmark(type, cond, colon);
 }
 
 GenTreeIntCon* Compiler::gtNewIconNode(ssize_t value, var_types type)
@@ -5437,8 +5413,7 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, unsigned iconF
         // When 'value' is non-null, pValue is required to be null
         assert(pValue == nullptr);
 
-        // use 'value' to construct an integer constant node
-        iconNode = gtNewIconHandleNode((size_t)value, iconFlags);
+        iconNode = gtNewIconHandleNode(reinterpret_cast<size_t>(value), iconFlags);
 
         // 'value' is the handle
         handleNode = iconNode;
@@ -5448,22 +5423,13 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, unsigned iconF
         // When 'value' is null, pValue is required to be non-null
         assert(pValue != nullptr);
 
-        // use 'pValue' to construct an integer constant node
-        iconNode = gtNewIconHandleNode((size_t)pValue, iconFlags);
-
-        // 'pValue' is an address of a location that contains the handle
-
-        // construct the indirection of 'pValue'
+        // 'pValue' is the address of a location that contains the handle
+        iconNode   = gtNewIconHandleNode(reinterpret_cast<size_t>(pValue), iconFlags);
         handleNode = gtNewOperNode(GT_IND, TYP_I_IMPL, iconNode);
-
-        // This indirection won't cause an exception.
-        handleNode->gtFlags |= GTF_IND_NONFAULTING;
-
-        // This indirection also is invariant.
-        handleNode->gtFlags |= GTF_IND_INVARIANT;
+        handleNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
     }
 
-    iconNode->AsIntCon()->gtCompileTimeHandle = (size_t)compileTimeHandle;
+    iconNode->AsIntCon()->gtCompileTimeHandle = reinterpret_cast<size_t>(compileTimeHandle);
 
     return handleNode;
 }
@@ -5670,12 +5636,12 @@ GenTreeCall* Compiler::gtNewCallNode(
 GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
 {
 #ifdef DEBUG
-    LclVarDsc* lcl = lvaGetDesc(lnum);
-
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
     {
+        LclVarDsc* lcl = lvaGetDesc(lnum);
+
         // Make an exception for implicit by-ref parameters during global morph, since
         // their lvType has been updated to byref but their appearances have not yet all
         // been rewritten and so may have struct type still.
@@ -5685,9 +5651,8 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL
         // TODO-1stClassStructs: When we stop "lying" about the types for ABI purposes, we
         // should be able to remove this exception and handle the assignment mismatch in
         // Lowering.
-        assert((type == lcl->GetType()) ||
-               (lcl->IsImplicitByRefParam() && fgGlobalMorph && (lcl->GetType() == TYP_BYREF)) ||
-               ((lcl->GetType() == TYP_STRUCT) && (varTypeSize(type) == lcl->lvExactSize)));
+        assert((type == lcl->GetType()) || (lcl->IsImplicitByRefParam() && fgGlobalMorph && lcl->TypeIs(TYP_BYREF)) ||
+               (lcl->TypeIs(TYP_STRUCT) && (varTypeSize(type) == lcl->GetLayout()->GetSize())));
     }
 #endif
 
@@ -5842,35 +5807,24 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     unreached();
 }
 
-/*****************************************************************************
- *
- *  Create a node that will assign 'src' to 'dst'.
- */
-
 GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 {
     assert(!src->TypeIs(TYP_VOID));
-    /* Mark the target as being assigned */
 
-    if ((dst->gtOper == GT_LCL_VAR) || (dst->OperGet() == GT_LCL_FLD))
+    dst->gtFlags |= GTF_DONT_CSE;
+
+    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         dst->gtFlags |= GTF_VAR_DEF;
+
         if (dst->IsPartialLclFld(this))
         {
-            // We treat these partial writes as combined uses and defs.
             dst->gtFlags |= GTF_VAR_USEASG;
         }
     }
-    dst->gtFlags |= GTF_DONT_CSE;
 
-    /* Create the assignment node */
-
-    GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->TypeGet(), dst, src);
-
-    /* Mark the expression as containing an assignment */
-
+    GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
     asg->gtFlags |= GTF_ASG;
-
     return asg;
 }
 
@@ -5891,7 +5845,7 @@ GenTreeObj* Compiler::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr
 
 GenTreeObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
 {
-    return gtNewObjNode(impNormStructType(layout->GetClassHandle()), layout, addr);
+    return gtNewObjNode(typGetStructType(layout), layout, addr);
 }
 
 GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
@@ -9267,27 +9221,19 @@ void Compiler::gtDispLclVarStructType(unsigned lclNum)
         assert(layout != nullptr);
         gtDispClassLayout(layout, type);
     }
-    else if (type == TYP_LCLBLK)
-    {
 #if FEATURE_FIXED_OUT_ARGS
-        assert(lclNum == lvaOutgoingArgSpaceVar);
-        // Since lvaOutgoingArgSpaceSize is a PhasedVar we can't read it for Dumping until
-        // after we set it to something.
+    else if (lclNum == lvaOutgoingArgSpaceVar)
+    {
         if (lvaOutgoingArgSpaceSize.HasFinalValue())
         {
-            // A PhasedVar<T> can't be directly used as an arg to a variadic function
-            unsigned value = lvaOutgoingArgSpaceSize;
-            printf("<%u> ", value);
+            printf("<%u> ", lvaOutgoingArgSpaceSize.GetValue());
         }
         else
         {
-            printf("<na> "); // The value hasn't yet been determined
+            printf("<na> ");
         }
-#else
-        assert(!"Unknown size");
-        NO_WAY("Target doesn't support TYP_LCLBLK");
-#endif // FEATURE_FIXED_OUT_ARGS
     }
+#endif // FEATURE_FIXED_OUT_ARGS
 }
 
 //------------------------------------------------------------------------
@@ -9578,37 +9524,33 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
             {
                 for (unsigned i = 0; i < varDsc->GetPromotedFieldCount(); ++i)
                 {
-                    LclVarDsc*  fieldVarDsc = lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
+                    LclVarDsc*  fieldLcl = lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
                     const char* fieldName;
-#if !defined(TARGET_64BIT)
+
+#ifndef TARGET_64BIT
                     if (varTypeIsLong(varDsc))
                     {
                         fieldName = (i == 0) ? "lo" : "hi";
                     }
                     else
-#endif // !defined(TARGET_64BIT)
+#endif
                     {
-                        CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
-                        CORINFO_FIELD_HANDLE fldHnd =
-                            info.compCompHnd->getFieldInClass(typeHnd, fieldVarDsc->lvFldOrdinal);
-                        fieldName = eeGetFieldName(fldHnd);
+                        fieldName = eeGetFieldName(fieldLcl->GetPromotedFieldHandle());
                     }
 
-                    printf("\n");
-                    printf("                                                  ");
+                    printf("\n                                                  ");
                     printIndent(indentStack);
-                    printf("    %-6s V%02u.%s (offs=0x%02x) -> ", varTypeName(fieldVarDsc->TypeGet()),
-                           tree->AsLclVarCommon()->GetLclNum(), fieldName, fieldVarDsc->lvFldOffset);
-                    gtDispLclVar(i);
+                    printf("    %-6s V%02u.%s @%u -> V%02u", varTypeName(fieldLcl->GetType()), varNum, fieldName,
+                           fieldLcl->GetPromotedFieldOffset(), varDsc->GetPromotedFieldLclNum(i));
 
-                    if (fieldVarDsc->lvRegister)
+                    if (fieldLcl->lvRegister)
                     {
                         printf(" ");
-                        fieldVarDsc->PrintVarReg();
+                        fieldLcl->PrintVarReg();
                     }
 
-                    if (fieldVarDsc->lvTracked && fgLocalVarLivenessDone && tree->IsMultiRegLclVar() &&
-                        tree->AsLclVar()->IsLastUse(i - varDsc->lvFieldLclStart))
+                    if (fieldLcl->lvTracked && fgLocalVarLivenessDone && tree->IsMultiRegLclVar() &&
+                        tree->AsLclVar()->IsLastUse(i))
                     {
                         printf(" (last use)");
                     }
@@ -12016,18 +11958,16 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
         JITDUMP("Bashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
         asg->gtBashToNOP();
 
-        if (varTypeIsStruct(copyDst->TypeGet()))
+        if (varTypeIsStruct(copyDst->GetType()))
         {
             JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclNum, eeGetClassName(boxTempLclDsc->lvClassHnd));
-            boxTempLclDsc->lvType         = TYP_UNDEF;
-            const bool isUnsafeValueClass = false;
-            lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, isUnsafeValueClass);
+            lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, /* checkUnsafeBuffer */ false);
         }
         else
         {
-            assert(copyDst->TypeGet() == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
-            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclNum, varTypeName(copyDst->TypeGet()));
-            boxTempLclDsc->lvType = copyDst->TypeGet();
+            assert(copyDst->GetType() == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
+            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclNum, varTypeName(copyDst->GetType()));
+            boxTempLclDsc->SetType(copyDst->GetType());
         }
 
         copyDst->ChangeOper(GT_LCL_VAR);
@@ -12257,10 +12197,10 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     // Our trial removals above should guarantee successful removals here.
     assert(thisVal != nullptr);
     assert(flagVal != nullptr);
-    assert(genActualType(thisVal->TypeGet()) == genActualType(flagVal->TypeGet()));
 
     // Type to use for optimized check
-    var_types type = genActualType(thisVal->TypeGet());
+    var_types type = varActualType(thisVal->GetType());
+    assert(type == varActualType(flagVal->GetType()));
 
     // The thisVal and flagVal trees come from earlier statements.
     //
@@ -12279,9 +12219,9 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        const unsigned thisTmp     = lvaGrabTemp(true DEBUGARG("Enum:HasFlag this temp"));
-        GenTree*       thisAsg     = gtNewTempAssign(thisTmp, thisVal);
-        Statement*     thisAsgStmt = thisOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
+        unsigned   thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
+        GenTree*   thisAsg     = gtNewAssignNode(gtNewLclvNode(thisTmp, type), thisVal);
+        Statement* thisAsgStmt = thisOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
         thisAsgStmt->SetRootNode(thisAsg);
         thisValOpt = gtNewLclvNode(thisTmp, type);
     }
@@ -12295,9 +12235,9 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        const unsigned flagTmp     = lvaGrabTemp(true DEBUGARG("Enum:HasFlag flag temp"));
-        GenTree*       flagAsg     = gtNewTempAssign(flagTmp, flagVal);
-        Statement*     flagAsgStmt = flagOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
+        unsigned   flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
+        GenTree*   flagAsg     = gtNewAssignNode(gtNewLclvNode(flagTmp, type), flagVal);
+        Statement* flagAsgStmt = flagOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
         flagAsgStmt->SetRootNode(flagAsg);
         flagValOpt     = gtNewLclvNode(flagTmp, type);
         flagValOptCopy = gtNewLclvNode(flagTmp, type);
@@ -13727,12 +13667,7 @@ DONE:
 #pragma warning(pop)
 #endif
 
-//------------------------------------------------------------------------
-// gtNewTempAssign: Create an assignment of the given value to a temp.
-//
-// Arguments:
-//    tmp         - local number for a compiler temp
-//    val         - value to assign to the temp
+// Create an assignment of the given value to a temp.
 //
 // Return Value:
 //    Normally a new assignment node.
@@ -13740,157 +13675,139 @@ DONE:
 //
 // Notes:
 //    Self-assignments may be represented via NOPs.
-//
 //    May update the type of the temp, if it was previously unknown.
-//
 //    May set compFloatingPointUsed.
 
-GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
+GenTree* Compiler::gtNewTempAssign(unsigned lclNum, GenTree* val)
 {
-    // Self-assignment is a nop.
-    if (val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == tmp))
+    if (val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == lclNum))
     {
         return gtNewNothingNode();
     }
 
-    LclVarDsc* varDsc = lvaGetDesc(tmp);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    if (varDsc->TypeGet() == TYP_I_IMPL && val->TypeGet() == TYP_BYREF)
+    if (lcl->TypeIs(TYP_I_IMPL) && val->TypeIs(TYP_BYREF))
     {
         impBashVarAddrsToI(val);
     }
 
-    var_types valTyp = val->TypeGet();
-    if (val->OperGet() == GT_LCL_VAR && lvaTable[val->AsLclVar()->GetLclNum()].lvNormalizeOnLoad())
-    {
-        valTyp      = lvaGetRealType(val->AsLclVar()->GetLclNum());
-        val->gtType = valTyp;
-    }
-    var_types dstTyp = varDsc->TypeGet();
+    var_types valType = val->GetType();
 
-    /* If the variable's lvType is not yet set then set it here */
-    if (dstTyp == TYP_UNDEF)
+    if (val->OperIs(GT_LCL_VAR) && lvaGetDesc(val->AsLclVar())->lvNormalizeOnLoad())
     {
-        varDsc->lvType = dstTyp = genActualType(valTyp);
-#if FEATURE_SIMD
-        if (varTypeIsSIMD(dstTyp))
-        {
-            varDsc->lvSIMDType = 1;
-        }
-#endif
+        valType = lvaGetDesc(val->AsLclVar())->GetType();
+        val->SetType(valType);
+    }
+
+    var_types lclType = lcl->GetType();
+
+    if (lclType == TYP_UNDEF)
+    {
+        // TODO-MIKE-Cleanup: This sets the temp's type only to overwrite later by calling lvaSetStruct.
+        lclType     = varActualType(valType);
+        lcl->lvType = lclType;
     }
 
 #ifdef DEBUG
-    // Make sure the actual types match.
-    if (genActualType(valTyp) != genActualType(dstTyp))
+    if (varActualType(valType) != varActualType(lclType))
     {
-        // Plus some other exceptions that are apparently legal:
-        // 1) TYP_REF or BYREF = TYP_I_IMPL
-        bool ok = false;
-        if (varTypeIsGC(dstTyp) && (valTyp == TYP_I_IMPL))
+        bool typesMatch = false;
+
+        if (varTypeIsGC(lclType) && (valType == TYP_I_IMPL))
         {
-            ok = true;
+            typesMatch = true;
         }
-        // 2) TYP_DOUBLE = TYP_FLOAT or TYP_FLOAT = TYP_DOUBLE
-        else if (varTypeIsFloating(dstTyp) && varTypeIsFloating(valTyp))
+        else if (varTypeIsFloating(lclType) && varTypeIsFloating(valType))
         {
-            ok = true;
+            // TODO-MIKE-Cleanup: No, FLOAT/DOUBLE do not match...
+            typesMatch = true;
         }
-        // 3) TYP_BYREF = TYP_REF when object stack allocation is enabled
-        else if (JitConfig.JitObjectStackAllocation() && (dstTyp == TYP_BYREF) && (valTyp == TYP_REF))
+        else if (JitConfig.JitObjectStackAllocation() && (lclType == TYP_BYREF) && (valType == TYP_REF))
         {
-            ok = true;
+            typesMatch = true;
         }
-        else if (!varTypeIsGC(dstTyp) && (genTypeSize(valTyp) == genTypeSize(dstTyp)))
+        else if (!varTypeIsGC(lclType) && (varTypeSize(valType) == varTypeSize(lclType)))
         {
             // We can have assignments that require a change of register file, e.g. for arguments
             // and call returns. Lowering and Codegen will handle these.
-            ok = true;
+            typesMatch = true;
         }
-        else if ((dstTyp == TYP_STRUCT) && (valTyp == TYP_INT))
+        else if ((lclType == TYP_STRUCT) && (valType == TYP_INT))
         {
-            // It could come from `ASG(struct, 0)` that was propagated to `RETURN struct(0)`,
-            // and now it is merging to a struct again.
-            assert(tmp == genReturnLocal);
-            ok = true;
+            typesMatch = true;
         }
-        else if (varTypeIsSIMD(dstTyp) && (valTyp == TYP_STRUCT))
+        else if (varTypeIsSIMD(lclType) && (valType == TYP_STRUCT))
         {
+            // TODO-MIKE-Cleanup: This should not be needed anymore.
             assert(val->IsCall());
-            ok = true;
+            typesMatch = true;
         }
 
-        if (!ok)
+        if (!typesMatch)
         {
             gtDispTree(val);
-            assert(!"Incompatible types for gtNewTempAssign");
+            assert(!"Incompatible assignment types");
         }
     }
-#endif
+#endif // DEBUG
 
     // Added this noway_assert for runtime\issue 44895, to protect against silent bad codegen
-    //
-    if ((dstTyp == TYP_STRUCT) && (valTyp == TYP_REF))
+    if ((lclType == TYP_STRUCT) && (valType == TYP_REF))
     {
-        noway_assert(!"Incompatible types for gtNewTempAssign");
+        noway_assert(!"Incompatible assignment types");
     }
 
-    // Floating Point assignments can be created during inlining
-    // see "Zero init inlinee locals:" in inlPrependStatements
-    // thus we may need to set compFloatingPointUsed to true here.
-    //
-    if (varTypeUsesFloatReg(dstTyp) && (compFloatingPointUsed == false))
+    if (varTypeUsesFloatReg(lclType) && !compFloatingPointUsed)
     {
+        // Floating point assignments can be created during inlining (see inlInitInlineeLocals)
+        // thus we may need to set compFloatingPointUsed to true here.
         compFloatingPointUsed = true;
     }
-
-    /* Create the assignment node */
-
-    GenTree* asg;
-    GenTree* dest = gtNewLclvNode(tmp, dstTyp);
-    dest->gtFlags |= GTF_VAR_DEF;
 
     // With first-class structs, we should be propagating the class handle on all non-primitive
     // struct types. We don't have a convenient way to do that for all SIMD temps, since some
     // internal trees use SIMD types that are not used by the input IL. In this case, we allow
     // a null type handle and derive the necessary information about the type from its varType.
     CORINFO_CLASS_HANDLE valStructHnd = gtGetStructHandleIfPresent(val);
-    if (varTypeIsStruct(varDsc) && (valStructHnd == NO_CLASS_HANDLE) && !varTypeIsSIMD(valTyp))
+
+    if (varTypeIsStruct(lclType) && (valStructHnd == NO_CLASS_HANDLE) && !varTypeIsSIMD(valType))
     {
-        // There are 2 special cases:
-        // 1. we have lost classHandle from a FIELD node  because the parent struct has overlapping fields,
-        //     the field was transformed as IND opr GT_LCL_FLD;
-        // 2. we are propagation `ASG(struct V01, 0)` to `RETURN(struct V01)`, `CNT_INT` doesn't `structHnd`;
+        // There have 2 special cases:
+        // 1. the value is a struct IND generated from a struct FIELD, when a struct FIELD is
+        //    used by a RETURN the FIELD isn't wrapped in an OBJ like
+        // 2. we have propagated ASG(struct V01, 0) to RETURN(V01), CNS_INT doesn't have layout
         // in these cases, we can use the type of the merge return for the assignment.
         assert(val->OperIs(GT_IND, GT_LCL_FLD, GT_CNS_INT));
-        assert(tmp == genReturnLocal);
-        valStructHnd = varDsc->GetLayout()->GetClassHandle();
-        assert(valStructHnd != NO_CLASS_HANDLE);
+        assert(lclNum == genReturnLocal);
+
+        valStructHnd = lcl->GetLayout()->GetClassHandle();
     }
+
+    GenTree* dest = gtNewLclvNode(lclNum, lclType);
+    GenTree* asg;
 
     if ((valStructHnd != NO_CLASS_HANDLE) && val->IsConstInitVal())
     {
         asg = gtNewAssignNode(dest, val);
     }
-    else if (varTypeIsStruct(varDsc) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valTyp)))
+    else if (varTypeIsStruct(lclType) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valType)))
     {
-        // The struct value may be be a child of a GT_COMMA.
-        GenTree* valx = val->gtEffectiveVal(/*commaOnly*/ true);
+        GenTree* commaValue = val->SkipComma();
 
         if (valStructHnd != NO_CLASS_HANDLE)
         {
-            lvaSetStruct(tmp, valStructHnd, false);
+            lvaSetStruct(lclNum, valStructHnd, false);
         }
         else
         {
-            assert(valx->gtOper != GT_OBJ);
+            assert(!commaValue->IsObj());
         }
 
-        dest->gtFlags |= GTF_DONT_CSE;
-        valx->gtFlags |= GTF_DONT_CSE;
+        commaValue->gtFlags |= GTF_DONT_CSE;
+        dest->gtFlags |= GTF_VAR_DEF;
 
-        GenTree* destAddr = gtNewAddrNode(dest);
-        asg               = impAssignStructPtr(destAddr, val, valStructHnd, CHECK_SPILL_NONE);
+        asg = impAssignStructPtr(gtNewAddrNode(dest), val, valStructHnd, CHECK_SPILL_NONE);
     }
     else
     {
@@ -13898,8 +13815,10 @@ GenTree* Compiler::gtNewTempAssign(unsigned tmp, GenTree* val)
         // when the ABI calls for returning a struct as a primitive type.
         // TODO-1stClassStructs: When we stop "lying" about the types for ABI purposes, the
         // 'genReturnLocal' should be the original struct type.
-        assert(!varTypeIsStruct(valTyp) || ((valStructHnd != NO_CLASS_HANDLE) &&
-                                            (typGetObjLayout(valStructHnd)->GetSize() == genTypeSize(varDsc))));
+
+        assert(!varTypeIsStruct(valType) || ((valStructHnd != NO_CLASS_HANDLE) &&
+                                             (typGetObjLayout(valStructHnd)->GetSize() == varTypeSize(lclType))));
+
         asg = gtNewAssignNode(dest, val);
     }
 
@@ -14597,19 +14516,31 @@ bool GenTree::IsPhiDefn()
            (OperIs(GT_STORE_LCL_VAR) && AsLclVar()->GetOp(0)->OperIs(GT_PHI));
 }
 
-// IsPartialLclFld: Check for a GT_LCL_FLD whose type is a different size than the lclVar.
-//
-// Arguments:
-//    comp      - the Compiler object.
-//
-// Return Value:
-//    Returns "true" iff 'this' is a GT_LCL_FLD or GT_STORE_LCL_FLD on which the type
-//    is not the same size as the type of the GT_LCL_VAR
-
 bool GenTree::IsPartialLclFld(Compiler* comp)
 {
-    return ((gtOper == GT_LCL_FLD) &&
-            (comp->lvaTable[this->AsLclVarCommon()->GetLclNum()].lvExactSize != genTypeSize(gtType)));
+    if (gtOper != GT_LCL_FLD)
+    {
+        return false;
+    }
+
+    if (AsLclFld()->GetLclOffs() != 0)
+    {
+        return true;
+    }
+
+    unsigned lclSize = comp->lvaGetDesc(AsLclFld())->GetSize();
+    unsigned lclFldSize;
+
+    if (gtType == TYP_STRUCT)
+    {
+        lclFldSize = AsLclFld()->GetLayout(comp)->GetSize();
+    }
+    else
+    {
+        lclFldSize = varTypeSize(gtType);
+    }
+
+    return lclFldSize < lclSize;
 }
 
 bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bool* pIsEntire)
@@ -14623,20 +14554,7 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bo
             *pLclVarTree                    = lclVarTree;
             if (pIsEntire != nullptr)
             {
-                if (lclVarTree->OperIs(GT_LCL_FLD) && lclVarTree->TypeIs(TYP_STRUCT))
-                {
-                    *pIsEntire = (lclVarTree->AsLclFld()->GetLclOffs() == 0) &&
-                                 (lclVarTree->AsLclFld()->GetLayout(comp)->GetSize() >=
-                                  comp->lvaLclExactSize(lclVarTree->GetLclNum()));
-                }
-                else if (lclVarTree->IsPartialLclFld(comp))
-                {
-                    *pIsEntire = false;
-                }
-                else
-                {
-                    *pIsEntire = true;
-                }
+                *pIsEntire = !lclVarTree->IsPartialLclFld(comp);
             }
             return true;
         }
@@ -14709,24 +14627,28 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarComm
             *pLclVarTree                    = addrArgLcl;
             if (pIsEntire != nullptr)
             {
-                unsigned lclOffset = addrArgLcl->GetLclOffs();
-
-                if (lclOffset != 0)
+                if (addrArgLcl->GetLclOffs() != 0)
                 {
                     // We aren't updating the bytes at [0..lclOffset-1] so *pIsEntire should be set to false
                     *pIsEntire = false;
                 }
                 else
                 {
-                    unsigned lclNum   = addrArgLcl->GetLclNum();
-                    unsigned varWidth = comp->lvaLclExactSize(lclNum);
-                    if (comp->lvaTable[lclNum].lvNormalizeOnStore())
+                    LclVarDsc* lcl = comp->lvaGetDesc(addrArgLcl);
+                    unsigned   lclSize;
+
+                    if (lcl->lvNormalizeOnStore())
                     {
                         // It's normalize on store, so use the full storage width -- writing to low bytes won't
                         // necessarily yield a normalized value.
-                        varWidth = genTypeStSz(var_types(comp->lvaTable[lclNum].lvType)) * sizeof(int);
+                        lclSize = varTypeSize(TYP_INT);
                     }
-                    *pIsEntire = (varWidth == width);
+                    else
+                    {
+                        lclSize = lcl->GetSize();
+                    }
+
+                    *pIsEntire = (lclSize == width);
                 }
             }
             return true;
@@ -15482,337 +15404,141 @@ bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_
 //------------------------------------------------------------------------
 // gtGetSIMDZero: Get a zero value of the appropriate SIMD type.
 //
-// Arguments:
-//    var_types - The simdType
-//    baseType  - The base type we need
-//    simdHandle - The handle for the SIMD type
-//
 // Return Value:
 //    A node generating the appropriate Zero, if we are able to discern it,
 //    otherwise null (note that this shouldn't happen, but callers should
 //    be tolerant of this case).
 
-GenTree* Compiler::gtGetSIMDZero(var_types simdType, var_types baseType, CORINFO_CLASS_HANDLE simdHandle)
+GenTree* Compiler::gtGetSIMDZero(ClassLayout* layout)
 {
-    bool found    = false;
-    bool isHWSIMD = true;
-    noway_assert(m_simdHandleCache != nullptr);
-
-    // First, determine whether this is Vector<T>.
-    if (simdType == getSIMDVectorType())
+    if (!layout->IsVector())
     {
-        switch (baseType)
-        {
-            case TYP_FLOAT:
-                found = (simdHandle == m_simdHandleCache->SIMDFloatHandle);
-                break;
-            case TYP_DOUBLE:
-                found = (simdHandle == m_simdHandleCache->SIMDDoubleHandle);
-                break;
-            case TYP_INT:
-                found = (simdHandle == m_simdHandleCache->SIMDIntHandle);
-                break;
-            case TYP_USHORT:
-                found = (simdHandle == m_simdHandleCache->SIMDUShortHandle);
-                break;
-            case TYP_UBYTE:
-                found = (simdHandle == m_simdHandleCache->SIMDUByteHandle);
-                break;
-            case TYP_SHORT:
-                found = (simdHandle == m_simdHandleCache->SIMDShortHandle);
-                break;
-            case TYP_BYTE:
-                found = (simdHandle == m_simdHandleCache->SIMDByteHandle);
-                break;
-            case TYP_LONG:
-                found = (simdHandle == m_simdHandleCache->SIMDLongHandle);
-                break;
-            case TYP_UINT:
-                found = (simdHandle == m_simdHandleCache->SIMDUIntHandle);
-                break;
-            case TYP_ULONG:
-                found = (simdHandle == m_simdHandleCache->SIMDULongHandle);
-                break;
-            default:
-                break;
-        }
-        if (found)
-        {
-            isHWSIMD = false;
-        }
+        return nullptr;
     }
 
-    if (!found)
+    if (layout->GetVectorKind() != VectorKind::VectorNT)
     {
-        // We must still have isHWSIMD set to true, and the only non-HW types left are the fixed types.
-        switch (simdType)
-        {
-            case TYP_SIMD8:
-                switch (baseType)
-                {
-                    case TYP_FLOAT:
-                        if (simdHandle == m_simdHandleCache->SIMDVector2Handle)
-                        {
-                            isHWSIMD = false;
-                        }
-#if defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
-                        else
-                        {
-                            assert(simdHandle == m_simdHandleCache->Vector64FloatHandle);
-                        }
-                        break;
-                    case TYP_INT:
-                        assert(simdHandle == m_simdHandleCache->Vector64IntHandle);
-                        break;
-                    case TYP_USHORT:
-                        assert(simdHandle == m_simdHandleCache->Vector64UShortHandle);
-                        break;
-                    case TYP_UBYTE:
-                        assert(simdHandle == m_simdHandleCache->Vector64UByteHandle);
-                        break;
-                    case TYP_SHORT:
-                        assert(simdHandle == m_simdHandleCache->Vector64ShortHandle);
-                        break;
-                    case TYP_BYTE:
-                        assert(simdHandle == m_simdHandleCache->Vector64ByteHandle);
-                        break;
-                    case TYP_UINT:
-                        assert(simdHandle == m_simdHandleCache->Vector64UIntHandle);
-#endif // defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
-                        break;
-                    default:
-                        break;
-                }
-                break;
-
-            case TYP_SIMD12:
-                assert((baseType == TYP_FLOAT) && (simdHandle == m_simdHandleCache->SIMDVector3Handle));
-                isHWSIMD = false;
-                break;
-
-            case TYP_SIMD16:
-                switch (baseType)
-                {
-                    case TYP_FLOAT:
-                        if (simdHandle == m_simdHandleCache->SIMDVector4Handle)
-                        {
-                            isHWSIMD = false;
-                        }
-#if defined(FEATURE_HW_INTRINSICS)
-                        else
-                        {
-                            assert(simdHandle == m_simdHandleCache->Vector128FloatHandle);
-                        }
-                        break;
-                    case TYP_DOUBLE:
-                        assert(simdHandle == m_simdHandleCache->Vector128DoubleHandle);
-                        break;
-                    case TYP_INT:
-                        assert(simdHandle == m_simdHandleCache->Vector128IntHandle);
-                        break;
-                    case TYP_USHORT:
-                        assert(simdHandle == m_simdHandleCache->Vector128UShortHandle);
-                        break;
-                    case TYP_UBYTE:
-                        assert(simdHandle == m_simdHandleCache->Vector128UByteHandle);
-                        break;
-                    case TYP_SHORT:
-                        assert(simdHandle == m_simdHandleCache->Vector128ShortHandle);
-                        break;
-                    case TYP_BYTE:
-                        assert(simdHandle == m_simdHandleCache->Vector128ByteHandle);
-                        break;
-                    case TYP_LONG:
-                        assert(simdHandle == m_simdHandleCache->Vector128LongHandle);
-                        break;
-                    case TYP_UINT:
-                        assert(simdHandle == m_simdHandleCache->Vector128UIntHandle);
-                        break;
-                    case TYP_ULONG:
-                        assert(simdHandle == m_simdHandleCache->Vector128ULongHandle);
-                        break;
-#endif // defined(FEATURE_HW_INTRINSICS)
-
-                    default:
-                        break;
-                }
-                break;
-
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-            case TYP_SIMD32:
-                switch (baseType)
-                {
-                    case TYP_FLOAT:
-                        assert(simdHandle == m_simdHandleCache->Vector256FloatHandle);
-                        break;
-                    case TYP_DOUBLE:
-                        assert(simdHandle == m_simdHandleCache->Vector256DoubleHandle);
-                        break;
-                    case TYP_INT:
-                        assert(simdHandle == m_simdHandleCache->Vector256IntHandle);
-                        break;
-                    case TYP_USHORT:
-                        assert(simdHandle == m_simdHandleCache->Vector256UShortHandle);
-                        break;
-                    case TYP_UBYTE:
-                        assert(simdHandle == m_simdHandleCache->Vector256UByteHandle);
-                        break;
-                    case TYP_SHORT:
-                        assert(simdHandle == m_simdHandleCache->Vector256ShortHandle);
-                        break;
-                    case TYP_BYTE:
-                        assert(simdHandle == m_simdHandleCache->Vector256ByteHandle);
-                        break;
-                    case TYP_LONG:
-                        assert(simdHandle == m_simdHandleCache->Vector256LongHandle);
-                        break;
-                    case TYP_UINT:
-                        assert(simdHandle == m_simdHandleCache->Vector256UIntHandle);
-                        break;
-                    case TYP_ULONG:
-                        assert(simdHandle == m_simdHandleCache->Vector256ULongHandle);
-                        break;
-                    default:
-                        break;
-                }
-                break;
-#endif // TARGET_XARCH && FEATURE_HW_INTRINSICS
-            default:
-                break;
-        }
+        return gtNewSIMDVectorZero(layout->GetSIMDType(), layout->GetElementType(), layout->GetSize());
     }
 
-    unsigned size = genTypeSize(simdType);
-    if (isHWSIMD)
+    NamedIntrinsic intrinsic;
+
+    switch (layout->GetSIMDType())
     {
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-        switch (simdType)
-        {
-            case TYP_SIMD16:
-                if (compExactlyDependsOn(InstructionSet_SSE))
-                {
-                    // We only return the HWIntrinsicNode if SSE is supported, since it is possible for
-                    // the user to disable the SSE HWIntrinsic support via the COMPlus configuration knobs
-                    // even though the hardware vector types are still available.
-                    return gtNewSimdHWIntrinsicNode(simdType, NI_Vector128_get_Zero, baseType, size);
-                }
+        case TYP_SIMD16:
+#ifdef TARGET_XARCH
+            if (!compExactlyDependsOn(InstructionSet_SSE))
+            {
+                // We only return the HWIntrinsicNode if SSE is supported, since it is possible for
+                // the user to disable the SSE HWIntrinsic support via the COMPlus configuration knobs
+                // even though the hardware vector types are still available.
                 return nullptr;
-            case TYP_SIMD32:
-                if (compExactlyDependsOn(InstructionSet_AVX))
-                {
-                    // We only return the HWIntrinsicNode if AVX is supported, since it is possible for
-                    // the user to disable the AVX HWIntrinsic support via the COMPlus configuration knobs
-                    // even though the hardware vector types are still available.
-                    return gtNewSimdHWIntrinsicNode(simdType, NI_Vector256_get_Zero, baseType, size);
-                }
+            }
+#endif
+
+            intrinsic = NI_Vector128_get_Zero;
+            break;
+
+#ifdef TARGET_ARM64
+        case TYP_SIMD8:
+            intrinsic = NI_Vector64_get_Zero;
+            break;
+#endif
+
+#ifdef TARGET_XARCH
+        case TYP_SIMD32:
+            if (!compExactlyDependsOn(InstructionSet_AVX))
+            {
+                // We only return the HWIntrinsicNode if AVX is supported, since it is possible for
+                // the user to disable the AVX HWIntrinsic support via the COMPlus configuration knobs
+                // even though the hardware vector types are still available.
                 return nullptr;
-            default:
-                break;
-        }
-#endif // TARGET_XARCH && FEATURE_HW_INTRINSICS
-        JITDUMP("Coudn't find the matching SIMD type for %s<%s> in gtGetSIMDZero\n", varTypeName(simdType),
-                varTypeName(baseType));
+            }
+
+            intrinsic = NI_Vector256_get_Zero;
+            break;
+#endif
+
+        default:
+            unreached();
     }
-    else
-    {
-        return gtNewSIMDVectorZero(simdType, baseType, size);
-    }
-    return nullptr;
+
+    return gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), intrinsic, layout->GetElementType(), layout->GetSize());
 }
 #endif // FEATURE_SIMD
 
 CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
 {
-    CORINFO_CLASS_HANDLE structHnd = NO_CLASS_HANDLE;
-    tree                           = tree->gtEffectiveVal();
-    if (varTypeIsStruct(tree->gtType))
+    if (!varTypeIsStruct(tree->GetType()))
     {
-        switch (tree->gtOper)
-        {
-            default:
-                break;
-            case GT_MKREFANY:
-                structHnd = impGetRefAnyClass();
-                break;
-            case GT_OBJ:
-                structHnd = tree->AsObj()->GetLayout()->GetClassHandle();
-                break;
-            case GT_CALL:
-                structHnd = tree->AsCall()->GetRetLayout()->GetClassHandle();
-                break;
-            case GT_RET_EXPR:
-                structHnd = tree->AsRetExpr()->GetLayout()->GetClassHandle();
-                break;
-            case GT_INDEX:
-                structHnd = tree->AsIndex()->GetLayout()->GetClassHandle();
-                break;
-            case GT_FIELD:
-                info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
-                break;
-            case GT_ASG:
-                structHnd = gtGetStructHandleIfPresent(tree->gtGetOp1());
-                break;
-            case GT_LCL_FLD:
-                ClassLayout* layout;
-                layout = tree->AsLclFld()->GetLayout(this);
-                if ((layout != nullptr) && !layout->IsBlockLayout())
-                {
-                    structHnd = layout->GetClassHandle();
-                }
-#ifdef FEATURE_SIMD
-                else if (varTypeIsSIMD(tree))
-                {
-                    structHnd = gtGetStructHandleForSIMD(tree->gtType, TYP_FLOAT);
-#ifdef FEATURE_HW_INTRINSICS
-                    if (structHnd == NO_CLASS_HANDLE)
-                    {
-                        structHnd = gtGetStructHandleForHWSIMD(tree->gtType, TYP_FLOAT);
-                    }
-#endif
-                }
-#endif
-                break;
-            case GT_LCL_VAR:
-                structHnd = lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
-                break;
-            case GT_IND:
-#ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(tree->GetType()))
-                {
-                    structHnd = gtGetStructHandleForSIMD(tree->GetType(), TYP_FLOAT);
-#ifdef FEATURE_HW_INTRINSICS
-                    if (structHnd == NO_CLASS_HANDLE)
-                    {
-                        structHnd = gtGetStructHandleForHWSIMD(tree->GetType(), TYP_FLOAT);
-                    }
-#endif
-                }
-#endif
-                break;
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-                structHnd = gtGetStructHandleForSIMD(tree->gtType, tree->AsSIMD()->gtSIMDBaseType);
-                break;
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-                if ((tree->gtFlags & GTF_SIMDASHW_OP) != 0)
-                {
-                    structHnd = gtGetStructHandleForSIMD(tree->gtType, tree->AsHWIntrinsic()->gtSIMDBaseType);
-                }
-                else
-                {
-                    structHnd = gtGetStructHandleForHWSIMD(tree->gtType, tree->AsHWIntrinsic()->gtSIMDBaseType);
-                }
-                break;
-#endif
-                break;
-        }
-        // TODO-1stClassStructs: add a check that `structHnd != NO_CLASS_HANDLE`,
-        // nowadays it won't work because the right part of an ASG could have struct type without a handle
-        // (check `fgMorphBlockOperand(isBlkReqd`) and a few other cases.
+        return NO_CLASS_HANDLE;
     }
-    return structHnd;
+
+    tree = tree->gtEffectiveVal();
+
+    switch (tree->GetOper())
+    {
+        ClassLayout*         layout;
+        CORINFO_CLASS_HANDLE structHnd;
+
+        case GT_MKREFANY:
+            return impGetRefAnyClass();
+        case GT_OBJ:
+            return tree->AsObj()->GetLayout()->GetClassHandle();
+        case GT_CALL:
+            return tree->AsCall()->GetRetLayout()->GetClassHandle();
+        case GT_RET_EXPR:
+            return tree->AsRetExpr()->GetLayout()->GetClassHandle();
+        case GT_INDEX:
+            return tree->AsIndex()->GetLayout()->GetClassHandle();
+        case GT_FIELD:
+            info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
+            return structHnd;
+        case GT_LCL_VAR:
+            return lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
+
+        case GT_LCL_FLD:
+            layout = tree->AsLclFld()->GetLayout(this);
+
+            if (layout != nullptr)
+            {
+                return layout->IsBlockLayout() ? NO_CLASS_HANDLE : layout->GetClassHandle();
+            }
+#ifndef FEATURE_SIMD
+            return NO_CLASS_HANDLE;
+#else
+            FALLTHROUGH;
+        case GT_IND:
+            if (!varTypeIsSIMD(tree->GetType()))
+            {
+                return NO_CLASS_HANDLE;
+            }
+
+            layout = typGetVectorLayout(tree->GetType(), TYP_UNDEF);
+            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
+
+        case GT_SIMD:
+            layout = typGetNumericsVectorLayout(tree->GetType(), tree->AsSIMD()->GetSIMDBaseType());
+            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            if ((tree->gtFlags & GTF_SIMDASHW_OP) != 0)
+            {
+                layout = typGetNumericsVectorLayout(tree->GetType(), tree->AsHWIntrinsic()->GetSIMDBaseType());
+            }
+            else
+            {
+                layout = typGetRuntimeVectorLayout(tree->GetType(), tree->AsHWIntrinsic()->GetSIMDBaseType());
+            }
+
+            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
+#endif
+#endif // FEATURE_SIMD
+
+        default:
+            return NO_CLASS_HANDLE;
+    }
 }
 
 CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
@@ -16767,15 +16493,7 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
 
 bool GenTree::isCommutativeSIMDIntrinsic()
 {
-    switch (AsSIMD()->gtSIMDIntrinsicID)
-    {
-        case SIMDIntrinsicBitwiseAnd:
-        case SIMDIntrinsicBitwiseOr:
-        case SIMDIntrinsicEqual:
-            return true;
-        default:
-            return false;
-    }
+    return false;
 }
 #endif // FEATURE_SIMD
 
@@ -16949,43 +16667,6 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     return node;
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewSimdCreateBroadcastNode(
-    var_types type, GenTree* op1, var_types baseType, unsigned size, bool isSimdAsHWIntrinsic)
-{
-    NamedIntrinsic hwIntrinsicID = NI_Vector128_Create;
-
-#if defined(TARGET_XARCH)
-#if defined(TARGET_X86)
-    if (varTypeIsLong(baseType) && !op1->IsIntegralConst())
-    {
-        // TODO-XARCH-CQ: It may be beneficial to emit the movq
-        // instruction, which takes a 64-bit memory address and
-        // works on 32-bit x86 systems.
-        unreached();
-    }
-#endif // TARGET_X86
-
-    if (size == 32)
-    {
-        hwIntrinsicID = NI_Vector256_Create;
-    }
-#elif defined(TARGET_ARM64)
-    if (size == 8)
-    {
-        hwIntrinsicID = NI_Vector64_Create;
-    }
-#else
-#error Unsupported platform
-#endif // !TARGET_XARCH && !TARGET_ARM64
-
-    if (isSimdAsHWIntrinsic)
-    {
-        return gtNewSimdAsHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1);
-    }
-
-    return gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1);
-}
-
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
 {
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1);
@@ -17118,11 +16799,11 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
         if (type == TYP_STRUCT)
         {
             lvaSetStruct(dummyTemp, clsHnd, false);
-            type = lvaTable[dummyTemp].lvType; // struct type is normalized
+            type = lvaTable[dummyTemp].GetType();
         }
         else
         {
-            lvaTable[dummyTemp].lvType = type;
+            lvaTable[dummyTemp].SetType(type);
         }
         GenTree* dummyNode = gtNewLclvNode(dummyTemp, type);
         return gtNewOperNode(GT_COMMA, type, node, dummyNode);
@@ -17130,11 +16811,10 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
     return node;
 }
 
-void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
-                                      CORINFO_CLASS_HANDLE retClass,
-                                      unsigned             retClassSize,
-                                      structPassingKind    retKind,
-                                      var_types            retKindType)
+void ReturnTypeDesc::InitializeStruct(Compiler*         comp,
+                                      ClassLayout*      retLayout,
+                                      structPassingKind retKind,
+                                      var_types         retKindType)
 {
     switch (retKind)
     {
@@ -17150,15 +16830,11 @@ void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
         case SPK_ByValueAsHfa:
         {
             assert(varTypeIsStruct(retKindType));
-            var_types regType = comp->GetHfaType(retClass);
-            assert(varTypeIsValidHfaType(regType));
 
-            // Note that the retail build issues a warning about a potential divsion by zero without this Max function
-            unsigned elemSize = Max(1u, varTypeSize(regType));
-
-            assert((retClassSize % elemSize) == 0);
-            m_regCount = static_cast<uint8_t>(retClassSize / elemSize);
+            m_regCount = retLayout->GetHfaElementCount();
             assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
+
+            var_types regType = retLayout->GetHfaElementType();
 
             for (unsigned i = 0; i < m_regCount; ++i)
             {
@@ -17175,7 +16851,7 @@ void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
 
 #ifdef UNIX_AMD64_ABI
             SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retClass, &structDesc);
+            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retLayout->GetClassHandle(), &structDesc);
 
             assert(structDesc.passedInRegisters);
             assert(structDesc.eightByteCount == 2);
@@ -17186,29 +16862,14 @@ void ReturnTypeDesc::InitializeStruct(Compiler*            comp,
             {
                 m_regType[i] = comp->GetEightByteType(structDesc, i);
             }
-#elif defined(TARGET_ARM64)
-            assert((retClassSize > REGSIZE_BYTES) && (retClassSize <= (2 * REGSIZE_BYTES)));
-
-            BYTE gcPtrs[2]{TYPE_GC_NONE, TYPE_GC_NONE};
-            comp->info.compCompHnd->getClassGClayout(retClass, &gcPtrs[0]);
+#elif defined(TARGET_ARM64) || defined(TARGET_X86)
+            assert(retLayout->GetSlotCount() == 2);
 
             m_regCount = 2;
 
-            for (unsigned i = 0; i < 2; ++i)
+            for (unsigned i = 0; i < 2; i++)
             {
-                m_regType[i] = comp->getJitGCType(gcPtrs[i]);
-            }
-#elif defined(TARGET_X86)
-            assert(retClassSize == 2 * REGSIZE_BYTES);
-
-            BYTE gcPtrs[2] = {TYPE_GC_NONE, TYPE_GC_NONE};
-            comp->info.compCompHnd->getClassGClayout(retClass, &gcPtrs[0]);
-
-            m_regCount = 2;
-
-            for (unsigned i = 0; i < 2; ++i)
-            {
-                m_regType[i] = comp->getJitGCType(gcPtrs[i]);
+                m_regType[i] = retLayout->GetGCPtrType(i);
             }
 #else
             unreached();

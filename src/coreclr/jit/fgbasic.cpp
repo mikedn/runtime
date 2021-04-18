@@ -127,10 +127,9 @@ void Compiler::fgInit()
     ehMaxHndNestingCount = 0;
 #endif // !FEATURE_EH_FUNCLETS
 
-    /* Init the fgBigOffsetMorphingTemps to be BAD_VAR_NUM. */
-    for (int i = 0; i < TYP_COUNT; i++)
+    for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
     {
-        fgBigOffsetMorphingTemps[i] = BAD_VAR_NUM;
+        fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
     }
 
     fgNoStructPromotion      = false;
@@ -1110,10 +1109,10 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                     // This check is only intended to prevent an AV.  Bad varNum values will later
                     // be handled properly by the verifier.
-                    if (varNum < lvaTableCnt)
+                    if (varNum < lvaCount)
                     {
                         // In non-inline cases, note written-to arguments.
-                        lvaTable[varNum].lvHasILStoreOp = 1;
+                        lvaGetDesc(varNum)->lvHasILStoreOp = 1;
                     }
                 }
             }
@@ -1149,16 +1148,18 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                     // This check is only intended to prevent an AV.  Bad varNum values will later
                     // be handled properly by the verifier.
-                    if (varNum < lvaTableCnt)
+                    if (varNum < lvaCount)
                     {
+                        LclVarDsc* lcl = lvaGetDesc(varNum);
+
                         // In non-inline cases, note written-to locals.
-                        if (lvaTable[varNum].lvHasILStoreOp)
+                        if (lcl->lvHasILStoreOp)
                         {
-                            lvaTable[varNum].lvHasMultipleILStoreOp = 1;
+                            lcl->lvHasMultipleILStoreOp = 1;
                         }
                         else
                         {
-                            lvaTable[varNum].lvHasILStoreOp = 1;
+                            lcl->lvHasILStoreOp = 1;
                         }
                     }
                 }
@@ -1489,33 +1490,36 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
 void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 {
+    LclVarDsc* thisLcl = lvaGetDesc(info.compThisArg);
+
     // Optionally enable adjustment during stress.
     if (compStressCompile(STRESS_GENERIC_VARN, 15))
     {
-        lvaTable[info.compThisArg].lvHasILStoreOp = true;
+        thisLcl->lvHasILStoreOp = true;
     }
 
     // If this is exposed or written to, create a temp for the modifiable this
-    if (lvaTable[info.compThisArg].lvAddrExposed || lvaTable[info.compThisArg].lvHasILStoreOp)
+    if (thisLcl->lvAddrExposed || thisLcl->lvHasILStoreOp)
     {
-        // If there is a "ldarga 0" or "starg 0", grab and use the temp.
-        lvaArg0Var = lvaGrabTemp(false DEBUGARG("Address-exposed, or written this pointer"));
-        noway_assert(lvaArg0Var > (unsigned)info.compThisArg);
-        lvaTable[lvaArg0Var].lvType            = lvaTable[info.compThisArg].TypeGet();
-        lvaTable[lvaArg0Var].lvAddrExposed     = lvaTable[info.compThisArg].lvAddrExposed;
-        lvaTable[lvaArg0Var].lvDoNotEnregister = lvaTable[info.compThisArg].lvDoNotEnregister;
-#ifdef DEBUG
-        lvaTable[lvaArg0Var].lvLiveInOutOfHndlr = lvaTable[info.compThisArg].lvLiveInOutOfHndlr;
-        lvaTable[lvaArg0Var].lvLclFieldExpr     = lvaTable[info.compThisArg].lvLclFieldExpr;
-        lvaTable[lvaArg0Var].lvLiveAcrossUCall  = lvaTable[info.compThisArg].lvLiveAcrossUCall;
-#endif
-        lvaTable[lvaArg0Var].lvHasILStoreOp = lvaTable[info.compThisArg].lvHasILStoreOp;
-        lvaTable[lvaArg0Var].lvIsThisPtr    = lvaTable[info.compThisArg].lvIsThisPtr;
+        lvaArg0Var = lvaNewTemp(thisLcl->GetType(), false DEBUGARG("'this' copy"));
 
-        noway_assert(lvaTable[lvaArg0Var].lvIsThisPtr);
-        lvaTable[info.compThisArg].lvIsThisPtr    = false;
-        lvaTable[info.compThisArg].lvAddrExposed  = false;
-        lvaTable[info.compThisArg].lvHasILStoreOp = false;
+        LclVarDsc* thisCopyLcl = lvaGetDesc(lvaArg0Var);
+
+        thisCopyLcl->lvAddrExposed     = thisLcl->lvAddrExposed;
+        thisCopyLcl->lvDoNotEnregister = thisLcl->lvDoNotEnregister;
+        thisCopyLcl->lvHasILStoreOp    = thisLcl->lvHasILStoreOp;
+        thisCopyLcl->lvIsThisPtr       = thisLcl->lvIsThisPtr;
+#ifdef DEBUG
+        thisCopyLcl->lvLiveInOutOfHndlr = thisLcl->lvLiveInOutOfHndlr;
+        thisCopyLcl->lvLclFieldExpr     = thisLcl->lvLclFieldExpr;
+        thisCopyLcl->lvLiveAcrossUCall  = thisLcl->lvLiveAcrossUCall;
+#endif
+
+        noway_assert(thisCopyLcl->lvIsThisPtr);
+
+        thisLcl->lvIsThisPtr    = false;
+        thisLcl->lvAddrExposed  = false;
+        thisLcl->lvHasILStoreOp = false;
     }
 }
 

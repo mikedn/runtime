@@ -1785,7 +1785,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
 
             if (varTypeIsStruct(retNode->GetType()))
             {
-                lvaSetStruct(retTempLclNum, info.compMethodInfo->args.retTypeClass, /* unsafeValueClsCheck */ false);
+                lvaSetStruct(retTempLclNum, info.GetRetLayout(), /* checkUnsafeBuffer */ false);
             }
             else
             {
@@ -1845,24 +1845,12 @@ void Compiler::fgConvertSyncReturnToLeave(BasicBlock* block)
 
 #endif // FEATURE_EH_FUNCLETS
 
-//------------------------------------------------------------------------
-// fgAddReversePInvokeEnterExit: Add enter/exit calls for reverse PInvoke methods
-//
-// Arguments:
-//      None.
-//
-// Return Value:
-//      None.
-
 void Compiler::fgAddReversePInvokeEnterExit()
 {
     assert(opts.IsReversePInvoke());
 
     lvaReversePInvokeFrameVar = lvaGrabTempWithImplicitUse(false DEBUGARG("Reverse Pinvoke FrameVar"));
-
-    LclVarDsc* varDsc   = &lvaTable[lvaReversePInvokeFrameVar];
-    varDsc->lvType      = TYP_BLK;
-    varDsc->lvExactSize = eeGetEEInfo()->sizeOfReversePInvokeFrame;
+    lvaGetDesc(lvaReversePInvokeFrameVar)->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
 
     // Add enter pinvoke exit callout at the start of prolog
 
@@ -1935,30 +1923,6 @@ void Compiler::fgAddReversePInvokeEnterExit()
         printf("\n");
     }
 #endif
-}
-
-/*****************************************************************************
- *
- *  Return 'true' if there is more than one BBJ_RETURN block.
- */
-
-bool Compiler::fgMoreThanOneReturnBlock()
-{
-    unsigned retCnt = 0;
-
-    for (BasicBlock* block = fgFirstBB; block; block = block->bbNext)
-    {
-        if (block->bbJumpKind == BBJ_RETURN)
-        {
-            retCnt++;
-            if (retCnt > 1)
-            {
-                return true;
-            }
-        }
-    }
-
-    return false;
 }
 
 namespace
@@ -2198,9 +2162,9 @@ private:
             unsigned   lclNum = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
             LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
-            if (varTypeIsStruct(comp->info.compRetType))
+            if (varTypeIsStruct(comp->info.GetRetSigType()))
             {
-                comp->lvaSetStruct(lclNum, comp->info.compMethodInfo->args.retTypeClass, false);
+                comp->lvaSetStruct(lclNum, comp->info.GetRetLayout(), false);
                 lcl->lvIsMultiRegRet = (comp->info.retDesc.GetRegCount() > 1);
             }
             else
@@ -2619,18 +2583,13 @@ void Compiler::fgAddInternal()
         // TCB variable if we're not using them.
         if (!opts.ShouldUsePInvokeHelpers())
         {
-            info.compLvFrameListRoot           = lvaGrabTemp(false DEBUGARG("Pinvoke FrameListRoot"));
-            LclVarDsc* rootVarDsc              = &lvaTable[info.compLvFrameListRoot];
-            rootVarDsc->lvType                 = TYP_I_IMPL;
-            rootVarDsc->lvImplicitlyReferenced = 1;
+            info.compLvFrameListRoot = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Pinvoke FrameListRoot"));
+            lvaGetDesc(info.compLvFrameListRoot)->lvImplicitlyReferenced = 1;
         }
 
         lvaInlinedPInvokeFrameVar = lvaGrabTempWithImplicitUse(false DEBUGARG("Pinvoke FrameVar"));
+        lvaGetDesc(lvaInlinedPInvokeFrameVar)->SetBlockType(eeGetEEInfo()->inlinedCallFrameInfo.size);
 
-        LclVarDsc* varDsc = &lvaTable[lvaInlinedPInvokeFrameVar];
-        varDsc->lvType    = TYP_BLK;
-        // Make room for the inlined frame.
-        varDsc->lvExactSize = eeGetEEInfo()->inlinedCallFrameInfo.size;
 #if FEATURE_FIXED_OUT_ARGS
         // Grab and reserve space for TCB, Frame regs used in PInvoke epilog to pop the inlined frame.
         // See genPInvokeMethodEpilog() for use of the grabbed var. This is only necessary if we are
@@ -2638,9 +2597,7 @@ void Compiler::fgAddInternal()
         if (!opts.ShouldUsePInvokeHelpers() && compJmpOpUsed)
         {
             lvaPInvokeFrameRegSaveVar = lvaGrabTempWithImplicitUse(false DEBUGARG("PInvokeFrameRegSave Var"));
-            varDsc                    = &lvaTable[lvaPInvokeFrameRegSaveVar];
-            varDsc->lvType            = TYP_BLK;
-            varDsc->lvExactSize       = 2 * REGSIZE_BYTES;
+            lvaGetDesc(lvaPInvokeFrameRegSaveVar)->SetBlockType(2 * REGSIZE_BYTES);
         }
 #endif
     }
@@ -2666,12 +2623,11 @@ void Compiler::fgAddInternal()
         // Create the callback which will yield the final answer
 
         GenTree* callback = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
-        callback          = new (this, GT_COLON) GenTreeColon(TYP_VOID, gtNewNothingNode(), callback);
 
         // Stick the conditional call at the start of the method
 
         fgEnsureFirstBBisScratch();
-        fgNewStmtAtEnd(fgFirstBB, gtNewQmarkNode(TYP_VOID, guardCheckCond, callback));
+        fgNewStmtAtEnd(fgFirstBB, gtNewQmarkNode(TYP_VOID, guardCheckCond, gtNewNothingNode(), callback));
     }
 
 #if !defined(FEATURE_EH_FUNCLETS)
@@ -2940,11 +2896,8 @@ void Compiler::fgSimpleLowering()
 
     assert((outgoingArgSpaceSize % TARGET_POINTER_SIZE) == 0);
 
-    // Publish the final value and mark it as read only so any update
-    // attempt later will cause an assert.
-    lvaOutgoingArgSpaceSize = outgoingArgSpaceSize;
-    lvaOutgoingArgSpaceSize.MarkAsReadOnly();
-
+    lvaOutgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
+    lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgSpaceSize);
 #endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG

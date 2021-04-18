@@ -183,7 +183,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     {
         // TODO-CrossBitness: we wouldn't need the cast below if we had CodeGen::instGen_Set_Reg_To_Reloc_Imm.
         const int val32 = (int)imm;
-        if (arm_Valid_Imm_For_Mov(val32))
+        if (validImmForMov(val32))
         {
             GetEmitter()->emitIns_R_I(INS_mov, size, reg, val32, flags);
         }
@@ -192,7 +192,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
             const int imm_lo16 = val32 & 0xffff;
             const int imm_hi16 = (val32 >> 16) & 0xffff;
 
-            assert(arm_Valid_Imm_For_Mov(imm_lo16));
+            assert(validImmForMov(imm_lo16));
             assert(imm_hi16 != 0);
 
             GetEmitter()->emitIns_R_I(INS_movw, size, reg, imm_lo16);
@@ -401,7 +401,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // If 0 bail out by returning null in regCnt
         genConsumeRegAndCopy(size, regCnt);
         endLabel = genCreateTempLabel();
-        GetEmitter()->emitIns_R_R(INS_TEST, easz, regCnt, regCnt);
+        GetEmitter()->emitIns_R_R(INS_tst, easz, regCnt, regCnt);
         inst_JMP(EJ_eq, endLabel);
     }
 
@@ -470,7 +470,7 @@ void CodeGen::genLclHeap(GenTree* tree)
     {
         // Round up the number of bytes to allocate to a STACK_ALIGN boundary.
         inst_RV_IV(INS_add, regCnt, (STACK_ALIGN - 1), emitActualTypeSize(type));
-        inst_RV_IV(INS_AND, regCnt, ~(STACK_ALIGN - 1), emitActualTypeSize(type));
+        inst_RV_IV(INS_and, regCnt, ~(STACK_ALIGN - 1), emitActualTypeSize(type));
     }
 
     // Allocation
@@ -595,7 +595,7 @@ ALLOC_DONE:
     else // stackAdjustment == 0
     {
         // Move the final value of SP to regCnt
-        inst_RV_RV(INS_mov, regCnt, REG_SPBASE);
+        inst_RV_RV(INS_mov, regCnt, REG_SPBASE, TYP_I_IMPL);
     }
 
 BAILOUT:
@@ -650,82 +650,77 @@ void CodeGen::genJumpTable(GenTree* treeNode)
     genProduceReg(treeNode);
 }
 
-//------------------------------------------------------------------------
-// genGetInsForOper: Return instruction encoding of the operation tree.
-//
+instruction CodeGen::ins_MathOp(genTreeOps oper, var_types type)
+{
+    switch (oper)
+    {
+        case GT_ADD:
+            return INS_vadd;
+        case GT_SUB:
+            return INS_vsub;
+        case GT_MUL:
+            return INS_vmul;
+        case GT_DIV:
+            return INS_vdiv;
+        case GT_NEG:
+            return INS_vneg;
+        default:
+            unreached();
+    }
+}
+
 instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
 {
-    instruction ins;
-
     if (varTypeIsFloating(type))
-        return CodeGen::ins_MathOp(oper, type);
+    {
+        return ins_MathOp(oper, type);
+    }
 
     switch (oper)
     {
         case GT_ADD:
-            ins = INS_add;
-            break;
+            return INS_add;
         case GT_AND:
-            ins = INS_AND;
-            break;
+            return INS_and;
         case GT_MUL:
-            ins = INS_MUL;
-            break;
+            return INS_mul;
 #if !defined(USE_HELPERS_FOR_INT_DIV)
         case GT_DIV:
-            ins = INS_sdiv;
-            break;
-#endif // !USE_HELPERS_FOR_INT_DIV
+            return INS_sdiv;
+#endif
         case GT_LSH:
-            ins = INS_SHIFT_LEFT_LOGICAL;
-            break;
+            return INS_lsl;
         case GT_NEG:
-            ins = INS_rsb;
-            break;
+            return INS_rsb;
         case GT_NOT:
-            ins = INS_NOT;
-            break;
+            return INS_mvn;
         case GT_OR:
-            ins = INS_OR;
-            break;
+            return INS_orr;
         case GT_RSH:
-            ins = INS_SHIFT_RIGHT_ARITHM;
-            break;
+            return INS_asr;
         case GT_RSZ:
-            ins = INS_SHIFT_RIGHT_LOGICAL;
-            break;
+            return INS_lsr;
         case GT_SUB:
-            ins = INS_sub;
-            break;
+            return INS_sub;
         case GT_XOR:
-            ins = INS_XOR;
-            break;
+            return INS_eor;
         case GT_ROR:
-            ins = INS_ror;
-            break;
+            return INS_ror;
         case GT_ADD_LO:
-            ins = INS_add;
-            break;
+            return INS_add;
         case GT_ADD_HI:
-            ins = INS_adc;
-            break;
+            return INS_adc;
         case GT_SUB_LO:
-            ins = INS_sub;
-            break;
+            return INS_sub;
         case GT_SUB_HI:
-            ins = INS_sbc;
-            break;
+            return INS_sbc;
         case GT_LSH_HI:
-            ins = INS_SHIFT_LEFT_LOGICAL;
-            break;
+            return INS_lsl;
         case GT_RSH_LO:
-            ins = INS_SHIFT_RIGHT_LOGICAL;
-            break;
+            return INS_lsr;
         default:
             unreached();
-            break;
     }
-    return ins;
 }
 
 //------------------------------------------------------------------------
@@ -816,14 +811,14 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     if (oper == GT_LSH_HI)
     {
         inst_RV_SH(ins, EA_4BYTE, tree->GetRegNum(), count);
-        GetEmitter()->emitIns_R_R_R_I(INS_OR, EA_4BYTE, tree->GetRegNum(), tree->GetRegNum(), regLo, 32 - count,
+        GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, tree->GetRegNum(), tree->GetRegNum(), regLo, 32 - count,
                                       INS_FLAGS_DONT_CARE, INS_OPTS_LSR);
     }
     else
     {
         assert(oper == GT_RSH_LO);
-        inst_RV_SH(INS_SHIFT_RIGHT_LOGICAL, EA_4BYTE, tree->GetRegNum(), count);
-        GetEmitter()->emitIns_R_R_R_I(INS_OR, EA_4BYTE, tree->GetRegNum(), tree->GetRegNum(), regHi, 32 - count,
+        inst_RV_SH(INS_lsr, EA_4BYTE, tree->GetRegNum(), count);
+        GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, tree->GetRegNum(), tree->GetRegNum(), regHi, 32 - count,
                                       INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
     }
 
@@ -1370,7 +1365,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
         addr = compiler->compGetHelperFtn((CorInfoHelpFunc)helper, (void**)&pAddr);
     }
 
-    if (!addr || !arm_Valid_Imm_For_BL((ssize_t)addr))
+    if (!addr || !validImmForBL((ssize_t)addr))
     {
         if (callTargetReg == REG_NA)
         {
@@ -1551,8 +1546,8 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper)
     {
         r0InUse = false;
     }
-    else if (varTypeIsFloating(compiler->info.compRetType) ||
-             compiler->IsHfa(compiler->info.compMethodInfo->args.retTypeClass))
+    else if (varTypeIsFloating(compiler->info.GetRetSigType()) ||
+             ((compiler->info.GetRetLayout() != nullptr) && compiler->info.GetRetLayout()->IsHfa()))
     {
         r0InUse = compiler->info.compIsVarArgs || compiler->opts.compUseSoftFP;
     }

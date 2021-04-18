@@ -3580,13 +3580,10 @@ ValueNum ValueNumStore::VNApplySelectors(ValueNumKind  vnk,
     size_t structSize = 0;
     if (varTypeIsStruct(fieldType))
     {
-        structSize = m_pComp->info.compCompHnd->getClassSize(structHnd);
-        // We do not normalize the type field accesses during importation unless they
-        // are used in a call, return or assignment.
-        if ((fieldType == TYP_STRUCT) && m_pComp->structSizeMightRepresentSIMDType(structSize))
-        {
-            fieldType = m_pComp->impNormStructType(structHnd);
-        }
+        ClassLayout* layout = m_pComp->typGetObjLayout(structHnd);
+
+        structSize = layout->GetSize();
+        fieldType  = m_pComp->typGetStructType(layout);
     }
     if (wbFinalStructSize != nullptr)
     {
@@ -6338,13 +6335,12 @@ void Compiler::fgValueNumber()
 
             switch (typ)
             {
-                case TYP_LCLBLK: // The outgoing args area for arm and x64
-                case TYP_BLK:    // A blob of memory
-                    // TYP_BLK is used for the EHSlots LclVar on x86 (aka shadowSPslotsVar)
-                    // and for the lvaInlinedPInvokeFrameVar on x64, arm and x86
+                case TYP_BLK:
+                    // TYP_BLK is used for the EHSlots locals on x86 (aka shadowSPslotsVar),
+                    // for the lvaInlinedPInvokeFrameVar on x64, arm and x86
+                    // and for the outgoing argument area if FEATURE_FIXED_OUT_ARGS is enabled.
                     // The stack associated with these LclVars are not zero initialized
                     // thus we set 'initVN' to a new, unique VN.
-                    //
                     initVal = vnStore->VNForExpr(fgFirstBB);
                     break;
 
@@ -7818,8 +7814,9 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
                     if (lclDefSsaNum != SsaConfig::RESERVED_SSA_NUM)
                     {
+                        LclVarDsc*   lcl = lvaGetDesc(lclFld);
                         ValueNumPair newLhsVNPair;
-                        // Is this a full definition?
+
                         if ((lclFld->gtFlags & GTF_VAR_USEASG) == 0)
                         {
                             assert(!lclFld->IsPartialLclFld(this));
@@ -7834,23 +7831,23 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                             {
                                 // We don't know what field this represents.  Assign a new VN to the whole variable
                                 // (since we may be writing to an unknown portion of it.)
-                                newLhsVNPair.SetBoth(
-                                    vnStore->VNForExpr(compCurBB, lvaGetActualType(lclFld->GetLclNum())));
+                                newLhsVNPair.SetBoth(vnStore->VNForExpr(compCurBB, varActualType(lcl->GetType())));
                             }
                             else
                             {
                                 // We do know the field sequence.
                                 // The "lclFld" node will be labeled with the SSA number of its "use" identity
                                 // (we looked in a side table above for its "def" identity).  Look up that value.
-                                ValueNumPair oldLhsVNPair =
-                                    lvaTable[lclFld->GetLclNum()].GetPerSsaData(lclFld->GetSsaNum())->m_vnPair;
+                                ValueNumPair oldLhsVNPair = lcl->GetPerSsaData(lclFld->GetSsaNum())->m_vnPair;
                                 newLhsVNPair = vnStore->VNPairApplySelectorsAssign(oldLhsVNPair, lclFld->GetFieldSeq(),
                                                                                    rhsVNPair, // Pre-value.
                                                                                    lclFld->TypeGet(), compCurBB);
                             }
                         }
-                        lvaTable[lclFld->GetLclNum()].GetPerSsaData(lclDefSsaNum)->m_vnPair = newLhsVNPair;
-                        lhs->gtVNPair                                                       = newLhsVNPair;
+
+                        lcl->GetPerSsaData(lclDefSsaNum)->m_vnPair = newLhsVNPair;
+
+                        lhs->gtVNPair = newLhsVNPair;
 #ifdef DEBUG
                         if (verbose)
                         {

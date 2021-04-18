@@ -62,7 +62,7 @@ class CodeGenInterface
     friend class emitter;
 
 public:
-    CodeGenInterface(Compiler* theCompiler);
+    CodeGenInterface(Compiler* compiler);
     virtual void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode) = 0;
 
     Compiler* GetCompiler() const
@@ -74,7 +74,7 @@ public:
     // TODO-Cleanup: We should handle the spill directly in CodeGen, rather than
     // calling it from compUpdateLifeVar.  Then this can be non-virtual.
 
-    virtual void genSpillVar(GenTree* tree) = 0;
+    virtual void genSpillVar(GenTreeLclVar* node) = 0;
 
     //-------------------------------------------------------------------------
     //  The following property indicates whether to align loops.
@@ -111,19 +111,7 @@ protected:
     Compiler* compiler;
     bool      m_genAlignLoops;
 
-private:
-#if defined(TARGET_XARCH)
-    static const insFlags instInfo[INS_count];
-#elif defined(TARGET_ARM) || defined(TARGET_ARM64)
-    static const BYTE instInfo[INS_count];
-#else
-#error Unsupported target architecture
-#endif
-
-#define INST_FP 0x01 // is it a FP instruction?
 public:
-    static bool instIsFP(instruction ins);
-
     //-------------------------------------------------------------------------
     // Liveness-related fields & methods
 public:
@@ -308,7 +296,6 @@ public:
     instruction ins_Load(var_types srcType, bool aligned = false);
     instruction ins_Store(var_types dstType, bool aligned = false);
     instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
-    static instruction ins_FloatLoad(var_types type = TYP_DOUBLE);
 
     // Methods for spilling - used by RegSet
     void spillReg(var_types type, TempDsc* tmp, regNumber reg);

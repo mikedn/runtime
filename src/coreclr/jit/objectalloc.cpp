@@ -511,10 +511,9 @@ unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* a
     assert(allocObj != nullptr);
     assert(m_AnalysisDone);
 
-    const bool         shortLifetime = false;
-    const unsigned int lclNum     = comp->lvaGrabTemp(shortLifetime DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
-    const int unsafeValueClsCheck = true;
-    comp->lvaSetStruct(lclNum, allocObj->gtAllocObjClsHnd, unsafeValueClsCheck);
+    const bool     shortLifetime = false;
+    const unsigned lclNum        = comp->lvaGrabTemp(shortLifetime DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
+    comp->lvaSetStruct(lclNum, allocObj->gtAllocObjClsHnd, /* checkUnsafeBuffer */ true);
 
     // Initialize the object memory if necessary.
     bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
@@ -841,17 +840,15 @@ void ObjectAllocator::RewriteUses()
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* tree = *use;
-            assert(tree != nullptr);
-            assert(tree->IsLocal());
 
-            const unsigned int lclNum    = tree->AsLclVarCommon()->GetLclNum();
-            unsigned int       newLclNum = BAD_VAR_NUM;
-            LclVarDsc*         lclVarDsc = m_compiler->lvaTable + lclNum;
+            const unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
 
             if ((lclNum < BitVecTraits::GetSize(&m_allocator->m_bitVecTraits)) &&
                 m_allocator->MayLclVarPointToStack(lclNum))
             {
                 var_types newType;
+                unsigned  newLclNum = BAD_VAR_NUM;
+
                 if (m_allocator->m_HeapLocalToStackLocalMap.TryGetValue(lclNum, &newLclNum))
                 {
                     newType = TYP_I_IMPL;
@@ -861,18 +858,22 @@ void ObjectAllocator::RewriteUses()
                 else
                 {
                     newType = m_allocator->DoesLclVarPointToStack(lclNum) ? TYP_I_IMPL : TYP_BYREF;
-                    if (tree->TypeGet() == TYP_REF)
+
+                    if (tree->TypeIs(TYP_REF))
                     {
-                        tree->ChangeType(newType);
+                        tree->SetType(newType);
                     }
                 }
 
-                if (lclVarDsc->lvType != newType)
+                LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
+
+                if (lcl->GetType() != newType)
                 {
-                    JITDUMP("changing the type of V%02u from %s to %s\n", lclNum, varTypeName(lclVarDsc->lvType),
+                    JITDUMP("changing the type of V%02u from %s to %s\n", lclNum, varTypeName(lcl->GetType()),
                             varTypeName(newType));
-                    lclVarDsc->lvType = newType;
+                    lcl->SetType(newType);
                 }
+
                 m_allocator->UpdateAncestorTypes(tree, &m_ancestors, newType);
             }
 

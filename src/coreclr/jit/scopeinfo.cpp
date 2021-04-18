@@ -410,7 +410,7 @@ void CodeGenInterface::siVarLoc::siFillRegisterVarLoc(
 
         case TYP_FLOAT:
         case TYP_DOUBLE:
-            if (isFloatRegType(type))
+            if (varTypeUsesFloatReg(type))
             {
                 this->vlType         = VLT_FPSTK;
                 this->vlFPstk.vlfReg = varDsc->GetRegNum();
@@ -1605,7 +1605,7 @@ void CodeGen::psiBegProlog()
                 var_types regType = compiler->mangleVarArgsType(lclVarDsc->TypeGet());
                 if (lclVarDsc->lvIsHfaRegArg())
                 {
-                    regType = lclVarDsc->GetHfaType();
+                    regType = lclVarDsc->GetLayout()->GetHfaElementType();
                 }
                 assert(genMapRegNumToRegArgNum(lclVarDsc->GetArgReg(), regType) != (unsigned)-1);
 #endif // DEBUG

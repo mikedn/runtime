@@ -258,7 +258,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_LCL_FLD_ADDR:
         case GT_LCL_VAR_ADDR:
-            genCodeForLclAddr(treeNode);
+            genCodeForLclAddr(treeNode->AsLclVarCommon());
             break;
 
         case GT_LCL_FLD:
@@ -705,7 +705,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 
     if (src->OperIs(GT_FIELD_LIST))
     {
-        genPutArgStkFieldList(src->AsFieldList(), outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        genPutArgStkFieldList(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
         return;
     }
 
@@ -1527,28 +1527,6 @@ void CodeGen::genCodeForShift(GenTree* tree)
         GetEmitter()->emitIns_R_R_I(ins, size, tree->GetRegNum(), operand->GetRegNum(), shiftByImm);
     }
 
-    genProduceReg(tree);
-}
-
-//------------------------------------------------------------------------
-// genCodeForLclAddr: Generates the code for GT_LCL_FLD_ADDR/GT_LCL_VAR_ADDR.
-//
-// Arguments:
-//    tree - the node.
-//
-void CodeGen::genCodeForLclAddr(GenTree* tree)
-{
-    assert(tree->OperIs(GT_LCL_FLD_ADDR, GT_LCL_VAR_ADDR));
-
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-
-    // Address of a local var.
-    noway_assert((targetType == TYP_BYREF) || (targetType == TYP_I_IMPL));
-
-    emitAttr size = emitTypeSize(targetType);
-
-    inst_RV_TT(INS_lea, targetReg, tree, 0, size);
     genProduceReg(tree);
 }
 
@@ -2390,7 +2368,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // Use IP0 on ARM64 and R12 on ARM32 as the call target register.
             if (target->GetRegNum() != REG_FASTTAILCALL_TARGET)
             {
-                inst_RV_RV(INS_mov, REG_FASTTAILCALL_TARGET, target->GetRegNum());
+                inst_RV_RV(INS_mov, REG_FASTTAILCALL_TARGET, target->GetRegNum(), TYP_I_IMPL);
             }
         }
 
@@ -2510,7 +2488,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
 // Non-virtual direct call to known addresses
 #ifdef TARGET_ARM
-        if (!arm_Valid_Imm_For_BL((ssize_t)addr))
+        if (!validImmForBL((ssize_t)addr))
         {
             regNumber tmpReg = call->GetSingleTempReg();
             instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, tmpReg, (ssize_t)addr);
@@ -2764,8 +2742,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef TARGET_ARM64
         if (varDsc->GetRegNum() != argReg)
         {
-            var_types loadType = TYP_UNDEF;
-
             if (varDsc->lvIsHfaRegArg())
             {
                 // Note that for HFA, the argument is currently marked address exposed so lvRegNum will always be
@@ -2775,12 +2751,12 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
                 assert(!compiler->info.compIsVarArgs);
 
-                loadType           = varDsc->GetHfaType();
+                var_types loadType = varDsc->GetLayout()->GetHfaElementType();
                 regNumber fieldReg = argReg;
                 emitAttr  loadSize = emitActualTypeSize(loadType);
-                unsigned  cSlots   = varDsc->lvHfaSlots();
+                unsigned  regCount = varDsc->GetLayout()->GetHfaRegCount();
 
-                for (unsigned ofs = 0, cSlot = 0; cSlot < cSlots; cSlot++, ofs += (unsigned)loadSize)
+                for (unsigned ofs = 0, i = 0; i < regCount; i++, ofs += EA_SIZE(loadSize))
                 {
                     GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, fieldReg, varNum, ofs);
                     assert(genIsValidFloatReg(fieldReg)); // No GC register tracking for floating point registers.
@@ -2789,7 +2765,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             }
             else
             {
-                if (varTypeIsStruct(varDsc))
+                var_types loadType;
+
+                if (varTypeIsStruct(varDsc->GetType()))
                 {
                     // Must be <= 16 bytes or else it wouldn't be passed in registers, except for HFA,
                     // which can be bigger (and is handled above).
@@ -2800,6 +2778,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 {
                     loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
                 }
+
                 emitAttr loadSize = emitActualTypeSize(loadType);
                 GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argReg, varNum, 0);
 
@@ -2811,7 +2790,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 regSet.AddMaskVars(genRegMask(argReg));
                 gcInfo.gcMarkRegPtrVal(argReg, loadType);
 
-                if (compiler->lvaIsMultiregStruct(varDsc, compiler->info.compIsVarArgs))
+                if (compiler->lvaIsMultiRegStructParam(varDsc))
                 {
                     // Restore the second register.
                     argRegNext = genRegArgNext(argReg);
@@ -2839,7 +2818,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
             fixedIntArgMask |= genRegMask(argReg);
 
-            if (compiler->lvaIsMultiregStruct(varDsc, compiler->info.compIsVarArgs))
+            if (compiler->lvaIsMultiRegStructParam(varDsc))
             {
                 assert(argRegNext != REG_NA);
                 fixedIntArgMask |= genRegMask(argRegNext);
@@ -2886,7 +2865,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         }
         else if (varDsc->lvIsHfaRegArg())
         {
-            loadType           = varDsc->GetHfaType();
+            loadType           = varDsc->GetLayout()->GetHfaElementType();
             regNumber fieldReg = argReg;
             emitAttr  loadSize = emitActualTypeSize(loadType);
             unsigned  maxSize  = min(varDsc->lvSize(), (LAST_FP_ARGREG + 1 - argReg) * REGSIZE_BYTES);

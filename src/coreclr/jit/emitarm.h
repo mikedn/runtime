@@ -79,10 +79,10 @@ instrDesc* emitNewInstrCallInd(
 /************************************************************************/
 
 private:
-bool emitInsIsCompare(instruction ins);
-bool emitInsIsLoad(instruction ins);
-bool emitInsIsStore(instruction ins);
-bool emitInsIsLoadOrStore(instruction ins);
+static bool emitInsIsCompare(instruction ins);
+static bool emitInsIsLoad(instruction ins);
+static bool emitInsIsStore(instruction ins);
+static bool emitInsIsLoadOrStore(instruction ins);
 
 emitter::insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);

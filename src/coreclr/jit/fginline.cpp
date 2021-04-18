@@ -657,11 +657,7 @@ bool Compiler::inlInlineCall(Statement* stmt, GenTreeCall* call)
 
     if (result.IsFailure())
     {
-        memset(lvaTable + initialLvaCount, 0, (static_cast<size_t>(lvaCount) - initialLvaCount) * sizeof(*lvaTable));
-        for (unsigned i = initialLvaCount; i < lvaCount; i++)
-        {
-            new (&lvaTable[i]) LclVarDsc();
-        }
+        memset(lvaTable + initialLvaCount, 0, (static_cast<size_t>(lvaCount) - initialLvaCount) * sizeof(lvaTable[0]));
         lvaCount = initialLvaCount;
 
         // Before we do any cleanup, create a failing InlineContext to
@@ -901,7 +897,7 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
 
     if (varTypeIsStruct(info.GetRetSigType()))
     {
-        lvaSetStruct(spillLclNum, info.compMethodInfo->args.retTypeClass, false);
+        lvaSetStruct(spillLclNum, info.GetRetLayout(), false);
     }
     else
     {
@@ -1011,7 +1007,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
             {
                 LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
 
-                if (varTypeIsStruct(location->GetType()) && !isOpaqueSIMDLclVar(lcl))
+                if (varTypeIsStruct(location->GetType()) && !lcl->GetLayout()->IsOpaqueVector())
                 {
                     CORINFO_CLASS_HANDLE byrefClass;
                     var_types            byrefType = JITtype2varType(
@@ -1309,7 +1305,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
                 // found a SIMD type, even if this may not be a type we recognize (the assumption is that
                 // it is likely to use a SIMD type, and therefore we want to increase the inlining multiplier).
                 foundSIMDType = true;
-                paramType     = impNormStructType(paramClass);
+                paramType     = typGetStructType(paramClass);
             }
 #endif
         }
@@ -1439,12 +1435,12 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
             JITDUMP("is aliased local");
         }
     }
-    else if (GenTreeLclVar* addrLclVar = impIsAddressInLocal(argInfo.argNode))
+    else if (GenTreeLclVar* lclVar = impIsAddressInLocal(argInfo.argNode))
     {
         argInfo.argIsInvariant = true;
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsStruct(addrLclVar->GetType()) && lvaGetDesc(addrLclVar)->lvSIMDType)
+        if (varTypeIsSIMD(lvaGetDesc(lclVar)->GetType()))
         {
             inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
         }
@@ -1606,7 +1602,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
             else if (isSIMDorHWSIMDClass(lclClass))
             {
                 foundSIMDType = true;
-                lclType       = impNormStructType(lclClass);
+                lclType       = typGetStructType(lclClass);
             }
 #endif
         }
@@ -1701,7 +1697,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
     if (varTypeIsStruct(lclInfo.lclType))
     {
-        lvaSetStruct(lclNum, lclInfo.lclClass, /* unsafeValueClsCheck */ true);
+        lvaSetStruct(lclNum, lclInfo.lclClass, /* checkUnsafeBuffer */ true);
     }
     else
     {
@@ -1845,7 +1841,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     if (varTypeIsStruct(argInfo.paramType))
     {
-        lvaSetStruct(tmpLclNum, argInfo.paramClass, /* unsafeValueClsCheck */ true);
+        lvaSetStruct(tmpLclNum, argInfo.paramClass, /* checkUnsafeBuffer */ true);
     }
     else
     {

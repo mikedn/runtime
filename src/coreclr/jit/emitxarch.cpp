@@ -131,7 +131,7 @@ bool emitter::IsAVXInstruction(instruction ins)
 // to indicate whether a 3-operand instruction.
 bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 {
-    return ((CodeGenInterface::instInfo[ins] & INS_Flags_IsDstDstSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
+    return ((instInfo[ins] & INS_Flags_IsDstDstSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
 }
 
 // Returns true if the AVX instruction requires 3 operands that duplicate the source
@@ -141,7 +141,13 @@ bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 // to indicate whether a 3-operand instruction.
 bool emitter::IsDstSrcSrcAVXInstruction(instruction ins)
 {
-    return ((CodeGenInterface::instInfo[ins] & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
+    return ((instInfo[ins] & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
+}
+
+bool emitter::instIsFP(instruction ins)
+{
+    assert(ins < _countof(instInfo));
+    return (instInfo[ins] & INS_FLAGS_x87Instr) != 0;
 }
 
 //------------------------------------------------------------------------
@@ -1147,13 +1153,8 @@ inline ssize_t emitter::emitGetInsCIdisp(instrDesc* id)
     }
 }
 
-/** ***************************************************************************
- *
- *  The following table is used by the instIsFP()/instUse/DefFlags() helpers.
- */
-
 // clang-format off
-const insFlags      CodeGenInterface::instInfo[] =
+const insFlags emitter::instInfo[]
 {
     #define INST0(id, nm, um, mr,                 flags) static_cast<insFlags>(flags),
     #define INST1(id, nm, um, mr,                 flags) static_cast<insFlags>(flags),
@@ -1171,13 +1172,8 @@ const insFlags      CodeGenInterface::instInfo[] =
 };
 // clang-format on
 
-/*****************************************************************************
- *
- *  Initialize the table used by emitInsModeFormat().
- */
-
 // clang-format off
-const BYTE          emitter::emitInsModeFmtTab[] =
+const BYTE emitter::emitInsModeFmtTab[] =
 {
     #define INST0(id, nm, um, mr,                 flags) um,
     #define INST1(id, nm, um, mr,                 flags) um,
@@ -5267,7 +5263,7 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 
 void emitter::emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber reg, int disp)
 {
-    assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE));
+    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
 
 #ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
@@ -5323,7 +5319,7 @@ void emitter::emitIns_I_AR(instruction ins, emitAttr attr, int val, regNumber re
 
 void emitter::emitIns_I_AI(instruction ins, emitAttr attr, int val, ssize_t disp)
 {
-    assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE));
+    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
 
 #ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
@@ -5384,7 +5380,7 @@ void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNum
 
 void emitter::emitIns_R_AI(instruction ins, emitAttr attr, regNumber ireg, ssize_t disp)
 {
-    assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE) && (ireg != REG_NA));
+    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE) && (ireg != REG_NA));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
 
     UNATIVE_OFFSET sz;
@@ -5476,7 +5472,7 @@ void emitter::emitIns_AI_R(instruction ins, emitAttr attr, regNumber ireg, ssize
     {
         fmt = emitInsModeFormat(ins, IF_ARD_RRD);
 
-        assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE));
+        assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
         noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
 
         id->idReg1(ireg);
@@ -5501,7 +5497,7 @@ void emitter::emitIns_AI_R(instruction ins, emitAttr attr, regNumber ireg, ssize
 
 void emitter::emitIns_I_ARR(instruction ins, emitAttr attr, int val, regNumber reg, regNumber rg2, int disp)
 {
-    assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE));
+    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
 
 #ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
@@ -5561,7 +5557,7 @@ void emitter::emitIns_ARR_R(instruction ins, emitAttr attr, regNumber reg, regNu
 void emitter::emitIns_I_ARX(
     instruction ins, emitAttr attr, int val, regNumber reg, regNumber rg2, unsigned mul, int disp)
 {
-    assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE));
+    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
 
 #ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
@@ -5612,7 +5608,7 @@ void emitter::emitIns_I_ARX(
 void emitter::emitIns_R_ARX(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int disp)
 {
-    assert(!CodeGen::instIsFP(ins) && (EA_SIZE(attr) <= EA_32BYTE) && (reg != REG_NA));
+    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_32BYTE) && (reg != REG_NA));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
 
     if ((ins == INS_lea) && (reg == base) && (index == REG_NA) && (disp == 0))
@@ -5665,7 +5661,7 @@ void emitter::emitIns_ARX_R(
         fmt = emitInsModeFormat(ins, IF_ARD_RRD);
 
         noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), reg));
-        assert(!CodeGen::instIsFP(ins) && (EA_SIZE(attr) <= EA_32BYTE));
+        assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_32BYTE));
 
         id->idReg1(reg);
     }
@@ -5690,7 +5686,7 @@ void emitter::emitIns_ARX_R(
 
 void emitter::emitIns_I_AX(instruction ins, emitAttr attr, int val, regNumber reg, unsigned mul, int disp)
 {
-    assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE));
+    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
 
 #ifdef TARGET_AMD64
     // mov reg, imm64 is the only opcode which takes a full 8 byte immediate
@@ -5739,7 +5735,7 @@ void emitter::emitIns_I_AX(instruction ins, emitAttr attr, int val, regNumber re
 
 void emitter::emitIns_R_AX(instruction ins, emitAttr attr, regNumber ireg, regNumber reg, unsigned mul, int disp)
 {
-    assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE) && (ireg != REG_NA));
+    assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE) && (ireg != REG_NA));
     noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
 
     UNATIVE_OFFSET sz;
@@ -5777,7 +5773,7 @@ void emitter::emitIns_AX_R(instruction ins, emitAttr attr, regNumber ireg, regNu
     {
         fmt = emitInsModeFormat(ins, IF_ARD_RRD);
         noway_assert(emitVerifyEncodable(ins, EA_SIZE(attr), ireg));
-        assert((CodeGen::instIsFP(ins) == false) && (EA_SIZE(attr) <= EA_8BYTE));
+        assert(!instIsFP(ins) && (EA_SIZE(attr) <= EA_8BYTE));
 
         id->idReg1(ireg);
     }
@@ -7659,23 +7655,6 @@ const char* emitter::emitRegName(regNumber reg, emitAttr attr, bool varName)
     return rn;
 }
 
-/*****************************************************************************
- *
- *  Return a string that represents the given FP register.
- */
-
-const char* emitter::emitFPregName(unsigned reg, bool varName)
-{
-    assert(reg < REG_COUNT);
-
-    return emitComp->compFPregVarName((regNumber)(reg), varName);
-}
-
-/*****************************************************************************
- *
- *  Return a string that represents the given XMM register.
- */
-
 const char* emitter::emitXMMregName(unsigned reg)
 {
     static const char* const regNames[] = {
@@ -8196,10 +8175,41 @@ void emitter::emitDispInsHex(instrDesc* id, BYTE* code, size_t sz)
     }
 }
 
-/*****************************************************************************
- *
- *  Display the given instruction.
- */
+const char* emitSizeStr(emitAttr attr)
+{
+    if (attr == EA_GCREF)
+    {
+        return "gword ptr ";
+    }
+
+    if (attr == EA_BYREF)
+    {
+        return "bword ptr ";
+    }
+
+    if (EA_IS_DSP_RELOC(attr))
+    {
+        return "rword ptr ";
+    }
+
+    switch (EA_SIZE(attr))
+    {
+        case 1:
+            return "byte ptr ";
+        case 2:
+            return "word ptr ";
+        case 4:
+            return "dword ptr ";
+        case 8:
+            return "qword ptr ";
+        case 16:
+            return "xmmword ptr ";
+        case 32:
+            return "ymmword ptr ";
+        default:
+            return "unknw ptr ";
+    }
+}
 
 void emitter::emitDispIns(
     instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* code, size_t sz, insGroup* ig)
@@ -8263,7 +8273,7 @@ void emitter::emitDispIns(
 
                 bool isFP = false;
 
-                if  (CodeGen::instIsFP(id->idIns()))
+                if (instIsFP(id->idIns()))
                 {
                     switch (id->idIns())
                     {
@@ -8386,7 +8396,7 @@ void emitter::emitDispIns(
     else
     {
         attr = id->idOpSize();
-        sstr = codeGen->genSizeStr(attr);
+        sstr = emitSizeStr(attr);
 
         if (ins == INS_lea)
         {
@@ -8540,7 +8550,7 @@ void emitter::emitDispIns(
         {
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
-            sstr = codeGen->genSizeStr(EA_ATTR(16));
+            sstr = emitSizeStr(EA_ATTR(16));
             printf(sstr);
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
@@ -8572,7 +8582,7 @@ void emitter::emitDispIns(
             {
                 attr = EA_16BYTE;
             }
-            sstr = codeGen->genSizeStr(EA_ATTR(4));
+            sstr = emitSizeStr(EA_ATTR(4));
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg2(), attr));
@@ -9011,7 +9021,7 @@ void emitter::emitDispIns(
         {
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
             // vextracti/f128 extracts 128-bit data, so we fix sstr as "xmm ptr"
-            sstr = codeGen->genSizeStr(EA_ATTR(16));
+            sstr = emitSizeStr(EA_ATTR(16));
             printf(sstr);
             offs = emitGetInsDsp(id);
             emitDispClsVar(id->idAddr()->iiaFieldHnd, offs, ID_INFO_DSP_RELOC);
@@ -9682,7 +9692,7 @@ BYTE* emitter::emitOutputAM(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             code++;
         }
     }
-    else if (CodeGen::instIsFP(ins))
+    else if (instIsFP(ins))
     {
         assert(size == EA_4BYTE || size == EA_8BYTE);
         if (size == EA_8BYTE)
@@ -10450,7 +10460,7 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             code |= 0x1;
         }
     }
-    else if (CodeGen::instIsFP(ins))
+    else if (instIsFP(ins))
     {
         assert(size == EA_4BYTE || size == EA_8BYTE);
 
@@ -10916,7 +10926,7 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             code++;
         }
     }
-    else if (CodeGen::instIsFP(ins))
+    else if (instIsFP(ins))
     {
         assert(size == EA_4BYTE || size == EA_8BYTE);
 

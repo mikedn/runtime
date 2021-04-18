@@ -13,13 +13,6 @@
 
 #include "jitgcinfo.h"
 
-/*****************************************************************************/
-#ifdef _MSC_VER
-#pragma warning(disable : 4200) // allow arrays of 0 size inside structs
-#endif
-
-/*****************************************************************************/
-
 #if 0
 #define EMITVERBOSE 1
 #else
@@ -1468,6 +1461,16 @@ protected:
 #ifdef DEBUG
     static const unsigned emitInsModeFmtCnt;
 #endif
+
+#if defined(TARGET_XARCH)
+    static const insFlags instInfo[INS_count];
+#elif defined(TARGET_ARMARCH)
+    static const uint8_t instInfo[INS_count];
+#else
+#error Unsupported target architecture
+#endif
+
+    static bool instIsFP(instruction ins);
 
     size_t emitGetInstrDescSize(const instrDesc* id);
     size_t emitGetInstrDescSizeSC(const instrDesc* id);

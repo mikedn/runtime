@@ -427,47 +427,6 @@ Histogram loopExitCountTable(loopExitCountBuckets);
 
 #endif // COUNT_LOOPS
 
-//------------------------------------------------------------------------
-// getJitGCType: Given the VM's CorInfoGCType convert it to the JIT's var_types
-//
-// Arguments:
-//    gcType    - an enum value that originally came from an element
-//                of the BYTE[] returned from getClassGClayout()
-//
-// Return Value:
-//    The corresponsing enum value from the JIT's var_types
-//
-// Notes:
-//   The gcLayout of each field of a struct is returned from getClassGClayout()
-//   as a BYTE[] but each BYTE element is actually a CorInfoGCType value
-//   Note when we 'know' that there is only one element in theis array
-//   the JIT will often pass the address of a single BYTE, instead of a BYTE[]
-//
-
-var_types Compiler::getJitGCType(BYTE gcType)
-{
-    var_types     result      = TYP_UNKNOWN;
-    CorInfoGCType corInfoType = (CorInfoGCType)gcType;
-
-    if (corInfoType == TYPE_GC_NONE)
-    {
-        result = TYP_I_IMPL;
-    }
-    else if (corInfoType == TYPE_GC_REF)
-    {
-        result = TYP_REF;
-    }
-    else if (corInfoType == TYPE_GC_BYREF)
-    {
-        result = TYP_BYREF;
-    }
-    else
-    {
-        noway_assert(!"Bad value of 'gcType'");
-    }
-    return result;
-}
-
 #ifdef TARGET_X86
 //---------------------------------------------------------------------------
 // isTrivialPointerSizedStruct:
@@ -555,11 +514,6 @@ bool Compiler::isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd)
 //     If the struct is a one element HFA/HVA, we will return the
 //     proper floating point or vector type.
 //
-// Arguments:
-//    structSize - the size of the struct type, cannot be zero
-//    clsHnd     - the handle for the struct type, used when may have
-//                 an HFA or if we need the GC layout for an object ref.
-//
 // Return Value:
 //    The primitive type (i.e. byte, short, int, long, ref, float, double)
 //    used to pass or return structs of this size.
@@ -574,55 +528,33 @@ bool Compiler::isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd)
 //    For vector calling conventions, a vector is considered a "primitive"
 //    type, as it is passed in a single register.
 //
-var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS_HANDLE clsHnd, bool isVarArg)
+var_types Compiler::getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg)
 {
-    assert(structSize != 0);
-
-// Start by determining if we have an HFA/HVA with a single element.
 #ifdef FEATURE_HFA
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-    // Arm64 Windows VarArg methods arguments will not classify HFA types, they will need to be treated
-    // as if they are not HFA types.
-    if (!isVarArg)
-#endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-    {
-        switch (structSize)
-        {
-            case 4:
-            case 8:
-#ifdef TARGET_ARM64
-            case 16:
+    if (!isVarArg) // win-arm64 varargs ABI does not use HFAs
 #endif
-            {
-                var_types hfaType = GetHfaType(clsHnd);
-                if (hfaType != TYP_UNDEF)
-                {
-                    return (varTypeSize(hfaType) == structSize) ? hfaType : TYP_UNKNOWN;
-                }
-            }
-            break;
+    {
+        if (layout->IsHfa())
+        {
+            return layout->GetHfaElementCount() == 1 ? layout->GetHfaElementType() : TYP_UNKNOWN;
         }
     }
 #endif // FEATURE_HFA
 
-    // Now deal with non-HFA/HVA structs.
-    switch (structSize)
+    switch (layout->GetSize())
     {
         case 1:
             return TYP_BYTE;
-
         case 2:
             return TYP_SHORT;
-
 #if !defined(TARGET_XARCH) || defined(UNIX_AMD64_ABI)
         case 3:
             return TYP_INT;
 #endif
-
 #ifdef TARGET_64BIT
         case 4:
             return TYP_INT;
-
 #if !defined(TARGET_XARCH) || defined(UNIX_AMD64_ABI)
         case 5:
         case 6:
@@ -630,16 +562,8 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
             return TYP_I_IMPL;
 #endif
 #endif
-
         case TARGET_POINTER_SIZE:
-        {
-            BYTE gcPtr = 0;
-            // Check if this pointer-sized struct is wrapping a GC object
-            info.compCompHnd->getClassGClayout(clsHnd, &gcPtr);
-            return getJitGCType(gcPtr);
-        }
-        break;
-
+            return layout->GetGCPtrType(0);
         default:
             return TYP_UNKNOWN;
     }
@@ -653,12 +577,10 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
 //     an extra call to getClassSize(clsHnd)
 //
 // Arguments:
-//    clsHnd       - the handle for the struct type
+//    layout       - the layout of the struct type
 //    wbPassStruct - An "out" argument with information about how
 //                   the struct is to be passed
 //    isVarArg     - is vararg, used to ignore HFA types for Arm64 windows varargs
-//    structSize   - the size of the struct type,
-//                   or zero if we should call getClassSize(clsHnd)
 //
 // Return Value:
 //    For wbPassStruct you can pass a 'nullptr' and nothing will be written
@@ -671,10 +593,6 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
 //       is always TYP_STRUCT and the struct type is passed by value either
 //       using multiple registers or on the stack.
 //
-// Assumptions:
-//    The size must be the size of the given type.
-//    The given class handle must be for a value type (struct).
-//
 // Notes:
 //    About HFA types:
 //        When the clsHnd is a one element HFA type we return the appropriate
@@ -682,15 +600,12 @@ var_types Compiler::getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS
 //        If there are two or more elements in the HFA type then the this method's
 //         return value is TYP_STRUCT and *wbPassStruct is SPK_ByValueAsHfa
 //
-var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
-                                        structPassingKind*   wbPassStruct,
-                                        bool                 isVarArg,
-                                        unsigned             structSize)
+var_types Compiler::getArgTypeForStruct(ClassLayout* layout, structPassingKind* wbPassStruct, bool isVarArg)
 {
-    var_types         useType         = TYP_UNKNOWN;
-    structPassingKind howToPassStruct = SPK_Unknown; // We must change this before we return
-
-    assert(structSize != 0);
+    CORINFO_CLASS_HANDLE clsHnd          = layout->GetClassHandle();
+    unsigned             structSize      = layout->GetSize();
+    var_types            useType         = TYP_UNKNOWN;
+    structPassingKind    howToPassStruct = SPK_Unknown; // We must change this before we return
 
 // Determine if we can pass the struct as a primitive type.
 // Note that on x86 we only pass specific pointer-sized structs that satisfy isTrivialPointerSizedStruct checks.
@@ -726,7 +641,7 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
     {
         // We set the "primitive" useType based upon the structSize
         // and also examine the clsHnd to see if it is an HFA of count one
-        useType = getPrimitiveTypeForStruct(structSize, clsHnd, isVarArg);
+        useType = getPrimitiveTypeForStruct(layout, isVarArg);
     }
 #else
     if (isTrivialPointerSizedStruct(clsHnd))
@@ -761,14 +676,14 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
             else
 #endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
             {
-                hfaType = GetHfaType(clsHnd);
+                hfaType = layout->IsHfa() ? layout->GetHfaElementType() : TYP_UNDEF;
             }
 
 #ifdef FEATURE_HFA
-            if (varTypeIsValidHfaType(hfaType))
+            if (hfaType != TYP_UNDEF)
             {
-                // HFA's of count one should have been handled by getPrimitiveTypeForStruct
-                assert(GetHfaCount(clsHnd) >= 2);
+                // Single element HFAs should have been handled by getPrimitiveTypeForStruct
+                assert(layout->GetHfaElementCount() > 1);
 
                 // setup wbPassType and useType indicate that this is passed by value as an HFA
                 //  using multiple registers
@@ -779,7 +694,6 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
             else
 #endif
             {
-
 #ifdef UNIX_AMD64_ABI
                 // The case of (structDesc.eightByteCount == 1) should have already been handled
                 if ((structDesc.eightByteCount > 1) || !structDesc.passedInRegisters)
@@ -864,13 +778,8 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
         }
     }
 
-    // 'howToPassStruct' must be set to one of the valid values before we return
     assert(howToPassStruct != SPK_Unknown);
-    if (wbPassStruct != nullptr)
-    {
-        *wbPassStruct = howToPassStruct;
-    }
-
+    *wbPassStruct = howToPassStruct;
     return useType;
 }
 
@@ -882,13 +791,11 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
 //     an extra call to getClassSize(clsHnd)
 //
 // Arguments:
-//    clsHnd         - the handle for the struct type
+//    layout         - the layout of the struct type
 //    callConv       - the calling convention of the function
 //                     that returns this struct.
 //    wbReturnStruct - An "out" argument with information about how
 //                     the struct is to be returned
-//    structSize     - the size of the struct type,
-//                     or zero if we should call getClassSize(clsHnd)
 //
 // Return Value:
 //    For wbReturnStruct you can pass a 'nullptr' and nothing will be written
@@ -919,22 +826,17 @@ var_types Compiler::getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
 //        Whenever this method's return value is TYP_STRUCT it always means
 //         that multiple registers are used to return this struct.
 //
-var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE     clsHnd,
+var_types Compiler::getReturnTypeForStruct(ClassLayout*             layout,
                                            CorInfoCallConvExtension callConv,
-                                           structPassingKind*       wbReturnStruct /* = nullptr */,
-                                           unsigned                 structSize /* = 0 */)
+                                           structPassingKind*       wbReturnStruct)
 {
-    var_types         useType             = TYP_UNKNOWN;
-    structPassingKind howToReturnStruct   = SPK_Unknown; // We must change this before we return
-    bool              canReturnInRegister = true;
+    layout->EnsureHfaInfo(this);
 
-    assert(clsHnd != NO_CLASS_HANDLE);
-
-    if (structSize == 0)
-    {
-        structSize = info.compCompHnd->getClassSize(clsHnd);
-    }
-    assert(structSize > 0);
+    CORINFO_CLASS_HANDLE clsHnd              = layout->GetClassHandle();
+    unsigned             structSize          = layout->GetSize();
+    var_types            useType             = TYP_UNKNOWN;
+    structPassingKind    howToReturnStruct   = SPK_Unknown; // We must change this before we return
+    bool                 canReturnInRegister = true;
 
 #ifdef UNIX_AMD64_ABI
     // An 8-byte struct may need to be returned in a floating point register
@@ -996,7 +898,7 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE     clsHnd,
         //
         // The ABI for struct returns in varArg methods, is same as the normal case,
         // so pass false for isVararg
-        useType = getPrimitiveTypeForStruct(structSize, clsHnd, /*isVararg=*/false);
+        useType = getPrimitiveTypeForStruct(layout, /*isVararg=*/false);
 
         if (useType != TYP_UNKNOWN)
         {
@@ -1020,10 +922,10 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE     clsHnd,
         {
 #ifdef FEATURE_HFA
             // Structs that are HFA's are returned in multiple registers
-            if (IsHfa(clsHnd))
+            if (layout->IsHfa())
             {
-                // HFA's of count one should have been handled by getPrimitiveTypeForStruct
-                assert(GetHfaCount(clsHnd) >= 2);
+                // Single element HFAs should have been handled by getPrimitiveTypeForStruct
+                assert(layout->GetHfaElementCount() > 1);
 
                 // setup wbPassType and useType indicate that this is returned by value as an HFA
                 //  using multiple registers
@@ -1112,13 +1014,8 @@ var_types Compiler::getReturnTypeForStruct(CORINFO_CLASS_HANDLE     clsHnd,
         }
     }
 
-    // 'howToReturnStruct' must be set to one of the valid values before we return
     assert(howToReturnStruct != SPK_Unknown);
-    if (wbReturnStruct != nullptr)
-    {
-        *wbReturnStruct = howToReturnStruct;
-    }
-
+    *wbReturnStruct = howToReturnStruct;
     return useType;
 }
 
@@ -1346,10 +1243,6 @@ void Compiler::compStartup()
     GCInfo::gcInitEncoderLookupTable();
 #endif
 
-    /* Initialize the emitter */
-
-    emitter::emitInit();
-
     // Static vars of ValueNumStore
     ValueNumStore::InitValueNumStoreStatics();
 
@@ -1381,10 +1274,6 @@ void Compiler::compShutdown()
 #if MEASURE_NOWAY
     DisplayNowayAssertMap();
 #endif // MEASURE_NOWAY
-
-    /* Shut down the emitter */
-
-    emitter::emitDone();
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     // Finish reading and/or writing inline xml
@@ -1933,10 +1822,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     m_abiStructArgTempsInUse = nullptr;
 #endif
 
-#ifdef FEATURE_SIMD
-    m_simdHandleCache = nullptr;
-#endif // FEATURE_SIMD
-
     compUsesThrowHelper = false;
 }
 
@@ -2121,61 +2006,6 @@ const char* Compiler::compRegVarName(regNumber reg, bool displayVar, bool isFloa
        -> return standard name */
 
     return getRegName(reg);
-}
-
-const char* Compiler::compRegNameForSize(regNumber reg, size_t size)
-{
-    if (size == 0 || size >= 4)
-    {
-        return compRegVarName(reg, true);
-    }
-
-    // clang-format off
-    static
-    const char  *   sizeNames[][2] =
-    {
-        { "al", "ax" },
-        { "cl", "cx" },
-        { "dl", "dx" },
-        { "bl", "bx" },
-#ifdef TARGET_AMD64
-        {  "spl",   "sp" }, // ESP
-        {  "bpl",   "bp" }, // EBP
-        {  "sil",   "si" }, // ESI
-        {  "dil",   "di" }, // EDI
-        {  "r8b",  "r8w" },
-        {  "r9b",  "r9w" },
-        { "r10b", "r10w" },
-        { "r11b", "r11w" },
-        { "r12b", "r12w" },
-        { "r13b", "r13w" },
-        { "r14b", "r14w" },
-        { "r15b", "r15w" },
-#endif // TARGET_AMD64
-    };
-    // clang-format on
-
-    assert(isByteReg(reg));
-    assert(genRegMask(reg) & RBM_BYTE_REGS);
-    assert(size == 1 || size == 2);
-
-    return sizeNames[reg][size - 1];
-}
-
-const char* Compiler::compFPregVarName(unsigned fpReg, bool displayVar)
-{
-    const int   NAME_VAR_REG_BUFFER_LEN = 4 + 256 + 1;
-    static char nameVarReg[2][NAME_VAR_REG_BUFFER_LEN]; // to avoid overwriting the buffer when have 2 consecutive calls
-                                                        // before printing
-    static int index = 0;                               // for circular index into the name array
-
-    index = (index + 1) % 2; // circular reuse of index
-
-    /* no debug info required or no variable in that register
-       -> return standard name */
-
-    sprintf_s(nameVarReg[index], NAME_VAR_REG_BUFFER_LEN, "ST(%d)", fpReg);
-    return nameVarReg[index];
 }
 
 const char* Compiler::compLocalVarName(unsigned varNum, unsigned offs)
@@ -4273,8 +4103,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         if (info.compPublishStubParam)
         {
             assert(lvaStubArgumentVar == BAD_VAR_NUM);
-            lvaStubArgumentVar                  = lvaGrabTempWithImplicitUse(false DEBUGARG("stub argument"));
-            lvaTable[lvaStubArgumentVar].lvType = TYP_I_IMPL;
+            lvaStubArgumentVar = lvaGrabTempWithImplicitUse(false DEBUGARG("stub argument"));
+            lvaGetDesc(lvaStubArgumentVar)->SetType(TYP_I_IMPL);
         }
     };
     DoPhase(this, PHASE_PRE_IMPORT, preImportPhase);
@@ -4412,16 +4242,16 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 #if defined(DEBUG) && defined(TARGET_XARCH)
         if (opts.compStackCheckOnRet)
         {
-            lvaReturnSpCheck                  = lvaGrabTempWithImplicitUse(false DEBUGARG("ReturnSpCheck"));
-            lvaTable[lvaReturnSpCheck].lvType = TYP_I_IMPL;
+            lvaReturnSpCheck = lvaGrabTempWithImplicitUse(false DEBUGARG("ReturnSpCheck"));
+            lvaGetDesc(lvaReturnSpCheck)->SetType(TYP_I_IMPL);
         }
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
 
 #if defined(DEBUG) && defined(TARGET_X86)
         if (opts.compStackCheckOnCall)
         {
-            lvaCallSpCheck                  = lvaGrabTempWithImplicitUse(false DEBUGARG("CallSpCheck"));
-            lvaTable[lvaCallSpCheck].lvType = TYP_I_IMPL;
+            lvaCallSpCheck = lvaGrabTempWithImplicitUse(false DEBUGARG("CallSpCheck"));
+            lvaGetDesc(lvaCallSpCheck)->SetType(TYP_I_IMPL);
         }
 #endif // defined(DEBUG) && defined(TARGET_X86)
 
@@ -5186,7 +5016,7 @@ bool Compiler::compQuirkForPPP()
         }
 
         // Look for a 32-byte address exposed Struct and record its varDsc
-        if ((varDsc->TypeGet() == TYP_STRUCT) && varDsc->lvAddrExposed && (varDsc->lvExactSize == 32))
+        if (varDsc->TypeIs(TYP_STRUCT) && varDsc->lvAddrExposed && (varDsc->GetLayout()->GetSize() == 32))
         {
             varDscExposedStruct = varDsc;
         }
@@ -5198,21 +5028,11 @@ bool Compiler::compQuirkForPPP()
     //
     if (hasOutArgs && (varDscExposedStruct != nullptr))
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
-        }
-#endif // DEBUG
+        JITDUMP("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
 
-        // Increase the exact size of this struct by 32 bytes
+        // Increase the exact size of this struct to 64 bytes.
         // This fixes the PPP backward compat issue
         varDscExposedStruct->lvExactSize += 32;
-
-        // The struct is now 64 bytes.
-        // We're on x64 so this should be 8 pointer slots.
-        assert((varDscExposedStruct->lvExactSize / TARGET_POINTER_SIZE) == 8);
-
         varDscExposedStruct->SetLayout(
             varDscExposedStruct->GetLayout()->GetPPPQuirkLayout(getAllocator(CMK_ClassLayout)));
 

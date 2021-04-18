@@ -834,19 +834,13 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 //------------------------------------------------------------------------
 // genSpillVar: Spill a local variable
 //
-// Arguments:
-//    tree      - the lclVar node for the variable being spilled
-//
-// Return Value:
-//    None.
-//
 // Assumptions:
 //    The lclVar must be a register candidate (lvRegCandidate)
 
-void CodeGen::genSpillVar(GenTree* tree)
+void CodeGen::genSpillVar(GenTreeLclVar* tree)
 {
-    unsigned   varNum = tree->AsLclVarCommon()->GetLclNum();
-    LclVarDsc* varDsc = &(compiler->lvaTable[varNum]);
+    unsigned   varNum = tree->GetLclNum();
+    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
 
     assert(varDsc->lvIsRegCandidate());
 
@@ -858,7 +852,7 @@ void CodeGen::genSpillVar(GenTree* tree)
         // therefore be store-normalized (rather than load-normalized). In fact, not performing store normalization
         // can lead to problems on architectures where a lclVar may be allocated to a register that is not
         // addressable at the granularity of the lclVar's defined type (e.g. x86).
-        var_types lclTyp = genActualType(varDsc->TypeGet());
+        var_types lclTyp = varActualType(varDsc->GetType());
         emitAttr  size   = emitTypeSize(lclTyp);
 
         // If this is a write-thru variable, we don't actually spill at a use, but we will kill the var in the reg
@@ -1455,7 +1449,7 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
         LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
         if (varDsc->GetRegNum() != REG_STK && varDsc->GetRegNum() != tree->GetRegNum())
         {
-            inst_RV_RV(ins_Copy(tree->TypeGet()), tree->GetRegNum(), varDsc->GetRegNum());
+            inst_RV_RV(ins_Copy(tree->TypeGet()), tree->GetRegNum(), varDsc->GetRegNum(), TYP_I_IMPL);
         }
     }
 
@@ -1711,17 +1705,29 @@ void CodeGen::genConsumeArgSplitStruct(GenTreePutArgSplit* putArgNode)
 //    own incoming argument area.
 //
 #ifndef TARGET_X86
-void CodeGen::genPutArgStkFieldList(GenTreeFieldList* fieldList,
+void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
                                     unsigned          outArgLclNum,
                                     unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
-    for (GenTreeFieldList::Use& use : fieldList->Uses())
+    regNumber tmpReg = putArg->AvailableTempRegCount() ? putArg->GetSingleTempReg() : REG_NA;
+
+    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
     {
         unsigned dstOffset = outArgLclOffs + use.GetOffset();
 
         GenTree*  src     = use.GetNode();
-        var_types srcType = use.GetNode()->GetType();
+        var_types srcType = use.GetType();
         regNumber srcReg;
+
+        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
+
+#ifdef FEATURE_SIMD
+        if (srcType == TYP_SIMD12)
+        {
+            genStoreSIMD12(GenAddrMode(outArgLclNum, dstOffset), src, tmpReg);
+            continue;
+        }
+#endif
 
 #ifdef TARGET_ARM64
         if (src->isContained())
@@ -1734,8 +1740,6 @@ void CodeGen::genPutArgStkFieldList(GenTreeFieldList* fieldList,
         {
             srcReg = genConsumeReg(src);
         }
-
-        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
 
         GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, dstOffset);
     }
@@ -2534,6 +2538,15 @@ void CodeGen::genCodeForSetcc(GenTreeCC* setcc)
 
     inst_SETCC(setcc->gtCondition, setcc->TypeGet(), setcc->GetRegNum());
     genProduceReg(setcc);
+}
+
+void CodeGen::genCodeForLclAddr(GenTreeLclVarCommon* node)
+{
+    assert(node->OperIs(GT_LCL_FLD_ADDR, GT_LCL_VAR_ADDR));
+    assert(node->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+    inst_RV_TT(INS_lea, emitTypeSize(node->GetType()), node->GetRegNum(), node);
+    genProduceReg(node);
 }
 
 #ifdef DEBUG

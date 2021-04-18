@@ -171,14 +171,9 @@ private:
         GenTree* candidate = stmt->GetRootNode();
         if (candidate->OperIs(GT_ASG))
         {
-            candidate = candidate->gtGetOp2();
+            candidate = candidate->AsOp()->GetOp(1);
         }
-        if (candidate->OperIs(GT_CALL))
-        {
-            GenTreeCall* call = candidate->AsCall();
-            return call->IsExpRuntimeLookup();
-        }
-        return false;
+        return candidate->IsCall() && candidate->AsCall()->IsExpRuntimeLookup();
     }
 
     class Transformer
@@ -501,6 +496,8 @@ private:
 
     class GuardedDevirtualizationTransformer final : public Transformer
     {
+        unsigned returnTemp;
+
     public:
         GuardedDevirtualizationTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt)
             : Transformer(compiler, block, stmt), returnTemp(BAD_VAR_NUM)
@@ -647,7 +644,7 @@ private:
                 assert(retExpr->GetCall() == origCall);
             }
 
-            if (origCall->TypeGet() != TYP_VOID)
+            if (origCall->TypeIs(TYP_VOID))
             {
                 returnTemp = compiler->lvaGrabTemp(false DEBUGARG("guarded devirt return temp"));
                 JITDUMP("Reworking call(s) to return value via a new temp V%02u\n", returnTemp);
@@ -655,6 +652,10 @@ private:
                 if (varTypeIsStruct(origCall->GetType()))
                 {
                     compiler->lvaSetStruct(returnTemp, origCall->GetRetLayout(), false);
+                }
+                else
+                {
+                    compiler->lvaGetDesc(returnTemp)->SetType(origCall->GetType());
                 }
 
                 GenTree* tempTree = compiler->gtNewLclvNode(returnTemp, origCall->GetType());
@@ -696,9 +697,9 @@ private:
             CORINFO_CLASS_HANDLE clsHnd     = inlineInfo->guardedClassHandle;
 
             // copy 'this' to temp with exact type.
-            const unsigned thisTemp  = compiler->lvaGrabTemp(false DEBUGARG("guarded devirt this exact temp"));
-            GenTree*       clonedObj = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
-            GenTree*       assign    = compiler->gtNewTempAssign(thisTemp, clonedObj);
+            unsigned thisTemp  = compiler->lvaNewTemp(TYP_REF, false DEBUGARG("guarded devirt this exact temp"));
+            GenTree* clonedObj = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
+            GenTree* assign    = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisTemp, TYP_REF), clonedObj);
             compiler->lvaSetClass(thisTemp, clsHnd, true);
             compiler->fgNewStmtAtEnd(thenBlock, assign);
 
@@ -750,12 +751,12 @@ private:
 
                 if (returnTemp != BAD_VAR_NUM)
                 {
-                    retExpr = compiler->gtNewTempAssign(returnTemp, retExpr);
+                    retExpr = compiler->gtNewAssignNode(compiler->gtNewLclvNode(returnTemp, call->GetType()), retExpr);
                 }
                 else
                 {
                     // We should always have a return temp if we return results by value
-                    assert(origCall->TypeGet() == TYP_VOID);
+                    assert(origCall->TypeIs(TYP_VOID));
                 }
 
                 compiler->fgNewStmtAtEnd(thenBlock, retExpr);
@@ -779,8 +780,8 @@ private:
 
             if (returnTemp != BAD_VAR_NUM)
             {
-                GenTree* assign = compiler->gtNewTempAssign(returnTemp, call);
-                newStmt->SetRootNode(assign);
+                newStmt->SetRootNode(
+                    compiler->gtNewAssignNode(compiler->gtNewLclvNode(returnTemp, call->GetType()), call));
             }
 
             // For stub calls, restore the stub address. For everything else,
@@ -800,9 +801,6 @@ private:
             // Set the original statement to a nop.
             stmt->SetRootNode(compiler->gtNewNothingNode());
         }
-
-    private:
-        unsigned returnTemp;
     };
 
     // Runtime lookup with dynamic dictionary expansion transformer,
@@ -847,14 +845,18 @@ private:
     //
     class ExpRuntimeLookupTransformer final : public Transformer
     {
+        BasicBlock* checkBlock2;
+        unsigned    resultLclNum;
+
     public:
         ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt)
             : Transformer(compiler, block, stmt)
+            , checkBlock2(nullptr)
+            , resultLclNum(stmt->GetRootNode()->AsOp()->GetOp(0)->AsLclVar()->GetLclNum())
         {
-            GenTreeOp* asg = stmt->GetRootNode()->AsOp();
-            resultLclNum   = asg->gtOp1->AsLclVar()->GetLclNum();
-            origCall       = GetCall(stmt);
-            checkBlock2    = nullptr;
+            assert(compiler->lvaGetDesc(resultLclNum)->TypeIs(TYP_I_IMPL));
+
+            origCall = GetCall(stmt);
         }
 
     protected:
@@ -927,15 +929,11 @@ private:
         {
             thenBlock = CreateAndInsertBasicBlock(BBJ_ALWAYS, checkBlock2);
 
-            GenTreeCall::UseIterator argsIter     = origCall->Args().begin();
-            GenTree*                 resultHandle = argsIter.GetUse()->GetNode();
-            ++argsIter;
+            GenTree* resultHandle = origCall->gtCallArgs->GetNode();
             // The first argument is the real first argument for the call now.
-            origCall->gtCallArgs = argsIter.GetUse();
+            origCall->gtCallArgs = origCall->gtCallArgs->GetNext();
 
-            GenTree*   asg     = compiler->gtNewTempAssign(resultLclNum, resultHandle);
-            Statement* asgStmt = compiler->gtNewStmt(asg, stmt->GetILOffsetX());
-            compiler->fgInsertStmtAtEnd(thenBlock, asgStmt);
+            AssignResult(thenBlock, resultHandle);
         }
 
         //------------------------------------------------------------------------
@@ -943,10 +941,15 @@ private:
         //
         virtual void CreateElse() override
         {
-            elseBlock          = CreateAndInsertBasicBlock(BBJ_NONE, thenBlock);
-            GenTree*   asg     = compiler->gtNewTempAssign(resultLclNum, origCall);
-            Statement* asgStmt = compiler->gtNewStmt(asg, stmt->GetILOffsetX());
-            compiler->fgInsertStmtAtEnd(elseBlock, asgStmt);
+            elseBlock = CreateAndInsertBasicBlock(BBJ_NONE, thenBlock);
+
+            AssignResult(elseBlock, origCall);
+        }
+
+        void AssignResult(BasicBlock* block, GenTree* result)
+        {
+            GenTree* asg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(resultLclNum, TYP_I_IMPL), result);
+            compiler->fgInsertStmtAtEnd(block, compiler->gtNewStmt(asg, stmt->GetILOffsetX()));
         }
 
         //------------------------------------------------------------------------
@@ -971,10 +974,6 @@ private:
             checkBlock2->bbJumpDest = elseBlock;
             thenBlock->bbJumpDest   = remainderBlock;
         }
-
-    private:
-        BasicBlock* checkBlock2;
-        unsigned    resultLclNum;
     };
 
     Compiler* compiler;

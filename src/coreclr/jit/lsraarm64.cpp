@@ -797,13 +797,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
         }
         break;
 
-        case SIMDIntrinsicSub:
-        case SIMDIntrinsicBitwiseAnd:
-        case SIMDIntrinsicBitwiseOr:
-        case SIMDIntrinsicEqual:
-            // No special handling required.
-            break;
-
         case SIMDIntrinsicSetX:
         case SIMDIntrinsicSetY:
         case SIMDIntrinsicSetZ:

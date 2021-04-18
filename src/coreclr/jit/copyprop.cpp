@@ -201,12 +201,19 @@ void Compiler::optCopyProp(BasicBlock* block, Statement* stmt, GenTree* tree, Lc
             continue;
         }
 
-        if (op->gtFlags & GTF_VAR_CAST)
+        // TODO-MIKE-Cleanup: This is the only use of GTF_VAR_CAST and it's pointless. We can simply
+        // check here if the LCL_VAR and local have different types instead of checking the flag.
+        // Note that GTF_VAR_CAST can only appear on uses and the only reason why it may appear here
+        // is that optBlockCopyProp is pushing param uses as if they're definitions. And then that
+        // shouldn't really matter except that the code below is getting the VN from the op node
+        // instead of getting it from the SSA definition.
+        if ((op->gtFlags & GTF_VAR_CAST) != 0)
         {
             continue;
         }
+
         if (gsShadowVarInfo != nullptr && lvaTable[newLclNum].lvIsParam &&
-            gsShadowVarInfo[newLclNum].shadowCopy == lclNum)
+            gsShadowVarInfo[newLclNum].shadowLclNum == lclNum)
         {
             continue;
         }
