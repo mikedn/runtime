@@ -489,7 +489,6 @@ public:
 
     unsigned char lvFieldCnt; //  Number of fields in the promoted VarDsc.
     unsigned char lvFldOffset;
-    unsigned char lvFldOrdinal;
 
     bool IsPromoted() const
     {
@@ -517,12 +516,6 @@ public:
     {
         assert(lvIsStructField);
         return lvParentLcl;
-    }
-
-    unsigned GetPromotedFieldOrdinal() const
-    {
-        assert(lvIsStructField);
-        return lvFldOrdinal;
     }
 
     unsigned GetPromotedFieldOffset() const

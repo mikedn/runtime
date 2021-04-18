@@ -2135,8 +2135,8 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
 
 #ifdef DEBUG
         char buf[200];
-        sprintf_s(buf, sizeof(buf), "%s V%02u.%s (fldOffset=0x%x)", "field", lclNum,
-                  compiler->eeGetFieldName(pFieldInfo->fldHnd), pFieldInfo->fldOffset);
+        sprintf_s(buf, sizeof(buf), "%s V%02u.%s @%u", "field", lclNum, compiler->eeGetFieldName(pFieldInfo->fldHnd),
+                  pFieldInfo->fldOffset);
 
         // We need to copy 'buf' as lvaGrabTemp() below caches a copy to its argument.
         size_t len  = strlen(buf) + 1;
@@ -2160,7 +2160,6 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
         fieldVarDsc->lvIsStructField = true;
         fieldVarDsc->lvFieldHnd      = pFieldInfo->fldHnd;
         fieldVarDsc->lvFldOffset     = static_cast<uint8_t>(pFieldInfo->fldOffset);
-        fieldVarDsc->lvFldOrdinal    = static_cast<uint8_t>(index);
         fieldVarDsc->lvParentLcl     = lclNum;
         fieldVarDsc->lvIsParam       = varDsc->lvIsParam;
 
@@ -2206,7 +2205,13 @@ void Compiler::StructPromotionHelper::PromoteStructVar(unsigned lclNum)
                     }
                     else if (varDsc->lvIsHfaRegArg())
                     {
-                        unsigned regIncrement = fieldVarDsc->lvFldOrdinal;
+                        // TODO-MIKE-Review: Is this the correct index to use? Previously it was using
+                        // "lvFldOrdinal" but then the if above always used "index". Which is right?
+                        // Probably neither, normally the offset should be used to determine register
+                        // field mapping. Might not matter anyway, there should be no reason for the
+                        // VM to reorder the fields of a HFA.
+
+                        unsigned regIncrement = index;
 #ifdef TARGET_ARM
                         // TODO: Need to determine if/how to handle split args.
                         if (varDsc->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
@@ -2301,7 +2306,6 @@ void Compiler::lvaPromoteLongVars()
             LclVarDsc* fieldVarDsc       = lvaGetDesc(varNum);
             fieldVarDsc->lvIsStructField = true;
             fieldVarDsc->lvFldOffset     = static_cast<uint8_t>(index * varTypeSize(TYP_INT));
-            fieldVarDsc->lvFldOrdinal    = static_cast<uint8_t>(index);
             fieldVarDsc->lvParentLcl     = lclNum;
 
             // Currently we do not support enregistering incoming promoted aggregates with more than one field.
@@ -7003,36 +7007,35 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
             printf(" unsafe-buffer");
         }
     }
-    if (varDsc->lvIsStructField)
+
+    if (varDsc->IsPromotedField())
     {
-        LclVarDsc* parentvarDsc = &lvaTable[varDsc->lvParentLcl];
-#if !defined(TARGET_64BIT)
-        if (varTypeIsLong(parentvarDsc))
+        LclVarDsc*  parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+        const char* fieldName;
+
+#ifndef TARGET_64BIT
+        if (varTypeIsLong(parentLcl->GetType()))
         {
-            bool isLo = (lclNum == parentvarDsc->lvFieldLclStart);
-            printf(" V%02u.%s(offs=0x%02x)", varDsc->lvParentLcl, isLo ? "lo" : "hi", isLo ? 0 : genTypeSize(TYP_INT));
+            fieldName = varDsc->GetPromotedFieldOffset() == 0 ? "lo" : "hi";
         }
         else
-#endif // !defined(TARGET_64BIT)
+#endif
         {
-            CORINFO_CLASS_HANDLE typeHnd = parentvarDsc->GetLayout()->GetClassHandle();
-            CORINFO_FIELD_HANDLE fldHnd  = info.compCompHnd->getFieldInClass(typeHnd, varDsc->lvFldOrdinal);
+            fieldName = eeGetFieldName(varDsc->GetPromotedFieldHandle());
+        }
 
-            printf(" V%02u.%s(offs=0x%02x)", varDsc->lvParentLcl, eeGetFieldName(fldHnd), varDsc->lvFldOffset);
+        printf(" V%02u.%s @%u", varDsc->GetPromotedFieldParentLclNum(), fieldName, varDsc->GetPromotedFieldOffset());
 
-            lvaPromotionType promotionType = lvaGetPromotionType(parentvarDsc);
-            switch (promotionType)
-            {
-                case PROMOTION_TYPE_NONE:
-                    printf(" P-NONE");
-                    break;
-                case PROMOTION_TYPE_DEPENDENT:
-                    printf(" P-DEP");
-                    break;
-                case PROMOTION_TYPE_INDEPENDENT:
-                    printf(" P-INDEP");
-                    break;
-            }
+        switch (lvaGetPromotionType(parentLcl))
+        {
+            case PROMOTION_TYPE_DEPENDENT:
+                printf(" P-DEP");
+                break;
+            case PROMOTION_TYPE_INDEPENDENT:
+                printf(" P-INDEP");
+                break;
+            default:
+                break;
         }
     }
 
