@@ -54,6 +54,21 @@ class ClassLayout
         LayoutInfo m_layoutInfo;
     };
 
+#ifdef UNIX_AMD64_ABI
+    struct SysVAmd64AbiInfo
+    {
+        bool      initialized : 1;
+        uint8_t   regCount : 7;
+        var_types regTypes[2];
+
+        SysVAmd64AbiInfo() : initialized{false}, regCount{0}, regTypes{TYP_UNDEF, TYP_UNDEF}
+        {
+        }
+    };
+
+    SysVAmd64AbiInfo m_sysVAmd64AbiInfo;
+#endif
+
     // Class name as reported by ICorJitInfo::getClassName
     INDEBUG(const char* m_className;)
 
@@ -89,6 +104,7 @@ class ClassLayout
 
 public:
     void EnsureHfaInfo(Compiler* compiler);
+    void EnsureSysVAmd64AbiInfo(Compiler* compiler);
 
     CORINFO_CLASS_HANDLE GetClassHandle() const
     {
@@ -157,6 +173,27 @@ public:
         }
 #endif
         return count;
+    }
+
+    uint8_t GetSysVAmd64AbiRegCount() const
+    {
+#ifdef UNIX_AMD64_ABI
+        assert(m_sysVAmd64AbiInfo.initialized);
+        return m_sysVAmd64AbiInfo.regCount;
+#else
+        return 0;
+#endif
+    }
+
+    var_types GetSysVAmd64AbiRegType(unsigned i) const
+    {
+#ifdef UNIX_AMD64_ABI
+        assert(m_sysVAmd64AbiInfo.initialized);
+        assert(i < m_sysVAmd64AbiInfo.regCount);
+        return m_sysVAmd64AbiInfo.regTypes[i];
+#else
+        return TYP_UNDEF;
+#endif
     }
 
     bool IsVector() const

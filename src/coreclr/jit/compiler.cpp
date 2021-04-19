@@ -611,33 +611,42 @@ var_types Compiler::getArgTypeForStruct(ClassLayout* layout, structPassingKind* 
 // Note that on x86 we only pass specific pointer-sized structs that satisfy isTrivialPointerSizedStruct checks.
 #ifndef TARGET_X86
 #ifdef UNIX_AMD64_ABI
+    layout->EnsureSysVAmd64AbiInfo(this);
 
-    // An 8-byte struct may need to be passed in a floating point register
-    // So we always consult the struct "Classifier" routine
-    //
-    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-    eeGetSystemVAmd64PassStructInRegisterDescriptor(clsHnd, &structDesc);
-
-    if (structDesc.passedInRegisters && (structDesc.eightByteCount != 1))
+    if (layout->GetSysVAmd64AbiRegCount() > 1)
     {
-        // We can't pass this as a primitive type.
+        *wbPassStruct = SPK_ByValue;
+        return TYP_STRUCT;
     }
-    else if (structDesc.eightByteClassifications[0] == SystemVClassificationTypeSSE)
+
+    if (layout->GetSysVAmd64AbiRegCount() == 0)
     {
-        // If this is passed as a floating type, use that.
-        // Otherwise, we'll use the general case - we don't want to use the "EightByteType"
-        // directly, because it returns `TYP_INT` for any integral type <= 4 bytes, and
-        // we need to preserve small types.
-        useType = GetEightByteType(structDesc, 0);
+        // TODO-MIKE-Cleanup: The use of MAX_PASS_SINGLEREG_BYTES is rather misleading, it does
+        // not imply that the argument will be passed in a register. It's just that the callers
+        // expect a primitive type to be returned if the struct fits in one. It might make more
+        // sense to simply call getPrimitiveTypeForStruct.
+
+        if (layout->GetSize() > MAX_PASS_SINGLEREG_BYTES)
+        {
+            *wbPassStruct = SPK_ByValue;
+            return TYP_STRUCT;
+        }
     }
     else
+    {
+        if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(0)))
+        {
+            *wbPassStruct = SPK_PrimitiveType;
+            return layout->GetSysVAmd64AbiRegType(0);
+        }
+    }
 #endif // UNIX_AMD64_ABI
 
-        // The largest arg passed in a single register is MAX_PASS_SINGLEREG_BYTES,
-        // so we can skip calling getPrimitiveTypeForStruct when we
-        // have a struct that is larger than that.
-        //
-        if (structSize <= MAX_PASS_SINGLEREG_BYTES)
+    // The largest arg passed in a single register is MAX_PASS_SINGLEREG_BYTES,
+    // so we can skip calling getPrimitiveTypeForStruct when we
+    // have a struct that is larger than that.
+    //
+    if (structSize <= MAX_PASS_SINGLEREG_BYTES)
     {
         // We set the "primitive" useType based upon the structSize
         // and also examine the clsHnd to see if it is an HFA of count one
@@ -695,24 +704,6 @@ var_types Compiler::getArgTypeForStruct(ClassLayout* layout, structPassingKind* 
 #endif
             {
 #ifdef UNIX_AMD64_ABI
-                // The case of (structDesc.eightByteCount == 1) should have already been handled
-                if ((structDesc.eightByteCount > 1) || !structDesc.passedInRegisters)
-                {
-                    // setup wbPassType and useType indicate that this is passed by value in multiple registers
-                    //  (when all of the parameters registers are used, then the stack will be used)
-                    howToPassStruct = SPK_ByValue;
-                    useType         = TYP_STRUCT;
-                }
-                else
-                {
-                    assert(structDesc.eightByteCount == 0);
-                    // Otherwise we pass this struct by reference to a copy
-                    // setup wbPassType and useType indicate that this is passed using one register
-                    //  (by reference to a copy)
-                    howToPassStruct = SPK_ByReference;
-                    useType         = TYP_UNKNOWN;
-                }
-
 #elif defined(TARGET_ARM64)
 
                 // Structs that are pointer sized or smaller should have been handled by getPrimitiveTypeForStruct
@@ -831,6 +822,7 @@ var_types Compiler::getReturnTypeForStruct(ClassLayout*             layout,
                                            structPassingKind*       wbReturnStruct)
 {
     layout->EnsureHfaInfo(this);
+    layout->EnsureSysVAmd64AbiInfo(this);
 
     CORINFO_CLASS_HANDLE clsHnd              = layout->GetClassHandle();
     unsigned             structSize          = layout->GetSize();
@@ -839,35 +831,22 @@ var_types Compiler::getReturnTypeForStruct(ClassLayout*             layout,
     bool                 canReturnInRegister = true;
 
 #ifdef UNIX_AMD64_ABI
-    // An 8-byte struct may need to be returned in a floating point register
-    // So we always consult the struct "Classifier" routine
-    //
-    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-    eeGetSystemVAmd64PassStructInRegisterDescriptor(clsHnd, &structDesc);
-
-    if (structDesc.eightByteCount == 1)
+    if (layout->GetSysVAmd64AbiRegCount() == 0)
     {
-        assert(structSize <= sizeof(double));
-        assert(structDesc.passedInRegisters);
-
-        if (structDesc.eightByteClassifications[0] == SystemVClassificationTypeSSE)
-        {
-            // If this is returned as a floating type, use that.
-            // Otherwise, leave as TYP_UNKONWN and we'll sort things out below.
-            useType           = GetEightByteType(structDesc, 0);
-            howToReturnStruct = SPK_PrimitiveType;
-        }
+        *wbReturnStruct = SPK_ByReference;
+        return TYP_UNKNOWN;
     }
-    else
+
+    if (layout->GetSysVAmd64AbiRegCount() > 1)
     {
-        // Return classification is not always size based...
-        canReturnInRegister = structDesc.passedInRegisters;
-        if (!canReturnInRegister)
-        {
-            assert(structDesc.eightByteCount == 0);
-            howToReturnStruct = SPK_ByReference;
-            useType           = TYP_UNKNOWN;
-        }
+        *wbReturnStruct = SPK_ByValue;
+        return TYP_STRUCT;
+    }
+
+    if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(0)))
+    {
+        *wbReturnStruct = SPK_PrimitiveType;
+        return layout->GetSysVAmd64AbiRegType(0);
     }
 #elif UNIX_X86_ABI
     if (callConv != CorInfoCallConvExtension::Managed && !isNativePrimitiveStructType(clsHnd))
@@ -937,14 +916,6 @@ var_types Compiler::getReturnTypeForStruct(ClassLayout*             layout,
             {
 
 #ifdef UNIX_AMD64_ABI
-
-                // The cases of (structDesc.eightByteCount == 1) and (structDesc.eightByteCount == 0)
-                // should have already been handled
-                assert(structDesc.eightByteCount > 1);
-                // setup wbPassType and useType indicate that this is returned by value in multiple registers
-                howToReturnStruct = SPK_ByValue;
-                useType           = TYP_STRUCT;
-                assert(structDesc.passedInRegisters == true);
 
 #elif defined(TARGET_ARM64)
 

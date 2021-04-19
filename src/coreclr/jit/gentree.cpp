@@ -16850,17 +16850,13 @@ void ReturnTypeDesc::InitializeStruct(Compiler*         comp,
             assert(varTypeIsStruct(retKindType));
 
 #ifdef UNIX_AMD64_ABI
-            SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retLayout->GetClassHandle(), &structDesc);
-
-            assert(structDesc.passedInRegisters);
-            assert(structDesc.eightByteCount == 2);
+            assert(retLayout->GetSysVAmd64AbiRegCount() == 2);
 
             m_regCount = 2;
 
             for (int i = 0; i < 2; i++)
             {
-                m_regType[i] = comp->GetEightByteType(structDesc, i);
+                m_regType[i] = retLayout->GetSysVAmd64AbiRegType(i);
             }
 #elif defined(TARGET_ARM64) || defined(TARGET_X86)
             assert(retLayout->GetSlotCount() == 2);

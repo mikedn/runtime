@@ -765,7 +765,7 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
 
 void ClassLayout::EnsureHfaInfo(Compiler* compiler)
 {
-    assert(m_classHandle != NO_CLASS_HANDLE);
+    assert(IsValueClass());
 
     if ((m_gcPtrCount != 0) || (m_layoutInfo.hfaElementType != TYP_UNDEF))
     {
@@ -807,6 +807,33 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
     }
 
     assert((m_layoutInfo.hfaElementType == TYP_UNKNOWN) || (m_size % varTypeSize(m_layoutInfo.hfaElementType) == 0));
+#endif
+}
+
+void ClassLayout::EnsureSysVAmd64AbiInfo(Compiler* compiler)
+{
+    assert(IsValueClass());
+
+#ifdef UNIX_AMD64_ABI
+    if (m_sysVAmd64AbiInfo.initialized)
+    {
+        return;
+    }
+
+    m_sysVAmd64AbiInfo.initialized = true;
+
+    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR desc;
+    compiler->info.compCompHnd->getSystemVAmd64PassStructInRegisterDescriptor(m_classHandle, &desc);
+
+    if (desc.passedInRegisters)
+    {
+        m_sysVAmd64AbiInfo.regCount = desc.eightByteCount;
+
+        for (unsigned i = 0; i < desc.eightByteCount; i++)
+        {
+            m_sysVAmd64AbiInfo.regTypes[i] = compiler->GetEightByteType(desc, i);
+        }
+    }
 #endif
 }
 
