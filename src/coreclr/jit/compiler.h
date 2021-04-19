@@ -425,6 +425,9 @@ public:
 #ifdef TARGET_64BIT
     unsigned char lvQuirkToLong : 1; // Quirk to allocate this LclVar as a 64-bit long
 #endif
+#ifdef TARGET_AMD64
+    unsigned char lvQuirkPPPStuct : 1;
+#endif
 #ifdef DEBUG
     unsigned char lvKeepType : 1;       // Don't change the type of this variable
     unsigned char lvNoLclFldStress : 1; // Can't apply local field stress on this one

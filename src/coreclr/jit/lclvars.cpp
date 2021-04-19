@@ -2893,6 +2893,13 @@ unsigned Compiler::lvaLclSize(unsigned lclNum)
 #endif
             FALLTHROUGH;
         case TYP_STRUCT:
+#ifdef TARGET_AMD64
+            if (lcl->lvQuirkPPPStuct)
+            {
+                assert(lcl->GetLayout()->GetSize() == 32);
+                return 64;
+            }
+#endif
             return lcl->lvSize();
 
         default:

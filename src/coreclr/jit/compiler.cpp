@@ -5030,11 +5030,7 @@ bool Compiler::compQuirkForPPP()
     {
         JITDUMP("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
 
-        // Increase the exact size of this struct to 64 bytes.
-        // This fixes the PPP backward compat issue
-        varDscExposedStruct->lvExactSize += 32;
-        varDscExposedStruct->SetLayout(
-            varDscExposedStruct->GetLayout()->GetPPPQuirkLayout(getAllocator(CMK_ClassLayout)));
+        varDscExposedStruct->lvQuirkPPPStuct = true;
 
         return true;
     }
