@@ -6602,9 +6602,6 @@ public:
     static void dumpSystemVClassificationType(SystemVClassificationType ct);
 #endif // DEBUG
 
-    void eeGetSystemVAmd64PassStructInRegisterDescriptor(
-        /*IN*/ CORINFO_CLASS_HANDLE                                  structHnd,
-        /*OUT*/ SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR* structPassInRegDescPtr);
 #endif // UNIX_AMD64_ABI
 
     template <typename ParamType>
@@ -8690,17 +8687,9 @@ public:
     static HelperCallProperties s_helperCallProperties;
 
 #ifdef UNIX_AMD64_ABI
-    static var_types GetTypeFromClassificationAndSizes(SystemVClassificationType classType, int size);
     static var_types GetEightByteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
                                       unsigned                                                   slotNum);
-
-    static void GetStructTypeOffset(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
-                                    var_types*                                                 type0,
-                                    var_types*                                                 type1,
-                                    unsigned __int8*                                           offset0,
-                                    unsigned __int8*                                           offset1);
-
-#endif // defined(UNIX_AMD64_ABI)
+#endif
 
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
     void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
