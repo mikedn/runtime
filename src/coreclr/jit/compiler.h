@@ -8700,12 +8700,6 @@ public:
                                     unsigned __int8*                                           offset0,
                                     unsigned __int8*                                           offset1);
 
-    void GetStructTypeOffset(CORINFO_CLASS_HANDLE typeHnd,
-                             var_types*           type0,
-                             var_types*           type1,
-                             unsigned __int8*     offset0,
-                             unsigned __int8*     offset1);
-
 #endif // defined(UNIX_AMD64_ABI)
 
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
