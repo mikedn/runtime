@@ -4680,7 +4680,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
 #ifdef TARGET_AMD64
     //  Check if we need to add the Quirk for the PPP backward compat issue
-    compQuirkForPPPflag = compQuirkForPPP();
+    compQuirkForPPP();
 #endif
 
     // Insert GC Polls
@@ -4980,61 +4980,24 @@ void Compiler::ProcessShutdownWork(ICorStaticInfo* statInfo)
 //  caller saved register set so that it didn't hit the A/V in the caller.
 //  By increasing the amount of stack allocted for the struct by 32 bytes we can fix this.
 //
-//  Return true if we actually perform the Quirk, otherwise return false
-//
-bool Compiler::compQuirkForPPP()
+void Compiler::compQuirkForPPP()
 {
-    if (lvaCount != 2)
-    { // We require that there are exactly two locals
-        return false;
-    }
-
-    if (compTailCallUsed)
-    { // Don't try this quirk if a tail call was used
-        return false;
-    }
-
-    bool       hasOutArgs          = false;
-    LclVarDsc* varDscExposedStruct = nullptr;
-
-    unsigned   lclNum;
-    LclVarDsc* varDsc;
-
-    /* Look for struct locals that are address taken */
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    if (compTailCallUsed || (lvaCount != 2) || (lvaOutgoingArgSpaceVar == BAD_VAR_NUM))
     {
-        if (varDsc->lvIsParam) // It can't be a parameter
-        {
-            continue;
-        }
-
-        // We require that the OutgoingArg space lclVar exists
-        if (lclNum == lvaOutgoingArgSpaceVar)
-        {
-            hasOutArgs = true; // Record that we saw it
-            continue;
-        }
-
-        // Look for a 32-byte address exposed Struct and record its varDsc
-        if (varDsc->TypeIs(TYP_STRUCT) && varDsc->lvAddrExposed && (varDsc->GetLayout()->GetSize() == 32))
-        {
-            varDscExposedStruct = varDsc;
-        }
+        return;
     }
 
-    // We only perform the Quirk when there are two locals
-    // one of them is a address exposed struct of size 32
-    // and the other is the outgoing arg space local
-    //
-    if (hasOutArgs && (varDscExposedStruct != nullptr))
+    unsigned   lclNum = (lvaOutgoingArgSpaceVar == 0) ? 1 : 0;
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+    if (lcl->IsParam() || !lcl->TypeIs(TYP_STRUCT) || !lcl->lvAddrExposed || (lcl->GetLayout()->GetSize() != 32))
     {
-        JITDUMP("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
-
-        varDscExposedStruct->lvQuirkPPPStuct = true;
-
-        return true;
+        return;
     }
-    return false;
+
+    JITDUMP("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
+
+    lcl->lvQuirkPPPStuct = true;
 }
 #endif // TARGET_AMD64
 

@@ -670,9 +670,6 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     , m_isValueClass(true)
     , m_gcPtrCount(0)
     , m_gcPtrs(nullptr)
-#ifdef TARGET_AMD64
-    , m_pppQuirkLayout(nullptr)
-#endif
 #ifdef DEBUG
     , m_className(compiler->info.compCompHnd->getClassName(classHandle))
 #endif
@@ -912,36 +909,6 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
 }
 
 #endif // FEATURE_SIMD
-
-#ifdef TARGET_AMD64
-ClassLayout* ClassLayout::GetPPPQuirkLayout(CompAllocator alloc)
-{
-    assert(m_classHandle != NO_CLASS_HANDLE);
-    assert(m_isValueClass);
-    assert(m_size == 32);
-    assert(GetSIMDType() == TYP_UNDEF);
-
-    if (m_pppQuirkLayout == nullptr)
-    {
-        m_pppQuirkLayout = new (alloc) ClassLayout(m_classHandle, m_isValueClass, 64 DEBUGARG(m_className));
-        m_pppQuirkLayout->m_gcPtrCount = m_gcPtrCount;
-
-        static_assert_no_msg(_countof(m_gcPtrsArray) == 8);
-
-        for (int i = 0; i < 4; i++)
-        {
-            m_pppQuirkLayout->m_gcPtrsArray[i] = m_gcPtrsArray[i];
-        }
-
-        for (int i = 4; i < 8; i++)
-        {
-            m_pppQuirkLayout->m_gcPtrsArray[i] = TYPE_GC_NONE;
-        }
-    }
-
-    return m_pppQuirkLayout;
-}
-#endif // TARGET_AMD64
 
 //------------------------------------------------------------------------
 // AreCompatible: check if 2 layouts are the same for copying.

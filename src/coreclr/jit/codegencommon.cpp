@@ -137,10 +137,7 @@ CodeGen::CodeGen(Compiler* compiler)
 #ifdef TARGET_AMD64
     // This will be set before final frame layout.
     compiler->compVSQuirkStackPaddingNeeded = 0;
-
-    // Set to true if we perform the Quirk that fixes the PPP issue
-    compiler->compQuirkForPPPflag = false;
-#endif // TARGET_AMD64
+#endif
 
     //  Initialize the IP-mapping logic.
     compiler->genIPmappingList        = nullptr;
