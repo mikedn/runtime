@@ -5091,18 +5091,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #if defined(UNIX_AMD64_ABI)
         if (varTypeIsStruct(varDsc->GetType()))
         {
-            CORINFO_CLASS_HANDLE                                typeHnd = varDsc->GetLayout()->GetClassHandle();
-            SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            compiler->eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
-            assert(structDesc.passedInRegisters);
-
-            unsigned __int8 offset0 = 0;
-            unsigned __int8 offset1 = 0;
-            var_types       type0   = TYP_UNKNOWN;
-            var_types       type1   = TYP_UNKNOWN;
-
-            // Get the eightbyte data
-            compiler->GetStructTypeOffset(structDesc, &type0, &type1, &offset0, &offset1);
+            assert(varDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0);
 
             // Move the values into the right registers.
             //
@@ -5113,19 +5102,18 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             // Therefore manually update life of argReg.  Note that GT_JMP marks
             // the end of the basic block and after which reg life and gc info will be recomputed for the new block in
             // genCodeForBBList().
-            if (type0 != TYP_UNKNOWN)
-            {
-                GetEmitter()->emitIns_R_S(ins_Load(type0), emitTypeSize(type0), varDsc->GetArgReg(), varNum, offset0);
-                regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(varDsc->GetArgReg()));
-                gcInfo.gcMarkRegPtrVal(varDsc->GetArgReg(), type0);
-            }
 
-            if (type1 != TYP_UNKNOWN)
+            var_types type = varDsc->GetLayout()->GetSysVAmd64AbiRegType(0);
+            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), varDsc->GetArgReg(), varNum, 0);
+            regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(varDsc->GetArgReg()));
+            gcInfo.gcMarkRegPtrVal(varDsc->GetArgReg(), type);
+
+            if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
             {
-                GetEmitter()->emitIns_R_S(ins_Load(type1), emitTypeSize(type1), varDsc->GetOtherArgReg(), varNum,
-                                          offset1);
+                var_types type = varDsc->GetLayout()->GetSysVAmd64AbiRegType(1);
+                GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), varDsc->GetOtherArgReg(), varNum, 8);
                 regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(varDsc->GetOtherArgReg()));
-                gcInfo.gcMarkRegPtrVal(varDsc->GetOtherArgReg(), type1);
+                gcInfo.gcMarkRegPtrVal(varDsc->GetOtherArgReg(), type);
             }
 
             if (varDsc->lvTracked)

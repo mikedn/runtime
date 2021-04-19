@@ -1542,17 +1542,13 @@ void CodeGen::psiBegProlog()
         {
             bool isStructHandled = false;
 #if defined(UNIX_AMD64_ABI)
-            SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
             if (varTypeIsStruct(lclVarDsc->GetType()))
             {
-                CORINFO_CLASS_HANDLE typeHnd = lclVarDsc->GetLayout()->GetClassHandle();
-                assert(typeHnd != nullptr);
-                compiler->eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
-                if (structDesc.passedInRegisters)
+                if (lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
                 {
                     regNumber regNum      = REG_NA;
                     regNumber otherRegNum = REG_NA;
-                    for (unsigned nCnt = 0; nCnt < structDesc.eightByteCount; nCnt++)
+                    for (unsigned nCnt = 0; nCnt < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); nCnt++)
                     {
                         var_types regType = TYP_UNDEF;
 
@@ -1569,7 +1565,7 @@ void CodeGen::psiBegProlog()
                             assert(false && "Invalid eightbyte number.");
                         }
 
-                        regType = compiler->GetEightByteType(structDesc, nCnt);
+                        regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(nCnt);
 #ifdef DEBUG
                         regType = compiler->mangleVarArgsType(regType);
                         assert(genMapRegNumToRegArgNum((nCnt == 0 ? regNum : otherRegNum), regType) != (unsigned)-1);

@@ -589,7 +589,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
     }
 #elif defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
     // On System V type environment the float registers are not indexed together with the int ones.
-    varDscInfo->floatRegArgNum = varDscInfo->intRegArgNum;
+    varDscInfo->floatRegArgNum       = varDscInfo->intRegArgNum;
 #endif // TARGET*
 
     CORINFO_ARG_LIST_HANDLE argLst = info.compMethodInfo->args.args;
@@ -791,41 +791,36 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         }
 #else // !TARGET_ARM
 #if defined(UNIX_AMD64_ABI)
-        SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
+        bool structPassedInRegisters = false;
         if (varTypeIsStruct(argType))
         {
-            assert(typeHnd != nullptr);
-            eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
-            if (structDesc.passedInRegisters)
+            varDsc->GetLayout()->EnsureSysVAmd64AbiInfo(this);
+            structPassedInRegisters = varDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0;
+            if (structPassedInRegisters)
             {
                 unsigned intRegCount   = 0;
                 unsigned floatRegCount = 0;
 
-                for (unsigned int i = 0; i < structDesc.eightByteCount; i++)
+                for (unsigned i = 0; i < varDsc->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
                 {
-                    if (structDesc.IsIntegralSlot(i))
+                    if (!varTypeUsesFloatReg(varDsc->GetLayout()->GetSysVAmd64AbiRegType(i)))
                     {
                         intRegCount++;
                     }
-                    else if (structDesc.IsSseSlot(i))
+                    else
                     {
                         floatRegCount++;
                     }
-                    else
-                    {
-                        assert(false && "Invalid eightbyte classification type.");
-                        break;
-                    }
                 }
 
-                if (intRegCount != 0 && !varDscInfo->canEnreg(TYP_INT, intRegCount))
+                if ((intRegCount != 0) && !varDscInfo->canEnreg(TYP_INT, intRegCount))
                 {
-                    structDesc.passedInRegisters = false; // No register to enregister the eightbytes.
+                    structPassedInRegisters = false;
                 }
 
-                if (floatRegCount != 0 && !varDscInfo->canEnreg(TYP_FLOAT, floatRegCount))
+                if ((floatRegCount != 0) && !varDscInfo->canEnreg(TYP_FLOAT, floatRegCount))
                 {
-                    structDesc.passedInRegisters = false; // No register to enregister the eightbytes.
+                    structPassedInRegisters = false;
                 }
             }
         }
@@ -841,7 +836,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
 #if defined(UNIX_AMD64_ABI)
         if (varTypeIsStruct(argType))
         {
-            canPassArgInRegisters = structDesc.passedInRegisters;
+            canPassArgInRegisters = structPassedInRegisters;
         }
         else
 #elif defined(TARGET_X86)
@@ -875,9 +870,9 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
 
             if (varTypeIsStruct(argType))
             {
-                if (structDesc.eightByteCount >= 1)
+                if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 1)
                 {
-                    firstEightByteType      = GetEightByteType(structDesc, 0);
+                    firstEightByteType      = varDsc->GetLayout()->GetSysVAmd64AbiRegType(0);
                     firstAllocatedRegArgNum = varDscInfo->allocRegArg(firstEightByteType, 1);
                 }
             }
@@ -915,9 +910,9 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
                 varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, firstEightByteType));
 
                 // If there is a second eightbyte, get a register for it too and map the arg to the reg number.
-                if (structDesc.eightByteCount >= 2)
+                if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
                 {
-                    secondEightByteType      = GetEightByteType(structDesc, 1);
+                    secondEightByteType      = varDsc->GetLayout()->GetSysVAmd64AbiRegType(1);
                     secondAllocatedRegArgNum = varDscInfo->allocRegArg(secondEightByteType, 1);
                     varDsc->lvIsMultiRegArg  = true;
                 }
@@ -952,7 +947,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
                 printf("Arg #%u    passed in register(s) ", varDscInfo->varNum);
                 bool isFloat = false;
 #if defined(UNIX_AMD64_ABI)
-                if (varTypeIsStruct(argType) && (structDesc.eightByteCount >= 1))
+                if (varTypeIsStruct(argType) && (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 1))
                 {
                     isFloat = varTypeUsesFloatReg(firstEightByteType);
                 }
@@ -1843,9 +1838,9 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
         {
             SortStructFields();
             // Only promote if the field types match the registers, unless we have a single SIMD field.
-            SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            compiler->eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
-            unsigned regCount = structDesc.eightByteCount;
+            ClassLayout* layout = varDsc->GetLayout();
+            layout->EnsureSysVAmd64AbiInfo(compiler);
+            unsigned regCount = layout->GetSysVAmd64AbiRegCount();
             if ((structPromotionInfo.fieldCnt == 1) && varTypeIsSIMD(structPromotionInfo.fields[0].fldType))
             {
                 // Allow the case of promoting a single SIMD field, even if there are multiple registers.
@@ -1866,8 +1861,7 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
                     {
                         canPromote = false;
                     }
-                    else if (varTypeUsesFloatReg(fieldType) !=
-                             (structDesc.eightByteClassifications[i] == SystemVClassificationTypeSSE))
+                    else if (varTypeUsesFloatReg(fieldType) != varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
                     {
                         canPromote = false;
                     }
