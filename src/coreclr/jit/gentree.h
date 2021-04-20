@@ -3743,6 +3743,7 @@ struct StructPassing
     StructPassing(structPassingKind kind, var_types type) : kind(kind), type(type)
     {
         assert(kind != SPK_Unknown);
+        assert((type != TYP_UNDEF) || (kind != SPK_PrimitiveType));
     }
 };
 
@@ -3773,7 +3774,7 @@ public:
     {
     }
 
-    void InitializeStruct(Compiler* comp, ClassLayout* retLayout, structPassingKind retKind, var_types retKindType);
+    void InitializeStruct(Compiler* comp, ClassLayout* retLayout, StructPassing retKind);
 
     void InitializePrimitive(var_types regType);
 

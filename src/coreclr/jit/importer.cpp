@@ -7848,7 +7848,7 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
 #if FEATURE_MULTIREG_RET
     else if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
     {
-        retDesc->InitializeStruct(this, layout, retKind.kind, retKind.type);
+        retDesc->InitializeStruct(this, layout, retKind);
     }
 #endif
     else

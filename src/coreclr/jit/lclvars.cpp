@@ -104,9 +104,6 @@ void Compiler::lvaInitTypeRef()
 
         if (retKind.kind == SPK_PrimitiveType)
         {
-            assert(retKind.type != TYP_UNKNOWN);
-            assert(retKind.type != TYP_STRUCT);
-
             info.retDesc.InitializePrimitive(retKind.type);
 
             if ((retKind.type == TYP_LONG) && !compLongUsed)
@@ -121,13 +118,7 @@ void Compiler::lvaInitTypeRef()
 #if FEATURE_MULTIREG_RET
         else if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
         {
-            // TODO-MIKE-Throughput: Both abiGetStructReturnType and InitializeStruct call
-            // getSystemVAmd64PassStructInRegisterDescriptor and that's rather expensive.
-            // Ideally abiGetStructReturnType would just return all the necessary
-            // information (or just initialize retDesc directly). impInitializeStructCall
-            // has similar logic and the same problem.
-
-            info.retDesc.InitializeStruct(this, retLayout, retKind.kind, retKind.type);
+            info.retDesc.InitializeStruct(this, retLayout, retKind);
         }
 #endif
         else
@@ -645,9 +636,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         else if (varTypeIsStruct(varDsc->GetType()))
         {
-            StructPassing howToReturnStruct = abiGetStructParamType(varDsc->GetLayout(), info.compIsVarArgs);
-
-            if (howToReturnStruct.kind == SPK_ByReference)
+            if (abiGetStructParamType(varDsc->GetLayout(), info.compIsVarArgs).kind == SPK_ByReference)
             {
                 JITDUMP("Marking V%02u as a byref parameter\n", varDscInfo->varNum);
                 varDsc->lvIsImplicitByRef = 1;
@@ -2509,26 +2498,25 @@ bool Compiler::lvaIsMultiRegStructParam(LclVarDsc* lcl)
     // TODO-MIKE-Throughput: Isn't there enough information in LclVarDsc
     // to avoid calling abiGetStructParamType again?
 
-    StructPassing howToPassStruct = abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs);
-
+    switch (abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs).kind)
+    {
 #ifdef FEATURE_HFA
-    if (howToPassStruct.kind == SPK_ByValueAsHfa)
-    {
-        assert(howToPassStruct.type == TYP_STRUCT);
-        return true;
-    }
+        case SPK_ByValueAsHfa:
+            return true;
 #endif
-
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-    // TODO-MIKE-Review: Why is this excluded on ARM?
-    if (howToPassStruct.kind == SPK_ByValue)
-    {
-        assert(howToPassStruct.type == TYP_STRUCT);
-        return true;
-    }
+        case SPK_ByValue:
+            // TODO-MIKE-Review: Why is this excluded on ARM? And how exactly does SPK_ByValue
+            // imply multireg? Such params can be passed on stack on UNIX_AMD64_ABI. Maybe
+            // it's not that ARM is excluded, maybe it's that UNIX_AMD64_ABI shouldn't be
+            // included because only on ARM64 SPK_ByValue implies multireg. Though the same
+            // is true about HFA, SPK_ByValueAsHfa doesn't actually mean that the parameter
+            // is passed in registers.
+            return true;
 #endif
-
-    return false;
+        default:
+            return false;
+    }
 }
 
 void Compiler::lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer)
