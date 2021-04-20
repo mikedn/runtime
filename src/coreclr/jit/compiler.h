@@ -4004,23 +4004,9 @@ public:
     // for the unmanaged calling conventions.
     bool isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd);
 
-    // Get the "primitive" type that is is used for the given struct layout.
-    // A "primitive" type is one of the scalar types: byte, short, int, long, ref, float, double
-    // If we can't or shouldn't use a "primitive" type then TYP_UNKNOWN is returned.
-    //
-    // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
-    // hfa types.
-    var_types getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg);
-
-    // Get the type that is used to pass values of the given struct type.
-    // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
-    // hfa types.
-    var_types getArgTypeForStruct(ClassLayout* layout, structPassingKind* wbPassStruct, bool isVarArg);
-
-    // Get the type that is used to return values of the given struct type.
-    var_types getReturnTypeForStruct(ClassLayout*             layout,
-                                     CorInfoCallConvExtension callConv,
-                                     structPassingKind*       wbPassStruct);
+    var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
+    StructPassing abiGetStructParamType(ClassLayout* layout, bool isVarArg);
+    StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv);
 
 #ifdef DEBUG
     // Print a representation of "vnp" or "vn" on standard output.

@@ -1951,14 +1951,15 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             // TODO-MIKE-Cleanup: Huh, there should be no 0 sized structs...
             structSize = (structSize == 0) ? TARGET_POINTER_SIZE : structSize;
 
-            structPassingKind howToPassStruct;
-            structBaseType  = getArgTypeForStruct(layout, &howToPassStruct, callIsVararg);
-            passStructByRef = (howToPassStruct == SPK_ByReference);
+            StructPassing howToPassStruct = abiGetStructParamType(layout, callIsVararg);
 
-            if (howToPassStruct == SPK_PrimitiveType)
+            structBaseType  = howToPassStruct.type;
+            passStructByRef = (howToPassStruct.kind == SPK_ByReference);
+
+            if (howToPassStruct.kind == SPK_PrimitiveType)
             {
 #ifdef TARGET_ARM
-                // TODO-CQ: getArgTypeForStruct should *not* return TYP_DOUBLE for a double struct,
+                // TODO-CQ: abiGetStructParamType should *not* return TYP_DOUBLE for a double struct,
                 // or for a struct of two floats. This causes the struct to be address-taken.
                 if (structBaseType == TYP_DOUBLE)
                 {

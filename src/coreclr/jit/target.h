@@ -238,6 +238,7 @@ typedef unsigned char   regNumberSmall;
   #define MAX_ARG_REG_COUNT             1  // Maximum registers used to pass an argument.
 
 #ifdef TARGET_WINDOWS
+  #define WINDOWS_X86_ABI
   #define FEATURE_MULTIREG_RET          1  // Support for returning a single value in more than one register
   #define MAX_RET_REG_COUNT             2  // Maximum registers used to return a value.
   #define MAX_RET_MULTIREG_BYTES        8  // Maximum size of a struct that could be returned in more than one register

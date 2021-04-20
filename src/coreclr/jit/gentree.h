@@ -3724,16 +3724,27 @@ struct GenTreeColon : public GenTreeOp
 // gtCall   -- method call      (GT_CALL)
 enum class InlineObservation;
 
-enum structPassingKind
+enum structPassingKind : uint8_t
 {
-    SPK_Unknown,       // Invalid value, never returned
+    SPK_Unknown,
     SPK_PrimitiveType, // The struct is passed/returned in a single register.
 #if FEATURE_MULTIREG_RET
     SPK_ByValue,      // The struct is passed/returned in multiple registers.
     SPK_ByValueAsHfa, // The struct is passed/returned as an HFA in multiple registers.
 #endif
-    SPK_ByReference
-}; // The struct is passed/returned by reference to a copy/buffer.
+    SPK_ByReference // The struct is passed/returned by reference to a copy/buffer.
+};
+
+struct StructPassing
+{
+    structPassingKind kind;
+    var_types         type;
+
+    StructPassing(structPassingKind kind, var_types type) : kind(kind), type(type)
+    {
+        assert(kind != SPK_Unknown);
+    }
+};
 
 // Return type descriptor for the compiled method or a GT_CALL node.
 //

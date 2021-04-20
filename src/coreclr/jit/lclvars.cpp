@@ -96,47 +96,46 @@ void Compiler::lvaInitTypeRef()
     }
     else
     {
-        ClassLayout*      retLayout   = typGetObjLayout(info.compMethodInfo->args.retTypeClass);
-        structPassingKind retKind     = SPK_Unknown;
-        var_types         retKindType = getReturnTypeForStruct(retLayout, info.compCallConv, &retKind);
+        ClassLayout*  retLayout = typGetObjLayout(info.compMethodInfo->args.retTypeClass);
+        StructPassing retKind   = abiGetStructReturnType(retLayout, info.compCallConv);
 
         info.compRetType = typGetStructType(retLayout);
         info.retLayout   = retLayout;
 
-        if (retKind == SPK_PrimitiveType)
+        if (retKind.kind == SPK_PrimitiveType)
         {
-            assert(retKindType != TYP_UNKNOWN);
-            assert(retKindType != TYP_STRUCT);
+            assert(retKind.type != TYP_UNKNOWN);
+            assert(retKind.type != TYP_STRUCT);
 
-            info.retDesc.InitializePrimitive(retKindType);
+            info.retDesc.InitializePrimitive(retKind.type);
 
-            if ((retKindType == TYP_LONG) && !compLongUsed)
+            if ((retKind.type == TYP_LONG) && !compLongUsed)
             {
                 compLongUsed = true;
             }
-            else if (varTypeIsFloating(retKindType) && !compFloatingPointUsed)
+            else if (varTypeIsFloating(retKind.type) && !compFloatingPointUsed)
             {
                 compFloatingPointUsed = true;
             }
         }
 #if FEATURE_MULTIREG_RET
-        else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
+        else if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
         {
-            // TODO-MIKE-Throughput: Both getReturnTypeForStruct and InitializeStruct call
+            // TODO-MIKE-Throughput: Both abiGetStructReturnType and InitializeStruct call
             // getSystemVAmd64PassStructInRegisterDescriptor and that's rather expensive.
-            // Ideally getReturnTypeForStruct would just return all the necessary
+            // Ideally abiGetStructReturnType would just return all the necessary
             // information (or just initialize retDesc directly). impInitializeStructCall
             // has similar logic and the same problem.
 
-            info.retDesc.InitializeStruct(this, retLayout, retKind, retKindType);
+            info.retDesc.InitializeStruct(this, retLayout, retKind.kind, retKind.type);
         }
 #endif
         else
         {
-            assert(retKind == SPK_ByReference);
+            assert(retKind.kind == SPK_ByReference);
 
             hasRetBuffArg = true;
-            retKindType   = TYP_VOID;
+            retKind.type  = TYP_VOID;
 
             if (!compIsForInlining()
 #ifndef TARGET_AMD64
@@ -150,10 +149,10 @@ void Compiler::lvaInitTypeRef()
 #endif
                     )
             {
-                retKindType = TYP_BYREF;
+                retKind.type = TYP_BYREF;
             }
 
-            info.retDesc.InitializePrimitive(retKindType);
+            info.retDesc.InitializePrimitive(retKind.type);
         }
     }
 
@@ -646,12 +645,11 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         else if (varTypeIsStruct(varDsc->GetType()))
         {
-            structPassingKind howToReturnStruct;
-            getArgTypeForStruct(varDsc->GetLayout(), &howToReturnStruct, info.compIsVarArgs);
+            StructPassing howToReturnStruct = abiGetStructParamType(varDsc->GetLayout(), info.compIsVarArgs);
 
-            if (howToReturnStruct == SPK_ByReference)
+            if (howToReturnStruct.kind == SPK_ByReference)
             {
-                JITDUMP("Marking V%02i as a byref parameter\n", varDscInfo->varNum);
+                JITDUMP("Marking V%02u as a byref parameter\n", varDscInfo->varNum);
                 varDsc->lvIsImplicitByRef = 1;
             }
         }
@@ -2509,24 +2507,23 @@ bool Compiler::lvaIsMultiRegStructParam(LclVarDsc* lcl)
     }
 
     // TODO-MIKE-Throughput: Isn't there enough information in LclVarDsc
-    // to avoid calling getArgTypeForStruct again?
+    // to avoid calling abiGetStructParamType again?
 
-    structPassingKind howToPassStruct;
-    var_types         type = getArgTypeForStruct(lcl->GetLayout(), &howToPassStruct, info.compIsVarArgs);
+    StructPassing howToPassStruct = abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs);
 
 #ifdef FEATURE_HFA
-    if (howToPassStruct == SPK_ByValueAsHfa)
+    if (howToPassStruct.kind == SPK_ByValueAsHfa)
     {
-        assert(type == TYP_STRUCT);
+        assert(howToPassStruct.type == TYP_STRUCT);
         return true;
     }
 #endif
 
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
     // TODO-MIKE-Review: Why is this excluded on ARM?
-    if (howToPassStruct == SPK_ByValue)
+    if (howToPassStruct.kind == SPK_ByValue)
     {
-        assert(type == TYP_STRUCT);
+        assert(howToPassStruct.type == TYP_STRUCT);
         return true;
     }
 #endif
