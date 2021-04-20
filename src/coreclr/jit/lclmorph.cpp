@@ -1768,12 +1768,12 @@ void Compiler::fgMarkAddressExposedLocals()
         }
     }
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     lvaRetypeImplicitByRefParams();
 #endif
 }
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_X86)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_X86)
 
 class IndirectParamMorphVisitor final : public GenTreeVisitor<IndirectParamMorphVisitor>
 {
@@ -1847,7 +1847,7 @@ public:
         }
     }
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void MorphImplicitByRefParamAddr(GenTreeLclVarCommon* lclAddrNode)
     {
         assert(lclAddrNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
@@ -2167,7 +2167,7 @@ public:
 #endif // !TARGET_X86
 };
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 // Reset the ref count of implicit byref params; fgMarkAddressTakenLocals
 // will increment it per appearance of implicit byref param so that call
 // arg morphing can do an optimization for single-use implicit byref
@@ -2367,7 +2367,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
         JITDUMP("Changed the type of struct parameter V%02d to TYP_BYREF.\n", lclNum);
     }
 }
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
+#endif // WINDOWS_AMD64_ABI || TARGET_ARM64
 
 // Traverse the entire statement tree and morph implicit byref or
 // x86 vararg stack parameter references in it.
@@ -2388,7 +2388,7 @@ void Compiler::fgMorphIndirectParams(Statement* stmt)
     visitor.VisitStmt(stmt);
 }
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 // Clear annotations for any implicit byrefs params that struct promotion
 // asked to promote. Appearances of these have now been rewritten by
 // fgMorphIndirectParams using indirections from the pointer parameter
@@ -2430,6 +2430,6 @@ void Compiler::lvaDemoteImplicitByRefParams()
         }
     }
 }
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64
+#endif // WINDOWS_AMD64_ABI || TARGET_ARM64
 
-#endif // (TARGET_AMD64 && !UNIX_AMD64_ABI) || TARGET_ARM64 || TARGET_X86
+#endif // WINDOWS_AMD64_ABI || TARGET_ARM64 || TARGET_X86

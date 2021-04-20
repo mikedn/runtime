@@ -370,9 +370,9 @@ public:
 
     unsigned char lvIsTemp : 1; // Short-lifetime compiler temp
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     unsigned char lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
-#endif                                   // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#endif
 
     bool IsParam() const
     {
@@ -386,7 +386,7 @@ public:
 
     bool IsImplicitByRefParam() const
     {
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         assert(!lvIsImplicitByRef || lvIsParam);
         assert(!lvIsImplicitByRef || varTypeIsStruct(lvType) || (lvType == TYP_BYREF));
 

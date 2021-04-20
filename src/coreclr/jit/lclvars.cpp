@@ -643,7 +643,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
             CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->args, argLst);
             lvaSetClass(varDscInfo->varNum, clsHnd);
         }
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         else if (varTypeIsStruct(varDsc->GetType()))
         {
             structPassingKind howToReturnStruct;
