@@ -16845,7 +16845,7 @@ void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout, St
 
             for (int i = 0; i < 2; i++)
             {
-                m_regType[i] = retLayout->GetSysVAmd64AbiRegType(i);
+                m_regType[i] = varActualType(retLayout->GetSysVAmd64AbiRegType(i));
             }
 #elif defined(TARGET_ARM64) || defined(TARGET_X86)
             assert(retLayout->GetSlotCount() == 2);

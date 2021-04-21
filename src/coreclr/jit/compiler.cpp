@@ -551,20 +551,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
 
     if (layout->GetSysVAmd64AbiRegCount() == 1)
     {
-        var_types type = layout->GetSysVAmd64AbiRegType(0);
-
-        if (type == TYP_INT)
-        {
-            // TODO-MIKE-Cleanup: GetSysVAmd64AbiRegType returns INT if the struct size is 1 or 2
-            // and existing code expects BYTE/SHORT. Doesn't make a lot of sense as callers anyway
-            // have to pay attention to other sizes such as 3. But it's not like the existing ABI
-            // code makes any sense...
-
-            type = abiGetStructIntegerRegisterType(layout);
-            assert(type != TYP_UNDEF);
-        }
-
-        return {SPK_PrimitiveType, type};
+        return {SPK_PrimitiveType, layout->GetSysVAmd64AbiRegType(0)};
     }
 
     if ((layout->GetSysVAmd64AbiRegCount() == 0) && (layout->GetSize() <= REGSIZE_BYTES))
@@ -655,20 +642,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
 
     if (layout->GetSysVAmd64AbiRegCount() == 1)
     {
-        var_types type = layout->GetSysVAmd64AbiRegType(0);
-
-        if (type == TYP_INT)
-        {
-            // TODO-MIKE-Cleanup: GetSysVAmd64AbiRegType returns INT if the struct size is 1 or 2
-            // and existing code expects BYTE/SHORT. Doesn't make a lot of sense as callers anyway
-            // have to pay attention to other sizes such as 3. But it's not like the existing ABI
-            // code makes any sense...
-
-            type = abiGetStructIntegerRegisterType(layout);
-            assert(type != TYP_UNDEF);
-        }
-
-        return {SPK_PrimitiveType, type};
+        return {SPK_PrimitiveType, layout->GetSysVAmd64AbiRegType(0)};
     }
 
     if (layout->GetSysVAmd64AbiRegCount() > 1)

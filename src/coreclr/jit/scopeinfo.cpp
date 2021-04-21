@@ -1550,8 +1550,6 @@ void CodeGen::psiBegProlog()
                     regNumber otherRegNum = REG_NA;
                     for (unsigned nCnt = 0; nCnt < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); nCnt++)
                     {
-                        var_types regType = TYP_UNDEF;
-
                         if (nCnt == 0)
                         {
                             regNum = lclVarDsc->GetArgReg();
@@ -1565,9 +1563,9 @@ void CodeGen::psiBegProlog()
                             assert(false && "Invalid eightbyte number.");
                         }
 
-                        regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(nCnt);
 #ifdef DEBUG
-                        regType = compiler->mangleVarArgsType(regType);
+                        var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(nCnt);
+                        regType           = compiler->mangleVarArgsType(regType);
                         assert(genMapRegNumToRegArgNum((nCnt == 0 ? regNum : otherRegNum), regType) != (unsigned)-1);
 #endif // DEBUG
                     }

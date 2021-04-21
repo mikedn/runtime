@@ -840,6 +840,10 @@ void ClassLayout::EnsureSysVAmd64AbiInfo(Compiler* compiler)
 #ifdef UNIX_AMD64_ABI
 var_types ClassLayout::GetEightbyteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& desc, unsigned i)
 {
+    assert(i < desc.eightByteCount);
+    // Make sure the VM doesn't get any funny ideas...
+    assert(desc.eightByteOffsets[i] == i * 8);
+
     switch (desc.eightByteClassifications[i])
     {
         case SystemVClassificationTypeIntegerReference:
@@ -861,13 +865,19 @@ var_types ClassLayout::GetEightbyteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_P
 
         default:
             assert(desc.eightByteClassifications[i] == SystemVClassificationTypeInteger);
-            if (desc.eightByteSizes[i] <= 4)
+            switch (desc.eightByteSizes[i])
             {
-                return TYP_INT;
+                case 1:
+                    return TYP_BYTE;
+                case 2:
+                    return TYP_SHORT;
+                case 3:
+                case 4:
+                    return TYP_INT;
+                default:
+                    assert(desc.eightByteSizes[i] <= 8);
+                    return TYP_LONG;
             }
-
-            assert(desc.eightByteSizes[i] <= 8);
-            return TYP_LONG;
     }
 }
 #endif // UNIX_AMD64_ABI

@@ -3199,7 +3199,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                                                                   // register)
                     regArgTab[regArgNum].varNum = varNum;
                     regArgTab[regArgNum].slot   = (char)(slotCounter + 1);
-                    regArgTab[regArgNum].type   = regType;
+                    regArgTab[regArgNum].type   = varActualType(regType);
                     slots++;
                 }
             }

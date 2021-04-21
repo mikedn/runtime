@@ -5103,14 +5103,14 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             // the end of the basic block and after which reg life and gc info will be recomputed for the new block in
             // genCodeForBBList().
 
-            var_types type = varDsc->GetLayout()->GetSysVAmd64AbiRegType(0);
+            var_types type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(0));
             GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), varDsc->GetArgReg(), varNum, 0);
             regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(varDsc->GetArgReg()));
             gcInfo.gcMarkRegPtrVal(varDsc->GetArgReg(), type);
 
             if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
             {
-                var_types type = varDsc->GetLayout()->GetSysVAmd64AbiRegType(1);
+                type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(1));
                 GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), varDsc->GetOtherArgReg(), varNum, 8);
                 regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(varDsc->GetOtherArgReg()));
                 gcInfo.gcMarkRegPtrVal(varDsc->GetOtherArgReg(), type);

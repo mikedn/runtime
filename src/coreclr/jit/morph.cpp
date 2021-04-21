@@ -2398,7 +2398,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 for (unsigned i = 0; i < regCount; i++)
                 {
-                    argInfo->SetRegType(i, layout->GetSysVAmd64AbiRegType(i));
+                    // TODO-MIKE-Review: Does this really need to be the actual type?
+                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
                 }
             }
             else
