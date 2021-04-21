@@ -7838,23 +7838,22 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     call->SetRetSigType(type);
     call->SetRetLayout(layout);
 
-    structPassingKind retKind;
-    var_types         retKindType = getReturnTypeForStruct(layout, call->GetUnmanagedCallConv(), &retKind);
-    ReturnTypeDesc*   retDesc     = call->GetRetDesc();
+    StructPassing   retKind = abiGetStructReturnType(layout, call->GetUnmanagedCallConv());
+    ReturnTypeDesc* retDesc = call->GetRetDesc();
 
-    if (retKind == SPK_PrimitiveType)
+    if (retKind.kind == SPK_PrimitiveType)
     {
-        retDesc->InitializePrimitive(retKindType);
+        retDesc->InitializePrimitive(retKind.type);
     }
 #if FEATURE_MULTIREG_RET
-    else if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
+    else if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
     {
-        retDesc->InitializeStruct(this, layout, retKind, retKindType);
+        retDesc->InitializeStruct(this, layout, retKind);
     }
 #endif
     else
     {
-        assert(retKind == SPK_ByReference);
+        assert(retKind.kind == SPK_ByReference);
 
         // JIT generated code does return the return buffer arg if required
         // by the ABI but it does not use the return value so calls have no
@@ -13158,11 +13157,10 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // be useful because it avoids dependent promotion. But's probably something
                 // that impAssignStructPtr could handle as well.
 
-                ClassLayout*      layout = typGetObjLayout(resolvedToken.hClass);
-                structPassingKind retKind;
-                var_types retKindType = getReturnTypeForStruct(layout, CorInfoCallConvExtension::Managed, &retKind);
+                ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
+                StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed);
 
-                if ((retKind == SPK_ByValue) || (retKind == SPK_ByValueAsHfa))
+                if ((retKind.kind == SPK_ByValue) || (retKind.kind == SPK_ByValueAsHfa))
                 {
                     // Unbox nullable helper returns a TYP_STRUCT.
                     // For the multi-reg case we need to spill it to a temp so that

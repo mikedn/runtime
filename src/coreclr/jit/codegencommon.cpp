@@ -137,10 +137,7 @@ CodeGen::CodeGen(Compiler* compiler)
 #ifdef TARGET_AMD64
     // This will be set before final frame layout.
     compiler->compVSQuirkStackPaddingNeeded = 0;
-
-    // Set to true if we perform the Quirk that fixes the PPP issue
-    compiler->compQuirkForPPPflag = false;
-#endif // TARGET_AMD64
+#endif
 
     //  Initialize the IP-mapping logic.
     compiler->genIPmappingList        = nullptr;
@@ -3136,18 +3133,16 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 #if defined(UNIX_AMD64_ABI)
         if (varTypeIsStruct(varDsc->GetType()))
         {
-            CORINFO_CLASS_HANDLE typeHnd = varDsc->GetLayout()->GetClassHandle();
-            assert(typeHnd != nullptr);
-            SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            compiler->eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
-            if (!structDesc.passedInRegisters)
+            varDsc->GetLayout()->EnsureSysVAmd64AbiInfo(compiler);
+
+            if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() == 0)
             {
                 // The var is not passed in registers.
                 continue;
             }
 
             unsigned firstRegSlot = 0;
-            for (unsigned slotCounter = 0; slotCounter < structDesc.eightByteCount; slotCounter++)
+            for (unsigned slotCounter = 0; slotCounter < varDsc->GetLayout()->GetSysVAmd64AbiRegCount(); slotCounter++)
             {
                 regNumber regNum = varDsc->lvRegNumForSlot(slotCounter);
                 var_types regType;
@@ -3184,13 +3179,12 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 else
 #endif
                 {
-                    regType = compiler->GetEightByteType(structDesc, slotCounter);
+                    regType = varDsc->GetLayout()->GetSysVAmd64AbiRegType(slotCounter);
                 }
 
                 regArgNum = genMapRegNumToRegArgNum(regNum, regType);
 
-                if ((!doingFloat && (structDesc.IsIntegralSlot(slotCounter))) ||
-                    (doingFloat && (structDesc.IsSseSlot(slotCounter))))
+                if (doingFloat == varTypeUsesFloatReg(varDsc->GetLayout()->GetSysVAmd64AbiRegType(slotCounter)))
                 {
                     // Store the reg for the first slot.
                     if (slots == 0)
@@ -3205,7 +3199,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                                                                   // register)
                     regArgTab[regArgNum].varNum = varNum;
                     regArgTab[regArgNum].slot   = (char)(slotCounter + 1);
-                    regArgTab[regArgNum].type   = regType;
+                    regArgTab[regArgNum].type   = varActualType(regType);
                     slots++;
                 }
             }

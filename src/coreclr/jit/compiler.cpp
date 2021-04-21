@@ -428,119 +428,59 @@ Histogram loopExitCountTable(loopExitCountBuckets);
 #endif // COUNT_LOOPS
 
 #ifdef TARGET_X86
-//---------------------------------------------------------------------------
-// isTrivialPointerSizedStruct:
-//    Check if the given struct type contains only one pointer-sized integer value type
-//
-// Arguments:
-//    clsHnd - the handle for the struct type.
-//
-// Return Value:
-//    true if the given struct type contains only one pointer-sized integer value type,
-//    false otherwise.
-//
-bool Compiler::isTrivialPointerSizedStruct(CORINFO_CLASS_HANDLE clsHnd) const
+
+// Check if the given struct type contains only one pointer-sized integer value type.
+bool Compiler::isTrivialPointerSizedStruct(ClassLayout* layout) const
 {
-    assert(info.compCompHnd->isValueClass(clsHnd));
-    if (info.compCompHnd->getClassSize(clsHnd) != TARGET_POINTER_SIZE)
+    assert(layout->IsValueClass());
+
+    if (layout->GetSize() != TARGET_POINTER_SIZE)
     {
         return false;
     }
-    for (;;)
+
+    CORINFO_CLASS_HANDLE clsHnd = layout->GetClassHandle();
+    var_types            type   = TYP_STRUCT;
+
+    while ((type == TYP_STRUCT) && (info.compCompHnd->getClassNumInstanceFields(clsHnd) == 1))
     {
-        // all of class chain must be of value type and must have only one field
-        if (!info.compCompHnd->isValueClass(clsHnd) || info.compCompHnd->getClassNumInstanceFields(clsHnd) != 1)
-        {
-            return false;
-        }
+        CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
 
-        CORINFO_CLASS_HANDLE* pClsHnd   = &clsHnd;
-        CORINFO_FIELD_HANDLE  fldHnd    = info.compCompHnd->getFieldInClass(clsHnd, 0);
-        CorInfoType           fieldType = info.compCompHnd->getFieldType(fldHnd, pClsHnd);
-
-        var_types vt = JITtype2varType(fieldType);
-
-        if (fieldType == CORINFO_TYPE_VALUECLASS)
-        {
-            clsHnd = *pClsHnd;
-        }
-        else if (varTypeIsI(vt) && !varTypeIsGC(vt))
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
+        type = JITtype2varType(info.compCompHnd->getFieldType(fldHnd, &clsHnd));
     }
+
+    return varTypeIsI(type) && !varTypeIsGC(type);
 }
 #endif // TARGET_X86
 
-//---------------------------------------------------------------------------
-// isNativePrimitiveStructType:
-//    Check if the given struct type is an intrinsic type that should be treated as though
-//    it is not a struct at the unmanaged ABI boundary.
-//
-// Arguments:
-//    clsHnd - the handle for the struct type.
-//
-// Return Value:
-//    true if the given struct type should be treated as a primitive for unmanaged calls,
-//    false otherwise.
-//
-bool Compiler::isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd)
+// Check if the given struct type is an intrinsic type that should be treated as though
+// it is not a struct at the unmanaged ABI boundary.
+bool Compiler::isNativePrimitiveStructType(ClassLayout* layout)
 {
-    if (!isIntrinsicType(clsHnd))
+    assert(layout->IsValueClass());
+
+    if ((layout->GetSize() != 4) && (layout->GetSize() != 8))
     {
         return false;
     }
+
+    if (!info.compCompHnd->isIntrinsicType(layout->GetClassHandle()))
+    {
+        return false;
+    }
+
     const char* namespaceName = nullptr;
-    const char* typeName      = getClassNameFromMetadata(clsHnd, &namespaceName);
+    const char* typeName      = getClassNameFromMetadata(layout->GetClassHandle(), &namespaceName);
 
-    if (strcmp(namespaceName, "System.Runtime.InteropServices") != 0)
-    {
-        return false;
-    }
-
-    return strcmp(typeName, "CLong") == 0 || strcmp(typeName, "CULong") == 0 || strcmp(typeName, "NFloat") == 0;
+    return (strcmp(namespaceName, "System.Runtime.InteropServices") == 0) &&
+           (strcmp(typeName, "CLong") == 0 || strcmp(typeName, "CULong") == 0 || strcmp(typeName, "NFloat") == 0);
 }
 
-//-----------------------------------------------------------------------------
-// getPrimitiveTypeForStruct:
-//     Get the "primitive" type that is is used for a struct
-//     of size 'structSize'.
-//     We examine 'clsHnd' to check the GC layout of the struct and
-//     return TYP_REF for structs that simply wrap an object.
-//     If the struct is a one element HFA/HVA, we will return the
-//     proper floating point or vector type.
-//
-// Return Value:
-//    The primitive type (i.e. byte, short, int, long, ref, float, double)
-//    used to pass or return structs of this size.
-//    If we shouldn't use a "primitive" type then TYP_UNKNOWN is returned.
-// Notes:
-//    For 32-bit targets (X86/ARM32) the 64-bit TYP_LONG type is not
-//    considered a primitive type by this method.
-//    So a struct that wraps a 'long' is passed and returned in the
-//    same way as any other 8-byte struct
-//    For ARM32 if we have an HFA struct that wraps a 64-bit double
-//    we will return TYP_DOUBLE.
-//    For vector calling conventions, a vector is considered a "primitive"
-//    type, as it is passed in a single register.
-//
-var_types Compiler::getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg)
+var_types Compiler::abiGetStructIntegerRegisterType(ClassLayout* layout)
 {
 #ifdef FEATURE_HFA
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-    if (!isVarArg) // win-arm64 varargs ABI does not use HFAs
+    assert(!layout->IsHfa());
 #endif
-    {
-        if (layout->IsHfa())
-        {
-            return layout->GetHfaElementCount() == 1 ? layout->GetHfaElementType() : TYP_UNKNOWN;
-        }
-    }
-#endif // FEATURE_HFA
 
     switch (layout->GetSize())
     {
@@ -548,475 +488,222 @@ var_types Compiler::getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg
             return TYP_BYTE;
         case 2:
             return TYP_SHORT;
-#if !defined(TARGET_XARCH) || defined(UNIX_AMD64_ABI)
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
         case 3:
             return TYP_INT;
 #endif
 #ifdef TARGET_64BIT
         case 4:
             return TYP_INT;
-#if !defined(TARGET_XARCH) || defined(UNIX_AMD64_ABI)
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
         case 5:
         case 6:
         case 7:
-            return TYP_I_IMPL;
+            return TYP_LONG;
 #endif
 #endif
         case TARGET_POINTER_SIZE:
             return layout->GetGCPtrType(0);
         default:
-            return TYP_UNKNOWN;
+            return TYP_UNDEF;
     }
 }
 
-//-----------------------------------------------------------------------------
-// getArgTypeForStruct:
-//     Get the type that is used to pass values of the given struct type.
-//     If you have already retrieved the struct size then it should be
-//     passed as the optional fourth argument, as this allows us to avoid
-//     an extra call to getClassSize(clsHnd)
-//
-// Arguments:
-//    layout       - the layout of the struct type
-//    wbPassStruct - An "out" argument with information about how
-//                   the struct is to be passed
-//    isVarArg     - is vararg, used to ignore HFA types for Arm64 windows varargs
-//
-// Return Value:
-//    For wbPassStruct you can pass a 'nullptr' and nothing will be written
-//     or returned for that out parameter.
-//    When *wbPassStruct is SPK_PrimitiveType this method's return value
-//       is the primitive type used to pass the struct.
-//    When *wbPassStruct is SPK_ByReference this method's return value
-//       is always TYP_UNKNOWN and the struct type is passed by reference to a copy
-//    When *wbPassStruct is SPK_ByValue or SPK_ByValueAsHfa this method's return value
-//       is always TYP_STRUCT and the struct type is passed by value either
-//       using multiple registers or on the stack.
-//
-// Notes:
-//    About HFA types:
-//        When the clsHnd is a one element HFA type we return the appropriate
-//         floating point primitive type and *wbPassStruct is SPK_PrimitiveType
-//        If there are two or more elements in the HFA type then the this method's
-//         return value is TYP_STRUCT and *wbPassStruct is SPK_ByValueAsHfa
-//
-var_types Compiler::getArgTypeForStruct(ClassLayout* layout, structPassingKind* wbPassStruct, bool isVarArg)
+StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg)
 {
-    CORINFO_CLASS_HANDLE clsHnd          = layout->GetClassHandle();
-    unsigned             structSize      = layout->GetSize();
-    var_types            useType         = TYP_UNKNOWN;
-    structPassingKind    howToPassStruct = SPK_Unknown; // We must change this before we return
+#if defined(WINDOWS_AMD64_ABI)
+    // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
+    // to behave like a primitive double then it should be passed in a XMM register.
 
-// Determine if we can pass the struct as a primitive type.
-// Note that on x86 we only pass specific pointer-sized structs that satisfy isTrivialPointerSizedStruct checks.
-#ifndef TARGET_X86
-#ifdef UNIX_AMD64_ABI
+    var_types type = abiGetStructIntegerRegisterType(layout);
 
-    // An 8-byte struct may need to be passed in a floating point register
-    // So we always consult the struct "Classifier" routine
-    //
-    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-    eeGetSystemVAmd64PassStructInRegisterDescriptor(clsHnd, &structDesc);
+    if (type != TYP_UNDEF)
+    {
+        return {SPK_PrimitiveType, type};
+    }
 
-    if (structDesc.passedInRegisters && (structDesc.eightByteCount != 1))
-    {
-        // We can't pass this as a primitive type.
-    }
-    else if (structDesc.eightByteClassifications[0] == SystemVClassificationTypeSSE)
-    {
-        // If this is passed as a floating type, use that.
-        // Otherwise, we'll use the general case - we don't want to use the "EightByteType"
-        // directly, because it returns `TYP_INT` for any integral type <= 4 bytes, and
-        // we need to preserve small types.
-        useType = GetEightByteType(structDesc, 0);
-    }
-    else
-#endif // UNIX_AMD64_ABI
+    return {SPK_ByReference, TYP_UNKNOWN};
+#elif defined(UNIX_AMD64_ABI)
+    layout->EnsureSysVAmd64AbiInfo(this);
 
-        // The largest arg passed in a single register is MAX_PASS_SINGLEREG_BYTES,
-        // so we can skip calling getPrimitiveTypeForStruct when we
-        // have a struct that is larger than that.
-        //
-        if (structSize <= MAX_PASS_SINGLEREG_BYTES)
+    if (layout->GetSysVAmd64AbiRegCount() == 1)
     {
-        // We set the "primitive" useType based upon the structSize
-        // and also examine the clsHnd to see if it is an HFA of count one
-        useType = getPrimitiveTypeForStruct(layout, isVarArg);
+        return {SPK_PrimitiveType, layout->GetSysVAmd64AbiRegType(0)};
     }
-#else
-    if (isTrivialPointerSizedStruct(clsHnd))
-    {
-        useType = TYP_I_IMPL;
-    }
-#endif // !TARGET_X86
 
-    // Did we change this struct type into a simple "primitive" type?
-    //
-    if (useType != TYP_UNKNOWN)
+    if ((layout->GetSysVAmd64AbiRegCount() == 0) && (layout->GetSize() <= REGSIZE_BYTES))
     {
-        // Yes, we should use the "primitive" type in 'useType'
-        howToPassStruct = SPK_PrimitiveType;
-    }
-    else // We can't replace the struct with a "primitive" type
-    {
-        // See if we can pass this struct by value, possibly in multiple registers
-        // or if we should pass it by reference to a copy
-        //
-        if (structSize <= MAX_PASS_MULTIREG_BYTES)
+        // TODO-MIKE-Cleanup: Workaround empty struct weirdness. These aren't passed in registers
+        // yet the callers still expect a primitive type (BYTE) even if SPK_ByValue would make
+        // more sense. And then it's not like the old code specifically checked for empty structs,
+        // it just happened to work like this.
+
+        var_types type = abiGetStructIntegerRegisterType(layout);
+
+        if (type != TYP_UNDEF)
         {
-            // Structs that are HFA/HVA's are passed by value in multiple registers.
-            // Arm64 Windows VarArg methods arguments will not classify HFA/HVA types, they will need to be treated
-            // as if they are not HFA/HVA types.
-            var_types hfaType;
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            if (isVarArg)
-            {
-                hfaType = TYP_UNDEF;
-            }
-            else
-#endif // defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            {
-                hfaType = layout->IsHfa() ? layout->GetHfaElementType() : TYP_UNDEF;
-            }
+            return {SPK_PrimitiveType, type};
+        }
+    }
 
-#ifdef FEATURE_HFA
-            if (hfaType != TYP_UNDEF)
-            {
-                // Single element HFAs should have been handled by getPrimitiveTypeForStruct
-                assert(layout->GetHfaElementCount() > 1);
+    return {SPK_ByValue, TYP_STRUCT};
+#elif defined(TARGET_X86)
+    if (isTrivialPointerSizedStruct(layout))
+    {
+        return {SPK_PrimitiveType, TYP_INT};
+    }
 
-                // setup wbPassType and useType indicate that this is passed by value as an HFA
-                //  using multiple registers
-                //  (when all of the parameters registers are used, then the stack will be used)
-                howToPassStruct = SPK_ByValueAsHfa;
-                useType         = TYP_STRUCT;
-            }
-            else
-#endif
-            {
-#ifdef UNIX_AMD64_ABI
-                // The case of (structDesc.eightByteCount == 1) should have already been handled
-                if ((structDesc.eightByteCount > 1) || !structDesc.passedInRegisters)
-                {
-                    // setup wbPassType and useType indicate that this is passed by value in multiple registers
-                    //  (when all of the parameters registers are used, then the stack will be used)
-                    howToPassStruct = SPK_ByValue;
-                    useType         = TYP_STRUCT;
-                }
-                else
-                {
-                    assert(structDesc.eightByteCount == 0);
-                    // Otherwise we pass this struct by reference to a copy
-                    // setup wbPassType and useType indicate that this is passed using one register
-                    //  (by reference to a copy)
-                    howToPassStruct = SPK_ByReference;
-                    useType         = TYP_UNKNOWN;
-                }
+    return {SPK_ByValue, TYP_STRUCT};
+#elif defined(TARGET_ARM)
+    if (layout->IsHfa())
+    {
+        return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
+                                                : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
+    }
 
+    var_types type = abiGetStructIntegerRegisterType(layout);
+
+    if (type != TYP_UNDEF)
+    {
+        return {SPK_PrimitiveType, type};
+    }
+
+    return {SPK_ByValue, TYP_STRUCT};
 #elif defined(TARGET_ARM64)
-
-                // Structs that are pointer sized or smaller should have been handled by getPrimitiveTypeForStruct
-                assert(structSize > TARGET_POINTER_SIZE);
-
-                // On ARM64 structs that are 9-16 bytes are passed by value in multiple registers
-                //
-                if (structSize <= (TARGET_POINTER_SIZE * 2))
-                {
-                    // setup wbPassType and useType indicate that this is passed by value in multiple registers
-                    //  (when all of the parameters registers are used, then the stack will be used)
-                    howToPassStruct = SPK_ByValue;
-                    useType         = TYP_STRUCT;
-                }
-                else // a structSize that is 17-32 bytes in size
-                {
-                    // Otherwise we pass this struct by reference to a copy
-                    // setup wbPassType and useType indicate that this is passed using one register
-                    //  (by reference to a copy)
-                    howToPassStruct = SPK_ByReference;
-                    useType         = TYP_UNKNOWN;
-                }
-
-#elif defined(TARGET_X86) || defined(TARGET_ARM)
-
-                // Otherwise we pass this struct by value on the stack
-                // setup wbPassType and useType indicate that this is passed by value according to the X86/ARM32 ABI
-                howToPassStruct = SPK_ByValue;
-                useType         = TYP_STRUCT;
-
-#else //  TARGET_XXX
-
-                noway_assert(!"Unhandled TARGET in getArgTypeForStruct (with FEATURE_MULTIREG_ARGS=1)");
-
-#endif //  TARGET_XXX
-            }
-        }
-        else // (structSize > MAX_PASS_MULTIREG_BYTES)
+#ifdef TARGET_WINDOWS
+    if (!isVarArg) // win-arm64 varargs doesn't use HFAs
+#endif
+    {
+        if (layout->IsHfa())
         {
-            // We have a (large) struct that can't be replaced with a "primitive" type
-            // and can't be passed in multiple registers
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if defined(TARGET_X86) || defined(TARGET_ARM) || defined(UNIX_AMD64_ABI)
-
-            // Otherwise we pass this struct by value on the stack
-            // setup wbPassType and useType indicate that this is passed by value according to the X86/ARM32 ABI
-            howToPassStruct = SPK_ByValue;
-            useType         = TYP_STRUCT;
-
-#elif defined(TARGET_AMD64) || defined(TARGET_ARM64)
-
-            // Otherwise we pass this struct by reference to a copy
-            // setup wbPassType and useType indicate that this is passed using one register (by reference to a copy)
-            howToPassStruct = SPK_ByReference;
-            useType         = TYP_UNKNOWN;
-
-#else //  TARGET_XXX
-
-            noway_assert(!"Unhandled TARGET in getArgTypeForStruct");
-
-#endif //  TARGET_XXX
+            return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
+                                                    : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
         }
     }
 
-    assert(howToPassStruct != SPK_Unknown);
-    *wbPassStruct = howToPassStruct;
-    return useType;
+    var_types type = abiGetStructIntegerRegisterType(layout);
+
+    if (type != TYP_UNDEF)
+    {
+        return {SPK_PrimitiveType, type};
+    }
+
+    if (layout->GetSize() <= 16)
+    {
+        return {SPK_ByValue, TYP_STRUCT};
+    }
+
+    return {SPK_ByReference, TYP_UNKNOWN};
+#else
+#error Unknown ABI
+#endif
 }
 
-//-----------------------------------------------------------------------------
-// getReturnTypeForStruct:
-//     Get the type that is used to return values of the given struct type.
-//     If you have already retrieved the struct size then it should be
-//     passed as the optional third argument, as this allows us to avoid
-//     an extra call to getClassSize(clsHnd)
-//
-// Arguments:
-//    layout         - the layout of the struct type
-//    callConv       - the calling convention of the function
-//                     that returns this struct.
-//    wbReturnStruct - An "out" argument with information about how
-//                     the struct is to be returned
-//
-// Return Value:
-//    For wbReturnStruct you can pass a 'nullptr' and nothing will be written
-//     or returned for that out parameter.
-//    When *wbReturnStruct is SPK_PrimitiveType this method's return value
-//       is the primitive type used to return the struct.
-//    When *wbReturnStruct is SPK_ByReference this method's return value
-//       is always TYP_UNKNOWN and the struct type is returned using a return buffer
-//    When *wbReturnStruct is SPK_ByValue or SPK_ByValueAsHfa this method's return value
-//       is always TYP_STRUCT and the struct type is returned using multiple registers.
-//
-// Assumptions:
-//    The size must be the size of the given type.
-//    The given class handle must be for a value type (struct).
-//
-// Notes:
-//    About HFA types:
-//        When the clsHnd is a one element HFA type then this method's return
-//          value is the appropriate floating point primitive type and
-//          *wbReturnStruct is SPK_PrimitiveType.
-//        If there are two or more elements in the HFA type and the target supports
-//          multireg return types then the return value is TYP_STRUCT and
-//          *wbReturnStruct is SPK_ByValueAsHfa.
-//        Additionally if there are two or more elements in the HFA type and
-//          the target doesn't support multreg return types then it is treated
-//          as if it wasn't an HFA type.
-//    About returning TYP_STRUCT:
-//        Whenever this method's return value is TYP_STRUCT it always means
-//         that multiple registers are used to return this struct.
-//
-var_types Compiler::getReturnTypeForStruct(ClassLayout*             layout,
-                                           CorInfoCallConvExtension callConv,
-                                           structPassingKind*       wbReturnStruct)
+StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv)
 {
+#if defined(WINDOWS_AMD64_ABI)
+    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout))
+    {
+        // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
+        // to behave like a primitive double then it should be returned in XMM0, not in RAX.
+
+        var_types type = abiGetStructIntegerRegisterType(layout);
+
+        if (type != TYP_UNDEF)
+        {
+            return {SPK_PrimitiveType, type};
+        }
+    }
+#elif defined(UNIX_AMD64_ABI)
+    layout->EnsureSysVAmd64AbiInfo(this);
+
+    if (layout->GetSysVAmd64AbiRegCount() == 1)
+    {
+        return {SPK_PrimitiveType, layout->GetSysVAmd64AbiRegType(0)};
+    }
+
+    if (layout->GetSysVAmd64AbiRegCount() > 1)
+    {
+        return {SPK_ByValue, TYP_STRUCT};
+    }
+#elif defined(WINDOWS_X86_ABI)
+    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout))
+    {
+        if ((layout->GetSize() == 8) && (callConv != CorInfoCallConvExtension::Managed))
+        {
+            return {SPK_ByValue, TYP_STRUCT};
+        }
+
+        // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
+        // to behave like a primitive float then it should be returned in ST(0), not in EAX.
+
+        var_types type = abiGetStructIntegerRegisterType(layout);
+
+        if (type != TYP_UNDEF)
+        {
+            return {SPK_PrimitiveType, type};
+        }
+    }
+#elif defined(UNIX_X86_ABI)
+    if ((callConv == CorInfoCallConvExtension::Managed) || isNativePrimitiveStructType(layout))
+    {
+        // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
+        // to behave like a primitive float then it should be returned in ST(0), not in EAX.
+
+        var_types type = abiGetStructIntegerRegisterType(layout);
+
+        if (type != TYP_UNDEF)
+        {
+            return {SPK_PrimitiveType, type};
+        }
+    }
+#elif defined(TARGET_ARM)
     layout->EnsureHfaInfo(this);
 
-    CORINFO_CLASS_HANDLE clsHnd              = layout->GetClassHandle();
-    unsigned             structSize          = layout->GetSize();
-    var_types            useType             = TYP_UNKNOWN;
-    structPassingKind    howToReturnStruct   = SPK_Unknown; // We must change this before we return
-    bool                 canReturnInRegister = true;
-
-#ifdef UNIX_AMD64_ABI
-    // An 8-byte struct may need to be returned in a floating point register
-    // So we always consult the struct "Classifier" routine
-    //
-    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-    eeGetSystemVAmd64PassStructInRegisterDescriptor(clsHnd, &structDesc);
-
-    if (structDesc.eightByteCount == 1)
+    if (layout->IsHfa())
     {
-        assert(structSize <= sizeof(double));
-        assert(structDesc.passedInRegisters);
-
-        if (structDesc.eightByteClassifications[0] == SystemVClassificationTypeSSE)
-        {
-            // If this is returned as a floating type, use that.
-            // Otherwise, leave as TYP_UNKONWN and we'll sort things out below.
-            useType           = GetEightByteType(structDesc, 0);
-            howToReturnStruct = SPK_PrimitiveType;
-        }
-    }
-    else
-    {
-        // Return classification is not always size based...
-        canReturnInRegister = structDesc.passedInRegisters;
-        if (!canReturnInRegister)
-        {
-            assert(structDesc.eightByteCount == 0);
-            howToReturnStruct = SPK_ByReference;
-            useType           = TYP_UNKNOWN;
-        }
-    }
-#elif UNIX_X86_ABI
-    if (callConv != CorInfoCallConvExtension::Managed && !isNativePrimitiveStructType(clsHnd))
-    {
-        canReturnInRegister = false;
-        howToReturnStruct   = SPK_ByReference;
-        useType             = TYP_UNKNOWN;
-    }
-#elif defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
-    if (callConvIsInstanceMethodCallConv(callConv) && !isNativePrimitiveStructType(clsHnd))
-    {
-        canReturnInRegister = false;
-        howToReturnStruct   = SPK_ByReference;
-        useType             = TYP_UNKNOWN;
-    }
-#endif
-
-    // Check for cases where a small struct is returned in a register
-    // via a primitive type.
-    //
-    // The largest "primitive type" is MAX_PASS_SINGLEREG_BYTES
-    // so we can skip calling getPrimitiveTypeForStruct when we
-    // have a struct that is larger than that.
-    if (canReturnInRegister && (useType == TYP_UNKNOWN) && (structSize <= MAX_PASS_SINGLEREG_BYTES))
-    {
-        // We set the "primitive" useType based upon the structSize
-        // and also examine the clsHnd to see if it is an HFA of count one
-        //
-        // The ABI for struct returns in varArg methods, is same as the normal case,
-        // so pass false for isVararg
-        useType = getPrimitiveTypeForStruct(layout, /*isVararg=*/false);
-
-        if (useType != TYP_UNKNOWN)
-        {
-            assert(structSize <= varTypeSize(useType));
-            howToReturnStruct = SPK_PrimitiveType;
-        }
+        return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
+                                                : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
     }
 
-    // Did we change this struct type into a simple "primitive" type?
-    if (useType != TYP_UNKNOWN)
+    var_types type = abiGetStructIntegerRegisterType(layout);
+
+    if (type != TYP_UNDEF)
     {
-        // If so, we should have already set howToReturnStruct, too.
-        assert(howToReturnStruct != SPK_Unknown);
+        return {SPK_PrimitiveType, type};
     }
-    else if (canReturnInRegister) // We can't replace the struct with a "primitive" type
-    {
-        // See if we can return this struct by value, possibly in multiple registers
-        // or if we should return it using a return buffer register
-        //
-        if ((FEATURE_MULTIREG_RET == 1) && (structSize <= MAX_RET_MULTIREG_BYTES))
-        {
-#ifdef FEATURE_HFA
-            // Structs that are HFA's are returned in multiple registers
-            if (layout->IsHfa())
-            {
-                // Single element HFAs should have been handled by getPrimitiveTypeForStruct
-                assert(layout->GetHfaElementCount() > 1);
-
-                // setup wbPassType and useType indicate that this is returned by value as an HFA
-                //  using multiple registers
-                howToReturnStruct = SPK_ByValueAsHfa;
-                useType           = TYP_STRUCT;
-            }
-            else
-#endif
-            {
-
-#ifdef UNIX_AMD64_ABI
-
-                // The cases of (structDesc.eightByteCount == 1) and (structDesc.eightByteCount == 0)
-                // should have already been handled
-                assert(structDesc.eightByteCount > 1);
-                // setup wbPassType and useType indicate that this is returned by value in multiple registers
-                howToReturnStruct = SPK_ByValue;
-                useType           = TYP_STRUCT;
-                assert(structDesc.passedInRegisters == true);
-
 #elif defined(TARGET_ARM64)
+    layout->EnsureHfaInfo(this);
 
-                // Structs that are pointer sized or smaller should have been handled by getPrimitiveTypeForStruct
-                assert(structSize > TARGET_POINTER_SIZE);
-
-                // On ARM64 structs that are 9-16 bytes are returned by value in multiple registers
-                //
-                if (structSize <= (TARGET_POINTER_SIZE * 2))
-                {
-                    // setup wbPassType and useType indicate that this is return by value in multiple registers
-                    howToReturnStruct = SPK_ByValue;
-                    useType           = TYP_STRUCT;
-                }
-                else // a structSize that is 17-32 bytes in size
-                {
-                    // Otherwise we return this struct using a return buffer
-                    // setup wbPassType and useType indicate that this is returned using a return buffer register
-                    //  (reference to a return buffer)
-                    howToReturnStruct = SPK_ByReference;
-                    useType           = TYP_UNKNOWN;
-                }
-#elif defined(TARGET_X86)
-
-                // Only 8-byte structs are return in multiple registers.
-                // We also only support multireg struct returns on x86 to match the native calling convention.
-                // So return 8-byte structs only when the calling convention is a native calling convention.
-                if (structSize == MAX_RET_MULTIREG_BYTES && callConv != CorInfoCallConvExtension::Managed)
-                {
-                    // setup wbPassType and useType indicate that this is return by value in multiple registers
-                    howToReturnStruct = SPK_ByValue;
-                    useType           = TYP_STRUCT;
-                }
-                else
-                {
-                    // Otherwise we return this struct using a return buffer
-                    // setup wbPassType and useType indicate that this is returned using a return buffer register
-                    //  (reference to a return buffer)
-                    howToReturnStruct = SPK_ByReference;
-                    useType           = TYP_UNKNOWN;
-                }
-#elif defined(TARGET_ARM)
-
-                // Otherwise we return this struct using a return buffer
-                // setup wbPassType and useType indicate that this is returned using a return buffer register
-                //  (reference to a return buffer)
-                howToReturnStruct = SPK_ByReference;
-                useType           = TYP_UNKNOWN;
-
-#else //  TARGET_XXX
-
-                noway_assert(!"Unhandled TARGET in getReturnTypeForStruct (with FEATURE_MULTIREG_ARGS=1)");
-
-#endif //  TARGET_XXX
-            }
-        }
-        else // (structSize > MAX_RET_MULTIREG_BYTES) || (FEATURE_MULTIREG_RET == 0)
-        {
-            // We have a (large) struct that can't be replaced with a "primitive" type
-            // and can't be returned in multiple registers
-
-            // We return this struct using a return buffer register
-            // setup wbPassType and useType indicate that this is returned using a return buffer register
-            //  (reference to a return buffer)
-            howToReturnStruct = SPK_ByReference;
-            useType           = TYP_UNKNOWN;
-        }
+    if (layout->IsHfa())
+    {
+        return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
+                                                : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
     }
 
-    assert(howToReturnStruct != SPK_Unknown);
-    *wbReturnStruct = howToReturnStruct;
-    return useType;
+#ifdef TARGET_WINDOWS
+    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout))
+    {
+#endif
+        var_types type = abiGetStructIntegerRegisterType(layout);
+
+        if (type != TYP_UNDEF)
+        {
+            return {SPK_PrimitiveType, type};
+        }
+
+        if (layout->GetSize() <= 16)
+        {
+            return {SPK_ByValue, TYP_STRUCT};
+        }
+#ifdef TARGET_WINDOWS
+    }
+#endif
+#else
+#error Unknown ABI
+#endif
+
+    return {SPK_ByReference, TYP_UNKNOWN};
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -4680,7 +4367,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
 #ifdef TARGET_AMD64
     //  Check if we need to add the Quirk for the PPP backward compat issue
-    compQuirkForPPPflag = compQuirkForPPP();
+    compQuirkForPPP();
 #endif
 
     // Insert GC Polls
@@ -4980,65 +4667,24 @@ void Compiler::ProcessShutdownWork(ICorStaticInfo* statInfo)
 //  caller saved register set so that it didn't hit the A/V in the caller.
 //  By increasing the amount of stack allocted for the struct by 32 bytes we can fix this.
 //
-//  Return true if we actually perform the Quirk, otherwise return false
-//
-bool Compiler::compQuirkForPPP()
+void Compiler::compQuirkForPPP()
 {
-    if (lvaCount != 2)
-    { // We require that there are exactly two locals
-        return false;
-    }
-
-    if (compTailCallUsed)
-    { // Don't try this quirk if a tail call was used
-        return false;
-    }
-
-    bool       hasOutArgs          = false;
-    LclVarDsc* varDscExposedStruct = nullptr;
-
-    unsigned   lclNum;
-    LclVarDsc* varDsc;
-
-    /* Look for struct locals that are address taken */
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    if (compTailCallUsed || (lvaCount != 2) || (lvaOutgoingArgSpaceVar == BAD_VAR_NUM))
     {
-        if (varDsc->lvIsParam) // It can't be a parameter
-        {
-            continue;
-        }
-
-        // We require that the OutgoingArg space lclVar exists
-        if (lclNum == lvaOutgoingArgSpaceVar)
-        {
-            hasOutArgs = true; // Record that we saw it
-            continue;
-        }
-
-        // Look for a 32-byte address exposed Struct and record its varDsc
-        if (varDsc->TypeIs(TYP_STRUCT) && varDsc->lvAddrExposed && (varDsc->GetLayout()->GetSize() == 32))
-        {
-            varDscExposedStruct = varDsc;
-        }
+        return;
     }
 
-    // We only perform the Quirk when there are two locals
-    // one of them is a address exposed struct of size 32
-    // and the other is the outgoing arg space local
-    //
-    if (hasOutArgs && (varDscExposedStruct != nullptr))
+    unsigned   lclNum = (lvaOutgoingArgSpaceVar == 0) ? 1 : 0;
+    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+    if (lcl->IsParam() || !lcl->TypeIs(TYP_STRUCT) || !lcl->lvAddrExposed || (lcl->GetLayout()->GetSize() != 32))
     {
-        JITDUMP("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
-
-        // Increase the exact size of this struct to 64 bytes.
-        // This fixes the PPP backward compat issue
-        varDscExposedStruct->lvExactSize += 32;
-        varDscExposedStruct->SetLayout(
-            varDscExposedStruct->GetLayout()->GetPPPQuirkLayout(getAllocator(CMK_ClassLayout)));
-
-        return true;
+        return;
     }
-    return false;
+
+    JITDUMP("\nAdding a backwards compatibility quirk for the 'PPP' issue\n");
+
+    lcl->lvQuirkPPPStuct = true;
 }
 #endif // TARGET_AMD64
 
@@ -6643,223 +6289,6 @@ START:
     return result;
 }
 
-#if defined(UNIX_AMD64_ABI)
-
-// GetTypeFromClassificationAndSizes:
-//   Returns the type of the eightbyte accounting for the classification and size of the eightbyte.
-//
-// args:
-//   classType: classification type
-//   size: size of the eightbyte.
-//
-// static
-var_types Compiler::GetTypeFromClassificationAndSizes(SystemVClassificationType classType, int size)
-{
-    var_types type = TYP_UNKNOWN;
-    switch (classType)
-    {
-        case SystemVClassificationTypeInteger:
-            if (size == 1)
-            {
-                type = TYP_BYTE;
-            }
-            else if (size <= 2)
-            {
-                type = TYP_SHORT;
-            }
-            else if (size <= 4)
-            {
-                type = TYP_INT;
-            }
-            else if (size <= 8)
-            {
-                type = TYP_LONG;
-            }
-            else
-            {
-                assert(false && "GetTypeFromClassificationAndSizes Invalid Integer classification type.");
-            }
-            break;
-        case SystemVClassificationTypeIntegerReference:
-            type = TYP_REF;
-            break;
-        case SystemVClassificationTypeIntegerByRef:
-            type = TYP_BYREF;
-            break;
-        case SystemVClassificationTypeSSE:
-            if (size <= 4)
-            {
-                type = TYP_FLOAT;
-            }
-            else if (size <= 8)
-            {
-                type = TYP_DOUBLE;
-            }
-            else
-            {
-                assert(false && "GetTypeFromClassificationAndSizes Invalid SSE classification type.");
-            }
-            break;
-
-        default:
-            assert(false && "GetTypeFromClassificationAndSizes Invalid classification type.");
-            break;
-    }
-
-    return type;
-}
-
-//-------------------------------------------------------------------
-// GetEightByteType: Returns the type of eightbyte slot of a struct
-//
-// Arguments:
-//   structDesc  -  struct classification description.
-//   slotNum     -  eightbyte slot number for the struct.
-//
-// Return Value:
-//    type of the eightbyte slot of the struct
-//
-// static
-var_types Compiler::GetEightByteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
-                                     unsigned                                                   slotNum)
-{
-    var_types eightByteType = TYP_UNDEF;
-    unsigned  len           = structDesc.eightByteSizes[slotNum];
-
-    switch (structDesc.eightByteClassifications[slotNum])
-    {
-        case SystemVClassificationTypeInteger:
-            // See typelist.h for jit type definition.
-            // All the types of size < 4 bytes are of jit type TYP_INT.
-            if (structDesc.eightByteSizes[slotNum] <= 4)
-            {
-                eightByteType = TYP_INT;
-            }
-            else if (structDesc.eightByteSizes[slotNum] <= 8)
-            {
-                eightByteType = TYP_LONG;
-            }
-            else
-            {
-                assert(false && "GetEightByteType Invalid Integer classification type.");
-            }
-            break;
-        case SystemVClassificationTypeIntegerReference:
-            assert(len == REGSIZE_BYTES);
-            eightByteType = TYP_REF;
-            break;
-        case SystemVClassificationTypeIntegerByRef:
-            assert(len == REGSIZE_BYTES);
-            eightByteType = TYP_BYREF;
-            break;
-        case SystemVClassificationTypeSSE:
-            if (structDesc.eightByteSizes[slotNum] <= 4)
-            {
-                eightByteType = TYP_FLOAT;
-            }
-            else if (structDesc.eightByteSizes[slotNum] <= 8)
-            {
-                eightByteType = TYP_DOUBLE;
-            }
-            else
-            {
-                assert(false && "GetEightByteType Invalid SSE classification type.");
-            }
-            break;
-        default:
-            assert(false && "GetEightByteType Invalid classification type.");
-            break;
-    }
-
-    return eightByteType;
-}
-
-//------------------------------------------------------------------------------------------------------
-// GetStructTypeOffset: Gets the type, size and offset of the eightbytes of a struct for System V systems.
-//
-// Arguments:
-//    'structDesc' -  struct description
-//    'type0'      -  out param; returns the type of the first eightbyte.
-//    'type1'      -  out param; returns the type of the second eightbyte.
-//    'offset0'    -  out param; returns the offset of the first eightbyte.
-//    'offset1'    -  out param; returns the offset of the second eightbyte.
-//
-// static
-void Compiler::GetStructTypeOffset(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
-                                   var_types*                                                 type0,
-                                   var_types*                                                 type1,
-                                   unsigned __int8*                                           offset0,
-                                   unsigned __int8*                                           offset1)
-{
-    *offset0 = structDesc.eightByteOffsets[0];
-    *offset1 = structDesc.eightByteOffsets[1];
-
-    *type0 = TYP_UNKNOWN;
-    *type1 = TYP_UNKNOWN;
-
-    // Set the first eightbyte data
-    if (structDesc.eightByteCount >= 1)
-    {
-        *type0 = GetEightByteType(structDesc, 0);
-    }
-
-    // Set the second eight byte data
-    if (structDesc.eightByteCount == 2)
-    {
-        *type1 = GetEightByteType(structDesc, 1);
-    }
-}
-
-//------------------------------------------------------------------------------------------------------
-// GetStructTypeOffset: Gets the type, size and offset of the eightbytes of a struct for System V systems.
-//
-// Arguments:
-//    'typeHnd'    -  type handle
-//    'type0'      -  out param; returns the type of the first eightbyte.
-//    'type1'      -  out param; returns the type of the second eightbyte.
-//    'offset0'    -  out param; returns the offset of the first eightbyte.
-//    'offset1'    -  out param; returns the offset of the second eightbyte.
-//
-void Compiler::GetStructTypeOffset(CORINFO_CLASS_HANDLE typeHnd,
-                                   var_types*           type0,
-                                   var_types*           type1,
-                                   unsigned __int8*     offset0,
-                                   unsigned __int8*     offset1)
-{
-    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-    eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
-    assert(structDesc.passedInRegisters);
-    GetStructTypeOffset(structDesc, type0, type1, offset0, offset1);
-}
-
-#endif // defined(UNIX_AMD64_ABI)
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          jvc                                              XX
-XX                                                                           XX
-XX  Functions for the stand-alone version of the JIT .                       XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-void codeGeneratorCodeSizeBeg()
-{
-}
-
-/*****************************************************************************
- *
- *  Used for counting pointer assignments.
- */
-
-/*****************************************************************************/
-void codeGeneratorCodeSizeEnd()
-{
-}
 /*****************************************************************************
  *
  *  Gather statistics - mainly used for the standalone

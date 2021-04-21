@@ -1854,10 +1854,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     regMaskTP fltArgSkippedRegMask = RBM_NONE;
 #endif //  TARGET_ARM
 
-#ifdef UNIX_AMD64_ABI
-    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-#endif // UNIX_AMD64_ABI
-
     for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
         GenTree* const argx = args->GetNode();
@@ -1873,14 +1869,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             argx->gtType = TYP_I_IMPL;
         }
 
-        unsigned             size            = 0;
-        var_types            sigType         = TYP_UNDEF;
-        unsigned             argAlign        = 1;
-        const bool           isStructArg     = typIsLayoutNum(args->GetSigTypeNum());
-        CORINFO_CLASS_HANDLE objClass        = NO_CLASS_HANDLE;
-        unsigned             structSize      = 0;
-        var_types            structBaseType  = TYP_STRUCT;
-        bool                 passStructByRef = false;
+        unsigned     size            = 0;
+        var_types    sigType         = TYP_UNDEF;
+        unsigned     argAlign        = 1;
+        const bool   isStructArg     = typIsLayoutNum(args->GetSigTypeNum());
+        ClassLayout* layout          = isStructArg ? typGetLayoutByNum(args->GetSigTypeNum()) : nullptr;
+        unsigned     structSize      = 0;
+        var_types    structBaseType  = TYP_STRUCT;
+        bool         passStructByRef = false;
 #ifdef FEATURE_HFA
         var_types hfaType  = TYP_UNDEF;
         unsigned  hfaSlots = 0;
@@ -1888,10 +1884,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         if (isStructArg)
         {
-            ClassLayout* layout = typGetLayoutByNum(args->GetSigTypeNum());
-
             structSize = layout->GetSize();
-            objClass   = layout->GetClassHandle();
             sigType    = TYP_STRUCT;
 
 #ifdef FEATURE_HFA
@@ -1917,13 +1910,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif // FEATURE_HFA
 
 #ifdef TARGET_ARM
-            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(objClass), REGSIZE_BYTES) / REGSIZE_BYTES;
+            argAlign =
+                roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES) /
+                REGSIZE_BYTES;
 #endif
 
 #if defined(TARGET_AMD64)
 #ifdef UNIX_AMD64_ABI
             size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-            eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
 #else
             size = 1;
 #endif
@@ -1957,14 +1951,15 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             // TODO-MIKE-Cleanup: Huh, there should be no 0 sized structs...
             structSize = (structSize == 0) ? TARGET_POINTER_SIZE : structSize;
 
-            structPassingKind howToPassStruct;
-            structBaseType  = getArgTypeForStruct(layout, &howToPassStruct, callIsVararg);
-            passStructByRef = (howToPassStruct == SPK_ByReference);
+            StructPassing howToPassStruct = abiGetStructParamType(layout, callIsVararg);
 
-            if (howToPassStruct == SPK_PrimitiveType)
+            structBaseType  = howToPassStruct.type;
+            passStructByRef = (howToPassStruct.kind == SPK_ByReference);
+
+            if (howToPassStruct.kind == SPK_PrimitiveType)
             {
 #ifdef TARGET_ARM
-                // TODO-CQ: getArgTypeForStruct should *not* return TYP_DOUBLE for a double struct,
+                // TODO-CQ: abiGetStructParamType should *not* return TYP_DOUBLE for a double struct,
                 // or for a struct of two floats. This causes the struct to be address-taken.
                 if (structBaseType == TYP_DOUBLE)
                 {
@@ -2063,7 +2058,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 //
 
 #ifdef TARGET_X86
-        if ((isRegParamType(argx->GetType()) && !isStructArg) || (isStructArg && isTrivialPointerSizedStruct(objClass)))
+        if ((isRegParamType(argx->GetType()) && !isStructArg) || (isStructArg && isTrivialPointerSizedStruct(layout)))
 #else
         if (isRegParamType(argx->GetType()))
 #endif
@@ -2155,20 +2150,20 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             // Now make sure there are actually enough registers to do so.
             if (isStructArg)
             {
-                if (structDesc.passedInRegisters)
+                if (layout->GetSysVAmd64AbiRegCount() != 0)
                 {
                     unsigned structFloatRegs = 0;
                     unsigned structIntRegs   = 0;
 
-                    for (unsigned i = 0; i < structDesc.eightByteCount; i++)
+                    for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
                     {
-                        if (structDesc.IsIntegralSlot(i))
-                        {
-                            structIntRegs++;
-                        }
-                        else if (structDesc.IsSseSlot(i))
+                        if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
                         {
                             structFloatRegs++;
+                        }
+                        else
+                        {
+                            structIntRegs++;
                         }
                     }
 
@@ -2266,19 +2261,19 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 nextRegNum = nonStdRegNum;
             }
 #if defined(UNIX_AMD64_ABI)
-            else if (isStructArg && structDesc.passedInRegisters)
+            else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
             {
                 // It is a struct passed in registers. Assign the next available register.
-                assert((structDesc.eightByteCount <= 2) && "Too many eightbytes.");
+                assert(layout->GetSysVAmd64AbiRegCount() <= 2);
                 regNumber* nextRegNumPtrs[2] = {&nextRegNum, &nextOtherRegNum};
-                for (unsigned int i = 0; i < structDesc.eightByteCount; i++)
+                for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
                 {
-                    if (structDesc.IsIntegralSlot(i))
+                    if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
                     {
                         *nextRegNumPtrs[i] = genMapIntRegArgNumToRegNum(intArgRegNum + structIntRegs);
                         ++structIntRegs;
                     }
-                    else if (structDesc.IsSseSlot(i))
+                    else
                     {
                         *nextRegNumPtrs[i] = genMapFloatRegArgNumToRegNum(nextFltArgRegNum + structFloatRegs);
                         ++structFloatRegs;
@@ -2403,8 +2398,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 for (unsigned i = 0; i < regCount; i++)
                 {
-                    argInfo->SetRegType(i, GetTypeFromClassificationAndSizes(structDesc.eightByteClassifications[i],
-                                                                             structDesc.eightByteSizes[i]));
+                    // TODO-MIKE-Review: Does this really need to be the actual type?
+                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
                 }
             }
             else

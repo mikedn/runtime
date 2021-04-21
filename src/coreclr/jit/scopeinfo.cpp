@@ -295,7 +295,7 @@ void CodeGenInterface::siVarLoc::siFillStackVarLoc(
         case TYP_LONG:
         case TYP_DOUBLE:
 #endif // TARGET_64BIT
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
             // In the AMD64 ABI we are supposed to pass a struct by reference when its
             // size is not 1, 2, 4 or 8 bytes in size. During fgMorph, the compiler modifies
             // the IR to comply with the ABI and therefore changes the type of the lclVar
@@ -1542,20 +1542,14 @@ void CodeGen::psiBegProlog()
         {
             bool isStructHandled = false;
 #if defined(UNIX_AMD64_ABI)
-            SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
             if (varTypeIsStruct(lclVarDsc->GetType()))
             {
-                CORINFO_CLASS_HANDLE typeHnd = lclVarDsc->GetLayout()->GetClassHandle();
-                assert(typeHnd != nullptr);
-                compiler->eeGetSystemVAmd64PassStructInRegisterDescriptor(typeHnd, &structDesc);
-                if (structDesc.passedInRegisters)
+                if (lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
                 {
                     regNumber regNum      = REG_NA;
                     regNumber otherRegNum = REG_NA;
-                    for (unsigned nCnt = 0; nCnt < structDesc.eightByteCount; nCnt++)
+                    for (unsigned nCnt = 0; nCnt < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); nCnt++)
                     {
-                        var_types regType = TYP_UNDEF;
-
                         if (nCnt == 0)
                         {
                             regNum = lclVarDsc->GetArgReg();
@@ -1569,9 +1563,9 @@ void CodeGen::psiBegProlog()
                             assert(false && "Invalid eightbyte number.");
                         }
 
-                        regType = compiler->GetEightByteType(structDesc, nCnt);
 #ifdef DEBUG
-                        regType = compiler->mangleVarArgsType(regType);
+                        var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(nCnt);
+                        regType           = compiler->mangleVarArgsType(regType);
                         assert(genMapRegNumToRegArgNum((nCnt == 0 ? regNum : otherRegNum), regType) != (unsigned)-1);
 #endif // DEBUG
                     }

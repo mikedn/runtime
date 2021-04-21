@@ -16811,25 +16811,14 @@ GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORI
     return node;
 }
 
-void ReturnTypeDesc::InitializeStruct(Compiler*         comp,
-                                      ClassLayout*      retLayout,
-                                      structPassingKind retKind,
-                                      var_types         retKindType)
+void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout, StructPassing retKind)
 {
-    switch (retKind)
+    switch (retKind.kind)
     {
-        case SPK_PrimitiveType:
-            assert(retKindType != TYP_UNKNOWN);
-            assert(retKindType != TYP_STRUCT);
-
-            m_regCount   = 1;
-            m_regType[0] = retKindType;
-            break;
-
 #if FEATURE_MULTIREG_RET
         case SPK_ByValueAsHfa:
         {
-            assert(varTypeIsStruct(retKindType));
+            assert(retKind.type == TYP_STRUCT);
 
             m_regCount = retLayout->GetHfaElementCount();
             assert((m_regCount >= 2) && (m_regCount <= _countof(m_regType)));
@@ -16847,20 +16836,16 @@ void ReturnTypeDesc::InitializeStruct(Compiler*         comp,
 
         case SPK_ByValue:
         {
-            assert(varTypeIsStruct(retKindType));
+            assert(retKind.type == TYP_STRUCT);
 
 #ifdef UNIX_AMD64_ABI
-            SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-            comp->eeGetSystemVAmd64PassStructInRegisterDescriptor(retLayout->GetClassHandle(), &structDesc);
-
-            assert(structDesc.passedInRegisters);
-            assert(structDesc.eightByteCount == 2);
+            assert(retLayout->GetSysVAmd64AbiRegCount() == 2);
 
             m_regCount = 2;
 
             for (int i = 0; i < 2; i++)
             {
-                m_regType[i] = comp->GetEightByteType(structDesc, i);
+                m_regType[i] = varActualType(retLayout->GetSysVAmd64AbiRegType(i));
             }
 #elif defined(TARGET_ARM64) || defined(TARGET_X86)
             assert(retLayout->GetSlotCount() == 2);
@@ -16877,13 +16862,6 @@ void ReturnTypeDesc::InitializeStruct(Compiler*         comp,
             break;
         }
 #endif //  FEATURE_MULTIREG_RET
-
-        case SPK_ByReference:
-            // We are returning using the return buffer argument
-            // There are no return registers
-
-            m_regCount = 0;
-            break;
 
         default:
             unreached();
@@ -16902,6 +16880,8 @@ void ReturnTypeDesc::InitializePrimitive(var_types regType)
     }
     else
     {
+        assert(varTypeIsGC(regType) || varTypeIsArithmetic(regType) || varTypeIsSIMD(regType));
+
         m_regCount   = 1;
         m_regType[0] = regType;
     }

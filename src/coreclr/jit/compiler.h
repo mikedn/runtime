@@ -370,9 +370,9 @@ public:
 
     unsigned char lvIsTemp : 1; // Short-lifetime compiler temp
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     unsigned char lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
-#endif                                   // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#endif
 
     bool IsParam() const
     {
@@ -386,7 +386,7 @@ public:
 
     bool IsImplicitByRefParam() const
     {
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         assert(!lvIsImplicitByRef || lvIsParam);
         assert(!lvIsImplicitByRef || varTypeIsStruct(lvType) || (lvType == TYP_BYREF));
 
@@ -424,6 +424,9 @@ public:
 #endif                                     // !TARGET_64BIT
 #ifdef TARGET_64BIT
     unsigned char lvQuirkToLong : 1; // Quirk to allocate this LclVar as a 64-bit long
+#endif
+#ifdef TARGET_AMD64
+    unsigned char lvQuirkPPPStuct : 1;
 #endif
 #ifdef DEBUG
     unsigned char lvKeepType : 1;       // Don't change the type of this variable
@@ -3995,29 +3998,11 @@ public:
     // memory yields an unknown value.
     ValueNum fgCurMemoryVN[MemoryKindCount];
 
-    bool isTrivialPointerSizedStruct(CORINFO_CLASS_HANDLE clsHnd) const;
-
-    // Returns true if the provided type should be treated as a primitive type
-    // for the unmanaged calling conventions.
-    bool isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd);
-
-    // Get the "primitive" type that is is used for the given struct layout.
-    // A "primitive" type is one of the scalar types: byte, short, int, long, ref, float, double
-    // If we can't or shouldn't use a "primitive" type then TYP_UNKNOWN is returned.
-    //
-    // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
-    // hfa types.
-    var_types getPrimitiveTypeForStruct(ClassLayout* layout, bool isVarArg);
-
-    // Get the type that is used to pass values of the given struct type.
-    // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
-    // hfa types.
-    var_types getArgTypeForStruct(ClassLayout* layout, structPassingKind* wbPassStruct, bool isVarArg);
-
-    // Get the type that is used to return values of the given struct type.
-    var_types getReturnTypeForStruct(ClassLayout*             layout,
-                                     CorInfoCallConvExtension callConv,
-                                     structPassingKind*       wbPassStruct);
+    bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
+    bool isNativePrimitiveStructType(ClassLayout* layout);
+    var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
+    StructPassing abiGetStructParamType(ClassLayout* layout, bool isVarArg);
+    StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv);
 
 #ifdef DEBUG
     // Print a representation of "vnp" or "vn" on standard output.
@@ -6599,9 +6584,6 @@ public:
     static void dumpSystemVClassificationType(SystemVClassificationType ct);
 #endif // DEBUG
 
-    void eeGetSystemVAmd64PassStructInRegisterDescriptor(
-        /*IN*/ CORINFO_CLASS_HANDLE                                  structHnd,
-        /*OUT*/ SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR* structPassInRegDescPtr);
 #endif // UNIX_AMD64_ABI
 
     template <typename ParamType>
@@ -8202,7 +8184,6 @@ public:
 // Bytes of padding between save-reg area and locals.
 #define VSQUIRK_STACK_PAD (2 * REGSIZE_BYTES)
     unsigned compVSQuirkStackPaddingNeeded;
-    bool     compQuirkForPPPflag;
 #endif
 
     unsigned compArgSize; // total size of arguments in bytes (including register args (lvIsRegArg))
@@ -8417,8 +8398,9 @@ protected:
 #endif
 
 #ifdef TARGET_AMD64
-    bool compQuirkForPPP(); // Check if this method should be Quirked for the PPP issue
+    void compQuirkForPPP(); // Check if this method should be Quirked for the PPP issue
 #endif
+
 public:
     // Assumes called as part of process shutdown; does any compiler-specific work associated with that.
     static void ProcessShutdownWork(ICorStaticInfo* statInfo);
@@ -8685,25 +8667,6 @@ public:
 #endif
 
     static HelperCallProperties s_helperCallProperties;
-
-#ifdef UNIX_AMD64_ABI
-    static var_types GetTypeFromClassificationAndSizes(SystemVClassificationType classType, int size);
-    static var_types GetEightByteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
-                                      unsigned                                                   slotNum);
-
-    static void GetStructTypeOffset(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
-                                    var_types*                                                 type0,
-                                    var_types*                                                 type1,
-                                    unsigned __int8*                                           offset0,
-                                    unsigned __int8*                                           offset1);
-
-    void GetStructTypeOffset(CORINFO_CLASS_HANDLE typeHnd,
-                             var_types*           type0,
-                             var_types*           type1,
-                             unsigned __int8*     offset0,
-                             unsigned __int8*     offset1);
-
-#endif // defined(UNIX_AMD64_ABI)
 
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
     void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);

@@ -670,9 +670,6 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     , m_isValueClass(true)
     , m_gcPtrCount(0)
     , m_gcPtrs(nullptr)
-#ifdef TARGET_AMD64
-    , m_pppQuirkLayout(nullptr)
-#endif
 #ifdef DEBUG
     , m_className(compiler->info.compCompHnd->getClassName(classHandle))
 #endif
@@ -768,7 +765,7 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
 
 void ClassLayout::EnsureHfaInfo(Compiler* compiler)
 {
-    assert(m_classHandle != NO_CLASS_HANDLE);
+    assert(IsValueClass());
 
     if ((m_gcPtrCount != 0) || (m_layoutInfo.hfaElementType != TYP_UNDEF))
     {
@@ -812,6 +809,78 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
     assert((m_layoutInfo.hfaElementType == TYP_UNKNOWN) || (m_size % varTypeSize(m_layoutInfo.hfaElementType) == 0));
 #endif
 }
+
+void ClassLayout::EnsureSysVAmd64AbiInfo(Compiler* compiler)
+{
+    assert(IsValueClass());
+
+#ifdef UNIX_AMD64_ABI
+    if (m_sysVAmd64AbiInfo.initialized)
+    {
+        return;
+    }
+
+    m_sysVAmd64AbiInfo.initialized = true;
+
+    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR desc;
+    compiler->info.compCompHnd->getSystemVAmd64PassStructInRegisterDescriptor(m_classHandle, &desc);
+
+    if (desc.passedInRegisters)
+    {
+        m_sysVAmd64AbiInfo.regCount = desc.eightByteCount;
+
+        for (unsigned i = 0; i < desc.eightByteCount; i++)
+        {
+            m_sysVAmd64AbiInfo.regTypes[i] = GetEightbyteType(desc, i);
+        }
+    }
+#endif
+}
+
+#ifdef UNIX_AMD64_ABI
+var_types ClassLayout::GetEightbyteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& desc, unsigned i)
+{
+    assert(i < desc.eightByteCount);
+    // Make sure the VM doesn't get any funny ideas...
+    assert(desc.eightByteOffsets[i] == i * 8);
+
+    switch (desc.eightByteClassifications[i])
+    {
+        case SystemVClassificationTypeIntegerReference:
+            assert(desc.eightByteSizes[i] == 8);
+            return TYP_REF;
+
+        case SystemVClassificationTypeIntegerByRef:
+            assert(desc.eightByteSizes[i] == 8);
+            return TYP_BYREF;
+
+        case SystemVClassificationTypeSSE:
+            if (desc.eightByteSizes[i] == 4)
+            {
+                return TYP_FLOAT;
+            }
+
+            assert(desc.eightByteSizes[i] == 8);
+            return TYP_DOUBLE;
+
+        default:
+            assert(desc.eightByteClassifications[i] == SystemVClassificationTypeInteger);
+            switch (desc.eightByteSizes[i])
+            {
+                case 1:
+                    return TYP_BYTE;
+                case 2:
+                    return TYP_SHORT;
+                case 3:
+                case 4:
+                    return TYP_INT;
+                default:
+                    assert(desc.eightByteSizes[i] <= 8);
+                    return TYP_LONG;
+            }
+    }
+}
+#endif // UNIX_AMD64_ABI
 
 #ifdef FEATURE_SIMD
 
@@ -912,36 +981,6 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
 }
 
 #endif // FEATURE_SIMD
-
-#ifdef TARGET_AMD64
-ClassLayout* ClassLayout::GetPPPQuirkLayout(CompAllocator alloc)
-{
-    assert(m_classHandle != NO_CLASS_HANDLE);
-    assert(m_isValueClass);
-    assert(m_size == 32);
-    assert(GetSIMDType() == TYP_UNDEF);
-
-    if (m_pppQuirkLayout == nullptr)
-    {
-        m_pppQuirkLayout = new (alloc) ClassLayout(m_classHandle, m_isValueClass, 64 DEBUGARG(m_className));
-        m_pppQuirkLayout->m_gcPtrCount = m_gcPtrCount;
-
-        static_assert_no_msg(_countof(m_gcPtrsArray) == 8);
-
-        for (int i = 0; i < 4; i++)
-        {
-            m_pppQuirkLayout->m_gcPtrsArray[i] = m_gcPtrsArray[i];
-        }
-
-        for (int i = 4; i < 8; i++)
-        {
-            m_pppQuirkLayout->m_gcPtrsArray[i] = TYPE_GC_NONE;
-        }
-    }
-
-    return m_pppQuirkLayout;
-}
-#endif // TARGET_AMD64
 
 //------------------------------------------------------------------------
 // AreCompatible: check if 2 layouts are the same for copying.

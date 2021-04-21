@@ -54,10 +54,19 @@ class ClassLayout
         LayoutInfo m_layoutInfo;
     };
 
-#ifdef TARGET_AMD64
-    // A layout that has its size artificially inflated to avoid stack corruption due to
-    // bugs in user code - see Compiler::compQuirkForPPP for details.
-    ClassLayout* m_pppQuirkLayout;
+#ifdef UNIX_AMD64_ABI
+    struct SysVAmd64AbiInfo
+    {
+        bool      initialized : 1;
+        uint8_t   regCount : 7;
+        var_types regTypes[2];
+
+        SysVAmd64AbiInfo() : initialized{false}, regCount{0}, regTypes{TYP_UNDEF, TYP_UNDEF}
+        {
+        }
+    };
+
+    SysVAmd64AbiInfo m_sysVAmd64AbiInfo;
 #endif
 
     // Class name as reported by ICorJitInfo::getClassName
@@ -72,9 +81,6 @@ class ClassLayout
         , m_isValueClass(false)
         , m_gcPtrCount(0)
         , m_gcPtrs(nullptr)
-#ifdef TARGET_AMD64
-        , m_pppQuirkLayout(nullptr)
-#endif
 #ifdef DEBUG
         , m_className("block")
 #endif
@@ -89,9 +95,6 @@ class ClassLayout
         , m_isValueClass(isValueClass)
         , m_gcPtrCount(0)
         , m_gcPtrs(nullptr)
-#ifdef TARGET_AMD64
-        , m_pppQuirkLayout(nullptr)
-#endif
 #ifdef DEBUG
         , m_className(className)
 #endif
@@ -101,11 +104,7 @@ class ClassLayout
 
 public:
     void EnsureHfaInfo(Compiler* compiler);
-
-#ifdef TARGET_AMD64
-    // Get the layout for the PPP quirk - see Compiler::compQuirkForPPP for details.
-    ClassLayout* GetPPPQuirkLayout(CompAllocator alloc);
-#endif
+    void EnsureSysVAmd64AbiInfo(Compiler* compiler);
 
     CORINFO_CLASS_HANDLE GetClassHandle() const
     {
@@ -174,6 +173,27 @@ public:
         }
 #endif
         return count;
+    }
+
+    uint8_t GetSysVAmd64AbiRegCount() const
+    {
+#ifdef UNIX_AMD64_ABI
+        assert(m_sysVAmd64AbiInfo.initialized);
+        return m_sysVAmd64AbiInfo.regCount;
+#else
+        return 0;
+#endif
+    }
+
+    var_types GetSysVAmd64AbiRegType(unsigned i) const
+    {
+#ifdef UNIX_AMD64_ABI
+        assert(m_sysVAmd64AbiInfo.initialized);
+        assert(i < m_sysVAmd64AbiInfo.regCount);
+        return m_sysVAmd64AbiInfo.regTypes[i];
+#else
+        return TYP_UNDEF;
+#endif
     }
 
     bool IsVector() const
@@ -322,6 +342,10 @@ private:
 
 #ifdef FEATURE_SIMD
     static LayoutInfo GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler);
+#endif
+
+#ifdef UNIX_AMD64_ABI
+    static var_types GetEightbyteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& desc, unsigned i);
 #endif
 };
 
