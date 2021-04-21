@@ -440,34 +440,16 @@ bool Compiler::isTrivialPointerSizedStruct(ClassLayout* layout) const
     }
 
     CORINFO_CLASS_HANDLE clsHnd = layout->GetClassHandle();
+    var_types            type   = TYP_STRUCT;
 
-    for (;;)
+    while ((type == TYP_STRUCT) && (info.compCompHnd->getClassNumInstanceFields(clsHnd) == 1))
     {
-        // all of class chain must be of value type and must have only one field
-        if (!info.compCompHnd->isValueClass(clsHnd) || info.compCompHnd->getClassNumInstanceFields(clsHnd) != 1)
-        {
-            return false;
-        }
+        CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
 
-        CORINFO_CLASS_HANDLE* pClsHnd   = &clsHnd;
-        CORINFO_FIELD_HANDLE  fldHnd    = info.compCompHnd->getFieldInClass(clsHnd, 0);
-        CorInfoType           fieldType = info.compCompHnd->getFieldType(fldHnd, pClsHnd);
-
-        var_types vt = JITtype2varType(fieldType);
-
-        if (fieldType == CORINFO_TYPE_VALUECLASS)
-        {
-            clsHnd = *pClsHnd;
-        }
-        else if (varTypeIsI(vt) && !varTypeIsGC(vt))
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
+        type = JITtype2varType(info.compCompHnd->getFieldType(fldHnd, &clsHnd));
     }
+
+    return varTypeIsI(type) && !varTypeIsGC(type);
 }
 #endif // TARGET_X86
 
@@ -482,15 +464,13 @@ bool Compiler::isNativePrimitiveStructType(ClassLayout* layout)
         return false;
     }
 
-    CORINFO_CLASS_HANDLE clsHnd = layout->GetClassHandle();
-
-    if (!info.compCompHnd->isIntrinsicType(clsHnd))
+    if (!info.compCompHnd->isIntrinsicType(layout->GetClassHandle()))
     {
         return false;
     }
 
     const char* namespaceName = nullptr;
-    const char* typeName      = getClassNameFromMetadata(clsHnd, &namespaceName);
+    const char* typeName      = getClassNameFromMetadata(layout->GetClassHandle(), &namespaceName);
 
     return (strcmp(namespaceName, "System.Runtime.InteropServices") == 0) &&
            (strcmp(typeName, "CLong") == 0 || strcmp(typeName, "CULong") == 0 || strcmp(typeName, "NFloat") == 0);
