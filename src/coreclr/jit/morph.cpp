@@ -1869,15 +1869,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             argx->gtType = TYP_I_IMPL;
         }
 
-        unsigned             size            = 0;
-        var_types            sigType         = TYP_UNDEF;
-        unsigned             argAlign        = 1;
-        const bool           isStructArg     = typIsLayoutNum(args->GetSigTypeNum());
-        ClassLayout*         layout          = isStructArg ? typGetLayoutByNum(args->GetSigTypeNum()) : nullptr;
-        CORINFO_CLASS_HANDLE objClass        = NO_CLASS_HANDLE;
-        unsigned             structSize      = 0;
-        var_types            structBaseType  = TYP_STRUCT;
-        bool                 passStructByRef = false;
+        unsigned     size            = 0;
+        var_types    sigType         = TYP_UNDEF;
+        unsigned     argAlign        = 1;
+        const bool   isStructArg     = typIsLayoutNum(args->GetSigTypeNum());
+        ClassLayout* layout          = isStructArg ? typGetLayoutByNum(args->GetSigTypeNum()) : nullptr;
+        unsigned     structSize      = 0;
+        var_types    structBaseType  = TYP_STRUCT;
+        bool         passStructByRef = false;
 #ifdef FEATURE_HFA
         var_types hfaType  = TYP_UNDEF;
         unsigned  hfaSlots = 0;
@@ -1886,7 +1885,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         if (isStructArg)
         {
             structSize = layout->GetSize();
-            objClass   = layout->GetClassHandle();
             sigType    = TYP_STRUCT;
 
 #ifdef FEATURE_HFA
@@ -1912,7 +1910,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif // FEATURE_HFA
 
 #ifdef TARGET_ARM
-            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(objClass), REGSIZE_BYTES) / REGSIZE_BYTES;
+            argAlign =
+                roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES) /
+                REGSIZE_BYTES;
 #endif
 
 #if defined(TARGET_AMD64)
@@ -2058,7 +2058,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 //
 
 #ifdef TARGET_X86
-        if ((isRegParamType(argx->GetType()) && !isStructArg) || (isStructArg && isTrivialPointerSizedStruct(objClass)))
+        if ((isRegParamType(argx->GetType()) && !isStructArg) || (isStructArg && isTrivialPointerSizedStruct(layout)))
 #else
         if (isRegParamType(argx->GetType()))
 #endif

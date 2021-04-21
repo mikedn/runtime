@@ -3998,12 +3998,8 @@ public:
     // memory yields an unknown value.
     ValueNum fgCurMemoryVN[MemoryKindCount];
 
-    bool isTrivialPointerSizedStruct(CORINFO_CLASS_HANDLE clsHnd) const;
-
-    // Returns true if the provided type should be treated as a primitive type
-    // for the unmanaged calling conventions.
-    bool isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd);
-
+    bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
+    bool isNativePrimitiveStructType(ClassLayout* layout);
     var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
     StructPassing abiGetStructParamType(ClassLayout* layout, bool isVarArg);
     StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv);

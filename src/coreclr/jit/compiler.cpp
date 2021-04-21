@@ -428,24 +428,19 @@ Histogram loopExitCountTable(loopExitCountBuckets);
 #endif // COUNT_LOOPS
 
 #ifdef TARGET_X86
-//---------------------------------------------------------------------------
-// isTrivialPointerSizedStruct:
-//    Check if the given struct type contains only one pointer-sized integer value type
-//
-// Arguments:
-//    clsHnd - the handle for the struct type.
-//
-// Return Value:
-//    true if the given struct type contains only one pointer-sized integer value type,
-//    false otherwise.
-//
-bool Compiler::isTrivialPointerSizedStruct(CORINFO_CLASS_HANDLE clsHnd) const
+
+// Check if the given struct type contains only one pointer-sized integer value type.
+bool Compiler::isTrivialPointerSizedStruct(ClassLayout* layout) const
 {
-    assert(info.compCompHnd->isValueClass(clsHnd));
-    if (info.compCompHnd->getClassSize(clsHnd) != TARGET_POINTER_SIZE)
+    assert(layout->IsValueClass());
+
+    if (layout->GetSize() != TARGET_POINTER_SIZE)
     {
         return false;
     }
+
+    CORINFO_CLASS_HANDLE clsHnd = layout->GetClassHandle();
+
     for (;;)
     {
         // all of class chain must be of value type and must have only one field
@@ -476,21 +471,20 @@ bool Compiler::isTrivialPointerSizedStruct(CORINFO_CLASS_HANDLE clsHnd) const
 }
 #endif // TARGET_X86
 
-//---------------------------------------------------------------------------
-// isNativePrimitiveStructType:
-//    Check if the given struct type is an intrinsic type that should be treated as though
-//    it is not a struct at the unmanaged ABI boundary.
-//
-// Arguments:
-//    clsHnd - the handle for the struct type.
-//
-// Return Value:
-//    true if the given struct type should be treated as a primitive for unmanaged calls,
-//    false otherwise.
-//
-bool Compiler::isNativePrimitiveStructType(CORINFO_CLASS_HANDLE clsHnd)
+// Check if the given struct type is an intrinsic type that should be treated as though
+// it is not a struct at the unmanaged ABI boundary.
+bool Compiler::isNativePrimitiveStructType(ClassLayout* layout)
 {
-    if (!isIntrinsicType(clsHnd))
+    assert(layout->IsValueClass());
+
+    if ((layout->GetSize() != 4) && (layout->GetSize() != 8))
+    {
+        return false;
+    }
+
+    CORINFO_CLASS_HANDLE clsHnd = layout->GetClassHandle();
+
+    if (!info.compCompHnd->isIntrinsicType(clsHnd))
     {
         return false;
     }
@@ -538,6 +532,9 @@ var_types Compiler::abiGetStructIntegerRegisterType(ClassLayout* layout)
 StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg)
 {
 #if defined(WINDOWS_AMD64_ABI)
+    // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
+    // to behave like a primitive double then it should be passed in a XMM register.
+
     var_types type = abiGetStructIntegerRegisterType(layout);
 
     if (type != TYP_UNDEF)
@@ -571,7 +568,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
 
     return {SPK_ByValue, TYP_STRUCT};
 #elif defined(TARGET_X86)
-    if (isTrivialPointerSizedStruct(layout->GetClassHandle()))
+    if (isTrivialPointerSizedStruct(layout))
     {
         return {SPK_PrimitiveType, TYP_INT};
     }
@@ -625,7 +622,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
 StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv)
 {
 #if defined(WINDOWS_AMD64_ABI)
-    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout->GetClassHandle()))
+    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout))
     {
         // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
         // to behave like a primitive double then it should be returned in XMM0, not in RAX.
@@ -650,7 +647,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
         return {SPK_ByValue, TYP_STRUCT};
     }
 #elif defined(WINDOWS_X86_ABI)
-    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout->GetClassHandle()))
+    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout))
     {
         if ((layout->GetSize() == 8) && (callConv != CorInfoCallConvExtension::Managed))
         {
@@ -668,7 +665,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
         }
     }
 #elif defined(UNIX_X86_ABI)
-    if ((callConv == CorInfoCallConvExtension::Managed) || isNativePrimitiveStructType(layout->GetClassHandle()))
+    if ((callConv == CorInfoCallConvExtension::Managed) || isNativePrimitiveStructType(layout))
     {
         // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
         // to behave like a primitive float then it should be returned in ST(0), not in EAX.
@@ -705,7 +702,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
     }
 
 #ifdef TARGET_WINDOWS
-    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout->GetClassHandle()))
+    if ((callConv != CorInfoCallConvExtension::Thiscall) || isNativePrimitiveStructType(layout))
     {
 #endif
         var_types type = abiGetStructIntegerRegisterType(layout);

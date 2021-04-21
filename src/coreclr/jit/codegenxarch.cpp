@@ -5127,9 +5127,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             // Register argument
             CLANG_FORMAT_COMMENT_ANCHOR;
 #ifdef TARGET_X86
-            noway_assert(isRegParamType(genActualType(varDsc->TypeGet())) ||
-                         (varTypeIsStruct(varDsc->TypeGet()) &&
-                          compiler->isTrivialPointerSizedStruct(varDsc->GetLayout()->GetClassHandle())));
+            noway_assert(
+                isRegParamType(genActualType(varDsc->TypeGet())) ||
+                (varTypeIsStruct(varDsc->TypeGet()) && compiler->isTrivialPointerSizedStruct(varDsc->GetLayout())));
 #else
             noway_assert(isRegParamType(genActualType(varDsc->TypeGet())));
 #endif // TARGET_X86

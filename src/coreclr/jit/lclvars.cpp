@@ -827,7 +827,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         }
         else
 #elif defined(TARGET_X86)
-        if (varTypeIsStruct(argType) && isTrivialPointerSizedStruct(typeHnd))
+        if (varTypeIsStruct(argType) && isTrivialPointerSizedStruct(varDsc->GetLayout()))
         {
             canPassArgInRegisters = varDscInfo->canEnreg(TYP_I_IMPL, cSlotsToEnregister);
         }
