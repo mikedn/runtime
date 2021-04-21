@@ -343,6 +343,10 @@ private:
 #ifdef FEATURE_SIMD
     static LayoutInfo GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler);
 #endif
+
+#ifdef UNIX_AMD64_ABI
+    static var_types GetEightbyteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& desc, unsigned i);
+#endif
 };
 
 #endif // LAYOUT_H

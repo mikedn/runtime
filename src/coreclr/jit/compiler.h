@@ -8672,11 +8672,6 @@ public:
 
     static HelperCallProperties s_helperCallProperties;
 
-#ifdef UNIX_AMD64_ABI
-    static var_types GetEightByteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
-                                      unsigned                                                   slotNum);
-#endif
-
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
     void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
     void abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* mkrefany);

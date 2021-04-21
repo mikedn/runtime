@@ -831,11 +831,67 @@ void ClassLayout::EnsureSysVAmd64AbiInfo(Compiler* compiler)
 
         for (unsigned i = 0; i < desc.eightByteCount; i++)
         {
-            m_sysVAmd64AbiInfo.regTypes[i] = compiler->GetEightByteType(desc, i);
+            m_sysVAmd64AbiInfo.regTypes[i] = GetEightbyteType(desc, i);
         }
     }
 #endif
 }
+
+#ifdef UNIX_AMD64_ABI
+var_types ClassLayout::GetEightbyteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDesc,
+                                        unsigned                                                   slotNum)
+{
+    var_types eightByteType = TYP_UNDEF;
+    unsigned  len           = structDesc.eightByteSizes[slotNum];
+
+    switch (structDesc.eightByteClassifications[slotNum])
+    {
+        case SystemVClassificationTypeInteger:
+            // See typelist.h for jit type definition.
+            // All the types of size < 4 bytes are of jit type TYP_INT.
+            if (structDesc.eightByteSizes[slotNum] <= 4)
+            {
+                eightByteType = TYP_INT;
+            }
+            else if (structDesc.eightByteSizes[slotNum] <= 8)
+            {
+                eightByteType = TYP_LONG;
+            }
+            else
+            {
+                assert(false && "GetEightByteType Invalid Integer classification type.");
+            }
+            break;
+        case SystemVClassificationTypeIntegerReference:
+            assert(len == REGSIZE_BYTES);
+            eightByteType = TYP_REF;
+            break;
+        case SystemVClassificationTypeIntegerByRef:
+            assert(len == REGSIZE_BYTES);
+            eightByteType = TYP_BYREF;
+            break;
+        case SystemVClassificationTypeSSE:
+            if (structDesc.eightByteSizes[slotNum] <= 4)
+            {
+                eightByteType = TYP_FLOAT;
+            }
+            else if (structDesc.eightByteSizes[slotNum] <= 8)
+            {
+                eightByteType = TYP_DOUBLE;
+            }
+            else
+            {
+                assert(false && "GetEightByteType Invalid SSE classification type.");
+            }
+            break;
+        default:
+            assert(false && "GetEightByteType Invalid classification type.");
+            break;
+    }
+
+    return eightByteType;
+}
+#endif // UNIX_AMD64_ABI
 
 #ifdef FEATURE_SIMD
 
