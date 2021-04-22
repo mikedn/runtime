@@ -1072,11 +1072,12 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         else
         {
             // If there's no previous statement put the assignment under COMMA.
-            // Why? No idea. Probably because this code was sometimes called from
-            // outside the importer. Doesn't matter, one way or another is still
-            // incorrectly reorders side effects as mentioned above.
+            // Why? No idea. Probably because this code is sometimes called from
+            // outside the importer (e.g. CSE). Doesn't matter, one way or another
+            // it still incorrectly reorders side effects as mentioned above.
 
             src->AsOp()->SetOp(1, impAssignStructPtr(destAddr, value, structHnd, curLevel));
+            src->SetSideEffects(src->AsOp()->GetOp(0)->GetSideEffects() | src->AsOp()->GetOp(1)->GetSideEffects());
 
             return src;
         }
