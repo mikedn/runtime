@@ -2115,17 +2115,27 @@ void Compiler::impImportDup()
 
     StackEntry se  = impPopStack();
     GenTree*   op1 = se.val;
-    GenTree*   op2;
+    GenTree*   op2 = nullptr;
 
-    if (!opts.compDbgCode && !op1->IsIntegralConst(0) && !op1->IsDblConPositiveZero() &&
-        !op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
+        if ((op1->gtFlags & GTF_GLOB_EFFECT) == 0)
+        {
+            op2 = gtClone(op1, true);
+        }
+    }
+
+    if (op2 == nullptr)
+    {
+        // TODO-MIKE-Cleanup: This should just use impSpillStackEntry. But it looks like
+        // impSpillStackEntry's special RET_EXPR handling hurts CQ...
+
         unsigned tmpNum = lvaGrabTemp(true DEBUGARG("dup spill"));
         impAssignTempGen(tmpNum, op1, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
 
         LclVarDsc* lcl = lvaGetDesc(tmpNum);
 
-        if (lcl->TypeIs(TYP_REF))
+        if (!opts.compDbgCode && lcl->TypeIs(TYP_REF))
         {
             assert(lcl->lvSingleDef == 0);
             lcl->lvSingleDef = 1;
@@ -2136,12 +2146,6 @@ void Compiler::impImportDup()
         op1 = gtNewLclvNode(tmpNum, varActualType(lcl->GetType()));
         op2 = gtNewLclvNode(tmpNum, varActualType(lcl->GetType()));
     }
-    else
-    {
-        op1 = impCloneExpr(op1, &op2, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL DEBUGARG("DUP instruction"));
-    }
-
-    assert(((op1->gtFlags & GTF_GLOB_EFFECT) == 0) && ((op2->gtFlags & GTF_GLOB_EFFECT) == 0));
 
     impPushOnStack(op1, se.seTypeInfo);
     impPushOnStack(op2, se.seTypeInfo);
