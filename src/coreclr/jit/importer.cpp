@@ -2150,35 +2150,33 @@ void Compiler::impImportDup()
 // Spills the stack at verCurrentState.esStack[level] and replaces it with a temp.
 void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
 {
-    GenTree* tree = verCurrentState.esStack[level].val;
-    unsigned tnum = lvaGrabTemp(true DEBUGARG(reason));
+    StackEntry& se   = verCurrentState.esStack[level];
+    GenTree*    tree = se.val;
 
-    impAssignTempGen(tnum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(), level);
+    unsigned tmpNum = lvaGrabTemp(true DEBUGARG(reason));
+    impAssignTempGen(tmpNum, tree, se.seTypeInfo.GetClassHandle(), level);
 
-    // If temp is newly introduced and a ref type, grab what type info we can.
-    if (lvaTable[tnum].lvType == TYP_REF)
+    LclVarDsc* lcl = lvaGetDesc(tmpNum);
+
+    if (lcl->TypeIs(TYP_REF))
     {
-        assert(lvaTable[tnum].lvSingleDef == 0);
-        lvaTable[tnum].lvSingleDef = 1;
-        JITDUMP("Marked V%02u as a single def temp\n", tnum);
-        CORINFO_CLASS_HANDLE stkHnd = verCurrentState.esStack[level].seTypeInfo.GetClassHandle();
-        lvaSetClass(tnum, tree, stkHnd);
+        assert(lcl->lvSingleDef == 0);
+        lcl->lvSingleDef = 1;
+        JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
+        lvaSetClass(tmpNum, tree, se.seTypeInfo.GetClassHandle());
 
         // If we're assigning a GT_RET_EXPR, note the temp over on the call,
         // so the inliner can use it in case it needs a return spill temp.
         if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
         {
-            JITDUMP("\n*** see V%02u = GT_RET_EXPR, noting temp\n", tnum);
+            JITDUMP("\n*** see V%02u = GT_RET_EXPR, noting temp\n", tmpNum);
 
             assert(retExpr->GetRetExpr() == retExpr->GetCall());
-            retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = tnum;
+            retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = tmpNum;
         }
     }
 
-    // The tree type may be modified by impAssignTempGen, so use the type of the lclVar.
-    var_types type                     = genActualType(lvaTable[tnum].TypeGet());
-    GenTree*  temp                     = gtNewLclvNode(tnum, type);
-    verCurrentState.esStack[level].val = temp;
+    se.val = gtNewLclvNode(tmpNum, varActualType(lcl->GetType()));
 }
 
 /*****************************************************************************
