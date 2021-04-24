@@ -3426,6 +3426,8 @@ private:
 
     GenTree* impImportPop(BasicBlock* block);
 
+    void impImportDup();
+
     GenTree* impImportTlsFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                      const CORINFO_FIELD_INFO& fieldInfo,
                                      CORINFO_ACCESS_FLAGS      accessFlags,

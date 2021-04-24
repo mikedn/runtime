@@ -2108,6 +2108,40 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     return gtNewLclvNode(tmp, TYP_I_IMPL);
 }
 
+void Compiler::impImportDup()
+{
+    // If the expression to dup is simple, just clone it.
+    // Otherwise spill it to a temp, and reload the temp
+    // twice.
+    StackEntry se   = impPopStack();
+    GenTree*   tree = se.val;
+    GenTree*   op1  = tree;
+
+    if (!opts.compDbgCode && !op1->IsIntegralConst(0) && !op1->IsDblConPositiveZero() && !op1->IsLocal())
+    {
+        const unsigned tmpNum = lvaGrabTemp(true DEBUGARG("dup spill"));
+        impAssignTempGen(tmpNum, op1, se.seTypeInfo.GetClassHandle(), (unsigned)CHECK_SPILL_ALL);
+        var_types type = genActualType(lvaTable[tmpNum].TypeGet());
+        op1            = gtNewLclvNode(tmpNum, type);
+
+        // Propagate type info to the temp from the stack and the original tree
+        if (type == TYP_REF)
+        {
+            assert(lvaTable[tmpNum].lvSingleDef == 0);
+            lvaTable[tmpNum].lvSingleDef = 1;
+            JITDUMP("Marked V%02u as a single def local\n", tmpNum);
+            lvaSetClass(tmpNum, tree, se.seTypeInfo.GetClassHandle());
+        }
+    }
+
+    GenTree* op2;
+    op1 = impCloneExpr(op1, &op2, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL DEBUGARG("DUP instruction"));
+
+    assert(!(op1->gtFlags & GTF_GLOB_EFFECT) && !(op2->gtFlags & GTF_GLOB_EFFECT));
+    impPushOnStack(op1, se.seTypeInfo);
+    impPushOnStack(op2, se.seTypeInfo);
+}
+
 // Spills the stack at verCurrentState.esStack[level] and replaces it with a temp.
 void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
 {
@@ -11396,39 +11430,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_DUP:
-            {
-                // If the expression to dup is simple, just clone it.
-                // Otherwise spill it to a temp, and reload the temp
-                // twice.
-                StackEntry se   = impPopStack();
-                GenTree*   tree = se.val;
-                op1             = tree;
-
-                if (!opts.compDbgCode && !op1->IsIntegralConst(0) && !op1->IsDblConPositiveZero() && !op1->IsLocal())
-                {
-                    const unsigned tmpNum = lvaGrabTemp(true DEBUGARG("dup spill"));
-                    impAssignTempGen(tmpNum, op1, se.seTypeInfo.GetClassHandle(), (unsigned)CHECK_SPILL_ALL);
-                    var_types type = genActualType(lvaTable[tmpNum].TypeGet());
-                    op1            = gtNewLclvNode(tmpNum, type);
-
-                    // Propagate type info to the temp from the stack and the original tree
-                    if (type == TYP_REF)
-                    {
-                        assert(lvaTable[tmpNum].lvSingleDef == 0);
-                        lvaTable[tmpNum].lvSingleDef = 1;
-                        JITDUMP("Marked V%02u as a single def local\n", tmpNum);
-                        lvaSetClass(tmpNum, tree, se.seTypeInfo.GetClassHandle());
-                    }
-                }
-
-                op1 = impCloneExpr(op1, &op2, se.seTypeInfo.GetClassHandle(),
-                                   CHECK_SPILL_ALL DEBUGARG("DUP instruction"));
-
-                assert(!(op1->gtFlags & GTF_GLOB_EFFECT) && !(op2->gtFlags & GTF_GLOB_EFFECT));
-                impPushOnStack(op1, se.seTypeInfo);
-                impPushOnStack(op2, se.seTypeInfo);
-            }
-            break;
+                impImportDup();
+                break;
 
             case CEE_STIND_I1:
                 lclTyp = TYP_BYTE;
