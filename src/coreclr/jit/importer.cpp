@@ -2117,7 +2117,7 @@ void Compiler::impImportDup()
     GenTree*   op1 = se.val;
     GenTree*   op2 = nullptr;
 
-    if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero() || op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (op1->IsIntegralConst(0) || op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         if ((op1->gtFlags & GTF_GLOB_EFFECT) == 0)
         {
