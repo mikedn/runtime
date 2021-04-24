@@ -973,8 +973,8 @@ GenTree* Compiler::impBaseIntrinsic(
                 assert(compIsaSupportedDebugOnly(InstructionSet_AVX));
 
                 // copy `vectorOp` to accept the modified half vector
-                vectorOp = impCloneExpr(vectorOp, &clonedVectorOp, nullptr,
-                                        CHECK_SPILL_ALL DEBUGARG("Clone Vector for Vector256<T>.WithElement"));
+                vectorOp = impCloneExpr(vectorOp, &clonedVectorOp, sig.paramLayout[0],
+                                        CHECK_SPILL_ALL DEBUGARG("Vector256<T>.WithElement temp"));
 
                 if (imm8 >= count / 2)
                 {
@@ -1023,9 +1023,8 @@ GenTree* Compiler::impBaseIntrinsic(
                             GenTree* tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
                                                                       TYP_FLOAT, 16, valueOp);
                             GenTree* dupVectorOp = nullptr;
-                            vectorOp =
-                                impCloneExpr(vectorOp, &dupVectorOp, nullptr,
-                                             CHECK_SPILL_ALL DEBUGARG("Clone Vector for Vector128<float>.WithElement"));
+                            vectorOp             = impCloneExpr(vectorOp, &dupVectorOp, sig.paramLayout[0],
+                                                    CHECK_SPILL_ALL DEBUGARG("Vector128<float>.WithElement temp"));
                             tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, tmpOp, vectorOp,
                                                              gtNewIconNode(0));
                             retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, tmpOp,
@@ -1057,9 +1056,8 @@ GenTree* Compiler::impBaseIntrinsic(
                             GenTree* tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
                                                                       TYP_FLOAT, 16, valueOp);
                             GenTree* dupVectorOp = nullptr;
-                            vectorOp =
-                                impCloneExpr(vectorOp, &dupVectorOp, nullptr,
-                                             CHECK_SPILL_ALL DEBUGARG("Clone Vector for Vector128<float>.WithElement"));
+                            vectorOp             = impCloneExpr(vectorOp, &dupVectorOp, sig.paramLayout[0],
+                                                    CHECK_SPILL_ALL DEBUGARG("Vector128<float>.WithElement temp"));
                             valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, vectorOp,
                                                                tmpOp, gtNewIconNode(controlBits1));
                             retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, valueOp,
@@ -1260,9 +1258,8 @@ GenTree* Compiler::impBaseIntrinsic(
                         // (xmm0 = vector, control = i + 228)
                         immNode->AsIntCon()->SetIconValue(228 + imm8);
                         GenTree* clonedVectorOp = nullptr;
-                        vectorOp =
-                            impCloneExpr(vectorOp, &clonedVectorOp, nullptr,
-                                         CHECK_SPILL_ALL DEBUGARG("Clone Vector for Vector128<float>.GetElement"));
+                        vectorOp                = impCloneExpr(vectorOp, &clonedVectorOp, sig.paramLayout[0],
+                                                CHECK_SPILL_ALL DEBUGARG("Vector128<float>.GetElement temp"));
                         vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, vectorOp,
                                                             clonedVectorOp, immNode);
                         return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_ToScalar, TYP_FLOAT, 16, vectorOp);
@@ -1345,12 +1342,11 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
                                                 gtNewIconNode(static_cast<int>(comparison)));
             }
 
-            GenTree* clonedOp1 = nullptr;
-            op1                = impCloneExpr(op1, &clonedOp1, nullptr,
-                               CHECK_SPILL_ALL DEBUGARG("Clone op1 for Sse.CompareScalarGreaterThan"));
-
-            GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, baseType, 16, clonedOp1, retNode);
+            GenTree* op1Uses[2];
+            impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
+                            CHECK_SPILL_ALL DEBUGARG("Sse.CompareScalarGreaterThan temp"));
+            GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, baseType, 16, op1Uses[1], retNode);
         }
 
         case NI_SSE_Prefetch0:
@@ -1402,12 +1398,11 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
                                                 gtNewIconNode(static_cast<int>(comparison)));
             }
 
-            GenTree* clonedOp1 = nullptr;
-            op1                = impCloneExpr(op1, &clonedOp1, nullptr,
-                               CHECK_SPILL_ALL DEBUGARG("Clone op1 for Sse2.CompareScalarGreaterThan"));
-
-            GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_MoveScalar, baseType, 16, clonedOp1, retNode);
+            GenTree* op1Uses[2];
+            impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
+                            CHECK_SPILL_ALL DEBUGARG("Sse2.CompareScalarGreaterThan temp"));
+            GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_MoveScalar, baseType, 16, op1Uses[1], retNode);
         }
 
         case NI_SSE2_LoadFence:

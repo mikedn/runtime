@@ -2513,6 +2513,7 @@ GenTree* Compiler::impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCh
 {
     GenTree* uses[2];
     impMakeMultiUse(tree, 2, uses, spillCheckLevel DEBUGARG(reason));
+    *clone = uses[1];
     return uses[0];
 }
 
@@ -2523,6 +2524,7 @@ GenTree* Compiler::impCloneExpr(GenTree*     tree,
 {
     GenTree* uses[2];
     impMakeMultiUse(tree, 2, uses, layout, spillCheckLevel DEBUGARG(reason));
+    *clone = uses[1];
     return uses[0];
 }
 
@@ -2565,6 +2567,7 @@ void Compiler::impMakeMultiUse(GenTree*     tree,
                                ClassLayout* layout,
                                unsigned spillCheckLevel DEBUGARG(const char* reason))
 {
+    assert(varTypeIsStruct(tree->GetType()) && (layout != nullptr));
     assert(useCount > 1);
 
     if ((tree->gtFlags & GTF_GLOB_EFFECT) == 0)
