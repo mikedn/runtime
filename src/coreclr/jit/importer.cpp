@@ -16354,74 +16354,78 @@ CORINFO_RESOLVED_TOKEN* Compiler::impAllocateToken(const CORINFO_RESOLVED_TOKEN&
     return memory;
 }
 
-//------------------------------------------------------------------------
-// SpillRetExprHelper: iterate through arguments tree and spill ret_expr to local variables.
-//
-class SpillRetExprHelper
+// Iterate through call arguments and spill RET_EXPR to local variables.
+class SpillRetExprHelper final : public GenTreeVisitor<SpillRetExprHelper>
 {
 public:
-    SpillRetExprHelper(Compiler* comp) : comp(comp)
+    enum
+    {
+        DoPreOrder = true
+    };
+
+    SpillRetExprHelper(Compiler* compiler) : GenTreeVisitor<SpillRetExprHelper>(compiler)
     {
     }
 
     void StoreRetExprResultsInArgs(GenTreeCall* call)
     {
+        // TODO-MIKE-Review: This seems to mess up arg evaluation order...
+
         for (GenTreeCall::Use& use : call->Args())
         {
-            comp->fgWalkTreePre(&use.NodeRef(), SpillRetExprVisitor, this);
+            WalkTree(&use.NodeRef(), call);
         }
 
         if (call->gtCallThisArg != nullptr)
         {
-            comp->fgWalkTreePre(&call->gtCallThisArg->NodeRef(), SpillRetExprVisitor, this);
+            WalkTree(&call->gtCallThisArg->NodeRef(), call);
         }
     }
 
-private:
-    static Compiler::fgWalkResult SpillRetExprVisitor(GenTree** pTree, Compiler::fgWalkData* fgWalkPre)
+    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
-        assert((pTree != nullptr) && (*pTree != nullptr));
-        GenTree* tree = *pTree;
+        GenTree* tree = *use;
+
         if ((tree->gtFlags & GTF_CALL) == 0)
         {
             // Trees with ret_expr are marked as GTF_CALL.
             return Compiler::WALK_SKIP_SUBTREES;
         }
-        if (tree->OperGet() == GT_RET_EXPR)
+
+        if (tree->IsRetExpr())
         {
-            SpillRetExprHelper* walker = static_cast<SpillRetExprHelper*>(fgWalkPre->pCallbackData);
-            walker->StoreRetExprAsLocalVar(pTree);
+            StoreRetExprAsLocalVar(use);
         }
+
         return Compiler::WALK_CONTINUE;
     }
 
-    void StoreRetExprAsLocalVar(GenTree** pRetExpr)
+    void StoreRetExprAsLocalVar(GenTree** use)
     {
-        GenTree* retExpr = *pRetExpr;
-        assert(retExpr->OperGet() == GT_RET_EXPR);
-        const unsigned tmp = comp->lvaGrabTemp(true DEBUGARG("spilling ret_expr"));
-        JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", comp->dspTreeID(retExpr), tmp);
-        comp->impAssignTempGen(tmp, retExpr, Compiler::CHECK_SPILL_NONE);
-        *pRetExpr = comp->gtNewLclvNode(tmp, retExpr->TypeGet());
+        GenTreeRetExpr* retExpr = (*use)->AsRetExpr();
 
-        if (retExpr->TypeGet() == TYP_REF)
+        unsigned tmp = m_compiler->lvaGrabTemp(true DEBUGARG("RET_EXPR temp"));
+        JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), tmp);
+        m_compiler->impAssignTempGen(tmp, retExpr, Compiler::CHECK_SPILL_NONE);
+        *use = m_compiler->gtNewLclvNode(tmp, retExpr->GetType());
+
+        if (retExpr->TypeIs(TYP_REF))
         {
-            assert(comp->lvaTable[tmp].lvSingleDef == 0);
-            comp->lvaTable[tmp].lvSingleDef = 1;
+            LclVarDsc* lcl = m_compiler->lvaGetDesc(tmp);
+            assert(lcl->lvSingleDef == 0);
+            lcl->lvSingleDef = 1;
             JITDUMP("Marked V%02u as a single def temp\n", tmp);
 
-            bool                 isExact   = false;
-            bool                 isNonNull = false;
-            CORINFO_CLASS_HANDLE retClsHnd = comp->gtGetClassHandle(retExpr, &isExact, &isNonNull);
+            bool isExact   = false;
+            bool isNonNull = false;
+
+            CORINFO_CLASS_HANDLE retClsHnd = m_compiler->gtGetClassHandle(retExpr, &isExact, &isNonNull);
             if (retClsHnd != nullptr)
             {
-                comp->lvaSetClass(tmp, retClsHnd, isExact);
+                m_compiler->lvaSetClass(tmp, retClsHnd, isExact);
             }
         }
     }
-
-private:
-    Compiler* comp;
 };
 
 //------------------------------------------------------------------------
