@@ -16406,7 +16406,7 @@ public:
 
         unsigned tmp = m_compiler->lvaGrabTemp(true DEBUGARG("RET_EXPR temp"));
         JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), tmp);
-        m_compiler->impAssignTempGen(tmp, retExpr, Compiler::CHECK_SPILL_NONE);
+        m_compiler->impAssignTempGen(tmp, retExpr, retExpr->GetLayout(), Compiler::CHECK_SPILL_NONE);
         *use = m_compiler->gtNewLclvNode(tmp, retExpr->GetType());
 
         if (retExpr->TypeIs(TYP_REF))
