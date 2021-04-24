@@ -1309,7 +1309,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         assert(destAddr->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
         GenTree* destAddrClone;
-        destAddr = impCloneExpr(destAddr, &destAddrClone, structHnd, curLevel DEBUGARG("MKREFANY assignment"));
+        destAddr = impCloneExpr(destAddr, &destAddrClone, NO_CLASS_HANDLE, curLevel DEBUGARG("MKREFANY assignment"));
 
         FieldSeqNode* valFieldSeq = GetFieldSeqStore()->CreateSingleton(GetRefanyDataField());
         assert(OFFSETOF__CORINFO_TypedReference__dataPtr == 0);
