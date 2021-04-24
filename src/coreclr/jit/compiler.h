@@ -3108,14 +3108,15 @@ public:
 
     Statement* impExtractLastStmt();
 
-    GenTree* impCloneExpr(GenTree*             tree,
-                          GenTree**            clone,
-                          CORINFO_CLASS_HANDLE structHnd,
-                          unsigned spillCheckLevel DEBUGARG(const char* reason));
+    GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
     GenTree* impCloneExpr(GenTree*     tree,
                           GenTree**    clone,
                           ClassLayout* layout,
                           unsigned spillCheckLevel DEBUGARG(const char* reason));
+    void impMakeMultiUse(GenTree*  tree,
+                         unsigned  useCount,
+                         GenTree** uses,
+                         unsigned spillCheckLevel DEBUGARG(const char* reason));
     void impMakeMultiUse(GenTree*     tree,
                          unsigned     useCount,
                          GenTree**    uses,
