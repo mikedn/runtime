@@ -621,7 +621,7 @@ void Compiler::impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* 
 
 void Compiler::impAssignTempGen(unsigned tmp, GenTree* val, unsigned curLevel)
 {
-    GenTree* asg = gtNewTempAssign(tmp, val);
+    GenTree* asg = impNewTempAssign(tmp, val);
 
     if (!asg->IsNothingNode())
     {
@@ -661,13 +661,165 @@ void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HAN
     }
     else
     {
-        asg = gtNewTempAssign(tmpNum, val);
+        asg = impNewTempAssign(tmpNum, val);
     }
 
     if (!asg->IsNothingNode())
     {
         impAppendTree(asg, curLevel, impCurStmtOffs);
     }
+}
+
+GenTree* Compiler::impNewTempAssign(unsigned lclNum, GenTree* val)
+{
+    if (val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == lclNum))
+    {
+        return gtNewNothingNode();
+    }
+
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    if (lcl->TypeIs(TYP_I_IMPL) && val->TypeIs(TYP_BYREF))
+    {
+        impBashVarAddrsToI(val);
+    }
+
+    var_types valType = val->GetType();
+
+    if (val->OperIs(GT_LCL_VAR) && lvaGetDesc(val->AsLclVar())->lvNormalizeOnLoad())
+    {
+        valType = lvaGetDesc(val->AsLclVar())->GetType();
+        val->SetType(valType);
+    }
+
+    var_types lclType = lcl->GetType();
+
+    if (lclType == TYP_UNDEF)
+    {
+        // TODO-MIKE-Cleanup: This sets the temp's type only to overwrite later by calling lvaSetStruct.
+        lclType     = varActualType(valType);
+        lcl->lvType = lclType;
+    }
+
+#ifdef DEBUG
+    if (varActualType(valType) != varActualType(lclType))
+    {
+        bool typesMatch = false;
+
+        if (varTypeIsGC(lclType) && (valType == TYP_I_IMPL))
+        {
+            typesMatch = true;
+        }
+        else if (varTypeIsFloating(lclType) && varTypeIsFloating(valType))
+        {
+            // TODO-MIKE-Cleanup: No, FLOAT/DOUBLE do not match...
+            typesMatch = true;
+        }
+        else if (JitConfig.JitObjectStackAllocation() && (lclType == TYP_BYREF) && (valType == TYP_REF))
+        {
+            typesMatch = true;
+        }
+        else if (!varTypeIsGC(lclType) && (varTypeSize(valType) == varTypeSize(lclType)))
+        {
+            // We can have assignments that require a change of register file, e.g. for arguments
+            // and call returns. Lowering and Codegen will handle these.
+            typesMatch = true;
+        }
+        else if ((lclType == TYP_STRUCT) && (valType == TYP_INT))
+        {
+            typesMatch = true;
+        }
+        else if (varTypeIsSIMD(lclType) && (valType == TYP_STRUCT))
+        {
+            // TODO-MIKE-Cleanup: This should not be needed anymore.
+            assert(val->IsCall());
+            typesMatch = true;
+        }
+
+        if (!typesMatch)
+        {
+            gtDispTree(val);
+            assert(!"Incompatible assignment types");
+        }
+    }
+#endif // DEBUG
+
+    // Added this noway_assert for runtime\issue 44895, to protect against silent bad codegen
+    if ((lclType == TYP_STRUCT) && (valType == TYP_REF))
+    {
+        noway_assert(!"Incompatible assignment types");
+    }
+
+    if (varTypeUsesFloatReg(lclType) && !compFloatingPointUsed)
+    {
+        // Floating point assignments can be created during inlining (see inlInitInlineeLocals)
+        // thus we may need to set compFloatingPointUsed to true here.
+        compFloatingPointUsed = true;
+    }
+
+    // With first-class structs, we should be propagating the class handle on all non-primitive
+    // struct types. We don't have a convenient way to do that for all SIMD temps, since some
+    // internal trees use SIMD types that are not used by the input IL. In this case, we allow
+    // a null type handle and derive the necessary information about the type from its varType.
+    CORINFO_CLASS_HANDLE valStructHnd = gtGetStructHandleIfPresent(val);
+
+    if (varTypeIsStruct(lclType) && (valStructHnd == NO_CLASS_HANDLE) && !varTypeIsSIMD(valType))
+    {
+        // There have 2 special cases:
+        // 1. the value is a struct IND generated from a struct FIELD, when a struct FIELD is
+        //    used by a RETURN the FIELD isn't wrapped in an OBJ like
+        // 2. we have propagated ASG(struct V01, 0) to RETURN(V01), CNS_INT doesn't have layout
+        // in these cases, we can use the type of the merge return for the assignment.
+        assert(val->OperIs(GT_IND, GT_LCL_FLD, GT_CNS_INT));
+        assert(lclNum == genReturnLocal);
+
+        valStructHnd = lcl->GetLayout()->GetClassHandle();
+    }
+
+    GenTree* dest = gtNewLclvNode(lclNum, lclType);
+    GenTree* asg;
+
+    if ((valStructHnd != NO_CLASS_HANDLE) && val->IsConstInitVal())
+    {
+        asg = gtNewAssignNode(dest, val);
+    }
+    else if (varTypeIsStruct(lclType) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valType)))
+    {
+        GenTree* commaValue = val->SkipComma();
+
+        if (valStructHnd != NO_CLASS_HANDLE)
+        {
+            lvaSetStruct(lclNum, valStructHnd, false);
+        }
+        else
+        {
+            assert(!commaValue->IsObj());
+        }
+
+        commaValue->gtFlags |= GTF_DONT_CSE;
+        dest->gtFlags |= GTF_VAR_DEF;
+
+        asg = impAssignStructPtr(gtNewAddrNode(dest), val, valStructHnd, CHECK_SPILL_NONE);
+    }
+    else
+    {
+        // We may have a scalar type variable assigned a struct value, e.g. a 'genReturnLocal'
+        // when the ABI calls for returning a struct as a primitive type.
+        // TODO-1stClassStructs: When we stop "lying" about the types for ABI purposes, the
+        // 'genReturnLocal' should be the original struct type.
+
+        assert(!varTypeIsStruct(valType) || ((valStructHnd != NO_CLASS_HANDLE) &&
+                                             (typGetObjLayout(valStructHnd)->GetSize() == varTypeSize(lclType))));
+
+        asg = gtNewAssignNode(dest, val);
+    }
+
+    if (compRationalIRForm)
+    {
+        Rationalizer::RewriteAssignmentIntoStoreLcl(asg->AsOp());
+    }
+
+    return asg;
 }
 
 /*****************************************************************************

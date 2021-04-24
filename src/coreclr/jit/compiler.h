@@ -3104,6 +3104,8 @@ public:
     void impAssignTempGen(unsigned tmp, GenTree* val, unsigned curLevel);
     void impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
     void impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    GenTree* impNewTempAssign(unsigned lclNum, GenTree* val);
+
     Statement* impExtractLastStmt();
 
     GenTree* impCloneExpr(GenTree*             tree,
