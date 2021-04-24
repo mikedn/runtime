@@ -1045,7 +1045,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
         // lack of optimizations caused by address exposed.
         // No FX diffs if done so it's probably very rare so not worth the trouble now.
 
-        retExpr = impSpillPseudoReturnBufferCall(retExpr, retExprClass);
+        retExpr = impSpillPseudoReturnBufferCall(retExpr->AsCall());
     }
 
     if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)

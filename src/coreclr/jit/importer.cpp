@@ -8152,9 +8152,10 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
 #endif // FEATURE_MULTIREG_RET
 
-GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass)
+GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTreeCall* call)
 {
-    assert(value->IsCall() && value->AsCall()->TreatAsHasRetBufArg());
+    assert(call->TreatAsHasRetBufArg());
+    assert(call->TypeIs(TYP_STRUCT));
 
     // This must be one of those 'special' helpers that don't
     // really have a return buffer, but instead use it as a way
@@ -8167,10 +8168,10 @@ GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_
     // feeds the return, then the call must be returning the
     // same structure/class/type.
 
-    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
+    unsigned tmpNum = lvaNewTemp(call->GetRetLayout(), true DEBUGARG("pseudo return buffer"));
 
     // No need to spill anything as we're about to return.
-    impAssignTempGen(tmpNum, value, retClass, CHECK_SPILL_NONE);
+    impAssignTempGen(tmpNum, call, call->GetRetLayout(), CHECK_SPILL_NONE);
     return gtNewLclvNode(tmpNum, info.compRetType);
 }
 
@@ -13967,7 +13968,7 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
 
             if (value->IsCall() && value->AsCall()->TreatAsHasRetBufArg())
             {
-                value = impSpillPseudoReturnBufferCall(value, se.seTypeInfo.GetClassHandle());
+                value = impSpillPseudoReturnBufferCall(value->AsCall());
             }
 
 #if FEATURE_MULTIREG_RET

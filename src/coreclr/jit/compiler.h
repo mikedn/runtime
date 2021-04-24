@@ -2959,7 +2959,7 @@ protected:
     GenTree* impCanonicalizeMultiRegCall(GenTreeCall* call);
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 #endif
-    GenTree* impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass);
+    GenTree* impSpillPseudoReturnBufferCall(GenTreeCall* call);
 
     GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
