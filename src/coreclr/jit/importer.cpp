@@ -1183,30 +1183,6 @@ GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* lay
     return impAssignStructAddr(destAddr, src, layout, curLevel);
 }
 
-GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
-                                      GenTree*             src,
-                                      CORINFO_CLASS_HANDLE structHnd,
-                                      unsigned             curLevel)
-{
-    assert(varTypeIsStruct(src->GetType()));
-
-    ClassLayout* layout = nullptr;
-
-    if (structHnd != NO_CLASS_HANDLE)
-    {
-        layout = typGetObjLayout(structHnd);
-    }
-    else
-    {
-        // HWIntrinsic lowering creates temps from HWIntrinsic trees that have SIMD
-        // type not seen during import, we can't recover the layout in this case.
-
-        assert(src->OperIsSimdOrHWintrinsic());
-    }
-
-    return impAssignStructAddr(destAddr, src, layout, curLevel);
-}
-
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||

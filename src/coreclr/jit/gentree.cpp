@@ -13793,21 +13793,26 @@ GenTree* Compiler::gtNewTempAssign(unsigned lclNum, GenTree* val)
     }
     else if (varTypeIsStruct(lclType) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valType)))
     {
-        GenTree* commaValue = val->SkipComma();
+        GenTree*     commaValue = val->SkipComma();
+        ClassLayout* layout     = nullptr;
 
         if (valStructHnd != NO_CLASS_HANDLE)
         {
-            lvaSetStruct(lclNum, valStructHnd, false);
+            layout = typGetObjLayout(valStructHnd);
+            lvaSetStruct(lclNum, layout, false);
         }
         else
         {
-            assert(!commaValue->IsObj());
+            // HWIntrinsic lowering creates temps from HWIntrinsic trees that have SIMD
+            // types not seen during import, we can't recover the layout in this case.
+
+            assert(val->OperIsSimdOrHWintrinsic());
         }
 
         commaValue->gtFlags |= GTF_DONT_CSE;
         dest->gtFlags |= GTF_VAR_DEF;
 
-        asg = impAssignStructPtr(gtNewAddrNode(dest), val, valStructHnd, CHECK_SPILL_NONE);
+        asg = impAssignStructAddr(gtNewAddrNode(dest), val, layout, CHECK_SPILL_NONE);
     }
     else
     {
