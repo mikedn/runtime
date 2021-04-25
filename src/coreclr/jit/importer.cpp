@@ -619,7 +619,7 @@ void Compiler::impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* 
  *  curLevel is the stack level for which the spill to the temp is being done.
  */
 
-void Compiler::impAssignTempGen(unsigned lclNum, GenTree* val, unsigned curLevel)
+void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel)
 {
     assert(!varTypeIsStruct(val->GetType()));
 
@@ -633,22 +633,22 @@ void Compiler::impAssignTempGen(unsigned lclNum, GenTree* val, unsigned curLevel
     impAppendTree(asg, curLevel, impCurStmtOffs);
 }
 
-void Compiler::impAssignTempGen(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
+void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
-        impAssignTempGen(lclNum, val, curLevel);
+        impAppendTempAssign(lclNum, val, curLevel);
         return;
     }
 
-    impAssignTempGen(lclNum, val, typGetObjLayout(structType), curLevel);
+    impAppendTempAssign(lclNum, val, typGetObjLayout(structType), curLevel);
 }
 
-void Compiler::impAssignTempGen(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
+void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
-        impAssignTempGen(lclNum, val, curLevel);
+        impAppendTempAssign(lclNum, val, curLevel);
         return;
     }
 
@@ -1956,7 +1956,7 @@ void Compiler::impImportDup()
         // impSpillStackEntry's special RET_EXPR handling hurts CQ...
 
         unsigned tmpNum = lvaGrabTemp(true DEBUGARG("dup spill"));
-        impAssignTempGen(tmpNum, op1, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
+        impAppendTempAssign(tmpNum, op1, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
 
         LclVarDsc* lcl = lvaGetDesc(tmpNum);
 
@@ -1983,7 +1983,7 @@ void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
     GenTree*    tree = se.val;
 
     unsigned tmpNum = lvaGrabTemp(true DEBUGARG(reason));
-    impAssignTempGen(tmpNum, tree, se.seTypeInfo.GetClassHandle(), level);
+    impAppendTempAssign(tmpNum, tree, se.seTypeInfo.GetClassHandle(), level);
 
     LclVarDsc* lcl = lvaGetDesc(tmpNum);
 
@@ -2412,7 +2412,7 @@ void Compiler::impMakeMultiUse(GenTree*     tree,
     }
 
     unsigned lclNum = lvaGrabTemp(true DEBUGARG(reason));
-    impAssignTempGen(lclNum, tree, layout, spillCheckLevel);
+    impAppendTempAssign(lclNum, tree, layout, spillCheckLevel);
     var_types type = varActualType(lvaGetDesc(lclNum)->GetType());
 
     for (unsigned i = 0; i < useCount; i++)
@@ -7774,7 +7774,7 @@ DONE_INTRINSIC:
                     if (call == origCall) // can be already converted by impCanonicalizeMultiRegCall.
                     {
                         unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
-                        impAssignTempGen(calliTempLclNum, call, origCall->GetRetLayout(), CHECK_SPILL_NONE);
+                        impAppendTempAssign(calliTempLclNum, call, origCall->GetRetLayout(), CHECK_SPILL_NONE);
                         call = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
                     }
                 }
@@ -7998,7 +7998,7 @@ GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTreeCall* call)
     unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
 
     // No need to spill anything as we're about to return.
-    impAssignTempGen(tmpNum, call, call->GetRetLayout(), CHECK_SPILL_NONE);
+    impAppendTempAssign(tmpNum, call, call->GetRetLayout(), CHECK_SPILL_NONE);
     return gtNewLclvNode(tmpNum, info.compRetType);
 }
 
@@ -14033,7 +14033,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
-            impAssignTempGen(spillTempLclNum, tree, stackType.GetClassHandle(), CHECK_SPILL_NONE);
+            impAppendTempAssign(spillTempLclNum, tree, stackType.GetClassHandle(), CHECK_SPILL_NONE);
 
             if (stackType.IsType(TI_STRUCT))
             {
@@ -14151,14 +14151,14 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                     if (gtHasRef(relOp->GetOp(0), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
-                        impAssignTempGen(temp, relOp->GetOp(0), level);
+                        impAppendTempAssign(temp, relOp->GetOp(0), level);
                         relOp->SetOp(0, gtNewLclvNode(temp, lvaGetDesc(temp)->GetType()));
                     }
 
                     if (gtHasRef(relOp->GetOp(1), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
-                        impAssignTempGen(temp, relOp->GetOp(1), level);
+                        impAppendTempAssign(temp, relOp->GetOp(1), level);
                         relOp->SetOp(1, gtNewLclvNode(temp, lvaGetDesc(temp)->GetType()));
                     }
                 }
@@ -14169,7 +14169,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                     if (gtHasRef(branch->GetOp(0), spillTempLclNum))
                     {
                         unsigned temp = lvaGrabTemp(true DEBUGARG("branch spill temp"));
-                        impAssignTempGen(temp, branch->GetOp(0), level);
+                        impAppendTempAssign(temp, branch->GetOp(0), level);
                         branch->SetOp(0, gtNewLclvNode(temp, lvaGetDesc(temp)->GetType()));
                     }
                 }
@@ -16257,7 +16257,7 @@ public:
 
         unsigned tmp = m_compiler->lvaGrabTemp(true DEBUGARG("RET_EXPR temp"));
         JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), tmp);
-        m_compiler->impAssignTempGen(tmp, retExpr, retExpr->GetLayout(), Compiler::CHECK_SPILL_NONE);
+        m_compiler->impAppendTempAssign(tmp, retExpr, retExpr->GetLayout(), Compiler::CHECK_SPILL_NONE);
         *use = m_compiler->gtNewLclvNode(tmp, retExpr->GetType());
 
         if (retExpr->TypeIs(TYP_REF))
