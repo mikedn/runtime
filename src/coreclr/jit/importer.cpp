@@ -629,22 +629,27 @@ void Compiler::impAssignTempGen(unsigned tmp, GenTree* val, unsigned curLevel)
     }
 }
 
-void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
-{
-    assert((layout == nullptr) || !layout->IsBlockLayout());
-
-    impAssignTempGen(tmpNum, val, layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle(), curLevel);
-}
-
 void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
 {
+    if (!varTypeIsStruct(val->GetType()))
+    {
+        return impAssignTempGen(tmpNum, val, curLevel);
+    }
+
+    return impAssignTempGen(tmpNum, val, typGetObjLayout(structType), curLevel);
+}
+
+void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
+{
+    assert((layout == nullptr) || layout->IsValueClass());
+
     GenTree* asg;
 
-    assert((val->GetType() != TYP_STRUCT) || (structType != NO_CLASS_HANDLE));
+    assert((val->GetType() != TYP_STRUCT) || (layout != nullptr));
 
-    if (varTypeIsStruct(val->GetType()) && (structType != NO_CLASS_HANDLE))
+    if (varTypeIsStruct(val->GetType()) && (layout != nullptr))
     {
-        lvaSetStruct(tmpNum, structType, false);
+        lvaSetStruct(tmpNum, layout, false);
 
         var_types lclType = lvaGetDesc(tmpNum)->GetType();
 
@@ -657,7 +662,7 @@ void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HAN
         // calls that may not actually be required - e.g. if we only access a field of a struct.
 
         GenTree* dst = gtNewLclvNode(tmpNum, lclType);
-        asg          = impAssignStruct(dst, val, structType, curLevel);
+        asg          = impAssignStruct(dst, val, layout, curLevel);
     }
     else
     {
@@ -785,11 +790,13 @@ GenTree* Compiler::impNewTempAssign(unsigned lclNum, GenTree* val)
     }
     else if (varTypeIsStruct(lclType) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valType)))
     {
-        GenTree* commaValue = val->SkipComma();
+        GenTree*     commaValue = val->SkipComma();
+        ClassLayout* layout     = nullptr;
 
         if (valStructHnd != NO_CLASS_HANDLE)
         {
-            lvaSetStruct(lclNum, valStructHnd, false);
+            layout = typGetObjLayout(valStructHnd);
+            lvaSetStruct(lclNum, layout, false);
         }
         else
         {
@@ -799,7 +806,7 @@ GenTree* Compiler::impNewTempAssign(unsigned lclNum, GenTree* val)
         commaValue->gtFlags |= GTF_DONT_CSE;
         dest->gtFlags |= GTF_VAR_DEF;
 
-        asg = impAssignStructPtr(gtNewAddrNode(dest), val, valStructHnd, CHECK_SPILL_NONE);
+        asg = impAssignStructAddr(gtNewAddrNode(dest), val, layout, CHECK_SPILL_NONE);
     }
     else
     {
@@ -1133,12 +1140,14 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel)
+GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel)
 {
-    return impAssignStruct(dest, src, layout->GetClassHandle(), curLevel);
+    assert(varTypeIsStruct(src->GetType()));
+
+    return impAssignStruct(dest, src, typGetObjLayout(structHnd), curLevel);
 }
 
-GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel)
+GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(varTypeIsStruct(dest->GetType()));
 
@@ -1171,28 +1180,34 @@ GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HA
         destAddr = gtNewAddrNode(dest);
     }
 
-    return impAssignStructPtr(destAddr, src, structHnd, curLevel);
+    return impAssignStructAddr(destAddr, src, layout, curLevel);
 }
-
-//------------------------------------------------------------------------
-// impAssignStructPtr: Assign (copy) the structure from 'src' to 'destAddr'.
-//
-// Arguments:
-//    destAddr     - address of the destination of the assignment
-//    src          - source of the assignment
-//    structHnd    - handle representing the struct type
-//    curLevel     - stack level for which a spill may be being done
-//
-// Return Value:
-//    The tree that should be appended to the statement list that represents the assignment.
-//
-// Notes:
-//    Temp assignments may be appended to impStmtList if spilling is necessary.
 
 GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                                       GenTree*             src,
                                       CORINFO_CLASS_HANDLE structHnd,
                                       unsigned             curLevel)
+{
+    assert(varTypeIsStruct(src->GetType()));
+
+    ClassLayout* layout = nullptr;
+
+    if (structHnd != NO_CLASS_HANDLE)
+    {
+        layout = typGetObjLayout(structHnd);
+    }
+    else
+    {
+        // HWIntrinsic lowering creates temps from HWIntrinsic trees that have SIMD
+        // type not seen during import, we can't recover the layout in this case.
+
+        assert(src->OperIsSimdOrHWintrinsic());
+    }
+
+    return impAssignStructAddr(destAddr, src, layout, curLevel);
+}
+
+GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
            (!src->TypeIs(TYP_STRUCT) && src->OperIsSimdOrHWintrinsic()));
@@ -1219,7 +1234,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
         {
             impAppendTree(sideEffect, curLevel, impCurStmtOffs);
 
-            return impAssignStructPtr(destAddr, value, structHnd, curLevel);
+            return impAssignStructAddr(destAddr, value, layout, curLevel);
         }
         else
         {
@@ -1228,7 +1243,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
             // outside the importer (e.g. CSE). Doesn't matter, one way or another
             // it still incorrectly reorders side effects as mentioned above.
 
-            src->AsOp()->SetOp(1, impAssignStructPtr(destAddr, value, structHnd, curLevel));
+            src->AsOp()->SetOp(1, impAssignStructAddr(destAddr, value, layout, curLevel));
             src->SetSideEffects(src->AsOp()->GetOp(0)->GetSideEffects() | src->AsOp()->GetOp(1)->GetSideEffects());
 
             return src;
@@ -1341,13 +1356,13 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     }
     else if (src->OperIs(GT_OBJ))
     {
-        assert(src->GetType() == typGetStructType(structHnd));
-        assert((src->AsObj()->GetLayout()->GetClassHandle() == structHnd) || varTypeIsSIMD(src->GetType()));
+        assert(src->GetType() == typGetStructType(layout));
+        assert((src->AsObj()->GetLayout() == layout) || varTypeIsSIMD(src->GetType()));
     }
     else if (src->OperIs(GT_INDEX))
     {
-        assert(src->GetType() == typGetStructType(structHnd));
-        assert(src->AsIndex()->GetLayout()->GetClassHandle() == structHnd);
+        assert(src->GetType() == typGetStructType(layout));
+        assert(src->AsIndex()->GetLayout() == layout);
     }
     else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
@@ -1355,7 +1370,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     else
     {
         assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsSimdOrHWintrinsic());
-        assert((structHnd == NO_CLASS_HANDLE) || (src->GetType() == typGetStructType(structHnd)));
+        assert((layout == nullptr) || (src->GetType() == typGetStructType(layout)));
     }
 
     var_types srcType = src->GetType();
@@ -1374,22 +1389,22 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
                 }
                 else
                 {
-                    ClassLayout* layout;
+                    ClassLayout* destLayout;
 
                     switch (destLocation->GetOper())
                     {
                         case GT_LCL_VAR:
-                            layout = lvaGetDesc(destLocation->AsLclVar())->GetLayout();
+                            destLayout = lvaGetDesc(destLocation->AsLclVar())->GetLayout();
                             break;
                         case GT_INDEX:
-                            layout = destLocation->AsIndex()->GetLayout();
+                            destLayout = destLocation->AsIndex()->GetLayout();
                             break;
                         default:
-                            layout = destLocation->AsObj()->GetLayout();
+                            destLayout = destLocation->AsObj()->GetLayout();
                             break;
                     }
 
-                    if (layout->GetClassHandle() == structHnd)
+                    if (destLayout == layout)
                     {
                         dest = destLocation;
                     }
@@ -1412,7 +1427,7 @@ GenTree* Compiler::impAssignStructPtr(GenTree*             destAddr,
     {
         if (srcType == TYP_STRUCT)
         {
-            dest = gtNewObjNode(structHnd, destAddr);
+            dest = gtNewObjNode(layout, destAddr);
         }
         else
         {
@@ -5361,16 +5376,8 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
     {
         JITDUMP(" inline allocate/copy sequence\n");
 
-        // we are doing 'normal' boxing.  This means that we can inline the box operation
-        // Box(expr) gets morphed into
-        // temp = new(clsHnd)
-        // cpobj(temp+4, expr, clsHnd)
-        // push temp
-        // The code paths differ slightly below for structs and primitives because
-        // "cpobj" differs in these cases.  In one case you get
-        //    impAssignStructPtr(temp+4, expr, clsHnd)
-        // and the other you get
-        //    *(temp+4) = expr
+        // We are doing 'normal' boxing.  This means that we can inline the box operation
+        // by allocating an object on the heap and storing the value in it.
 
         if (opts.OptimizationDisabled())
         {
@@ -5399,6 +5406,7 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         op1 = gtNewAllocObjNode(pResolvedToken, /* useParent */ false);
         if (op1 == nullptr)
         {
+            assert(compDonotInline());
             return;
         }
 
@@ -5416,7 +5424,7 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         if (varTypeIsStruct(exprToBox))
         {
             assert(info.compCompHnd->getClassSize(pResolvedToken->hClass) == info.compCompHnd->getClassSize(operCls));
-            op1 = impAssignStructPtr(op1, exprToBox, operCls, (unsigned)CHECK_SPILL_ALL);
+            op1 = impAssignStructAddr(op1, exprToBox, typGetObjLayout(operCls), CHECK_SPILL_ALL);
         }
         else
         {
@@ -12444,7 +12452,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     {
                         // TDOO-MIKE-Cleanup: This appears to be the only case where the importer creates
                         // a struct typed COMMA. Subsequently this is transformed into OBJ(COMMA(...))
-                        // (see impCanonicalizeStructCallArg and impAssignStructPtr).
+                        // (see impCanonicalizeStructCallArg and impAssignStructAddr).
                         // We could do that here but let's keep it as is for now for testing purposes.
 
                         op1 = gtNewOperNode(GT_COMMA, op1->TypeGet(), helperNode, op1);
@@ -12734,7 +12742,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (deferStructAssign)
                 {
-                    op1 = impAssignStruct(op1, op2, clsHnd, (unsigned)CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op1, op2, clsHnd, CHECK_SPILL_ALL);
                 }
             }
                 goto APPEND;
@@ -13320,11 +13328,11 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // the same helper is used for all struct types.
                 // Doing this here is bad for CQ when the destination is a memory location,
                 // because we introduce a temp instead of just passing in the address of
-                // that location. impAssignStructPtr (TreatAsHasRetBufArg) already handles
+                // that location. impAssignStructAddr (TreatAsHasRetBufArg) already handles
                 // this case so there's no real need to do this here.
                 // Adding a temp when the destination is a promotable struct local might
                 // be useful because it avoids dependent promotion. But's probably something
-                // that impAssignStructPtr could handle as well.
+                // that impAssignStructAddr could handle as well.
 
                 ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
                 StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed);
@@ -13548,7 +13556,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     goto STIND_CPOBJ;
                 }
 
-                op1 = impImportInitObj(op1, resolvedToken.hClass);
+                op1 = impImportInitObj(op1, typGetObjLayout(resolvedToken.hClass));
                 goto SPILL_APPEND;
 
             case CEE_CPOBJ:
@@ -13581,7 +13589,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     goto STIND_CPOBJ;
                 }
 
-                op1 = impImportCpObj(op1, op2, resolvedToken.hClass);
+                op1 = impImportCpObj(op1, op2, typGetObjLayout(resolvedToken.hClass));
                 goto SPILL_APPEND;
 
             case CEE_STOBJ:
@@ -13608,13 +13616,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 assertImp(varTypeIsStruct(op2));
 
-                op1 = impAssignStructPtr(op1, op2, resolvedToken.hClass, CHECK_SPILL_ALL);
+                op1 = impAssignStructAddr(op1, op2, typGetObjLayout(resolvedToken.hClass), CHECK_SPILL_ALL);
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
                     if (op1->OperIs(GT_ASG))
                     {
-                        // If the store value is MKREFANY impAssignStructPtr will append another indir,
+                        // If the store value is MKREFANY impAssignStructAddr will append another indir,
                         // we don't set unaligned on that. It isn't necessary since the JIT doesn't do
                         // anything special with unaligned if the indir type is integral.
 
@@ -13625,7 +13633,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     else
                     {
-                        // It's possible that impAssignStructPtr returned a CALL node (struct returned
+                        // It's possible that impAssignStructAddr returned a CALL node (struct returned
                         // via return buffer). We're ignoring the unaligned prefix in this case.
 
                         // TODO-MIKE-Consider: We should probably introduce a temp, pass that as
@@ -13950,7 +13958,7 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
         if (info.compRetBuffArg != BAD_VAR_NUM)
         {
             GenTree* retBuffAddr = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
-            value = impAssignStructPtr(retBuffAddr, value, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
+            value                = impAssignStructAddr(retBuffAddr, value, info.GetRetLayout(), CHECK_SPILL_ALL);
             impAppendTree(value, CHECK_SPILL_NONE, impCurStmtOffs);
 
             if (info.retDesc.GetRegCount() == 0)
@@ -16790,10 +16798,9 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     return false;
 }
 
-GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle)
+GenTree* Compiler::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
 {
-    ClassLayout* layout = typGetObjLayout(classHandle);
-    GenTree*     dst    = nullptr;
+    GenTree* dst = nullptr;
 
     if (dstAddr->OperIs(GT_ADDR))
     {
@@ -16834,7 +16841,7 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE class
     return gtNewAssignNode(dst, initValue);
 }
 
-GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle)
+GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout)
 {
     GenTree* dst = nullptr;
 
@@ -16846,8 +16853,7 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
         {
             LclVarDsc* lcl = lvaGetDesc(location->AsLclVar());
 
-            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() &&
-                (lcl->GetLayout()->GetClassHandle() == classHandle))
+            if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
             {
                 dst = location;
             }
@@ -16856,7 +16862,7 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
 
     if (dst == nullptr)
     {
-        dst = gtNewObjNode(classHandle, dstAddr);
+        dst = gtNewObjNode(layout, dstAddr);
     }
 
     GenTree* src = nullptr;
@@ -16867,7 +16873,7 @@ GenTree* Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CL
     }
     else
     {
-        src = gtNewObjNode(classHandle, srcAddr);
+        src = gtNewObjNode(layout, srcAddr);
     }
 
     // TODO-MIKE-CQ: This should probably be removed, it's here only because

@@ -14577,9 +14577,7 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 
         noway_assert(lastStmt->GetNextStmt() == nullptr);
 
-        // Replace the RETURN with an assignment to the merged return temp. If the return value is
-        // a COMMA then extract its side effects to a new statement, otherwise impAssignStructPtr
-        // will add new statements AFTER the last statement.
+        // Replace the RETURN with an assignment to the merged return temp.
 
         GenTree* value = ret->AsUnOp()->GetOp(0);
 

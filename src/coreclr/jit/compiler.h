@@ -3132,9 +3132,10 @@ public:
         impMakeMultiUse(tree, useCount, uses, layout, spillCheckLevel DEBUGARG(reason));
     }
 
-    GenTree* impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    GenTree* impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
     GenTree* impAssignStructPtr(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    GenTree* impAssignStructAddr(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
@@ -3420,8 +3421,8 @@ private:
 
     CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
 
-    GenTree* impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle);
-    GenTree* impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle);
+    GenTree* impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
+    GenTree* impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
     GenTree* impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile);
     GenTree* impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile);
 
