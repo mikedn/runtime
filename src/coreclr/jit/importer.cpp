@@ -7996,9 +7996,7 @@ GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTreeCall* call)
     // same structure/class/type.
 
     unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
-
-    // No need to spill anything as we're about to return.
-    impAppendTempAssign(tmpNum, call, call->GetRetLayout(), CHECK_SPILL_NONE);
+    impAppendTempAssign(tmpNum, call, call->GetRetLayout(), CHECK_SPILL_ALL);
     return gtNewLclvNode(tmpNum, info.compRetType);
 }
 
