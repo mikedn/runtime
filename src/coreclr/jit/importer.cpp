@@ -14326,6 +14326,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 }
             }
 
+            GenTree* spillTempLclVar = gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType());
             GenTree* asg;
 
             if (varTypeIsStruct(spillTempLcl->GetType()))
@@ -14334,15 +14335,14 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 // asserts in impAssignStructAddr due to A<Canon>/A<SomeRefClass> mismatches.
                 ClassLayout* treeLayout = typGetObjLayout(verCurrentState.esStack[level].seTypeInfo.GetClassHandle());
 
-                GenTree* spillTempLclVar = gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType());
-                asg                      = impAssignStruct(spillTempLclVar, tree, treeLayout, CHECK_SPILL_NONE);
+                asg = impAssignStruct(spillTempLclVar, tree, treeLayout, CHECK_SPILL_NONE);
+                assert(!asg->IsNothingNode());
             }
             else
             {
-                asg = impNewTempAssign(spillTempLclNum, tree);
+                asg = gtNewAssignNode(spillTempLclVar, tree);
             }
 
-            assert(!asg->IsNothingNode());
             impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
         }
     }
