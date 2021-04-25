@@ -641,33 +641,19 @@ void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HAN
 
 void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
 {
+    assert((val->GetType() != TYP_STRUCT) || (layout != nullptr));
     assert((layout == nullptr) || layout->IsValueClass());
 
-    GenTree* asg;
-
-    assert((val->GetType() != TYP_STRUCT) || (layout != nullptr));
-
-    if (varTypeIsStruct(val->GetType()) && (layout != nullptr))
+    if (!varTypeIsStruct(val->GetType()) || (layout == nullptr))
     {
-        lvaSetStruct(tmpNum, layout, false);
-
-        var_types lclType = lvaGetDesc(tmpNum)->GetType();
-
-        // Now, set the type of the struct value. Note that lvaSetStruct may modify the type
-        // of the lclVar to a specialized type (e.g. TYP_SIMD), based on the handle (structType)
-        // that has been passed in for the value being assigned to the temp, in which case we
-        // need to set 'val' to that same type.
-        // Note also that if we always normalized the types of any node that might be a struct
-        // type, this would not be necessary - but that requires additional JIT/EE interface
-        // calls that may not actually be required - e.g. if we only access a field of a struct.
-
-        GenTree* dst = gtNewLclvNode(tmpNum, lclType);
-        asg          = impAssignStruct(dst, val, layout, curLevel);
+        impAssignTempGen(tmpNum, val, curLevel);
+        return;
     }
-    else
-    {
-        asg = impNewTempAssign(tmpNum, val);
-    }
+
+    lvaSetStruct(tmpNum, layout, false);
+
+    GenTree* dst = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
+    GenTree* asg = impAssignStruct(dst, val, layout, curLevel);
 
     if (!asg->IsNothingNode())
     {
