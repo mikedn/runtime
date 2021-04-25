@@ -1333,10 +1333,8 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
 
     if (value->OperIs(GT_CALL, GT_RET_EXPR, GT_OBJ, GT_MKREFANY) || value->OperIsSimdOrHWintrinsic())
     {
-        unsigned tmpNum = lvaNewTemp(structHnd, true DEBUGARG("struct address temp"));
-        GenTree* tmp    = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
-        GenTree* asg    = impAssignStruct(tmp, value, structHnd, curLevel);
-        impAppendTree(asg, curLevel, impCurStmtOffs);
+        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address temp"));
+        impAppendTempAssign(tmpNum, value, structHnd, curLevel);
         return gtNewAddrNode(gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType()));
     }
 
@@ -1359,12 +1357,8 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             // TODO-MIKE-Cleanup: We do need a local temp for calls that return structs via
             // a return buffer. Do we also need a temp if structs are returned in registers?
             {
-                argLclNum          = lvaNewTemp(argLayout, true DEBUGARG("struct arg temp"));
-                GenTree* argLclVar = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
-                GenTree* asg       = impAssignStruct(argLclVar, arg, argLayout->GetClassHandle(), curLevel);
-
-                impAppendTree(asg, curLevel, impCurStmtOffs);
-
+                argLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+                impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
                 arg = gtNewLclvNode(argLclNum, lvaGetDesc(argLclNum)->GetType());
             }
 
@@ -7896,15 +7890,13 @@ GenTree* Compiler::impCanonicalizeMultiRegCall(GenTreeCall* call)
     assert(varTypeIsStruct(call->GetType()));
     assert((call->GetRegCount() > 1) && !call->CanTailCall() && !call->IsInlineCandidate());
 
-    unsigned tempLclNum = lvaNewTemp(call->GetRetLayout(), true DEBUGARG("multireg return call temp"));
+    unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return call temp"));
     // Make sure that this local doesn't get promoted.
     lvaGetDesc(tempLclNum)->lvIsMultiRegRet = true;
 
-    GenTree* temp = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
-    GenTree* asg  = impAssignStruct(temp, call, call->GetRetLayout(), CHECK_SPILL_ALL);
-    impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTempAssign(tempLclNum, call, call->GetRetLayout(), CHECK_SPILL_ALL);
 
-    temp = gtNewLclvNode(tempLclNum, temp->GetType());
+    GenTree* temp = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
     // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
     temp->gtFlags |= GTF_DONT_CSE;
 
@@ -7958,10 +7950,8 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
     if (lcl == nullptr)
     {
-        unsigned tempLclNum = lvaNewTemp(retClass, true DEBUGARG("multireg return temp"));
-        GenTree* temp       = gtNewLclvNode(tempLclNum, lvaGetDesc(tempLclNum)->GetType());
-        GenTree* asg        = impAssignStruct(temp, value, retClass, CHECK_SPILL_ALL);
-        impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+        unsigned tempLclNum = lvaGrabTemp(true DEBUGARG("multireg return temp"));
+        impAppendTempAssign(tempLclNum, value, retClass, CHECK_SPILL_ALL);
 
         lcl   = lvaGetDesc(tempLclNum);
         value = gtNewLclvNode(tempLclNum, lcl->GetType());
@@ -9962,7 +9952,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsStruct(lclTyp))
                 {
-                    op1 = impAssignStruct(op2, op1, clsHnd, (unsigned)CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op2, op1, clsHnd, CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -12839,10 +12829,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (op1->OperIs(GT_CALL, GT_RET_EXPR))
                 {
-                    ClassLayout* layout = typGetObjLayout(impGetRefAnyClass());
-                    unsigned     tmpNum = lvaNewTemp(layout, true DEBUGARG("refanyval temp"));
-                    GenTree*     asg = impAssignStruct(gtNewLclvNode(tmpNum, TYP_STRUCT), op1, layout, CHECK_SPILL_ALL);
-                    impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+                    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanyval temp"));
+                    impAppendTempAssign(tmpNum, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
                     op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
                 }
 
@@ -12868,10 +12856,8 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
                 {
-                    ClassLayout* layout = typGetObjLayout(impGetRefAnyClass());
-                    unsigned     tmpNum = lvaNewTemp(layout, true DEBUGARG("refanytype temp"));
-                    GenTree*     asg = impAssignStruct(gtNewLclvNode(tmpNum, TYP_STRUCT), op1, layout, CHECK_SPILL_ALL);
-                    impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+                    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanytype temp"));
+                    impAppendTempAssign(tmpNum, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
                     op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
                 }
 
