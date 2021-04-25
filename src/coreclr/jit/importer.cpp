@@ -633,36 +633,35 @@ void Compiler::impAssignTempGen(unsigned lclNum, GenTree* val, unsigned curLevel
     impAppendTree(asg, curLevel, impCurStmtOffs);
 }
 
-void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
+void Compiler::impAssignTempGen(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
-        impAssignTempGen(tmpNum, val, curLevel);
+        impAssignTempGen(lclNum, val, curLevel);
         return;
     }
 
-    return impAssignTempGen(tmpNum, val, typGetObjLayout(structType), curLevel);
+    impAssignTempGen(lclNum, val, typGetObjLayout(structType), curLevel);
 }
 
-void Compiler::impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
+void Compiler::impAssignTempGen(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
-        impAssignTempGen(tmpNum, val, curLevel);
+        impAssignTempGen(lclNum, val, curLevel);
         return;
     }
 
     assert(layout->IsValueClass());
 
-    lvaSetStruct(tmpNum, layout, false);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    assert(lcl->GetType() == TYP_UNDEF);
 
-    GenTree* dst = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
-    GenTree* asg = impAssignStruct(dst, val, layout, curLevel);
+    lvaSetStruct(lclNum, layout, false);
 
-    if (!asg->IsNothingNode())
-    {
-        impAppendTree(asg, curLevel, impCurStmtOffs);
-    }
+    GenTree* destAddr = gtNewAddrNode(gtNewLclvNode(lclNum, lcl->GetType()));
+    GenTree* asg      = impAssignStructAddr(destAddr, val, layout, curLevel);
+    impAppendTree(asg, curLevel, impCurStmtOffs);
 }
 
 /*****************************************************************************
@@ -7996,7 +7995,7 @@ GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTreeCall* call)
     // feeds the return, then the call must be returning the
     // same structure/class/type.
 
-    unsigned tmpNum = lvaNewTemp(call->GetRetLayout(), true DEBUGARG("pseudo return buffer"));
+    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
 
     // No need to spill anything as we're about to return.
     impAssignTempGen(tmpNum, call, call->GetRetLayout(), CHECK_SPILL_NONE);
