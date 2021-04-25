@@ -14226,7 +14226,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
-            if (tree->TypeIs(TYP_BYREF) && (spillTempLcl->GetType() == TYP_I_IMPL))
+            if (tree->TypeIs(TYP_BYREF) && spillTempLcl->TypeIs(TYP_I_IMPL))
             {
                 // VC generates code where it pushes a byref from one branch, and an int (ldc.i4 0) from
                 // the other.
@@ -14238,14 +14238,14 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 reimportSpillClique = true;
             }
 #ifdef TARGET_64BIT
-            else if (tree->TypeIs(TYP_LONG) && (spillTempLcl->GetType() == TYP_INT))
+            else if (tree->TypeIs(TYP_LONG) && spillTempLcl->TypeIs(TYP_INT))
             {
                 // Some other block in the spill clique set this to "int", but now we have "native int".
                 // Change the type and go back to re-import any blocks that used the wrong type.
                 spillTempLcl->SetType(TYP_LONG);
                 reimportSpillClique = true;
             }
-            else if ((varActualType(tree->GetType()) == TYP_INT) && (spillTempLcl->GetType() == TYP_LONG))
+            else if ((varActualType(tree->GetType()) == TYP_INT) && spillTempLcl->TypeIs(TYP_LONG))
             {
                 // Spill clique has decided this should be "native int", but this block only pushes an "int".
                 // Insert a sign-extension to "native int" so we match the clique.
@@ -14258,28 +14258,28 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
             // byref pointer to an 'int' sized local). If the 'int' side has been imported already,
             // we need to change the type of the local and reimport the spill clique. If the 'byref'
             // side has imported, we insert a cast from int to 'native int' to match the 'byref' size.
-            else if (tree->TypeIs(TYP_BYREF) && (spillTempLcl->GetType() == TYP_INT))
+            else if (tree->TypeIs(TYP_BYREF) && spillTempLcl->TypeIs(TYP_INT))
             {
                 // Some other block in the spill clique set this to "int", but now we have "byref".
                 // Change the type and go back to re-import any blocks that used the wrong type.
                 spillTempLcl->SetType(TYP_BYREF);
                 reimportSpillClique = true;
             }
-            else if ((varActualType(tree->GetType()) == TYP_INT) && (spillTempLcl->GetType() == TYP_BYREF))
+            else if ((varActualType(tree->GetType()) == TYP_INT) && spillTempLcl->TypeIs(TYP_BYREF))
             {
                 // Spill clique has decided this should be "byref", but this block only pushes an "int".
                 // Insert a sign-extension to "native int" so we match the clique size.
                 tree = gtNewCastNode(TYP_LONG, tree, false, TYP_LONG);
             }
 #endif // TARGET_64BIT
-            else if (tree->TypeIs(TYP_DOUBLE) && (spillTempLcl->GetType() == TYP_FLOAT))
+            else if (tree->TypeIs(TYP_DOUBLE) && spillTempLcl->TypeIs(TYP_FLOAT))
             {
                 // Some other block in the spill clique set this to "float", but now we have "double".
                 // Change the type and go back to re-import any blocks that used the wrong type.
                 spillTempLcl->SetType(TYP_DOUBLE);
                 reimportSpillClique = true;
             }
-            else if (tree->TypeIs(TYP_FLOAT) && (spillTempLcl->GetType() == TYP_DOUBLE))
+            else if (tree->TypeIs(TYP_FLOAT) && spillTempLcl->TypeIs(TYP_DOUBLE))
             {
                 // Spill clique has decided this should be "double", but this block only pushes a "float".
                 // Insert a cast to "double" so we match the clique.
@@ -14325,8 +14325,26 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 }
             }
 
-            impAssignTempGen(spillTempLclNum, tree, verCurrentState.esStack[level].seTypeInfo.GetClassHandle(),
-                             CHECK_SPILL_NONE);
+            GenTree* asg;
+
+            if (varTypeIsStruct(spillTempLcl->GetType()))
+            {
+                // TODO-MIKE-Cleanup: Spill temp's layout should be used but doing so results in
+                // asserts in impAssignStructAddr due to A<Canon>/A<SomeRefClass> mismatches.
+                ClassLayout* treeLayout = typGetObjLayout(verCurrentState.esStack[level].seTypeInfo.GetClassHandle());
+
+                GenTree* spillTempLclVar = gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType());
+                asg                      = impAssignStruct(spillTempLclVar, tree, treeLayout, CHECK_SPILL_NONE);
+            }
+            else
+            {
+                asg = impNewTempAssign(spillTempLclNum, tree);
+            }
+
+            if (!asg->IsNothingNode())
+            {
+                impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+            }
         }
     }
 
