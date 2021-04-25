@@ -7951,10 +7951,11 @@ DONE_INTRINSIC:
                     // and removes problems with cutting trees.
                     assert(!bIntrinsicImported);
                     assert(IsTargetAbi(CORINFO_CORERT_ABI));
-                    if (call->OperGet() != GT_LCL_VAR) // can be already converted by impCanonicalizeMultiRegCall.
+
+                    if (call == origCall) // can be already converted by impCanonicalizeMultiRegCall.
                     {
-                        unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli"));
-                        impAssignTempGen(calliTempLclNum, call, sig->retTypeClass, CHECK_SPILL_NONE);
+                        unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
+                        impAssignTempGen(calliTempLclNum, call, origCall->GetRetLayout(), CHECK_SPILL_NONE);
                         call = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
                     }
                 }
@@ -7968,15 +7969,15 @@ DONE_INTRINSIC:
                 // recognized in gtCanOptimizeTypeEquality. Otherwise
                 // we may break key fragile pattern matches later on.
                 bool spillStack = true;
-                if (call->IsCall())
+
+                if (call == origCall)
                 {
-                    GenTreeCall* callNode = call->AsCall();
-                    if ((callNode->gtCallType == CT_HELPER) && (gtIsTypeHandleToRuntimeTypeHelper(callNode) ||
-                                                                gtIsTypeHandleToRuntimeTypeHandleHelper(callNode)))
+                    if ((origCall->gtCallType == CT_HELPER) && (gtIsTypeHandleToRuntimeTypeHelper(origCall) ||
+                                                                gtIsTypeHandleToRuntimeTypeHandleHelper(origCall)))
                     {
                         spillStack = false;
                     }
-                    else if ((callNode->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
+                    else if ((origCall->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
                     {
                         spillStack = false;
                     }
