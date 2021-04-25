@@ -14226,6 +14226,12 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
+            if (tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLclNum() == spillTempLclNum))
+            {
+                assert(tree->GetType() == spillTempLcl->GetType());
+                continue;
+            }
+
             if (tree->TypeIs(TYP_BYREF) && spillTempLcl->TypeIs(TYP_I_IMPL))
             {
                 // VC generates code where it pushes a byref from one branch, and an int (ldc.i4 0) from
@@ -14341,10 +14347,8 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 asg = impNewTempAssign(spillTempLclNum, tree);
             }
 
-            if (!asg->IsNothingNode())
-            {
-                impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
-            }
+            assert(!asg->IsNothingNode());
+            impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
         }
     }
 
