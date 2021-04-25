@@ -13803,10 +13803,12 @@ GenTree* Compiler::gtNewTempAssign(unsigned lclNum, GenTree* val)
         }
         else
         {
-            // HWIntrinsic lowering creates temps from HWIntrinsic trees that have SIMD
-            // types not seen during import, we can't recover the layout in this case.
+            // We may not be able to recover the struct handle from SIMD/HWINTRINSIC
+            // nodes and SIMD typed IND nodes.
 
-            assert(val->OperIsSimdOrHWintrinsic());
+            // TODO-MIKE-Cleanup: So why bother at all?
+
+            assert(val->OperIsSimdOrHWintrinsic() || val->OperIs(GT_IND));
         }
 
         commaValue->gtFlags |= GTF_DONT_CSE;

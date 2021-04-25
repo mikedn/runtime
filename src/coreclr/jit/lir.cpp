@@ -250,25 +250,57 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum)
 {
     assert(IsInitialized());
-    assert(compiler != nullptr);
     assert(m_range->Contains(m_user));
     assert(m_range->Contains(*m_edge));
 
-    GenTree* const node = *m_edge;
-
     if (lclNum == BAD_VAR_NUM)
     {
-        lclNum = compiler->lvaGrabTemp(true DEBUGARG("ReplaceWithLclVar is creating a new local variable"));
+        lclNum = compiler->lvaGrabTemp(true DEBUGARG("LIR temp"));
     }
 
-    GenTreeLclVar* const store = compiler->gtNewTempAssign(lclNum, node)->AsLclVar();
-    assert(store != nullptr);
-    assert(store->gtOp1 == node);
+    GenTree*  def  = *m_edge;
+    var_types type = varActualType(def->GetType());
 
-    GenTree* const load =
-        new (compiler, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, store->TypeGet(), store->AsLclVarCommon()->GetLclNum());
+    // Currently we don't create struct temps in lowering.
+    assert(type != TYP_STRUCT);
 
-    m_range->InsertAfter(node, store, load);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+    if (lcl->GetType() != TYP_UNDEF)
+    {
+        assert(varActualType(lcl->GetType()) == type);
+    }
+    else if (!varTypeIsStruct(type))
+    {
+        lcl->SetType(type);
+    }
+    else
+    {
+        CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandleIfPresent(def);
+
+        if (structHandle != NO_CLASS_HANDLE)
+        {
+            compiler->lvaSetStruct(lclNum, structHandle, false);
+        }
+        else
+        {
+            // HWIntrinsic lowering creates temps from HWIntrinsic trees that have SIMD
+            // types not seen during import, we can't recover the handle in this case.
+            // Just set the local type, it should be enough.
+
+            // TODO-MIKE-Cleanup: So if it's enough why bother to begin with?
+
+            assert(def->OperIsSimdOrHWintrinsic() || def->OperIs(GT_IND));
+
+            lcl->lvType = type;
+        }
+    }
+
+    GenTreeLclVar* store = new (compiler, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, type, lclNum);
+    store->gtFlags |= GTF_ASG | GTF_VAR_DEF;
+    store->SetOp(0, def);
+    GenTree* load = compiler->gtNewLclvNode(lclNum, type);
+    m_range->InsertAfter(def, store, load);
 
     ReplaceWith(compiler, load);
 
