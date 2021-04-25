@@ -14225,9 +14225,18 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 // However, if the branch which leaves the TYP_I_IMPL on the stack is imported first, the
                 // successor would be imported assuming there was a TYP_I_IMPL on the stack. Thus the value
                 // would not get GC-tracked. Hence, change the temp to TYP_BYREF and reimport the successors.
+                // We don't need to do this is the tree represents a local address, these do not need to
+                // be reported to the GC as byrefs.
 
-                spillTempLcl->SetType(TYP_BYREF);
-                reimportSpillClique = true;
+                if (impIsAddressInLocal(tree))
+                {
+                    tree->SetType(TYP_I_IMPL);
+                }
+                else
+                {
+                    spillTempLcl->SetType(TYP_BYREF);
+                    reimportSpillClique = true;
+                }
             }
 #ifdef TARGET_64BIT
             else if (tree->TypeIs(TYP_LONG) && spillTempLcl->TypeIs(TYP_INT))
