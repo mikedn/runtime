@@ -2765,19 +2765,21 @@ public:
 #endif // DEBUG
 
         // we will create a  long lifetime temp for the new CSE LclVar
-        unsigned  cseLclVarNum = m_pCompiler->lvaGrabTemp(false DEBUGARG(grabTempMessage));
-        var_types cseLclVarTyp = varActualType(successfulCandidate->Expr()->GetType());
+        unsigned   cseLclVarNum = m_pCompiler->lvaGrabTemp(false DEBUGARG(grabTempMessage));
+        var_types  cseLclVarTyp = varActualType(successfulCandidate->Expr()->GetType());
+        LclVarDsc* cseLcl       = m_pCompiler->lvaGetDesc(cseLclVarNum);
 
         if (varTypeIsStruct(cseLclVarTyp))
         {
             m_pCompiler->lvaSetStruct(cseLclVarNum, successfulCandidate->CseDsc()->csdLayout, false);
+            assert(cseLcl->GetType() == cseLclVarTyp);
         }
         else
         {
-            m_pCompiler->lvaTable[cseLclVarNum].SetType(cseLclVarTyp);
+            cseLcl->SetType(cseLclVarTyp);
         }
 
-        m_pCompiler->lvaTable[cseLclVarNum].lvIsCSE = true;
+        cseLcl->lvIsCSE = true;
 
         // Record that we created a new LclVar for use as a CSE temp
         m_addCSEcount++;
@@ -2799,11 +2801,9 @@ public:
         {
             JITDUMP("CSE #%02u is single-def, so associated CSE temp V%02u will be in SSA\n", dsc->csdIndex,
                     cseLclVarNum);
-            m_pCompiler->lvaTable[cseLclVarNum].lvInSsa = true;
+            cseLcl->lvInSsa = true;
 
-            // Allocate the ssa num
-            CompAllocator allocator = m_pCompiler->getAllocator(CMK_SSA);
-            cseSsaNum               = m_pCompiler->lvaTable[cseLclVarNum].lvPerSsaData.AllocSsaNum(allocator);
+            cseSsaNum = cseLcl->lvPerSsaData.AllocSsaNum(m_pCompiler->getAllocator(CMK_SSA));
         }
 
         // Verify that all of the ValueNumbers in this list are correct as
@@ -2871,20 +2871,19 @@ public:
 
                 if (setRefCnt)
                 {
-                    m_pCompiler->lvaTable[cseLclVarNum].setLvRefCnt(1);
-                    m_pCompiler->lvaTable[cseLclVarNum].setLvRefCntWtd(curWeight);
+                    cseLcl->setLvRefCnt(1);
+                    cseLcl->setLvRefCntWtd(curWeight);
                     setRefCnt = false;
                 }
                 else
                 {
-                    m_pCompiler->lvaTable[cseLclVarNum].incRefCnts(curWeight, m_pCompiler);
+                    cseLcl->incRefCnts(curWeight, m_pCompiler);
                 }
 
                 // A CSE Def references the LclVar twice
-                //
                 if (isDef)
                 {
-                    m_pCompiler->lvaTable[cseLclVarNum].incRefCnts(curWeight, m_pCompiler);
+                    cseLcl->incRefCnts(curWeight, m_pCompiler);
                 }
             }
             lst = lst->tslNext;
@@ -3168,30 +3167,38 @@ public:
                     }
                 }
 
-                /* Create an assignment of the value to the temp */
-                GenTree* asg     = m_pCompiler->gtNewTempAssign(cseLclVarNum, val);
-                GenTree* origAsg = asg;
+                GenTreeOp* asg;
+                GenTree*   asgTree;
 
-                if (!asg->OperIs(GT_ASG))
+                if (!varTypeIsStruct(cseLclVarTyp))
                 {
-                    // This can only be the case for a struct in which the 'val' was a COMMA, so
-                    // the assignment is sunk below it.
-                    asg = asg->gtEffectiveVal(true);
-                    noway_assert(origAsg->OperIs(GT_COMMA) && (origAsg == val));
+                    asg = m_pCompiler->gtNewAssignNode(m_pCompiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp), val);
+
+                    asgTree = asg;
                 }
                 else
                 {
-                    noway_assert(asg->AsOp()->gtOp2 == val);
+                    asgTree = m_pCompiler->gtNewTempAssign(cseLclVarNum, val);
+
+                    if (!asgTree->OperIs(GT_ASG))
+                    {
+                        // This can only be the case for a struct in which the 'val' was a COMMA,
+                        // so the assignment is sunk below it.
+                        noway_assert(asgTree->OperIs(GT_COMMA) && (asgTree == val));
+                        asg = asgTree->gtEffectiveVal(true)->AsOp();
+                    }
+                    else
+                    {
+                        asg = asgTree->AsOp();
+                        noway_assert(asg->GetOp(1) == val);
+                    }
+
+                    noway_assert(asg->GetOp(0)->OperIs(GT_LCL_VAR));
                 }
 
-                // assign the proper Value Numbers
-                asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid()); // The GT_ASG node itself is $VN.Void
-                asg->AsOp()->gtOp1->gtVNPair = val->gtVNPair;      // The dest op is the same as 'val'
-
-                noway_assert(asg->AsOp()->gtOp1->gtOper == GT_LCL_VAR);
-
-                // Backpatch the SSA def, if we're putting this CSE temp into ssa.
-                asg->AsOp()->gtOp1->AsLclVar()->SetSsaNum(cseSsaNum);
+                asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
+                asg->GetOp(0)->gtVNPair = val->gtVNPair;
+                asg->GetOp(0)->AsLclVar()->SetSsaNum(cseSsaNum);
 
                 if (cseSsaNum != SsaConfig::RESERVED_SSA_NUM)
                 {
@@ -3207,12 +3214,9 @@ public:
                     ssaVarDsc->SetAssignment(asg->AsOp());
                 }
 
-                /* Create a reference to the CSE temp */
-                GenTree* cseLclVar = m_pCompiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
+                GenTreeLclVar* cseLclVar = m_pCompiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
                 cseLclVar->gtVNPair.SetBoth(dsc->csdConstDefVN);
-
-                // Assign the ssa num for the lclvar use. Note it may be the reserved num.
-                cseLclVar->AsLclVarCommon()->SetSsaNum(cseSsaNum);
+                cseLclVar->SetSsaNum(cseSsaNum);
 
                 GenTree* cseUse = cseLclVar;
                 if (isSharedConst)
@@ -3227,13 +3231,11 @@ public:
                         cseUse->SetDoNotCSE();
                     }
                 }
-                cseUse->gtVNPair = val->gtVNPair; // The 'cseUse' is equal to 'val'
+                cseUse->gtVNPair = val->gtVNPair;
 
-                /* Create a comma node for the CSE assignment */
-                cse           = m_pCompiler->gtNewOperNode(GT_COMMA, expTyp, origAsg, cseUse);
-                cse->gtVNPair = cseUse->gtVNPair; // The comma's value is the same as 'val'
-                                                  // as the assignment to the CSE LclVar
-                                                  // cannot add any new exceptions
+                cse = m_pCompiler->gtNewOperNode(GT_COMMA, expTyp, asgTree, cseUse);
+                // COMMA's VN is the same the original expression VN because assignment does not add any exceptions.
+                cse->gtVNPair = cseUse->gtVNPair;
             }
 
             cse->CopyReg(exp);  // The cse inheirits any reg num property from the orginal exp node

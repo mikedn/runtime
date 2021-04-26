@@ -1332,14 +1332,20 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 
             argInfo->SetTempLclNum(tempLclNum);
 
+            if (!varTypeIsStruct(arg->GetType()))
+            {
+                var_types type = varActualType(arg->GetType());
+                tempLcl->SetType(type);
+                setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, type), arg);
+            }
 #ifndef TARGET_X86
-            if (arg->OperIs(GT_MKREFANY))
+            else if (arg->OperIs(GT_MKREFANY))
             {
                 compiler->lvaSetStruct(tempLclNum, compiler->impGetRefAnyClass(), false);
                 setupArg = compiler->abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp());
             }
-            else
 #endif
+            else
             {
                 setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
 
