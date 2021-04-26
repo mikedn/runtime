@@ -8215,18 +8215,11 @@ public:
     void* compGetHelperFtn(CorInfoHelpFunc ftnNum,         /* IN  */
                            void**          ppIndirection); /* OUT */
 
-    // Several JIT/EE interface functions return a CorInfoType, and also return a
-    // class handle as an out parameter if the type is a value class.  Returns the
-    // size of the type these describe.
-    unsigned compGetTypeSize(CorInfoType cit, CORINFO_CLASS_HANDLE clsHnd);
-
-#ifdef DEBUG
     // Components used by the compiler may write unit test suites, and
     // have them run within this method.  They will be run only once per process, and only
     // in debug.  (Perhaps should be under the control of a COMPlus_ flag.)
     // These should fail by asserting.
-    void compDoComponentUnitTestsOnce();
-#endif // DEBUG
+    INDEBUG(void compDoComponentUnitTestsOnce();)
 
     int compCompile(CORINFO_MODULE_HANDLE classPtr,
                     void**                methodCodePtr,

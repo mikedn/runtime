@@ -14577,44 +14577,31 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bo
     }
     else if (OperIsBlk())
     {
-        blkNode = this->AsBlk();
+        blkNode = AsBlk();
     }
-    if (blkNode != nullptr)
+
+    if (blkNode == nullptr)
     {
-        GenTree* destAddr = blkNode->Addr();
-        unsigned width    = blkNode->Size();
-        // Do we care about whether this assigns the entire variable?
-        if (pIsEntire != nullptr && blkNode->OperIs(GT_DYN_BLK))
+        return false;
+    }
+
+    unsigned size = blkNode->Size();
+
+    if (GenTreeDynBlk* dynBlk = blkNode->IsDynBlk())
+    {
+        if (GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon())
         {
-            GenTree* blockWidth = blkNode->AsDynBlk()->gtDynamicSize;
-            if (blockWidth->IsCnsIntOrI())
+            size = constSize->GetUInt32Value();
+
+            // cpblk of size zero exists in the wild (in yacc-generated code in SQL) and is valid IL.
+            if (size == 0)
             {
-                if (blockWidth->IsIconHandle())
-                {
-                    // If it's a handle, it must be a class handle.  We only create such block operations
-                    // for initialization of struct types, so the type of the argument(s) will match this
-                    // type, by construction, and be "entire".
-                    assert(blockWidth->IsIconHandle(GTF_ICON_CLASS_HDL));
-                    width = comp->info.compCompHnd->getClassSize(
-                        CORINFO_CLASS_HANDLE(blockWidth->AsIntConCommon()->IconValue()));
-                }
-                else
-                {
-                    ssize_t swidth = blockWidth->AsIntConCommon()->IconValue();
-                    assert(swidth >= 0);
-                    // cpblk of size zero exists in the wild (in yacc-generated code in SQL) and is valid IL.
-                    if (swidth == 0)
-                    {
-                        return false;
-                    }
-                    width = unsigned(swidth);
-                }
+                return false;
             }
         }
-        return destAddr->DefinesLocalAddr(comp, width, pLclVarTree, pIsEntire);
     }
-    // Otherwise...
-    return false;
+
+    return blkNode->GetAddr()->DefinesLocalAddr(comp, size, pLclVarTree, pIsEntire);
 }
 
 // Returns true if this GenTree defines a result which is based on the address of a local.
