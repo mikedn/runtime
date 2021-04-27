@@ -1378,8 +1378,8 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 #endif
             else
             {
-                CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandle(arg);
-                compiler->lvaSetStruct(tempLclNum, structHandle, /* checkUnsafeBuffer */ false);
+                ClassLayout* layout = compiler->typGetStructLayout(arg);
+                compiler->lvaSetStruct(tempLclNum, layout, /* checkUnsafeBuffer */ false);
                 setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
 
                 if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))
@@ -8472,15 +8472,18 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 
         if (structType == TYP_STRUCT)
         {
-            CORINFO_CLASS_HANDLE structHnd = gtGetStructHandle(effectiveVal);
-
-            if (structHnd == NO_CLASS_HANDLE)
+            if (effectiveVal->OperIs(GT_IND))
             {
-                indir = gtNewOperNode(GT_IND, structType, addr);
+                // We may end up with STRUCT IND nodes from STRUCT INDEX morphing, these do not have layout.
+                // They're supposed to appear only as the source of a copy block so they don't really need
+                // layout. DYN_BLK also uses STRUCT IND but those never appear under a COMMA.
+
+                assert(!isDest);
+                indir = gtNewIndir(TYP_STRUCT, addr);
             }
             else
             {
-                indir = gtNewObjNode(structHnd, addr);
+                indir = gtNewObjNode(typGetStructLayout(effectiveVal), addr);
             }
         }
         else

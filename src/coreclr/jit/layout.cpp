@@ -637,6 +637,28 @@ var_types Compiler::typGetStructType(ClassLayout* layout)
     return TYP_STRUCT;
 }
 
+ClassLayout* Compiler::typGetStructLayout(GenTree* node)
+{
+    assert(node->TypeIs(TYP_STRUCT));
+
+    node = node->gtEffectiveVal();
+
+    switch (node->GetOper())
+    {
+        case GT_OBJ:
+            return node->AsObj()->GetLayout();
+        case GT_CALL:
+            return node->AsCall()->GetRetLayout();
+        case GT_LCL_VAR:
+            return lvaGetDesc(node->AsLclVar())->GetLayout();
+        case GT_LCL_FLD:
+            return node->AsLclFld()->GetLayout(this);
+        default:
+            // This is not intended to be used before global morph so FIELD and INDEX are not handled.
+            unreached();
+    }
+}
+
 ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
 {
     assert(varTypeIsSIMD(node->GetType()));

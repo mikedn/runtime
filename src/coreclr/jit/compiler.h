@@ -8118,6 +8118,8 @@ public:
     var_types typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType = nullptr);
     // Get the struct type for the specified layout.
     var_types typGetStructType(ClassLayout* layout);
+    // Get the layout of a STRUCT typed node.
+    ClassLayout* typGetStructLayout(GenTree* node);
     // Get the layout of a Vector2/3/4/T/NT type.
     ClassLayout* typGetVectorLayout(GenTree* node);
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
