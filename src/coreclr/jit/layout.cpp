@@ -685,11 +685,7 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
         case GT_SIMD:
             return typGetNumericsVectorLayout(node->GetType(), node->AsSIMD()->GetSIMDBaseType());
         case GT_HWINTRINSIC:
-            if ((node->gtFlags & GTF_SIMDASHW_OP) != 0)
-            {
-                return typGetNumericsVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());
-            }
-            return typGetRuntimeVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());
+            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());
         default:
             // This is not intended to be used before global morph so FIELD and INDEX are not handled.
             unreached();

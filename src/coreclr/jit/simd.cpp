@@ -964,7 +964,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
             if (op2->IsIntegralConst(0) || op2->IsDblConPositiveZero())
             {
-                simdTree = gtNewSimdAsHWIntrinsicNode(simdType, NI_Vector128_get_Zero, baseType, size);
+                simdTree = gtNewSimdHWIntrinsicNode(simdType, NI_Vector128_get_Zero, baseType, size);
             }
             else if (varTypeIsSmallInt(baseType))
             {

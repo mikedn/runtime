@@ -1928,45 +1928,6 @@ public:
                                                  GenTree*       op4,
                                                  GenTree*       op5);
 
-    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(var_types      type,
-                                                   NamedIntrinsic hwIntrinsicID,
-                                                   var_types      baseType,
-                                                   unsigned       size)
-    {
-        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size);
-        node->gtFlags |= GTF_SIMDASHW_OP;
-        return node;
-    }
-
-    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(
-        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
-    {
-        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1);
-        node->gtFlags |= GTF_SIMDASHW_OP;
-        return node;
-    }
-
-    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(
-        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
-    {
-        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2);
-        node->gtFlags |= GTF_SIMDASHW_OP;
-        return node;
-    }
-
-    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(var_types      type,
-                                                   NamedIntrinsic hwIntrinsicID,
-                                                   var_types      baseType,
-                                                   unsigned       size,
-                                                   GenTree*       op1,
-                                                   GenTree*       op2,
-                                                   GenTree*       op3)
-    {
-        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2, op3);
-        node->gtFlags |= GTF_SIMDASHW_OP;
-        return node;
-    }
-
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types      type,
                                                    NamedIntrinsic hwIntrinsicID,
