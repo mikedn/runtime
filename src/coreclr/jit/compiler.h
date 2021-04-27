@@ -2196,8 +2196,6 @@ public:
 
     //-------------------------------------------------------------------------
     // Get the handle, if any.
-    CORINFO_CLASS_HANDLE gtGetStructHandleIfPresent(GenTree* tree);
-    // Get the handle, and assert if not found.
     CORINFO_CLASS_HANDLE gtGetStructHandle(GenTree* tree);
     // Get the handle for a ref type.
     CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* pIsExact, bool* pIsNonNull);

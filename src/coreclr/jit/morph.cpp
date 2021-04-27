@@ -1353,7 +1353,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 #endif
             else
             {
-                CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandleIfPresent(arg);
+                CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandle(arg);
 
                 if (structHandle != NO_CLASS_HANDLE)
                 {
@@ -8462,7 +8462,7 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 
         if (structType == TYP_STRUCT)
         {
-            CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(effectiveVal);
+            CORINFO_CLASS_HANDLE structHnd = gtGetStructHandle(effectiveVal);
 
             if (structHnd == NO_CLASS_HANDLE)
             {
@@ -10246,7 +10246,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_GT:
         {
             // Try and optimize nullable boxes feeding compares
-            GenTree* optimizedTree = gtFoldBoxNullable(tree);
+            GenTree* optimizedTree = gtFoldBoxNullable(tree->AsOp());
 
             if (optimizedTree->OperGet() != tree->OperGet())
             {

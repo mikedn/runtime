@@ -11755,6 +11755,9 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     if (arg->OperIs(GT_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
     {
         CORINFO_CLASS_HANDLE nullableHnd = gtGetStructHandle(arg->AsOp()->gtOp1);
+        // TODO-MIKE-Cleanup: It would be better for this to be an if rather than an assert.
+        assert(nullableHnd != NO_CLASS_HANDLE);
+
         CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableHnd, 0);
         unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
 
@@ -15309,7 +15312,7 @@ GenTree* Compiler::gtGetSIMDZero(ClassLayout* layout)
 }
 #endif // FEATURE_SIMD
 
-CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
+CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
 {
     if (!varTypeIsStruct(tree->GetType()))
     {
@@ -15381,13 +15384,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
         default:
             return NO_CLASS_HANDLE;
     }
-}
-
-CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
-{
-    CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(tree);
-    assert(structHnd != NO_CLASS_HANDLE);
-    return structHnd;
 }
 
 //------------------------------------------------------------------------

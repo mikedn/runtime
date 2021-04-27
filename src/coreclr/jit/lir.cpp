@@ -276,7 +276,7 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum)
     }
     else
     {
-        CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandleIfPresent(def);
+        CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandle(def);
 
         if (structHandle != NO_CLASS_HANDLE)
         {

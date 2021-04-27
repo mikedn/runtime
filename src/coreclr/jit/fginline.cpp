@@ -2257,7 +2257,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             }
             else
             {
-                CORINFO_CLASS_HANDLE argClass = gtGetStructHandleIfPresent(argNode);
+                CORINFO_CLASS_HANDLE argClass = gtGetStructHandle(argNode);
                 noway_assert(argClass != NO_CLASS_HANDLE);
 
                 // TODO-MIKE-Cleanup: Workaround for the type mismatch issue described in
