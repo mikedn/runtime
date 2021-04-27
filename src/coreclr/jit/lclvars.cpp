@@ -2597,6 +2597,25 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         }
     }
 
+    if (!varTypeIsSIMD(varDsc->GetType()))
+    {
+        // TODO-MIKE-Throughput: ClassLayout already queries class attributes, it should store
+        // "overlapping fields" and "unsafe value class" bits so we don't have to do it again.
+
+        unsigned classAttribs = info.compCompHnd->getClassAttribs(layout->GetClassHandle());
+
+        varDsc->lvOverlappingFields = StructHasOverlappingFields(classAttribs);
+
+        // Check whether this local is an unsafe value type and requires GS cookie protection.
+        // GS checks require the stack to be re-ordered, which can't be done with EnC.
+        if (checkUnsafeBuffer && ((classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) != 0) && !opts.compDbgEnC)
+        {
+            setNeedsGSSecurityCookie();
+            compGSReorderStackLayout = true;
+            varDsc->lvIsUnsafeBuffer = true;
+        }
+    }
+
 #ifndef TARGET_64BIT
     bool doubleAlignHint = false;
 #ifdef TARGET_X86
@@ -2608,22 +2627,6 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         varDsc->lvStructDoubleAlign = 1;
     }
 #endif
-
-    // TODO-MIKE-Throughput: ClassLayout already queries class attributes, it should store
-    // "overlapping fields" and "unsafe value class" bits so we don't have to do it again.
-
-    unsigned classAttribs = info.compCompHnd->getClassAttribs(layout->GetClassHandle());
-
-    varDsc->lvOverlappingFields = StructHasOverlappingFields(classAttribs);
-
-    // Check whether this local is an unsafe value type and requires GS cookie protection.
-    // GS checks require the stack to be re-ordered, which can't be done with EnC.
-    if (checkUnsafeBuffer && ((classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) != 0) && !opts.compDbgEnC)
-    {
-        setNeedsGSSecurityCookie();
-        compGSReorderStackLayout = true;
-        varDsc->lvIsUnsafeBuffer = true;
-    }
 
 #ifdef DEBUG
     if (JitConfig.EnableExtraSuperPmiQueries())
