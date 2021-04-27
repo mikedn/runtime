@@ -1344,20 +1344,12 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 tempLcl->SetType(type);
                 setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, type), arg);
             }
-#ifndef TARGET_X86
-            else if (arg->OperIs(GT_MKREFANY))
+            else if (varTypeIsSIMD(arg->GetType()))
             {
-                compiler->lvaSetStruct(tempLclNum, compiler->impGetRefAnyClass(), false);
-                setupArg = compiler->abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp());
-            }
-#endif
-            else
-            {
-                CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandle(arg);
-
-                if (structHandle != NO_CLASS_HANDLE)
+                ClassLayout* layout = compiler->typGetVectorLayout(arg);
+                if (layout != nullptr)
                 {
-                    compiler->lvaSetStruct(tempLclNum, structHandle, /* checkUnsafeBuffer */ false);
+                    compiler->lvaSetStruct(tempLclNum, layout, /* checkUnsafeBuffer */ false);
                 }
                 else
                 {
@@ -1370,6 +1362,24 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                     tempLcl->lvType = arg->GetType();
                 }
 
+                setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
+
+                if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))
+                {
+                    setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
+                }
+            }
+#ifndef TARGET_X86
+            else if (arg->OperIs(GT_MKREFANY))
+            {
+                compiler->lvaSetStruct(tempLclNum, compiler->impGetRefAnyClass(), false);
+                setupArg = compiler->abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp());
+            }
+#endif
+            else
+            {
+                CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandle(arg);
+                compiler->lvaSetStruct(tempLclNum, structHandle, /* checkUnsafeBuffer */ false);
                 setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
 
                 if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))

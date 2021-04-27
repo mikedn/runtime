@@ -15314,18 +15314,12 @@ GenTree* Compiler::gtGetSIMDZero(ClassLayout* layout)
 
 CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
 {
-    if (!varTypeIsStruct(tree->GetType()))
-    {
-        return NO_CLASS_HANDLE;
-    }
+    assert(tree->TypeIs(TYP_STRUCT));
 
     tree = tree->gtEffectiveVal();
 
     switch (tree->GetOper())
     {
-        ClassLayout*         layout;
-        CORINFO_CLASS_HANDLE structHnd;
-
         case GT_MKREFANY:
             return impGetRefAnyClass();
         case GT_OBJ:
@@ -15337,52 +15331,15 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
         case GT_INDEX:
             return tree->AsIndex()->GetLayout()->GetClassHandle();
         case GT_FIELD:
+            CORINFO_CLASS_HANDLE structHnd;
             info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
             return structHnd;
         case GT_LCL_VAR:
             return lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
-
         case GT_LCL_FLD:
-            layout = tree->AsLclFld()->GetLayout(this);
-
-            if (layout != nullptr)
-            {
-                return layout->IsBlockLayout() ? NO_CLASS_HANDLE : layout->GetClassHandle();
-            }
-#ifndef FEATURE_SIMD
-            return NO_CLASS_HANDLE;
-#else
-            FALLTHROUGH;
-        case GT_IND:
-            if (!varTypeIsSIMD(tree->GetType()))
-            {
-                return NO_CLASS_HANDLE;
-            }
-
-            layout = typGetVectorLayout(tree->GetType(), TYP_UNDEF);
-            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
-
-        case GT_SIMD:
-            layout = typGetNumericsVectorLayout(tree->GetType(), tree->AsSIMD()->GetSIMDBaseType());
-            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            if ((tree->gtFlags & GTF_SIMDASHW_OP) != 0)
-            {
-                layout = typGetNumericsVectorLayout(tree->GetType(), tree->AsHWIntrinsic()->GetSIMDBaseType());
-            }
-            else
-            {
-                layout = typGetRuntimeVectorLayout(tree->GetType(), tree->AsHWIntrinsic()->GetSIMDBaseType());
-            }
-
-            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
-#endif
-#endif // FEATURE_SIMD
-
+            return tree->AsLclFld()->GetLayout(this)->GetClassHandle();
         default:
-            return NO_CLASS_HANDLE;
+            unreached();
     }
 }
 
