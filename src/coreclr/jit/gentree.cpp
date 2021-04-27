@@ -13675,12 +13675,6 @@ GenTree* Compiler::gtNewTempAssign(unsigned lclNum, GenTree* val)
 
     LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    if (val->IsConstInitVal())
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-        return gtNewAssignNode(gtNewLclvNode(lclNum, TYP_STRUCT), val);
-    }
-
     if (varTypeUsesFloatReg(val->GetType()))
     {
         compFloatingPointUsed = true;
