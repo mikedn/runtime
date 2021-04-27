@@ -2564,9 +2564,6 @@ public:
     // Returns the caller-SP-relative offset for the local variable "varNum."
     int lvaGetCallerSPRelativeOffset(unsigned varNum);
 
-    // Returns the SP-relative offset for the local variable "varNum". Illegal to ask this for functions with localloc.
-    int lvaGetSPRelativeOffset(unsigned varNum);
-
     int lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased);
     int lvaGetInitialSPRelativeOffset(unsigned varNum);
 
