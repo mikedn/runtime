@@ -637,6 +637,46 @@ var_types Compiler::typGetStructType(ClassLayout* layout)
     return TYP_STRUCT;
 }
 
+ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
+{
+    assert(varTypeIsSIMD(node->GetType()));
+
+#ifdef FEATURE_SIMD
+    node = node->gtEffectiveVal();
+
+    switch (node->GetOper())
+    {
+        case GT_OBJ:
+            return node->AsObj()->GetLayout();
+        case GT_CALL:
+            return node->AsCall()->GetRetLayout();
+        case GT_LCL_VAR:
+            return lvaGetDesc(node->AsLclVar())->GetLayout();
+        case GT_LCL_FLD:
+            if (ClassLayout* layout = node->AsLclFld()->GetLayout(this))
+            {
+                return layout;
+            }
+            FALLTHROUGH;
+        case GT_IND:
+            return typGetVectorLayout(node->GetType(), TYP_UNDEF);
+        case GT_SIMD:
+            return typGetNumericsVectorLayout(node->GetType(), node->AsSIMD()->GetSIMDBaseType());
+        case GT_HWINTRINSIC:
+            if ((node->gtFlags & GTF_SIMDASHW_OP) != 0)
+            {
+                return typGetNumericsVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());
+            }
+            return typGetRuntimeVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());
+        default:
+            // This is not intended to be used before global morph so FIELD and INDEX are not handled.
+            unreached();
+    }
+#else
+    return nullptr;
+#endif
+}
+
 ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementType)
 {
 #ifdef FEATURE_SIMD

@@ -276,11 +276,11 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum)
     }
     else
     {
-        CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandle(def);
+        ClassLayout* layout = compiler->typGetVectorLayout(def);
 
-        if (structHandle != NO_CLASS_HANDLE)
+        if (layout != nullptr)
         {
-            compiler->lvaSetStruct(lclNum, structHandle, false);
+            compiler->lvaSetStruct(lclNum, layout, false);
         }
         else
         {

@@ -8119,6 +8119,7 @@ public:
     // Get the struct type for the specified layout.
     var_types typGetStructType(ClassLayout* layout);
     // Get the layout of a Vector2/3/4/T/NT type.
+    ClassLayout* typGetVectorLayout(GenTree* node);
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
     ClassLayout* typGetRuntimeVectorLayout(var_types simdType, var_types elementType);
     ClassLayout* typGetNumericsVectorLayout(var_types simdType, var_types elementType);
