@@ -13674,32 +13674,6 @@ GenTree* Compiler::gtNewTempAssign(unsigned lclNum, GenTree* val)
     assert(lclNum != genReturnLocal);
 
     LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-    if (varTypeUsesFloatReg(val->GetType()))
-    {
-        compFloatingPointUsed = true;
-    }
-
-    if (lcl->TypeIs(TYP_UNDEF))
-    {
-        CORINFO_CLASS_HANDLE structHandle = gtGetStructHandleIfPresent(val);
-
-        if (structHandle != NO_CLASS_HANDLE)
-        {
-            lvaSetStruct(lclNum, structHandle, /* checkUnsafeBuffer */ false);
-        }
-        else
-        {
-            // We may not be able to recover the struct handle from SIMD/HWINTRINSIC
-            // nodes and SIMD typed IND nodes.
-
-            // TODO-MIKE-Cleanup: So why bother at all?
-
-            assert(varTypeIsSIMD(val->GetType()) && (val->OperIsSimdOrHWintrinsic() || val->OperIs(GT_IND)));
-            lcl->lvType = val->GetType();
-        }
-    }
-
     assert(lcl->GetType() == val->GetType());
 
     // TODO-MIKE-Review: Is this actually needed?

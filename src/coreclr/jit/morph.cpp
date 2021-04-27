@@ -1327,6 +1327,12 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         {
             JITDUMPTREE(arg, "Creating temp for arg:\n");
 
+            // We may have started with a struct arg and changed it to a FP/SIMD arg.
+            if (varTypeUsesFloatReg(arg->GetType()))
+            {
+                compiler->compFloatingPointUsed = true;
+            }
+
             unsigned   tempLclNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
             LclVarDsc* tempLcl    = compiler->lvaGetDesc(tempLclNum);
 
@@ -1347,6 +1353,23 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
 #endif
             else
             {
+                CORINFO_CLASS_HANDLE structHandle = compiler->gtGetStructHandleIfPresent(arg);
+
+                if (structHandle != NO_CLASS_HANDLE)
+                {
+                    compiler->lvaSetStruct(tempLclNum, structHandle, /* checkUnsafeBuffer */ false);
+                }
+                else
+                {
+                    // We may not be able to recover the struct handle from SIMD/HWINTRINSIC
+                    // nodes and SIMD typed IND nodes.
+
+                    // TODO-MIKE-Cleanup: So why bother at all?
+
+                    assert(varTypeIsSIMD(arg->GetType()) && (arg->OperIsSimdOrHWintrinsic() || arg->OperIs(GT_IND)));
+                    tempLcl->lvType = arg->GetType();
+                }
+
                 setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
 
                 if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))
