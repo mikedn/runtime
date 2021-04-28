@@ -5538,9 +5538,6 @@ protected:
     void     optValnumCSE_DataFlow();
     void     optValnumCSE_Availablity();
     void     optValnumCSE_Heuristic();
-
-    ClassLayout* optValnumCSE_GetStructLayout(GenTree* tree);
-    ClassLayout* optValnumCSE_GetApproximateVectorLayout(GenTree* tree);
 #endif // FEATURE_VALNUM_CSE
 
 #if FEATURE_ANYCSE
@@ -8084,8 +8081,6 @@ public:
     // Get the layout of a Vector2/3/4/T/NT type.
     ClassLayout* typGetVectorLayout(GenTree* node);
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
-    ClassLayout* typGetRuntimeVectorLayout(var_types simdType, var_types elementType);
-    ClassLayout* typGetNumericsVectorLayout(var_types simdType, var_types elementType);
 
 //-------------------------- Global Compiler Data ------------------------------------
 

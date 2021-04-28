@@ -15320,8 +15320,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_MKREFANY:
-            return impGetRefAnyClass();
         case GT_OBJ:
             return tree->AsObj()->GetLayout()->GetClassHandle();
         case GT_CALL:

@@ -387,57 +387,6 @@ unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
     return hash % optCSEhashSize;
 }
 
-ClassLayout* Compiler::optValnumCSE_GetStructLayout(GenTree* tree)
-{
-    assert(varTypeIsStruct(tree->GetType()));
-
-    tree = tree->SkipComma();
-
-    switch (tree->GetOper())
-    {
-#ifdef FEATURE_SIMD
-        case GT_OBJ:
-            return tree->AsObj()->GetLayout();
-        case GT_LCL_FLD:
-            return tree->AsLclFld()->GetLayout(this);
-        case GT_LCL_VAR:
-            return lvaGetDesc(tree->AsLclVar())->GetLayout();
-#endif
-        case GT_CALL:
-            return tree->AsCall()->GetRetLayout();
-        default:
-            return nullptr;
-    }
-}
-
-ClassLayout* Compiler::optValnumCSE_GetApproximateVectorLayout(GenTree* tree)
-{
-    assert(varTypeIsSIMD(tree->GetType()));
-
-    tree = tree->SkipComma();
-
-    var_types baseType;
-
-    switch (tree->GetOper())
-    {
-#ifdef FEATURE_SIMD
-        case GT_HWINTRINSIC:
-            baseType = tree->AsHWIntrinsic()->GetSIMDBaseType();
-            break;
-        case GT_SIMD:
-            baseType = tree->AsSIMD()->GetSIMDBaseType();
-            break;
-#endif
-        case GT_IND:
-            baseType = TYP_UNDEF;
-            break;
-        default:
-            unreached();
-    }
-
-    return typGetVectorLayout(tree->GetType(), baseType);
-}
-
 //---------------------------------------------------------------------------
 // optValnumCSE_Index:
 //               - Returns the CSE index to use for this tree,
@@ -599,7 +548,7 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
                 // expression somehow have different layouts, as long as the layout SIMD type
                 // is the same.
 
-                hashDsc->csdLayout = optValnumCSE_GetStructLayout(tree);
+                hashDsc->csdLayout = typGetStructLayout(tree);
             }
 
             treeStmtLst* occurrence = new (this, CMK_CSE) treeStmtLst(tree, stmt, compCurBB);
@@ -664,7 +613,7 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
 
             if (varTypeIsStruct(tree->GetType()))
             {
-                hashDsc->csdLayout = optValnumCSE_GetStructLayout(tree);
+                hashDsc->csdLayout = typGetStructLayout(tree);
                 assert((hashDsc->csdLayout != nullptr) || varTypeIsSIMD(tree->GetType()));
             }
 
@@ -2358,7 +2307,10 @@ public:
             // isn't populated. In such a case we don't have any option but to reject
             // this CSE.
 
-            ClassLayout* layout = m_pCompiler->optValnumCSE_GetApproximateVectorLayout(candidate->Expr());
+            // TODO-MIKE-Cleanup: Do we really need this? There are other places that
+            // create SIMD temps without layout so why bother at all here?
+
+            ClassLayout* layout = m_pCompiler->typGetVectorLayout(candidate->Expr());
 
             if (layout == nullptr)
             {
