@@ -291,49 +291,45 @@ GenTree* Compiler::addRangeCheckIfNeeded(
     // because the imm-parameter of the intrinsic method is a byte.
     // AVX2 Gather intrinsics no not need the range-check
     // because their imm-parameter have discrete valid values that are handle by managed code
-    if (mustExpand && HWIntrinsicInfo::isImmOp(intrinsic, immOp)
+    if (!mustExpand || !HWIntrinsicInfo::isImmOp(intrinsic, immOp)
 #ifdef TARGET_XARCH
-        && !HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic) && !HWIntrinsicInfo::HasFullRangeImm(intrinsic)
+        || HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic) || HWIntrinsicInfo::HasFullRangeImm(intrinsic)
 #endif
             )
     {
-        assert(!immOp->IsCnsIntOrI());
-        assert(varTypeIsUnsigned(immOp));
-
-        // Bounds check for value of an immediate operand
-        //   (immLowerBound <= immOp) && (immOp <= immUpperBound)
-        //
-        // implemented as a single comparison in the form of
-        //
-        // if ((immOp - immLowerBound) >= (immUpperBound - immLowerBound + 1))
-        // {
-        //     throw new ArgumentOutOfRangeException();
-        // }
-        //
-        // The value of (immUpperBound - immLowerBound + 1) is denoted as adjustedUpperBound.
-
-        const ssize_t adjustedUpperBound     = (ssize_t)immUpperBound - immLowerBound + 1;
-        GenTree*      adjustedUpperBoundNode = gtNewIconNode(adjustedUpperBound, TYP_INT);
-
-        GenTree* immOpDup = nullptr;
-
-        immOp = impCloneExpr(immOp, &immOpDup, NO_CLASS_HANDLE,
-                             CHECK_SPILL_ALL DEBUGARG("Clone an immediate operand for immediate value bounds check"));
-
-        if (immLowerBound != 0)
-        {
-            immOpDup = gtNewOperNode(GT_SUB, TYP_INT, immOpDup, gtNewIconNode(immLowerBound, TYP_INT));
-        }
-
-        GenTreeBoundsChk* hwIntrinsicChk = new (this, GT_HW_INTRINSIC_CHK)
-            GenTreeBoundsChk(GT_HW_INTRINSIC_CHK, immOpDup, adjustedUpperBoundNode, SCK_ARG_RNG_EXCPN);
-
-        return gtNewOperNode(GT_COMMA, immOp->TypeGet(), hwIntrinsicChk, immOp);
-    }
-    else
-    {
         return immOp;
     }
+
+    assert(!immOp->IsIntCon());
+    assert(varTypeIsUnsigned(immOp));
+
+    // Bounds check for value of an immediate operand
+    //   (immLowerBound <= immOp) && (immOp <= immUpperBound)
+    //
+    // implemented as a single comparison in the form of
+    //
+    // if ((immOp - immLowerBound) >= (immUpperBound - immLowerBound + 1))
+    // {
+    //     throw new ArgumentOutOfRangeException();
+    // }
+    //
+    // The value of (immUpperBound - immLowerBound + 1) is denoted as adjustedUpperBound.
+
+    const ssize_t adjustedUpperBound     = (ssize_t)immUpperBound - immLowerBound + 1;
+    GenTree*      adjustedUpperBoundNode = gtNewIconNode(adjustedUpperBound, TYP_INT);
+
+    GenTree* immOpUses[2];
+    impMakeMultiUse(immOp, 2, immOpUses, CHECK_SPILL_ALL DEBUGARG("hw intrinsic range check temp"));
+
+    if (immLowerBound != 0)
+    {
+        immOpUses[1] = gtNewOperNode(GT_SUB, TYP_INT, immOpUses[1], gtNewIconNode(immLowerBound, TYP_INT));
+    }
+
+    GenTreeBoundsChk* hwIntrinsicChk = new (this, GT_HW_INTRINSIC_CHK)
+        GenTreeBoundsChk(GT_HW_INTRINSIC_CHK, immOpUses[1], adjustedUpperBoundNode, SCK_ARG_RNG_EXCPN);
+
+    return gtNewOperNode(GT_COMMA, immOpUses[0]->GetType(), hwIntrinsicChk, immOpUses[0]);
 }
 
 //------------------------------------------------------------------------

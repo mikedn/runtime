@@ -2597,6 +2597,25 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         }
     }
 
+    if (!varTypeIsSIMD(varDsc->GetType()))
+    {
+        // TODO-MIKE-Throughput: ClassLayout already queries class attributes, it should store
+        // "overlapping fields" and "unsafe value class" bits so we don't have to do it again.
+
+        unsigned classAttribs = info.compCompHnd->getClassAttribs(layout->GetClassHandle());
+
+        varDsc->lvOverlappingFields = StructHasOverlappingFields(classAttribs);
+
+        // Check whether this local is an unsafe value type and requires GS cookie protection.
+        // GS checks require the stack to be re-ordered, which can't be done with EnC.
+        if (checkUnsafeBuffer && ((classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) != 0) && !opts.compDbgEnC)
+        {
+            setNeedsGSSecurityCookie();
+            compGSReorderStackLayout = true;
+            varDsc->lvIsUnsafeBuffer = true;
+        }
+    }
+
 #ifndef TARGET_64BIT
     bool doubleAlignHint = false;
 #ifdef TARGET_X86
@@ -2608,22 +2627,6 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         varDsc->lvStructDoubleAlign = 1;
     }
 #endif
-
-    // TODO-MIKE-Throughput: ClassLayout already queries class attributes, it should store
-    // "overlapping fields" and "unsafe value class" bits so we don't have to do it again.
-
-    unsigned classAttribs = info.compCompHnd->getClassAttribs(layout->GetClassHandle());
-
-    varDsc->lvOverlappingFields = StructHasOverlappingFields(classAttribs);
-
-    // Check whether this local is an unsafe value type and requires GS cookie protection.
-    // GS checks require the stack to be re-ordered, which can't be done with EnC.
-    if (checkUnsafeBuffer && ((classAttribs & CORINFO_FLG_UNSAFE_VALUECLASS) != 0) && !opts.compDbgEnC)
-    {
-        setNeedsGSSecurityCookie();
-        compGSReorderStackLayout = true;
-        varDsc->lvIsUnsafeBuffer = true;
-    }
 
 #ifdef DEBUG
     if (JitConfig.EnableExtraSuperPmiQueries())
@@ -7200,51 +7203,8 @@ unsigned Compiler::lvaFrameSize(FrameLayoutState curState)
     return result;
 }
 
-//------------------------------------------------------------------------
-// lvaGetSPRelativeOffset: Given a variable, return the offset of that
-// variable in the frame from the stack pointer. This number will be positive,
-// since the stack pointer must be at a lower address than everything on the
-// stack.
-//
-// This can't be called for localloc functions, since the stack pointer
-// varies, and thus there is no fixed offset to a variable from the stack pointer.
-//
-// Arguments:
-//    varNum - the variable number
-//
-// Return Value:
-//    The offset.
-
-int Compiler::lvaGetSPRelativeOffset(unsigned varNum)
-{
-    assert(!compLocallocUsed);
-    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-    assert(varNum < lvaCount);
-    const LclVarDsc* varDsc = lvaTable + varNum;
-    assert(varDsc->lvOnFrame);
-    int spRelativeOffset;
-
-    if (varDsc->lvFramePointerBased)
-    {
-        // The stack offset is relative to the frame pointer, so convert it to be
-        // relative to the stack pointer (which makes no sense for localloc functions).
-        spRelativeOffset = varDsc->GetStackOffset() + codeGen->genSPtoFPdelta();
-    }
-    else
-    {
-        spRelativeOffset = varDsc->GetStackOffset();
-    }
-
-    assert(spRelativeOffset >= 0);
-    return spRelativeOffset;
-}
-
-/*****************************************************************************
- *
- *  Return the caller-SP-relative stack offset of a local/parameter.
- *  Requires the local to be on the stack and frame layout to be complete.
- */
-
+// Return the caller-SP-relative stack offset of a local/parameter.
+// Requires the local to be on the stack and frame layout to be complete.
 int Compiler::lvaGetCallerSPRelativeOffset(unsigned varNum)
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);

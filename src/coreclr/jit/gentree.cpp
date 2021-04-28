@@ -11755,6 +11755,9 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     if (arg->OperIs(GT_ADDR) && ((arg->gtFlags & GTF_LATE_ARG) == 0))
     {
         CORINFO_CLASS_HANDLE nullableHnd = gtGetStructHandle(arg->AsOp()->gtOp1);
+        // TODO-MIKE-Cleanup: It would be better for this to be an if rather than an assert.
+        assert(nullableHnd != NO_CLASS_HANDLE);
+
         CORINFO_FIELD_HANDLE fieldHnd    = info.compCompHnd->getFieldInClass(nullableHnd, 0);
         unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
 
@@ -13667,167 +13670,22 @@ DONE:
 #pragma warning(pop)
 #endif
 
-// Create an assignment of the given value to a temp.
-//
-// Return Value:
-//    Normally a new assignment node.
-//    However may return a nop node if val is simply a reference to the temp.
-//
-// Notes:
-//    Self-assignments may be represented via NOPs.
-//    May update the type of the temp, if it was previously unknown.
-//    May set compFloatingPointUsed.
-
 GenTree* Compiler::gtNewTempAssign(unsigned lclNum, GenTree* val)
 {
-    if (val->OperIs(GT_LCL_VAR) && (val->AsLclVar()->GetLclNum() == lclNum))
-    {
-        return gtNewNothingNode();
-    }
+    assert(varTypeIsStruct(val->GetType()));
+    assert(!val->OperIs(GT_LCL_VAR) || (val->AsLclVar()->GetLclNum() != lclNum));
+    assert(lclNum != genReturnLocal);
 
     LclVarDsc* lcl = lvaGetDesc(lclNum);
+    assert(lcl->GetType() == val->GetType());
 
-    if (lcl->TypeIs(TYP_I_IMPL) && val->TypeIs(TYP_BYREF))
-    {
-        impBashVarAddrsToI(val);
-    }
+    // TODO-MIKE-Review: Is this actually needed?
+    GenTree* commaValue = val->SkipComma();
+    commaValue->gtFlags |= GTF_DONT_CSE;
 
-    var_types valType = val->GetType();
-
-    if (val->OperIs(GT_LCL_VAR) && lvaGetDesc(val->AsLclVar())->lvNormalizeOnLoad())
-    {
-        valType = lvaGetDesc(val->AsLclVar())->GetType();
-        val->SetType(valType);
-    }
-
-    var_types lclType = lcl->GetType();
-
-    if (lclType == TYP_UNDEF)
-    {
-        // TODO-MIKE-Cleanup: This sets the temp's type only to overwrite later by calling lvaSetStruct.
-        lclType     = varActualType(valType);
-        lcl->lvType = lclType;
-    }
-
-#ifdef DEBUG
-    if (varActualType(valType) != varActualType(lclType))
-    {
-        bool typesMatch = false;
-
-        if (varTypeIsGC(lclType) && (valType == TYP_I_IMPL))
-        {
-            typesMatch = true;
-        }
-        else if (varTypeIsFloating(lclType) && varTypeIsFloating(valType))
-        {
-            // TODO-MIKE-Cleanup: No, FLOAT/DOUBLE do not match...
-            typesMatch = true;
-        }
-        else if (JitConfig.JitObjectStackAllocation() && (lclType == TYP_BYREF) && (valType == TYP_REF))
-        {
-            typesMatch = true;
-        }
-        else if (!varTypeIsGC(lclType) && (varTypeSize(valType) == varTypeSize(lclType)))
-        {
-            // We can have assignments that require a change of register file, e.g. for arguments
-            // and call returns. Lowering and Codegen will handle these.
-            typesMatch = true;
-        }
-        else if ((lclType == TYP_STRUCT) && (valType == TYP_INT))
-        {
-            typesMatch = true;
-        }
-        else if (varTypeIsSIMD(lclType) && (valType == TYP_STRUCT))
-        {
-            // TODO-MIKE-Cleanup: This should not be needed anymore.
-            assert(val->IsCall());
-            typesMatch = true;
-        }
-
-        if (!typesMatch)
-        {
-            gtDispTree(val);
-            assert(!"Incompatible assignment types");
-        }
-    }
-#endif // DEBUG
-
-    // Added this noway_assert for runtime\issue 44895, to protect against silent bad codegen
-    if ((lclType == TYP_STRUCT) && (valType == TYP_REF))
-    {
-        noway_assert(!"Incompatible assignment types");
-    }
-
-    if (varTypeUsesFloatReg(lclType) && !compFloatingPointUsed)
-    {
-        // Floating point assignments can be created during inlining (see inlInitInlineeLocals)
-        // thus we may need to set compFloatingPointUsed to true here.
-        compFloatingPointUsed = true;
-    }
-
-    // With first-class structs, we should be propagating the class handle on all non-primitive
-    // struct types. We don't have a convenient way to do that for all SIMD temps, since some
-    // internal trees use SIMD types that are not used by the input IL. In this case, we allow
-    // a null type handle and derive the necessary information about the type from its varType.
-    CORINFO_CLASS_HANDLE valStructHnd = gtGetStructHandleIfPresent(val);
-
-    if (varTypeIsStruct(lclType) && (valStructHnd == NO_CLASS_HANDLE) && !varTypeIsSIMD(valType))
-    {
-        // There have 2 special cases:
-        // 1. the value is a struct IND generated from a struct FIELD, when a struct FIELD is
-        //    used by a RETURN the FIELD isn't wrapped in an OBJ like
-        // 2. we have propagated ASG(struct V01, 0) to RETURN(V01), CNS_INT doesn't have layout
-        // in these cases, we can use the type of the merge return for the assignment.
-        assert(val->OperIs(GT_IND, GT_LCL_FLD, GT_CNS_INT));
-        assert(lclNum == genReturnLocal);
-
-        valStructHnd = lcl->GetLayout()->GetClassHandle();
-    }
-
-    GenTree* dest = gtNewLclvNode(lclNum, lclType);
-    GenTree* asg;
-
-    if ((valStructHnd != NO_CLASS_HANDLE) && val->IsConstInitVal())
-    {
-        asg = gtNewAssignNode(dest, val);
-    }
-    else if (varTypeIsStruct(lclType) && ((valStructHnd != NO_CLASS_HANDLE) || varTypeIsSIMD(valType)))
-    {
-        GenTree* commaValue = val->SkipComma();
-
-        if (valStructHnd != NO_CLASS_HANDLE)
-        {
-            lvaSetStruct(lclNum, valStructHnd, false);
-        }
-        else
-        {
-            assert(!commaValue->IsObj());
-        }
-
-        commaValue->gtFlags |= GTF_DONT_CSE;
-        dest->gtFlags |= GTF_VAR_DEF;
-
-        asg = impAssignStructPtr(gtNewAddrNode(dest), val, valStructHnd, CHECK_SPILL_NONE);
-    }
-    else
-    {
-        // We may have a scalar type variable assigned a struct value, e.g. a 'genReturnLocal'
-        // when the ABI calls for returning a struct as a primitive type.
-        // TODO-1stClassStructs: When we stop "lying" about the types for ABI purposes, the
-        // 'genReturnLocal' should be the original struct type.
-
-        assert(!varTypeIsStruct(valType) || ((valStructHnd != NO_CLASS_HANDLE) &&
-                                             (typGetObjLayout(valStructHnd)->GetSize() == varTypeSize(lclType))));
-
-        asg = gtNewAssignNode(dest, val);
-    }
-
-    if (compRationalIRForm)
-    {
-        Rationalizer::RewriteAssignmentIntoStoreLcl(asg->AsOp());
-    }
-
-    return asg;
+    GenTree* dest = gtNewLclvNode(lclNum, lcl->GetType());
+    dest->gtFlags |= GTF_VAR_DEF;
+    return impAssignStructAddr(gtNewAddrNode(dest), val, lcl->GetLayout(), CHECK_SPILL_NONE);
 }
 
 /*****************************************************************************
@@ -14570,44 +14428,31 @@ bool GenTree::DefinesLocal(Compiler* comp, GenTreeLclVarCommon** pLclVarTree, bo
     }
     else if (OperIsBlk())
     {
-        blkNode = this->AsBlk();
+        blkNode = AsBlk();
     }
-    if (blkNode != nullptr)
+
+    if (blkNode == nullptr)
     {
-        GenTree* destAddr = blkNode->Addr();
-        unsigned width    = blkNode->Size();
-        // Do we care about whether this assigns the entire variable?
-        if (pIsEntire != nullptr && blkNode->OperIs(GT_DYN_BLK))
+        return false;
+    }
+
+    unsigned size = blkNode->Size();
+
+    if (GenTreeDynBlk* dynBlk = blkNode->IsDynBlk())
+    {
+        if (GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon())
         {
-            GenTree* blockWidth = blkNode->AsDynBlk()->gtDynamicSize;
-            if (blockWidth->IsCnsIntOrI())
+            size = constSize->GetUInt32Value();
+
+            // cpblk of size zero exists in the wild (in yacc-generated code in SQL) and is valid IL.
+            if (size == 0)
             {
-                if (blockWidth->IsIconHandle())
-                {
-                    // If it's a handle, it must be a class handle.  We only create such block operations
-                    // for initialization of struct types, so the type of the argument(s) will match this
-                    // type, by construction, and be "entire".
-                    assert(blockWidth->IsIconHandle(GTF_ICON_CLASS_HDL));
-                    width = comp->info.compCompHnd->getClassSize(
-                        CORINFO_CLASS_HANDLE(blockWidth->AsIntConCommon()->IconValue()));
-                }
-                else
-                {
-                    ssize_t swidth = blockWidth->AsIntConCommon()->IconValue();
-                    assert(swidth >= 0);
-                    // cpblk of size zero exists in the wild (in yacc-generated code in SQL) and is valid IL.
-                    if (swidth == 0)
-                    {
-                        return false;
-                    }
-                    width = unsigned(swidth);
-                }
+                return false;
             }
         }
-        return destAddr->DefinesLocalAddr(comp, width, pLclVarTree, pIsEntire);
     }
-    // Otherwise...
-    return false;
+
+    return blkNode->GetAddr()->DefinesLocalAddr(comp, size, pLclVarTree, pIsEntire);
 }
 
 // Returns true if this GenTree defines a result which is based on the address of a local.
@@ -15467,22 +15312,14 @@ GenTree* Compiler::gtGetSIMDZero(ClassLayout* layout)
 }
 #endif // FEATURE_SIMD
 
-CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
+CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
 {
-    if (!varTypeIsStruct(tree->GetType()))
-    {
-        return NO_CLASS_HANDLE;
-    }
+    assert(tree->TypeIs(TYP_STRUCT));
 
     tree = tree->gtEffectiveVal();
 
     switch (tree->GetOper())
     {
-        ClassLayout*         layout;
-        CORINFO_CLASS_HANDLE structHnd;
-
-        case GT_MKREFANY:
-            return impGetRefAnyClass();
         case GT_OBJ:
             return tree->AsObj()->GetLayout()->GetClassHandle();
         case GT_CALL:
@@ -15492,60 +15329,16 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandleIfPresent(GenTree* tree)
         case GT_INDEX:
             return tree->AsIndex()->GetLayout()->GetClassHandle();
         case GT_FIELD:
+            CORINFO_CLASS_HANDLE structHnd;
             info.compCompHnd->getFieldType(tree->AsField()->gtFldHnd, &structHnd);
             return structHnd;
         case GT_LCL_VAR:
             return lvaGetDesc(tree->AsLclVar())->GetLayout()->GetClassHandle();
-
         case GT_LCL_FLD:
-            layout = tree->AsLclFld()->GetLayout(this);
-
-            if (layout != nullptr)
-            {
-                return layout->IsBlockLayout() ? NO_CLASS_HANDLE : layout->GetClassHandle();
-            }
-#ifndef FEATURE_SIMD
-            return NO_CLASS_HANDLE;
-#else
-            FALLTHROUGH;
-        case GT_IND:
-            if (!varTypeIsSIMD(tree->GetType()))
-            {
-                return NO_CLASS_HANDLE;
-            }
-
-            layout = typGetVectorLayout(tree->GetType(), TYP_UNDEF);
-            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
-
-        case GT_SIMD:
-            layout = typGetNumericsVectorLayout(tree->GetType(), tree->AsSIMD()->GetSIMDBaseType());
-            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            if ((tree->gtFlags & GTF_SIMDASHW_OP) != 0)
-            {
-                layout = typGetNumericsVectorLayout(tree->GetType(), tree->AsHWIntrinsic()->GetSIMDBaseType());
-            }
-            else
-            {
-                layout = typGetRuntimeVectorLayout(tree->GetType(), tree->AsHWIntrinsic()->GetSIMDBaseType());
-            }
-
-            return layout == nullptr ? NO_CLASS_HANDLE : layout->GetClassHandle();
-#endif
-#endif // FEATURE_SIMD
-
+            return tree->AsLclFld()->GetLayout(this)->GetClassHandle();
         default:
-            return NO_CLASS_HANDLE;
+            unreached();
     }
-}
-
-CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
-{
-    CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(tree);
-    assert(structHnd != NO_CLASS_HANDLE);
-    return structHnd;
 }
 
 //------------------------------------------------------------------------

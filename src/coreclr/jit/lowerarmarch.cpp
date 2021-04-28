@@ -751,7 +751,7 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
         BlockRange().InsertAfter(idxCns, insCns);
 
         GenTree* tmp =
-            comp->gtNewSimdAsHWIntrinsicNode(simdType, NI_AdvSimd_Insert, TYP_INT, simdSize, cmp, idxCns, insCns);
+            comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Insert, TYP_INT, simdSize, cmp, idxCns, insCns);
         BlockRange().InsertAfter(insCns, tmp);
         LowerNode(tmp);
 
@@ -765,7 +765,7 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     GenTree* zroCns = comp->gtNewIconNode(0, TYP_INT);
     BlockRange().InsertAfter(msk, zroCns);
 
-    GenTree* val = comp->gtNewSimdAsHWIntrinsicNode(TYP_UBYTE, NI_AdvSimd_Extract, TYP_UBYTE, simdSize, msk, zroCns);
+    GenTree* val = comp->gtNewSimdHWIntrinsicNode(TYP_UBYTE, NI_AdvSimd_Extract, TYP_UBYTE, simdSize, msk, zroCns);
     BlockRange().InsertAfter(zroCns, val);
     LowerNode(val);
 
@@ -1065,7 +1065,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         BlockRange().InsertAfter(idx, tmp1);
         LowerNode(tmp1);
 
-        op1 = comp->gtNewSimdAsHWIntrinsicNode(simdType, NI_AdvSimd_Insert, baseType, simdSize, op1, idx, tmp1);
+        op1 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Insert, baseType, simdSize, op1, idx, tmp1);
         BlockRange().InsertAfter(tmp1, op1);
         LowerNode(op1);
     }
@@ -1085,7 +1085,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     NamedIntrinsic multiply = (baseType == TYP_DOUBLE) ? NI_AdvSimd_Arm64_Multiply : NI_AdvSimd_Multiply;
     assert(!varTypeIsLong(baseType));
 
-    tmp1 = comp->gtNewSimdAsHWIntrinsicNode(simdType, multiply, baseType, simdSize, op1, op2);
+    tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, multiply, baseType, simdSize, op1, op2);
     BlockRange().InsertBefore(node, tmp1);
     LowerNode(tmp1);
 
@@ -1128,7 +1128,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             //   var tmp1 = AdvSimd.AddPairwise(tmp1, tmp2);
             //   ...
 
-            tmp1 = comp->gtNewSimdAsHWIntrinsicNode(simdType, NI_AdvSimd_AddPairwise, baseType, simdSize, tmp1, tmp2);
+            tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_AddPairwise, baseType, simdSize, tmp1, tmp2);
             BlockRange().InsertAfter(tmp2, tmp1);
             LowerNode(tmp1);
         }
@@ -1148,8 +1148,8 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
             //   var tmp1 = AdvSimd.Arm64.AddPairwise(tmp1, tmp2);
             //   ...
 
-            tmp1 = comp->gtNewSimdAsHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_AddPairwise, baseType, simdSize, tmp1,
-                                                    tmp2);
+            tmp1 =
+                comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_AddPairwise, baseType, simdSize, tmp1, tmp2);
             BlockRange().InsertAfter(tmp2, tmp1);
             LowerNode(tmp1);
 
@@ -1187,8 +1187,8 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                 tmp2 = comp->gtClone(tmp1);
                 BlockRange().InsertAfter(tmp1, tmp2);
 
-                tmp1 = comp->gtNewSimdAsHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_AddPairwise, baseType, simdSize,
-                                                        tmp1, tmp2);
+                tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_AddPairwise, baseType, simdSize, tmp1,
+                                                      tmp2);
                 BlockRange().InsertAfter(tmp2, tmp1);
                 LowerNode(tmp1);
             }
@@ -1211,7 +1211,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         //   var tmp2 = AdvSimd.Arm64.AddAcross(tmp1);
         //   ...
 
-        tmp2 = comp->gtNewSimdAsHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_AddAcross, baseType, simdSize, tmp1);
+        tmp2 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_AddAcross, baseType, simdSize, tmp1);
         BlockRange().InsertAfter(tmp1, tmp2);
         LowerNode(tmp2);
     }

@@ -1327,20 +1327,59 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
         {
             JITDUMPTREE(arg, "Creating temp for arg:\n");
 
+            // We may have started with a struct arg and changed it to a FP/SIMD arg.
+            if (varTypeUsesFloatReg(arg->GetType()))
+            {
+                compiler->compFloatingPointUsed = true;
+            }
+
             unsigned   tempLclNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
             LclVarDsc* tempLcl    = compiler->lvaGetDesc(tempLclNum);
 
             argInfo->SetTempLclNum(tempLclNum);
 
+            if (!varTypeIsStruct(arg->GetType()))
+            {
+                var_types type = varActualType(arg->GetType());
+                tempLcl->SetType(type);
+                setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, type), arg);
+            }
+            else if (varTypeIsSIMD(arg->GetType()))
+            {
+                ClassLayout* layout = compiler->typGetVectorLayout(arg);
+                if (layout != nullptr)
+                {
+                    compiler->lvaSetStruct(tempLclNum, layout, /* checkUnsafeBuffer */ false);
+                }
+                else
+                {
+                    // We may not be able to recover the struct handle from SIMD/HWINTRINSIC
+                    // nodes and SIMD typed IND nodes.
+
+                    // TODO-MIKE-Cleanup: So why bother at all?
+
+                    assert(varTypeIsSIMD(arg->GetType()) && (arg->OperIsSimdOrHWintrinsic() || arg->OperIs(GT_IND)));
+                    tempLcl->lvType = arg->GetType();
+                }
+
+                setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
+
+                if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))
+                {
+                    setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
+                }
+            }
 #ifndef TARGET_X86
-            if (arg->OperIs(GT_MKREFANY))
+            else if (arg->OperIs(GT_MKREFANY))
             {
                 compiler->lvaSetStruct(tempLclNum, compiler->impGetRefAnyClass(), false);
                 setupArg = compiler->abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp());
             }
-            else
 #endif
+            else
             {
+                ClassLayout* layout = compiler->typGetStructLayout(arg);
+                compiler->lvaSetStruct(tempLclNum, layout, /* checkUnsafeBuffer */ false);
                 setupArg = compiler->gtNewTempAssign(tempLclNum, arg);
 
                 if (setupArg->OperIs(GT_ASG) && varTypeIsStruct(setupArg->AsOp()->GetOp(0)->GetType()))
@@ -8433,15 +8472,18 @@ GenTree* Compiler::fgMorphBlkNode(GenTree* tree, bool isDest)
 
         if (structType == TYP_STRUCT)
         {
-            CORINFO_CLASS_HANDLE structHnd = gtGetStructHandleIfPresent(effectiveVal);
-
-            if (structHnd == NO_CLASS_HANDLE)
+            if (effectiveVal->OperIs(GT_IND))
             {
-                indir = gtNewOperNode(GT_IND, structType, addr);
+                // We may end up with STRUCT IND nodes from STRUCT INDEX morphing, these do not have layout.
+                // They're supposed to appear only as the source of a copy block so they don't really need
+                // layout. DYN_BLK also uses STRUCT IND but those never appear under a COMMA.
+
+                assert(!isDest);
+                indir = gtNewIndir(TYP_STRUCT, addr);
             }
             else
             {
-                indir = gtNewObjNode(structHnd, addr);
+                indir = gtNewObjNode(typGetStructLayout(effectiveVal), addr);
             }
         }
         else
@@ -10217,7 +10259,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_GT:
         {
             // Try and optimize nullable boxes feeding compares
-            GenTree* optimizedTree = gtFoldBoxNullable(tree);
+            GenTree* optimizedTree = gtFoldBoxNullable(tree->AsOp());
 
             if (optimizedTree->OperGet() != tree->OperGet())
             {
@@ -14577,9 +14619,7 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 
         noway_assert(lastStmt->GetNextStmt() == nullptr);
 
-        // Replace the RETURN with an assignment to the merged return temp. If the return value is
-        // a COMMA then extract its side effects to a new statement, otherwise impAssignStructPtr
-        // will add new statements AFTER the last statement.
+        // Replace the RETURN with an assignment to the merged return temp.
 
         GenTree* value = ret->AsUnOp()->GetOp(0);
 

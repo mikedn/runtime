@@ -1928,45 +1928,6 @@ public:
                                                  GenTree*       op4,
                                                  GenTree*       op5);
 
-    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(var_types      type,
-                                                   NamedIntrinsic hwIntrinsicID,
-                                                   var_types      baseType,
-                                                   unsigned       size)
-    {
-        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size);
-        node->gtFlags |= GTF_SIMDASHW_OP;
-        return node;
-    }
-
-    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(
-        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
-    {
-        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1);
-        node->gtFlags |= GTF_SIMDASHW_OP;
-        return node;
-    }
-
-    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(
-        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
-    {
-        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2);
-        node->gtFlags |= GTF_SIMDASHW_OP;
-        return node;
-    }
-
-    GenTreeHWIntrinsic* gtNewSimdAsHWIntrinsicNode(var_types      type,
-                                                   NamedIntrinsic hwIntrinsicID,
-                                                   var_types      baseType,
-                                                   unsigned       size,
-                                                   GenTree*       op1,
-                                                   GenTree*       op2,
-                                                   GenTree*       op3)
-    {
-        GenTreeHWIntrinsic* node = gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2, op3);
-        node->gtFlags |= GTF_SIMDASHW_OP;
-        return node;
-    }
-
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types      type,
                                                    NamedIntrinsic hwIntrinsicID,
@@ -2196,8 +2157,6 @@ public:
 
     //-------------------------------------------------------------------------
     // Get the handle, if any.
-    CORINFO_CLASS_HANDLE gtGetStructHandleIfPresent(GenTree* tree);
-    // Get the handle, and assert if not found.
     CORINFO_CLASS_HANDLE gtGetStructHandle(GenTree* tree);
     // Get the handle for a ref type.
     CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* pIsExact, bool* pIsNonNull);
@@ -2563,9 +2522,6 @@ public:
 
     // Returns the caller-SP-relative offset for the local variable "varNum."
     int lvaGetCallerSPRelativeOffset(unsigned varNum);
-
-    // Returns the SP-relative offset for the local variable "varNum". Illegal to ask this for functions with localloc.
-    int lvaGetSPRelativeOffset(unsigned varNum);
 
     int lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased);
     int lvaGetInitialSPRelativeOffset(unsigned varNum);
@@ -2959,7 +2915,7 @@ protected:
     GenTree* impCanonicalizeMultiRegCall(GenTreeCall* call);
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 #endif
-    GenTree* impSpillPseudoReturnBufferCall(GenTree* value, CORINFO_CLASS_HANDLE retClass);
+    GenTree* impSpillPseudoReturnBufferCall(GenTreeCall* call);
 
     GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
@@ -3101,19 +3057,21 @@ public:
     void impInsertStmtBefore(Statement* stmt, Statement* stmtBefore);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
     void impInsertTreeBefore(GenTree* tree, IL_OFFSETX offset, Statement* stmtBefore);
-    void impAssignTempGen(unsigned tmp, GenTree* val, unsigned curLevel);
-    void impAssignTempGen(unsigned tmpNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
-    void impAssignTempGen(unsigned tmpNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
+    void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
+    void impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+
     Statement* impExtractLastStmt();
 
-    GenTree* impCloneExpr(GenTree*             tree,
-                          GenTree**            clone,
-                          CORINFO_CLASS_HANDLE structHnd,
-                          unsigned spillCheckLevel DEBUGARG(const char* reason));
+    GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
     GenTree* impCloneExpr(GenTree*     tree,
                           GenTree**    clone,
                           ClassLayout* layout,
                           unsigned spillCheckLevel DEBUGARG(const char* reason));
+    void impMakeMultiUse(GenTree*  tree,
+                         unsigned  useCount,
+                         GenTree** uses,
+                         unsigned spillCheckLevel DEBUGARG(const char* reason));
     void impMakeMultiUse(GenTree*     tree,
                          unsigned     useCount,
                          GenTree**    uses,
@@ -3129,9 +3087,9 @@ public:
         impMakeMultiUse(tree, useCount, uses, layout, spillCheckLevel DEBUGARG(reason));
     }
 
-    GenTree* impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
-    GenTree* impAssignStructPtr(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    GenTree* impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
+    GenTree* impAssignStructAddr(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
@@ -3417,12 +3375,14 @@ private:
 
     CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
 
-    GenTree* impImportInitObj(GenTree* dstAddr, CORINFO_CLASS_HANDLE classHandle);
-    GenTree* impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, CORINFO_CLASS_HANDLE classHandle);
+    GenTree* impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
+    GenTree* impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
     GenTree* impImportInitBlk(GenTree* dstAddr, GenTree* initValue, GenTree* size, bool isVolatile);
     GenTree* impImportCpBlk(GenTree* dstAddr, GenTree* srcAddr, GenTree* size, bool isVolatile);
 
     GenTree* impImportPop(BasicBlock* block);
+
+    void impImportDup();
 
     GenTree* impImportTlsFieldAccess(CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                      const CORINFO_FIELD_INFO& fieldInfo,
@@ -5578,9 +5538,6 @@ protected:
     void     optValnumCSE_DataFlow();
     void     optValnumCSE_Availablity();
     void     optValnumCSE_Heuristic();
-
-    ClassLayout* optValnumCSE_GetStructLayout(GenTree* tree);
-    ClassLayout* optValnumCSE_GetApproximateVectorLayout(GenTree* tree);
 #endif // FEATURE_VALNUM_CSE
 
 #if FEATURE_ANYCSE
@@ -8119,10 +8076,11 @@ public:
     var_types typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType = nullptr);
     // Get the struct type for the specified layout.
     var_types typGetStructType(ClassLayout* layout);
+    // Get the layout of a STRUCT typed node.
+    ClassLayout* typGetStructLayout(GenTree* node);
     // Get the layout of a Vector2/3/4/T/NT type.
+    ClassLayout* typGetVectorLayout(GenTree* node);
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
-    ClassLayout* typGetRuntimeVectorLayout(var_types simdType, var_types elementType);
-    ClassLayout* typGetNumericsVectorLayout(var_types simdType, var_types elementType);
 
 //-------------------------- Global Compiler Data ------------------------------------
 
@@ -8211,18 +8169,11 @@ public:
     void* compGetHelperFtn(CorInfoHelpFunc ftnNum,         /* IN  */
                            void**          ppIndirection); /* OUT */
 
-    // Several JIT/EE interface functions return a CorInfoType, and also return a
-    // class handle as an out parameter if the type is a value class.  Returns the
-    // size of the type these describe.
-    unsigned compGetTypeSize(CorInfoType cit, CORINFO_CLASS_HANDLE clsHnd);
-
-#ifdef DEBUG
     // Components used by the compiler may write unit test suites, and
     // have them run within this method.  They will be run only once per process, and only
     // in debug.  (Perhaps should be under the control of a COMPlus_ flag.)
     // These should fail by asserting.
-    void compDoComponentUnitTestsOnce();
-#endif // DEBUG
+    INDEBUG(void compDoComponentUnitTestsOnce();)
 
     int compCompile(CORINFO_MODULE_HANDLE classPtr,
                     void**                methodCodePtr,

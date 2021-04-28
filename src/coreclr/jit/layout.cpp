@@ -227,70 +227,6 @@ public:
                 return nullptr;
         }
     }
-
-    ClassLayout* GetRuntimeVectorLayout(var_types simdType, var_types elementType)
-    {
-        unsigned elementTypeIndex = elementType - TYP_BYTE;
-
-        if (elementTypeIndex >= VectorElementTypesCount)
-        {
-            return nullptr;
-        }
-
-        switch (simdType)
-        {
-#ifdef TARGET_ARM64
-            case TYP_SIMD8:
-                return m_vectorLayoutTable[Vector64BaseIndex + elementTypeIndex];
-#endif
-            case TYP_SIMD16:
-                return m_vectorLayoutTable[Vector128BaseIndex + elementTypeIndex];
-#ifdef TARGET_XARCH
-            case TYP_SIMD32:
-                return m_vectorLayoutTable[Vector256BaseIndex + elementTypeIndex];
-#endif
-            default:
-                return nullptr;
-        }
-    }
-
-    ClassLayout* GetNumericsVectorLayout(var_types simdType, var_types elementType)
-    {
-        if (elementType == TYP_FLOAT)
-        {
-            switch (simdType)
-            {
-                case TYP_SIMD8:
-                    return m_vectorLayoutTable[Vector234BaseIndex + 0];
-                case TYP_SIMD12:
-                    return m_vectorLayoutTable[Vector234BaseIndex + 1];
-                case TYP_SIMD16:
-                    if (m_vectorLayoutTable[Vector234BaseIndex + 2] == nullptr)
-                    {
-                        break;
-                    }
-                    return m_vectorLayoutTable[Vector234BaseIndex + 2];
-                default:
-                    break;
-            }
-        }
-
-        unsigned elementTypeIndex = elementType - TYP_BYTE;
-
-        if (elementTypeIndex >= VectorElementTypesCount)
-        {
-            return nullptr;
-        }
-
-        ClassLayout* layout = m_vectorLayoutTable[VectorTBaseIndex + elementTypeIndex];
-
-        if ((layout != nullptr) && (layout->GetSIMDType() == simdType))
-        {
-            return layout;
-        }
-
-        return nullptr;
-    }
 #endif // FEATURE_SIMD
 
 private:
@@ -637,28 +573,78 @@ var_types Compiler::typGetStructType(ClassLayout* layout)
     return TYP_STRUCT;
 }
 
+ClassLayout* Compiler::typGetStructLayout(GenTree* node)
+{
+    assert(varTypeIsStruct(node->GetType()));
+
+    node = node->gtEffectiveVal();
+
+    switch (node->GetOper())
+    {
+        case GT_OBJ:
+            return node->AsObj()->GetLayout();
+        case GT_CALL:
+            return node->AsCall()->GetRetLayout();
+        case GT_LCL_VAR:
+            return lvaGetDesc(node->AsLclVar())->GetLayout();
+        case GT_LCL_FLD:
+            return node->AsLclFld()->GetLayout(this);
+        case GT_IND:
+#ifdef FEATURE_SIMD
+        case GT_SIMD:
+#endif
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+#endif
+            return nullptr;
+        default:
+            // This is not intended to be used before global morph so FIELD and INDEX are not handled.
+            unreached();
+    }
+}
+
+ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
+{
+    assert(varTypeIsSIMD(node->GetType()));
+
+#ifdef FEATURE_SIMD
+    node = node->gtEffectiveVal();
+
+    switch (node->GetOper())
+    {
+        case GT_OBJ:
+            return node->AsObj()->GetLayout();
+        case GT_CALL:
+            return node->AsCall()->GetRetLayout();
+        case GT_LCL_VAR:
+            return lvaGetDesc(node->AsLclVar())->GetLayout();
+        case GT_LCL_FLD:
+            if (ClassLayout* layout = node->AsLclFld()->GetLayout(this))
+            {
+                return layout;
+            }
+            FALLTHROUGH;
+        case GT_IND:
+            return typGetVectorLayout(node->GetType(), TYP_UNDEF);
+        case GT_SIMD:
+            return typGetVectorLayout(node->GetType(), node->AsSIMD()->GetSIMDBaseType());
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());
+#endif
+        default:
+            // This is not intended to be used before global morph so FIELD and INDEX are not handled.
+            unreached();
+    }
+#else
+    return nullptr;
+#endif
+}
+
 ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementType)
 {
 #ifdef FEATURE_SIMD
     return typGetClassLayoutTable()->GetVectorLayout(simdType, elementType);
-#else
-    return nullptr;
-#endif
-}
-
-ClassLayout* Compiler::typGetRuntimeVectorLayout(var_types simdType, var_types elementType)
-{
-#ifdef FEATURE_SIMD
-    return typGetClassLayoutTable()->GetRuntimeVectorLayout(simdType, elementType);
-#else
-    return nullptr;
-#endif
-}
-
-ClassLayout* Compiler::typGetNumericsVectorLayout(var_types simdType, var_types elementType)
-{
-#ifdef FEATURE_SIMD
-    return typGetClassLayoutTable()->GetNumericsVectorLayout(simdType, elementType);
 #else
     return nullptr;
 #endif

@@ -395,11 +395,9 @@ GenTree* Compiler::impSIMDPopStack(var_types type)
 
         ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
 
-        unsigned tmpNum = lvaNewTemp(layout, true DEBUGARG("struct address for call/obj"));
-        GenTree* tmp    = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
-        GenTree* asg    = impAssignStruct(tmp, tree, layout, CHECK_SPILL_ALL);
-        impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
-        tree = gtNewLclvNode(tmpNum, tmp->GetType());
+        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
+        impAppendTempAssign(tmpNum, tree, layout, CHECK_SPILL_ALL);
+        tree = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
     }
 
     assert(tree->GetType() == type);
@@ -966,7 +964,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
             if (op2->IsIntegralConst(0) || op2->IsDblConPositiveZero())
             {
-                simdTree = gtNewSimdAsHWIntrinsicNode(simdType, NI_Vector128_get_Zero, baseType, size);
+                simdTree = gtNewSimdHWIntrinsicNode(simdType, NI_Vector128_get_Zero, baseType, size);
             }
             else if (varTypeIsSmallInt(baseType))
             {
