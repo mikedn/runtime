@@ -3087,7 +3087,6 @@ public:
         impMakeMultiUse(tree, useCount, uses, layout, spillCheckLevel DEBUGARG(reason));
     }
 
-    GenTree* impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
     GenTree* impAssignStructAddr(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);

@@ -975,42 +975,6 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel)
-{
-    assert(varTypeIsStruct(dest->GetType()));
-
-    while (dest->OperIs(GT_COMMA))
-    {
-        assert(varTypeIsStruct(dest->AsOp()->GetOp(1)));
-        impAppendTree(dest->AsOp()->GetOp(0), curLevel, impCurStmtOffs);
-        dest = dest->AsOp()->GetOp(1);
-    }
-
-    // Return a NOP if this is a self-assignment.
-    if (dest->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
-        (src->AsLclVar()->GetLclNum() == dest->AsLclVar()->GetLclNum()))
-    {
-        return gtNewNothingNode();
-    }
-
-    // TODO-1stClassStructs: Avoid creating an address if it is not needed,
-    // or re-creating an indir node if it is.
-    GenTree* destAddr;
-
-    if (dest->OperIs(GT_IND, GT_OBJ))
-    {
-        destAddr = dest->AsIndir()->GetAddr();
-    }
-    else
-    {
-        assert(dest->OperIs(GT_LCL_VAR, GT_FIELD, GT_INDEX));
-
-        destAddr = gtNewAddrNode(dest);
-    }
-
-    return impAssignStructAddr(destAddr, src, layout, curLevel);
-}
-
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
@@ -12563,7 +12527,27 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (deferStructAssign)
                 {
-                    op1 = impAssignStruct(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
+                    while (op1->OperIs(GT_COMMA))
+                    {
+                        impAppendTree(op1->AsOp()->GetOp(0), CHECK_SPILL_ALL, impCurStmtOffs);
+                        op1 = op1->AsOp()->GetOp(1);
+                        assert(varTypeIsStruct(op1->GetType()));
+                    }
+
+                    // TODO-1stClassStructs: Avoid creating an address if it is not needed,
+                    // or re-creating an indir node if it is.
+                    if (op1->OperIs(GT_IND, GT_OBJ))
+                    {
+                        op1 = op1->AsIndir()->GetAddr();
+                    }
+                    else
+                    {
+                        assert(op1->OperIs(GT_FIELD));
+
+                        op1 = gtNewAddrNode(op1);
+                    }
+
+                    op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
             }
                 goto APPEND;
