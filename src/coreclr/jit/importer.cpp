@@ -9976,7 +9976,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsStruct(lclTyp))
                 {
-                    op1 = impAssignStruct(op2, op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
+                    op1 = impAssignStructAddr(gtNewAddrNode(op2), op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
                 else
                 {
