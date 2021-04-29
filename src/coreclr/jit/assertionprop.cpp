@@ -1019,11 +1019,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
         }
         else // !helperCallArgs
         {
-            /* Skip over a GT_COMMA node(s), if necessary */
-            while (op2->gtOper == GT_COMMA)
-            {
-                op2 = op2->AsOp()->gtOp2;
-            }
+            op2 = op2->SkipComma();
 
             // printf("create assertion\n");
 
@@ -3601,15 +3597,9 @@ GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* t
         return nullptr;
     }
 
-    // Skip over a GT_COMMA node(s), if necessary to get to the lcl.
-    GenTree* lcl = op1;
-    while (lcl->gtOper == GT_COMMA)
-    {
-        lcl = lcl->AsOp()->gtOp2;
-    }
+    GenTree* lcl = op1->SkipComma();
 
-    // If we don't have a cast of a LCL_VAR then bail.
-    if (lcl->gtOper != GT_LCL_VAR)
+    if (!lcl->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }

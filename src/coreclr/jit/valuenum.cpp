@@ -7734,18 +7734,15 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 
             // We have to handle the case where the LHS is a comma.  In that case, we don't evaluate the comma,
             // so we give it VNForVoid, and we're really interested in the effective value.
-            GenTree* lhsCommaIter = lhs;
-            while (lhsCommaIter->OperGet() == GT_COMMA)
+            for (; lhs->OperIs(GT_COMMA); lhs = lhs->AsOp()->GetOp(1))
             {
-                lhsCommaIter->gtVNPair.SetBoth(vnStore->VNForVoid());
-                lhsCommaIter = lhsCommaIter->AsOp()->gtOp2;
+                lhs->gtVNPair.SetBoth(vnStore->VNForVoid());
             }
-            lhs = lhs->gtEffectiveVal();
 
             // Now, record the new VN for an assignment (performing the indicated "state update").
             // It's safe to use gtEffectiveVal here, because the non-last elements of a comma list on the
             // LHS will come before the assignment in evaluation order.
-            switch (lhs->OperGet())
+            switch (lhs->GetOper())
             {
                 case GT_LCL_VAR:
                 {
@@ -7876,16 +7873,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                     }
                 }
                 break;
-
-                case GT_PHI_ARG:
-                    noway_assert(!"Phi arg cannot be LHS.");
-                    break;
-
-                case GT_OBJ:
-                case GT_BLK:
-                    noway_assert(!"OBJ/BLK can not be LHS when (tree->TypeGet() != TYP_STRUCT)!");
-                    break;
-
                 case GT_IND:
                 {
                     bool isVolatile = (lhs->gtFlags & GTF_IND_VOLATILE) != 0;
@@ -8165,11 +8152,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 break;
 
                 default:
-                    assert(!"Unknown node for lhs of assignment!");
-
-                    // For Unknown stores, mutate GcHeap/ByrefExposed
-                    fgMutateGcHeap(lhs DEBUGARG("Unkwown Assignment - store")); // always change fgCurMemoryVN
-                    break;
+                    unreached();
             }
         }
         else if ((oper == GT_ASG) && tree->TypeIs(TYP_STRUCT))

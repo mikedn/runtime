@@ -2627,7 +2627,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
         // TODO-MIKE-Review: Can we get COMMAs here other than those generated for
         // temp arg copies? The struct arg morph code below doesn't handle that.
-        GenTree* argVal = arg->gtEffectiveVal(true /*commaOnly*/);
+        GenTree* argVal = arg->SkipComma();
 
         if (argVal->OperIs(GT_ASG, GT_FIELD_LIST, GT_ARGPLACE))
         {
@@ -2906,7 +2906,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
 
         if (argInfo->GetRegCount() == 0)
         {
-            arg = arg->gtEffectiveVal(true);
+            arg = arg->SkipComma();
 
             if (arg->OperIs(GT_LCL_VAR))
             {
@@ -5119,25 +5119,13 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
     }
 #endif
 
-    noway_assert(tree->gtOper == GT_IND);
+    noway_assert(tree->OperIs(GT_IND));
 
     if (fldOffset == 0)
     {
-        GenTree* addr = tree->AsOp()->gtOp1;
+        GenTree* addr = tree->AsIndir()->GetAddr()->gtEffectiveVal();
 
-        // 'addr' may be a GT_COMMA. Skip over any comma nodes
-        addr = addr->gtEffectiveVal();
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nBefore calling fgAddFieldSeqForZeroOffset:\n");
-            gtDispTree(tree);
-        }
-#endif
-
-        // We expect 'addr' to be an address at this point.
-        assert(addr->TypeGet() == TYP_BYREF || addr->TypeGet() == TYP_I_IMPL || addr->TypeGet() == TYP_REF);
+        JITDUMPTREE(tree, "\nBefore calling fgAddFieldSeqForZeroOffset:\n");
 
         // Since we don't make a constant zero to attach the field sequence to, associate it with the "addr" node.
         FieldSeqNode* fieldSeq =
@@ -9518,7 +9506,7 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
 
     // op1 can be GT_COMMA, in this case we're going to fold
     // "(op (COMMA(... (op X C1))) C2)" to "(COMMA(... (op X C3)))"
-    GenTree*   op1  = tree->gtGetOp1()->gtEffectiveVal(true);
+    GenTree*   op1  = tree->GetOp(0)->SkipComma();
     genTreeOps oper = tree->OperGet();
 
     if (!op1->OperIs(oper) || !tree->gtGetOp2()->IsCnsIntOrI() || !op1->gtGetOp2()->IsCnsIntOrI() ||
@@ -13770,7 +13758,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
         GenTree* condTree;
         condTree = lastStmt->GetRootNode()->AsOp()->gtOp1;
         GenTree* cond;
-        cond = condTree->gtEffectiveVal(true);
+        cond = condTree->SkipComma();
 
         if (cond->OperKind() & GTK_CONST)
         {
@@ -13997,7 +13985,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
         GenTree* condTree;
         condTree = lastStmt->GetRootNode()->AsOp()->gtOp1;
         GenTree* cond;
-        cond = condTree->gtEffectiveVal(true);
+        cond = condTree->SkipComma();
 
         if (cond->OperKind() & GTK_CONST)
         {
@@ -15507,15 +15495,9 @@ void Compiler::fgPromoteStructs()
 //
 void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZero)
 {
-    // We expect 'addr' to be an address at this point.
-    assert(addr->TypeGet() == TYP_BYREF || addr->TypeGet() == TYP_I_IMPL || addr->TypeGet() == TYP_REF);
-
-    // Tunnel through any commas.
-    const bool commaOnly = true;
-    addr                 = addr->gtEffectiveVal(commaOnly);
-
-    // We still expect 'addr' to be an address at this point.
-    assert(addr->TypeGet() == TYP_BYREF || addr->TypeGet() == TYP_I_IMPL || addr->TypeGet() == TYP_REF);
+    assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL, TYP_REF));
+    addr = addr->SkipComma();
+    assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL, TYP_REF));
 
     FieldSeqNode* fieldSeqUpdate   = fieldSeqZero;
     GenTree*      fieldSeqNode     = addr;

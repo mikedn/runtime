@@ -2919,8 +2919,7 @@ public:
             GenTree*      cse = nullptr;
             bool          isDef;
             FieldSeqNode* fldSeq               = nullptr;
-            bool          commaOnly            = true;
-            GenTree*      effectiveExp         = exp->gtEffectiveVal(commaOnly);
+            GenTree*      effectiveExp         = exp->SkipComma();
             const bool    hasZeroMapAnnotation = m_pCompiler->GetZeroOffsetFieldMap()->Lookup(effectiveExp, &fldSeq);
 
             if (IS_CSE_USE(exp->gtCSEnum))
@@ -3137,7 +3136,7 @@ public:
                         // This can only be the case for a struct in which the 'val' was a COMMA,
                         // so the assignment is sunk below it.
                         noway_assert(asgTree->OperIs(GT_COMMA) && (asgTree == val));
-                        asg = asgTree->gtEffectiveVal(true)->AsOp();
+                        asg = asgTree->SkipComma()->AsOp();
                     }
                     else
                     {

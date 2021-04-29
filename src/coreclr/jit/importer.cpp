@@ -15731,7 +15731,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     }
 
     // See what we know about the type of 'this' in the call.
-    GenTree*             thisObj       = call->gtCallThisArg->GetNode()->gtEffectiveVal(false);
+    GenTree*             thisObj       = call->gtCallThisArg->GetNode()->gtEffectiveVal();
     GenTree*             actualThisObj = nullptr;
     bool                 isExact       = false;
     bool                 objIsNonNull  = false;
