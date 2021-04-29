@@ -975,13 +975,6 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel)
-{
-    assert(varTypeIsStruct(src->GetType()));
-
-    return impAssignStruct(dest, src, typGetObjLayout(structHnd), curLevel);
-}
-
 GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(varTypeIsStruct(dest->GetType()));
@@ -9983,7 +9976,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsStruct(lclTyp))
                 {
-                    op1 = impAssignStruct(op2, op1, clsHnd, CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op2, op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -10505,7 +10498,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->AsIndex()->SetLayout(layout);
                     op1->AsIndex()->SetElemSize(layout->GetSize());
 
-                    op1 = impAssignStruct(op1, op2, clsHnd, CHECK_SPILL_ALL);
+                    op1 = impAssignStructAddr(gtNewAddrNode(op1), op2, layout, CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -12570,7 +12563,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (deferStructAssign)
                 {
-                    op1 = impAssignStruct(op1, op2, clsHnd, CHECK_SPILL_ALL);
+                    op1 = impAssignStruct(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
             }
                 goto APPEND;
@@ -13117,13 +13110,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Here we need unsafe value cls check, since the address of struct is taken to be used
                         // further along and potetially be exploitable.
 
-                        unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a nullable"));
-                        lvaSetStruct(tmp, resolvedToken.hClass, /* checkUnsafeBuffer */ true);
+                        ClassLayout* layout = typGetObjLayout(resolvedToken.hClass);
+                        unsigned     tmp    = lvaGrabTemp(true DEBUGARG("unbox nullable temp"));
+                        lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
-                        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                        op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
-                        assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
-
+                        op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
+                        op1 = impAssignStructAddr(op2, op1, layout, CHECK_SPILL_ALL);
                         op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
                         op1 = gtNewCommaNode(op1, op2);
                     }
@@ -13167,14 +13159,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // For the multi-reg case we need to spill it to a temp so that
                     // we can pass the address to the unbox_nullable jit helper.
 
-                    unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a register returnable nullable"));
+                    unsigned tmp                  = lvaGrabTemp(true DEBUGARG("unbox nullable multireg temp"));
                     lvaTable[tmp].lvIsMultiRegArg = true;
                     lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
-                    op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                    op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
-                    assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
-
+                    op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
+                    op1 = impAssignStructAddr(op2, op1, layout, CHECK_SPILL_ALL);
                     op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
                     op1 = gtNewCommaNode(op1, op2);
 
@@ -14197,7 +14187,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 // asserts in impAssignStructAddr due to A<Canon>/A<SomeRefClass> mismatches.
                 ClassLayout* treeLayout = typGetObjLayout(verCurrentState.esStack[level].seTypeInfo.GetClassHandle());
 
-                asg = impAssignStruct(spillTempLclVar, tree, treeLayout, CHECK_SPILL_NONE);
+                asg = impAssignStructAddr(gtNewAddrNode(spillTempLclVar), tree, treeLayout, CHECK_SPILL_NONE);
                 assert(!asg->IsNothingNode());
             }
             else
