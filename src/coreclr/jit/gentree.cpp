@@ -5282,7 +5282,9 @@ GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
 
     if (type == TYP_UNDEF)
     {
-        type = op2->GetType();
+        // ASG and NULLCHECK have non VOID types but they don't actually
+        // produce a value. Don't propagate the type through COMMAs.
+        type = op2->OperIs(GT_ASG, GT_NULLCHECK) ? TYP_VOID : op2->GetType();
     }
 
     assert(!op2->OperIs(GT_NULLCHECK, GT_ASG) || (type == TYP_VOID));

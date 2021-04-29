@@ -3942,7 +3942,7 @@ GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCal
                 gtExtractSideEffList(call, &list, GTF_SIDE_EFFECT, true);
                 if (list != nullptr)
                 {
-                    arg1 = gtNewCommaNode(list, arg1, call->TypeGet());
+                    arg1 = gtNewCommaNode(list, arg1);
                     fgSetTreeSeq(arg1);
                 }
 

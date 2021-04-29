@@ -8030,8 +8030,8 @@ void Compiler::impImportLeave(BasicBlock* block)
 
     BasicBlock* step         = DUMMY_INIT(NULL);
     unsigned    encFinallies = 0; // Number of enclosing finallies.
-    GenTree*    endCatches   = NULL;
-    Statement*  endLFinStmt  = NULL; // The statement tree to indicate the end of locally-invoked finally.
+    GenTree*    endCatches   = nullptr;
+    Statement*  endLFinStmt  = nullptr; // The statement tree to indicate the end of locally-invoked finally.
 
     unsigned  XTnum;
     EHblkDsc* HBtab;
@@ -8059,9 +8059,9 @@ void Compiler::impImportLeave(BasicBlock* block)
             GenTree* endCatch = gtNewHelperCallNode(CORINFO_HELP_ENDCATCH, TYP_VOID);
 
             // Make a list of all the currently pending endCatches
-            if (endCatches)
+            if (endCatches != nullptr)
             {
-                endCatches = gtNewCommaNode(endCatches, endCatch, TYP_VOID);
+                endCatches = gtNewCommaNode(endCatches, endCatch);
             }
             else
             {
@@ -12510,7 +12510,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     if (helperNode != nullptr)
                     {
-                        op1 = gtNewCommaNode(helperNode, op1, op1->OperIs(GT_ASG) ? TYP_VOID : op1->GetType());
+                        op1 = gtNewCommaNode(helperNode, op1);
                     }
                 }
 
