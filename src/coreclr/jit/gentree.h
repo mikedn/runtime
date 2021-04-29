@@ -1786,7 +1786,7 @@ public:
     //---------------------------------------------------------------------
 
     bool IsNothingNode() const;
-    void gtBashToNOP();
+    void ChangeToNothingNode();
 
     // Value number update action enumeration
     enum ValueNumberUpdate

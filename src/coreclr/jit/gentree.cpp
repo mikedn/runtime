@@ -6149,7 +6149,7 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     {
         // Make this a NOP
         // TODO-Cleanup: probably doesn't matter, but could do this earlier and avoid creating a GT_ASG
-        asg->gtBashToNOP();
+        asg->ChangeToNothingNode();
         return;
     }
 
@@ -11975,7 +11975,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
 
         // Remove the newobj and assigment to box temp
         JITDUMP("Bashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
-        asg->gtBashToNOP();
+        asg->ChangeToNothingNode();
 
         if (varTypeIsStruct(copyDst->GetType()))
         {
@@ -12047,7 +12047,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
     //
     // Change the assignment expression to a NOP.
     JITDUMP("\nBashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
-    asg->gtBashToNOP();
+    asg->ChangeToNothingNode();
 
     // Change the copy expression so it preserves key
     // source side effects.
@@ -12057,7 +12057,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
     {
         // If there were no copy source side effects just bash
         // the copy to a NOP.
-        copy->gtBashToNOP();
+        copy->ChangeToNothingNode();
         JITDUMP(" to NOP; no source side effects.\n");
     }
     else if (!isStructCopy)

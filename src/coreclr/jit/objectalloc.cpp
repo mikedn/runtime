@@ -405,7 +405,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
                     // definitely-stack-pointing pointers. All definitely-stack-pointing pointers are in both sets.
                     MarkLclVarAsDefinitelyStackPointing(lclNum);
                     MarkLclVarAsPossiblyStackPointing(lclNum);
-                    stmt->GetRootNode()->gtBashToNOP();
+                    stmt->GetRootNode()->ChangeToNothingNode();
                     comp->optMethodFlags |= OMF_HAS_OBJSTACKALLOC;
                     didStackAllocate = true;
                 }

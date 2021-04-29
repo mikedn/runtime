@@ -1226,35 +1226,25 @@ inline GenTree* Compiler::gtNewNullCheck(GenTree* addr, BasicBlock* basicBlock)
     return nullCheck;
 }
 
-/*****************************************************************************
- *
- *  Create (and check for) a "nothing" node, i.e. a node that doesn't produce
- *  any code. We currently use a "nop" node of type void for this purpose.
- */
-
+// Create (and check for) a "nothing" node, i.e. a node that doesn't produce
+// any code. We currently use a "nop" node of type void for this purpose.
 inline GenTree* Compiler::gtNewNothingNode()
 {
     return new (this, GT_NOP) GenTreeOp(GT_NOP, TYP_VOID);
 }
-/*****************************************************************************/
 
 inline bool GenTree::IsNothingNode() const
 {
-    return (gtOper == GT_NOP && gtType == TYP_VOID);
+    return (gtOper == GT_NOP) && (gtType == TYP_VOID);
 }
 
-/*****************************************************************************
- *
- *  Change the given node to a NOP - May be later changed to a GT_COMMA
- *
- *****************************************************************************/
-
-inline void GenTree::gtBashToNOP()
+inline void GenTree::ChangeToNothingNode()
 {
     ChangeOper(GT_NOP);
 
     gtType        = TYP_VOID;
-    AsOp()->gtOp1 = AsOp()->gtOp2 = nullptr;
+    AsOp()->gtOp1 = nullptr;
+    AsOp()->gtOp2 = nullptr;
 
     gtFlags &= ~(GTF_ALL_EFFECT | GTF_REVERSE_OPS);
 }

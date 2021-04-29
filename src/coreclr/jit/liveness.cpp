@@ -1892,7 +1892,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
                         if (operand->OperIs(GT_PUTARG_STK))
                         {
                             operand->AsPutArgStk()->gtOp1->SetUnusedValue();
-                            operand->gtBashToNOP();
+                            operand->ChangeToNothingNode();
                         }
 
                         return GenTree::VisitResult::Continue;
@@ -2184,7 +2184,7 @@ void Compiler::fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block)
     if ((store->gtFlags & GTF_LATE_ARG) != 0)
     {
         JITDUMP("node is a late arg; replacing with NOP\n");
-        store->gtBashToNOP();
+        store->ChangeToNothingNode();
 
         // NOTE: this is a bit of a hack. We need to keep these nodes around as they are
         // referenced by the call, but they're considered side-effect-free non-value-producing
@@ -2464,7 +2464,7 @@ bool Compiler::fgRemoveDeadStore(GenTree**        pTree,
                 JITDUMPTREE(asgNode, "Removing tree in " FMT_BB " as useless", compCurBB->bbNum);
 
                 // No side effects - Change the assignment to a GT_NOP node
-                asgNode->gtBashToNOP();
+                asgNode->ChangeToNothingNode();
 
                 INDEBUG(*treeModf = true;)
             }
