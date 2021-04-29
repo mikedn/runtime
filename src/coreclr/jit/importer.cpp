@@ -12486,16 +12486,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewAssignNode(op1, op2);
                 }
 
+                GenTree* helperNode = nullptr;
+
                 if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
                 {
-                    GenTree* helperNode = impInitClass(&resolvedToken);
+                    helperNode = impInitClass(&resolvedToken);
                     if (compDonotInline())
                     {
                         return;
-                    }
-                    if (helperNode != nullptr)
-                    {
-                        op1 = gtNewCommaNode(helperNode, op1);
                     }
                 }
 
@@ -12515,23 +12513,24 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /* Spill any refs to the same member from the stack */
-
+                // Spill any refs to the same member from the stack
                 impSpillLclRefs((ssize_t)resolvedToken.hField);
 
-                /* stsfld also interferes with indirect accesses (for aliased
-                   statics) and calls. But don't need to spill other statics
-                   as we have explicitly spilled this particular static field. */
-
+                // stsfld also interferes with indirect accesses (for aliased
+                // statics) and calls. But don't need to spill other statics
+                // as we have explicitly spilled this particular static field.
                 impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
 
                 if (deferStructAssign)
                 {
-                    while (op1->OperIs(GT_COMMA))
+                    if (helperNode != nullptr)
                     {
-                        impAppendTree(op1->AsOp()->GetOp(0), CHECK_SPILL_ALL, impCurStmtOffs);
-                        op1 = op1->AsOp()->GetOp(1);
-                        assert(varTypeIsStruct(op1->GetType()));
+                        // TODO-MIKE-Review: We've already popped the value tree from the stack and
+                        // now we're appending the class initialization helper call, such that class
+                        // initialization will happen before whatever side effects the value tree may
+                        // have. This doesn't seem quite right when the type initializer doesn't have
+                        // BeforeFieldInit sematic.
+                        impAppendTree(helperNode, CHECK_SPILL_ALL, impCurStmtOffs);
                     }
 
                     // TODO-1stClassStructs: Avoid creating an address if it is not needed,
@@ -12549,8 +12548,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
-            }
+                else
+                {
+                    if (helperNode != nullptr)
+                    {
+                        op1 = gtNewCommaNode(helperNode, op1);
+                    }
+                }
+
                 goto APPEND;
+            }
 
             case CEE_NEWARR:
             {
