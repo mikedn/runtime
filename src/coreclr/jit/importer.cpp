@@ -12226,23 +12226,64 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /* Check if the class needs explicit initialization */
-
-                if (fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS)
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
                 {
                     GenTree* helperNode = impInitClass(&resolvedToken);
+
                     if (compDonotInline())
                     {
                         return;
                     }
+
                     if (helperNode != nullptr)
                     {
-                        // TDOO-MIKE-Cleanup: This appears to be the only case where the importer creates
-                        // a struct typed COMMA. Subsequently this is transformed into OBJ(COMMA(...))
-                        // (see impCanonicalizeStructCallArg and impAssignStructAddr).
-                        // We could do that here but let's keep it as is for now for testing purposes.
+                        // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
+                        // address (we always get an IND/OBJ for a static struct field load). They would be
+                        // later transformed by impAssignStructAddr/impCanonicalizeStructCallArg, resulting
+                        // redundant work or less than ideal trees.
+                        //
+                        // impCanonicalizeStructCallArg attempts to sink the COMMA below the indir so we get
+                        // the same result by simply doing that here.
+                        //
+                        // impAssignStructAddr tries to be clever and instead appends the side effect as a
+                        // separate statement, or hoists the COMMA above the assignment it generates.
+                        // Neither is quite right:
+                        //   - Type initialization will happen before whatever side effects the assignment
+                        //     destination address has.
+                        //   - Static field load loop hoisting depends on the type initialization helper
+                        //     call being present in the tree, if it's in a separate statement it doesn't
+                        //     know if it's safe to hoist the load.
+                        //     This actually prevented hoisting of static SIMD field loads.
+                        //
+                        // Extracting the helper call to a separate statement does have some advantages:
+                        //   - Avoids "poisoning" the entire tree with side effects from the helper call.
+                        //     This was only done for assignments and these are typically top level during
+                        //     import so it doesn't really matter.
+                        //   - Avoids poor register allocation due to a call appearing inside the tree.
+                        //     PMI diff does show a few diffs caused by register allocation changes.
 
-                        op1 = gtNewCommaNode(helperNode, op1);
+                        // TODO-MIKE-CQ: If the type has BeforeFieldInit initialization semantics we could
+                        // extract the helper call to a separate statement without worrying about side effect
+                        // ordering. We could even insert it at the start of the block and avoid any stack
+                        // spilling. But we still need to deal with the loop hoisting issue...
+
+                        // TODO-MIKE-Cleanup: SIMD COMMAs should not need this and previous implementation
+                        // actually preserved them in some cases (e.g. when the resulting tree was used
+                        // by a SIMD/HWINTRINSIC node rather than an assignment or call). Doesn't seem to
+                        // matter and anyway there'are many other places that insist on transforming SIMD
+                        // COMMAs for no reason. Actually we could simply preserve all struct COMMAs but
+                        // there seems to be little advantage in doing that and requires a bit of work.
+
+                        if (varTypeIsStruct(op1->GetType()))
+                        {
+                            GenTree* addr = gtNewCommaNode(helperNode, op1->AsIndir()->GetAddr());
+                            op1->AsIndir()->SetAddr(addr);
+                            op1->AddSideEffects(addr->GetSideEffects());
+                        }
+                        else
+                        {
+                            op1 = gtNewCommaNode(helperNode, op1);
+                        }
                     }
                 }
 

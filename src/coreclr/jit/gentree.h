@@ -786,6 +786,12 @@ public:
         gtFlags = (gtFlags & ~GTF_ALL_EFFECT) | sideEffects;
     }
 
+    void AddSideEffects(unsigned sideEffects)
+    {
+        assert((sideEffects & ~GTF_ALL_EFFECT) == 0);
+        gtFlags |= sideEffects;
+    }
+
 // The extra flag GTF_IS_IN_CSE is used to tell the consumer of these flags
 // that we are calling in the context of performing a CSE, thus we
 // should allow the run-once side effects of running a class constructor.
