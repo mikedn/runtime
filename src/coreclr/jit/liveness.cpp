@@ -265,7 +265,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             {
                 GenTreeLclVarCommon* dummyLclVarTree = nullptr;
                 bool                 dummyIsEntire   = false;
-                GenTree*             addrArg         = tree->AsOp()->gtOp1->gtEffectiveVal(/*commaOnly*/ true);
+                GenTree*             addrArg         = tree->AsIndir()->GetAddr()->SkipComma();
                 if (!addrArg->DefinesLocalAddr(this, /*width doesn't matter*/ 0, &dummyLclVarTree, &dummyIsEntire))
                 {
                     fgCurMemoryUse |= memoryKindSet(GcHeap, ByrefExposed);
@@ -1892,7 +1892,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, BasicBlock* block, VARSET_VALAR
                         if (operand->OperIs(GT_PUTARG_STK))
                         {
                             operand->AsPutArgStk()->gtOp1->SetUnusedValue();
-                            operand->gtBashToNOP();
+                            operand->ChangeToNothingNode();
                         }
 
                         return GenTree::VisitResult::Continue;
@@ -2184,7 +2184,7 @@ void Compiler::fgRemoveDeadStoreLIR(GenTree* store, BasicBlock* block)
     if ((store->gtFlags & GTF_LATE_ARG) != 0)
     {
         JITDUMP("node is a late arg; replacing with NOP\n");
-        store->gtBashToNOP();
+        store->ChangeToNothingNode();
 
         // NOTE: this is a bit of a hack. We need to keep these nodes around as they are
         // referenced by the call, but they're considered side-effect-free non-value-producing
@@ -2426,64 +2426,47 @@ bool Compiler::fgRemoveDeadStore(GenTree**        pTree,
             if (sideEffList != nullptr)
             {
                 noway_assert(sideEffList->gtFlags & GTF_SIDE_EFFECT);
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Extracted side effects list from condition...\n");
-                    gtDispTree(sideEffList);
-                    printf("\n");
-                }
-#endif // DEBUG
+
+                JITDUMPTREE(sideEffList, "Extracted side effects list from condition...\n");
+
                 if (sideEffList->gtOper == asgNode->gtOper)
                 {
-#ifdef DEBUG
-                    *treeModf = true;
-#endif // DEBUG
+                    INDEBUG(*treeModf = true;)
+
                     asgNode->AsOp()->gtOp1 = sideEffList->AsOp()->gtOp1;
                     asgNode->AsOp()->gtOp2 = sideEffList->AsOp()->gtOp2;
                     asgNode->gtType        = sideEffList->gtType;
                 }
                 else
                 {
-#ifdef DEBUG
-                    *treeModf = true;
-#endif // DEBUG
-                    // Change the node to a GT_COMMA holding the side effect list
-                    asgNode->gtBashToNOP();
+                    INDEBUG(*treeModf = true;)
 
                     asgNode->ChangeOper(GT_COMMA);
-                    asgNode->gtFlags |= sideEffList->gtFlags & GTF_ALL_EFFECT;
+                    asgNode->SetType(TYP_VOID);
 
-                    if (sideEffList->gtOper == GT_COMMA)
+                    if (sideEffList->OperIs(GT_COMMA))
                     {
-                        asgNode->AsOp()->gtOp1 = sideEffList->AsOp()->gtOp1;
-                        asgNode->AsOp()->gtOp2 = sideEffList->AsOp()->gtOp2;
+                        asgNode->AsOp()->SetOp(0, sideEffList->AsOp()->GetOp(0));
+                        asgNode->AsOp()->SetOp(1, sideEffList->AsOp()->GetOp(1));
                     }
                     else
                     {
-                        asgNode->AsOp()->gtOp1 = sideEffList;
-                        asgNode->AsOp()->gtOp2 = gtNewNothingNode();
+                        asgNode->AsOp()->SetOp(0, sideEffList);
+                        asgNode->AsOp()->SetOp(1, gtNewNothingNode());
                     }
+
+                    asgNode->SetSideEffects(sideEffList->GetSideEffects());
+                    asgNode->gtFlags &= ~GTF_REVERSE_OPS;
                 }
             }
             else
             {
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\nRemoving tree ");
-                    printTreeID(asgNode);
-                    printf(" in " FMT_BB " as useless\n", compCurBB->bbNum);
-                    gtDispTree(asgNode);
-                    printf("\n");
-                }
-#endif // DEBUG
-                // No side effects - Change the assignment to a GT_NOP node
-                asgNode->gtBashToNOP();
+                JITDUMPTREE(asgNode, "Removing tree in " FMT_BB " as useless", compCurBB->bbNum);
 
-#ifdef DEBUG
-                *treeModf = true;
-#endif // DEBUG
+                // No side effects - Change the assignment to a GT_NOP node
+                asgNode->ChangeToNothingNode();
+
+                INDEBUG(*treeModf = true;)
             }
 
             // Re-link the nodes for this statement - Do not update ordering!

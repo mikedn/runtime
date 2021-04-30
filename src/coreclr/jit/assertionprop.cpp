@@ -468,14 +468,12 @@ void Compiler::optAddCopies()
 
             /* Change the tree to a GT_COMMA with the two assignments as child nodes */
 
-            tree->gtBashToNOP();
             tree->ChangeOper(GT_COMMA);
-
-            tree->AsOp()->gtOp1 = newAsgn;
-            tree->AsOp()->gtOp2 = copyAsgn;
-
-            tree->gtFlags |= (newAsgn->gtFlags & GTF_ALL_EFFECT);
-            tree->gtFlags |= (copyAsgn->gtFlags & GTF_ALL_EFFECT);
+            tree->AsOp()->SetOp(0, newAsgn);
+            tree->AsOp()->SetOp(1, copyAsgn);
+            tree->SetType(TYP_VOID);
+            tree->SetSideEffects(newAsgn->GetSideEffects() | copyAsgn->GetSideEffects());
+            tree->gtFlags &= ~GTF_REVERSE_OPS;
         }
 
         JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", lclNum);
@@ -1021,11 +1019,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
         }
         else // !helperCallArgs
         {
-            /* Skip over a GT_COMMA node(s), if necessary */
-            while (op2->gtOper == GT_COMMA)
-            {
-                op2 = op2->AsOp()->gtOp2;
-            }
+            op2 = op2->SkipComma();
 
             // printf("create assertion\n");
 
@@ -2656,7 +2650,7 @@ GenTree* Compiler::optVNConstantPropOnTree(BasicBlock* block, GenTree* tree)
         {
             // Replace as COMMA(side_effects, const value tree);
             assert((sideEffList->gtFlags & GTF_SIDE_EFFECT) != 0);
-            return gtNewOperNode(GT_COMMA, conValTree->TypeGet(), sideEffList, conValTree);
+            return gtNewCommaNode(sideEffList, conValTree);
         }
         else
         {
@@ -3603,15 +3597,9 @@ GenTree* Compiler::optAssertionProp_Cast(ASSERT_VALARG_TP assertions, GenTree* t
         return nullptr;
     }
 
-    // Skip over a GT_COMMA node(s), if necessary to get to the lcl.
-    GenTree* lcl = op1;
-    while (lcl->gtOper == GT_COMMA)
-    {
-        lcl = lcl->AsOp()->gtOp2;
-    }
+    GenTree* lcl = op1->SkipComma();
 
-    // If we don't have a cast of a LCL_VAR then bail.
-    if (lcl->gtOper != GT_LCL_VAR)
+    if (!lcl->OperIs(GT_LCL_VAR))
     {
         return nullptr;
     }
@@ -3942,7 +3930,7 @@ GenTree* Compiler::optAssertionProp_Call(ASSERT_VALARG_TP assertions, GenTreeCal
                 gtExtractSideEffList(call, &list, GTF_SIDE_EFFECT, true);
                 if (list != nullptr)
                 {
-                    arg1 = gtNewOperNode(GT_COMMA, call->TypeGet(), list, arg1);
+                    arg1 = gtNewCommaNode(list, arg1);
                     fgSetTreeSeq(arg1);
                 }
 

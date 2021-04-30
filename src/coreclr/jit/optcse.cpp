@@ -2919,8 +2919,7 @@ public:
             GenTree*      cse = nullptr;
             bool          isDef;
             FieldSeqNode* fldSeq               = nullptr;
-            bool          commaOnly            = true;
-            GenTree*      effectiveExp         = exp->gtEffectiveVal(commaOnly);
+            GenTree*      effectiveExp         = exp->SkipComma();
             const bool    hasZeroMapAnnotation = m_pCompiler->GetZeroOffsetFieldMap()->Lookup(effectiveExp, &fldSeq);
 
             if (IS_CSE_USE(exp->gtCSEnum))
@@ -3087,7 +3086,7 @@ public:
                     exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
 
                     // Create a comma node with the sideEffList as op1
-                    cse           = m_pCompiler->gtNewOperNode(GT_COMMA, expTyp, sideEffList, cseVal);
+                    cse           = m_pCompiler->gtNewCommaNode(sideEffList, cseVal, expTyp);
                     cse->gtVNPair = vnStore->VNPWithExc(op2vnp, exceptions_vnp);
                 }
             }
@@ -3137,7 +3136,7 @@ public:
                         // This can only be the case for a struct in which the 'val' was a COMMA,
                         // so the assignment is sunk below it.
                         noway_assert(asgTree->OperIs(GT_COMMA) && (asgTree == val));
-                        asg = asgTree->gtEffectiveVal(true)->AsOp();
+                        asg = asgTree->SkipComma()->AsOp();
                     }
                     else
                     {
@@ -3185,7 +3184,7 @@ public:
                 }
                 cseUse->gtVNPair = val->gtVNPair;
 
-                cse = m_pCompiler->gtNewOperNode(GT_COMMA, expTyp, asgTree, cseUse);
+                cse = m_pCompiler->gtNewCommaNode(asgTree, cseUse, expTyp);
                 // COMMA's VN is the same the original expression VN because assignment does not add any exceptions.
                 cse->gtVNPair = cseUse->gtVNPair;
             }

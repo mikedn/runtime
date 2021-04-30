@@ -975,49 +975,6 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel)
-{
-    assert(varTypeIsStruct(src->GetType()));
-
-    return impAssignStruct(dest, src, typGetObjLayout(structHnd), curLevel);
-}
-
-GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, ClassLayout* layout, unsigned curLevel)
-{
-    assert(varTypeIsStruct(dest->GetType()));
-
-    while (dest->OperIs(GT_COMMA))
-    {
-        assert(varTypeIsStruct(dest->AsOp()->GetOp(1)));
-        impAppendTree(dest->AsOp()->GetOp(0), curLevel, impCurStmtOffs);
-        dest = dest->AsOp()->GetOp(1);
-    }
-
-    // Return a NOP if this is a self-assignment.
-    if (dest->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
-        (src->AsLclVar()->GetLclNum() == dest->AsLclVar()->GetLclNum()))
-    {
-        return gtNewNothingNode();
-    }
-
-    // TODO-1stClassStructs: Avoid creating an address if it is not needed,
-    // or re-creating an indir node if it is.
-    GenTree* destAddr;
-
-    if (dest->OperIs(GT_IND, GT_OBJ))
-    {
-        destAddr = dest->AsIndir()->GetAddr();
-    }
-    else
-    {
-        assert(dest->OperIs(GT_LCL_VAR, GT_FIELD, GT_INDEX));
-
-        destAddr = gtNewAddrNode(dest);
-    }
-
-    return impAssignStructAddr(destAddr, src, layout, curLevel);
-}
-
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
@@ -3642,10 +3599,12 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             //     s->_pointer + index * sizeof(T)
             //
             // For ReadOnlySpan<T> -- same expansion, as it now returns a readonly ref
-            //
-            // Signature should show one class type parameter, which
-            // we need to examine.
+
+            assert(sig->retType == CORINFO_TYPE_BYREF);
+
+            // Signature should show one class type parameter, which we need to examine.
             assert(sig->sigInst.classInstCount == 1);
+
             CORINFO_CLASS_HANDLE spanElemHnd = sig->sigInst.classInst[0];
             const unsigned       elemSize    = info.compCompHnd->getClassSize(spanElemHnd);
             assert(elemSize > 0);
@@ -3683,10 +3642,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             GenTree*             data        = gtNewFieldRef(TYP_BYREF, ptrHnd, spanAddrUses[1], ptrOffset);
             GenTree*             result      = gtNewOperNode(GT_ADD, TYP_BYREF, data, mulNode);
 
-            // Prepare result
-            var_types resultType = JITtype2varType(sig->retType);
-            assert(resultType == result->TypeGet());
-            retNode = gtNewOperNode(GT_COMMA, resultType, boundsCheck, result);
+            retNode = gtNewCommaNode(boundsCheck, result);
 
             break;
         }
@@ -4595,19 +4551,47 @@ GenTree* Compiler::impUnsupportedNamedIntrinsic(unsigned              helper,
     // be in response to an indirect call (e.g. done via reflection) or in response to an earlier attempt returning
     // `nullptr` (under `mustExpand=false`). In that scenario, we are safe to return the `MustThrowException` node.
 
-    if (mustExpand)
-    {
-        for (unsigned i = 0; i < sig->numArgs; i++)
-        {
-            impPopStack();
-        }
-
-        return gtNewMustThrowException(helper, JITtype2varType(sig->retType), sig->retTypeClass);
-    }
-    else
+    if (!mustExpand)
     {
         return nullptr;
     }
+
+    for (unsigned i = 0; i < sig->numArgs; i++)
+    {
+        GenTree* arg = impPopStack().val;
+        // These are expected to be the intrinsic method's own parameters so
+        // they should not have side effects and can simply be discarded.
+        assert(arg->GetSideEffects() == 0);
+    }
+
+    GenTreeCall* call = gtNewHelperCallNode(helper, TYP_VOID);
+    call->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
+    impAppendTree(call, CHECK_SPILL_ALL, impCurStmtOffs);
+
+    var_types retType = JITtype2varType(sig->retType);
+
+    if (retType == TYP_VOID)
+    {
+        return gtNewNothingNode();
+    }
+
+    if (retType != TYP_STRUCT)
+    {
+        return gtNewZeroConNode(retType);
+    }
+
+    ClassLayout* layout = typGetObjLayout(sig->retTypeClass);
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(typGetStructType(layout)))
+    {
+        return gtGetSIMDZero(layout);
+    }
+#endif
+
+    unsigned lclNum = lvaGrabTemp(true DEBUGARG("unsupported named intrinsic temp"));
+    lvaSetStruct(lclNum, layout, false);
+    return gtNewLclvNode(lclNum, TYP_STRUCT);
 }
 
 /*****************************************************************************/
@@ -5391,7 +5375,7 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
             GenTree* dest = gtNewAddrNode(gtNewLclvNode(lvaNewObjArrayArgs, TYP_BLK), TYP_I_IMPL);
             dest          = gtNewOperNode(GT_ADD, TYP_I_IMPL, dest, gtNewIconNode(sizeof(INT32) * i, TYP_I_IMPL));
             dest          = gtNewOperNode(GT_IND, TYP_INT, dest);
-            node          = gtNewOperNode(GT_COMMA, node->TypeGet(), gtNewAssignNode(dest, arg), node);
+            node          = gtNewCommaNode(gtNewAssignNode(dest, arg), node);
         }
 
         GenTreeCall::Use* args = gtNewCallArgs(node);
@@ -8031,8 +8015,8 @@ void Compiler::impImportLeave(BasicBlock* block)
 
     BasicBlock* step         = DUMMY_INIT(NULL);
     unsigned    encFinallies = 0; // Number of enclosing finallies.
-    GenTree*    endCatches   = NULL;
-    Statement*  endLFinStmt  = NULL; // The statement tree to indicate the end of locally-invoked finally.
+    GenTree*    endCatches   = nullptr;
+    Statement*  endLFinStmt  = nullptr; // The statement tree to indicate the end of locally-invoked finally.
 
     unsigned  XTnum;
     EHblkDsc* HBtab;
@@ -8060,10 +8044,14 @@ void Compiler::impImportLeave(BasicBlock* block)
             GenTree* endCatch = gtNewHelperCallNode(CORINFO_HELP_ENDCATCH, TYP_VOID);
 
             // Make a list of all the currently pending endCatches
-            if (endCatches)
-                endCatches = gtNewOperNode(GT_COMMA, TYP_VOID, endCatches, endCatch);
+            if (endCatches != nullptr)
+            {
+                endCatches = gtNewCommaNode(endCatches, endCatch);
+            }
             else
+            {
                 endCatches = endCatch;
+            }
 
 #ifdef DEBUG
             if (verbose)
@@ -9952,7 +9940,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsStruct(lclTyp))
                 {
-                    op1 = impAssignStruct(op2, op1, clsHnd, CHECK_SPILL_ALL);
+                    op1 = impAssignStructAddr(gtNewAddrNode(op2), op1, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -10474,7 +10462,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1->AsIndex()->SetLayout(layout);
                     op1->AsIndex()->SetElemSize(layout->GetSize());
 
-                    op1 = impAssignStruct(op1, op2, clsHnd, CHECK_SPILL_ALL);
+                    op1 = impAssignStructAddr(gtNewAddrNode(op1), op2, layout, CHECK_SPILL_ALL);
                 }
                 else
                 {
@@ -12238,23 +12226,64 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /* Check if the class needs explicit initialization */
-
-                if (fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS)
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
                 {
                     GenTree* helperNode = impInitClass(&resolvedToken);
+
                     if (compDonotInline())
                     {
                         return;
                     }
+
                     if (helperNode != nullptr)
                     {
-                        // TDOO-MIKE-Cleanup: This appears to be the only case where the importer creates
-                        // a struct typed COMMA. Subsequently this is transformed into OBJ(COMMA(...))
-                        // (see impCanonicalizeStructCallArg and impAssignStructAddr).
-                        // We could do that here but let's keep it as is for now for testing purposes.
+                        // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
+                        // address (we always get an IND/OBJ for a static struct field load). They would be
+                        // later transformed by impAssignStructAddr/impCanonicalizeStructCallArg, resulting
+                        // redundant work or less than ideal trees.
+                        //
+                        // impCanonicalizeStructCallArg attempts to sink the COMMA below the indir so we get
+                        // the same result by simply doing that here.
+                        //
+                        // impAssignStructAddr tries to be clever and instead appends the side effect as a
+                        // separate statement, or hoists the COMMA above the assignment it generates.
+                        // Neither is quite right:
+                        //   - Type initialization will happen before whatever side effects the assignment
+                        //     destination address has.
+                        //   - Static field load loop hoisting depends on the type initialization helper
+                        //     call being present in the tree, if it's in a separate statement it doesn't
+                        //     know if it's safe to hoist the load.
+                        //     This actually prevented hoisting of static SIMD field loads.
+                        //
+                        // Extracting the helper call to a separate statement does have some advantages:
+                        //   - Avoids "poisoning" the entire tree with side effects from the helper call.
+                        //     This was only done for assignments and these are typically top level during
+                        //     import so it doesn't really matter.
+                        //   - Avoids poor register allocation due to a call appearing inside the tree.
+                        //     PMI diff does show a few diffs caused by register allocation changes.
 
-                        op1 = gtNewOperNode(GT_COMMA, op1->TypeGet(), helperNode, op1);
+                        // TODO-MIKE-CQ: If the type has BeforeFieldInit initialization semantics we could
+                        // extract the helper call to a separate statement without worrying about side effect
+                        // ordering. We could even insert it at the start of the block and avoid any stack
+                        // spilling. But we still need to deal with the loop hoisting issue...
+
+                        // TODO-MIKE-Cleanup: SIMD COMMAs should not need this and previous implementation
+                        // actually preserved them in some cases (e.g. when the resulting tree was used
+                        // by a SIMD/HWINTRINSIC node rather than an assignment or call). Doesn't seem to
+                        // matter and anyway there'are many other places that insist on transforming SIMD
+                        // COMMAs for no reason. Actually we could simply preserve all struct COMMAs but
+                        // there seems to be little advantage in doing that and requires a bit of work.
+
+                        if (varTypeIsStruct(op1->GetType()))
+                        {
+                            GenTree* addr = gtNewCommaNode(helperNode, op1->AsIndir()->GetAddr());
+                            op1->AsIndir()->SetAddr(addr);
+                            op1->AddSideEffects(addr->GetSideEffects());
+                        }
+                        else
+                        {
+                            op1 = gtNewCommaNode(helperNode, op1);
+                        }
                     }
                 }
 
@@ -12498,18 +12527,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewAssignNode(op1, op2);
                 }
 
-                /* Check if the class needs explicit initialization */
+                GenTree* helperNode = nullptr;
 
-                if (fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS)
+                if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
                 {
-                    GenTree* helperNode = impInitClass(&resolvedToken);
+                    helperNode = impInitClass(&resolvedToken);
                     if (compDonotInline())
                     {
                         return;
-                    }
-                    if (helperNode != nullptr)
-                    {
-                        op1 = gtNewOperNode(GT_COMMA, op1->TypeGet(), helperNode, op1);
                     }
                 }
 
@@ -12529,22 +12554,51 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                /* Spill any refs to the same member from the stack */
-
+                // Spill any refs to the same member from the stack
                 impSpillLclRefs((ssize_t)resolvedToken.hField);
 
-                /* stsfld also interferes with indirect accesses (for aliased
-                   statics) and calls. But don't need to spill other statics
-                   as we have explicitly spilled this particular static field. */
-
-                impSpillSideEffects(false, (unsigned)CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
+                // stsfld also interferes with indirect accesses (for aliased
+                // statics) and calls. But don't need to spill other statics
+                // as we have explicitly spilled this particular static field.
+                impSpillSideEffects(false, CHECK_SPILL_ALL DEBUGARG("spill side effects before STFLD"));
 
                 if (deferStructAssign)
                 {
-                    op1 = impAssignStruct(op1, op2, clsHnd, CHECK_SPILL_ALL);
+                    if (helperNode != nullptr)
+                    {
+                        // TODO-MIKE-Review: We've already popped the value tree from the stack and
+                        // now we're appending the class initialization helper call, such that class
+                        // initialization will happen before whatever side effects the value tree may
+                        // have. This doesn't seem quite right when the type initializer doesn't have
+                        // BeforeFieldInit sematic.
+                        impAppendTree(helperNode, CHECK_SPILL_ALL, impCurStmtOffs);
+                    }
+
+                    // TODO-1stClassStructs: Avoid creating an address if it is not needed,
+                    // or re-creating an indir node if it is.
+                    if (op1->OperIs(GT_IND, GT_OBJ))
+                    {
+                        op1 = op1->AsIndir()->GetAddr();
+                    }
+                    else
+                    {
+                        assert(op1->OperIs(GT_FIELD));
+
+                        op1 = gtNewAddrNode(op1);
+                    }
+
+                    op1 = impAssignStructAddr(op1, op2, typGetObjLayout(clsHnd), CHECK_SPILL_ALL);
                 }
-            }
+                else
+                {
+                    if (helperNode != nullptr)
+                    {
+                        op1 = gtNewCommaNode(helperNode, op1);
+                    }
+                }
+
                 goto APPEND;
+            }
 
             case CEE_NEWARR:
             {
@@ -12992,7 +13046,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                 GenTree* boxPayloadAddress =
                                     gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[0], boxPayloadOffset);
                                 GenTree* nullcheck = gtNewNullCheck(op1Uses[1], block);
-                                GenTree* result    = gtNewOperNode(GT_COMMA, TYP_BYREF, nullcheck, boxPayloadAddress);
+                                GenTree* result    = gtNewCommaNode(nullcheck, boxPayloadAddress);
                                 impPushOnStack(result, typeInfo());
 
                                 break;
@@ -13088,15 +13142,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Here we need unsafe value cls check, since the address of struct is taken to be used
                         // further along and potetially be exploitable.
 
-                        unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a nullable"));
-                        lvaSetStruct(tmp, resolvedToken.hClass, /* checkUnsafeBuffer */ true);
-
-                        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                        op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
-                        assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
+                        ClassLayout* layout = typGetObjLayout(resolvedToken.hClass);
+                        unsigned     tmp    = lvaGrabTemp(true DEBUGARG("unbox nullable temp"));
+                        lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
                         op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
-                        op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
+                        op1 = impAssignStructAddr(op2, op1, layout, CHECK_SPILL_ALL);
+                        op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
+                        op1 = gtNewCommaNode(op1, op2);
                     }
 
                     assert(op1->TypeIs(TYP_BYREF));
@@ -13138,16 +13191,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // For the multi-reg case we need to spill it to a temp so that
                     // we can pass the address to the unbox_nullable jit helper.
 
-                    unsigned tmp = lvaGrabTemp(true DEBUGARG("UNBOXing a register returnable nullable"));
+                    unsigned tmp                  = lvaGrabTemp(true DEBUGARG("unbox nullable multireg temp"));
                     lvaTable[tmp].lvIsMultiRegArg = true;
                     lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
-                    op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                    op1 = impAssignStruct(op2, op1, resolvedToken.hClass, CHECK_SPILL_ALL);
-                    assert(op1->gtType == TYP_VOID); // We must be assigning the return struct to the temp.
-
                     op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
-                    op1 = gtNewOperNode(GT_COMMA, TYP_BYREF, op1, op2);
+                    op1 = impAssignStructAddr(op2, op1, layout, CHECK_SPILL_ALL);
+                    op2 = gtNewAddrNode(gtNewLclvNode(tmp, TYP_STRUCT));
+                    op1 = gtNewCommaNode(op1, op2);
 
                     goto LDOBJ;
                 }
@@ -14168,7 +14219,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
                 // asserts in impAssignStructAddr due to A<Canon>/A<SomeRefClass> mismatches.
                 ClassLayout* treeLayout = typGetObjLayout(verCurrentState.esStack[level].seTypeInfo.GetClassHandle());
 
-                asg = impAssignStruct(spillTempLclVar, tree, treeLayout, CHECK_SPILL_NONE);
+                asg = impAssignStructAddr(gtNewAddrNode(spillTempLclVar), tree, treeLayout, CHECK_SPILL_NONE);
                 assert(!asg->IsNothingNode());
             }
             else
@@ -15702,7 +15753,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     }
 
     // See what we know about the type of 'this' in the call.
-    GenTree*             thisObj       = call->gtCallThisArg->GetNode()->gtEffectiveVal(false);
+    GenTree*             thisObj       = call->gtCallThisArg->GetNode()->gtEffectiveVal();
     GenTree*             actualThisObj = nullptr;
     bool                 isExact       = false;
     bool                 objIsNonNull  = false;

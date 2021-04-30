@@ -7857,11 +7857,11 @@ bool Compiler::optComputeLoopSideEffectsOfBlock(BasicBlock* blk)
 
             if (oper == GT_ASG)
             {
-                GenTree* lhs = tree->AsOp()->gtOp1->gtEffectiveVal(/*commaOnly*/ true);
+                GenTree* lhs = tree->AsOp()->GetOp(0)->SkipComma();
 
-                if (lhs->OperGet() == GT_IND)
+                if (lhs->OperIs(GT_IND))
                 {
-                    GenTree* arg = lhs->AsOp()->gtOp1->gtEffectiveVal(/*commaOnly*/ true);
+                    GenTree* arg = lhs->AsIndir()->GetAddr()->SkipComma();
 
                     if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
                     {

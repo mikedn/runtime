@@ -3688,11 +3688,9 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     // TODO-CQ: Consider changing this to op1->gtEffectiveVal() to take into account
                     // addressing modes hidden under a comma node.
 
-                    if (op1->gtOper == GT_ADD)
+                    if (op1->OperIs(GT_ADD))
                     {
                         // See if we can form a complex addressing mode.
-
-                        GenTree* addr = op1->gtEffectiveVal();
 
                         bool doAddrMode = true;
                         // See if we can form a complex addressing mode.
@@ -3701,11 +3699,11 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         // done in Lowering as well.
                         if ((tree->gtFlags & GTF_IND_ARR_INDEX) == 0)
                         {
-                            if (tree->TypeGet() == TYP_STRUCT)
+                            if (tree->TypeIs(TYP_STRUCT))
                             {
                                 doAddrMode = false;
                             }
-                            else if (varTypeIsStruct(tree))
+                            else if (varTypeIsSIMD(tree->GetType()))
                             {
                                 // This is a heuristic attempting to match prior behavior when indirections
                                 // under a struct assignment would not be considered for addressing modes.
@@ -3720,11 +3718,12 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                                 }
                             }
                         }
-                        if (doAddrMode && gtMarkAddrMode(addr, &costEx, &costSz, tree->TypeGet()))
+
+                        if (doAddrMode && gtMarkAddrMode(op1, &costEx, &costSz, tree->TypeGet()))
                         {
                             goto DONE;
                         }
-                    } // end if  (op1->gtOper == GT_ADD)
+                    }
                     else if (gtIsLikelyRegVar(op1))
                     {
                         /* Indirection of an enregister LCL_VAR, don't increase costEx/costSz */
@@ -5275,6 +5274,23 @@ GenTreeOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1
     return new (this, oper) GenTreeOp(oper, type, op1, op2);
 }
 
+GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
+{
+    assert(op1 != nullptr);
+    assert(op2 != nullptr);
+
+    if (type == TYP_UNDEF)
+    {
+        // ASG and NULLCHECK have non VOID types but they don't actually
+        // produce a value. Don't propagate the type through COMMAs.
+        type = op2->OperIs(GT_ASG, GT_NULLCHECK) ? TYP_VOID : op2->GetType();
+    }
+
+    assert(!op2->OperIs(GT_NULLCHECK, GT_ASG) || (type == TYP_VOID));
+
+    return new (this, GT_COMMA) GenTreeOp(GT_COMMA, type, op1, op2);
+}
+
 GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)
 {
     assert(!compQmarkRationalized);
@@ -5950,8 +5966,8 @@ bool GenTreeOp::UsesDivideByConstOptimized(Compiler* comp)
 #endif // TARGET_ARM64
 
     bool     isSignedDivide = OperIs(GT_DIV, GT_MOD);
-    GenTree* dividend       = gtGetOp1()->gtEffectiveVal(/*commaOnly*/ true);
-    GenTree* divisor        = gtGetOp2()->gtEffectiveVal(/*commaOnly*/ true);
+    GenTree* dividend       = GetOp(0)->SkipComma();
+    GenTree* divisor        = GetOp(1)->SkipComma();
 
 #if !defined(TARGET_64BIT)
     if (dividend->OperIs(GT_LONG))
@@ -6075,7 +6091,7 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
 
         // Now set DONT_CSE on the GT_CNS_INT divisor, note that
         // with ValueNumbering we can have a non GT_CNS_INT divisior
-        GenTree* divisor = gtGetOp2()->gtEffectiveVal(/*commaOnly*/ true);
+        GenTree* divisor = GetOp(1)->SkipComma();
         if (divisor->OperIs(GT_CNS_INT))
         {
             divisor->gtFlags |= GTF_DONT_CSE;
@@ -6133,7 +6149,7 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     {
         // Make this a NOP
         // TODO-Cleanup: probably doesn't matter, but could do this earlier and avoid creating a GT_ASG
-        asg->gtBashToNOP();
+        asg->ChangeToNothingNode();
         return;
     }
 
@@ -11268,11 +11284,11 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
                 // we still have to emit a null-check
                 // obj.GetType == typeof() -> (nullcheck) true/false
                 GenTree* nullcheck = gtNewNullCheck(objOp, compCurBB);
-                return gtNewOperNode(GT_COMMA, tree->TypeGet(), nullcheck, compareResult);
+                return gtNewCommaNode(nullcheck, compareResult);
             }
-            else if (objOp->gtFlags & GTF_ALL_EFFECT)
+            else if (objOp->GetSideEffects() != 0)
             {
-                return gtNewOperNode(GT_COMMA, tree->TypeGet(), objOp, compareResult);
+                return gtNewCommaNode(objOp, compareResult);
             }
             else
             {
@@ -11959,7 +11975,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
 
         // Remove the newobj and assigment to box temp
         JITDUMP("Bashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
-        asg->gtBashToNOP();
+        asg->ChangeToNothingNode();
 
         if (varTypeIsStruct(copyDst->GetType()))
         {
@@ -12031,7 +12047,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
     //
     // Change the assignment expression to a NOP.
     JITDUMP("\nBashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
-    asg->gtBashToNOP();
+    asg->ChangeToNothingNode();
 
     // Change the copy expression so it preserves key
     // source side effects.
@@ -12041,7 +12057,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTree* op, BoxRemovalOptions 
     {
         // If there were no copy source side effects just bash
         // the copy to a NOP.
-        copy->gtBashToNOP();
+        copy->ChangeToNothingNode();
         JITDUMP(" to NOP; no source side effects.\n");
     }
     else if (!isStructCopy)
@@ -13178,9 +13194,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                             vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, vnStore->VNPForVoid())));
             }
 
-            tree = gtNewOperNode(GT_COMMA, tree->gtType, op1, op2);
-
-            return tree;
+            return gtNewCommaNode(op1, op2);
 
         /*-------------------------------------------------------------------------
          * Fold constant LONG binary operator
@@ -13832,7 +13846,7 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
     if (list != nullptr)
     {
         // Create a GT_COMMA that appends 'expr' in front of the remaining set of expressions in (*list)
-        GenTree* result = gtNewOperNode(GT_COMMA, TYP_VOID, expr, list);
+        GenTree* result = gtNewCommaNode(expr, list, TYP_VOID);
 
         // Set the flags in the comma node
         result->gtFlags |= (list->gtFlags & GTF_ALL_EFFECT);
@@ -14522,7 +14536,7 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarComm
         }
     }
     // Post rationalization we could have GT_IND(GT_LEA(..)) trees.
-    else if (OperGet() == GT_LEA)
+    else if (GenTreeAddrMode* addrMode = IsAddrMode())
     {
         // This method gets invoked during liveness computation and therefore it is critical
         // that we don't miss 'use' of any local.  The below logic is making the assumption
@@ -14531,7 +14545,7 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarComm
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
-        GenTree* index = AsOp()->gtOp2;
+        GenTree* index = addrMode->GetIndex();
         if (index != nullptr)
         {
             assert(!index->DefinesLocalAddr(comp, width, pLclVarTree, pIsEntire));
@@ -14539,13 +14553,13 @@ bool GenTree::DefinesLocalAddr(Compiler* comp, unsigned width, GenTreeLclVarComm
 #endif // DEBUG
 
         // base
-        GenTree* base = AsOp()->gtOp1;
+        GenTree* base = addrMode->GetBase();
         if (base != nullptr)
         {
             // Lea could have an Indir as its base.
-            if (base->OperGet() == GT_IND)
+            if (base->OperIs(GT_IND))
             {
-                base = base->AsOp()->gtOp1->gtEffectiveVal(/*commas only*/ true);
+                base = base->AsIndir()->GetAddr()->SkipComma();
             }
             return base->DefinesLocalAddr(comp, width, pLclVarTree, pIsEntire);
         }
@@ -15359,38 +15373,25 @@ CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
 
 CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, bool* pIsNonNull)
 {
-    // Set default values for our out params.
-    *pIsNonNull                   = false;
-    *pIsExact                     = false;
-    CORINFO_CLASS_HANDLE objClass = nullptr;
+    *pIsNonNull = false;
+    *pIsExact   = false;
 
-    // Bail out if the tree is not a ref type.
-    var_types treeType = tree->TypeGet();
-    if (treeType != TYP_REF)
+    if (!tree->TypeIs(TYP_REF))
     {
-        return objClass;
+        return NO_CLASS_HANDLE;
     }
 
-    // Tunnel through commas.
-    GenTree*         obj   = tree->gtEffectiveVal(false);
-    const genTreeOps objOp = obj->OperGet();
+    CORINFO_CLASS_HANDLE objClass = nullptr;
+    GenTree*             obj      = tree->gtEffectiveVal();
 
-    switch (objOp)
+    switch (obj->GetOper())
     {
-        case GT_COMMA:
-        {
-            // gtEffectiveVal above means we shouldn't see commas here.
-            assert(!"unexpected GT_COMMA");
-            break;
-        }
-
         case GT_LCL_VAR:
         {
-            // For locals, pick up type info from the local table.
-            const unsigned objLcl = obj->AsLclVar()->GetLclNum();
+            LclVarDsc* lcl = lvaGetDesc(obj->AsLclVar());
 
-            objClass  = lvaTable[objLcl].lvClassHnd;
-            *pIsExact = lvaTable[objLcl].lvClassIsExact;
+            objClass  = lcl->lvClassHnd;
+            *pIsExact = lcl->lvClassIsExact;
             break;
         }
 
@@ -16569,40 +16570,6 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoadOrStore() const
 }
 
 #endif // FEATURE_HW_INTRINSICS
-
-//---------------------------------------------------------------------------------------
-// gtNewMustThrowException:
-//    create a throw node (calling into JIT helper) that must be thrown.
-//    The result would be a comma node: COMMA(jithelperthrow(void), x) where x's type should be specified.
-//
-// Arguments
-//    helper      -  JIT helper ID
-//    type        -  return type of the node
-//
-// Return Value
-//    pointer to the throw node
-//
-GenTree* Compiler::gtNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd)
-{
-    GenTreeCall* node = gtNewHelperCallNode(helper, TYP_VOID);
-    node->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
-    if (type != TYP_VOID)
-    {
-        unsigned dummyTemp = lvaGrabTemp(true DEBUGARG("dummy temp of must thrown exception"));
-        if (type == TYP_STRUCT)
-        {
-            lvaSetStruct(dummyTemp, clsHnd, false);
-            type = lvaTable[dummyTemp].GetType();
-        }
-        else
-        {
-            lvaTable[dummyTemp].SetType(type);
-        }
-        GenTree* dummyNode = gtNewLclvNode(dummyTemp, type);
-        return gtNewOperNode(GT_COMMA, type, node, dummyNode);
-    }
-    return node;
-}
 
 void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout, StructPassing retKind)
 {

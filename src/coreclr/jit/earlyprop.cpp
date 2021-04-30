@@ -693,8 +693,7 @@ GenTree* Compiler::optFindNullCheckToFold(GenTree* tree, LocalNumberToNullCheckT
             return nullptr;
         }
 
-        const bool commaOnly              = true;
-        GenTree*   commaOp1EffectiveValue = defRHS->gtGetOp1()->gtEffectiveVal(commaOnly);
+        GenTree* commaOp1EffectiveValue = defRHS->gtGetOp1()->SkipComma();
 
         if (commaOp1EffectiveValue->OperGet() != GT_NULLCHECK)
         {
