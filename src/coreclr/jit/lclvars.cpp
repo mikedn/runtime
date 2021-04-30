@@ -1873,14 +1873,10 @@ bool Compiler::StructPromotionHelper::CanPromoteStructVar(unsigned lclNum)
 //
 bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
 {
-    assert(lclNum < compiler->lvaCount);
-
-    LclVarDsc* varDsc = &compiler->lvaTable[lclNum];
-    assert(varTypeIsStruct(varDsc));
-    assert(varDsc->GetLayout()->GetClassHandle() == structPromotionInfo.typeHnd);
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+    assert(varTypeIsStruct(lcl->GetType()));
+    assert(lcl->GetLayout()->GetClassHandle() == structPromotionInfo.typeHnd);
     assert(structPromotionInfo.canPromote);
-
-    bool shouldPromote = true;
 
     // We *can* promote; *should* we promote?
     // We should only do so if promotion has potential savings.  One source of savings
@@ -1894,22 +1890,35 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
     // Asm diffs indicate that promoting structs up to 3 fields is a net size win.
     // So if no fields are accessed independently, and there are four or more fields,
     // then do not promote.
-    //
+
     // TODO: Ideally we would want to consider the impact of whether the struct is
     // passed as a parameter or assigned the return value of a call. Because once promoted,
     // struct copying is done by field by field assignment instead of a more efficient
     // rep.stos or xmm reg based copy.
-    if (structPromotionInfo.fieldCnt > 3 && !varDsc->lvFieldAccessed)
+
+    // TODO: If the lvRefCnt is zero and we have a struct promoted parameter we can end up
+    // with an extra store of the the incoming register into the stack frame slot.
+    // In that case, we would like to avoid promortion.
+    // However we haven't yet computed the lvRefCnt values so we can't do that.
+
+    // TODO-MIKE-CQ: SIMD promotion is still messy as lvFieldAccessed is way too limited.
+    // A few "get"/"set"s may be better expressed as "get element"/"with element". Repeated
+    // "get"s may be best handled by CSE. Only repeated "set"s are likely to benefit from
+    // promotion, especially when we don't have SSE41.
+
+    if (!lcl->lvFieldAccessed && (structPromotionInfo.fieldCnt > 3 || varTypeIsSIMD(lcl->GetType())))
     {
-        JITDUMP("Not promoting promotable struct local V%02u: #fields = %d, fieldAccessed = %d.\n", lclNum,
-                structPromotionInfo.fieldCnt, varDsc->lvFieldAccessed);
-        shouldPromote = false;
+        JITDUMP("Not promoting struct local V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lclNum,
+                varTypeName(lcl->GetType()), structPromotionInfo.fieldCnt, lcl->lvFieldAccessed);
+        return false;
     }
-    else if (varDsc->lvIsMultiRegRet && structPromotionInfo.containsHoles && structPromotionInfo.customLayout)
+
+    if (lcl->lvIsMultiRegRet && structPromotionInfo.containsHoles && structPromotionInfo.customLayout)
     {
         JITDUMP("Not promoting multi-reg returned struct local V%02u with holes.\n", lclNum);
-        shouldPromote = false;
+        return false;
     }
+
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
     // TODO-PERF - Only do this when the LclVar is used in an argument context
     // TODO-ARM64 - HFA support should also eliminate the need for this.
@@ -1919,29 +1928,26 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
     // For now we currently don't promote structs with a single float field
     // Promoting it can cause us to shuffle it back and forth between the int and
     //  the float regs when it is used as a argument, which is very expensive for XARCH
-    //
-    else if ((structPromotionInfo.fieldCnt == 1) && varTypeIsFloating(structPromotionInfo.fields[0].fldType))
+    if ((structPromotionInfo.fieldCnt == 1) && varTypeIsFloating(structPromotionInfo.fields[0].fldType))
     {
-        JITDUMP("Not promoting promotable struct local V%02u: #fields = %d because it is a struct with "
-                "single float field.\n",
-                lclNum, structPromotionInfo.fieldCnt);
-        shouldPromote = false;
+        JITDUMP("Not promoting struct local V%02u: struct has a single float/double field.\n", lclNum,
+                structPromotionInfo.fieldCnt);
+        return false;
     }
 #endif // TARGET_AMD64 || TARGET_ARM64 || TARGET_ARM
-    else if (varDsc->lvIsParam && !compiler->lvaIsImplicitByRefLocal(lclNum) && !varDsc->lvIsHfa())
+
+    if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->lvIsHfa())
     {
 #if FEATURE_MULTIREG_STRUCT_PROMOTE
         // Is this a variable holding a value with exactly two fields passed in
         // multiple registers?
-        if (compiler->lvaIsMultiRegStructParam(varDsc))
+        if (compiler->lvaIsMultiRegStructParam(lcl))
         {
             if ((structPromotionInfo.fieldCnt != 2) &&
-                !((structPromotionInfo.fieldCnt == 1) && varTypeIsSIMD(structPromotionInfo.fields[0].fldType)))
+                ((structPromotionInfo.fieldCnt != 1) || !varTypeIsSIMD(structPromotionInfo.fields[0].fldType)))
             {
-                JITDUMP("Not promoting multireg struct local V%02u, because lvIsParam is true, #fields != 2 and it's "
-                        "not a single SIMD.\n",
-                        lclNum);
-                shouldPromote = false;
+                JITDUMP("Not promoting multireg struct param V%02u, #fields != 2 and it's not SIMD.\n", lclNum);
+                return false;
             }
         }
         else
@@ -1954,35 +1960,27 @@ bool Compiler::StructPromotionHelper::ShouldPromoteStructVar(unsigned lclNum)
             //             overwrite other fields.
             if (structPromotionInfo.fieldCnt != 1)
         {
-            JITDUMP("Not promoting promotable struct local V%02u, because lvIsParam is true and #fields = "
-                    "%d.\n",
-                    lclNum, structPromotionInfo.fieldCnt);
-            shouldPromote = false;
+            JITDUMP("Not promoting struct param V%02u, #fields = %u.\n", lclNum, structPromotionInfo.fieldCnt);
+            return false;
         }
     }
-    else if ((lclNum == compiler->genReturnLocal) && (structPromotionInfo.fieldCnt > 1))
+
+    if ((lclNum == compiler->genReturnLocal) && (structPromotionInfo.fieldCnt > 1))
     {
         // TODO-1stClassStructs: a temporary solution to keep diffs small, it will be fixed later.
-        shouldPromote = false;
+        return false;
     }
+
 #if defined(DEBUG)
-    else if (compiler->compPromoteFewerStructs(lclNum))
+    if (compiler->compPromoteFewerStructs(lclNum))
     {
         // Do not promote some structs, that can be promoted, to stress promoted/unpromoted moves.
         JITDUMP("Not promoting promotable struct local V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lclNum);
-        shouldPromote = false;
+        return false;
     }
 #endif
 
-    //
-    // If the lvRefCnt is zero and we have a struct promoted parameter we can end up with an extra store of
-    // the the incoming register into the stack frame slot.
-    // In that case, we would like to avoid promortion.
-    // However we haven't yet computed the lvRefCnt values so we can't do that.
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-    return shouldPromote;
+    return true;
 }
 
 //--------------------------------------------------------------------------------------------
