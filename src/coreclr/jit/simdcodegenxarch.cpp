@@ -35,6 +35,16 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #define INSERTPS_TARGET_SELECT(i) ((i) << 4)
 #define INSERTPS_ZERO(i) (1 << (i))
 
+int8_t ShufpsImm(unsigned i0, unsigned i1, unsigned i2, unsigned i3)
+{
+    return static_cast<int8_t>(i0 | (i1 << 2) | (i2 << 4) | (i3 << 6));
+}
+
+int8_t ShufpsImm(unsigned i)
+{
+    return ShufpsImm(i, i, i, i);
+}
+
 // ROUNDPS/PD:
 // - Bit 0 through 1 - Rounding mode
 //   * 0b00 - Round to nearest (even)
@@ -1473,9 +1483,43 @@ void CodeGen::genSIMDIntrinsicGetItem(GenTreeSIMD* simdNode)
     }
 
     noway_assert(op2->isContained());
-    noway_assert(op2->IsCnsIntOrI());
-    unsigned int index        = (unsigned int)op2->AsIntCon()->gtIconVal;
-    unsigned int byteShiftCnt = index * genTypeSize(baseType);
+    noway_assert(op2->IsIntCon());
+    unsigned index = op2->AsIntCon()->GetUInt32Value();
+
+    if ((baseType == TYP_FLOAT) && (index <= 3))
+    {
+        if ((targetReg != srcReg) && ((index == 0) || !GetEmitter()->UseVEXEncoding()))
+        {
+            GetEmitter()->emitIns_R_R(INS_movaps, EA_16BYTE, targetReg, srcReg);
+            srcReg = targetReg;
+        }
+
+        if (index != 0)
+        {
+            if (srcReg != targetReg)
+            {
+                GetEmitter()->emitIns_R_R_R_I(INS_shufps, EA_16BYTE, targetReg, srcReg, srcReg, ShufpsImm(index));
+            }
+            else if (index == 2)
+            {
+                // movhlps can move directly from source to destination but it leaves
+                // the upper destination elements unmodified. This can lead to false
+                // dependencies so we still move the entire source to the destination
+                // using movaps and then use movhlps only as a shorter form of shufps.
+                GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, targetReg, targetReg);
+            }
+            else
+            {
+                GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, ShufpsImm(index));
+            }
+        }
+
+        genProduceReg(simdNode);
+
+        return;
+    }
+
+    unsigned byteShiftCnt = index * varTypeSize(baseType);
 
     // In general we shouldn't have an index greater than or equal to the length of the vector.
     // However, if we have an out-of-range access, under minOpts it will not be optimized
