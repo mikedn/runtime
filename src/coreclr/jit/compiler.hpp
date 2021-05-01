@@ -1476,6 +1476,25 @@ inline unsigned Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shor
     return lclNum;
 }
 
+inline unsigned Compiler::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason))
+{
+    assert(varTypeIsSIMD(tree->GetType())); // Only SIMD temps are supported for now.
+
+    unsigned lclNum     = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    ClassLayout* layout = typGetVectorLayout(tree);
+
+    if (layout != nullptr)
+    {
+        lvaSetStruct(lclNum, layout, false);
+    }
+    else
+    {
+        lvaGetDesc(lclNum)->lvType = tree->GetType();
+    }
+
+    return lclNum;
+}
+
 inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
 {
     if (compIsForInlining())

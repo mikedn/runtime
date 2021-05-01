@@ -2634,6 +2634,7 @@ public:
     unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
+    unsigned lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
 
     unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
@@ -4826,6 +4827,10 @@ private:
                                       var_types      simdBaseType);
     GenTree* fgMorphBlkNode(GenTree* tree, bool isDest);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
+#ifdef FEATURE_SIMD
+    GenTreeOp* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
+    GenTreeOp* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned destLclNum);
+#endif
     GenTree* fgMorphCopyBlock(GenTreeOp* asg);
     GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);

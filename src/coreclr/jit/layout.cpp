@@ -592,6 +592,7 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
             return lvaGetDesc(node->AsLclVar())->GetLayout();
         case GT_LCL_FLD:
             return node->AsLclFld()->GetLayout(this);
+        case GT_BITCAST:
         case GT_IND:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -624,6 +625,7 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
                 return layout;
             }
             FALLTHROUGH;
+        case GT_BITCAST:
         case GT_IND:
             return typGetVectorLayout(node->GetType(), TYP_UNDEF);
 #ifdef FEATURE_HW_INTRINSICS
