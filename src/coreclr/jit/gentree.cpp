@@ -5558,23 +5558,6 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
     }
 }
 
-#ifdef FEATURE_SIMD
-//---------------------------------------------------------------------
-// gtNewSIMDVectorZero: create a GT_SIMD node for Vector<T>.Zero
-//
-// Arguments:
-//    simdType  -  simd vector type
-//    baseType  -  element type of vector
-//    size      -  size of vector in bytes
-GenTree* Compiler::gtNewSIMDVectorZero(var_types simdType, var_types baseType, unsigned size)
-{
-    baseType         = genActualType(baseType);
-    GenTree* initVal = gtNewZeroConNode(baseType);
-    initVal->gtType  = baseType;
-    return gtNewSIMDNode(simdType, SIMDIntrinsicInit, baseType, size, initVal);
-}
-#endif // FEATURE_SIMD
-
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
     return gtNewCallNode(CT_INDIRECT, (CORINFO_METHOD_HANDLE)addr, type, args, ilOffset);
@@ -15277,7 +15260,8 @@ GenTree* Compiler::gtGetSIMDZero(ClassLayout* layout)
 
     if (layout->GetVectorKind() != VectorKind::VectorNT)
     {
-        return gtNewSIMDVectorZero(layout->GetSIMDType(), layout->GetElementType(), layout->GetSize());
+        return gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetZeroSimdHWIntrinsic(layout->GetSIMDType()),
+                                        layout->GetElementType(), layout->GetSize());
     }
 
     NamedIntrinsic intrinsic;

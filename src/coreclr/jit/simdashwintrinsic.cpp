@@ -532,9 +532,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             NamedIntrinsic lessIntrinsic = MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX);
             NamedIntrinsic subIntrinsic  = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
 
-            GenTree* less = gtNewSIMDVectorZero(retType, retBaseType, retSize);
+            GenTree* less = gtNewSimdHWIntrinsicNode(retType, GetZeroSimdHWIntrinsic(retType), retBaseType, retSize);
             less          = impSimdAsHWIntrinsicRelOp(lessIntrinsic, retBaseType, retLayout, uses[0], less);
-            GenTree* neg  = gtNewSIMDVectorZero(retType, retBaseType, retSize);
+            GenTree* neg  = gtNewSimdHWIntrinsicNode(retType, GetZeroSimdHWIntrinsic(retType), retBaseType, retSize);
             neg           = gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, neg, uses[1]);
 
             return impSimdAsHWIntrinsicCndSel(retLayout, less, neg, uses[2]);

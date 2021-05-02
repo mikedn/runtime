@@ -1836,10 +1836,6 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
-#ifdef FEATURE_SIMD
-    GenTree* gtNewSIMDVectorZero(var_types simdType, var_types baseType, unsigned size);
-#endif
-
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
     void gtInitStructCopyAsg(GenTreeOp* asg);
