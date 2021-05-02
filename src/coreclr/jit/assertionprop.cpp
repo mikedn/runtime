@@ -2750,11 +2750,7 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
                 {
                     LclVarDsc* lcl = lvaGetDesc(lclNum);
                     assert(lcl->GetType() == tree->GetType());
-                    newTree = gtGetSIMDZero(lcl->GetLayout());
-                    if (newTree == nullptr)
-                    {
-                        return nullptr;
-                    }
+                    newTree = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
                 }
                 else
 #endif // FEATURE_SIMD

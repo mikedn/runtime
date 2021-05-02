@@ -15242,74 +15242,6 @@ bool Compiler::gtIsStaticFieldPtrToBoxedStruct(var_types fieldNodeType, CORINFO_
     return fieldTyp != TYP_REF;
 }
 
-#ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// gtGetSIMDZero: Get a zero value of the appropriate SIMD type.
-//
-// Return Value:
-//    A node generating the appropriate Zero, if we are able to discern it,
-//    otherwise null (note that this shouldn't happen, but callers should
-//    be tolerant of this case).
-
-GenTree* Compiler::gtGetSIMDZero(ClassLayout* layout)
-{
-    if (!layout->IsVector())
-    {
-        return nullptr;
-    }
-
-    if (layout->GetVectorKind() != VectorKind::VectorNT)
-    {
-        return gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetZeroSimdHWIntrinsic(layout->GetSIMDType()),
-                                        layout->GetElementType(), layout->GetSize());
-    }
-
-    NamedIntrinsic intrinsic;
-
-    switch (layout->GetSIMDType())
-    {
-        case TYP_SIMD16:
-#ifdef TARGET_XARCH
-            if (!compExactlyDependsOn(InstructionSet_SSE))
-            {
-                // We only return the HWIntrinsicNode if SSE is supported, since it is possible for
-                // the user to disable the SSE HWIntrinsic support via the COMPlus configuration knobs
-                // even though the hardware vector types are still available.
-                return nullptr;
-            }
-#endif
-
-            intrinsic = NI_Vector128_get_Zero;
-            break;
-
-#ifdef TARGET_ARM64
-        case TYP_SIMD8:
-            intrinsic = NI_Vector64_get_Zero;
-            break;
-#endif
-
-#ifdef TARGET_XARCH
-        case TYP_SIMD32:
-            if (!compExactlyDependsOn(InstructionSet_AVX))
-            {
-                // We only return the HWIntrinsicNode if AVX is supported, since it is possible for
-                // the user to disable the AVX HWIntrinsic support via the COMPlus configuration knobs
-                // even though the hardware vector types are still available.
-                return nullptr;
-            }
-
-            intrinsic = NI_Vector256_get_Zero;
-            break;
-#endif
-
-        default:
-            unreached();
-    }
-
-    return gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), intrinsic, layout->GetElementType(), layout->GetSize());
-}
-#endif // FEATURE_SIMD
-
 CORINFO_CLASS_HANDLE Compiler::gtGetStructHandle(GenTree* tree)
 {
     assert(tree->TypeIs(TYP_STRUCT));
@@ -16358,6 +16290,19 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
 #else
     return false;
 #endif
+}
+
+GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout)
+{
+    return new (this, GT_HWINTRINSIC)
+        GenTreeHWIntrinsic(layout->GetSIMDType(), GetZeroSimdHWIntrinsic(layout->GetSIMDType()),
+                           layout->GetElementType(), layout->GetSize());
+}
+
+GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType)
+{
+    return new (this, GT_HWINTRINSIC)
+        GenTreeHWIntrinsic(type, GetZeroSimdHWIntrinsic(type), baseType, varTypeSize(type));
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,

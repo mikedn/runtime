@@ -8230,7 +8230,7 @@ GenTree* Compiler::fgMorphInitBlockConstant(GenTreeIntCon* initVal,
     {
         if (initPattern == 0)
         {
-            return gtNewSimdHWIntrinsicNode(type, GetZeroSimdHWIntrinsic(type), initPatternType, varTypeSize(type));
+            return gtNewZeroSimdHWIntrinsicNode(type, initPatternType);
         }
         else
         {

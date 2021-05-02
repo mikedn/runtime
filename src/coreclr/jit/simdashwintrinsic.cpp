@@ -532,9 +532,9 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             NamedIntrinsic lessIntrinsic = MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX);
             NamedIntrinsic subIntrinsic  = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
 
-            GenTree* less = gtNewSimdHWIntrinsicNode(retType, GetZeroSimdHWIntrinsic(retType), retBaseType, retSize);
+            GenTree* less = gtNewZeroSimdHWIntrinsicNode(retLayout);
             less          = impSimdAsHWIntrinsicRelOp(lessIntrinsic, retBaseType, retLayout, uses[0], less);
-            GenTree* neg  = gtNewSimdHWIntrinsicNode(retType, GetZeroSimdHWIntrinsic(retType), retBaseType, retSize);
+            GenTree* neg  = gtNewZeroSimdHWIntrinsicNode(retLayout);
             neg           = gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, neg, uses[1]);
 
             return impSimdAsHWIntrinsicCndSel(retLayout, less, neg, uses[2]);
@@ -821,8 +821,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
     }
     else if ((sig.paramCount == 1) && (args[0]->IsIntegralConst(0) || args[0]->IsDblConPositiveZero()))
     {
-        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetZeroSimdHWIntrinsic(layout->GetSIMDType()),
-                                          layout->GetElementType(), layout->GetSize());
+        create = gtNewZeroSimdHWIntrinsicNode(layout);
     }
     else
     {

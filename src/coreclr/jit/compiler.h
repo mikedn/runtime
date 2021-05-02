@@ -1892,6 +1892,8 @@ public:
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
+    GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
+    GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
                                                  NamedIntrinsic hwIntrinsicID,
                                                  var_types      baseType,
@@ -6974,9 +6976,6 @@ private:
     // that require indexed access to the individual fields of the vector, which is not well supported
     // by the hardware.  It is allocated when/if such situations are encountered during Lowering.
     unsigned lvaSIMDInitTempVarNum;
-
-    // Get an appropriate "zero" for the given type and class handle.
-    GenTree* gtGetSIMDZero(ClassLayout* layout);
 
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
