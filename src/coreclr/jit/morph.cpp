@@ -8230,11 +8230,12 @@ GenTree* Compiler::fgMorphInitBlockConstant(GenTreeIntCon* initVal,
     {
         if (initPattern == 0)
         {
-            return gtNewSimdHWIntrinsicNode(type, NI_Vector128_get_Zero, initPatternType, genTypeSize(type));
+            return gtNewSimdHWIntrinsicNode(type, GetZeroSimdHWIntrinsic(type), initPatternType, varTypeSize(type));
         }
         else
         {
-            return gtNewSIMDNode(type, SIMDIntrinsicInit, initPatternType, genTypeSize(type), initVal);
+            return gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), initPatternType, varTypeSize(type),
+                                            initVal);
         }
     }
 #endif
