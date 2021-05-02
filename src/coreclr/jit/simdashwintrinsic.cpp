@@ -381,7 +381,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
                 assert(signature.paramCount == 1);
 
                 ops[1] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
-                ops[0] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0], true);
+                ops[0] = impSIMDPopStackAddr(signature.paramType[0]);
                 return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, size, ops[0], ops[1]);
 
             default:

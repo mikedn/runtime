@@ -239,19 +239,18 @@ bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
     return true;
 }
 
-GenTree* Compiler::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout, bool expectAddr)
+GenTree* Compiler::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout)
 {
     if (!varTypeIsStruct(paramType))
     {
         assert(varTypeIsArithmetic(paramType));
-        assert(!expectAddr);
 
         GenTree* arg = impPopStack().val;
         assert(varActualType(arg->GetType()) == varActualType(paramType));
         return arg;
     }
 
-    GenTree* arg = expectAddr ? impSIMDPopStackAddr(paramType) : impSIMDPopStack(paramType);
+    GenTree* arg = impSIMDPopStack(paramType);
     assert(varTypeIsSIMD(arg->TypeGet()));
     return arg;
 }
