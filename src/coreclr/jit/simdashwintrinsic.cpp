@@ -194,6 +194,26 @@ NamedIntrinsic GetCreateIntrinsic(var_types type)
     }
 }
 
+NamedIntrinsic GetZeroIntrinsic(var_types type)
+{
+    switch (type)
+    {
+        case TYP_SIMD8:
+#ifdef TARGET_ARM64
+            return NI_Vector64_get_Zero;
+#endif
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+            return NI_Vector128_get_Zero;
+#ifdef TARGET_XARCH
+        case TYP_SIMD32:
+            return NI_Vector256_get_Zero;
+#endif
+        default:
+            unreached();
+    }
+}
+
 //------------------------------------------------------------------------
 // impSimdAsIntrinsic: Import a SIMD intrinsic as a GT_HWINTRINSIC node if possible
 //
@@ -837,6 +857,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
             // Prevent the destination from being promoted since it would end up being dependent promoted.
             setLclRelatedToSIMDIntrinsic(addr->AsUnOp()->GetOp(0));
         }
+    }
+    else if ((sig.paramCount == 1) && (args[0]->IsIntegralConst(0) || args[0]->IsDblConPositiveZero()))
+    {
+        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetZeroIntrinsic(layout->GetSIMDType()),
+                                          layout->GetElementType(), layout->GetSize());
     }
     else
     {
