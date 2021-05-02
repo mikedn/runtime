@@ -448,7 +448,7 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
     for (unsigned i = 0; i < min(_countof(paramType), sig->numArgs); i++, param = vm->getArgNext(param))
     {
         CORINFO_CLASS_HANDLE paramClass;
-        paramType[i] = JITtype2varType(strip(vm->getArgType(sig, param, &paramClass)));
+        paramType[i] = CorTypeToPreciseVarType(strip(vm->getArgType(sig, param, &paramClass)));
 
         if (paramType[i] != TYP_STRUCT)
         {

@@ -418,12 +418,12 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 break;
 
             case NI_Crc32_Arm64_ComputeCrc32:
-                assert(intrin.baseType == TYP_LONG);
+                assert(intrin.baseType == TYP_ULONG);
                 ins = INS_crc32x;
                 break;
 
             case NI_Crc32_Arm64_ComputeCrc32C:
-                assert(intrin.baseType == TYP_LONG);
+                assert(intrin.baseType == TYP_ULONG);
                 ins = INS_crc32cx;
                 break;
 
