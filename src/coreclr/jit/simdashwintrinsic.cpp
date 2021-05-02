@@ -797,7 +797,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
 
     for (unsigned i = 0; i < sig.paramCount; i++)
     {
-        value[sig.paramCount - i - 1] = impPopArgForHWIntrinsic(sig.paramType[0], nullptr);
+        unsigned argIndex = sig.paramCount - i - 1;
+        args[argIndex]    = impPopStackCoerceArg(varActualType(sig.paramType[argIndex]));
     }
 
     GenTree* addr;
