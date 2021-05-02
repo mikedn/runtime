@@ -1900,7 +1900,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 
     if (src->isContained())
     {
-        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsSIMDZero() || src->IsHWIntrinsicZero());
+        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
 
         srcReg = REG_ZR;
     }
@@ -1976,7 +1976,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (src->isContained())
     {
-        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsSIMDZero() || src->IsHWIntrinsicZero());
+        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
 
         srcReg = REG_ZR;
     }
@@ -3540,10 +3540,6 @@ void CodeGen::genSIMDIntrinsic(GenTreeSIMD* simdNode)
 
     switch (simdNode->gtSIMDIntrinsicID)
     {
-        case SIMDIntrinsicInit:
-            genSIMDIntrinsicInit(simdNode);
-            break;
-
         case SIMDIntrinsicConvertToSingle:
         case SIMDIntrinsicConvertToInt32:
         case SIMDIntrinsicConvertToDouble:
@@ -3652,58 +3648,6 @@ instruction CodeGen::getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_type
 
     noway_assert(result != INS_invalid);
     return result;
-}
-
-//------------------------------------------------------------------------
-// genSIMDIntrinsicInit: Generate code for SIMD Intrinsic Initialize.
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genSIMDIntrinsicInit(GenTreeSIMD* simdNode)
-{
-    assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicInit);
-
-    GenTree*  op1       = simdNode->GetOp(0);
-    regNumber targetReg = simdNode->GetRegNum();
-    emitAttr  attr      = simdNode->gtSIMDSize > 8 ? EA_16BYTE : EA_8BYTE;
-    insOpts   opt       = emitSimdArrangementOpt(attr, simdNode->GetSIMDBaseType());
-
-    assert(genIsValidFloatReg(targetReg));
-
-    if (op1->isContained())
-    {
-        assert(op1->IsIntegralConst(0) || op1->IsDblConPositiveZero());
-
-        GetEmitter()->emitIns_R_I(INS_movi, attr, targetReg, 0, opt);
-    }
-    else
-    {
-        regNumber op1Reg = genConsumeReg(op1);
-
-        // TODO-ARM64-CQ Add LD1R to allow SIMDIntrinsicInit from contained memory
-        // TODO-ARM64-CQ Add MOVI to allow SIMDIntrinsicInit from contained immediate small constants
-
-        assert(genIsValidIntReg(op1Reg) || genIsValidFloatReg(op1Reg));
-
-        if (opt == INS_OPTS_1D)
-        {
-            GetEmitter()->emitIns_R_R(INS_mov, attr, targetReg, op1Reg);
-        }
-        else if (genIsValidIntReg(op1Reg))
-        {
-            GetEmitter()->emitIns_R_R(INS_dup, attr, targetReg, op1Reg, opt);
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_R_I(INS_dup, attr, targetReg, op1Reg, 0, opt);
-        }
-    }
-
-    genProduceReg(simdNode);
 }
 
 //----------------------------------------------------------------------------------
@@ -4189,7 +4133,7 @@ void CodeGen::genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode)
 //
 void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
 {
-    if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
+    if (value->IsHWIntrinsicZero())
     {
         inst_AM_R(INS_str, EA_8BYTE, REG_ZR, dst, 0);
         inst_AM_R(INS_str, EA_4BYTE, REG_ZR, dst, 8);

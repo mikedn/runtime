@@ -336,7 +336,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
 {
     switch (intrinsicId)
     {
-        case SIMDIntrinsicInit:
         case SIMDIntrinsicGetItem:
         case SIMDIntrinsicConvertToSingle:
         case SIMDIntrinsicConvertToDouble:
