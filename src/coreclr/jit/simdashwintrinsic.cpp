@@ -299,18 +299,19 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         {
             if (signature.paramLayout[0] == nullptr)
             {
-                // TODO-MIKE-Cleanup: Old code was bogus, this needs to be done only
-                // if the first argument is known to be a vector type. It could be a
-                // primitive type though (e.g. Vector2/3/4 constructors). This results
-                // in CreateBroadcast being ignored.
-                return nullptr;
+                // This must be one of the CrateBroadcast intrinsics.
+                assert(signature.hasThisParam);
+                assert(signature.paramCount == 1);
+                assert(signature.paramType[0] == layout->GetElementType());
             }
-
-            // If the first parameter has struct type then it is expected to be the same
-            // as the instanc type. Vector3/4 constructors have overloads with different
-            // vector type (e.g. Vector3(Vector2, float) but they are currently imported
-            // by the old SIMD intrinsic code.
-            assert(signature.paramLayout[0] == layout);
+            else
+            {
+                // If the first parameter has struct type then it is expected to be the same
+                // as the instanc type. Vector3/4 constructors have overloads with different
+                // vector type (e.g. Vector3(Vector2, float) but they are currently imported
+                // by the old SIMD intrinsic code.
+                assert(signature.paramLayout[0] == layout);
+            }
         }
     }
 
