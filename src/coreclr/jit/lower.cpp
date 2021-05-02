@@ -6582,7 +6582,7 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     {
         GenTree* addr = value->AsIndir()->GetAddr();
 
-        if (addr->isContained() && !IsSafeToContainMem(store, addr))
+        if (addr->isContained() && (addr->IsClsVar() || addr->IsIntCon() || !IsSafeToContainMem(store, addr)))
         {
             addr->ClearContained();
         }
