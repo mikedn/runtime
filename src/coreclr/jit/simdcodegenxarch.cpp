@@ -519,88 +519,6 @@ void CodeGen::genSIMDIntrinsicInit(GenTreeSIMD* simdNode)
     genProduceReg(simdNode);
 }
 
-//-------------------------------------------------------------------------------------------
-// genSIMDIntrinsicInitN: Generate code for SIMD Intrinsic Initialize for the form that takes
-//                        a number of arguments equal to the length of the Vector.
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genSIMDIntrinsicInitN(GenTreeSIMD* simdNode)
-{
-    assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicInitN);
-
-    // Right now this intrinsic is supported only on TYP_FLOAT vectors
-    var_types baseType = simdNode->gtSIMDBaseType;
-    noway_assert(baseType == TYP_FLOAT);
-
-    regNumber targetReg = simdNode->GetRegNum();
-    assert(targetReg != REG_NA);
-
-    var_types targetType = simdNode->TypeGet();
-
-    // Note that we cannot use targetReg before consumed all source operands. Therefore,
-    // Need an internal register to stitch together all the values into a single vector
-    // in an XMM reg.
-    regNumber vectorReg = simdNode->GetSingleTempReg();
-
-    // Zero out vectorReg if we are constructing a vector whose size is not equal to targetType vector size.
-    // For example in case of Vector4f we don't need to zero when using SSE2.
-    if (compiler->isSubRegisterSIMDType(simdNode))
-    {
-        genSIMDZero(targetType, baseType, vectorReg);
-    }
-
-    unsigned int baseTypeSize = genTypeSize(baseType);
-    instruction  insLeftShift = INS_pslldq;
-
-    // We will first consume the list items in execution (left to right) order,
-    // and record the registers.
-    regNumber operandRegs[SIMD_INTRINSIC_MAX_PARAM_COUNT];
-    unsigned  initCount = 0;
-    for (GenTreeSIMD::Use& use : simdNode->Uses())
-    {
-        assert(use.GetNode()->TypeGet() == baseType);
-        assert(!use.GetNode()->isContained());
-        assert(initCount < _countof(operandRegs));
-        operandRegs[initCount] = genConsumeReg(use.GetNode());
-        initCount++;
-    }
-
-    unsigned int offset = 0;
-    for (unsigned i = 0; i < initCount; i++)
-    {
-        // We will now construct the vector from the list items in reverse order.
-        // This allows us to efficiently stitch together a vector as follows:
-        // vectorReg = (vectorReg << offset)
-        // VectorReg[0] = listItemReg
-        // Use genSIMDScalarMove with SMT_PreserveUpper in order to ensure that the upper
-        // bits of vectorReg are not modified.
-
-        regNumber operandReg = operandRegs[initCount - i - 1];
-        if (offset != 0)
-        {
-            assert((baseTypeSize >= 0) && (baseTypeSize <= 255));
-            GetEmitter()->emitIns_R_I(insLeftShift, EA_16BYTE, vectorReg, (int8_t)baseTypeSize);
-        }
-        genSIMDScalarMove(targetType, baseType, vectorReg, operandReg, SMT_PreserveUpper);
-
-        offset += baseTypeSize;
-    }
-
-    noway_assert(offset == simdNode->gtSIMDSize);
-
-    // Load the initialized value.
-    if (targetReg != vectorReg)
-    {
-        inst_RV_RV(ins_Copy(targetType), targetReg, vectorReg, targetType, emitActualTypeSize(targetType));
-    }
-    genProduceReg(simdNode);
-}
-
 //----------------------------------------------------------------------------------
 // genSIMDIntrinsic32BitConvert: Generate code for 32-bit SIMD Convert (int/uint <-> float)
 //
@@ -1927,10 +1845,6 @@ void CodeGen::genSIMDIntrinsic(GenTreeSIMD* simdNode)
     {
         case SIMDIntrinsicInit:
             genSIMDIntrinsicInit(simdNode);
-            break;
-
-        case SIMDIntrinsicInitN:
-            genSIMDIntrinsicInitN(simdNode);
             break;
 
         case SIMDIntrinsicConvertToSingle:

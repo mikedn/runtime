@@ -174,46 +174,6 @@ NamedIntrinsic MapVectorTIntrinsic(NamedIntrinsic intrinsic, bool isAVX)
 }
 #endif // TARGET_XARCH
 
-NamedIntrinsic GetCreateIntrinsic(var_types type)
-{
-    switch (type)
-    {
-        case TYP_SIMD8:
-#ifdef TARGET_ARM64
-            return NI_Vector64_Create;
-#endif
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-            return NI_Vector128_Create;
-#ifdef TARGET_XARCH
-        case TYP_SIMD32:
-            return NI_Vector256_Create;
-#endif
-        default:
-            unreached();
-    }
-}
-
-NamedIntrinsic GetZeroIntrinsic(var_types type)
-{
-    switch (type)
-    {
-        case TYP_SIMD8:
-#ifdef TARGET_ARM64
-            return NI_Vector64_get_Zero;
-#endif
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-            return NI_Vector128_get_Zero;
-#ifdef TARGET_XARCH
-        case TYP_SIMD32:
-            return NI_Vector256_get_Zero;
-#endif
-        default:
-            unreached();
-    }
-}
-
 //------------------------------------------------------------------------
 // impSimdAsIntrinsic: Import a SIMD intrinsic as a GT_HWINTRINSIC node if possible
 //
@@ -490,7 +450,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             assert(sig.paramCount == 0);
             var_types retBaseType = retLayout->GetElementType();
             unsigned  retSize     = retLayout->GetSize();
-            return gtNewSimdHWIntrinsicNode(retType, GetCreateIntrinsic(retType), retBaseType, retSize,
+            return gtNewSimdHWIntrinsicNode(retType, GetCreateSimdHWIntrinsic(retType), retBaseType, retSize,
                                             gtNewOneConNode(retBaseType));
         }
 
@@ -547,7 +507,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                     bitMask = gtNewDconNode(jitstd::bit_cast<double, int64_t>(0x7fffffffffffffffLL), TYP_DOUBLE);
                 }
 
-                bitMask = gtNewSimdHWIntrinsicNode(retType, GetCreateIntrinsic(retType), retBaseType, retSize, bitMask);
+                bitMask =
+                    gtNewSimdHWIntrinsicNode(retType, GetCreateSimdHWIntrinsic(retType), retBaseType, retSize, bitMask);
 
                 intrinsic = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseAnd, isAVX);
                 intrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, retBaseType);
@@ -860,12 +821,12 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
     }
     else if ((sig.paramCount == 1) && (args[0]->IsIntegralConst(0) || args[0]->IsDblConPositiveZero()))
     {
-        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetZeroIntrinsic(layout->GetSIMDType()),
+        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetZeroSimdHWIntrinsic(layout->GetSIMDType()),
                                           layout->GetElementType(), layout->GetSize());
     }
     else
     {
-        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateIntrinsic(layout->GetSIMDType()),
+        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateSimdHWIntrinsic(layout->GetSIMDType()),
                                           layout->GetElementType(), layout->GetSize(), sig.paramCount, args);
     }
 
@@ -1029,7 +990,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
                 }
 
                 GenTree* constVector =
-                    gtNewSimdHWIntrinsicNode(type, GetCreateIntrinsic(type), constVal->GetType(), size, constVal);
+                    gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), constVal->GetType(), size, constVal);
 
                 GenTree* constUses[2];
                 impMakeMultiUse(constVector, constUses, layout,

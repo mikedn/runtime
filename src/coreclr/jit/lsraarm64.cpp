@@ -808,24 +808,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             buildUses = false;
             break;
 
-        case SIMDIntrinsicInitN:
-            srcCount = static_cast<int>(simdTree->GetNumOps());
-            assert(srcCount == static_cast<int>(simdTree->gtSIMDSize / genTypeSize(simdTree->gtSIMDBaseType)));
-            if (varTypeIsFloating(simdTree->gtSIMDBaseType))
-            {
-                // Need an internal register to stitch together all the values into a single vector in a SIMD reg.
-                buildInternalFloatRegisterDefForNode(simdTree);
-            }
-
-            for (GenTreeSIMD::Use& use : simdTree->Uses())
-            {
-                assert(use.GetNode()->TypeGet() == simdTree->gtSIMDBaseType);
-                assert(!use.GetNode()->isContained());
-                BuildUse(use.GetNode());
-            }
-            buildUses = false;
-            break;
-
         case SIMDIntrinsicInitArrayX:
         case SIMDIntrinsicInitFixed:
         case SIMDIntrinsicCopyToArray:

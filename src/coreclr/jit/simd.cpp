@@ -195,27 +195,7 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
             // for Vector2.  For other cases, we'll check their types here.
             if (*argCount > expectedArgCnt)
             {
-                if (i == SIMDIntrinsicInitN)
-                {
-                    if (layout->GetVectorKind() != VectorKind::Vector234)
-                    {
-                        continue;
-                    }
-
-                    if ((*argCount == 3) && (layout->GetSIMDType() == TYP_SIMD8))
-                    {
-                        expectedArgCnt = 3;
-                    }
-                    else if ((*argCount == 4) && (layout->GetSIMDType() == TYP_SIMD12))
-                    {
-                        expectedArgCnt = 4;
-                    }
-                    else if ((*argCount == 5) && (layout->GetSIMDType() == TYP_SIMD16))
-                    {
-                        expectedArgCnt = 5;
-                    }
-                }
-                else if (i == SIMDIntrinsicInitFixed)
+                if (i == SIMDIntrinsicInitFixed)
                 {
                     if (layout->GetVectorKind() != VectorKind::Vector234)
                     {

@@ -731,52 +731,6 @@ void Lowering::LowerSIMD(GenTreeSIMD* simdNode)
         simdNode->gtType = TYP_SIMD16;
     }
 
-    if (simdNode->gtSIMDIntrinsicID == SIMDIntrinsicInitN)
-    {
-        assert(simdNode->gtSIMDBaseType == TYP_FLOAT);
-
-        int   argCount      = 0;
-        int   constArgCount = 0;
-        float constArgValues[4]{0, 0, 0, 0};
-
-        for (GenTreeSIMD::Use& use : simdNode->Uses())
-        {
-            assert(use.GetNode()->TypeGet() == simdNode->gtSIMDBaseType);
-            assert(argCount < (int)_countof(constArgValues));
-
-            if (use.GetNode()->IsCnsFltOrDbl())
-            {
-                constArgValues[constArgCount] = static_cast<float>(use.GetNode()->AsDblCon()->gtDconVal);
-                constArgCount++;
-            }
-
-            argCount++;
-        }
-
-        if (constArgCount == argCount)
-        {
-            for (GenTreeSIMD::Use& use : simdNode->Uses())
-            {
-                BlockRange().Remove(use.GetNode());
-            }
-
-            assert(sizeof(constArgValues) == 16);
-
-            unsigned cnsSize  = sizeof(constArgValues);
-            unsigned cnsAlign = (comp->compCodeOpt() != Compiler::SMALL_CODE) ? cnsSize : 1;
-
-            CORINFO_FIELD_HANDLE hnd =
-                comp->GetEmitter()->emitBlkConst(constArgValues, cnsSize, cnsAlign, simdNode->gtSIMDBaseType);
-            GenTree* clsVarAddr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(GT_CLS_VAR_ADDR, TYP_I_IMPL, hnd);
-            BlockRange().InsertBefore(simdNode, clsVarAddr);
-            simdNode->ChangeOper(GT_IND);
-            simdNode->AsIndir()->Addr() = clsVarAddr;
-            ContainCheckIndir(simdNode->AsIndir());
-
-            return;
-        }
-    }
-
 #ifdef TARGET_XARCH
     if ((simdNode->gtSIMDIntrinsicID == SIMDIntrinsicGetItem) && (simdNode->GetOp(0)->OperGet() == GT_IND))
     {
