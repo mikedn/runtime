@@ -792,13 +792,20 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
     }
 #endif
 
-    GenTree* value[4];
-    assert(sig.paramCount <= _countof(value));
+    GenTree* args[4];
+    assert(sig.paramCount <= _countof(args));
+    bool areArgsContiguous = sig.paramCount > 1;
 
     for (unsigned i = 0; i < sig.paramCount; i++)
     {
         unsigned argIndex = sig.paramCount - i - 1;
         args[argIndex]    = impPopStackCoerceArg(varActualType(sig.paramType[argIndex]));
+
+        if ((i > 0) && areArgsContiguous)
+        {
+            // We're popping the args off the stack in reverse order so we already have the next arg.
+            areArgsContiguous = SIMDCoalescingBuffer::AreContiguousMemoryLocations(args[argIndex], args[argIndex + 1]);
+        }
     }
 
     GenTree* addr;
@@ -817,9 +824,27 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
         addr = impPopStack().val;
     }
 
-    var_types type = layout->GetSIMDType();
-    return impAssignSIMDAddr(addr, gtNewSimdHWIntrinsicNode(type, GetCreateIntrinsic(type), layout->GetElementType(),
-                                                            layout->GetSize(), sig.paramCount, value));
+    GenTree* create;
+
+    if (areArgsContiguous)
+    {
+        SIMDCoalescingBuffer::ChangeToSIMDMem(this, args[0], layout->GetSIMDType());
+
+        create = args[0];
+
+        if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+        {
+            // Prevent the destination from being promoted since it would end up being dependent promoted.
+            setLclRelatedToSIMDIntrinsic(addr->AsUnOp()->GetOp(0));
+        }
+    }
+    else
+    {
+        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateIntrinsic(layout->GetSIMDType()),
+                                          layout->GetElementType(), layout->GetSize(), sig.paramCount, args);
+    }
+
+    return impAssignSIMDAddr(addr, create);
 }
 
 #if defined(TARGET_XARCH)
