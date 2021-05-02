@@ -239,21 +239,8 @@ bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
     return true;
 }
 
-GenTree* Compiler::impPopArgForHWIntrinsic(var_types    paramType,
-                                           ClassLayout* paramLayout,
-                                           bool         expectAddr,
-                                           GenTree*     newobjThis)
+GenTree* Compiler::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout, bool expectAddr)
 {
-    if (newobjThis != nullptr)
-    {
-        assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
-
-        unsigned   lclNum = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
-        LclVarDsc* lcl    = lvaGetDesc(lclNum);
-        impPushOnStack(gtNewLclvNode(lclNum, lcl->GetType()), typeInfo(TI_STRUCT, paramLayout->GetClassHandle()));
-        return newobjThis;
-    }
-
     if (!varTypeIsStruct(paramType))
     {
         assert(varTypeIsArithmetic(paramType));

@@ -3006,10 +3006,7 @@ protected:
                                  var_types                   retType,
                                  unsigned                    simdSize);
 
-    GenTree* impPopArgForHWIntrinsic(var_types    paramType,
-                                     ClassLayout* paramLayout,
-                                     bool         expectAddr = false,
-                                     GenTree*     newobjThis = nullptr);
+    GenTree* impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout, bool expectAddr = false);
     GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
     GenTree* addRangeCheckIfNeeded(
         NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
