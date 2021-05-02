@@ -60,9 +60,6 @@ SIMD_INTRINSIC("CopyTo",                    true,        CopyToArrayX,          
 // Get operations
 SIMD_INTRINSIC("get_Item",                  true,        GetItem,                  TYP_UNKNOWN,    2,      {TYP_BYREF, TYP_INT,     TYP_UNDEF},   {TYP_INT, TYP_FLOAT, TYP_DOUBLE, TYP_LONG, TYP_USHORT, TYP_UBYTE, TYP_BYTE, TYP_SHORT, TYP_UINT, TYP_ULONG})
 
-// Cast
-SIMD_INTRINSIC("op_Explicit",               false,       Cast,                     TYP_STRUCT,     1,      {TYP_STRUCT, TYP_UNDEF,  TYP_UNDEF},   {TYP_INT, TYP_FLOAT, TYP_DOUBLE, TYP_LONG, TYP_USHORT, TYP_UBYTE, TYP_BYTE, TYP_SHORT, TYP_UINT, TYP_ULONG})
-
 // Convert int/uint to single
 SIMD_INTRINSIC("ConvertToSingle",           false,       ConvertToSingle,          TYP_STRUCT,     1,      {TYP_STRUCT, TYP_UNDEF,  TYP_UNDEF},   {TYP_INT, TYP_UINT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
 // Convert long/ulong to double

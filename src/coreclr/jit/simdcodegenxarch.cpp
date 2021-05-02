@@ -117,10 +117,6 @@ instruction CodeGen::getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_type
             // For SSE, SIMDIntrinsicInit uses the same instruction as the SIMDIntrinsicShuffleSSE2 intrinsic.
             FALLTHROUGH;
 
-        case SIMDIntrinsicCast:
-            result = INS_movaps;
-            break;
-
         case SIMDIntrinsicConvertToSingle:
             result = INS_cvtdq2ps;
             break;
@@ -601,34 +597,6 @@ void CodeGen::genSIMDIntrinsicInitN(GenTreeSIMD* simdNode)
     if (targetReg != vectorReg)
     {
         inst_RV_RV(ins_Copy(targetType), targetReg, vectorReg, targetType, emitActualTypeSize(targetType));
-    }
-    genProduceReg(simdNode);
-}
-
-//----------------------------------------------------------------------------------
-// genSIMDIntrinsicUnOp: Generate code for SIMD Intrinsic unary operations like sqrt.
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genSIMDIntrinsicUnOp(GenTreeSIMD* simdNode)
-{
-    assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicCast);
-
-    GenTree*  op1       = simdNode->GetOp(0);
-    var_types baseType  = simdNode->gtSIMDBaseType;
-    regNumber targetReg = simdNode->GetRegNum();
-    assert(targetReg != REG_NA);
-    var_types targetType = simdNode->TypeGet();
-
-    regNumber   op1Reg = genConsumeReg(op1);
-    instruction ins    = getOpForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID, baseType);
-    if (simdNode->gtSIMDIntrinsicID != SIMDIntrinsicCast || targetReg != op1Reg)
-    {
-        inst_RV_RV(ins, targetReg, op1Reg, targetType, emitActualTypeSize(targetType));
     }
     genProduceReg(simdNode);
 }
@@ -1963,10 +1931,6 @@ void CodeGen::genSIMDIntrinsic(GenTreeSIMD* simdNode)
 
         case SIMDIntrinsicInitN:
             genSIMDIntrinsicInitN(simdNode);
-            break;
-
-        case SIMDIntrinsicCast:
-            genSIMDIntrinsicUnOp(simdNode);
             break;
 
         case SIMDIntrinsicConvertToSingle:

@@ -358,7 +358,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
     {
         case SIMDIntrinsicInit:
         case SIMDIntrinsicGetItem:
-        case SIMDIntrinsicCast:
         case SIMDIntrinsicConvertToSingle:
         case SIMDIntrinsicConvertToDouble:
         case SIMDIntrinsicConvertToInt32:
@@ -951,132 +950,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
     switch (simdIntrinsicID)
     {
-        case SIMDIntrinsicInit:
-        {
-            // SIMDIntrinsicInit:
-            //    op2 - the initializer value
-            //    op1 - byref of vector
-            op2 = impPopStackCoerceArg(varActualType(baseType));
-            op1 = getOp1ForConstructor(opcode, newobjThis, clsHnd);
-
-            assert(op1->TypeGet() == TYP_BYREF);
-            assert(genActualType(op2->TypeGet()) == genActualType(baseType));
-
-            if (op2->IsIntegralConst(0) || op2->IsDblConPositiveZero())
-            {
-                simdTree = gtNewSimdHWIntrinsicNode(simdType, NI_Vector128_get_Zero, baseType, size);
-            }
-            else if (varTypeIsSmallInt(baseType))
-            {
-                // For integral base types of size less than TYP_INT, expand the initializer
-                // to fill size of TYP_INT bytes.
-
-                unsigned baseSize = genTypeSize(baseType);
-                int      multiplier;
-                if (baseSize == 1)
-                {
-                    multiplier = 0x01010101;
-                }
-                else
-                {
-                    assert(baseSize == 2);
-                    multiplier = 0x00010001;
-                }
-
-                GenTree* t1 = nullptr;
-                if (baseType == TYP_BYTE)
-                {
-                    // What we have is a signed byte initializer,
-                    // which when loaded to a reg will get sign extended to TYP_INT.
-                    // But what we need is the initializer without sign extended or
-                    // rather zero extended to 32-bits.
-                    t1 = gtNewOperNode(GT_AND, TYP_INT, op2, gtNewIconNode(0xff, TYP_INT));
-                }
-                else if (baseType == TYP_SHORT)
-                {
-                    // What we have is a signed short initializer,
-                    // which when loaded to a reg will get sign extended to TYP_INT.
-                    // But what we need is the initializer without sign extended or
-                    // rather zero extended to 32-bits.
-                    t1 = gtNewOperNode(GT_AND, TYP_INT, op2, gtNewIconNode(0xffff, TYP_INT));
-                }
-                else
-                {
-                    assert(baseType == TYP_UBYTE || baseType == TYP_USHORT);
-                    t1 = gtNewCastNode(TYP_INT, op2, false, TYP_INT);
-                }
-
-                assert(t1 != nullptr);
-                GenTree* t2 = gtNewIconNode(multiplier, TYP_INT);
-                op2         = gtNewOperNode(GT_MUL, TYP_INT, t1, t2);
-
-                // Construct a vector of TYP_INT with the new initializer and cast it back to vector of baseType
-                simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicInit, TYP_INT, size, op2);
-                simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicCast, baseType, size, simdTree);
-            }
-            else
-            {
-                simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicInit, baseType, size, op2);
-            }
-
-            retVal = impAssignSIMDAddr(op1, simdTree);
-        }
-        break;
-
-        case SIMDIntrinsicInitN:
-        {
-            // SIMDIntrinsicInitN
-            //    op2 - list of initializer values stitched into a list
-            //    op1 - byref of vector
-            assert(baseType == TYP_FLOAT);
-
-            unsigned initCount    = argCount - 1;
-            unsigned elementCount = getSIMDVectorLength(size, baseType);
-            noway_assert(initCount == elementCount);
-
-            // We must maintain left-to-right order of the args, but we will pop
-            // them off in reverse order (the Nth arg was pushed onto the stack last).
-
-            GenTree* args[SIMD_INTRINSIC_MAX_PARAM_COUNT - 1];
-
-            bool areArgsContiguous = true;
-            for (unsigned i = 0; i < initCount; i++)
-            {
-                args[initCount - 1 - i] = impPopStackCoerceArg(baseType);
-
-                if (areArgsContiguous && (i > 0))
-                {
-                    // Recall that we are popping the args off the stack in reverse order.
-                    areArgsContiguous = SIMDCoalescingBuffer::AreContiguousMemoryLocations(args[initCount - 1 - i],
-                                                                                           args[initCount - 1 - i + 1]);
-                }
-            }
-
-            op1 = getOp1ForConstructor(opcode, newobjThis, clsHnd);
-            assert(op1->TypeGet() == TYP_BYREF);
-
-            if (areArgsContiguous)
-            {
-                SIMDCoalescingBuffer::ChangeToSIMDMem(this, args[0], simdType);
-
-                simdTree = args[0];
-
-                if (op1->AsOp()->gtOp1->OperIsLocal())
-                {
-                    // label the dst struct's lclvar is used for SIMD intrinsic,
-                    // so that this dst struct won't be promoted.
-                    setLclRelatedToSIMDIntrinsic(op1->AsOp()->gtOp1);
-                }
-            }
-            else
-            {
-                simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicInitN, baseType, size, initCount, args);
-            }
-
-            retVal = impAssignSIMDAddr(op1, simdTree);
-        }
-        break;
-
         case SIMDIntrinsicInitArray:
         case SIMDIntrinsicInitArrayX:
         case SIMDIntrinsicCopyToArray:
@@ -1325,7 +1198,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
         break;
 
         // Unary operators that take and return a Vector.
-        case SIMDIntrinsicCast:
         case SIMDIntrinsicConvertToSingle:
         case SIMDIntrinsicConvertToDouble:
         case SIMDIntrinsicConvertToInt32:

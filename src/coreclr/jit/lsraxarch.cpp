@@ -1954,9 +1954,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
 
             break;
 
-        case SIMDIntrinsicCast:
-            break;
-
         case SIMDIntrinsicConvertToSingle:
             if (simdTree->gtSIMDBaseType == TYP_UINT)
             {
