@@ -299,9 +299,15 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         {
             if (signature.paramLayout[0] == nullptr)
             {
-                // This must be one of the CrateBroadcast intrinsics.
+                if (signature.paramType[0] == TYP_REF)
+                {
+                    // Create from array intrinsics are handled by the old SIMD import code.
+                    return nullptr;
+                }
+
+                // This must be one of the Create intrinsics.
                 assert(signature.hasThisParam);
-                assert(signature.paramCount == 1);
+                assert((signature.paramCount == 1) || (signature.paramCount == layout->GetElementCount()));
                 assert(signature.paramType[0] == layout->GetElementType());
             }
             else
@@ -332,8 +338,11 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         switch (intrinsic)
         {
             case NI_Vector2_CreateBroadcast:
+            case NI_Vector2_Create:
             case NI_Vector3_CreateBroadcast:
+            case NI_Vector3_Create:
             case NI_Vector4_CreateBroadcast:
+            case NI_Vector4_Create:
             case NI_VectorT128_CreateBroadcast:
 #ifdef TARGET_XARCH
             case NI_VectorT256_CreateBroadcast:
@@ -770,8 +779,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
-    assert(sig.paramCount == 1);
     assert(layout->IsVector());
+    assert((sig.paramCount == 1) || (sig.paramCount == layout->GetElementCount()));
 
 #ifndef TARGET_64BIT
     if (varTypeIsLong(layout->GetElementType()))
@@ -786,9 +795,17 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
     var_types type     = layout->GetSIMDType();
     var_types baseType = layout->GetElementType();
 
-    GenTree* value  = impPopArgForHWIntrinsic(sig.paramType[0], nullptr);
-    GenTree* addr   = impPopArgForHWIntrinsic(type, layout, true, newobjThis);
-    GenTree* create = gtNewSimdHWIntrinsicNode(type, GetCreateIntrinsic(type), baseType, layout->GetSize(), value);
+    GenTree* value[4];
+    assert(sig.paramCount <= _countof(value));
+
+    for (unsigned i = 0; i < sig.paramCount; i++)
+    {
+        value[sig.paramCount - i - 1] = impPopArgForHWIntrinsic(sig.paramType[0], nullptr);
+    }
+
+    GenTree* addr = impPopArgForHWIntrinsic(type, layout, true, newobjThis);
+    GenTree* create =
+        gtNewSimdHWIntrinsicNode(type, GetCreateIntrinsic(type), baseType, layout->GetSize(), sig.paramCount, value);
     return impAssignSIMDAddr(addr, create);
 }
 

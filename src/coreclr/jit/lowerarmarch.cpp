@@ -874,9 +874,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             BlockRange().Remove(node->GetOp(i));
         }
 
-        assert((simdSize == 8) || (simdSize == 16));
+        assert((simdSize == 8) || (simdSize == 12) || (simdSize == 16));
 
-        if ((argCnt == 1) || VectorConstantIsBroadcastedI64(vecCns, simdSize / 8))
+        if ((argCnt == 1) || VectorConstantIsBroadcastedI64(vecCns, roundUp(simdSize, 8) / 8))
         {
             // If we are a single constant or if all parts are the same, we might be able to optimize
             // this even further for certain values, such as Zero or AllBitsSet.
@@ -887,7 +887,8 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
                 node->SetNumOps(0);
                 return;
             }
-            else if (vecCns.i64[0] == -1)
+
+            if ((vecCns.i64[0] == -1) && (simdSize != 12))
             {
                 node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
                 node->SetNumOps(0);

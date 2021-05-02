@@ -16461,6 +16461,20 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     return node;
 }
 
+GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
+    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, unsigned numOps, GenTree** ops)
+{
+    GenTreeHWIntrinsic* node = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size);
+    node->SetNumOps(numOps, getAllocator(CMK_ASTNode));
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        node->SetOp(i, ops[i]);
+        node->gtFlags |= ops[i]->gtFlags & GTF_ALL_EFFECT;
+        SetOpLclRelatedToSIMDIntrinsic(ops[i]);
+    }
+    return node;
+}
+
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
 {
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNKNOWN, 0, op1);
