@@ -792,9 +792,6 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
     }
 #endif
 
-    var_types type     = layout->GetSIMDType();
-    var_types baseType = layout->GetElementType();
-
     GenTree* value[4];
     assert(sig.paramCount <= _countof(value));
 
@@ -803,10 +800,25 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
         value[sig.paramCount - i - 1] = impPopArgForHWIntrinsic(sig.paramType[0], nullptr);
     }
 
-    GenTree* addr = impPopArgForHWIntrinsic(type, layout, true, newobjThis);
-    GenTree* create =
-        gtNewSimdHWIntrinsicNode(type, GetCreateIntrinsic(type), baseType, layout->GetSize(), sig.paramCount, value);
-    return impAssignSIMDAddr(addr, create);
+    GenTree* addr;
+
+    if (newobjThis != nullptr)
+    {
+        addr = newobjThis;
+
+        assert(addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
+        unsigned  lclNum  = addr->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        var_types lclType = lvaGetDesc(lclNum)->GetType();
+        impPushOnStack(gtNewLclvNode(lclNum, lclType), typeInfo(TI_STRUCT, layout->GetClassHandle()));
+    }
+    else
+    {
+        addr = impPopStack().val;
+    }
+
+    var_types type = layout->GetSIMDType();
+    return impAssignSIMDAddr(addr, gtNewSimdHWIntrinsicNode(type, GetCreateIntrinsic(type), layout->GetElementType(),
+                                                            layout->GetSize(), sig.paramCount, value));
 }
 
 #if defined(TARGET_XARCH)
