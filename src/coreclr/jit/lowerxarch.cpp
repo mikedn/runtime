@@ -2226,7 +2226,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         case TYP_FLOAT:
             if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
             {
-                for (unsigned i = 1; i < argCnt; i++)
+                for (unsigned i = 1, zeroBits = 0b1100; i < argCnt; i++, zeroBits = (zeroBits << 1) & 0b1111)
                 {
                     GenTree* op = node->GetOp(i);
 
@@ -2235,7 +2235,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
                     BlockRange().InsertAfter(op, tmp2);
                     LowerNode(tmp2);
 
-                    GenTree* idx = comp->gtNewIconNode(i << 4);
+                    GenTree* idx = comp->gtNewIconNode((i << 4) | zeroBits);
                     BlockRange().InsertAfter(tmp2, idx);
 
                     if (i < argCnt - 1)
