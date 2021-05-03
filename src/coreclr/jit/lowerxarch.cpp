@@ -2228,29 +2228,23 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             {
                 for (unsigned i = 1, zeroBits = 0b1100; i < argCnt; i++, zeroBits = (zeroBits << 1) & 0b1111)
                 {
-                    GenTree* op = node->GetOp(i);
-
-                    GenTree* tmp2 =
-                        comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, op);
-                    BlockRange().InsertAfter(op, tmp2);
-                    LowerNode(tmp2);
-
+                    GenTree* op  = node->GetOp(i);
                     GenTree* idx = comp->gtNewIconNode((i << 4) | zeroBits);
-                    BlockRange().InsertAfter(tmp2, idx);
 
                     if (i < argCnt - 1)
                     {
                         tmp1 =
-                            comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, 16, tmp1, tmp2, idx);
-                        BlockRange().InsertAfter(idx, tmp1);
+                            comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, 16, tmp1, op, idx);
+                        BlockRange().InsertAfter(op, idx, tmp1);
                         LowerNode(tmp1);
                     }
                     else
                     {
-                        node->SetIntrinsic(NI_SSE41_Insert, 3);
+                        node->SetIntrinsic(NI_SSE41_Insert, TYP_FLOAT, 16, 3);
                         node->SetOp(0, tmp1);
-                        node->SetOp(1, tmp2);
+                        node->SetOp(1, op);
                         node->SetOp(2, idx);
+                        BlockRange().InsertBefore(node, idx);
                     }
                 }
 
@@ -4650,42 +4644,23 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
                 case NI_SSE41_Insert:
                 case NI_SSE41_X64_Insert:
                 {
+                    assert(containingNode->GetOp(1) == node);
+
                     if (containingNode->gtSIMDBaseType == TYP_FLOAT)
                     {
                         assert(containingIntrinsicId == NI_SSE41_Insert);
-                        assert(genTypeSize(node->TypeGet()) == 16);
+                        assert(node->TypeIs(TYP_SIMD16, TYP_FLOAT));
 
-                        // Sse41.Insert(V128<float>, V128<float>, byte) is a bit special
-                        // in that it has different behavior depending on whether the
-                        // second operand is coming from a register or memory. When coming
-                        // from a register, all 4 elements of the vector can be used and it
-                        // is effectively a regular `SimpleSIMD` operation; but when loading
-                        // from memory, it only works with the lowest element and is effectively
-                        // a `SIMDScalar`.
-
-                        assert(supportsAlignedSIMDLoads == false);
-                        assert(supportsUnalignedSIMDLoads == false);
-                        assert(supportsGeneralLoads == false);
-                        assert(supportsSIMDScalarLoads == false);
-
-                        GenTree* op1 = containingNode->GetOp(0);
-                        GenTree* op2 = containingNode->GetOp(1);
-                        GenTree* op3 = containingNode->GetOp(2);
-
-                        assert(node == op2);
-
-                        // The upper two bits of the immediate value are ignored if
-                        // op2 comes from memory. In order to support using the upper
-                        // bits, we need to disable containment support if op3 is not
-                        // constant or if the constant is greater than 0x3F (which means
-                        // at least one of the upper two bits is set).
-
-                        if (op3->IsCnsIntOrI())
+                        if (node->TypeIs(TYP_FLOAT))
                         {
-                            ssize_t ival = op3->AsIntCon()->IconValue();
-                            assert((ival >= 0) && (ival <= 255));
+                            supportsGeneralLoads = true;
+                        }
+                        else if (GenTreeIntCon* imm = containingNode->GetOp(2)->IsIntCon())
+                        {
+                            // If the source element index is 0 then we can effectively treat
+                            // the (memory) source as FLOAT and contain it.
 
-                            supportsSIMDScalarLoads = (ival <= 0x3F);
+                            supportsSIMDScalarLoads = (imm->GetValue() & 0xC0) == 0;
                             supportsGeneralLoads    = supportsSIMDScalarLoads;
                         }
                         break;
