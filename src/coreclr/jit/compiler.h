@@ -2996,6 +2996,12 @@ protected:
                                         ClassLayout*                thisLayout,
                                         GenTree*                    newobjThis);
 
+    GenTree* impSimdAsHWIntrinsicCreateExtend(const HWIntrinsicSignature& signature,
+                                              ClassLayout*                layout,
+                                              GenTree*                    newobjThis);
+
+    GenTree* impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree* newobjThis);
+
     GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,

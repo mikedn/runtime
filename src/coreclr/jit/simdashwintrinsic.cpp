@@ -293,10 +293,16 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             else
             {
                 // If the first parameter has struct type then it is expected to be the same
-                // as the instanc type. Vector3/4 constructors have overloads with different
-                // vector type (e.g. Vector3(Vector2, float) but they are currently imported
-                // by the old SIMD intrinsic code.
-                assert(signature.paramLayout[0] == layout);
+                // as the instance type, with the the exception of Vector3/4 constructors that
+                // have overloads with different vector types.
+
+                if (signature.paramLayout[0] != layout)
+                {
+                    assert(layout->GetVectorKind() == VectorKind::Vector234);
+                    assert(signature.paramLayout[0]->GetVectorKind() == VectorKind::Vector234);
+                    assert(layout->GetElementCount() - signature.paramLayout[0]->GetElementCount() ==
+                           signature.paramCount - 1);
+                }
             }
         }
     }
@@ -328,7 +334,10 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             case NI_VectorT256_CreateBroadcast:
 #endif
                 return impSimdAsHWIntrinsicCreate(signature, layout, newobjThis);
-
+            case NI_Vector3_CreateExtend1:
+            case NI_Vector4_CreateExtend1:
+            case NI_Vector4_CreateExtend2:
+                return impSimdAsHWIntrinsicCreateExtend(signature, layout, newobjThis);
             default:
                 assert(newobjThis == nullptr);
                 return impSimdAsHWIntrinsicSpecial(intrinsic, signature, layout);
@@ -789,22 +798,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
         }
     }
 
-    GenTree* addr;
-
-    if (newobjThis != nullptr)
-    {
-        addr = newobjThis;
-
-        assert(addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
-        unsigned  lclNum  = addr->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
-        var_types lclType = lvaGetDesc(lclNum)->GetType();
-        impPushOnStack(gtNewLclvNode(lclNum, lclType), typeInfo(TI_STRUCT, layout->GetClassHandle()));
-    }
-    else
-    {
-        addr = impPopStack().val;
-    }
-
+    GenTree* addr = impSimdAsHWIntrinsicGetCtorThis(layout, newobjThis);
     GenTree* create;
 
     if (areArgsContiguous)
@@ -830,6 +824,92 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
     }
 
     return impAssignSIMDAddr(addr, create);
+}
+
+GenTree* Compiler::impSimdAsHWIntrinsicCreateExtend(const HWIntrinsicSignature& sig,
+                                                    ClassLayout*                layout,
+                                                    GenTree*                    newobjThis)
+{
+    assert(sig.retType == TYP_VOID);
+    assert(sig.hasThisParam);
+    assert(layout->GetVectorKind() == VectorKind::Vector234);
+
+    GenTree* args[3];
+    assert(sig.paramCount <= _countof(args));
+
+    for (unsigned i = sig.paramCount - 1; i > 0; i--)
+    {
+        args[i] = impPopStackCoerceArg(TYP_FLOAT);
+    }
+
+    args[0] = impSIMDPopStack(sig.paramType[0]);
+
+    GenTree* addr = impSimdAsHWIntrinsicGetCtorThis(layout, newobjThis);
+    GenTree* create;
+
+    unsigned insertIndex = sig.paramType[0] == TYP_SIMD12 ? 3 : 2;
+
+#ifdef TARGET_ARM64
+    create = args[0];
+
+    for (unsigned i = 1; i < sig.paramCount; i++)
+    {
+        args[i] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, args[i]);
+        create  = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Insert, TYP_FLOAT, 16, create,
+                                          gtNewIconNode(insertIndex + i - 1), args[i]);
+    }
+#elif defined(TARGET_XARCH)
+    if (sig.paramCount == 3)
+    {
+        args[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, args[1]);
+        args[2] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, args[2]);
+        create  = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16, args[1], args[2]);
+        create  = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, args[0], create);
+    }
+    else if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        create = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, 16, args[0], args[1],
+                                          gtNewIconNode(insertIndex << 4));
+    }
+    else if (insertIndex == 2)
+    {
+        create = gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
+        create = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, TYP_FLOAT, 16, create, args[1]);
+        create = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, args[0], create);
+    }
+    else
+    {
+        assert(insertIndex == 3);
+
+        GenTree* arg0Uses[3];
+        impMakeMultiUse(args[0], 3, arg0Uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector3 extend temp"));
+
+        args[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, args[1]);
+
+        create = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, arg0Uses[0], arg0Uses[1]);
+        create = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16, create, args[1]);
+        create = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, arg0Uses[2], create);
+    }
+#else
+#error Unsupported platform
+#endif
+
+    create->SetType(layout->GetSIMDType());
+    return impAssignSIMDAddr(addr, create);
+}
+
+GenTree* Compiler::impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree* newobjThis)
+{
+    if (newobjThis != nullptr)
+    {
+        assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
+        unsigned  lclNum  = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        var_types lclType = lvaGetDesc(lclNum)->GetType();
+        impPushOnStack(gtNewLclvNode(lclNum, lclType), typeInfo(TI_STRUCT, layout->GetClassHandle()));
+        return newobjThis;
+    }
+
+    return impPopStack().val;
 }
 
 #if defined(TARGET_XARCH)

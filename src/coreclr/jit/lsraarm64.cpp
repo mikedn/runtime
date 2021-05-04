@@ -803,7 +803,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             break;
 
         case SIMDIntrinsicInitArrayX:
-        case SIMDIntrinsicInitFixed:
         case SIMDIntrinsicCopyToArray:
         case SIMDIntrinsicCopyToArrayX:
         case SIMDIntrinsicNone:

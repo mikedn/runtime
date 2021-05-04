@@ -190,24 +190,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
             unsigned int fixedArgCnt    = simdIntrinsicInfoArray[i].argCount;
             unsigned int expectedArgCnt = fixedArgCnt;
 
-            // First handle SIMDIntrinsicInitN, where the arg count depends on the type.
-            // The listed arg types include the vector and the first two init values, which is the expected number
-            // for Vector2.  For other cases, we'll check their types here.
-            if (*argCount > expectedArgCnt)
-            {
-                if (i == SIMDIntrinsicInitFixed)
-                {
-                    if (layout->GetVectorKind() != VectorKind::Vector234)
-                    {
-                        continue;
-                    }
-
-                    if ((*argCount == 4) && (layout->GetSIMDType() == TYP_SIMD16))
-                    {
-                        expectedArgCnt = 4;
-                    }
-                }
-            }
             if (*argCount != expectedArgCnt)
             {
                 continue;
@@ -1081,57 +1063,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 retVal->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
                 retVal = gtNewAssignNode(retVal, op1);
             }
-        }
-        break;
-
-        case SIMDIntrinsicInitFixed:
-        {
-            // We are initializing a fixed-length vector VLarge with a smaller fixed-length vector VSmall, plus 1 or 2
-            // additional floats.
-            //    op4 (optional) - float value for VLarge.W, if VLarge is Vector4, and VSmall is Vector2
-            //    op3 - float value for VLarge.Z or VLarge.W
-            //    op2 - VSmall
-            //    op1 - byref of VLarge
-            assert(baseType == TYP_FLOAT);
-
-            GenTree* op4 = nullptr;
-            if (argCount == 4)
-            {
-                op4 = impPopStackCoerceArg(TYP_FLOAT);
-            }
-
-            op3 = impPopStackCoerceArg(TYP_FLOAT);
-
-            // The input vector will either be TYP_SIMD8 or TYP_SIMD12.
-            var_types smallSIMDType = TYP_SIMD8;
-            if ((op4 == nullptr) && (simdType == TYP_SIMD16))
-            {
-                smallSIMDType = TYP_SIMD12;
-            }
-            op2 = impSIMDPopStack(smallSIMDType);
-            op1 = getOp1ForConstructor(opcode, newobjThis, clsHnd);
-
-            // We are going to redefine the operands so that:
-            // - op3 is the value that's going into the Z position, or null if it's a Vector4 constructor with a single
-            // operand, and
-            // - op4 is the W position value, or null if this is a Vector3 constructor.
-            if (size == 16 && argCount == 3)
-            {
-                op4 = op3;
-                op3 = nullptr;
-            }
-
-            simdTree = op2;
-            if (op3 != nullptr)
-            {
-                simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicSetZ, baseType, size, simdTree, op3);
-            }
-            if (op4 != nullptr)
-            {
-                simdTree = gtNewSIMDNode(simdType, SIMDIntrinsicSetW, baseType, size, simdTree, op4);
-            }
-
-            retVal = impAssignSIMDAddr(op1, simdTree);
         }
         break;
 
