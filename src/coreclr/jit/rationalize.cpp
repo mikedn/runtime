@@ -674,60 +674,6 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, Compiler::Ge
             assert(comp->IsTargetIntrinsic(node->AsIntrinsic()->gtIntrinsicName));
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-        {
-            noway_assert(comp->supportSIMDTypes());
-            GenTreeSIMD* simdNode = node->AsSIMD();
-            unsigned     simdSize = simdNode->gtSIMDSize;
-            var_types    simdType = comp->getSIMDTypeForSize(simdSize);
-
-            // TODO-1stClassStructs: This should be handled more generally for enregistered or promoted
-            // structs that are passed or returned in a different register type than their enregistered
-            // type(s).
-            if (simdNode->gtType == TYP_I_IMPL && simdNode->gtSIMDSize == TARGET_POINTER_SIZE)
-            {
-                // This happens when it is consumed by a GT_RET_EXPR.
-                // It can only be a Vector2f or Vector2i.
-                assert(genTypeSize(simdNode->gtSIMDBaseType) == 4);
-                simdNode->gtType = TYP_SIMD8;
-            }
-        }
-        break;
-#endif // FEATURE_SIMD
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-        {
-            GenTreeHWIntrinsic* hwIntrinsicNode = node->AsHWIntrinsic();
-
-            if (!hwIntrinsicNode->isSIMD())
-            {
-                break;
-            }
-
-            // TODO-1stClassStructs: This should be handled more generally for enregistered or promoted
-            // structs that are passed or returned in a different register type than their enregistered
-            // type(s).
-            if ((hwIntrinsicNode->gtType == TYP_I_IMPL) && (hwIntrinsicNode->gtSIMDSize == TARGET_POINTER_SIZE))
-            {
-#ifdef TARGET_ARM64
-                // Special case for GetElement/ToScalar because they take Vector64<T> and return T
-                // and T can be long or ulong.
-                if (!(hwIntrinsicNode->gtHWIntrinsicId == NI_Vector64_GetElement ||
-                      hwIntrinsicNode->gtHWIntrinsicId == NI_Vector64_ToScalar))
-#endif
-                {
-                    // This happens when it is consumed by a GT_RET_EXPR.
-                    // It can only be a Vector2f or Vector2i.
-                    assert(genTypeSize(hwIntrinsicNode->gtSIMDBaseType) == 4);
-                    hwIntrinsicNode->gtType = TYP_SIMD8;
-                }
-            }
-            break;
-        }
-#endif // FEATURE_HW_INTRINSICS
-
         default:
             // These nodes should not be present in HIR.
             assert(!node->OperIs(GT_CMP, GT_SETCC, GT_JCC, GT_JCMP, GT_LOCKADD, GT_INSTR));
