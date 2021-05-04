@@ -396,6 +396,30 @@ private:
         {
         }
 
+        bool AllBitsZero(unsigned vectorByteSize)
+        {
+            for (unsigned i = 0; i < vectorByteSize; i++)
+            {
+                if (u8[i] != 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool AllBitsOne(unsigned vectorByteSize)
+        {
+            for (unsigned i = 0; i < vectorByteSize; i++)
+            {
+                if (u8[i] != 0xFF)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         bool SetConstant(var_types type, int index, GenTree* value)
         {
             if (GenTreeIntCon* icon = value->IsIntCon())
@@ -452,28 +476,6 @@ private:
             return false;
         }
     };
-
-    //----------------------------------------------------------------------------------------------
-    // VectorConstantIsBroadcastedI64: Check N i64 elements in a constant vector for equality
-    //
-    //  Arguments:
-    //     vecCns  - Constant vector
-    //     count   - Amount of i64 components to compare
-    //
-    //  Returns:
-    //     true if N i64 elements of the given vector are equal
-    static bool VectorConstantIsBroadcastedI64(VectorConstant& vecCns, int count)
-    {
-        assert(count >= 1 && count <= 4);
-        for (int i = 1; i < count; i++)
-        {
-            if (vecCns.u64[i] != vecCns.u64[0])
-            {
-                return false;
-            }
-        }
-        return true;
-    }
 #endif // FEATURE_HW_INTRINSICS
 
     //----------------------------------------------------------------------------------------------

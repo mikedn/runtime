@@ -805,26 +805,17 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 //
 void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
-    var_types      simdType    = node->gtType;
-    var_types      baseType    = node->gtSIMDBaseType;
-    unsigned       simdSize    = node->gtSIMDSize;
+    NamedIntrinsic intrinsicId = node->GetIntrinsic();
+    var_types      simdType    = node->GetType();
+    var_types      baseType    = node->GetSIMDBaseType();
+    unsigned       simdSize    = node->GetSIMDSize();
+    unsigned       argCnt      = node->GetNumOps();
+    unsigned       cnsArgCnt   = 0;
+    VectorConstant vecCns;
 
     assert(varTypeIsSIMD(simdType));
     assert(varTypeIsArithmetic(baseType));
-    assert(simdSize != 0);
-
-    // Spare GenTrees to be used for the lowering logic below
-    // Defined upfront to avoid naming conflicts, etc...
-    GenTree* idx  = nullptr;
-    GenTree* tmp1 = nullptr;
-    GenTree* tmp2 = nullptr;
-    GenTree* tmp3 = nullptr;
-
-    unsigned       argCnt    = node->GetNumOps();
-    unsigned       cnsArgCnt = 0;
-    VectorConstant vecCns;
-
+    assert((simdSize == 8) || (simdSize == 12) || (simdSize == 16));
     assert((argCnt == 1) || (argCnt == (simdSize / varTypeSize(baseType))));
 
     if (argCnt == 1)
@@ -839,8 +830,6 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     }
     else
     {
-        assert(argCnt == (simdSize / varTypeSize(baseType)));
-
         for (unsigned i = 0; i < argCnt; i++)
         {
             if (vecCns.SetConstant(baseType, i, node->GetOp(i)))
@@ -867,23 +856,18 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             BlockRange().Remove(node->GetOp(i));
         }
 
-        assert((simdSize == 8) || (simdSize == 12) || (simdSize == 16));
-
-        if ((argCnt == 1) || VectorConstantIsBroadcastedI64(vecCns, roundUp(simdSize, 8) / 8))
+        if (vecCns.AllBitsZero(simdSize))
         {
-            if (vecCns.u64[0] == 0)
-            {
-                node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_Zero : NI_Vector128_get_Zero);
-                node->SetNumOps(0);
-                return;
-            }
+            node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_Zero : NI_Vector128_get_Zero);
+            node->SetNumOps(0);
+            return;
+        }
 
-            if ((vecCns.u64[0] == UINT64_MAX) && (simdSize != 12))
-            {
-                node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
-                node->SetNumOps(0);
-                return;
-            }
+        if ((simdSize != 12) && vecCns.AllBitsOne(simdSize))
+        {
+            node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
+            node->SetNumOps(0);
+            return;
         }
 
         unsigned  cnsSize  = (simdSize == 12) ? 16 : simdSize;
@@ -905,6 +889,13 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
         return;
     }
+
+    // Spare GenTrees to be used for the lowering logic below
+    // Defined upfront to avoid naming conflicts, etc...
+    GenTree* idx  = nullptr;
+    GenTree* tmp1 = nullptr;
+    GenTree* tmp2 = nullptr;
+    GenTree* tmp3 = nullptr;
 
     if (argCnt == 1)
     {
