@@ -772,16 +772,6 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
     assert(layout->IsVector());
     assert((sig.paramCount == 1) || (sig.paramCount == layout->GetElementCount()));
 
-#ifndef TARGET_64BIT
-    if (varTypeIsLong(layout->GetElementType()))
-    {
-        // TODO-XARCH-CQ: It may be beneficial to emit the movq
-        // instruction, which takes a 64-bit memory address and
-        // works on 32-bit x86 systems.
-        return nullptr;
-    }
-#endif
-
     GenTree* args[4];
     assert(sig.paramCount <= _countof(args));
     bool areArgsContiguous = sig.paramCount > 1;

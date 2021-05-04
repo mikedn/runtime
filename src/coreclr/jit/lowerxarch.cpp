@@ -1488,55 +1488,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     if (argCnt == 1)
     {
-        // We have the following (where simd is simd16 or simd32):
-        //          /--*  op1  T
-        //   node = *  HWINTRINSIC   simd   T Create
-
-        if (intrinsicId == NI_Vector256_Create)
+        if ((intrinsicId == NI_Vector256_Create) && !comp->compOpportunisticallyDependsOn(InstructionSet_AVX2))
         {
-            if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX2))
-            {
-                // We will be constructing the following parts:
-                //          /--*  op1  T
-                //   tmp1 = *  HWINTRINSIC   simd16 T CreateScalarUnsafe
-                //          /--*  tmp1 simd16
-                //   node = *  HWINTRINSIC   simd32 T BroadcastScalarToVector256
-
-                // This is roughly the following managed code:
-                //   var tmp1 = Vector128.CreateScalarUnsafe(op1);
-                //   return Avx2.BroadcastScalarToVector256(tmp1);
-
-                tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, baseType, 16, op1);
-                BlockRange().InsertAfter(op1, tmp1);
-                LowerNode(tmp1);
-
-                node->SetIntrinsic(NI_AVX2_BroadcastScalarToVector256, 1);
-                node->SetOp(0, tmp1);
-                return;
-            }
-
             assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
-
-            // We will be constructing the following parts:
-            //          /--*  op1  T
-            //   tmp1 = *  HWINTRINSIC   simd16 T Create
-            //          /--*  tmp1 simd16
-            //          *  STORE_LCL_VAR simd16
-            //   tmp1 =    LCL_VAR       simd16
-            //   tmp2 =    LCL_VAR       simd16
-            //          /--*  tmp2 simd16
-            //   tmp3 = *  HWINTRINSIC   simd16 T ToVector256Unsafe
-            //   idx  =    CNS_INT       int    0
-            //          /--*  tmp3 simd32
-            //          +--*  tmp1 simd16
-            //          +--*  idx  int
-            //   node = *  HWINTRINSIC simd32 T InsertVector128
-
-            // This is roughly the following managed code:
-            //   var tmp1 = Vector128.Create(op1);
-            //   var tmp2 = tmp1;
-            //   var tmp3 = tmp2.ToVector256Unsafe();
-            //   return Avx.InsertVector128(tmp3, tmp1, 0x01);
 
             tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, baseType, 16, op1);
             BlockRange().InsertAfter(op1, tmp1);
@@ -1561,21 +1515,39 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             node->SetOp(0, tmp3);
             node->SetOp(1, tmp1);
             node->SetOp(2, idx);
+
             return;
         }
 
-        // We will be constructing the following parts:
-        //          /--*  op1  T
-        //   tmp1 = *  HWINTRINSIC   simd16 T CreateScalarUnsafe
-        //   ...
+#ifndef TARGET_AMD64
+        if (op1->OperIs(GT_LONG))
+        {
+            GenTree* lo = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_INT, 16,
+                                                         op1->AsOp()->GetOp(0));
+            GenTree* hi = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_INT, 16,
+                                                         op1->AsOp()->GetOp(1));
 
-        // This is roughly the following managed code:
-        //   var tmp1 = Vector128.CreateScalarUnsafe(op1);
-        //   ...
+            tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_INT, 16, lo, hi);
+            BlockRange().InsertAfter(op1, lo, hi, tmp1);
+            BlockRange().Remove(op1);
+            LowerNode(lo);
+            LowerNode(hi);
+            LowerNode(tmp1);
+        }
+        else
+#endif
+        {
+            tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, baseType, 16, op1);
+            BlockRange().InsertAfter(op1, tmp1);
+            LowerNode(tmp1);
+        }
 
-        tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, baseType, 16, op1);
-        BlockRange().InsertAfter(op1, tmp1);
-        LowerNode(tmp1);
+        if (intrinsicId == NI_Vector256_Create)
+        {
+            node->SetIntrinsic(NI_AVX2_BroadcastScalarToVector256, 1);
+            node->SetOp(0, tmp1);
+            return;
+        }
 
         if ((baseType != TYP_DOUBLE) && comp->compOpportunisticallyDependsOn(InstructionSet_AVX2))
         {
@@ -1718,7 +1690,6 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
                 break;
             }
 
-#if defined(TARGET_AMD64)
             case TYP_LONG:
             case TYP_ULONG:
             {
@@ -1752,7 +1723,6 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
                 node->SetOp(1, tmp2);
                 break;
             }
-#endif // TARGET_AMD64
 
             case TYP_FLOAT:
             {
