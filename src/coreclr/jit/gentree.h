@@ -3016,6 +3016,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return static_cast<uint8_t>(gtIconVal & 0xFF);
     }
 
+    uint16_t GetUInt16Value() const
+    {
+        return static_cast<uint16_t>(gtIconVal);
+    }
+
     uint32_t GetUInt32Value() const
     {
         return static_cast<uint32_t>(gtIconVal);
@@ -3181,9 +3186,33 @@ struct GenTreeDblCon : public GenTree
         return gtDconVal;
     }
 
+    double GetDoubleValue() const
+    {
+        assert(gtType == TYP_DOUBLE);
+        return gtDconVal;
+    }
+
+    float GetFloatValue() const
+    {
+        assert(gtType == TYP_FLOAT);
+        return static_cast<float>(gtDconVal);
+    }
+
     uint64_t GetBits() const
     {
         return jitstd::bit_cast<uint64_t>(gtDconVal);
+    }
+
+    uint64_t GetDoubleBits() const
+    {
+        assert(gtType == TYP_DOUBLE);
+        return jitstd::bit_cast<uint64_t>(gtDconVal);
+    }
+
+    uint32_t GetFloatBits() const
+    {
+        assert(gtType == TYP_FLOAT);
+        return jitstd::bit_cast<uint32_t>(static_cast<float>(gtDconVal));
     }
 
     void SetValue(double value)

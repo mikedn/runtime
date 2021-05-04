@@ -383,17 +383,74 @@ private:
     void LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node);
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
-    union VectorConstant {
-        int8_t   i8[32];
-        uint8_t  u8[32];
-        int16_t  i16[16];
-        uint16_t u16[16];
-        int32_t  i32[8];
-        uint32_t u32[8];
-        int64_t  i64[4];
-        uint64_t u64[4];
-        float    f32[8];
-        double   f64[4];
+    struct VectorConstant
+    {
+        union {
+            uint8_t  u8[32];
+            uint16_t u16[16];
+            uint32_t u32[8];
+            uint64_t u64[4];
+        };
+
+        VectorConstant() : u64{}
+        {
+        }
+
+        bool SetConstant(var_types type, int index, GenTree* value)
+        {
+            if (GenTreeIntCon* icon = value->IsIntCon())
+            {
+                switch (type)
+                {
+                    case TYP_BYTE:
+                    case TYP_UBYTE:
+                        u8[index] = value->AsIntCon()->GetUInt8Value();
+                        return true;
+                    case TYP_SHORT:
+                    case TYP_USHORT:
+                        u16[index] = value->AsIntCon()->GetUInt16Value();
+                        return true;
+                    case TYP_INT:
+                    case TYP_UINT:
+                        u32[index] = value->AsIntCon()->GetUInt32Value();
+                        return true;
+#ifdef TARGET_64BIT
+                    case TYP_LONG:
+                    case TYP_ULONG:
+                        u64[index] = value->AsIntCon()->GetUInt64Value();
+                        return true;
+#endif
+                    default:
+                        return false;
+                }
+            }
+
+            if (GenTreeDblCon* dcon = value->IsDblCon())
+            {
+                if (type == TYP_FLOAT)
+                {
+                    u32[index] = value->AsDblCon()->GetFloatBits();
+                }
+                else
+                {
+                    u64[index] = value->AsDblCon()->GetDoubleBits();
+                }
+
+                return true;
+            }
+
+#ifndef TARGET_64BIT
+            if (value->OperIs(GT_LONG) && value->AsOp()->GetOp(0)->IsIntCon() && value->AsOp()->GetOp(1)->IsIntCon())
+            {
+                uint64_t loBits = value->AsOp()->GetOp(0)->AsIntCon()->GetUInt32Value();
+                uint64_t hiBits = value->AsOp()->GetOp(1)->AsIntCon()->GetUInt32Value();
+                u64[index]      = (hiBits << 32) | loBits;
+                return true;
+            }
+#endif
+
+            return false;
+        }
     };
 
     //----------------------------------------------------------------------------------------------
@@ -410,147 +467,12 @@ private:
         assert(count >= 1 && count <= 4);
         for (int i = 1; i < count; i++)
         {
-            if (vecCns.i64[i] != vecCns.i64[0])
+            if (vecCns.u64[i] != vecCns.u64[0])
             {
                 return false;
             }
         }
         return true;
-    }
-
-    //----------------------------------------------------------------------------------------------
-    // ProcessArgForHWIntrinsicCreate: Processes an argument for the Lowering::LowerHWIntrinsicCreate method
-    //
-    //  Arguments:
-    //     arg      - The argument to process
-    //     argIdx   - The index of the argument being processed
-    //     vecCns   - The vector constant being constructed
-    //     baseType - The base type of the vector constant
-    //
-    //  Returns:
-    //     true if arg was a constant; otherwise, false
-    static bool HandleArgForHWIntrinsicCreate(GenTree* arg, int argIdx, VectorConstant& vecCns, var_types baseType)
-    {
-        switch (baseType)
-        {
-            case TYP_BYTE:
-            case TYP_UBYTE:
-            {
-                if (arg->IsCnsIntOrI())
-                {
-                    vecCns.i8[argIdx] = static_cast<int8_t>(arg->AsIntCon()->gtIconVal);
-                    return true;
-                }
-                else
-                {
-                    // We expect the VectorConstant to have been already zeroed
-                    assert(vecCns.i8[argIdx] == 0);
-                }
-                break;
-            }
-
-            case TYP_SHORT:
-            case TYP_USHORT:
-            {
-                if (arg->IsCnsIntOrI())
-                {
-                    vecCns.i16[argIdx] = static_cast<int16_t>(arg->AsIntCon()->gtIconVal);
-                    return true;
-                }
-                else
-                {
-                    // We expect the VectorConstant to have been already zeroed
-                    assert(vecCns.i16[argIdx] == 0);
-                }
-                break;
-            }
-
-            case TYP_INT:
-            case TYP_UINT:
-            {
-                if (arg->IsCnsIntOrI())
-                {
-                    vecCns.i32[argIdx] = static_cast<int32_t>(arg->AsIntCon()->gtIconVal);
-                    return true;
-                }
-                else
-                {
-                    // We expect the VectorConstant to have been already zeroed
-                    assert(vecCns.i32[argIdx] == 0);
-                }
-                break;
-            }
-
-            case TYP_LONG:
-            case TYP_ULONG:
-            {
-#if defined(TARGET_64BIT)
-                if (arg->IsCnsIntOrI())
-                {
-                    vecCns.i64[argIdx] = static_cast<int64_t>(arg->AsIntCon()->gtIconVal);
-                    return true;
-                }
-#else
-                if (arg->OperIsLong() && arg->AsOp()->gtOp1->IsCnsIntOrI() && arg->AsOp()->gtOp2->IsCnsIntOrI())
-                {
-                    // 32-bit targets will decompose GT_CNS_LNG into two GT_CNS_INT
-                    // We need to reconstruct the 64-bit value in order to handle this
-
-                    INT64 gtLconVal = arg->AsOp()->gtOp2->AsIntCon()->gtIconVal;
-                    gtLconVal <<= 32;
-                    gtLconVal |= arg->AsOp()->gtOp1->AsIntCon()->gtIconVal;
-
-                    vecCns.i64[argIdx] = gtLconVal;
-                    return true;
-                }
-#endif // TARGET_64BIT
-                else
-                {
-                    // We expect the VectorConstant to have been already zeroed
-                    assert(vecCns.i64[argIdx] == 0);
-                }
-                break;
-            }
-
-            case TYP_FLOAT:
-            {
-                if (arg->IsCnsFltOrDbl())
-                {
-                    vecCns.f32[argIdx] = static_cast<float>(arg->AsDblCon()->gtDconVal);
-                    return true;
-                }
-                else
-                {
-                    // We expect the VectorConstant to have been already zeroed
-                    // We check against the i32, rather than f32, to account for -0.0
-                    assert(vecCns.i32[argIdx] == 0);
-                }
-                break;
-            }
-
-            case TYP_DOUBLE:
-            {
-                if (arg->IsCnsFltOrDbl())
-                {
-                    vecCns.f64[argIdx] = static_cast<double>(arg->AsDblCon()->gtDconVal);
-                    return true;
-                }
-                else
-                {
-                    // We expect the VectorConstant to have been already zeroed
-                    // We check against the i64, rather than f64, to account for -0.0
-                    assert(vecCns.i64[argIdx] == 0);
-                }
-                break;
-            }
-
-            default:
-            {
-                unreached();
-            }
-        }
-
-        return false;
     }
 #endif // FEATURE_HW_INTRINSICS
 

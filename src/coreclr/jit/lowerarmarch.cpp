@@ -809,7 +809,6 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     var_types      simdType    = node->gtType;
     var_types      baseType    = node->gtSIMDBaseType;
     unsigned       simdSize    = node->gtSIMDSize;
-    VectorConstant vecCns      = {};
 
     assert(varTypeIsSIMD(simdType));
     assert(varTypeIsArithmetic(baseType));
@@ -822,8 +821,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     GenTree* tmp2 = nullptr;
     GenTree* tmp3 = nullptr;
 
-    unsigned argCnt    = node->GetNumOps();
-    unsigned cnsArgCnt = 0;
+    unsigned       argCnt    = node->GetNumOps();
+    unsigned       cnsArgCnt = 0;
+    VectorConstant vecCns;
 
     assert((argCnt == 1) || (argCnt == (simdSize / varTypeSize(baseType))));
 
@@ -831,7 +831,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     {
         for (unsigned i = 0; i < simdSize / varTypeSize(baseType); i++)
         {
-            if (HandleArgForHWIntrinsicCreate(node->GetOp(0), i, vecCns, baseType))
+            if (vecCns.SetConstant(baseType, i, node->GetOp(0)))
             {
                 cnsArgCnt = 1;
             }
@@ -843,7 +843,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
         for (unsigned i = 0; i < argCnt; i++)
         {
-            if (HandleArgForHWIntrinsicCreate(node->GetOp(i), i, vecCns, baseType))
+            if (vecCns.SetConstant(baseType, i, node->GetOp(i)))
             {
                 cnsArgCnt += 1;
             }
@@ -871,17 +871,14 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
         if ((argCnt == 1) || VectorConstantIsBroadcastedI64(vecCns, roundUp(simdSize, 8) / 8))
         {
-            // If we are a single constant or if all parts are the same, we might be able to optimize
-            // this even further for certain values, such as Zero or AllBitsSet.
-
-            if (vecCns.i64[0] == 0)
+            if (vecCns.u64[0] == 0)
             {
                 node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_Zero : NI_Vector128_get_Zero);
                 node->SetNumOps(0);
                 return;
             }
 
-            if ((vecCns.i64[0] == -1) && (simdSize != 12))
+            if ((vecCns.u64[0] == UINT64_MAX) && (simdSize != 12))
             {
                 node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
                 node->SetNumOps(0);
