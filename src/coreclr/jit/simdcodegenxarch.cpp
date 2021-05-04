@@ -193,97 +193,6 @@ instruction CodeGen::getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_type
     return result;
 }
 
-// genSIMDScalarMove: Generate code to move a value of type "type" from src mm reg
-// to target mm reg, zeroing out the upper bits if and only if specified.
-//
-// Arguments:
-//    targetType       the target type
-//    baseType         the base type of value to be moved
-//    targetReg        the target reg
-//    srcReg           the src reg
-//    moveType         action to be performed on target upper bits
-//
-// Return Value:
-//    None
-//
-// Notes:
-//    This is currently only supported for floating point types.
-//
-void CodeGen::genSIMDScalarMove(
-    var_types targetType, var_types baseType, regNumber targetReg, regNumber srcReg, SIMDScalarMoveType moveType)
-{
-    assert(varTypeIsFloating(baseType));
-    switch (moveType)
-    {
-        case SMT_PreserveUpper:
-            if (srcReg != targetReg)
-            {
-                instruction ins = ins_Store(baseType);
-                if (GetEmitter()->IsDstSrcSrcAVXInstruction(ins))
-                {
-                    // In general, when we use a three-operands move instruction, we want to merge the src with
-                    // itself. This is an exception in that we actually want the "merge" behavior, so we must
-                    // specify it with all 3 operands.
-                    inst_RV_RV_RV(ins, targetReg, targetReg, srcReg, emitTypeSize(baseType));
-                }
-                else
-                {
-                    inst_RV_RV(ins, targetReg, srcReg, baseType, emitTypeSize(baseType));
-                }
-            }
-            break;
-
-        case SMT_ZeroInitUpper:
-            if (compiler->canUseVexEncoding())
-            {
-                // insertps is a 128-bit only instruction, and clears the upper 128 bits, which is what we want.
-                // The insertpsImm selects which fields are copied and zero'd of the lower 128 bits, so we choose
-                // to zero all but the lower bits.
-                unsigned int insertpsImm =
-                    (INSERTPS_TARGET_SELECT(0) | INSERTPS_ZERO(1) | INSERTPS_ZERO(2) | INSERTPS_ZERO(3));
-                assert((insertpsImm >= 0) && (insertpsImm <= 255));
-                inst_RV_RV_IV(INS_insertps, EA_16BYTE, targetReg, srcReg, (int8_t)insertpsImm);
-            }
-            else
-            {
-                if (srcReg == targetReg)
-                {
-                    // There is no guarantee that upper bits of op1Reg are zero.
-                    // We achieve this by using left logical shift 12-bytes and right logical shift 12 bytes.
-                    GetEmitter()->emitIns_R_I(INS_pslldq, EA_16BYTE, srcReg, 12);
-                    GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, srcReg, 12);
-                }
-                else
-                {
-                    genSIMDZero(targetType, TYP_FLOAT, targetReg);
-                    inst_RV_RV(ins_Store(baseType), targetReg, srcReg, TYP_I_IMPL);
-                }
-            }
-            break;
-
-        case SMT_ZeroInitUpper_SrcHasUpperZeros:
-            if (srcReg != targetReg)
-            {
-                instruction ins = ins_Copy(baseType);
-                assert(!GetEmitter()->IsDstSrcSrcAVXInstruction(ins));
-                inst_RV_RV(ins, targetReg, srcReg, baseType, emitTypeSize(baseType));
-            }
-            break;
-
-        default:
-            unreached();
-    }
-}
-
-void CodeGen::genSIMDZero(var_types targetType, var_types baseType, regNumber targetReg)
-{
-    // We just use `INS_xorps` since `genSIMDZero` is used for both `System.Numerics.Vectors` and
-    // HardwareIntrinsics. Modern CPUs handle this specially in the renamer and it never hits the
-    // execution pipeline, additionally `INS_xorps` is always available (when using either the
-    // legacy or VEX encoding).
-    inst_RV_RV(INS_xorps, targetReg, targetReg, targetType, emitActualTypeSize(targetType));
-}
-
 //----------------------------------------------------------------------------------
 // genSIMDIntrinsic32BitConvert: Generate code for 32-bit SIMD Convert (int/uint <-> float)
 //
@@ -795,7 +704,8 @@ void CodeGen::genSIMDIntrinsicWiden(GenTreeSIMD* simdNode)
             inst_RV_RV(ins_Copy(simdType), targetReg, op1Reg, simdType, emitSize);
         }
 
-        genSIMDZero(simdType, baseType, tmpReg);
+        GetEmitter()->emitIns_R_R(INS_xorps, EA_16BYTE, tmpReg, tmpReg);
+
         if (!varTypeIsUnsigned(baseType))
         {
             instruction compareIns = INS_invalid;
