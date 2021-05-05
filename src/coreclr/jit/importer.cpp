@@ -8057,8 +8057,11 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
         value = gtNewLclvNode(tempLclNum, lcl->GetType());
     }
 
-    // Make sure that this struct stays in memory and doesn't get promoted.
-    lcl->lvIsMultiRegRet = true;
+    if (info.GetRetSigType() == TYP_STRUCT)
+    {
+        // Make sure that this struct stays in memory and doesn't get promoted.
+        lcl->lvIsMultiRegRet = true;
+    }
 
     // TODO-1stClassStructs: Handle constant propagation and CSE-ing of multireg returns.
     value->gtFlags |= GTF_DONT_CSE;

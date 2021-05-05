@@ -526,7 +526,7 @@ public:
                         LclVarDsc*     lcl    = m_compiler->lvaGetDesc(lclNum);
 
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
-                            lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1))
+                            lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
                         {
                             m_compiler->lvaSetVarDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_BlockOp));
                         }

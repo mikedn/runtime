@@ -1341,14 +1341,31 @@ inline void GenTree::ChangeOperConst(genTreeOps oper)
     }
 }
 
-inline void GenTree::ChangeToIntCon(ssize_t value)
+inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
 {
     // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
     // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
     SetOper(GT_CNS_INT);
     gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
-    AsIntCon()->SetValue(value);
-    AsIntCon()->gtCompileTimeHandle = 0;
+
+    GenTreeIntCon* intCon = AsIntCon();
+    intCon->SetValue(value);
+    intCon->gtCompileTimeHandle = 0;
+    return intCon;
+}
+
+inline GenTreeFieldList* GenTree::ChangeToFieldList()
+{
+    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
+    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
+    SetOper(GT_FIELD_LIST);
+    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+
+    GenTreeFieldList* fieldList = AsFieldList();
+    fieldList->SetType(TYP_STRUCT);
+    fieldList->ClearFields();
+    fieldList->SetContained();
+    return fieldList;
 }
 
 inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)

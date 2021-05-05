@@ -10626,6 +10626,25 @@ void CodeGen::genReturn(GenTree* ret)
 
 void CodeGen::genMultiRegStructReturn(GenTree* src)
 {
+    if (GenTreeFieldList* list = src->IsFieldList())
+    {
+        unsigned regIndex = 0;
+
+        for (GenTreeFieldList::Use& use : list->Uses())
+        {
+            regNumber srcReg = genConsumeReg(use.GetNode());
+            regNumber retReg = compiler->info.retDesc.GetRegNum(regIndex++);
+
+            if (srcReg != retReg)
+            {
+                GetEmitter()->emitIns_Mov(ins_Copy(use.GetType()), emitActualTypeSize(use.GetType()), retReg, srcReg,
+                                          /* canSkip */ true);
+            }
+        }
+
+        return;
+    }
+
     genConsumeRegs(src);
 
     GenTree* actualSrc = !src->IsCopyOrReload() ? src : src->AsUnOp()->GetOp(0);

@@ -3409,6 +3409,23 @@ int LinearScan::BuildReturn(GenTreeUnOp* ret)
     }
 #endif
 
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+    if (GenTreeFieldList* list = src->IsFieldList())
+    {
+        assert(list->isContained());
+
+        unsigned useCount = 0;
+
+        for (GenTreeFieldList::Use& use : list->Uses())
+        {
+            BuildUse(use.GetNode(), genRegMask(compiler->info.retDesc.GetRegNum(useCount++)));
+        }
+
+        assert(useCount == compiler->info.retDesc.GetRegCount());
+        return useCount;
+    }
+#endif
+
     if (src->isContained())
     {
         return 0;

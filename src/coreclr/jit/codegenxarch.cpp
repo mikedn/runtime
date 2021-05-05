@@ -1858,9 +1858,9 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 #ifdef TARGET_X86
     regNumber tmpReg = store->GetSingleTempReg();
 
-    GetEmitter()->emitIns_R_R(INS_movd, EA_4BYTE, dstReg, retReg0);
-    GetEmitter()->emitIns_R_R(INS_movd, EA_4BYTE, tmpReg, retReg1);
-    GetEmitter()->emitIns_R_R_R(INS_unpcklps, EA_16BYTE, dstReg, dstReg, tmpReg);
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, retReg0, false);
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, retReg1, false);
+    GetEmitter()->emitIns_R_R(INS_unpcklps, EA_16BYTE, dstReg, tmpReg);
 #else
     if (dstReg == retReg0)
     {

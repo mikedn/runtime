@@ -10555,6 +10555,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                                 lclVar->SetType(fieldLcl->GetType());
                             }
                         }
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
+                        else if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
+                        {
+                            abiMorphReturnSimdLclPromoted(tree->AsUnOp(), op1);
+                            op1 = tree->AsUnOp()->GetOp(0);
+                        }
+#endif
                     }
                 }
             }
@@ -12968,6 +12975,89 @@ GenTree* Compiler::fgMorphRetInd(GenTreeUnOp* ret)
 
     return indir;
 }
+
+#ifdef TARGET_ARM64
+void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
+{
+    LclVarDsc* lcl = lvaGetDesc(val->AsLclVar());
+    assert(varTypeIsSIMD(lcl->GetType()));
+    // Only Vector2/3/4 are promoted.
+    assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+    INDEBUG(val->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
+    GenTreeFieldList* fieldList = val->ChangeToFieldList();
+
+    for (unsigned i = 0; i < info.retDesc.GetRegCount(); i++)
+    {
+        assert(info.retDesc.GetRegType(i) == TYP_FLOAT);
+
+        GenTree* field;
+
+        if (i < lcl->GetPromotedFieldCount())
+        {
+            field = gtNewLclvNode(lcl->GetPromotedFieldLclNum(i), TYP_FLOAT);
+        }
+        else
+        {
+            field = gtNewDconNode(0, TYP_FLOAT);
+        }
+
+        fieldList->AddField(this, field, i * 4, TYP_FLOAT);
+    }
+
+    ret->SetType(TYP_STRUCT);
+    ret->SetOp(0, fieldList);
+}
+#endif // TARGET_ARM64
+
+#ifdef TARGET_AMD64
+void Compiler::abiMorphReturnSimdLclPromoted(GenTreeUnOp* ret, GenTree* val)
+{
+    LclVarDsc* lcl = lvaGetDesc(val->AsLclVar());
+    assert(varTypeIsSIMD(lcl->GetType()));
+    // Only Vector2/3/4 are promoted.
+    assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+    GenTree* fields[2];
+
+    fields[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+                                         gtNewLclvNode(lcl->GetPromotedFieldLclNum(0), TYP_FLOAT),
+                                         gtNewLclvNode(lcl->GetPromotedFieldLclNum(1), TYP_FLOAT));
+
+#ifdef UNIX_AMD64_ABI
+    if (info.retDesc.GetRegCount() == 2)
+    {
+        assert(varTypeUsesFloatReg(info.retDesc.GetRegType(0)));
+        assert(varTypeUsesFloatReg(info.retDesc.GetRegType(1)));
+
+        if (lcl->GetPromotedFieldCount() == 3)
+        {
+            fields[1] = gtNewLclvNode(lcl->GetPromotedFieldLclNum(2), TYP_FLOAT);
+        }
+        else
+        {
+            fields[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+                                                 gtNewLclvNode(lcl->GetPromotedFieldLclNum(2), TYP_FLOAT),
+                                                 gtNewLclvNode(lcl->GetPromotedFieldLclNum(3), TYP_FLOAT));
+        }
+
+        INDEBUG(val->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
+        GenTreeFieldList* fieldList = val->ChangeToFieldList();
+        fieldList->AddField(this, fields[0], 0, info.retDesc.GetRegType(0));
+        fieldList->AddField(this, fields[1], 8, info.retDesc.GetRegType(0));
+
+        ret->SetType(TYP_STRUCT);
+        ret->SetOp(0, fieldList);
+
+        return;
+    }
+#endif // UNIX_AMD64_ABI
+
+    assert(info.retDesc.GetRegCount() == 1);
+
+    ret->SetOp(0, fields[0]);
+}
+#endif // TARGET_AMD64
 
 #ifdef _PREFAST_
 #pragma warning(pop)
@@ -16102,9 +16192,8 @@ GenTree* Compiler::fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 
                 uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
                 uint64_t bits1 = create->GetOp(1)->AsDblCon()->GetFloatBits();
-                tree->ChangeToIntCon(bits0 | (bits1 << 32));
 
-                return tree;
+                return tree->ChangeToIntCon(bits0 | (bits1 << 32));
             }
         }
     }
