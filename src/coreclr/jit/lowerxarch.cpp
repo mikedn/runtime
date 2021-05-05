@@ -973,30 +973,24 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         case NI_SSE2_Insert:
         case NI_SSE41_Insert:
         case NI_SSE41_X64_Insert:
-        {
             assert(node->IsTernary());
-
             // Insert takes either a 32-bit register or a memory operand.
             // In either case, only gtSIMDBaseType bits are read and so
             // widening or narrowing the operand may be unnecessary and it
             // can just be used directly.
-
-            node->SetOp(1, TryRemoveCastIfPresent(node->gtSIMDBaseType, node->GetOp(1)));
+            node->SetOp(1, TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(1)));
             break;
-        }
 
         case NI_SSE42_Crc32:
-        {
-            assert(node->IsBinary());
-
-            // Crc32 takes either a bit register or a memory operand.
-            // In either case, only gtType bits are read and so widening
-            // or narrowing the operand may be unnecessary and it can
-            // just be used directly.
-
-            node->SetOp(1, TryRemoveCastIfPresent(node->GetType(), node->GetOp(1)));
+            if (varTypeIsSmall(node->GetSIMDBaseType()))
+            {
+                // NI_SSE42_Crc32 nodes have type INT or LONG but the input value can be
+                // treated as a small integer, in which case we can remove some narrowing
+                // casts. The type of the input value (basically type of the operation)
+                // is stored as "SIMD base type", even if no SIMD types are involved.
+                node->SetOp(1, TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(1)));
+            }
             break;
-        }
 
         case NI_SSE2_CompareGreaterThan:
         {
