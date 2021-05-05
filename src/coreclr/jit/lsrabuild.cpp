@@ -3260,6 +3260,14 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         {
             BuildUse(src, RBM_NONE, i);
         }
+
+#ifdef TARGET_X86
+        if (src->IsCall() && src->TypeIs(TYP_SIMD8))
+        {
+            BuildInternalFloatDef(store, allSIMDRegs());
+            setInternalRegsDelayFree = true;
+        }
+#endif
     }
     else if (src->isContained() && src->OperIs(GT_BITCAST))
     {

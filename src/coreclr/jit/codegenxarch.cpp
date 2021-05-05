@@ -1819,7 +1819,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
 void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 {
-#ifndef UNIX_AMD64_ABI
+#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_X86)
     assert(!"Multireg store to SIMD reg not supported on X64 Windows");
 #else
     GenTree* src = store->GetOp(0);
@@ -1831,8 +1831,13 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
     GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
 
     assert(call->GetRegCount() == 2);
+#ifdef TARGET_X86
+    assert(!varTypeUsesFloatReg(call->GetRegType(0)));
+    assert(!varTypeUsesFloatReg(call->GetRegType(1)));
+#else
     assert(varTypeUsesFloatReg(call->GetRegType(0)));
     assert(varTypeUsesFloatReg(call->GetRegType(1)));
+#endif
 
     genConsumeRegs(src);
 
@@ -1859,6 +1864,13 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 
     regNumber dstReg = store->GetRegNum();
 
+#ifdef TARGET_X86
+    regNumber tmpReg = store->GetSingleTempReg();
+
+    GetEmitter()->emitIns_R_R(INS_movd, EA_4BYTE, dstReg, retReg0);
+    GetEmitter()->emitIns_R_R(INS_movd, EA_4BYTE, tmpReg, retReg1);
+    GetEmitter()->emitIns_R_R_R(INS_unpcklps, EA_16BYTE, dstReg, dstReg, tmpReg);
+#else
     if (dstReg == retReg0)
     {
         GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
@@ -1877,6 +1889,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
         GetEmitter()->emitIns_R_R(INS_movaps, EA_16BYTE, dstReg, retReg0);
         GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, retReg1);
     }
+#endif
 
     genProduceReg(store);
 #endif // UNIX_AMD64_ABI
