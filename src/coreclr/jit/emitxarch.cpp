@@ -7475,15 +7475,15 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
     return sizeof(instrDesc);
 }
 
-/*****************************************************************************/
 #ifdef DEBUG
-/*****************************************************************************
- *
- *  Return a string that represents the given register.
- */
 
 const char* emitter::emitRegName(regNumber reg, emitAttr attr, bool varName)
 {
+    if (IsXMMReg(reg))
+    {
+        return EA_SIZE(attr) == EA_32BYTE ? emitYMMregName(reg) : emitXMMregName(reg);
+    }
+
     static char          rb[2][128];
     static unsigned char rbc = 0;
 
@@ -7494,25 +7494,7 @@ const char* emitter::emitRegName(regNumber reg, emitAttr attr, bool varName)
 
     switch (EA_SIZE(attr))
     {
-        case EA_32BYTE:
-            return emitYMMregName(reg);
-
-        case EA_16BYTE:
-            return emitXMMregName(reg);
-
-        case EA_8BYTE:
-            if ((REG_XMM0 <= reg) && (reg <= REG_XMM15))
-            {
-                return emitXMMregName(reg);
-            }
-            break;
-
         case EA_4BYTE:
-            if ((REG_XMM0 <= reg) && (reg <= REG_XMM15))
-            {
-                return emitXMMregName(reg);
-            }
-
             if (reg > REG_R15)
             {
                 break;
@@ -7591,26 +7573,6 @@ const char* emitter::emitRegName(regNumber reg, emitAttr attr, bool varName)
 
     switch (EA_SIZE(attr))
     {
-        case EA_32BYTE:
-            return emitYMMregName(reg);
-
-        case EA_16BYTE:
-            return emitXMMregName(reg);
-
-        case EA_8BYTE:
-            if ((REG_XMM0 <= reg) && (reg <= REG_XMM7))
-            {
-                return emitXMMregName(reg);
-            }
-            break;
-
-        case EA_4BYTE:
-            if ((REG_XMM0 <= reg) && (reg <= REG_XMM7))
-            {
-                return emitXMMregName(reg);
-            }
-            break;
-
         case EA_2BYTE:
             rn++;
             break;
