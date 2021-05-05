@@ -602,6 +602,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerHWIntrinsicFusedMultiplyAddScalar(node);
             break;
 
+        case NI_AdvSimd_Insert:
+            node->SetOp(2, TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(2)));
+            break;
+
         default:
             break;
     }
@@ -890,6 +894,24 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         return;
     }
 
+    if (argCnt == 1)
+    {
+        if (varTypeSize(baseType) == 8)
+        {
+            node->SetIntrinsic(simdType == TYP_SIMD8 ? NI_AdvSimd_Arm64_DuplicateToVector64
+                                                     : NI_AdvSimd_Arm64_DuplicateToVector128);
+        }
+        else
+        {
+            node->SetIntrinsic(simdType == TYP_SIMD8 ? NI_AdvSimd_DuplicateToVector64
+                                                     : NI_AdvSimd_DuplicateToVector128);
+        }
+
+        node->SetOp(0, TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(0)));
+
+        return;
+    }
+
     // Spare GenTrees to be used for the lowering logic below
     // Defined upfront to avoid naming conflicts, etc...
     GenTree* idx  = nullptr;
@@ -897,48 +919,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     GenTree* tmp2 = nullptr;
     GenTree* tmp3 = nullptr;
 
-    if (argCnt == 1)
-    {
-        // We have the following (where simd is simd8 or simd16):
-        //          /--*  op1  T
-        //   node = *  HWINTRINSIC   simd   T Create
-
-        // We will be constructing the following parts:
-        //           /--*  op1  T
-        //   node  = *  HWINTRINSIC   simd   T DuplicateToVector
-
-        // This is roughly the following managed code:
-        //   return AdvSimd.Arm64.DuplicateToVector(op1);
-
-        if (varTypeIsLong(baseType) || (baseType == TYP_DOUBLE))
-        {
-            node->gtHWIntrinsicId =
-                (simdType == TYP_SIMD8) ? NI_AdvSimd_Arm64_DuplicateToVector64 : NI_AdvSimd_Arm64_DuplicateToVector128;
-        }
-        else
-        {
-            node->gtHWIntrinsicId =
-                (simdType == TYP_SIMD8) ? NI_AdvSimd_DuplicateToVector64 : NI_AdvSimd_DuplicateToVector128;
-        }
-        return;
-    }
-
-    // We have the following (where simd is simd8 or simd16):
-    //          /--*  op1 T
-    //          +--*  ... T
-    //          +--*  opN T
-    //   node = *  HWINTRINSIC   simd   T Create
-
-    // We will be constructing the following parts:
-    //          /--*  op1  T
-    //   tmp1 = *  HWINTRINSIC   simd8  T CreateScalarUnsafe
-    //   ...
-
-    // This is roughly the following managed code:
-    //   var tmp1 = Vector64.CreateScalarUnsafe(op1);
-    //   ...
-
-    GenTree* op1 = node->GetOp(0);
+    GenTree* op1 = TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(0));
 
     NamedIntrinsic createScalarUnsafe =
         (simdType == TYP_SIMD8) ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;

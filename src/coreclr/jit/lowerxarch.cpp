@@ -1531,7 +1531,10 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         else
 #endif
         {
-            tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, baseType, 16, op1);
+            op1  = TryRemoveCastIfPresent(baseType, op1);
+            tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, varActualType(baseType),
+                                                  16, op1);
+
             BlockRange().InsertAfter(op1, tmp1);
             LowerNode(tmp1);
         }
@@ -1912,16 +1915,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         return;
     }
 
-    // We will be constructing the following parts:
-    //          /--*  op1  T
-    //   tmp1 = *  HWINTRINSIC   simd16 T CreateScalarUnsafe
-    //   ...
-
-    // This is roughly the following managed code:
-    //   var tmp1 = Vector128.CreateScalarUnsafe(op1);
-    //   ...
-
-    tmp1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, baseType, 16, op1);
+    op1 = TryRemoveCastIfPresent(baseType, op1);
+    tmp1 =
+        comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, varActualType(baseType), 16, op1);
     BlockRange().InsertAfter(op1, tmp1);
     LowerNode(tmp1);
 
