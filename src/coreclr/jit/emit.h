@@ -2505,6 +2505,10 @@ inline emitAttr emitActualTypeSize(T type)
     return (emitAttr)emitTypeActSz[TypeGet(type)];
 }
 
+#ifdef TARGET_ARM64
+insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
+#endif
+
 /*****************************************************************************
  *
  *  Convert between an operand size in bytes and a smaller encoding used for

@@ -244,7 +244,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     else
     {
         emitSize = emitActualTypeSize(Compiler::getSIMDTypeForSize(node->gtSIMDSize));
-        opt      = genGetSimdInsOpt(emitSize, intrin.baseType);
+        opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
     }
 
     const bool isRMW               = node->isRMWHWIntrinsic(compiler);
@@ -556,7 +556,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     GetEmitter()->isValidVectorIndex(emitSize, GetEmitter()->optGetElemsize(opt), helper.ImmValue()));
 
                 emitSize = emitActualTypeSize(node->gtType);
-                opt      = genGetSimdInsOpt(emitSize, intrin.baseType);
+                opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
 
                 for (helper.EmitBegin(); !helper.Done(); helper.EmitCaseEnd())
                 {
@@ -741,20 +741,14 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     // fmov reg1, reg2
                     GetEmitter()->emitIns_R_R(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg, INS_OPTS_NONE);
                 }
+                else if (intrin.op1->isContainedIntOrIImmed())
+                {
+                    GetEmitter()->emitIns_R_I(INS_movi, emitSize, targetReg, intrin.op1->AsIntCon()->GetValue(), opt);
+                }
                 else
                 {
-                    if (intrin.op1->isContainedIntOrIImmed())
-                    {
-                        // movi/movni reg, #imm8
-                        const ssize_t dataValue = intrin.op1->AsIntCon()->gtIconVal;
-                        GetEmitter()->emitIns_R_I(INS_movi, emitSize, targetReg, dataValue, opt);
-                    }
-                    else
-                    {
-                        // ins reg1[0], reg2
-                        GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg, 0,
-                                                    INS_OPTS_NONE);
-                    }
+                    GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg, 0,
+                                                INS_OPTS_NONE);
                 }
                 break;
 
@@ -818,8 +812,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else if (intrin.op1->isContainedIntOrIImmed())
                 {
-                    const ssize_t dataValue = intrin.op1->AsIntCon()->gtIconVal;
-                    GetEmitter()->emitIns_R_I(INS_movi, emitSize, targetReg, dataValue, opt);
+                    GetEmitter()->emitIns_R_I(INS_movi, emitSize, targetReg, intrin.op1->AsIntCon()->GetValue(), opt);
                 }
                 else
                 {

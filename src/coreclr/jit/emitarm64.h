@@ -477,8 +477,27 @@ public:
 // true if this 'imm' can be encoded as a input operand to a mov instruction
 static bool emitIns_valid_imm_for_mov(INT64 imm, emitAttr size);
 
+struct MoviImm
+{
+    instruction ins;
+    uint8_t     imm;
+    uint8_t     shift;
+    bool        msl;
+
+    MoviImm() : ins(INS_invalid), imm(0), shift(0), msl(0)
+    {
+    }
+
+    MoviImm(instruction ins, uint64_t imm, unsigned shift = 0, bool msl = false)
+        : ins(ins), imm(static_cast<uint8_t>(imm)), shift(static_cast<uint8_t>(shift)), msl(msl)
+    {
+        assert(imm <= UINT8_MAX);
+        assert(shift <= 24);
+    }
+};
+
 // true if this 'imm' can be encoded as a input operand to a vector movi instruction
-static bool emitIns_valid_imm_for_movi(INT64 imm, emitAttr size);
+static MoviImm EncodeMoviImm(uint64_t value, insOpts opt);
 
 // true if this 'immDbl' can be encoded as a input operand to a fmov instruction
 static bool emitIns_valid_imm_for_fmov(double immDbl);

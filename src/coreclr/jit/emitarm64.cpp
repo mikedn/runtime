@@ -2209,38 +2209,103 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
 }
 
 // true if this 'imm' can be encoded as a input operand to a vector movi instruction
-/*static*/ bool emitter::emitIns_valid_imm_for_movi(INT64 imm, emitAttr elemsize)
+emitter::MoviImm emitter::EncodeMoviImm(uint64_t value, insOpts opt)
 {
-    if (elemsize == EA_8BYTE)
-    {
-        UINT64 uimm = imm;
-        while (uimm != 0)
-        {
-            INT64 loByte = uimm & 0xFF;
-            if ((loByte == 0) || (loByte == 0xFF))
-            {
-                uimm >>= 8;
-            }
-            else
-            {
-                return false;
-            }
-        }
-        assert(uimm == 0);
-        return true;
-    }
-    else
-    {
-        // First try the standard 'byteShifted immediate' imm(i8,bySh)
-        if (canEncodeByteShiftedImm(imm, elemsize, true))
-            return true;
+    auto msl   = [](uint64_t value, unsigned shift) { return ((value & 0xFF) << shift) | ~(UINT64_MAX << shift); };
+    auto lsl   = [](uint64_t value, unsigned shift) { return (value & 0xFF) << shift; };
+    auto not8  = [](uint64_t value) { return ~value & UINT8_MAX; };
+    auto not16 = [](uint64_t value) { return ~value & UINT16_MAX; };
+    auto not32 = [](uint64_t value) { return ~value & UINT32_MAX; };
 
-        // Next try the ones-complement form of the 'immediate' imm(i8,bySh)
-        ssize_t notOfImm = NOT_helper(imm, getBitWidth(elemsize));
-        if (canEncodeByteShiftedImm(notOfImm, elemsize, true))
-            return true;
+    switch (opt)
+    {
+        case INS_OPTS_1D:
+        case INS_OPTS_2D:
+        {
+            uint64_t imm = 0;
+
+            for (unsigned bit = 0; value != 0; value >>= 8, bit++)
+            {
+                if ((value & 0xFF) == 0)
+                {
+                    continue;
+                }
+
+                if ((value & 0xFF) == 0xFF)
+                {
+                    imm |= 1ULL << bit;
+                    continue;
+                }
+
+                return MoviImm();
+            }
+
+            return MoviImm(INS_movi, imm);
+        }
+
+        case INS_OPTS_2S:
+        case INS_OPTS_4S:
+            value &= UINT32_MAX;
+
+            for (unsigned shift = 0; shift <= 24; shift += 8)
+            {
+                uint64_t imm = (value >> shift) & 0xFF;
+
+                if (lsl(imm, shift) == value)
+                {
+                    return MoviImm(INS_movi, imm, shift);
+                }
+
+                if (((shift == 8) || (shift == 16)) && (msl(imm, shift) == value))
+                {
+                    return MoviImm(INS_movi, imm, shift, true);
+                }
+
+                imm = not8(imm);
+
+                if (not32(lsl(imm, shift)) == value)
+                {
+                    return MoviImm(INS_mvni, imm, shift);
+                }
+
+                if (((shift == 8) || (shift == 16)) && (not32(msl(imm, shift)) == value))
+                {
+                    return MoviImm(INS_mvni, imm, shift, true);
+                }
+            }
+
+            return MoviImm();
+
+        case INS_OPTS_4H:
+        case INS_OPTS_8H:
+            value &= UINT16_MAX;
+
+            for (unsigned shift = 0; shift <= 8; shift += 8)
+            {
+                uint64_t imm = (value >> shift) & 0xFF;
+
+                if (lsl(imm, shift) == value)
+                {
+                    return MoviImm(INS_movi, imm, shift);
+                }
+
+                imm = not8(imm);
+
+                if (not16(lsl(imm, shift)) == value)
+                {
+                    return MoviImm(INS_mvni, imm, shift);
+                }
+            }
+
+            return MoviImm();
+
+        case INS_OPTS_8B:
+        case INS_OPTS_16B:
+            return MoviImm(INS_movi, value & 0xFF);
+
+        default:
+            unreached();
     }
-    return false;
 }
 
 // true if this 'imm' can be encoded as a input operand to a fmov instruction
@@ -3351,6 +3416,32 @@ emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
     }
 }
 
+insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType)
+{
+    assert((size == EA_16BYTE) || (size == EA_8BYTE));
+
+    switch (elementType)
+    {
+        case TYP_DOUBLE:
+        case TYP_ULONG:
+        case TYP_LONG:
+            return (size == EA_16BYTE) ? INS_OPTS_2D : INS_OPTS_1D;
+        case TYP_FLOAT:
+        case TYP_UINT:
+        case TYP_INT:
+            return (size == EA_16BYTE) ? INS_OPTS_4S : INS_OPTS_2S;
+        case TYP_USHORT:
+        case TYP_SHORT:
+            return (size == EA_16BYTE) ? INS_OPTS_8H : INS_OPTS_4H;
+        case TYP_UBYTE:
+        case TYP_BYTE:
+            return (size == EA_16BYTE) ? INS_OPTS_16B : INS_OPTS_8B;
+            break;
+        default:
+            unreached();
+    }
+}
+
 /*static*/ insOpts emitter::optWidenElemsizeArrangement(insOpts arrangement)
 {
     if ((arrangement == INS_OPTS_8B) || (arrangement == INS_OPTS_16B))
@@ -3670,6 +3761,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
     emitAttr  elemsize  = EA_UNKNOWN;
     insFormat fmt       = IF_NONE;
     bool      canEncode = false;
+    MoviImm   mimm;
 
     /* Figure out the encoding format of the instruction */
     switch (ins)
@@ -3760,77 +3852,14 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
             break;
 
         case INS_movi:
-            assert(isValidVectorDatasize(size));
             assert(isVectorRegister(reg));
-            if (insOptsNone(opt) && (size == EA_8BYTE))
-            {
-                opt = INS_OPTS_1D;
-            }
             assert(isValidArrangement(size, opt));
-            elemsize = optGetElemsize(opt);
 
-            if (elemsize == EA_8BYTE)
-            {
-                size_t   uimm = imm;
-                ssize_t  imm8 = 0;
-                unsigned pos  = 0;
-                canEncode     = true;
-                while (uimm != 0)
-                {
-                    INT64 loByte = uimm & 0xFF;
-                    if (((loByte == 0) || (loByte == 0xFF)) && (pos < 8))
-                    {
-                        if (loByte == 0xFF)
-                        {
-                            imm8 |= (ssize_t{1} << pos);
-                        }
-                        uimm >>= 8;
-                        pos++;
-                    }
-                    else
-                    {
-                        canEncode = false;
-                        break;
-                    }
-                }
-                imm = imm8;
-                assert(isValidUimm8(imm));
-                fmt = IF_DV_1B;
-                break;
-            }
-            else
-            {
-                // Vector operation
-
-                // No explicit LSL/MSL is used for the immediate
-                // We will automatically determine the shift based upon the value of imm
-
-                // First try the standard 'byteShifted immediate' imm(i8,bySh)
-                bsi.immBSVal = 0;
-                canEncode    = canEncodeByteShiftedImm(imm, elemsize, true, &bsi);
-                if (canEncode)
-                {
-                    imm = bsi.immBSVal;
-                    assert(isValidImmBSVal(imm, size));
-                    fmt = IF_DV_1B;
-                    break;
-                }
-
-                // Next try the ones-complement form of the 'immediate' imm(i8,bySh)
-                if ((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE)) // Only EA_2BYTE or EA_4BYTE forms
-                {
-                    notOfImm  = NOT_helper(imm, getBitWidth(elemsize));
-                    canEncode = canEncodeByteShiftedImm(notOfImm, elemsize, true, &bsi);
-                    if (canEncode)
-                    {
-                        imm = bsi.immBSVal;
-                        ins = INS_mvni; // uses a mvni encoding
-                        assert(isValidImmBSVal(imm, size));
-                        fmt = IF_DV_1B;
-                        break;
-                    }
-                }
-            }
+            mimm      = EncodeMoviImm(static_cast<uint64_t>(imm), opt);
+            canEncode = mimm.ins != INS_invalid;
+            ins       = mimm.ins;
+            imm       = mimm.imm | (((mimm.msl ? 4 : 0) + (mimm.shift / 8)) << 8);
+            fmt       = IF_DV_1B;
             break;
 
         case INS_orr:

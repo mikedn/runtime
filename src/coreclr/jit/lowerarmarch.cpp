@@ -25,6 +25,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "sideeffects.h"
 #include "lower.h"
 #include "lsra.h"
+#include "codegen.h"
 
 #ifdef FEATURE_HW_INTRINSICS
 #include "hwintrinsic.h"
@@ -640,15 +641,20 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
         // So we will temporarily check what the cast is from instead so we
         // can catch those cases as well.
 
+        // TODO-MIKE-Review: Huh, why would a cast from a constant would ever reach
+        // lowering? And if that does happen then how can the cast be removed without
+        // checking anything? Overflow, cast from float, widening cast?!?!?!
+
         castOp = op1->AsCast()->CastOp();
         op1    = castOp;
     }
 
-    if (op1->IsCnsIntOrI())
+    if (GenTreeIntCon* icon = op1->IsIntCon())
     {
-        const ssize_t dataValue = op1->AsIntCon()->gtIconVal;
+        emitAttr emitSize = emitActualTypeSize(Compiler::getSIMDTypeForSize(node->GetSIMDSize()));
+        insOpts  opt      = emitSimdArrangementOpt(emitSize, node->GetSIMDBaseType());
 
-        if (comp->GetEmitter()->emitIns_valid_imm_for_movi(dataValue, emitActualTypeSize(node->gtSIMDBaseType)))
+        if (emitter::EncodeMoviImm(icon->GetUInt64Value(), opt).ins != INS_invalid)
         {
             if (castOp != nullptr)
             {
@@ -661,13 +667,12 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
             return true;
         }
     }
-    else if (op1->IsCnsFltOrDbl())
+    else if (GenTreeDblCon* dcon = op1->IsDblCon())
     {
         assert(varTypeIsFloating(node->gtSIMDBaseType));
         assert(castOp == nullptr);
 
-        const double dataValue = op1->AsDblCon()->gtDconVal;
-        return comp->GetEmitter()->emitIns_valid_imm_for_fmov(dataValue);
+        return comp->GetEmitter()->emitIns_valid_imm_for_fmov(dcon->GetValue());
     }
 
     return false;

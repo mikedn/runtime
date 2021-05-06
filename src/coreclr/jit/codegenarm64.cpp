@@ -3590,39 +3590,6 @@ void CodeGen::genSIMDIntrinsic(GenTreeSIMD* simdNode)
     }
 }
 
-insOpts CodeGen::genGetSimdInsOpt(emitAttr size, var_types elementType)
-{
-    assert((size == EA_16BYTE) || (size == EA_8BYTE));
-    insOpts result = INS_OPTS_NONE;
-
-    switch (elementType)
-    {
-        case TYP_DOUBLE:
-        case TYP_ULONG:
-        case TYP_LONG:
-            result = (size == EA_16BYTE) ? INS_OPTS_2D : INS_OPTS_1D;
-            break;
-        case TYP_FLOAT:
-        case TYP_UINT:
-        case TYP_INT:
-            result = (size == EA_16BYTE) ? INS_OPTS_4S : INS_OPTS_2S;
-            break;
-        case TYP_USHORT:
-        case TYP_SHORT:
-            result = (size == EA_16BYTE) ? INS_OPTS_8H : INS_OPTS_4H;
-            break;
-        case TYP_UBYTE:
-        case TYP_BYTE:
-            result = (size == EA_16BYTE) ? INS_OPTS_16B : INS_OPTS_8B;
-            break;
-        default:
-            assert(!"Unsupported element type");
-            unreached();
-    }
-
-    return result;
-}
-
 // getOpForSIMDIntrinsic: return the opcode for the given SIMD Intrinsic
 //
 // Arguments:
@@ -3714,7 +3681,7 @@ void CodeGen::genSIMDIntrinsicInit(GenTreeSIMD* simdNode)
     GenTree*  op1       = simdNode->GetOp(0);
     regNumber targetReg = simdNode->GetRegNum();
     emitAttr  attr      = simdNode->gtSIMDSize > 8 ? EA_16BYTE : EA_8BYTE;
-    insOpts   opt       = genGetSimdInsOpt(attr, simdNode->gtSIMDBaseType);
+    insOpts   opt       = emitSimdArrangementOpt(attr, simdNode->GetSIMDBaseType());
 
     assert(genIsValidFloatReg(targetReg));
 
@@ -3856,7 +3823,7 @@ void CodeGen::genSIMDIntrinsicUnOp(GenTreeSIMD* simdNode)
 
     instruction ins  = getOpForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID, baseType);
     emitAttr    attr = (simdNode->gtSIMDSize > 8) ? EA_16BYTE : EA_8BYTE;
-    insOpts     opt  = (ins == INS_mov) ? INS_OPTS_NONE : genGetSimdInsOpt(attr, baseType);
+    insOpts     opt  = (ins == INS_mov) ? INS_OPTS_NONE : emitSimdArrangementOpt(attr, baseType);
 
     GetEmitter()->emitIns_R_R(ins, attr, targetReg, op1Reg, opt);
 
@@ -3891,7 +3858,7 @@ void CodeGen::genSIMDIntrinsicWiden(GenTreeSIMD* simdNode)
     instruction ins = getOpForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID, baseType);
 
     emitAttr attr = (simdNode->gtSIMDIntrinsicID == SIMDIntrinsicWidenHi) ? EA_16BYTE : EA_8BYTE;
-    insOpts  opt  = genGetSimdInsOpt(attr, baseType);
+    insOpts  opt  = emitSimdArrangementOpt(attr, baseType);
 
     GetEmitter()->emitIns_R_R(ins, attr, targetReg, op1Reg, opt);
 
