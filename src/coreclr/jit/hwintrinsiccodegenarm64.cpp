@@ -777,15 +777,15 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 break;
 
-            // mvni doesn't support the range of element types, so hard code the 'opts' value.
             case NI_Vector64_get_Zero:
-            case NI_Vector64_get_AllBitsSet:
-                GetEmitter()->emitIns_R_I(ins, emitSize, targetReg, 0, INS_OPTS_2S);
-                break;
-
             case NI_Vector128_get_Zero:
+                GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, targetReg, 0, INS_OPTS_16B);
+                break;
+            case NI_Vector64_get_AllBitsSet:
+                GetEmitter()->emitIns_R_I(INS_movi, EA_8BYTE, targetReg, 0xFF, INS_OPTS_8B);
+                break;
             case NI_Vector128_get_AllBitsSet:
-                GetEmitter()->emitIns_R_I(ins, emitSize, targetReg, 0, INS_OPTS_4S);
+                GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, targetReg, 0xFF, INS_OPTS_16B);
                 break;
 
             case NI_AdvSimd_DuplicateToVector64:

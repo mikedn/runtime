@@ -3864,7 +3864,6 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 
         case INS_orr:
         case INS_bic:
-        case INS_mvni:
             assert(isValidVectorDatasize(size));
             assert(isVectorRegister(reg));
             assert(isValidArrangement(size, opt));
@@ -3878,9 +3877,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 
             // First try the standard 'byteShifted immediate' imm(i8,bySh)
             bsi.immBSVal = 0;
-            canEncode    = canEncodeByteShiftedImm(imm, elemsize,
-                                                (ins == INS_mvni), // mvni supports the ones shifting variant (aka MSL)
-                                                &bsi);
+            canEncode    = canEncodeByteShiftedImm(imm, elemsize, false, &bsi);
             if (canEncode)
             {
                 imm = bsi.immBSVal;
@@ -3929,9 +3926,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 
         default:
             unreached();
-            break;
-
-    } // end switch (ins)
+    }
 
     assert(canEncode);
     assert(fmt != IF_NONE);
