@@ -1656,6 +1656,8 @@ void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
 //
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
+    // TODO-MIKE-CQ: It seems that there's no support for generating vector immediate ORR/BIC.
+
     const HWIntrinsic intrin(node);
 
     const bool hasImmediateOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
