@@ -188,14 +188,6 @@ union byteShiftedImm {
     unsigned immBSVal; // concat Ones:BY:Val forming a 10-bit unsigned immediate
 };
 
-/************************************************************************
-*
-*  Convert between a 16/32-bit immediate and its 'byteShifted immediate'
-*   representation imm(i8,by)
-*/
-
-static emitter::byteShiftedImm emitEncodeByteShiftedImm(INT64 imm, emitAttr size, bool allow_MSL);
-
 static UINT32 emitDecodeByteShiftedImm(const emitter::byteShiftedImm bsImm, emitAttr size);
 
 /************************************************************************
@@ -530,7 +522,7 @@ static bool canEncodeBitMaskImm(INT64 imm, emitAttr size, emitter::bitMaskImm* w
 static bool canEncodeHalfwordImm(INT64 imm, emitAttr size, emitter::halfwordImm* wbHWI = nullptr);
 
 // true if 'imm' can be encoded using a 'byteShifted immediate', also returns the encoding if wbBSI is non-null
-static bool canEncodeByteShiftedImm(INT64 imm, emitAttr size, bool allow_MSL, emitter::byteShiftedImm* wbBSI = nullptr);
+static bool canEncodeByteShiftedImm(INT64 imm, emitAttr size, emitter::byteShiftedImm* wbBSI = nullptr);
 
 // true if 'immDbl' can be encoded using a 'float immediate', also returns the encoding if wbFPI is non-null
 static bool canEncodeFloatImm8(double immDbl, emitter::floatImm8* wbFPI = nullptr);

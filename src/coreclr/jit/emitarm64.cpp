@@ -2978,10 +2978,7 @@ emitter::MoviImm emitter::EncodeMoviImm(uint64_t value, insOpts opt)
  *
  */
 
-/*static*/ bool emitter::canEncodeByteShiftedImm(INT64                    imm,
-                                                 emitAttr                 size,
-                                                 bool                     allow_MSL,
-                                                 emitter::byteShiftedImm* wbBSI)
+/*static*/ bool emitter::canEncodeByteShiftedImm(INT64 imm, emitAttr size, emitter::byteShiftedImm* wbBSI)
 {
     bool     canEncode = false;
     bool     onesShift = false; // true if we use the shifting ones variant
@@ -2990,64 +2987,37 @@ emitter::MoviImm emitter::EncodeMoviImm(uint64_t value, insOpts opt)
 
     imm = normalizeImm64(imm, size);
 
-    if (size == EA_1BYTE)
-    {
-        imm8 = (unsigned)imm;
-        assert(imm8 < 0x100);
-        canEncode = true;
-    }
-    else if (size == EA_8BYTE)
-    {
-        imm8 = (unsigned)imm;
-        assert(imm8 < 0x100);
-        canEncode = true;
-    }
-    else
-    {
-        assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
+    assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
 
-        unsigned immWidth = (size == EA_4BYTE) ? 32 : 16;
-        unsigned maxBY    = (size == EA_4BYTE) ? 4 : 2;
+    unsigned immWidth = (size == EA_4BYTE) ? 32 : 16;
+    unsigned maxBY    = (size == EA_4BYTE) ? 4 : 2;
 
-        // setup immMask to a (EA_2BYTE) 0x0000FFFF or (EA_4BYTE) 0xFFFFFFFF
-        const UINT32 immMask = ((UINT32)-1) >> (32 - immWidth);
-        const INT32  mask8   = (INT32)0xFF;
+    // setup immMask to a (EA_2BYTE) 0x0000FFFF or (EA_4BYTE) 0xFFFFFFFF
+    const UINT32 immMask = ((UINT32)-1) >> (32 - immWidth);
+    const INT32  mask8   = (INT32)0xFF;
 
-        // Try each of the valid by shift sizes
-        for (bySh = 0; (bySh < maxBY); bySh++)
+    // Try each of the valid by shift sizes
+    for (bySh = 0; (bySh < maxBY); bySh++)
+    {
+        INT32 curMask   = mask8 << (bySh * 8); // Represents the mask of the bits in the current byteShifted
+        INT32 checkBits = immMask & ~curMask;
+        INT32 immCheck  = (imm & checkBits);
+
+        // Excluding the current byte (using ~curMask)
+        //  does the immediate have zero bits in every other bit that we care about?
+        //  or can be use the shifted one variant?
+        //  note we care about all 32-bits for EA_4BYTE
+        //  and we care about the lowest 16 bits for EA_2BYTE
+        //
+        if (immCheck == 0)
         {
-            INT32 curMask   = mask8 << (bySh * 8); // Represents the mask of the bits in the current byteShifted
-            INT32 checkBits = immMask & ~curMask;
-            INT32 immCheck  = (imm & checkBits);
+            canEncode = true;
+        }
 
-            // Excluding the current byte (using ~curMask)
-            //  does the immediate have zero bits in every other bit that we care about?
-            //  or can be use the shifted one variant?
-            //  note we care about all 32-bits for EA_4BYTE
-            //  and we care about the lowest 16 bits for EA_2BYTE
-            //
-            if (immCheck == 0)
-            {
-                canEncode = true;
-            }
-            if (allow_MSL)
-            {
-                if ((bySh == 1) && (immCheck == 0xFF))
-                {
-                    canEncode = true;
-                    onesShift = true;
-                }
-                else if ((bySh == 2) && (immCheck == 0xFFFF))
-                {
-                    canEncode = true;
-                    onesShift = true;
-                }
-            }
-            if (canEncode)
-            {
-                imm8 = (unsigned)(((imm & curMask) >> (bySh * 8)) & mask8);
-                break;
-            }
+        if (canEncode)
+        {
+            imm8 = (unsigned)(((imm & curMask) >> (bySh * 8)) & mask8);
+            break;
         }
     }
 
@@ -3070,22 +3040,6 @@ emitter::MoviImm emitter::EncodeMoviImm(uint64_t value, insOpts opt)
         return true;
     }
     return false;
-}
-
-/************************************************************************
- *
- *  Convert a 32-bit immediate into its 'byteShifted immediate' representation imm(i8,by)
- */
-
-/*static*/ emitter::byteShiftedImm emitter::emitEncodeByteShiftedImm(INT64 imm, emitAttr size, bool allow_MSL)
-{
-    emitter::byteShiftedImm result;
-    result.immBSVal = 0;
-
-    bool canEncode = canEncodeByteShiftedImm(imm, size, allow_MSL, &result);
-    assert(canEncode);
-
-    return result;
 }
 
 /************************************************************************
@@ -3864,20 +3818,13 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 
         case INS_orr:
         case INS_bic:
-            assert(isValidVectorDatasize(size));
             assert(isVectorRegister(reg));
             assert(isValidArrangement(size, opt));
             elemsize = optGetElemsize(opt);
-            assert((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
+            assert((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE));
 
-            // Vector operation
-
-            // No explicit LSL/MSL is used for the immediate
-            // We will automatically determine the shift based upon the value of imm
-
-            // First try the standard 'byteShifted immediate' imm(i8,bySh)
             bsi.immBSVal = 0;
-            canEncode    = canEncodeByteShiftedImm(imm, elemsize, false, &bsi);
+            canEncode    = canEncodeByteShiftedImm(imm, elemsize, &bsi);
             if (canEncode)
             {
                 imm = bsi.immBSVal;
