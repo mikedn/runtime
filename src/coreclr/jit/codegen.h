@@ -973,9 +973,6 @@ protected:
         SMT_PreserveUpper                   // preserve target upper bits
     };
 
-#ifdef TARGET_ARM64
-    insOpts genGetSimdInsOpt(emitAttr size, var_types elementType);
-#endif
     instruction getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_types baseType, unsigned* ival = nullptr);
     void genSIMDScalarMove(
         var_types targetType, var_types type, regNumber target, regNumber src, SIMDScalarMoveType moveType);

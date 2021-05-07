@@ -188,14 +188,6 @@ union byteShiftedImm {
     unsigned immBSVal; // concat Ones:BY:Val forming a 10-bit unsigned immediate
 };
 
-/************************************************************************
-*
-*  Convert between a 16/32-bit immediate and its 'byteShifted immediate'
-*   representation imm(i8,by)
-*/
-
-static emitter::byteShiftedImm emitEncodeByteShiftedImm(INT64 imm, emitAttr size, bool allow_MSL);
-
 static UINT32 emitDecodeByteShiftedImm(const emitter::byteShiftedImm bsImm, emitAttr size);
 
 /************************************************************************
@@ -477,8 +469,27 @@ public:
 // true if this 'imm' can be encoded as a input operand to a mov instruction
 static bool emitIns_valid_imm_for_mov(INT64 imm, emitAttr size);
 
+struct MoviImm
+{
+    instruction ins;
+    uint8_t     imm;
+    uint8_t     shift;
+    bool        msl;
+
+    MoviImm() : ins(INS_invalid), imm(0), shift(0), msl(0)
+    {
+    }
+
+    MoviImm(instruction ins, uint64_t imm, unsigned shift = 0, bool msl = false)
+        : ins(ins), imm(static_cast<uint8_t>(imm)), shift(static_cast<uint8_t>(shift)), msl(msl)
+    {
+        assert(imm <= UINT8_MAX);
+        assert(shift <= 24);
+    }
+};
+
 // true if this 'imm' can be encoded as a input operand to a vector movi instruction
-static bool emitIns_valid_imm_for_movi(INT64 imm, emitAttr size);
+static MoviImm EncodeMoviImm(uint64_t value, insOpts opt);
 
 // true if this 'immDbl' can be encoded as a input operand to a fmov instruction
 static bool emitIns_valid_imm_for_fmov(double immDbl);
@@ -511,7 +522,7 @@ static bool canEncodeBitMaskImm(INT64 imm, emitAttr size, emitter::bitMaskImm* w
 static bool canEncodeHalfwordImm(INT64 imm, emitAttr size, emitter::halfwordImm* wbHWI = nullptr);
 
 // true if 'imm' can be encoded using a 'byteShifted immediate', also returns the encoding if wbBSI is non-null
-static bool canEncodeByteShiftedImm(INT64 imm, emitAttr size, bool allow_MSL, emitter::byteShiftedImm* wbBSI = nullptr);
+static bool canEncodeByteShiftedImm(INT64 imm, emitAttr size, emitter::byteShiftedImm* wbBSI = nullptr);
 
 // true if 'immDbl' can be encoded using a 'float immediate', also returns the encoding if wbFPI is non-null
 static bool canEncodeFloatImm8(double immDbl, emitter::floatImm8* wbFPI = nullptr);
