@@ -535,18 +535,20 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                 return gtNewSimdHWIntrinsicNode(retType, NI_SSSE3_Abs, retBaseType, retSize, ops[0]);
             }
 
-            GenTree* uses[3];
+            GenTree* uses[2];
             impMakeMultiUse(ops[0], uses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs temp"));
 
             NamedIntrinsic lessIntrinsic = MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX);
+            NamedIntrinsic xorIntrinsic  = isAVX ? NI_AVX2_Xor : NI_SSE2_Xor;
             NamedIntrinsic subIntrinsic  = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
 
-            GenTree* less = gtNewZeroSimdHWIntrinsicNode(retLayout);
-            less          = impSimdAsHWIntrinsicRelOp(lessIntrinsic, retBaseType, retLayout, uses[0], less);
-            GenTree* neg  = gtNewZeroSimdHWIntrinsicNode(retLayout);
-            neg           = gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, neg, uses[1]);
+            GenTree* zero = gtNewZeroSimdHWIntrinsicNode(retLayout);
+            GenTree* sign = impSimdAsHWIntrinsicRelOp(lessIntrinsic, retBaseType, retLayout, uses[0], zero);
+            GenTree* signUses[2];
+            impMakeMultiUse(sign, signUses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs sign temp"));
 
-            return impSimdAsHWIntrinsicCndSel(retLayout, less, neg, uses[2]);
+            GenTree* xor = gtNewSimdHWIntrinsicNode(retType, xorIntrinsic, retBaseType, retSize, signUses[0], uses[1]);
+            return gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, xor, signUses[1]);
         }
 
         case NI_Vector2_op_Division:
