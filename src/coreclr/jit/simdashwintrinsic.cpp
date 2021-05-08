@@ -538,14 +538,37 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             GenTree* uses[2];
             impMakeMultiUse(ops[0], uses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs temp"));
 
-            NamedIntrinsic lessIntrinsic = MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX);
-            NamedIntrinsic xorIntrinsic  = isAVX ? NI_AVX2_Xor : NI_SSE2_Xor;
-            NamedIntrinsic subIntrinsic  = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
+            GenTree* sign;
 
-            GenTree* zero = gtNewZeroSimdHWIntrinsicNode(retLayout);
-            GenTree* sign = impSimdAsHWIntrinsicRelOp(lessIntrinsic, retBaseType, retLayout, uses[0], zero);
+            if ((retBaseType == TYP_SHORT) || (retBaseType == TYP_INT) ||
+                ((retBaseType == TYP_LONG) && !compOpportunisticallyDependsOn(InstructionSet_SSE42)))
+            {
+                NamedIntrinsic sraIntrinsic = isAVX ? NI_AVX2_ShiftRightArithmetic : NI_SSE2_ShiftRightArithmetic;
+
+                sign = gtNewSimdHWIntrinsicNode(retType, sraIntrinsic, retBaseType == TYP_LONG ? TYP_INT : retBaseType,
+                                                retSize, uses[0], gtNewIconNode(31));
+
+                if (retBaseType == TYP_LONG)
+                {
+                    NamedIntrinsic shufdIntrinsic = isAVX ? NI_AVX2_Shuffle : NI_SSE2_Shuffle;
+
+                    sign = gtNewSimdHWIntrinsicNode(retType, shufdIntrinsic, TYP_INT, retSize, sign,
+                                                    gtNewIconNode(0b11110101));
+                }
+            }
+            else
+            {
+                NamedIntrinsic lessIntrinsic = MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX);
+
+                sign = gtNewZeroSimdHWIntrinsicNode(retLayout);
+                sign = impSimdAsHWIntrinsicRelOp(lessIntrinsic, retBaseType, retLayout, uses[0], sign);
+            }
+
             GenTree* signUses[2];
             impMakeMultiUse(sign, signUses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs sign temp"));
+
+            NamedIntrinsic xorIntrinsic = isAVX ? NI_AVX2_Xor : NI_SSE2_Xor;
+            NamedIntrinsic subIntrinsic = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
 
             GenTree* xor = gtNewSimdHWIntrinsicNode(retType, xorIntrinsic, retBaseType, retSize, signUses[0], uses[1]);
             return gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, xor, signUses[1]);
