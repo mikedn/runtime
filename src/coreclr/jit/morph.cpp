@@ -8161,8 +8161,8 @@ GenTree* Compiler::fgMorphInitBlockConstant(GenTreeIntCon* initVal,
             // TODO-MIKE-ARM64-CQ Codegen doesn't properly recognize zero if the base type is float.
             initPatternType = TYP_INT;
 #else
-            // SSE2 codegen does not support small int base type for SIMDIntrinsicInit
-            initPatternType = genActualType(simdBaseType);
+            // TODO-MIKE-Review: This may be unnecessary when VPBROADCAST is available
+            initPatternType = varActualType(simdBaseType);
 #endif
         }
     }
@@ -8230,11 +8230,12 @@ GenTree* Compiler::fgMorphInitBlockConstant(GenTreeIntCon* initVal,
     {
         if (initPattern == 0)
         {
-            return gtNewSimdHWIntrinsicNode(type, NI_Vector128_get_Zero, initPatternType, genTypeSize(type));
+            return gtNewZeroSimdHWIntrinsicNode(type, initPatternType);
         }
         else
         {
-            return gtNewSIMDNode(type, SIMDIntrinsicInit, initPatternType, genTypeSize(type), initVal);
+            return gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), initPatternType, varTypeSize(type),
+                                            initVal);
         }
     }
 #endif
@@ -8764,7 +8765,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         JITDUMP(" (srcPromote=true)");
     }
-    else if (destPromote && varTypeIsSIMD(destLclVar->GetType()) && src->IsSIMDZero())
+    else if (destPromote && varTypeIsSIMD(destLclVar->GetType()) && src->IsHWIntrinsicZero())
     {
         GenTree* asgFieldCommaTree = nullptr;
 

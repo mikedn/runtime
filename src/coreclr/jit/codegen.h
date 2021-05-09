@@ -967,18 +967,7 @@ protected:
     void genCompareInt(GenTree* treeNode);
 
 #ifdef FEATURE_SIMD
-    enum SIMDScalarMoveType{
-        SMT_ZeroInitUpper,                  // zero initlaize target upper bits
-        SMT_ZeroInitUpper_SrcHasUpperZeros, // zero initialize target upper bits; source upper bits are known to be zero
-        SMT_PreserveUpper                   // preserve target upper bits
-    };
-
     instruction getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_types baseType, unsigned* ival = nullptr);
-    void genSIMDScalarMove(
-        var_types targetType, var_types type, regNumber target, regNumber src, SIMDScalarMoveType moveType);
-    void genSIMDZero(var_types targetType, var_types baseType, regNumber targetReg);
-    void genSIMDIntrinsicInit(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsicInitN(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicUnOp(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicSetItem(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicGetItem(GenTreeSIMD* simdNode);

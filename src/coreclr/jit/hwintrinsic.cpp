@@ -239,32 +239,18 @@ bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
     return true;
 }
 
-GenTree* Compiler::impPopArgForHWIntrinsic(var_types    paramType,
-                                           ClassLayout* paramLayout,
-                                           bool         expectAddr,
-                                           GenTree*     newobjThis)
+GenTree* Compiler::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout)
 {
-    if (newobjThis != nullptr)
-    {
-        assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
-
-        unsigned   lclNum = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
-        LclVarDsc* lcl    = lvaGetDesc(lclNum);
-        impPushOnStack(gtNewLclvNode(lclNum, lcl->GetType()), typeInfo(TI_STRUCT, paramLayout->GetClassHandle()));
-        return newobjThis;
-    }
-
     if (!varTypeIsStruct(paramType))
     {
         assert(varTypeIsArithmetic(paramType));
-        assert(!expectAddr);
 
         GenTree* arg = impPopStack().val;
         assert(varActualType(arg->GetType()) == varActualType(paramType));
         return arg;
     }
 
-    GenTree* arg = expectAddr ? impSIMDPopStackAddr(paramType) : impSIMDPopStack(paramType);
+    GenTree* arg = impSIMDPopStack(paramType);
     assert(varTypeIsSIMD(arg->TypeGet()));
     return arg;
 }
@@ -462,7 +448,7 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
     for (unsigned i = 0; i < min(_countof(paramType), sig->numArgs); i++, param = vm->getArgNext(param))
     {
         CORINFO_CLASS_HANDLE paramClass;
-        paramType[i] = JITtype2varType(strip(vm->getArgType(sig, param, &paramClass)));
+        paramType[i] = CorTypeToPreciseVarType(strip(vm->getArgType(sig, param, &paramClass)));
 
         if (paramType[i] != TYP_STRUCT)
         {

@@ -3260,6 +3260,14 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
         {
             BuildUse(src, RBM_NONE, i);
         }
+
+#ifdef TARGET_X86
+        if (src->IsCall() && src->TypeIs(TYP_SIMD8))
+        {
+            BuildInternalFloatDef(store, allSIMDRegs());
+            setInternalRegsDelayFree = true;
+        }
+#endif
     }
     else if (src->isContained() && src->OperIs(GT_BITCAST))
     {
@@ -3294,7 +3302,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
             // This is the zero-init case, and we need a register to hold the zero.
             // (On Arm64 we can just store REG_ZR.)
 
-            assert(src->IsSIMDZero() || src->IsHWIntrinsicZero());
+            assert(src->IsHWIntrinsicZero());
             singleUseRef = BuildUse(src->AsSIMD()->GetOp(0));
             srcCount     = 1;
         }

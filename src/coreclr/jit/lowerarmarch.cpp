@@ -602,6 +602,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerHWIntrinsicFusedMultiplyAddScalar(node);
             break;
 
+        case NI_AdvSimd_Insert:
+            node->SetOp(2, TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(2)));
+            break;
+
         default:
             break;
     }
@@ -805,40 +809,24 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 //
 void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
-    var_types      simdType    = node->gtType;
-    var_types      baseType    = node->gtSIMDBaseType;
-    unsigned       simdSize    = node->gtSIMDSize;
-    VectorConstant vecCns      = {};
-
-    if ((simdSize == 8) && (simdType == TYP_DOUBLE))
-    {
-        // TODO-Cleanup: Struct retyping means we have the wrong type here. We need to
-        //               manually fix it up so the simdType checks below are correct.
-        simdType = TYP_SIMD8;
-    }
+    NamedIntrinsic intrinsicId = node->GetIntrinsic();
+    var_types      simdType    = node->GetType();
+    var_types      baseType    = node->GetSIMDBaseType();
+    unsigned       simdSize    = node->GetSIMDSize();
+    unsigned       argCnt      = node->GetNumOps();
+    unsigned       cnsArgCnt   = 0;
+    VectorConstant vecCns;
 
     assert(varTypeIsSIMD(simdType));
     assert(varTypeIsArithmetic(baseType));
-    assert(simdSize != 0);
-
-    // Spare GenTrees to be used for the lowering logic below
-    // Defined upfront to avoid naming conflicts, etc...
-    GenTree* idx  = nullptr;
-    GenTree* tmp1 = nullptr;
-    GenTree* tmp2 = nullptr;
-    GenTree* tmp3 = nullptr;
-
-    unsigned argCnt    = node->GetNumOps();
-    unsigned cnsArgCnt = 0;
-
+    assert((simdSize == 8) || (simdSize == 12) || (simdSize == 16));
     assert((argCnt == 1) || (argCnt == (simdSize / varTypeSize(baseType))));
 
     if (argCnt == 1)
     {
         for (unsigned i = 0; i < simdSize / varTypeSize(baseType); i++)
         {
-            if (HandleArgForHWIntrinsicCreate(node->GetOp(0), i, vecCns, baseType))
+            if (vecCns.SetConstant(baseType, i, node->GetOp(0)))
             {
                 cnsArgCnt = 1;
             }
@@ -846,11 +834,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     }
     else
     {
-        assert(argCnt == (simdSize / varTypeSize(baseType)));
-
         for (unsigned i = 0; i < argCnt; i++)
         {
-            if (HandleArgForHWIntrinsicCreate(node->GetOp(i), i, vecCns, baseType))
+            if (vecCns.SetConstant(baseType, i, node->GetOp(i)))
             {
                 cnsArgCnt += 1;
             }
@@ -874,25 +860,18 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             BlockRange().Remove(node->GetOp(i));
         }
 
-        assert((simdSize == 8) || (simdSize == 16));
-
-        if ((argCnt == 1) || VectorConstantIsBroadcastedI64(vecCns, simdSize / 8))
+        if (vecCns.AllBitsZero(simdSize))
         {
-            // If we are a single constant or if all parts are the same, we might be able to optimize
-            // this even further for certain values, such as Zero or AllBitsSet.
+            node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_Zero : NI_Vector128_get_Zero);
+            node->SetNumOps(0);
+            return;
+        }
 
-            if (vecCns.i64[0] == 0)
-            {
-                node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_Zero : NI_Vector128_get_Zero);
-                node->SetNumOps(0);
-                return;
-            }
-            else if (vecCns.i64[0] == -1)
-            {
-                node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
-                node->SetNumOps(0);
-                return;
-            }
+        if ((simdSize != 12) && vecCns.AllBitsOne(simdSize))
+        {
+            node->SetIntrinsic((simdSize == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
+            node->SetNumOps(0);
+            return;
         }
 
         unsigned  cnsSize  = (simdSize == 12) ? 16 : simdSize;
@@ -917,46 +896,30 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     if (argCnt == 1)
     {
-        // We have the following (where simd is simd8 or simd16):
-        //          /--*  op1  T
-        //   node = *  HWINTRINSIC   simd   T Create
-
-        // We will be constructing the following parts:
-        //           /--*  op1  T
-        //   node  = *  HWINTRINSIC   simd   T DuplicateToVector
-
-        // This is roughly the following managed code:
-        //   return AdvSimd.Arm64.DuplicateToVector(op1);
-
-        if (varTypeIsLong(baseType) || (baseType == TYP_DOUBLE))
+        if (varTypeSize(baseType) == 8)
         {
-            node->gtHWIntrinsicId =
-                (simdType == TYP_SIMD8) ? NI_AdvSimd_Arm64_DuplicateToVector64 : NI_AdvSimd_Arm64_DuplicateToVector128;
+            node->SetIntrinsic(simdType == TYP_SIMD8 ? NI_AdvSimd_Arm64_DuplicateToVector64
+                                                     : NI_AdvSimd_Arm64_DuplicateToVector128);
         }
         else
         {
-            node->gtHWIntrinsicId =
-                (simdType == TYP_SIMD8) ? NI_AdvSimd_DuplicateToVector64 : NI_AdvSimd_DuplicateToVector128;
+            node->SetIntrinsic(simdType == TYP_SIMD8 ? NI_AdvSimd_DuplicateToVector64
+                                                     : NI_AdvSimd_DuplicateToVector128);
         }
+
+        node->SetOp(0, TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(0)));
+
         return;
     }
 
-    // We have the following (where simd is simd8 or simd16):
-    //          /--*  op1 T
-    //          +--*  ... T
-    //          +--*  opN T
-    //   node = *  HWINTRINSIC   simd   T Create
+    // Spare GenTrees to be used for the lowering logic below
+    // Defined upfront to avoid naming conflicts, etc...
+    GenTree* idx  = nullptr;
+    GenTree* tmp1 = nullptr;
+    GenTree* tmp2 = nullptr;
+    GenTree* tmp3 = nullptr;
 
-    // We will be constructing the following parts:
-    //          /--*  op1  T
-    //   tmp1 = *  HWINTRINSIC   simd8  T CreateScalarUnsafe
-    //   ...
-
-    // This is roughly the following managed code:
-    //   var tmp1 = Vector64.CreateScalarUnsafe(op1);
-    //   ...
-
-    GenTree* op1 = node->GetOp(0);
+    GenTree* op1 = TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(0));
 
     NamedIntrinsic createScalarUnsafe =
         (simdType == TYP_SIMD8) ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;
@@ -1270,7 +1233,7 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
     // STORE_BLK.struct<16> works better than STOREIND.simd16 because of this.
     if (store->TypeIs(TYP_SIMD8, TYP_SIMD12))
     {
-        if (value->IsSIMDZero() || value->IsHWIntrinsicZero())
+        if (value->IsHWIntrinsicZero())
         {
             value->SetContained();
         }
@@ -1453,7 +1416,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 #endif
 
 #ifdef TARGET_ARM64
-    if (src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsSIMDZero() || src->IsHWIntrinsicZero())
+    if (src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero())
     {
         src->SetContained();
         return;
@@ -1605,14 +1568,6 @@ void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
     {
         GenTree* op1;
         GenTree* op2;
-
-        case SIMDIntrinsicInit:
-            op1 = simdNode->GetOp(0);
-            if (op1->IsIntegralConst(0) || op1->IsDblConPositiveZero())
-            {
-                MakeSrcContained(simdNode, op1);
-            }
-            break;
 
         case SIMDIntrinsicGetItem:
         {

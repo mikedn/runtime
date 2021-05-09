@@ -1673,10 +1673,8 @@ public:
 #endif // DEBUG
 
     bool IsDblConPositiveZero() const;
-    bool IsSIMDZero() const;
     bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal);
-    bool IsIntegralConstVector(ssize_t constVal);
 
     inline GenTree* gtGetOp1() const;
 
@@ -3018,6 +3016,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return static_cast<uint8_t>(gtIconVal & 0xFF);
     }
 
+    uint16_t GetUInt16Value() const
+    {
+        return static_cast<uint16_t>(gtIconVal);
+    }
+
     uint32_t GetUInt32Value() const
     {
         return static_cast<uint32_t>(gtIconVal);
@@ -3183,9 +3186,33 @@ struct GenTreeDblCon : public GenTree
         return gtDconVal;
     }
 
+    double GetDoubleValue() const
+    {
+        assert(gtType == TYP_DOUBLE);
+        return gtDconVal;
+    }
+
+    float GetFloatValue() const
+    {
+        assert(gtType == TYP_FLOAT);
+        return static_cast<float>(gtDconVal);
+    }
+
     uint64_t GetBits() const
     {
         return jitstd::bit_cast<uint64_t>(gtDconVal);
+    }
+
+    uint64_t GetDoubleBits() const
+    {
+        assert(gtType == TYP_DOUBLE);
+        return jitstd::bit_cast<uint64_t>(gtDconVal);
+    }
+
+    uint32_t GetFloatBits() const
+    {
+        assert(gtType == TYP_FLOAT);
+        return jitstd::bit_cast<uint32_t>(static_cast<float>(gtDconVal));
     }
 
     void SetValue(double value)
@@ -7920,18 +7947,6 @@ inline bool GenTree::IsDblConPositiveZero() const
     return OperIs(GT_CNS_DBL) && AsDblCon()->IsPositiveZero();
 }
 
-inline bool GenTree::IsSIMDZero() const
-{
-#ifdef FEATURE_SIMD
-    if (OperIs(GT_SIMD))
-    {
-        return (AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInit) &&
-               (AsSIMD()->GetOp(0)->IsIntegralConst(0) || AsSIMD()->GetOp(0)->IsDblConPositiveZero());
-    }
-#endif
-    return false;
-}
-
 inline bool GenTree::IsHWIntrinsicZero() const
 {
 #ifdef FEATURE_HW_INTRINSICS
@@ -7976,71 +7991,6 @@ inline bool GenTree::IsIntegralConst(ssize_t constVal)
     {
         return true;
     }
-
-    return false;
-}
-
-//-------------------------------------------------------------------
-// IsIntegralConstVector: returns true if this this is a SIMD vector
-// with all its elements equal to an integral constant.
-//
-// Arguments:
-//     constVal  -  const value of vector element
-//
-// Returns:
-//     True if this represents an integral const SIMD vector.
-//
-inline bool GenTree::IsIntegralConstVector(ssize_t constVal)
-{
-#ifdef FEATURE_SIMD
-    // SIMDIntrinsicInit intrinsic with a const value as initializer
-    // represents a const vector.
-    if (OperIs(GT_SIMD) && (AsSIMD()->gtSIMDIntrinsicID == SIMDIntrinsicInit) &&
-        AsSIMD()->GetOp(0)->IsIntegralConst(constVal))
-    {
-        assert(varTypeIsIntegral(AsSIMD()->gtSIMDBaseType));
-        assert(AsSIMD()->IsUnary());
-        return true;
-    }
-#endif // FEATURE_SIMD
-
-#ifdef FEATURE_HW_INTRINSICS
-    if (gtOper == GT_HWINTRINSIC)
-    {
-        GenTreeHWIntrinsic* node = AsHWIntrinsic();
-
-        if (!varTypeIsIntegral(node->gtSIMDBaseType))
-        {
-            // Can't be an integral constant
-            return false;
-        }
-
-        NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
-
-        if (node->GetNumOps() == 0)
-        {
-            if (constVal == 0)
-            {
-#if defined(TARGET_XARCH)
-                return (intrinsicId == NI_Vector128_get_Zero) || (intrinsicId == NI_Vector256_get_Zero);
-#elif defined(TARGET_ARM64)
-                return (intrinsicId == NI_Vector64_get_Zero) || (intrinsicId == NI_Vector128_get_Zero);
-#endif // !TARGET_XARCH && !TARGET_ARM64
-            }
-        }
-        else if (node->IsUnary())
-        {
-            if (node->GetOp(0)->IsIntegralConst(constVal))
-            {
-#if defined(TARGET_XARCH)
-                return (intrinsicId == NI_Vector128_Create) || (intrinsicId == NI_Vector256_Create);
-#elif defined(TARGET_ARM64)
-                return (intrinsicId == NI_Vector64_Create) || (intrinsicId == NI_Vector128_Create);
-#endif // !TARGET_XARCH && !TARGET_ARM64
-            }
-        }
-    }
-#endif // FEATURE_HW_INTRINSICS
 
     return false;
 }

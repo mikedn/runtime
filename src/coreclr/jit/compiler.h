@@ -1836,10 +1836,6 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
-#ifdef FEATURE_SIMD
-    GenTree* gtNewSIMDVectorZero(var_types simdType, var_types baseType, unsigned size);
-#endif
-
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
     void gtInitStructCopyAsg(GenTreeOp* asg);
@@ -1896,6 +1892,8 @@ public:
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
+    GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
+    GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
                                                  NamedIntrinsic hwIntrinsicID,
                                                  var_types      baseType,
@@ -1928,6 +1926,12 @@ public:
                                                  GenTree*       op3,
                                                  GenTree*       op4,
                                                  GenTree*       op5);
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
+                                                 NamedIntrinsic hwIntrinsicID,
+                                                 var_types      baseType,
+                                                 unsigned       size,
+                                                 unsigned       numOps,
+                                                 GenTree**      ops);
 
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types      type,
@@ -2992,6 +2996,12 @@ protected:
                                         ClassLayout*                thisLayout,
                                         GenTree*                    newobjThis);
 
+    GenTree* impSimdAsHWIntrinsicCreateExtend(const HWIntrinsicSignature& signature,
+                                              ClassLayout*                layout,
+                                              GenTree*                    newobjThis);
+
+    GenTree* impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree* newobjThis);
+
     GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
@@ -3000,10 +3010,7 @@ protected:
                                  var_types                   retType,
                                  unsigned                    simdSize);
 
-    GenTree* impPopArgForHWIntrinsic(var_types    paramType,
-                                     ClassLayout* paramLayout,
-                                     bool         expectAddr = false,
-                                     GenTree*     newobjThis = nullptr);
+    GenTree* impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout);
     GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
     GenTree* addRangeCheckIfNeeded(
         NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
@@ -6976,9 +6983,6 @@ private:
     // by the hardware.  It is allocated when/if such situations are encountered during Lowering.
     unsigned lvaSIMDInitTempVarNum;
 
-    // Get an appropriate "zero" for the given type and class handle.
-    GenTree* gtGetSIMDZero(ClassLayout* layout);
-
     bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
     {
         if (!isIntrinsicType(clsHnd))
@@ -7024,32 +7028,6 @@ private:
     GenTreeOp* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
 
     GenTree* getOp1ForConstructor(OPCODE opcode, GenTree* newobjThis, CORINFO_CLASS_HANDLE clsHnd);
-
-    // Whether SIMD vector occupies part of SIMD register.
-    // SSE2: vector2f/3f are considered sub register SIMD types.
-    // AVX: vector2f, 3f and 4f are all considered sub register SIMD types.
-    bool isSubRegisterSIMDType(GenTreeSIMD* simdNode)
-    {
-        unsigned vectorRegisterByteLength;
-#if defined(TARGET_XARCH)
-        // Calling the getSIMDVectorRegisterByteLength api causes the size of Vector<T> to be recorded
-        // with the AOT compiler, so that it cannot change from aot compilation time to runtime
-        // This api does not require such fixing as it merely pertains to the size of the simd type
-        // relative to the Vector<T> size as used at compile time. (So detecting a vector length of 16 here
-        // does not preclude the code from being used on a machine with a larger vector length.)
-        if (getSIMDSupportLevel() < SIMD_AVX2_Supported)
-        {
-            vectorRegisterByteLength = 16;
-        }
-        else
-        {
-            vectorRegisterByteLength = 32;
-        }
-#else
-        vectorRegisterByteLength = getSIMDVectorRegisterByteLength();
-#endif
-        return (simdNode->gtSIMDSize < vectorRegisterByteLength);
-    }
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.

@@ -4585,7 +4585,7 @@ GenTree* Compiler::impUnsupportedNamedIntrinsic(unsigned              helper,
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(typGetStructType(layout)))
     {
-        return gtGetSIMDZero(layout);
+        return gtNewZeroSimdHWIntrinsicNode(layout);
     }
 #endif
 
@@ -16705,9 +16705,7 @@ GenTree* Compiler::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
 #ifdef FEATURE_SIMD
     if (layout->IsVector())
     {
-        // TODO-MIKE-Cleanup: This should probably use gtGetSIMDZero. But NI_Vector128_get_Zero & co.
-        // are a bunch of nonsense, how many "zero" nodes does it take to change a light bulb!?!
-        initValue = gtNewSIMDVectorZero(layout->GetSIMDType(), layout->GetElementType(), layout->GetSize());
+        initValue = gtNewZeroSimdHWIntrinsicNode(layout);
     }
     else
 #endif

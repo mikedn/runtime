@@ -913,20 +913,7 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
     assert((elementCorType >= CORINFO_TYPE_BYTE) && (elementCorType <= CORINFO_TYPE_DOUBLE));
     assert((elementCorType != CORINFO_TYPE_NATIVEINT) && (elementCorType != CORINFO_TYPE_NATIVEUINT));
 
-    var_types elementType;
-
-    switch (elementCorType)
-    {
-        case CORINFO_TYPE_UINT:
-            elementType = TYP_UINT;
-            break;
-        case CORINFO_TYPE_ULONG:
-            elementType = TYP_ULONG;
-            break;
-        default:
-            elementType = JITtype2varType(elementCorType);
-            break;
-    }
+    var_types elementType = CorTypeToPreciseVarType(elementCorType);
 
     if (isNumericsVector && strcmp(className, "Vector`1") == 0)
     {

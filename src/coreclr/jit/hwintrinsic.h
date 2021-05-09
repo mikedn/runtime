@@ -781,6 +781,46 @@ private:
 
 INDEBUG(const char* GetHWIntrinsicIdName(NamedIntrinsic id);)
 
+inline NamedIntrinsic GetCreateSimdHWIntrinsic(var_types type)
+{
+    switch (type)
+    {
+        case TYP_SIMD8:
+#ifdef TARGET_ARM64
+            return NI_Vector64_Create;
+#endif
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+            return NI_Vector128_Create;
+#ifdef TARGET_XARCH
+        case TYP_SIMD32:
+            return NI_Vector256_Create;
+#endif
+        default:
+            unreached();
+    }
+}
+
+inline NamedIntrinsic GetZeroSimdHWIntrinsic(var_types type)
+{
+    switch (type)
+    {
+        case TYP_SIMD8:
+#ifdef TARGET_ARM64
+            return NI_Vector64_get_Zero;
+#endif
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+            return NI_Vector128_get_Zero;
+#ifdef TARGET_XARCH
+        case TYP_SIMD32:
+            return NI_Vector256_get_Zero;
+#endif
+        default:
+            unreached();
+    }
+}
+
 #endif // FEATURE_HW_INTRINSICS
 
 #endif // _HW_INTRINSIC_H_
