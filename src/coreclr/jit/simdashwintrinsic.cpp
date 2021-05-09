@@ -570,8 +570,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             NamedIntrinsic xorIntrinsic = isAVX ? NI_AVX2_Xor : NI_SSE2_Xor;
             NamedIntrinsic subIntrinsic = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
 
-            GenTree* xor = gtNewSimdHWIntrinsicNode(retType, xorIntrinsic, retBaseType, retSize, signUses[0], uses[1]);
-            return gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, xor, signUses[1]);
+            GenTree* tmp = gtNewSimdHWIntrinsicNode(retType, xorIntrinsic, retBaseType, retSize, signUses[0], uses[1]);
+            return gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, tmp, signUses[1]);
         }
 
         case NI_Vector2_op_Division:
