@@ -16,10 +16,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-/*****************************************************************************/
-#if FEATURE_ANYCSE
-/*****************************************************************************/
-
 /* static */
 const size_t Compiler::s_optCSEhashSizeInitial  = EXPSET_SZ * 2;
 const size_t Compiler::s_optCSEhashGrowthFactor = 2;
@@ -219,7 +215,7 @@ bool Compiler::optCSE_canSwap(GenTree* op1, GenTree* op2)
     // If we haven't setup cseMaskTraits, do it now
     if (cseMaskTraits == nullptr)
     {
-        cseMaskTraits = new (getAllocator()) BitVecTraits(optCSECandidateCount, this);
+        cseMaskTraits = new (getAllocator(CMK_CSE)) BitVecTraits(optCSECandidateCount, this);
     }
 
     optCSE_MaskData op1MaskData;
@@ -338,10 +334,6 @@ bool Compiler::optCSEcostCmpSz::operator()(const CSEdsc* dsc1, const CSEdsc* dsc
     return dsc1->csdIndex < dsc2->csdIndex;
 }
 
-/*****************************************************************************/
-#if FEATURE_VALNUM_CSE
-/*****************************************************************************/
-
 /*****************************************************************************
  *
  *  Initialize the Value Number CSE tracking logic.
@@ -409,7 +401,6 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
     size_t   key;
     unsigned hval;
     CSEdsc*  hashDsc;
-    bool     isIntConstHash       = false;
     bool     enableSharedConstCSE = false;
     bool     isSharedConst        = false;
     int      configValue          = JitConfig.JitConstCSE();
@@ -484,28 +475,38 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
     else if (enableSharedConstCSE && tree->IsIntegralConst())
     {
         assert(vnStore->IsVNConstant(vnLibNorm));
-        key = vnStore->CoercedConstantValue<size_t>(vnLibNorm);
 
-        // We don't share small offset constants when we require a reloc
+        // We don't share small offset constants when they require a reloc
         //
         if (!tree->AsIntConCommon()->ImmedValNeedsReloc(this))
         {
-            // Make constants that have the same upper bits use the same key
-            key           = Encode_Shared_Const_CSE_Value(key);
-            isSharedConst = true;
+            // Here we make constants that have the same upper bits use the same key
+            //
+            // We create a key that encodes just the upper bits of the constant by
+            // shifting out some of the low bits, (12 or 16 bits)
+            //
+            // This is the only case where the hash key is not a ValueNumber
+            //
+            size_t constVal = vnStore->CoercedConstantValue<size_t>(vnLibNorm);
+            key             = Encode_Shared_Const_CSE_Value(constVal);
+            isSharedConst   = true;
         }
         else
         {
-            // Since we are using the sign bit as a discriminator
-            // we don't allow/expect it to be set when we need a reloc
-            //
-            assert((key & TARGET_SIGN_BIT) == 0);
+            // Use the vnLibNorm value as the key
+            key = vnLibNorm;
         }
     }
     else // Not a GT_COMMA or a GT_CNS_INT
     {
         key = vnLibNorm;
     }
+
+    // Make sure that the result of Is_Shared_Const_CSE(key) matches isSharedConst
+    // Note that when isSharedConst is true then we require that the TARGET_SIGN_BIT is set in the key
+    // and otherwise we require that we never create a ValueNumber with the TARGET_SIGN_BIT set.
+    //
+    assert(isSharedConst == Is_Shared_Const_CSE(key));
 
     // Compute the hash value for the expression
 
@@ -902,7 +903,7 @@ void Compiler::optCseUpdateCheckedBoundMap(GenTree* compare)
             if (optCseCheckedBoundMap == nullptr)
             {
                 // Allocate map on first use.
-                optCseCheckedBoundMap = new (getAllocator()) NodeToNodeMap(getAllocator());
+                optCseCheckedBoundMap = new (getAllocator(CMK_CSE)) NodeToNodeMap(getAllocator());
             }
 
             optCseCheckedBoundMap->Set(bound, compare);
@@ -932,7 +933,7 @@ void Compiler::optValnumCSE_InitDataFlow()
     const unsigned bitCount = (optCSECandidateCount * 2) + 1;
 
     // Init traits and cseCallKillsMask bitvectors.
-    cseLivenessTraits = new (getAllocator()) BitVecTraits(bitCount, this);
+    cseLivenessTraits = new (getAllocator(CMK_CSE)) BitVecTraits(bitCount, this);
     cseCallKillsMask  = BitVecOps::MakeEmpty(cseLivenessTraits);
     for (unsigned inx = 0; inx < optCSECandidateCount; inx++)
     {
@@ -1122,7 +1123,7 @@ public:
 #ifdef DEBUG
         if (m_comp->verbose)
         {
-            printf("StartMerge BB%02u\n", block->bbNum);
+            printf("StartMerge " FMT_BB "\n", block->bbNum);
             printf("  :: cseOut    = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseOut));
         }
 #endif // DEBUG
@@ -1134,7 +1135,7 @@ public:
 #ifdef DEBUG
         if (m_comp->verbose)
         {
-            printf("Merge BB%02u and BB%02u\n", block->bbNum, predBlock->bbNum);
+            printf("Merge " FMT_BB " and " FMT_BB "\n", block->bbNum, predBlock->bbNum);
             printf("  :: cseIn     = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseIn));
             printf("  :: cseOut    = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseOut));
         }
@@ -1210,7 +1211,7 @@ public:
 #ifdef DEBUG
         if (m_comp->verbose)
         {
-            printf("EndMerge BB%02u\n", block->bbNum);
+            printf("EndMerge " FMT_BB "\n", block->bbNum);
             printf("  :: cseIn     = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseIn));
             if (((block->bbFlags & BBF_HAS_CALL) != 0) &&
                 !BitVecOps::IsEmpty(m_comp->cseLivenessTraits, block->bbCseIn))
@@ -1378,7 +1379,7 @@ void Compiler::optValnumCSE_Availablity()
 
                     if (verbose)
                     {
-                        printf("BB%02u ", block->bbNum);
+                        printf(FMT_BB " ", block->bbNum);
                         printTreeID(tree);
 
                         printf(" %s of CSE #%02u [weight=%s]%s\n", isUse ? "Use" : "Def", CSEnum, refCntWtd2str(stmw),
@@ -2218,6 +2219,30 @@ public:
     //
     bool PromotionCheck(CSE_Candidate* candidate)
     {
+        var_types cseLclVarTyp = varActualType(candidate->Expr()->GetType());
+
+        if (varTypeIsSIMD(cseLclVarTyp) && (candidate->CseDsc()->csdLayout == nullptr))
+        {
+            // If we haven't found an exact layout yet then use any layout that happens
+            // to have the same SIMD type as the expression. Even so, it's possible to
+            // not have a layout, usually due to SIMD typed nodes generated internally
+            // by the JIT, in such cases there's no struct handle and the layout table
+            // isn't populated. In such a case we don't have any option but to reject
+            // this CSE.
+
+            // TODO-MIKE-Cleanup: Do we really need this? There are other places that
+            // create SIMD temps without layout so why bother at all here?
+
+            ClassLayout* layout = m_pCompiler->typGetVectorLayout(candidate->Expr());
+
+            if (layout == nullptr)
+            {
+                return false;
+            }
+
+            candidate->CseDsc()->csdLayout = layout;
+        }
+
         bool result = false;
 
 #ifdef DEBUG
@@ -2294,31 +2319,8 @@ public:
         // Each CSE Def will contain two Refs and each CSE Use will have one Ref of this new LclVar
         BasicBlock::weight_t cseRefCnt = (candidate->DefCount() * 2) + candidate->UseCount();
 
-        bool      canEnregister = true;
-        unsigned  slotCount     = 1;
-        var_types cseLclVarTyp  = varActualType(candidate->Expr()->GetType());
-
-        if (varTypeIsSIMD(cseLclVarTyp) && (candidate->CseDsc()->csdLayout == nullptr))
-        {
-            // If we haven't found an exact layout yet then use any layout that happens
-            // to have the same SIMD type as the expression. Even so, it's possible to
-            // not have a layout, usually due to SIMD typed nodes generated internally
-            // by the JIT, in such cases there's no struct handle and the layout table
-            // isn't populated. In such a case we don't have any option but to reject
-            // this CSE.
-
-            // TODO-MIKE-Cleanup: Do we really need this? There are other places that
-            // create SIMD temps without layout so why bother at all here?
-
-            ClassLayout* layout = m_pCompiler->typGetVectorLayout(candidate->Expr());
-
-            if (layout == nullptr)
-            {
-                return false;
-            }
-
-            candidate->CseDsc()->csdLayout = layout;
-        }
+        bool     canEnregister = true;
+        unsigned slotCount     = 1;
 
         if (CodeOptKind() == Compiler::SMALL_CODE)
         {
@@ -3393,8 +3395,6 @@ void Compiler::optOptimizeValnumCSEs()
     optValnumCSE_phase = false;
 }
 
-#endif // FEATURE_VALNUM_CSE
-
 bool Compiler::optIsCSEcandidate(GenTree* tree)
 {
     if ((tree->gtFlags & (GTF_ASG | GTF_DONT_CSE)) != 0)
@@ -3673,11 +3673,9 @@ void Compiler::optOptimizeCSEs()
     optCSECandidateCount = 0;
     optCSEstart          = lvaCount;
 
-#if FEATURE_VALNUM_CSE
     INDEBUG(optEnsureClearCSEInfo());
     optOptimizeValnumCSEs();
     EndPhase(PHASE_OPTIMIZE_VALNUM_CSES);
-#endif // FEATURE_VALNUM_CSE
 }
 
 /*****************************************************************************
@@ -3728,7 +3726,3 @@ void Compiler::optEnsureClearCSEInfo()
 }
 
 #endif // DEBUG
-
-/*****************************************************************************/
-#endif // FEATURE_ANYCSE
-/*****************************************************************************/

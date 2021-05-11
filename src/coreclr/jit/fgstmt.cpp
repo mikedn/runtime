@@ -414,11 +414,23 @@ Statement* Compiler::fgNewStmtFromTree(GenTree* tree, IL_OFFSETX offs)
     return fgNewStmtFromTree(tree, nullptr, offs);
 }
 
-/*****************************************************************************
- *
- * Remove a useless statement from a basic block.
- *
- */
+//------------------------------------------------------------------------
+// fgUnlinkStmt: unlink a statement from a block's statement list
+//
+// Arguments:
+//   block - the block from which 'stmt' will be unlinked
+//   stmt  - the statement to be unlinked
+//
+// Notes:
+//   next and previous links are nulled out, in anticipation
+//   of this statement being re-inserted somewhere else.
+//
+void Compiler::fgUnlinkStmt(BasicBlock* block, Statement* stmt)
+{
+    fgRemoveStmt(block, stmt DEBUGARG(false));
+    stmt->SetNextStmt(nullptr);
+    stmt->SetPrevStmt(nullptr);
+}
 
 void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt /* = true */))
 {
@@ -427,9 +439,9 @@ void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dum
 #ifdef DEBUG
     if (verbose && dumpStmt)
     {
-        printf("\nRemoving statement ");
+        printf("\nremoving statement ");
         gtDispStmt(stmt);
-        printf(" in " FMT_BB " as useless:\n", block->bbNum);
+        printf(" from " FMT_BB "\n", block->bbNum);
     }
 #endif
 
@@ -479,9 +491,8 @@ void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dum
     {
         if (block->bbStmtList == nullptr)
         {
-            printf("\n" FMT_BB " becomes empty", block->bbNum);
+            printf("\n" FMT_BB " becomes empty\n", block->bbNum);
         }
-        printf("\n");
     }
 #endif // DEBUG
 }

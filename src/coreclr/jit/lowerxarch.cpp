@@ -2285,11 +2285,10 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
-    ;
-    var_types baseType    = node->gtSIMDBaseType;
-    unsigned  simdSize    = node->gtSIMDSize;
-    var_types simdType    = Compiler::getSIMDTypeForSize(simdSize);
-    unsigned  simd16Count = comp->getSIMDVectorLength(16, baseType);
+    var_types      baseType    = node->gtSIMDBaseType;
+    unsigned       simdSize    = node->gtSIMDSize;
+    var_types      simdType    = Compiler::getSIMDTypeForSize(simdSize);
+    unsigned       simd16Count = comp->getSIMDVectorLength(16, baseType);
 
     assert((intrinsicId == NI_Vector128_Dot) || (intrinsicId == NI_Vector256_Dot));
     assert(varTypeIsSIMD(simdType));

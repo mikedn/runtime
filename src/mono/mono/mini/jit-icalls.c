@@ -806,10 +806,8 @@ gpointer
 mono_class_static_field_address (MonoClassField *field)
 {
 	ERROR_DECL (error);
-	MonoDomain *domain = mono_get_root_domain ();
 	MonoVTable *vtable;
-	gpointer addr;
-	
+
 	//printf ("SFLDA0 %s.%s::%s %d\n", field->parent->name_space, field->parent->name, field->name, field->offset, field->parent->inited);
 
 	mono_class_init_internal (field->parent);
@@ -828,17 +826,7 @@ mono_class_static_field_address (MonoClassField *field)
 
 	//printf ("SFLDA1 %p\n", (char*)vtable->data + field->offset);
 
-	if (field->offset == -1) {
-		/* Special static */
-		g_assert (domain->special_static_fields);
-		mono_domain_lock (domain);
-		addr = g_hash_table_lookup (domain->special_static_fields, field);
-		mono_domain_unlock (domain);
-		addr = mono_get_special_static_data (GPOINTER_TO_UINT (addr));
-	} else {
-		addr = (char*)mono_vtable_get_static_field_data (vtable) + field->offset;
-	}
-	return addr;
+	return mono_static_field_get_addr (vtable, field);
 }
 
 gpointer
@@ -1602,6 +1590,14 @@ mono_throw_not_supported ()
 {
 	ERROR_DECL (error);
 	mono_error_set_generic_error (error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (error);
+}
+
+void
+mono_throw_platform_not_supported ()
+{
+	ERROR_DECL (error);
+	mono_error_set_generic_error (error, "System", "PlatformNotSupportedException", "");
 	mono_error_set_pending_exception (error);
 }
 

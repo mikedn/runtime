@@ -1484,6 +1484,9 @@ GenTree* Compiler::fgInsertCommaFormTemp(GenTree** use)
 //    This method only computes the arg table and arg entries for the call (the fgArgInfo),
 //    and makes no modification of the args themselves.
 //
+//    The IR for the call args can change for calls with non-standard arguments: some non-standard
+//    arguments add new call argument IR nodes.
+//
 void Compiler::fgInitArgInfo(GenTreeCall* call)
 {
     if (call->fgArgInfo != nullptr)
@@ -1916,17 +1919,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         unsigned     structSize      = 0;
         var_types    structBaseType  = TYP_STRUCT;
         bool         passStructByRef = false;
-#ifdef FEATURE_HFA
-        var_types hfaType  = TYP_UNDEF;
-        unsigned  hfaSlots = 0;
-#endif
+        var_types    hfaType         = TYP_UNDEF;
+        unsigned     hfaSlots        = 0;
 
         if (isStructArg)
         {
             structSize = layout->GetSize();
             sigType    = TYP_STRUCT;
 
-#ifdef FEATURE_HFA
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
             if (!callIsVararg)
 #endif
@@ -1946,7 +1946,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     compFloatingPointUsed = true;
                 }
             }
-#endif // FEATURE_HFA
 
 #ifdef TARGET_ARM
             argAlign =
@@ -2398,7 +2397,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 }
             }
 
-#if defined(TARGET_ARM) && defined(FEATURE_HFA)
+#ifdef TARGET_ARM
             // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
             // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
             // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
@@ -2415,7 +2414,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     regCount = hfaSlots / 2;
                 }
             }
-            else if (argx->TypeIs(TYP_DOUBLE))
+            else if (argx->TypeIs(TYP_DOUBLE) && GlobalJitOptions::compFeatureHfa)
             {
                 regCount = 1;
             }
@@ -2445,12 +2444,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 argInfo->SetRegType(0, argx->GetType());
             }
-#elif defined(FEATURE_HFA)
+#elif defined(TARGET_ARMARCH)
             if (hfaType != TYP_UNDEF)
             {
                 argInfo->SetRegType(hfaType);
             }
-            else if (varTypeIsFloating(argx->GetType()))
+            else if (varTypeIsFloating(argx->GetType()) && GlobalJitOptions::compFeatureHfa)
             {
                 argInfo->SetRegType(argx->GetType());
             }
@@ -3351,7 +3350,6 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
     unsigned reg             = 0;
 
-#ifdef FEATURE_HFA
     if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
     {
         if (regAndSlotCount > fieldCount)
@@ -3359,7 +3357,7 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
             return false;
         }
 
-        var_types regType = argInfo->GetRegType();
+        var_types regType = argInfo->GetRegType(0);
         unsigned  regSize = varTypeSize(regType);
 
         while (reg < regAndSlotCount)
@@ -3384,7 +3382,6 @@ bool Compiler::abiCanMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDsc
 
         return true;
     }
-#endif // FEATURE_HFA
 
     // Note that the number of slots can be very high, if a smaller struct is passed as a very
     // large struct via reinterpretation. Still, the loop is bounded by the number of promoted
@@ -3519,12 +3516,11 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
     unsigned regAndSlotCount = argInfo->GetRegCount() + argInfo->GetSlotCount();
     unsigned reg             = 0;
 
-#ifdef FEATURE_HFA
     if (argInfo->IsHfaArg() && (argInfo->GetSlotCount() == 0))
     {
         assert(regAndSlotCount <= fieldCount);
 
-        var_types regType = argInfo->GetRegType();
+        var_types regType = argInfo->GetRegType(0);
         unsigned  regSize = varTypeSize(regType);
 
         while (reg < regAndSlotCount)
@@ -3547,7 +3543,6 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
 
         return list;
     }
-#endif // FEATURE_HFA
 
     while ((field < fieldCount) && (reg < regAndSlotCount))
     {
@@ -5161,6 +5156,9 @@ GenTree* Compiler::fgMorphField(GenTree* tree, MorphAddrContext* mac)
 //    This function is target specific and each target will make the fastTailCall
 //    decision differently. See the notes below.
 //
+//    This function calls fgInitArgInfo() to initialize the arg info table, which
+//    is used to analyze the argument. This function can alter the call arguments
+//    by adding argument IR nodes for non-standard arguments.
 //
 // Windows Amd64:
 //    A fast tail call can be made whenever the number of callee arguments
@@ -5937,10 +5935,128 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     }
 #endif
 
-    // This block is not longer any block's predecessor. If we end up
-    // converting this tail call to a branch, we'll add appropriate
-    // successor information then.
-    fgRemoveBlockAsPred(compCurBB);
+    // If this block has a flow successor, make suitable updates.
+    //
+    BasicBlock* const nextBlock = compCurBB->GetUniqueSucc();
+
+    if (nextBlock == nullptr)
+    {
+        // No unique successor. compCurBB should be a return.
+        //
+        assert(compCurBB->bbJumpKind == BBJ_RETURN);
+    }
+    else
+    {
+        // Flow no longer reaches nextBlock from here.
+        //
+        fgRemoveRefPred(nextBlock, compCurBB);
+
+        // Adjust profile weights.
+        //
+        // Note if this is a tail call to loop, further updates
+        // are needed once we install the loop edge.
+        //
+        if (compCurBB->hasProfileWeight() && nextBlock->hasProfileWeight())
+        {
+            // Since we have linear flow we can update the next block weight.
+            //
+            BasicBlock::weight_t const blockWeight   = compCurBB->bbWeight;
+            BasicBlock::weight_t const nextWeight    = nextBlock->bbWeight;
+            BasicBlock::weight_t const newNextWeight = nextWeight - blockWeight;
+
+            // If the math would result in a negative weight then there's
+            // no local repair we can do; just leave things inconsistent.
+            //
+            if (newNextWeight >= 0)
+            {
+                // Note if we'd already morphed the IR in nextblock we might
+                // have done something profile sensitive that we should arguably reconsider.
+                //
+                JITDUMP("Reducing profile weight of " FMT_BB " from " FMT_WT " to " FMT_WT "\n", nextBlock->bbNum,
+                        nextWeight, newNextWeight);
+
+                nextBlock->setBBProfileWeight(newNextWeight);
+            }
+            else
+            {
+                JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
+                        " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
+                        nextBlock->bbNum, nextWeight, compCurBB->bbNum, blockWeight);
+            }
+
+            // If nextBlock is not a BBJ_RETURN, it should have a unique successor that
+            // is a BBJ_RETURN, as we allow a little bit of flow after a tail call.
+            //
+            if (nextBlock->bbJumpKind != BBJ_RETURN)
+            {
+                BasicBlock* nextNextBlock = nextBlock->GetUniqueSucc();
+
+                // Check if we have a sequence of GT_ASG blocks where the same variable is assigned
+                // to temp locals over and over.
+                //
+                // Also allow casts on the RHSs of the assignments, and blocks with GT_NOPs.
+                //
+                if (nextNextBlock->bbJumpKind != BBJ_RETURN)
+                {
+                    // Make sure the block has a single statement
+                    assert(nextBlock->firstStmt() == nextBlock->lastStmt());
+                    // And the root node is "ASG(LCL_VAR, LCL_VAR)"
+                    GenTree* asgNode = nextBlock->firstStmt()->GetRootNode();
+                    assert(asgNode->OperIs(GT_ASG));
+
+                    unsigned lcl = asgNode->gtGetOp1()->AsLclVarCommon()->GetLclNum();
+
+                    while (nextNextBlock->bbJumpKind != BBJ_RETURN)
+                    {
+                        assert(nextNextBlock->firstStmt() == nextNextBlock->lastStmt());
+                        asgNode = nextNextBlock->firstStmt()->GetRootNode();
+                        if (!asgNode->OperIs(GT_NOP))
+                        {
+                            assert(asgNode->OperIs(GT_ASG));
+
+                            GenTree* rhs = asgNode->gtGetOp2();
+                            while (rhs->OperIs(GT_CAST))
+                            {
+                                assert(!rhs->gtOverflow());
+                                rhs = rhs->gtGetOp1();
+                            }
+
+                            assert(lcl == rhs->AsLclVarCommon()->GetLclNum());
+                            lcl = rhs->AsLclVarCommon()->GetLclNum();
+                        }
+                        nextNextBlock = nextNextBlock->GetUniqueSucc();
+                    }
+                }
+
+                assert(nextNextBlock->bbJumpKind == BBJ_RETURN);
+
+                if (nextNextBlock->hasProfileWeight())
+                {
+                    // Do similar updates here.
+                    //
+                    BasicBlock::weight_t const nextNextWeight    = nextNextBlock->bbWeight;
+                    BasicBlock::weight_t const newNextNextWeight = nextNextWeight - blockWeight;
+
+                    // If the math would result in an negative weight then there's
+                    // no local repair we can do; just leave things inconsistent.
+                    //
+                    if (newNextNextWeight >= 0)
+                    {
+                        JITDUMP("Reducing profile weight of " FMT_BB " from " FMT_WT " to " FMT_WT "\n",
+                                nextNextBlock->bbNum, nextNextWeight, newNextNextWeight);
+
+                        nextNextBlock->setBBProfileWeight(newNextNextWeight);
+                    }
+                    else
+                    {
+                        JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
+                                " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
+                                nextNextBlock->bbNum, nextNextWeight, compCurBB->bbNum, blockWeight);
+                    }
+                }
+            }
+        }
+    }
 
 #if !FEATURE_TAILCALL_OPT_SHARED_RETURN
     // We enable shared-ret tail call optimization for recursive calls even if
@@ -6167,7 +6283,10 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     // We come this route only for tail prefixed calls that cannot be dispatched as
     // fast tail calls
     assert(!call->IsImplicitTailCall());
-    assert(!fgCanFastTailCall(call, nullptr));
+
+    // We want to use the following assert, but it can modify the IR in some cases, so we
+    // can't do that in an assert.
+    // assert(!fgCanFastTailCall(call, nullptr));
 
     bool virtualCall = call->IsVirtual();
 
@@ -6178,11 +6297,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     {
         JITDUMP("This is a VSD\n");
 #if FEATURE_FASTTAILCALL
-        // fgInitArgInfo has been called from fgCanFastTailCall and it added the stub address
-        // to the arg list. Remove it now.
-        call->gtCallArgs = call->gtCallArgs->GetNext();
-        // We changed args so recompute info.
-        call->fgArgInfo = nullptr;
+        call->ResetArgInfo();
 #endif
 
         call->gtFlags &= ~GTF_CALL_VIRT_STUB;
@@ -6791,7 +6906,10 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     // We come this route only for tail prefixed calls that cannot be dispatched as
     // fast tail calls
     assert(!call->IsImplicitTailCall());
-    assert(!fgCanFastTailCall(call, nullptr));
+
+    // We want to use the following assert, but it can modify the IR in some cases, so we
+    // can't do that in an assert.
+    // assert(!fgCanFastTailCall(call, nullptr));
 
     // First move the 'this' pointer (if any) onto the regular arg list. We do this because
     // we are going to prepend special arguments onto the argument list (for non-x86 platforms),
@@ -7162,7 +7280,6 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
 
     // Finish hooking things up.
     block->bbJumpKind = BBJ_ALWAYS;
-    block->bbJumpDest->bbFlags |= BBF_JMP_TARGET;
     fgAddRefPred(block->bbJumpDest, block);
     block->bbFlags &= ~BBF_HAS_JMP;
 }
@@ -7282,7 +7399,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
             //     ret temp
 
             // Force re-evaluating the argInfo as the return argument has changed.
-            call->fgArgInfo = nullptr;
+            call->ResetArgInfo();
 
             unsigned tmpNum =
                 lvaNewTemp(call->GetRetLayout(), false DEBUGARG("multireg return call temp (rejected tail call)"));
@@ -7400,9 +7517,9 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
         // We only expand the Vtable Call target once in the global morph phase
-        if (fgGlobalMorph)
+        if (call->gtControlExpr == nullptr)
         {
-            assert(call->gtControlExpr == nullptr); // We only call this method and assign gtControlExpr once
+            assert(fgGlobalMorph);
             call->gtControlExpr = fgExpandVirtualVtableCallTarget(call);
         }
         // We always have to morph or re-morph the control expr
@@ -7492,15 +7609,8 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         // BBJ_THROW would result in the tail call being dropped as the epilog is generated
         // only for BBJ_RETURN blocks.
         //
-        // Currently this doesn't work for non-void callees. Some of the code that handles
-        // fgRemoveRestOfBlock expects the tree to have GTF_EXCEPT flag set but call nodes
-        // do not have this flag by default. We could add the flag here but the proper solution
-        // would be to replace the return expression with a local var node during inlining
-        // so the rest of the call tree stays in a separate statement. That statement can then
-        // be removed by fgRemoveRestOfBlock without needing to add GTF_EXCEPT anywhere.
-        //
 
-        if (!call->IsTailCall() && call->TypeGet() == TYP_VOID)
+        if (!call->IsTailCall())
         {
             fgRemoveRestOfBlock = true;
         }
@@ -7653,7 +7763,19 @@ GenTree* Compiler::fgMorphConst(GenTree* tree)
     // guarantee slow performance for that block. Instead cache the return value
     // of CORINFO_HELP_STRCNS and go to cache first giving reasonable perf.
 
+    bool useLazyStrCns = false;
     if (compCurBB->bbJumpKind == BBJ_THROW)
+    {
+        useLazyStrCns = true;
+    }
+    else if (fgGlobalMorph && compCurStmt->GetRootNode()->IsCall())
+    {
+        // Quick check: if the root node of the current statement happens to be a noreturn call.
+        GenTreeCall* call = compCurStmt->GetRootNode()->AsCall();
+        useLazyStrCns     = call->IsNoReturn() || fgIsThrow(call);
+    }
+
+    if (useLazyStrCns)
     {
         CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->AsStrCon()->gtScpHnd);
         if (helper != CORINFO_HELP_UNDEF)
@@ -8983,6 +9105,60 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
         if (destLclVar != nullptr)
         {
+            if (!varTypeIsStruct(destLclVar->GetType()) && (destLclOffs == 0) &&
+                (destSize == varTypeSize(destLclVar->GetType())) && !src->IsCall())
+            {
+                dest->ChangeOper(GT_LCL_VAR);
+                dest->SetType(destLclVar->GetType());
+                dest->AsLclVar()->SetLclNum(destLclNum);
+                dest->gtFlags = GTF_VAR_DEF;
+
+                if (srcLclVar != nullptr)
+                {
+                    if (srcLclVar->GetType() == destLclVar->GetType() && (srcLclOffs == 0))
+                    {
+                        src->ChangeOper(GT_LCL_VAR);
+                        src->SetType(destLclVar->GetType());
+                        src->AsLclVar()->SetLclNum(srcLclNum);
+                        src->gtFlags = 0;
+                    }
+                    else
+                    {
+                        src->ChangeOper(GT_LCL_FLD);
+                        src->SetType(destLclVar->GetType());
+                        src->AsLclFld()->SetLclNum(srcLclNum);
+                        src->AsLclFld()->SetLclOffs(srcLclOffs);
+                        src->gtFlags = 0;
+
+                        lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_LocalField));
+
+                        if (destLclVar->IsPromotedField() && srcLclVar->TypeIs(TYP_STRUCT))
+                        {
+                            LclVarDsc* destParentLcl = lvaGetDesc(destLclVar->GetPromotedFieldParentLclNum());
+
+                            if (destParentLcl->GetLayout() == srcLclVar->GetLayout())
+                            {
+                                src->AsLclFld()->SetFieldSeq(
+                                    GetFieldSeqStore()->CreateSingleton(destLclVar->GetPromotedFieldHandle()));
+                            }
+                        }
+                    }
+                }
+                else if (src->IsIndir())
+                {
+                    src->ChangeOper(GT_IND);
+                    src->SetType(destLclVar->GetType());
+                }
+
+                asg->SetType(dest->GetType());
+                asg->gtFlags &= ~GTF_ALL_EFFECT;
+                asg->gtFlags |= GTF_ASG | ((asg->GetOp(0)->gtFlags | asg->GetOp(1)->gtFlags) & GTF_ALL_EFFECT);
+
+                JITDUMPTREE(asg, "fgMorphCopyBlock: (after)\n");
+
+                return asg;
+            }
+
             if (varTypeIsSIMD(dest->GetType()) && (destLclVar->GetType() == dest->GetType()) && (destLclOffs == 0))
             {
                 dest->ChangeOper(GT_LCL_VAR);
@@ -9828,6 +10004,20 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 }
             }
 #endif // !TARGET_64BIT
+            break;
+
+        case GT_ARR_LENGTH:
+            if (op1->OperIs(GT_CNS_STR))
+            {
+                // Optimize `ldstr + String::get_Length()` to CNS_INT
+                // e.g. "Hello".Length => 5
+                GenTreeIntCon* iconNode = gtNewStringLiteralLength(op1->AsStrCon());
+                if (iconNode != nullptr)
+                {
+                    INDEBUG(iconNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+                    return iconNode;
+                }
+            }
             break;
 
         case GT_DIV:
@@ -10775,6 +10965,31 @@ DONE_MORPHING_CHILDREN:
                 break;
             }
 
+            // Pattern-matching optimization:
+            //    (a % c) ==/!= 0
+            // for power-of-2 constant `c`
+            // =>
+            //    a & (c - 1) ==/!= 0
+            // For integer `a`, even if negative.
+            if (opts.OptimizationEnabled())
+            {
+                GenTree* op1 = tree->AsOp()->gtOp1;
+                GenTree* op2 = tree->AsOp()->gtOp2;
+                if (op1->OperIs(GT_MOD) && varTypeIsIntegral(op1->TypeGet()) && op2->IsIntegralConst(0))
+                {
+                    GenTree* op1op2 = op1->AsOp()->gtOp2;
+                    if (op1op2->IsCnsIntOrI())
+                    {
+                        ssize_t modValue = op1op2->AsIntCon()->IconValue();
+                        if (isPow2(modValue))
+                        {
+                            op1->SetOper(GT_AND);                                 // Change % => &
+                            op1op2->AsIntConCommon()->SetIconValue(modValue - 1); // Change c => c - 1
+                        }
+                    }
+                }
+            }
+
             cns2 = op2;
 
             /* Check for "(expr +/- icon1) ==/!= (non-zero-icon2)" */
@@ -10917,14 +11132,12 @@ DONE_MORPHING_CHILDREN:
                         goto SKIP;
                     }
 
-#if FEATURE_ANYCSE
                     /* If the LCL_VAR is a CSE temp then bail, it could have multiple defs/uses */
                     // Fix 383856 X86/ARM ILGEN
                     if (lclNumIsCSE(lclNum))
                     {
                         goto SKIP;
                     }
-#endif
 
                     /* We also must be assigning the result of a RELOP */
                     if (asg->AsOp()->gtOp1->gtOper != GT_LCL_VAR)
@@ -10943,8 +11156,6 @@ DONE_MORPHING_CHILDREN:
                     {
                         goto SKIP;
                     }
-
-                    LclVarDsc* varDsc = lvaTable + lclNum;
 
                     /* Set op1 to the right side of asg, (i.e. the RELOP) */
                     op1 = asg->AsOp()->gtOp2;
@@ -11689,8 +11900,12 @@ DONE_MORPHING_CHILDREN:
 
         case GT_NOT:
         case GT_NEG:
-            // Remove double negation/not
-            if (op1->OperIs(oper) && opts.OptimizationEnabled())
+            // Remove double negation/not.
+            // Note: this is not a safe tranformation if "tree" is a CSE candidate.
+            // Consider for example the following expression: NEG(NEG(OP)), where the top-level
+            // NEG is a CSE candidate. Were we to morph this to just OP, CSE would fail to find
+            // the original NEG in the statement.
+            if (op1->OperIs(oper) && opts.OptimizationEnabled() && !gtIsActiveCSE_Candidate(tree))
             {
                 GenTree* child = op1->AsOp()->gtGetOp1();
                 return child;
@@ -12281,7 +12496,6 @@ DONE_MORPHING_CHILDREN:
                 if (fgIsCommaThrow(op1, true))
                 {
                     GenTree* throwNode = op1->AsOp()->gtOp1;
-                    noway_assert(throwNode->gtType == TYP_VOID);
 
                     JITDUMP("Removing [%06d] GT_JTRUE as the block now unconditionally throws an exception.\n",
                             dspTreeID(tree));
@@ -12334,7 +12548,6 @@ DONE_MORPHING_CHILDREN:
             }
 
             GenTree* throwNode = op1->AsOp()->gtOp1;
-            noway_assert(throwNode->gtType == TYP_VOID);
 
             if (oper == GT_COMMA)
             {
@@ -13829,7 +14042,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
                 {
                     // The edge weights for (block -> bTaken) are 100% of block's weight
 
-                    edgeTaken->setEdgeWeights(block->bbWeight, block->bbWeight);
+                    edgeTaken->setEdgeWeights(block->bbWeight, block->bbWeight, bTaken);
 
                     if (!bTaken->hasProfileWeight())
                     {
@@ -13846,7 +14059,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
                     if (bTaken->countOfInEdges() == 1)
                     {
                         // There is only one in edge to bTaken
-                        edgeTaken->setEdgeWeights(bTaken->bbWeight, bTaken->bbWeight);
+                        edgeTaken->setEdgeWeights(bTaken->bbWeight, bTaken->bbWeight, bTaken);
 
                         // Update the weight of block
                         block->inheritWeight(bTaken);
@@ -13867,21 +14080,21 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
                             edge         = fgGetPredForBlock(bUpdated->bbNext, bUpdated);
                             newMaxWeight = bUpdated->bbWeight;
                             newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
-                            edge->setEdgeWeights(newMinWeight, newMaxWeight);
+                            edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
                             break;
 
                         case BBJ_COND:
                             edge         = fgGetPredForBlock(bUpdated->bbNext, bUpdated);
                             newMaxWeight = bUpdated->bbWeight;
                             newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
-                            edge->setEdgeWeights(newMinWeight, newMaxWeight);
+                            edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
                             FALLTHROUGH;
 
                         case BBJ_ALWAYS:
                             edge         = fgGetPredForBlock(bUpdated->bbJumpDest, bUpdated);
                             newMaxWeight = bUpdated->bbWeight;
                             newMinWeight = min(edge->edgeWeightMin(), newMaxWeight);
-                            edge->setEdgeWeights(newMinWeight, newMaxWeight);
+                            edge->setEdgeWeights(newMinWeight, newMaxWeight, bUpdated->bbNext);
                             break;
 
                         default:
@@ -13942,7 +14155,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
 #ifdef DEBUG
                         if (verbose)
                         {
-                            printf("Removing loop L%02u (from " FMT_BB " to " FMT_BB ")\n\n", loopNum,
+                            printf("Removing loop " FMT_LP " (from " FMT_BB " to " FMT_BB ")\n\n", loopNum,
                                    optLoopTable[loopNum].lpFirst->bbNum, optLoopTable[loopNum].lpBottom->bbNum);
                         }
 #endif
@@ -14637,6 +14850,18 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         fgTableDispBasicBlock(block);
     }
 #endif
+
+    if (block->hasProfileWeight())
+    {
+        BasicBlock::weight_t const oldWeight = genReturnBB->hasProfileWeight() ? genReturnBB->bbWeight : BB_ZERO_WEIGHT;
+        BasicBlock::weight_t const newWeight = oldWeight + block->bbWeight;
+
+        JITDUMP("merging profile weight " FMT_WT " from " FMT_BB " to common return " FMT_BB "\n", block->bbWeight,
+                block->bbNum, genReturnBB->bbNum);
+
+        genReturnBB->setBBProfileWeight(newWeight);
+        DISPBLOCK(genReturnBB);
+    }
 }
 
 /*****************************************************************************
@@ -14999,7 +15224,7 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
     BasicBlock* cond1Block  = fgNewBBafter(BBJ_COND, block, true);
     BasicBlock* asgBlock    = fgNewBBafter(BBJ_NONE, block, true);
 
-    remainderBlock->bbFlags |= BBF_JMP_TARGET | BBF_HAS_LABEL | propagateFlags;
+    remainderBlock->bbFlags |= propagateFlags;
 
     // These blocks are only internal if 'block' is (but they've been set as internal by fgNewBBafter).
     // If they're not internal, mark them as imported to avoid asserts about un-imported blocks.
@@ -15054,10 +15279,17 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     // Since we are adding helper in the JTRUE false path, reverse the cond2 and add the helper.
     gtReverseCond(cond2Expr);
-    true2Expr = gtNewAssignNode(gtNewLclvNode(dstLclNum, dstType), true2Expr);
-    fgInsertStmtAtEnd(helperBlock, fgNewStmtFromTree(true2Expr, stmt->GetILOffsetX()));
 
-    // Finally remove the nested qmark stmt.
+    if (true2Expr->IsCall() && true2Expr->AsCall()->IsNoReturn())
+    {
+        fgConvertBBToThrowBB(helperBlock);
+    }
+    else
+    {
+        true2Expr = gtNewAssignNode(gtNewLclvNode(dstLclNum, dstType), true2Expr);
+    }
+
+    fgInsertStmtAtEnd(helperBlock, fgNewStmtFromTree(true2Expr, stmt->GetILOffsetX()));
     fgRemoveStmt(block, stmt);
 
 #ifdef DEBUG
@@ -15183,7 +15415,7 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
         elseBlock->bbFlags |= BBF_IMPORTED;
     }
 
-    remainderBlock->bbFlags |= BBF_JMP_TARGET | BBF_HAS_LABEL | propagateFlags;
+    remainderBlock->bbFlags |= propagateFlags;
 
     condBlock->inheritWeight(block);
 
@@ -15212,8 +15444,6 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
             thenBlock->bbFlags &= ~BBF_INTERNAL;
             thenBlock->bbFlags |= BBF_IMPORTED;
         }
-
-        elseBlock->bbFlags |= (BBF_JMP_TARGET | BBF_HAS_LABEL);
 
         fgAddRefPred(thenBlock, condBlock);
         fgAddRefPred(remainderBlock, thenBlock);
@@ -15503,7 +15733,6 @@ void Compiler::fgAddFieldSeqForZeroOffset(GenTree* addr, FieldSeqNode* fieldSeqZ
     FieldSeqNode* fieldSeqUpdate   = fieldSeqZero;
     GenTree*      fieldSeqNode     = addr;
     bool          fieldSeqRecorded = false;
-    bool          isMapAnnotation  = false;
 
 #ifdef DEBUG
     if (verbose)

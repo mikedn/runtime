@@ -336,6 +336,18 @@ public:
                     m_compiler->lvaUpdateClass(lhs->AsLclVar()->GetLclNum(), newClass, isExact);
                 }
             }
+
+            // If we created a self-assignment (say because we are sharing return spill temps)
+            // we can remove it.
+            lhs = tree->AsOp()->GetOp(0);
+
+            if (lhs->OperIs(GT_LCL_VAR) && GenTree::Compare(lhs, tree->AsOp()->GetOp(1)))
+            {
+                m_compiler->gtUpdateNodeSideEffects(tree);
+                assert((tree->gtFlags & GTF_SIDE_EFFECT) == GTF_ASG);
+                JITDUMPTREE(tree, "... removing self-assignment\n");
+                tree->ChangeToNothingNode();
+            }
         }
         else if (!tree->OperIs(GT_JTRUE))
         {
@@ -778,9 +790,6 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     inlineInfo.hasSIMDTypeArgLocalOrReturn = false;
 #endif
 
-    inlineInfo.profileScaleState  = InlineInfo::ProfileScaleState::UNDETERMINED;
-    inlineInfo.profileScaleFactor = 0;
-
     inlineInfo.ilArgCount = 0;
     inlineInfo.ilLocCount = 0;
 
@@ -1031,7 +1040,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
         }
     }
 
-    if (retExpr->IsCall() && retExpr->AsCall()->TreatAsHasRetBufArg() && (info.retDesc.GetRegCount() > 1))
+    if (retExpr->IsCall() && retExpr->AsCall()->TreatAsHasRetBufArg() && (info.retDesc.GetRegCount() >= 1))
     {
         // The multi reg case is currently handled during unbox import.
         assert(info.retDesc.GetRegCount() == 1);
@@ -2065,8 +2074,6 @@ void Compiler::inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* s
 
         if (block->bbJumpKind == BBJ_RETURN)
         {
-            inheritWeight = true; // A return block does inherit the weight from the call block
-
             noway_assert((block->bbFlags & BBF_HAS_JMP) == 0);
 
             if (block->bbNext != nullptr)
@@ -2083,20 +2090,6 @@ void Compiler::inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* s
                         returnTargetBlock->bbNum);
 
                 block->bbJumpKind = BBJ_NONE;
-            }
-        }
-
-        // Update profile weight for callee blocks, if we didn't do it already.
-        if (inlineInfo->profileScaleState != InlineInfo::ProfileScaleState::KNOWN)
-        {
-            if (inheritWeight)
-            {
-                block->inheritWeight(inlineInfo->iciBlock);
-                inheritWeight = false;
-            }
-            else
-            {
-                block->modifyBBWeight(inlineInfo->iciBlock->bbWeight / 2);
             }
         }
     }
@@ -2116,7 +2109,6 @@ void Compiler::inlPropagateInlineeCompilerState()
     compLocallocUsed |= InlineeCompiler->compLocallocUsed;
     compLocallocOptimized |= InlineeCompiler->compLocallocOptimized;
     compQmarkUsed |= InlineeCompiler->compQmarkUsed;
-    compNeedsGSSecurityCookie |= InlineeCompiler->compNeedsGSSecurityCookie;
     compGSReorderStackLayout |= InlineeCompiler->compGSReorderStackLayout;
     compHasBackwardJump |= InlineeCompiler->compHasBackwardJump;
 
@@ -2124,6 +2116,26 @@ void Compiler::inlPropagateInlineeCompilerState()
 
     // Update unmanaged call details
     info.compUnmanagedCallCountWithGCTransition += InlineeCompiler->info.compUnmanagedCallCountWithGCTransition;
+
+    // Update stats for inlinee PGO
+    if (InlineeCompiler->fgPgoSchema != nullptr)
+    {
+        fgPgoInlineePgo++;
+    }
+    else if (InlineeCompiler->fgPgoFailReason != nullptr)
+    {
+        // Single block inlinees may not have probes
+        // when we've enabled minimal profiling (which
+        // is now the default).
+        if (InlineeCompiler->fgBBcount == 1)
+        {
+            fgPgoInlineeNoPgoSingleBlock++;
+        }
+        else
+        {
+            fgPgoInlineeNoPgo++;
+        }
+    }
 
     // Update optMethodFlags
     INDEBUG(unsigned optMethodFlagsBefore = optMethodFlags;)
@@ -2137,6 +2149,15 @@ void Compiler::inlPropagateInlineeCompilerState()
                 InlineeCompiler->optMethodFlags, optMethodFlags);
     }
 #endif
+
+    // If an inlinee needs GS cookie we need to make sure that the cookie will not be allocated at zero stack offset.
+    // Note that if the root method needs GS cookie then this has already been taken care of.
+    if (!getNeedsGSSecurityCookie() && InlineeCompiler->getNeedsGSSecurityCookie())
+    {
+        setNeedsGSSecurityCookie();
+        unsigned dummy = lvaGrabTempWithImplicitUse(false DEBUGARG("GSCookie dummy for inlinee"));
+        lvaGetDesc(dummy)->SetType(TYP_INT);
+    }
 }
 
 Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)

@@ -2870,7 +2870,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
             }
 #endif // !WINDOWS_AMD64_ABI
         }
-        else if (!src->OperIs(GT_LCL_VAR) || (lcl->GetLayout()->GetRegisterType() == TYP_UNDEF))
+        else if (!src->OperIs(GT_LCL_VAR) || !lcl->IsEnregisterable())
         {
             GenTreeLclVar* addr = comp->gtNewLclVarAddrNode(store->GetLclNum(), TYP_BYREF);
 
@@ -4185,7 +4185,12 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
         switch (lookup.accessType)
         {
             case IAT_VALUE:
-                if (!IsCallTargetInRange(addr))
+                // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing
+                // for this call. Unfortunately, in case of pinvokes (+suppressgctransition) to external libs
+                // (e.g. kernel32.dll) the relative offset is unlikely to fit into int32 and we will have to
+                // turn fAllowRel32 off globally.
+                if ((call->IsSuppressGCTransition() && !comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
+                    !IsCallTargetInRange(addr))
                 {
                     result = AddrGen(addr);
                 }
@@ -5064,10 +5069,9 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         // For -3 we need:
         //     mulhi -= dividend                    ; requires sub adjust
         //     div = signbit(mulhi) + sar(mulhi, 1) ; requires shift adjust
-        bool                 requiresAddSubAdjust     = signum(divisorValue) != signum(magic);
-        bool                 requiresShiftAdjust      = shift != 0;
-        bool                 requiresDividendMultiuse = requiresAddSubAdjust || !isDiv;
-        BasicBlock::weight_t curBBWeight              = comp->compCurBB->getBBWeight(comp);
+        bool requiresAddSubAdjust     = signum(divisorValue) != signum(magic);
+        bool requiresShiftAdjust      = shift != 0;
+        bool requiresDividendMultiuse = requiresAddSubAdjust || !isDiv;
 
         if (requiresDividendMultiuse)
         {
@@ -5748,16 +5752,34 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
         {
             unsigned   lclNum = node->AsLclVarCommon()->GetLclNum();
             LclVarDsc* lclVar = &compiler->lvaTable[lclNum];
-#ifdef DEBUG
             if (node->TypeIs(TYP_SIMD12))
             {
                 assert(compiler->lvaIsFieldOfDependentlyPromotedStruct(lclVar) || (lclVar->lvSize() == 12));
             }
-#endif // DEBUG
         }
         break;
 #endif // TARGET_64BIT
 #endif // SIMD
+
+        case GT_LCL_VAR_ADDR:
+        case GT_LCL_FLD_ADDR:
+        {
+            const GenTreeLclVarCommon* lclVarAddr = node->AsLclVarCommon();
+            const LclVarDsc*           varDsc     = compiler->lvaGetDesc(lclVarAddr);
+            if (((lclVarAddr->gtFlags & GTF_VAR_DEF) != 0) && varDsc->HasGCPtr())
+            {
+                // Emitter does not correctly handle live updates for LCL_VAR_ADDR
+                // when they are not contained, for example, `STOREIND byref(GT_LCL_VAR_ADDR not-contained)`
+                // would generate:
+                // add     r1, sp, 48   // r1 contains address of a lclVar V01.
+                // str     r0, [r1]     // a gc ref becomes live in V01, but emitter would not report it.
+                // Make sure that we use uncontained address nodes only for variables
+                // that will be marked as mustInit and will be alive throughout the whole block even when tracked.
+                assert(lclVarAddr->isContained() || !varDsc->lvTracked || varTypeIsStruct(varDsc));
+                // TODO: support this assert for uses, see https://github.com/dotnet/runtime/issues/51900.
+            }
+            break;
+        }
 
         default:
             break;

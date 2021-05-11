@@ -10,6 +10,7 @@
 #include "pal_errno.h"
 #include "pal_interfaceaddresses.h"
 #include "pal_io.h"
+#include "pal_iossupportversion.h"
 #include "pal_log.h"
 #include "pal_memory.h"
 #include "pal_mount.h"
@@ -116,9 +117,7 @@ static const Entry s_sysNative[] =
     DllImportEntry(SystemNative_ReadEvents)
     DllImportEntry(SystemNative_CreateNetworkChangeListenerSocket)
     DllImportEntry(SystemNative_CloseNetworkChangeListenerSocket)
-    DllImportEntry(SystemNative_PlatformSupportsGetAddrInfoAsync)
     DllImportEntry(SystemNative_GetHostEntryForName)
-    DllImportEntry(SystemNative_GetHostEntryForNameAsync)
     DllImportEntry(SystemNative_FreeHostEntry)
     DllImportEntry(SystemNative_GetNameInfo)
     DllImportEntry(SystemNative_GetDomainName)
@@ -239,6 +238,9 @@ static const Entry s_sysNative[] =
     DllImportEntry(SystemNative_LowLevelMonitor_Create)
     DllImportEntry(SystemNative_CreateAutoreleasePool)
     DllImportEntry(SystemNative_DrainAutoreleasePool)
+    DllImportEntry(SystemNative_iOSSupportVersion)
+    DllImportEntry(SystemNative_GetErrNo)
+    DllImportEntry(SystemNative_SetErrNo)
 };
 
 EXTERN_C const void* SystemResolveDllImport(const char* name);

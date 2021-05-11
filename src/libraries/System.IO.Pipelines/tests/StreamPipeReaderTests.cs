@@ -32,6 +32,23 @@ namespace System.IO.Pipelines.Tests
         }
 
         [Fact]
+        public async Task CanReadAtLeast()
+        {
+            var stream = new MemoryStream(Encoding.ASCII.GetBytes("Hello World"));
+            var reader = PipeReader.Create(stream);
+
+            ReadResult readResult = await reader.ReadAtLeastAsync(10);
+            ReadOnlySequence<byte> buffer = readResult.Buffer;
+
+            Assert.Equal(11, buffer.Length);
+            Assert.True(buffer.IsSingleSegment);
+            Assert.Equal("Hello World", Encoding.ASCII.GetString(buffer.ToArray()));
+
+            reader.AdvanceTo(buffer.End);
+            reader.Complete();
+        }
+
+        [Fact]
         public async Task TryReadReturnsTrueIfBufferedBytesAndNotExaminedEverything()
         {
             var stream = new MemoryStream(Encoding.ASCII.GetBytes("Hello World"));
@@ -67,8 +84,10 @@ namespace System.IO.Pipelines.Tests
             reader.Complete();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
-        public async Task CanReadMultipleTimes()
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task CanReadMultipleTimes(bool useZeroByteReads)
         {
             // This needs to run inline to synchronize the reader and writer
             TaskCompletionSource<object> waitForRead = null;
@@ -109,7 +128,7 @@ namespace System.IO.Pipelines.Tests
 
             // We're using the pipe here as a way to pump bytes into the reader asynchronously
             var pipe = new Pipe();
-            var options = new StreamPipeReaderOptions(bufferSize: 4096);
+            var options = new StreamPipeReaderOptions(bufferSize: 4096, useZeroByteReads: useZeroByteReads);
             PipeReader reader = PipeReader.Create(pipe.Reader.AsStream(), options);
 
             var writes = new[] { 4096, 1024, 123, 4096, 100 };

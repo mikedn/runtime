@@ -4,9 +4,12 @@
     <TargetFrameworks>$(NetCoreAppCurrent);net461</TargetFrameworks>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Infrastructure\BasePipeReader.cs" />
     <Compile Include="Infrastructure\HeapBufferPool.cs" />
     <Compile Include="Infrastructure\DisposeTrackingBufferPool.cs" />
     <Compile Include="Infrastructure\ReadOnlyStream.cs" />
+    <Compile Include="Infrastructure\TestPipeReader.cs" />
+    <Compile Include="Infrastructure\ThrowingStream.cs" />
     <Compile Include="Infrastructure\WriteCheckStream.cs" />
     <Compile Include="Infrastructure\WriteOnlyStream.cs" />
     <Compile Include="Infrastructure\CancelledWritesStream.cs" />
@@ -30,6 +33,8 @@
     <Compile Include="ReadAsyncCompletionTests.cs" />
     <Compile Include="ReadResultTests.cs" />
     <Compile Include="SchedulerFacts.cs" />
+    <Compile Include="SequencePipeReaderTests.cs" />
+    <Compile Include="StreamPipeReaderCopyToAsyncTests.cs" />
     <Compile Include="StreamPipeReaderTests.cs" />
     <Compile Include="Infrastructure\TestMemoryPool.cs" />
     <Compile Include="StreamPipeWriterTests.cs" />
@@ -44,12 +49,6 @@
     <Compile Include="PipeWriterStreamTests.nonnetstandard.cs" />
     <Compile Include="PipeReaderStreamTests.nonnetstandard.cs" />
     <Compile Include="PipeReaderWriterStreamTests.nonnetstandard.cs" />
-    <Compile Include="$(CommonTestPath)Tests\System\IO\StreamConformanceTests.cs" Link="Common\System\IO\StreamConformanceTests.cs" />
-    <Compile Include="$(CommonTestPath)System\IO\ConnectedStreams.cs" Link="Common\System\IO\ConnectedStreams.cs" />
-    <Compile Include="$(CommonPath)System\Net\ArrayBuffer.cs" Link="ProductionCode\Common\System\Net\ArrayBuffer.cs" />
-    <Compile Include="$(CommonPath)System\Net\MultiArrayBuffer.cs" Link="ProductionCode\Common\System\Net\MultiArrayBuffer.cs" />
-    <Compile Include="$(CommonPath)System\Net\StreamBuffer.cs" Link="ProductionCode\Common\System\Net\StreamBuffer.cs" />
-    <Compile Include="$(CommonTestPath)System\IO\CallTrackingStream.cs" Link="Common\System\IO\CallTrackingStream.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == '$(NetCoreAppCurrent)'">
     <!-- Some internal types are needed, so we reference the implementation assembly, rather than the reference assembly. -->
@@ -57,5 +56,8 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net461'">
     <ProjectReference Include="..\src\System.IO.Pipelines.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == '$(NetCoreAppCurrent)'">
+    <ProjectReference Include="$(CommonTestPath)StreamConformanceTests\StreamConformanceTests.csproj" />
   </ItemGroup>
 </Project>

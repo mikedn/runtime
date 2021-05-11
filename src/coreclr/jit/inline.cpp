@@ -1448,8 +1448,7 @@ void InlineStrategy::DumpDataContents(FILE* file)
     DumpDataEnsurePolicyIsSet();
 
     // Cache references to compiler substructures.
-    const Compiler::Info&    info = m_Compiler->info;
-    const Compiler::Options& opts = m_Compiler->opts;
+    const Compiler::Info& info = m_Compiler->info;
 
     // We'd really like the method identifier to be unique and
     // durable across crossgen invocations. Not clear how to
@@ -1464,7 +1463,7 @@ void InlineStrategy::DumpDataContents(FILE* file)
     unsigned __int64 compCycles               = m_Compiler->getInlineCycleCount();
     if (compCycles > 0)
     {
-        double countsPerSec      = CycleTimer::CyclesPerSecond();
+        double countsPerSec      = CachedCyclesPerSecond();
         double counts            = (double)compCycles;
         microsecondsSpentJitting = (unsigned)((counts / countsPerSec) * 1000 * 1000);
     }
@@ -1559,7 +1558,7 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
     unsigned __int64 compCycles               = m_Compiler->getInlineCycleCount();
     if (compCycles > 0)
     {
-        double countsPerSec      = CycleTimer::CyclesPerSecond();
+        double countsPerSec      = CachedCyclesPerSecond();
         double counts            = (double)compCycles;
         microsecondsSpentJitting = (unsigned)((counts / countsPerSec) * 1000 * 1000);
     }

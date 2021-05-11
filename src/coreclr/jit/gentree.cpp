@@ -161,7 +161,7 @@ static void printIndent(IndentStack* indentStack)
 
 #endif
 
-#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
+#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS || DUMP_FLOWGRAPHS
 
 static const char* opNames[] = {
 #define GTNODE(en, st, cm, ok) #en,
@@ -230,14 +230,19 @@ void GenTree::InitNodeSize()
     // Now set all of the appropriate entries to 'large'
     CLANG_FORMAT_COMMENT_ANCHOR;
 
-// clang-format off
-#if defined(FEATURE_HFA) || defined(UNIX_AMD64_ABI)
-    // On ARM32, ARM64 and System V for struct returning
-    // there is code that does GT_ASG-tree.CopyObj call.
-    // CopyObj is a large node and the GT_ASG is small, which triggers an exception.
-    GenTree::s_gtNodeSizes[GT_ASG]              = TREE_NODE_SZ_LARGE;
-    GenTree::s_gtNodeSizes[GT_RETURN]           = TREE_NODE_SZ_LARGE;
-#endif // defined(FEATURE_HFA) || defined(UNIX_AMD64_ABI)
+    // clang-format off
+    if (GlobalJitOptions::compFeatureHfa
+#if defined(UNIX_AMD64_ABI)
+        || true
+#endif // defined(UNIX_AMD64_ABI)
+        )
+    {
+        // On ARM32, ARM64 and System V for struct returning
+        // there is code that does GT_ASG-tree.CopyObj call.
+        // CopyObj is a large node and the GT_ASG is small, which triggers an exception.
+        GenTree::s_gtNodeSizes[GT_ASG]              = TREE_NODE_SZ_LARGE;
+        GenTree::s_gtNodeSizes[GT_RETURN]           = TREE_NODE_SZ_LARGE;
+    }
 
     GenTree::s_gtNodeSizes[GT_CALL]             = TREE_NODE_SZ_LARGE;
     GenTree::s_gtNodeSizes[GT_BOX]              = TREE_NODE_SZ_LARGE;
@@ -1128,6 +1133,38 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
     }
 
     return true;
+}
+
+//--------------------------------------------------------------------------
+// ResetArgInfo: The argument info needs to be reset so it can be recomputed based on some change
+// in conditions, such as changing the return type of a call due to giving up on doing a tailcall.
+// If there is no fgArgInfo computed yet for this call, then there is nothing to reset.
+//
+void GenTreeCall::ResetArgInfo()
+{
+    if (fgArgInfo == nullptr)
+    {
+        return;
+    }
+
+    // We would like to just set `fgArgInfo = nullptr`. But `fgInitArgInfo()` not
+    // only sets up fgArgInfo, it also adds non-standard args to the IR, and we need
+    // to remove that extra IR so it doesn't get added again.
+    //
+    // NOTE: this doesn't handle all possible cases. There might be cases where we
+    // should be removing non-standard arg IR but currently aren't.
+    CLANG_FORMAT_COMMENT_ANCHOR;
+
+#if !defined(TARGET_X86)
+    if (IsVirtualStub())
+    {
+        JITDUMP("Removing VSD non-standard arg [%06u] to prepare for re-morphing call [%06u]\n",
+                Compiler::dspTreeID(gtCallArgs->GetNode()), gtTreeID);
+        gtCallArgs = gtCallArgs->GetNext();
+    }
+#endif // !defined(TARGET_X86)
+
+    fgArgInfo = nullptr;
 }
 
 /*****************************************************************************
@@ -3277,8 +3314,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             case GT_CNS_DBL:
             {
-                var_types targetType = tree->TypeGet();
-                level                = 0;
+                level = 0;
 #if defined(TARGET_XARCH)
                 /* We use fldz and fld1 to load 0.0 and 1.0, but all other  */
                 /* floating point constants are loaded using an indirection */
@@ -3294,6 +3330,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 4;
                 }
 #elif defined(TARGET_ARM)
+                var_types targetType = tree->TypeGet();
                 if (targetType == TYP_FLOAT)
                 {
                     costEx = 1 + 2;
@@ -5141,6 +5178,7 @@ var_types GenTreeLclVar::GetFieldTypeByIndex(Compiler* compiler, unsigned idx)
     assert(IsMultiReg());
     LclVarDsc* varDsc      = compiler->lvaGetDesc(GetLclNum());
     LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + idx);
+    assert(fieldVarDsc->TypeGet() != TYP_STRUCT); // Don't expect struct fields.
     return fieldVarDsc->TypeGet();
 }
 
@@ -5407,6 +5445,12 @@ GenTree* Compiler::gtNewIndOfIconHandleNode(var_types indType, size_t addr, unsi
 
         // This indirection also is invariant.
         indNode->gtFlags |= GTF_IND_INVARIANT;
+
+        if (iconFlags == GTF_ICON_STR_HDL)
+        {
+            // String literals are never null
+            indNode->gtFlags |= GTF_IND_NONNULL;
+        }
     }
     return indNode;
 }
@@ -5496,6 +5540,38 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* pValue)
     return tree;
 }
 
+//------------------------------------------------------------------------
+// gtNewStringLiteralLength: create GenTreeIntCon node for the given string
+//    literal to store its length.
+//
+// Arguments:
+//    node  - string literal node.
+//
+// Return Value:
+//    GenTreeIntCon node with string's length as a value or null.
+//
+GenTreeIntCon* Compiler::gtNewStringLiteralLength(GenTreeStrCon* node)
+{
+    int             length = -1;
+    const char16_t* str    = info.compCompHnd->getStringLiteral(node->gtScpHnd, node->gtSconCPX, &length);
+    if (length >= 0)
+    {
+        GenTreeIntCon* iconNode = gtNewIconNode(length);
+
+        // str can be NULL for dynamic context
+        if (str != nullptr)
+        {
+            JITDUMP("String '\"%ws\".Length' is '%d'\n", str, length)
+        }
+        else
+        {
+            JITDUMP("String 'CNS_STR.Length' is '%d'\n", length)
+        }
+        return iconNode;
+    }
+    return nullptr;
+}
+
 /*****************************************************************************/
 
 GenTree* Compiler::gtNewLconNode(__int64 value)
@@ -5556,6 +5632,15 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
         default:
             unreached();
     }
+}
+
+GenTreeLclVar* Compiler::gtNewStoreLclVar(unsigned dstLclNum, GenTree* src)
+{
+    GenTreeLclVar* store = new (this, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, src->GetType(), dstLclNum);
+    store->SetOp(0, src);
+    store->gtFlags = (src->gtFlags & GTF_COMMON_MASK); // TODO-MIKE-Review: This looks bogus.
+    store->gtFlags |= GTF_VAR_DEF | GTF_ASG;
+    return store;
 }
 
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
@@ -8270,8 +8355,15 @@ void Compiler::gtDispNodeName(GenTree* tree)
         switch (tree->AsBoundsChk()->GetThrowKind())
         {
             case SCK_RNGCHK_FAIL:
-                sprintf_s(bufp, sizeof(buf), " %s_Rng", name);
+            {
+                bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " %s_Rng", name);
+                if (tree->AsBoundsChk()->GetThrowBlock() != nullptr)
+                {
+                    bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), " -> " FMT_BB,
+                                            tree->AsBoundsChk()->GetThrowBlock()->bbNum);
+                }
                 break;
+            }
             case SCK_ARG_EXCPN:
                 sprintf_s(bufp, sizeof(buf), " %s_Arg", name);
                 break;
@@ -8493,6 +8585,12 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
                     if (tree->gtFlags & GTF_IND_ASG_LHS)
                     {
                         printf("D"); // print a D for definition
+                        --msgLength;
+                        break;
+                    }
+                    if (tree->gtFlags & GTF_IND_NONNULL)
+                    {
+                        printf("@");
                         --msgLength;
                         break;
                     }
@@ -9009,7 +9107,6 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
     }
     else if (ilNum == (unsigned)ICorDebugInfo::UNKNOWN_ILNUM)
     {
-#if FEATURE_ANYCSE
         if (lclNumIsTrueCSE(lclNum))
         {
             ilKind = "cse";
@@ -9023,7 +9120,6 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
             ilNum  = lclNum - (optCSEstart + optCSEcount);
         }
         else
-#endif // FEATURE_ANYCSE
         {
             if (lclNum == info.compLvFrameListRoot)
             {
@@ -14812,8 +14908,6 @@ bool GenTree::isContained() const
     // They can only produce a result if the child is a SIMD equality comparison.
     else if (OperKind() & GTK_RELOP)
     {
-        // We have to cast away const-ness since AsOp() method is non-const.
-        const GenTree* childNode = AsOp()->gtGetOp1();
         assert(isMarkedContained == false);
     }
 
@@ -15331,7 +15425,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         case GT_CALL:
         {
             GenTreeCall* call = tree->AsCall();
-            if (call->gtFlags & CORINFO_FLG_JIT_INTRINSIC)
+            if (call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
             {
                 NamedIntrinsic ni = lookupNamedIntrinsic(call->gtCallMethHnd);
                 if ((ni == NI_System_Array_Clone) || (ni == NI_System_Object_MemberwiseClone))
@@ -16187,16 +16281,27 @@ GenTreeSIMD* Compiler::gtNewSIMDNode(
 //
 void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
 {
-    if (op != nullptr)
+    if (op == nullptr)
     {
-        if (op->OperIsLocal())
+        return;
+    }
+
+    if (op->OperIsLocal())
+    {
+        setLclRelatedToSIMDIntrinsic(op);
+    }
+    else if (op->OperIs(GT_OBJ))
+    {
+        GenTree* addr = op->AsIndir()->Addr();
+
+        if (addr->OperIs(GT_ADDR))
         {
-            setLclRelatedToSIMDIntrinsic(op);
-        }
-        else if ((op->OperGet() == GT_OBJ) && (op->AsOp()->gtOp1->OperGet() == GT_ADDR) &&
-                 op->AsOp()->gtOp1->AsOp()->gtOp1->OperIsLocal())
-        {
-            setLclRelatedToSIMDIntrinsic(op->AsOp()->gtOp1->AsOp()->gtOp1);
+            GenTree* addrOp1 = addr->AsOp()->gtGetOp1();
+
+            if (addrOp1->OperIsLocal())
+            {
+                setLclRelatedToSIMDIntrinsic(addrOp1);
+            }
         }
     }
 }

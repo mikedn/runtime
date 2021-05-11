@@ -1,3 +1,6 @@
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
 #ifndef LAYOUT_H
 #define LAYOUT_H
 
@@ -37,7 +40,8 @@ class ClassLayout
 
     struct LayoutInfo
     {
-        VectorKind vectorKind;
+        VectorKind vectorKind : 2;
+        bool       elementTypeIsNInt : 1;
         var_types  simdType;
         var_types  elementType;
         var_types  hfaElementType;
@@ -137,7 +141,7 @@ public:
 
     bool IsHfa() const
     {
-#ifdef FEATURE_HFA
+#ifdef FEATURE_HFA_FIELDS_PRESENT
         if (m_gcPtrCount != 0)
         {
             return false;
@@ -220,6 +224,15 @@ public:
         return (m_gcPtrCount == 0) ? m_layoutInfo.vectorKind : VectorKind::None;
 #else
         return VectorKind::None;
+#endif
+    }
+
+    bool ElementTypeIsNInt() const
+    {
+#ifdef FEATURE_SIMD
+        return (m_gcPtrCount == 0) ? m_layoutInfo.elementTypeIsNInt : false;
+#else
+        return false;
 #endif
     }
 

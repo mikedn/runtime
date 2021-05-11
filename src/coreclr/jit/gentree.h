@@ -460,8 +460,6 @@ struct GenTree
     genTreeOps gtOperSave; // Only used to save gtOper when we destroy a node, to aid debugging.
 #endif
 
-#if FEATURE_ANYCSE
-
 #define NO_CSE (0)
 
 #define IS_CSE_INDEX(x) ((x) != 0)
@@ -472,8 +470,6 @@ struct GenTree
 
     signed char gtCSEnum; // 0 or the CSE index (negated if def)
                           // valid only for CSE expressions
-
-#endif // FEATURE_ANYCSE
 
     unsigned char gtLIRFlags; // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
 
@@ -922,9 +918,10 @@ public:
                                                //             alignment of 1 byte)
 #define GTF_IND_INVARIANT           0x01000000 // GT_IND   -- the target is invariant (a prejit indirection)
 #define GTF_IND_ARR_INDEX           0x00800000 // GT_IND   -- the indirection represents an (SZ) array index
+#define GTF_IND_NONNULL             0x00400000 // GT_IND   -- the indirection never returns null (zero)
 
 #define GTF_IND_FLAGS \
-    (GTF_IND_VOLATILE | GTF_IND_TGT_HEAP | GTF_IND_NONFAULTING |           \
+    (GTF_IND_VOLATILE | GTF_IND_TGT_HEAP | GTF_IND_NONFAULTING | GTF_IND_NONNULL | \
      GTF_IND_UNALIGNED | GTF_IND_INVARIANT | GTF_IND_ARR_INDEX | GTF_IND_TGT_NOT_HEAP)
 
 #define GTF_CLS_VAR_VOLATILE        0x40000000 // GT_FIELD/GT_CLS_VAR -- same as GTF_IND_VOLATILE
@@ -1123,6 +1120,17 @@ public:
     bool TypeIs(var_types type, T... rest) const
     {
         return TypeIs(type) || TypeIs(rest...);
+    }
+
+    static bool StaticOperIs(genTreeOps operCompare, genTreeOps oper)
+    {
+        return operCompare == oper;
+    }
+
+    template <typename... T>
+    static bool StaticOperIs(genTreeOps operCompare, genTreeOps oper, T... rest)
+    {
+        return StaticOperIs(operCompare, oper) || StaticOperIs(operCompare, rest...);
     }
 
     bool OperIs(genTreeOps oper) const
@@ -1674,7 +1682,7 @@ public:
 
     bool IsDblConPositiveZero() const;
     bool IsHWIntrinsicZero() const;
-    bool IsIntegralConst(ssize_t constVal);
+    bool IsIntegralConst(ssize_t constVal) const;
 
     inline GenTree* gtGetOp1() const;
 
@@ -1779,7 +1787,7 @@ public:
 
 //---------------------------------------------------------------------
 
-#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
+#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS || DUMP_FLOWGRAPHS
     static const char* OpName(genTreeOps op);
 #endif
 
@@ -2886,11 +2894,11 @@ struct GenTreeVal : public GenTree
 
 struct GenTreeIntConCommon : public GenTree
 {
-    inline INT64 LngValue();
+    inline INT64 LngValue() const;
     inline void SetLngValue(INT64 val);
-    inline ssize_t IconValue();
+    inline ssize_t IconValue() const;
     inline void SetIconValue(ssize_t val);
-    inline INT64 IntegralValue();
+    inline INT64 IntegralValue() const;
 
     GenTreeIntConCommon(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
         : GenTree(oper, type DEBUGARG(largeNode))
@@ -3125,7 +3133,7 @@ struct GenTreeLngCon : public GenTreeIntConCommon
 #endif
 };
 
-inline INT64 GenTreeIntConCommon::LngValue()
+inline INT64 GenTreeIntConCommon::LngValue() const
 {
 #ifndef TARGET_64BIT
     assert(gtOper == GT_CNS_LNG);
@@ -3149,7 +3157,7 @@ inline void GenTreeIntConCommon::SetLngValue(INT64 val)
 #endif
 }
 
-inline ssize_t GenTreeIntConCommon::IconValue()
+inline ssize_t GenTreeIntConCommon::IconValue() const
 {
     assert(gtOper == GT_CNS_INT); //  We should never see a GT_CNS_LNG for a 64-bit target!
     return AsIntCon()->gtIconVal;
@@ -3161,7 +3169,7 @@ inline void GenTreeIntConCommon::SetIconValue(ssize_t val)
     AsIntCon()->gtIconVal = val;
 }
 
-inline INT64 GenTreeIntConCommon::IntegralValue()
+inline INT64 GenTreeIntConCommon::IntegralValue() const
 {
 #ifdef TARGET_64BIT
     return LngValue();
@@ -4148,6 +4156,8 @@ public:
         fgArgInfo = info;
     }
 
+    void ResetArgInfo();
+
     UseList Args()
     {
         return UseList(gtCallArgs);
@@ -4341,12 +4351,13 @@ public:
 #define GTF_CALL_M_DEVIRTUALIZED           0x00040000 // GT_CALL -- this call was devirtualized
 #define GTF_CALL_M_UNBOXED                 0x00080000 // GT_CALL -- this call was optimized to use the unboxed entry point
 #define GTF_CALL_M_GUARDED_DEVIRT          0x00100000 // GT_CALL -- this call is a candidate for guarded devirtualization
-#define GTF_CALL_M_GUARDED                 0x00200000 // GT_CALL -- this call was transformed by guarded devirtualization
-#define GTF_CALL_M_ALLOC_SIDE_EFFECTS      0x00400000 // GT_CALL -- this is a call to an allocator with side effects
-#define GTF_CALL_M_SUPPRESS_GC_TRANSITION  0x00800000 // GT_CALL -- suppress the GC transition (i.e. during a pinvoke) but a separate GC safe point is required.
-#define GTF_CALL_M_EXP_RUNTIME_LOOKUP      0x01000000 // GT_CALL -- this call needs to be tranformed into CFG for the dynamic dictionary expansion feature.
-#define GTF_CALL_M_STRESS_TAILCALL         0x02000000 // GT_CALL -- the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
-#define GTF_CALL_M_EXPANDED_EARLY          0x04000000 // GT_CALL -- the Virtual Call target address is expanded and placed in gtControlExpr in Morph rather than in Lower
+#define GTF_CALL_M_GUARDED_DEVIRT_CHAIN    0x00200000 // GT_CALL -- this call is a candidate for chained guarded devirtualization
+#define GTF_CALL_M_GUARDED                 0x00400000 // GT_CALL -- this call was transformed by guarded devirtualization
+#define GTF_CALL_M_ALLOC_SIDE_EFFECTS      0x00800000 // GT_CALL -- this is a call to an allocator with side effects
+#define GTF_CALL_M_SUPPRESS_GC_TRANSITION  0x01000000 // GT_CALL -- suppress the GC transition (i.e. during a pinvoke) but a separate GC safe point is required.
+#define GTF_CALL_M_EXP_RUNTIME_LOOKUP      0x02000000 // GT_CALL -- this call needs to be tranformed into CFG for the dynamic dictionary expansion feature.
+#define GTF_CALL_M_STRESS_TAILCALL         0x04000000 // GT_CALL -- the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
+#define GTF_CALL_M_EXPANDED_EARLY          0x08000000 // GT_CALL -- the Virtual Call target address is expanded and placed in gtControlExpr in Morph rather than in Lower
 
     // clang-format on
 
@@ -4711,7 +4722,7 @@ private:
     var_types      m_regTypes[MAX_ARG_REG_COUNT];
     regNumberSmall m_regNums[MAX_ARG_REG_COUNT];
 #else
-#ifdef FEATURE_HFA
+#ifdef FEATURE_HFA_FIELDS_PRESENT
     var_types m_regType;
 #endif
     // Other multireg targets (ARM, ARM64) always use the same register type so it's enough
@@ -4737,7 +4748,7 @@ public:
         , m_isImplicitByRef(false)
 #endif
         , m_regCount(static_cast<uint8_t>(regCount))
-#ifdef FEATURE_HFA
+#ifdef FEATURE_HFA_FIELDS_PRESENT
         , m_regType(TYP_I_IMPL)
 #endif
     {
@@ -4857,7 +4868,7 @@ public:
         assert(i < m_regCount);
         m_regTypes[i] = type;
     }
-#elif defined(FEATURE_HFA)
+#elif defined(FEATURE_HFA_FIELDS_PRESENT)
     var_types GetRegType(unsigned i = 0) const
     {
         assert(i < m_regCount);
@@ -4875,12 +4886,16 @@ public:
         assert(i < m_regCount);
         return TYP_I_IMPL;
     }
+
+    void SetRegType(var_types type)
+    {
+    }
 #endif
 
     regNumber GetRegNum(unsigned i = 0) const
     {
         assert(i < m_regCount);
-#if defined(FEATURE_HFA) && defined(TARGET_ARM)
+#if defined(TARGET_ARM) && defined(FEATURE_HFA_FIELDS_PRESENT)
         if (m_regType == TYP_DOUBLE)
         {
             return static_cast<regNumber>(m_regNum + i * 2);
@@ -4917,7 +4932,7 @@ public:
 
     bool IsHfaArg()
     {
-#ifdef FEATURE_HFA
+#ifdef FEATURE_HFA_FIELDS_PRESENT
         return m_regType != TYP_I_IMPL;
 #else
         return false;
@@ -7979,7 +7994,7 @@ inline bool GenTree::IsHWIntrinsicZero() const
 //    Like gtIconVal, the argument is of ssize_t, so cannot check for
 //    long constants in a target-independent way.
 
-inline bool GenTree::IsIntegralConst(ssize_t constVal)
+inline bool GenTree::IsIntegralConst(ssize_t constVal) const
 
 {
     if ((gtOper == GT_CNS_INT) && (AsIntConCommon()->IconValue() == constVal))

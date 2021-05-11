@@ -367,6 +367,7 @@ static bool isSupportedBaseType(NamedIntrinsic intrinsic, var_types baseType)
     // We don't actually check the intrinsic outside of the false case as we expect
     // the exposed managed signatures are either generic and support all types
     // or they are explicit and support the type indicated.
+
     if (varTypeIsArithmetic(baseType))
     {
         return true;
@@ -500,7 +501,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     if ((retLayout != nullptr) && featureSIMD)
     {
         // Currently all HW intrinsics return either vectors or primitive types, not structs.
-        if (!retLayout->IsVector())
+        if (!retLayout->IsVector() || retLayout->ElementTypeIsNInt())
         {
             return nullptr;
         }
@@ -514,9 +515,17 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
         ClassLayout* argLayout = nullptr;
         baseType               = impGetHWIntrinsicBaseTypeFromArg(intrinsic, sig, baseType, &argLayout);
 
-        if ((simdSize == UINT32_MAX) && (argLayout != nullptr))
+        if ((argLayout != nullptr) && argLayout->IsVector())
         {
-            simdSize = argLayout->GetSize();
+            if (argLayout->ElementTypeIsNInt())
+            {
+                return nullptr;
+            }
+
+            if (simdSize == UINT32_MAX)
+            {
+                simdSize = argLayout->GetSize();
+            }
         }
     }
     else if (retLayout != nullptr)

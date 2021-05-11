@@ -45,10 +45,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 int LinearScan::BuildNode(GenTree* tree)
 {
     assert(!tree->isContained());
-    Interval* prefSrcInterval = nullptr;
-    int       srcCount;
-    int       dstCount      = 0;
-    bool      isLocalDefUse = false;
+    int  srcCount;
+    int  dstCount      = 0;
+    bool isLocalDefUse = false;
 
     // Reset the build-related members of LinearScan.
     clearBuildState();
@@ -1646,11 +1645,10 @@ int LinearScan::BuildLclHeap(GenTree* tree)
 //
 int LinearScan::BuildModDiv(GenTree* tree)
 {
-    GenTree*     op1           = tree->gtGetOp1();
-    GenTree*     op2           = tree->gtGetOp2();
-    regMaskTP    dstCandidates = RBM_NONE;
-    RefPosition* internalDef   = nullptr;
-    int          srcCount      = 0;
+    GenTree*  op1           = tree->gtGetOp1();
+    GenTree*  op2           = tree->gtGetOp2();
+    regMaskTP dstCandidates = RBM_NONE;
+    int       srcCount      = 0;
 
     if (varTypeIsFloating(tree->TypeGet()))
     {
@@ -2113,11 +2111,10 @@ int LinearScan::BuildSIMDBinaryRMWUses(GenTreeSIMD* node)
 //
 int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
-    NamedIntrinsic         intrinsicId = intrinsicTree->gtHWIntrinsicId;
-    var_types              baseType    = intrinsicTree->gtSIMDBaseType;
-    CORINFO_InstructionSet isa         = HWIntrinsicInfo::lookupIsa(intrinsicId);
-    HWIntrinsicCategory    category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
-    int                    numArgs     = intrinsicTree->GetNumOps();
+    NamedIntrinsic      intrinsicId = intrinsicTree->gtHWIntrinsicId;
+    var_types           baseType    = intrinsicTree->gtSIMDBaseType;
+    HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
+    int                 numArgs     = intrinsicTree->GetNumOps();
 
     // Set the AVX Flags if this instruction may use VEX encoding for SIMD operations.
     // Note that this may be true even if the ISA is not AVX (e.g. for platform-agnostic intrinsics

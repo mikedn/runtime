@@ -568,8 +568,6 @@ struct _MonoInternalThread {
 	 * longer */
 	MonoLongLivedThreadData *longlived;
 	MonoBoolean threadpool_thread;
-	MonoBoolean thread_interrupt_requested;
-	int stack_size;
 	guint8	apartment_state;
 	gint32 managed_id;
 	guint32 small_id;
@@ -643,6 +641,8 @@ typedef struct {
 	void     (*metadata_update_init) (MonoError *error);
 	void     (*metadata_update_published) (MonoAssemblyLoadContext *alc, uint32_t generation);
 #endif
+	void (*get_jit_stats)(gint64 *methods_compiled, gint64 *cil_code_size_bytes, gint64 *native_code_size_bytes);
+	void (*get_exception_stats)(guint32 *exception_count);
 } MonoRuntimeCallbacks;
 
 typedef gboolean (*MonoInternalStackWalk) (MonoStackFrameInfo *frame, MonoContext *ctx, gpointer data);
@@ -682,7 +682,7 @@ MonoMethod *
 mono_get_delegate_end_invoke_checked (MonoClass *klass, MonoError *error);
 
 void
-mono_runtime_free_method    (MonoDomain *domain, MonoMethod *method);
+mono_runtime_free_method    (MonoMethod *method);
 
 void
 mono_install_callbacks      (MonoRuntimeCallbacks *cbs);
@@ -693,6 +693,7 @@ mono_get_runtime_callbacks (void);
 void
 mono_install_eh_callbacks (MonoRuntimeExceptionHandlingCallbacks *cbs);
 
+MONO_COMPONENT_API
 MonoRuntimeExceptionHandlingCallbacks *
 mono_get_eh_callbacks (void);
 
@@ -707,9 +708,6 @@ mono_raise_exception_with_context (MonoException *ex, MonoContext *ctx);
 
 void
 mono_type_initialization_init (void);
-
-void
-mono_type_initialization_cleanup (void);
 
 int
 mono_thread_kill           (MonoInternalThread *thread, int signal);
@@ -1597,7 +1595,7 @@ gboolean
 mono_runtime_class_init_full (MonoVTable *vtable, MonoError *error);
 
 void
-mono_method_clear_object (MonoDomain *domain, MonoMethod *method);
+mono_method_clear_object (MonoMethod *method);
 
 gsize*
 mono_class_compute_bitmap (MonoClass *klass, gsize *bitmap, int size, int offset, int *max_set, gboolean static_fields);
@@ -1648,6 +1646,9 @@ mono_field_static_get_value_checked (MonoVTable *vt, MonoClassField *field, void
 
 void
 mono_field_static_get_value_for_thread (MonoInternalThread *thread, MonoVTable *vt, MonoClassField *field, void *value, MonoStringHandleOut string_handle, MonoError *error);
+
+guint8*
+mono_static_field_get_addr (MonoVTable *vt, MonoClassField *field);
 
 MonoMethod*
 mono_object_handle_get_virtual_method (MonoObjectHandle obj, MonoMethod *method, MonoError *error);
@@ -1800,6 +1801,7 @@ mono_string_from_utf32_checked (const mono_unichar4 *data, MonoError *error);
 char*
 mono_ldstr_utf8 (MonoImage *image, guint32 idx, MonoError *error);
 
+MONO_COMPONENT_API
 char*
 mono_utf16_to_utf8 (const mono_unichar2 *s, gsize slength, MonoError *error);
 
@@ -1816,7 +1818,7 @@ mono_runtime_try_invoke (MonoMethod *method, void *obj, void **params, MonoObjec
 // In particular, if an exception is returned from underlying otherwise succeeded call,
 // is set into the MonoError with mono_error_set_exception_instance.
 // The result is that caller need only check MonoError.
-MonoObjectHandle
+MONO_COMPONENT_API MonoObjectHandle
 mono_runtime_try_invoke_handle (MonoMethod *method, MonoObjectHandle obj, void **params, MonoError* error);
 
 MonoObject*
@@ -2075,7 +2077,7 @@ mono_gc_wbarrier_value_copy_internal (void* dest, const void* src, int count, Mo
 void
 mono_gc_wbarrier_object_copy_internal (MonoObject* obj, MonoObject *src);
 
-char *
+MONO_COMPONENT_API char *
 mono_runtime_get_managed_cmd_line (void);
 
 char *

@@ -534,7 +534,9 @@ struct GuardedDevirtualizationCandidateInfo : ClassProfileCandidateInfo
 {
     CORINFO_CLASS_HANDLE  guardedClassHandle;
     CORINFO_METHOD_HANDLE guardedMethodHandle;
+    CORINFO_METHOD_HANDLE guardedMethodUnboxedEntryHandle;
     unsigned              likelihood;
+    bool                  requiresInstMethodTableArg;
 };
 
 // InlineCandidateInfo provides basic information about a particular
@@ -658,16 +660,6 @@ struct InlineInfo
 #ifdef FEATURE_SIMD
     bool hasSIMDTypeArgLocalOrReturn;
 #endif
-
-    enum class ProfileScaleState
-    {
-        UNDETERMINED,
-        KNOWN,
-        UNAVAILABLE
-    };
-
-    ProfileScaleState profileScaleState;
-    double            profileScaleFactor;
 
     unsigned   ilArgCount;
     unsigned   ilLocCount;

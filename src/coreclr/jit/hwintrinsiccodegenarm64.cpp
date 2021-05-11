@@ -55,8 +55,22 @@ CodeGen::HWIntrinsicImmOpHelper::HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTre
 
         if (category == HW_Category_SIMDByIndexedElement)
         {
-            assert(varTypeIsSIMD(intrin->GetAuxiliaryType()));
-            const unsigned int indexedElementSimdSize = genTypeSize(intrin->GetAuxiliaryType());
+            const HWIntrinsic intrinInfo(intrin);
+            var_types         indexedElementOpType;
+
+            if (intrinInfo.numOperands == 3)
+            {
+                indexedElementOpType = intrinInfo.op2->TypeGet();
+            }
+            else
+            {
+                assert(intrinInfo.numOperands == 4);
+                indexedElementOpType = intrinInfo.op3->TypeGet();
+            }
+
+            assert(varTypeIsSIMD(indexedElementOpType));
+
+            const unsigned int indexedElementSimdSize = genTypeSize(indexedElementOpType);
             HWIntrinsicInfo::lookupImmBounds(intrin->gtHWIntrinsicId, indexedElementSimdSize, intrin->gtSIMDBaseType,
                                              &immLowerBound, &immUpperBound);
         }
@@ -395,38 +409,6 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
         instruction ins = INS_invalid;
         switch (intrin.id)
         {
-            case NI_Crc32_ComputeCrc32:
-                if (intrin.baseType == TYP_INT)
-                {
-                    ins = INS_crc32w;
-                }
-                else
-                {
-                    ins = HWIntrinsicInfo::lookupIns(intrin.id, intrin.baseType);
-                }
-                break;
-
-            case NI_Crc32_ComputeCrc32C:
-                if (intrin.baseType == TYP_INT)
-                {
-                    ins = INS_crc32cw;
-                }
-                else
-                {
-                    ins = HWIntrinsicInfo::lookupIns(intrin.id, intrin.baseType);
-                }
-                break;
-
-            case NI_Crc32_Arm64_ComputeCrc32:
-                assert(intrin.baseType == TYP_ULONG);
-                ins = INS_crc32x;
-                break;
-
-            case NI_Crc32_Arm64_ComputeCrc32C:
-                assert(intrin.baseType == TYP_ULONG);
-                ins = INS_crc32cx;
-                break;
-
             case NI_AdvSimd_AddWideningLower:
                 assert(varTypeIsIntegral(intrin.baseType));
                 if (intrin.op1->TypeGet() == TYP_SIMD8)
@@ -546,7 +528,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 HWIntrinsicImmOpHelper helper(this, intrin.op2, node);
 
-                // Prior to codegen, the emitSize is based on node->gtSIMDSize which
+                // Prior to codegen, the emitSize is based on node->GetSimdSize() which
                 // tracks the size of the first operand and is used to tell if the index
                 // is in range. However, when actually emitting it needs to be the size
                 // of the return and the size of the operand is interpreted based on the
