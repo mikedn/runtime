@@ -1281,10 +1281,7 @@ void CodeGen::genCopyRegIfNeeded(GenTree* node, regNumber needReg)
 {
     assert((node->GetRegNum() != REG_NA) && (needReg != REG_NA));
     assert(!node->isUsedFromSpillTemp());
-    if (node->GetRegNum() != needReg)
-    {
-        inst_RV_RV(INS_mov, needReg, node->GetRegNum(), node->TypeGet());
-    }
+    inst_Mov(node->TypeGet(), needReg, node->GetRegNum(), /* canSkip */ true);
 }
 
 // Do Liveness update for a subnodes that is being consumed by codegen
@@ -1452,9 +1449,9 @@ regNumber CodeGen::genConsumeReg(GenTree* tree)
     if (genIsRegCandidateLclVar(tree))
     {
         LclVarDsc* varDsc = compiler->lvaGetDesc(tree->AsLclVar());
-        if (varDsc->GetRegNum() != REG_STK && varDsc->GetRegNum() != tree->GetRegNum())
+        if (varDsc->GetRegNum() != REG_STK)
         {
-            inst_RV_RV(ins_Copy(tree->TypeGet()), tree->GetRegNum(), varDsc->GetRegNum(), TYP_I_IMPL);
+            inst_Mov(tree->GetType(), tree->GetRegNum(), varDsc->GetRegNum(), /* canSkip */ true);
         }
     }
 
