@@ -693,12 +693,12 @@ void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex asse
                 if (curAssertion->op1.kind == O1K_EXACT_TYPE)
                 {
                     printf("Exact Type MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
-                    assert(curAssertion->op2.u1.iconFlags != 0);
+                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
                 }
                 else if (curAssertion->op1.kind == O1K_SUBTYPE)
                 {
                     printf("MT(%08X)", dspPtr(curAssertion->op2.u1.iconVal));
-                    assert(curAssertion->op2.u1.iconFlags != 0);
+                    assert(curAssertion->op2.u1.iconFlags != GTF_EMPTY);
                 }
                 else if (curAssertion->op1.kind == O1K_BOUND_OPER_BND)
                 {
@@ -955,10 +955,10 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
         assertion.op2.kind         = O2K_CONST_INT;
         assertion.op2.vn           = ValueNumStore::VNForNull();
         assertion.op2.u1.iconVal   = 0;
-        assertion.op2.u1.iconFlags = 0;
+        assertion.op2.u1.iconFlags = GTF_EMPTY;
 #ifdef TARGET_64BIT
-        assertion.op2.u1.iconFlags |= 1; // Signify that this is really TYP_LONG
-#endif                                   // TARGET_64BIT
+        assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG; // Signify that this is really TYP_LONG
+#endif
     }
     //
     // Are we making an assertion about a local variable?
@@ -1111,7 +1111,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
 #ifdef TARGET_64BIT
                         if (op2->TypeGet() == TYP_LONG || op2->TypeGet() == TYP_BYREF)
                         {
-                            assertion.op2.u1.iconFlags |= 1; // Signify that this is really TYP_LONG
+                            assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG;
                         }
 #endif // TARGET_64BIT
                     }
@@ -1317,8 +1317,8 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
                     vnStore->VNConservativeNormalValue(
                         lvaTable[lclNum].GetPerSsaData(assertion.op1.lcl.ssaNum)->m_vnPair)));
 
-            ssize_t  cnsValue  = 0;
-            unsigned iconFlags = 0;
+            ssize_t      cnsValue  = 0;
+            GenTreeFlags iconFlags = GTF_EMPTY;
             // Ngen case
             if (op2->gtOper == GT_IND)
             {
@@ -1338,7 +1338,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
 #ifdef TARGET_64BIT
                 if (op2->AsOp()->gtOp1->TypeGet() == TYP_LONG)
                 {
-                    assertion.op2.u1.iconFlags |= 1; // Signify that this is really TYP_LONG
+                    assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG;
                 }
 #endif // TARGET_64BIT
             }
@@ -1356,7 +1356,7 @@ AssertionIndex Compiler::optCreateAssertion(GenTree*         op1,
 #ifdef TARGET_64BIT
                 if (op2->TypeGet() == TYP_LONG)
                 {
-                    assertion.op2.u1.iconFlags |= 1; // Signify that this is really TYP_LONG
+                    assertion.op2.u1.iconFlags |= GTF_ASSERTION_PROP_LONG;
                 }
 #endif // TARGET_64BIT
             }
@@ -1401,7 +1401,7 @@ DONE_ASSERTION:
  * constant. Set "vnBased" to true to indicate local or global assertion prop.
  * "pFlags" indicates if the constant is a handle marked by GTF_ICON_HDL_MASK.
  */
-bool Compiler::optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, unsigned* pFlags)
+bool Compiler::optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pFlags)
 {
     // Is Local assertion prop?
     if (!vnBased)
@@ -1438,14 +1438,14 @@ bool Compiler::optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pCon
     if (vnType == TYP_INT)
     {
         *pConstant = vnStore->ConstantValue<int>(vn);
-        *pFlags    = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : 0;
+        *pFlags    = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : GTF_EMPTY;
         return true;
     }
 #ifdef TARGET_64BIT
     else if (vnType == TYP_LONG)
     {
         *pConstant = vnStore->ConstantValue<INT64>(vn);
-        *pFlags    = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : 0;
+        *pFlags    = vnStore->IsVNHandle(vn) ? vnStore->GetHandleFlags(vn) : GTF_EMPTY;
         return true;
     }
 #endif
@@ -1633,14 +1633,18 @@ void Compiler::optDebugCheckAssertion(AssertionDsc* assertion)
         case O2K_IND_CNS_INT:
         case O2K_CONST_INT:
         {
-            // The only flags that can be set are those in the GTF_ICON_HDL_MASK, or bit 0, which is
-            // used to indicate a long constant.
-            assert((assertion->op2.u1.iconFlags & ~(GTF_ICON_HDL_MASK | 1)) == 0);
+// The only flags that can be set are those in the GTF_ICON_HDL_MASK, or GTF_ASSERTION_PROP_LONG, which is
+// used to indicate a long constant.
+#ifdef TARGET_64BIT
+            assert((assertion->op2.u1.iconFlags & ~(GTF_ICON_HDL_MASK | GTF_ASSERTION_PROP_LONG)) == 0);
+#else
+            assert((assertion->op2.u1.iconFlags & ~GTF_ICON_HDL_MASK) == 0);
+#endif
             switch (assertion->op1.kind)
             {
                 case O1K_EXACT_TYPE:
                 case O1K_SUBTYPE:
-                    assert(assertion->op2.u1.iconFlags != 0);
+                    assert(assertion->op2.u1.iconFlags != GTF_EMPTY);
                     break;
                 case O1K_LCLVAR:
                     assert((lvaTable[assertion->op1.lcl.lclNum].lvType != TYP_REF) ||
@@ -1808,7 +1812,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.kind         = O2K_CONST_INT;
         dsc.op2.vn           = vnStore->VNZeroForType(op2->TypeGet());
         dsc.op2.u1.iconVal   = 0;
-        dsc.op2.u1.iconFlags = 0;
+        dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
         optCreateComplementaryAssertion(index, nullptr, nullptr);
         return index;
@@ -1825,7 +1829,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.kind         = O2K_CONST_INT;
         dsc.op2.vn           = vnStore->VNZeroForType(op2->TypeGet());
         dsc.op2.u1.iconVal   = 0;
-        dsc.op2.u1.iconFlags = 0;
+        dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
         optCreateComplementaryAssertion(index, nullptr, nullptr);
         return index;
@@ -1842,7 +1846,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.kind         = O2K_CONST_INT;
         dsc.op2.vn           = vnStore->VNZeroForType(op2->TypeGet());
         dsc.op2.u1.iconVal   = 0;
-        dsc.op2.u1.iconFlags = 0;
+        dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
         optCreateComplementaryAssertion(index, nullptr, nullptr);
         return index;
@@ -1859,7 +1863,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.kind         = O2K_CONST_INT;
         dsc.op2.vn           = vnStore->VNZeroForType(TYP_INT);
         dsc.op2.u1.iconVal   = 0;
-        dsc.op2.u1.iconFlags = 0;
+        dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
         optCreateComplementaryAssertion(index, nullptr, nullptr);
         return index;
@@ -1902,7 +1906,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.kind         = O2K_CONST_INT;
         dsc.op2.vn           = vnStore->VNZeroForType(op2->TypeGet());
         dsc.op2.u1.iconVal   = 0;
-        dsc.op2.u1.iconFlags = 0;
+        dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
         optCreateComplementaryAssertion(index, nullptr, nullptr);
         return index;
@@ -1919,7 +1923,7 @@ AssertionInfo Compiler::optCreateJTrueBoundsAssertion(GenTree* tree)
         dsc.op2.kind         = O2K_CONST_INT;
         dsc.op2.vn           = vnStore->VNZeroForType(TYP_INT);
         dsc.op2.u1.iconVal   = 0;
-        dsc.op2.u1.iconFlags = 0;
+        dsc.op2.u1.iconFlags = GTF_EMPTY;
         AssertionIndex index = optAddAssertion(&dsc);
         optCreateComplementaryAssertion(index, nullptr, nullptr);
         return index;
@@ -2016,7 +2020,7 @@ AssertionInfo Compiler::optAssertionGenJtrue(GenTree* tree)
             dsc.op1.bnd.vnLen    = op1VN;
             dsc.op2.vn           = vnStore->VNConservativeNormalValue(op2->gtVNPair);
             dsc.op2.kind         = O2K_CONST_INT;
-            dsc.op2.u1.iconFlags = 0;
+            dsc.op2.u1.iconFlags = GTF_EMPTY;
             dsc.op2.u1.iconVal   = 0;
 
             // when con is not zero, create an assertion on the arr.Length == con edge
@@ -2418,8 +2422,8 @@ AssertionIndex Compiler::optAssertionIsSubtype(GenTree* tree, GenTree* methodTab
             continue;
         }
 
-        ssize_t  methodTableVal = 0;
-        unsigned iconFlags      = 0;
+        ssize_t      methodTableVal = 0;
+        GenTreeFlags iconFlags      = GTF_EMPTY;
         if (!optIsTreeKnownIntValue(!optLocalAssertionProp, methodTableArg, &methodTableVal, &iconFlags))
         {
             continue;
@@ -2768,7 +2772,8 @@ GenTree* Compiler::optConstantAssertionProp(AssertionDsc*        curAssertion,
             if (varTypeIsIntegral(newTree->TypeGet()))
             {
 #ifdef TARGET_64BIT
-                var_types newType = (var_types)((curAssertion->op2.u1.iconFlags & 1) ? TYP_LONG : TYP_INT);
+                var_types newType =
+                    (var_types)((curAssertion->op2.u1.iconFlags & GTF_ASSERTION_PROP_LONG) ? TYP_LONG : TYP_INT);
                 if (newTree->TypeGet() != newType)
                 {
                     noway_assert(newTree->gtType != TYP_REF);

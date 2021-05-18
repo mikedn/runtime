@@ -381,7 +381,7 @@ public:
 #endif // DEBUG
     }
 
-    // Morph promoted struct fields and count implict byref argument occurrences.
+    // Morph promoted struct fields and count implicit byref argument occurrences.
     // Also create and push the value produced by the visited node. This is done here
     // rather than in PostOrderVisit because it makes it easy to handle nodes with an
     // arbitrary number of operands - just pop values until the value corresponding
@@ -910,7 +910,7 @@ private:
         }
 
         // Local address nodes never have side effects (nor any other flags, at least at this point).
-        addr->gtFlags = 0;
+        addr->gtFlags = GTF_EMPTY;
 
         INDEBUG(m_stmtModified = true;)
     }
@@ -1051,7 +1051,7 @@ private:
                     indir->ChangeOper(GT_LCL_VAR);
                     indir->SetType(lclType);
                     indir->AsLclVar()->SetLclNum(val.LclNum());
-                    indir->gtFlags = 0;
+                    indir->gtFlags = GTF_EMPTY;
                 }
                 else
                 {
@@ -1059,7 +1059,7 @@ private:
                     indir->AsLclFld()->SetLclNum(val.LclNum());
                     indir->AsLclFld()->SetLclOffs(val.Offset());
                     indir->AsLclFld()->SetLayoutNum(m_compiler->typGetLayoutNum(indirLayout));
-                    indir->gtFlags = 0;
+                    indir->gtFlags = GTF_EMPTY;
 
                     m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
                 }
@@ -1105,7 +1105,7 @@ private:
                         indir->ChangeOper(GT_CAST);
                         indir->AsCast()->SetCastType(indirType);
                         indir->AsCast()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
-                        indir->gtFlags = 0;
+                        indir->gtFlags = GTF_EMPTY;
                     }
                     else if (varTypeKind(indirType) != varTypeKind(lclType))
                     {
@@ -1117,7 +1117,7 @@ private:
                         {
                             indir->ChangeOper(GT_BITCAST);
                             indir->AsUnOp()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
-                            indir->gtFlags = 0;
+                            indir->gtFlags = GTF_EMPTY;
                         }
                     }
                     else
@@ -1133,7 +1133,7 @@ private:
 
                         indir->ChangeOper(GT_LCL_VAR);
                         indir->AsLclVar()->SetLclNum(val.LclNum());
-                        indir->gtFlags = 0;
+                        indir->gtFlags = GTF_EMPTY;
                     }
                 }
                 else
@@ -1156,7 +1156,7 @@ private:
                         indir->ChangeOper(GT_CAST);
                         indir->AsCast()->SetCastType(indirType);
                         indir->AsCast()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
-                        indir->gtFlags = 0;
+                        indir->gtFlags = GTF_EMPTY;
                     }
                 }
             }
@@ -1175,7 +1175,7 @@ private:
                 indir->ChangeOper(GT_LCL_FLD);
                 indir->AsLclFld()->SetLclNum(val.LclNum());
                 indir->AsLclFld()->SetLclOffs(val.Offset());
-                indir->gtFlags = 0;
+                indir->gtFlags = GTF_EMPTY;
 
                 if (isDef)
                 {
@@ -1385,7 +1385,7 @@ private:
             m_compiler->lvaSetVarDoNotEnregister(val.LclNum() DEBUGARG(Compiler::DNER_LocalField));
         }
 
-        unsigned flags = 0;
+        GenTreeFlags flags = GTF_EMPTY;
 
         if (user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir))
         {
@@ -1512,7 +1512,7 @@ private:
         node->SetOper(GT_LCL_VAR);
         node->AsLclVar()->SetLclNum(fieldLclIndex);
         node->gtType  = fieldDsc->TypeGet();
-        node->gtFlags = 0;
+        node->gtFlags = GTF_EMPTY;
 
         if (user->OperIs(GT_ASG))
         {
@@ -1880,13 +1880,13 @@ public:
                 add->SetType(TYP_BYREF);
                 add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
                 add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
-                add->gtFlags = 0;
+                add->gtFlags = GTF_EMPTY;
             }
             else
             {
                 lclAddrNode->ChangeOper(GT_LCL_VAR);
                 lclAddrNode->SetType(TYP_BYREF);
-                lclAddrNode->gtFlags = 0;
+                lclAddrNode->gtFlags = GTF_EMPTY;
             }
 
             INDEBUG(m_stmtModified = true;)
@@ -1915,7 +1915,7 @@ public:
             add->SetType(TYP_BYREF);
             add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
             add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
-            add->gtFlags = 0;
+            add->gtFlags = GTF_EMPTY;
 
             INDEBUG(m_stmtModified = true;)
         }
@@ -1973,13 +1973,13 @@ public:
                     {
                         // Change ADDR<BYREF|I_IMPL>(LCL_FLD<>(param)) into ADD(LCL_VAR<BYREF>(param), lclOffs))
                         lclNode->SetType(TYP_BYREF);
-                        lclNode->gtFlags = 0;
+                        lclNode->gtFlags = GTF_EMPTY;
 
                         tree->ChangeOper(GT_ADD);
                         tree->SetType(TYP_BYREF);
                         tree->AsOp()->SetOp(0, lclNode);
                         tree->AsOp()->SetOp(1, offset);
-                        tree->gtFlags = 0;
+                        tree->gtFlags = GTF_EMPTY;
                     }
                     else
                     {
@@ -1987,7 +1987,7 @@ public:
                         tree->ChangeOper(GT_LCL_VAR);
                         tree->SetType(TYP_BYREF);
                         tree->AsLclVar()->SetLclNum(lclNum);
-                        tree->gtFlags = 0;
+                        tree->gtFlags = GTF_EMPTY;
                     }
                 }
                 else
@@ -2055,12 +2055,12 @@ public:
                 // Change ADDR(LCL_VAR(paramPromotedField)) into ADD(LCL_VAR<BYREF>(param), offset)
                 lclNode->SetLclNum(lclNum);
                 lclNode->SetType(TYP_BYREF);
-                lclNode->gtFlags = 0;
+                lclNode->gtFlags = GTF_EMPTY;
 
                 tree->ChangeOper(GT_ADD);
                 tree->AsOp()->SetOp(0, lclNode);
                 tree->AsOp()->SetOp(1, offset);
-                tree->gtFlags = 0;
+                tree->gtFlags = GTF_EMPTY;
             }
             else
             {

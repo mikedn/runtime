@@ -4913,6 +4913,15 @@ GenTree* GenTree::FindUser(GenTree*** useEdge)
     return nullptr;
 }
 
+GenTreeRetExpr::GenTreeRetExpr(var_types type, GenTreeCall* call)
+    : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(call), m_retBlockIRSummary(BBF_EMPTY)
+{
+    // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
+    // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
+    // For example, impImportLeave or CEE_POP need to spill GT_RET_EXPR before empty the evaluation stack.
+    gtFlags |= GTF_CALL;
+}
+
 //------------------------------------------------------------------------------
 // OperRequiresAsgFlag : Check whether the operation requires GTF_ASG flag regardless
 //                       of the children's flags.
@@ -5370,9 +5379,9 @@ GenTree* Compiler::gtNewJmpTableNode()
  *  node)
  */
 
-unsigned Compiler::gtTokenToIconFlags(unsigned token)
+GenTreeFlags Compiler::gtTokenToIconFlags(unsigned token)
 {
-    unsigned flags = 0;
+    GenTreeFlags flags = GTF_EMPTY;
 
     switch (TypeFromToken(token))
     {
@@ -5415,7 +5424,7 @@ unsigned Compiler::gtTokenToIconFlags(unsigned token)
 //    If the indType is GT_REF we also mark the indNode as GTF_GLOB_REF
 //
 
-GenTree* Compiler::gtNewIndOfIconHandleNode(var_types indType, size_t addr, unsigned iconFlags, bool isInvariant)
+GenTree* Compiler::gtNewIndOfIconHandleNode(var_types indType, size_t addr, GenTreeFlags iconFlags, bool isInvariant)
 {
     GenTree* addrNode = gtNewIconHandleNode(addr, iconFlags);
     GenTree* indNode  = gtNewOperNode(GT_IND, indType, addrNode);
@@ -5463,7 +5472,7 @@ GenTree* Compiler::gtNewIndOfIconHandleNode(var_types indType, size_t addr, unsi
  *  If the handle needs to be accessed via an indirection, pValue points to it.
  */
 
-GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, unsigned iconFlags, void* compileTimeHandle)
+GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags iconFlags, void* compileTimeHandle)
 {
     GenTree* iconNode;
     GenTree* handleNode;
@@ -6271,10 +6280,10 @@ GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
 //    Returns GT_ALLOCOBJ node that will be later morphed into an
 //    allocation helper call or local variable allocation on the stack.
 
-GenTreeAllocObj* Compiler::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedToken, BOOL useParent)
+GenTreeAllocObj* Compiler::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool useParent)
 {
-    const BOOL      mustRestoreHandle     = TRUE;
-    BOOL* const     pRuntimeLookup        = nullptr;
+    const bool      mustRestoreHandle     = true;
+    bool* const     pRuntimeLookup        = nullptr;
     bool            usingReadyToRunHelper = false;
     CorInfoHelpFunc helper                = CORINFO_HELP_UNDEF;
     GenTree*        opHandle = impTokenToHandle(pResolvedToken, pRuntimeLookup, mustRestoreHandle, useParent);
@@ -6467,7 +6476,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
 //    recursive invocations to avoid replacing defs.
 
 GenTree* Compiler::gtCloneExpr(
-    GenTree* tree, unsigned addFlags, unsigned varNum, int varVal, unsigned deepVarNum, int deepVarVal)
+    GenTree* tree, GenTreeFlags addFlags, unsigned varNum, int varVal, unsigned deepVarNum, int deepVarVal)
 {
     if (tree == nullptr)
     {
@@ -7002,7 +7011,10 @@ DONE:
 // Returns:
 //    Cloned copy of call and all subtrees.
 
-GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree, unsigned addFlags, unsigned deepVarNum, int deepVarVal)
+GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
+                                             GenTreeFlags addFlags,
+                                             unsigned     deepVarNum,
+                                             int          deepVarVal)
 {
     GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree);
 
@@ -8174,7 +8186,7 @@ void GenTree::SetIndirExceptionFlags(Compiler* comp)
 
 #ifdef DEBUG
 
-/* static */ int GenTree::gtDispFlags(unsigned flags, unsigned debugFlags)
+/* static */ int GenTree::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
 {
     int charsDisplayed = 11; // 11 is the "baseline" number of flag characters displayed
 
@@ -8773,7 +8785,7 @@ int Compiler::gtDispNodeHeader(GenTree* tree, IndentStack* indentStack, int msgL
         }
 
         /* Then print the general purpose flags */
-        unsigned flags = tree->gtFlags;
+        GenTreeFlags flags = tree->gtFlags;
 
         if (tree->OperIsBinary())
         {

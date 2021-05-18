@@ -1341,6 +1341,60 @@ struct FuncInfoDsc
     // that isn't shared between the main function body and funclets.
 };
 
+//-------------------------------------------------------------------------
+// LoopFlags: flags for the loop table.
+//
+enum LoopFlags : uint16_t
+{
+    LPFLG_EMPTY = 0,
+
+    LPFLG_DO_WHILE  = 0x0001, // it's a do-while loop (i.e ENTRY is at the TOP)
+    LPFLG_ONE_EXIT  = 0x0002, // the loop has only one exit
+    LPFLG_ITER      = 0x0004, // loop of form: for (i = icon or lclVar; test_condition(); i++)
+    LPFLG_HOISTABLE = 0x0008, // the loop is in a form that is suitable for hoisting expressions
+
+    LPFLG_CONST      = 0x0010, // loop of form: for (i=icon;i<icon;i++){ ... } - constant loop
+    LPFLG_VAR_INIT   = 0x0020, // iterator is initialized with a local var (var # found in lpVarInit)
+    LPFLG_CONST_INIT = 0x0040, // iterator is initialized with a constant (found in lpConstInit)
+    LPFLG_SIMD_LIMIT = 0x0080, // iterator is compared with vector element count (found in lpConstLimit)
+
+    LPFLG_VAR_LIMIT    = 0x0100, // iterator is compared with a local var (var # found in lpVarLimit)
+    LPFLG_CONST_LIMIT  = 0x0200, // iterator is compared with a constant (found in lpConstLimit)
+    LPFLG_ARRLEN_LIMIT = 0x0400, // iterator is compared with a.len or a[i].len (found in lpArrLenLimit)
+    LPFLG_HAS_PREHEAD  = 0x0800, // lpHead is known to be a preHead for this loop
+
+    LPFLG_REMOVED     = 0x1000, // has been removed from the loop table (unrolled or optimized away)
+    LPFLG_DONT_UNROLL = 0x2000, // do not unroll this loop
+    LPFLG_ASGVARS_YES = 0x4000, // "lpAsgVars" has been computed
+    LPFLG_ASGVARS_INC = 0x8000, // "lpAsgVars" is incomplete -- vars beyond those representable in an AllVarSet
+                                // type are assigned to.
+};
+
+inline constexpr LoopFlags operator~(LoopFlags a)
+{
+    return (LoopFlags)(~(uint16_t)a);
+}
+
+inline constexpr LoopFlags operator|(LoopFlags a, LoopFlags b)
+{
+    return (LoopFlags)((uint16_t)a | (uint16_t)b);
+}
+
+inline constexpr LoopFlags operator&(LoopFlags a, LoopFlags b)
+{
+    return (LoopFlags)((uint16_t)a & (uint16_t)b);
+}
+
+inline LoopFlags& operator|=(LoopFlags& a, LoopFlags b)
+{
+    return a = (LoopFlags)((uint16_t)a | (uint16_t)b);
+}
+
+inline LoopFlags& operator&=(LoopFlags& a, LoopFlags b)
+{
+    return a = (LoopFlags)((uint16_t)a & (uint16_t)b);
+}
+
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -1807,13 +1861,13 @@ public:
 
     GenTree* gtNewJmpTableNode();
 
-    GenTree* gtNewIndOfIconHandleNode(var_types indType, size_t value, unsigned iconFlags, bool isInvariant);
+    GenTree* gtNewIndOfIconHandleNode(var_types indType, size_t value, GenTreeFlags iconFlags, bool isInvariant);
 
-    GenTreeIntCon* gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fields = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
 
-    unsigned gtTokenToIconFlags(unsigned token);
+    GenTreeFlags gtTokenToIconFlags(unsigned token);
 
-    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, unsigned flags, void* compileTimeHandle);
+    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle);
 
     GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
@@ -1975,7 +2029,7 @@ public:
     GenTreeAllocObj* gtNewAllocObjNode(
         unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1);
 
-    GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedToken, BOOL useParent);
+    GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool useParent);
 
     GenTree* gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* lookupTree);
 
@@ -1990,11 +2044,14 @@ public:
     // create a copy of `tree`, adding specified flags, replacing uses of lclVar `deepVarNum` with
     // IntCnses with value `deepVarVal`.
     GenTree* gtCloneExpr(
-        GenTree* tree, unsigned addFlags, unsigned varNum, int varVal, unsigned deepVarNum, int deepVarVal);
+        GenTree* tree, GenTreeFlags addFlags, unsigned varNum, int varVal, unsigned deepVarNum, int deepVarVal);
 
     // Create a copy of `tree`, optionally adding specifed flags, and optionally mapping uses of local
     // `varNum` to int constants with value `varVal`.
-    GenTree* gtCloneExpr(GenTree* tree, unsigned addFlags = 0, unsigned varNum = BAD_VAR_NUM, int varVal = 0)
+    GenTree* gtCloneExpr(GenTree*     tree,
+                         GenTreeFlags addFlags = GTF_EMPTY,
+                         unsigned     varNum   = BAD_VAR_NUM,
+                         int          varVal   = 0)
     {
         return gtCloneExpr(tree, addFlags, varNum, varVal, varNum, varVal);
     }
@@ -2007,7 +2064,7 @@ public:
 
     // Internal helper for cloning a call
     GenTreeCall* gtCloneExprCallHelper(GenTreeCall* call,
-                                       unsigned     addFlags   = 0,
+                                       GenTreeFlags addFlags   = GTF_EMPTY,
                                        unsigned     deepVarNum = BAD_VAR_NUM,
                                        int          deepVarVal = 0);
 
@@ -3122,20 +3179,20 @@ public:
     GenTree* impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel);
 
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                              BOOL*                   pRuntimeLookup    = nullptr,
-                              BOOL                    mustRestoreHandle = FALSE,
-                              BOOL                    importParent      = FALSE);
+                              bool*                   pRuntimeLookup    = nullptr,
+                              bool                    mustRestoreHandle = false,
+                              bool                    importParent      = false);
 
     GenTree* impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                         BOOL*                   pRuntimeLookup    = nullptr,
-                                         BOOL                    mustRestoreHandle = FALSE)
+                                         bool*                   pRuntimeLookup    = nullptr,
+                                         bool                    mustRestoreHandle = false)
     {
-        return impTokenToHandle(pResolvedToken, pRuntimeLookup, mustRestoreHandle, TRUE);
+        return impTokenToHandle(pResolvedToken, pRuntimeLookup, mustRestoreHandle, true);
     }
 
     GenTree* impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                              CORINFO_LOOKUP*         pLookup,
-                             unsigned                flags,
+                             GenTreeFlags            flags,
                              void*                   compileTimeHandle);
 
     GenTree* getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
@@ -3144,7 +3201,7 @@ public:
                                     CORINFO_LOOKUP*         pLookup,
                                     void*                   compileTimeHandle);
 
-    GenTree* impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup, unsigned flags, void* compileTimeHandle);
+    GenTree* impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup, GenTreeFlags flags, void* compileTimeHandle);
 
     GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                            CorInfoHelpFunc         helper,
@@ -4309,9 +4366,15 @@ public:
     unsigned fgGetCodeEstimate(BasicBlock* block);
 
 #if DUMP_FLOWGRAPHS
+    enum class PhasePosition
+    {
+        PrePhase,
+        PostPhase
+    };
     const char* fgProcessEscapes(const char* nameIn, escapeMapping_t* map);
-    FILE* fgOpenFlowGraphFile(bool* wbDontClose, Phases phase, LPCWSTR type);
-    bool fgDumpFlowGraph(Phases phase);
+    static void fgDumpTree(FILE* fgxFile, GenTree* const tree);
+    FILE* fgOpenFlowGraphFile(bool* wbDontClose, Phases phase, PhasePosition pos, LPCWSTR type);
+    bool fgDumpFlowGraph(Phases phase, PhasePosition pos);
 #endif // DUMP_FLOWGRAPHS
 
 #ifdef DEBUG
@@ -4338,8 +4401,8 @@ public:
     void fgDebugCheckLoopTable();
 
     void fgDebugCheckFlags(GenTree* tree);
-    void fgDebugCheckDispFlags(GenTree* tree, unsigned dispFlags, unsigned debugFlags);
-    void fgDebugCheckFlagsHelper(GenTree* tree, unsigned treeFlags, unsigned chkFlags);
+    void fgDebugCheckDispFlags(GenTree* tree, GenTreeFlags dispFlags, GenTreeDebugFlags debugFlags);
+    void fgDebugCheckFlagsHelper(GenTree* tree, GenTreeFlags treeFlags, GenTreeFlags chkFlags);
     void fgDebugCheckTryFinallyExits();
     void fgDebugCheckProfileData();
     bool fgDebugCheckIncomingProfileData(BasicBlock* block);
@@ -4428,7 +4491,7 @@ protected:
 
     void fgControlFlowPermitted(BasicBlock* blkSrc,
                                 BasicBlock* blkDest,
-                                BOOL        IsLeave = false /* is the src a leave block */);
+                                bool        IsLeave = false /* is the src a leave block */);
 
     bool fgFlowToFirstBlockOfInnerTry(BasicBlock* blkSrc, BasicBlock* blkDest, bool sibling);
 
@@ -4673,7 +4736,7 @@ private:
                                                 CORINFO_METHOD_HANDLE dispatcherHnd);
     GenTree* getLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                            CORINFO_LOOKUP*         pLookup,
-                           unsigned                handleFlags,
+                           GenTreeFlags            handleFlags,
                            void*                   compileTimeHandle);
     GenTree* getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                   CORINFO_LOOKUP*         pLookup,
@@ -5060,7 +5123,7 @@ public:
         ALLVARSET_TP lpAsgVars;     // set of vars assigned within the loop (all vars, not just tracked)
         varRefKinds  lpAsgInds : 8; // set of inds modified within the loop
 
-        unsigned short lpFlags; // Mask of the LPFLG_* constants
+        LoopFlags lpFlags;
 
         unsigned char lpExitCnt; // number of exits from the loop
 
@@ -5072,29 +5135,6 @@ public:
         unsigned char lpSibling; // The index of another loop that is an immediate child of lpParent,
                                  // or else BasicBlock::NOT_IN_LOOP.  One can enumerate all the children of a loop
                                  // by following "lpChild" then "lpSibling" links.
-
-#define LPFLG_DO_WHILE 0x0001 // it's a do-while loop (i.e ENTRY is at the TOP)
-#define LPFLG_ONE_EXIT 0x0002 // the loop has only one exit
-
-#define LPFLG_ITER 0x0004      // for (i = icon or lclVar; test_condition(); i++)
-#define LPFLG_HOISTABLE 0x0008 // the loop is in a form that is suitable for hoisting expressions
-#define LPFLG_CONST 0x0010     // for (i=icon;i<icon;i++){ ... } - constant loop
-
-#define LPFLG_VAR_INIT 0x0020   // iterator is initialized with a local var (var # found in lpVarInit)
-#define LPFLG_CONST_INIT 0x0040 // iterator is initialized with a constant (found in lpConstInit)
-
-#define LPFLG_VAR_LIMIT 0x0100    // iterator is compared with a local var (var # found in lpVarLimit)
-#define LPFLG_CONST_LIMIT 0x0200  // iterator is compared with a constant (found in lpConstLimit)
-#define LPFLG_ARRLEN_LIMIT 0x0400 // iterator is compared with a.len or a[i].len (found in lpArrLenLimit)
-#define LPFLG_SIMD_LIMIT 0x0080   // iterator is compared with vector element count (found in lpConstLimit)
-
-#define LPFLG_HAS_PREHEAD 0x0800 // lpHead is known to be a preHead for this loop
-#define LPFLG_REMOVED 0x1000     // has been removed from the loop table (unrolled or optimized away)
-#define LPFLG_DONT_UNROLL 0x2000 // do not unroll this loop
-
-#define LPFLG_ASGVARS_YES 0x4000 // "lpAsgVars" has been  computed
-#define LPFLG_ASGVARS_INC 0x8000 // "lpAsgVars" is incomplete -- vars beyond those representable in an AllVarSet
-                                 // type are assigned to.
 
         bool lpLoopHasMemoryHavoc[MemoryKindCount]; // The loop contains an operation that we assume has arbitrary
                                                     // memory side effects.  If this is set, the fields below
@@ -5140,9 +5180,10 @@ public:
         var_types lpIterOperType() const; // For overflow instructions
 
         union {
-            int lpConstInit; // initial constant value of iterator                           : Valid if LPFLG_CONST_INIT
-            unsigned lpVarInit; // initial local var number to which we initialize the iterator : Valid if
-                                // LPFLG_VAR_INIT
+            int lpConstInit;    // initial constant value of iterator
+                                // : Valid if LPFLG_CONST_INIT
+            unsigned lpVarInit; // initial local var number to which we initialize the iterator
+                                // : Valid if LPFLG_VAR_INIT
         };
 
         // The following is for LPFLG_ITER loops only (i.e. the loop condition is "i RELOP const or var"
@@ -5248,7 +5289,6 @@ protected:
     unsigned optLoopsCloned;       // number of loops cloned in the current method.
 
 #ifdef DEBUG
-    unsigned optFindLoopNumberFromBeginBlock(BasicBlock* begBlk);
     void optPrintLoopInfo(unsigned      loopNum,
                           BasicBlock*   lpHead,
                           BasicBlock*   lpFirst,
@@ -5889,9 +5929,9 @@ public:
             ValueNum   vn;
             struct IntVal
             {
-                ssize_t  iconVal;   // integer
-                unsigned padding;   // unused; ensures iconFlags does not overlap lconVal
-                unsigned iconFlags; // gtFlags
+                ssize_t      iconVal;   // integer
+                unsigned     padding;   // unused; ensures iconFlags does not overlap lconVal
+                GenTreeFlags iconFlags; // gtFlags
             };
             struct Range // integer subrange
             {
@@ -6123,7 +6163,7 @@ public:
     // Assertion prop data flow functions.
     void       optAssertionPropMain();
     Statement* optVNAssertionPropCurStmt(BasicBlock* block, Statement* stmt);
-    bool optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, unsigned* pIconFlags);
+    bool optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
     ASSERT_TP* optInitAssertionDataflowFlags();
     ASSERT_TP* optComputeAssertionGen();
 
@@ -6565,7 +6605,7 @@ public:
 
     // ICorJitInfo wrappers
 
-    void eeReserveUnwindInfo(BOOL isFunclet, BOOL isColdCode, ULONG unwindSize);
+    void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, ULONG unwindSize);
 
     void eeAllocUnwindInfo(BYTE*          pHotCode,
                            BYTE*          pColdCode,
@@ -7938,14 +7978,17 @@ public:
         CORINFO_METHOD_HANDLE compMethodHnd;
         CORINFO_METHOD_INFO*  compMethodInfo;
 
-        BOOL hasCircularClassConstraints;
-        BOOL hasCircularMethodConstraints;
+        bool hasCircularClassConstraints;
+        bool hasCircularMethodConstraints;
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+
         const char* compMethodName;
         const char* compClassName;
         const char* compFullName;
         double      compPerfScore;
+        int         compMethodSuperPMIIndex; // useful when debugging under SuperPMI
+
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
 
 #if defined(DEBUG) || defined(INLINE_DATA)

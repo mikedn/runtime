@@ -79,7 +79,7 @@ GenTreeInstr* Lowering::MakeInstr(GenTree* node, instruction ins, emitAttr size)
     instr->SetImmediate(0);
     // Currently INSTR nodes never have side effects. This will need to be adjusted if load/store
     // nodes are lowered to load/store instructions.
-    instr->gtFlags = 0;
+    instr->gtFlags = GTF_EMPTY;
     return instr;
 }
 
@@ -1523,21 +1523,21 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
 
     if ((relop->gtNext == jtrue) && relopOp2->IsIntCon())
     {
-        bool     useJCMP   = false;
-        unsigned jcmpFlags = 0;
-        size_t   imm       = static_cast<size_t>(relopOp2->AsIntCon()->GetValue());
+        bool         useJCMP   = false;
+        GenTreeFlags jcmpFlags = GTF_EMPTY;
+        size_t       imm       = static_cast<size_t>(relopOp2->AsIntCon()->GetValue());
 
         if (relop->OperIs(GT_EQ, GT_NE) && (imm == 0))
         {
             // Generate CBZ/CBNZ
             useJCMP   = true;
-            jcmpFlags = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : 0;
+            jcmpFlags = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : GTF_EMPTY;
         }
         else if (relop->OperIs(GT_LT, GT_GE) && !relop->IsUnsigned() && (imm == 0))
         {
             // Positive/negative checks can test the sign bit using TBZ/TBNZ
             useJCMP   = true;
-            jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_GE) ? GTF_JCMP_EQ : 0);
+            jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_GE) ? GTF_JCMP_EQ : GTF_EMPTY);
 
             if (varTypeIsLong(relop->AsOp()->GetOp(0)->GetType()))
             {
@@ -1560,7 +1560,7 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
             {
                 // Generate TBZ/TBNZ
                 useJCMP   = true;
-                jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_TEST_EQ) ? GTF_JCMP_EQ : 0);
+                jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_TEST_EQ) ? GTF_JCMP_EQ : GTF_EMPTY);
 
                 relopOp2->AsIntCon()->SetValue(genLog2(imm));
             }

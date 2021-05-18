@@ -1263,7 +1263,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
                 comp->lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(Compiler::DNER_LocalField));
             }
 
-            arg->gtFlags = 0;
+            arg->gtFlags = GTF_EMPTY;
 
             BlockRange().Remove(srcAddr);
         }

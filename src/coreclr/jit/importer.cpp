@@ -1488,9 +1488,9 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 // at compile-time.
 //
 GenTree* Compiler::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    BOOL*                   pRuntimeLookup /* = NULL */,
-                                    BOOL                    mustRestoreHandle /* = FALSE */,
-                                    BOOL                    importParent /* = FALSE */)
+                                    bool*                   pRuntimeLookup /* = NULL */,
+                                    bool                    mustRestoreHandle /* = false */,
+                                    bool                    importParent /* = false */)
 {
     assert(!fgGlobalMorph);
 
@@ -1539,7 +1539,7 @@ GenTree* Compiler::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 
 GenTree* Compiler::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                    CORINFO_LOOKUP*         pLookup,
-                                   unsigned                handleFlags,
+                                   GenTreeFlags            handleFlags,
                                    void*                   compileTimeHandle)
 {
     if (!pLookup->lookupKind.needsRuntimeLookup)
@@ -1600,7 +1600,7 @@ GenTree* Compiler::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 
 #ifdef FEATURE_READYTORUN_COMPILER
 GenTree* Compiler::impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup,
-                                             unsigned              handleFlags,
+                                             GenTreeFlags          handleFlags,
                                              void*                 compileTimeHandle)
 {
     CORINFO_GENERIC_HANDLE handle       = nullptr;
@@ -3534,7 +3534,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                     JITDUMP("Optimizing constrained box-this obj.getType() to direct type construction\n");
                     impPopStack();
                     GenTree* typeHandleOp =
-                        impTokenToHandle(pConstrainedResolvedToken, nullptr, TRUE /* mustRestoreHandle */);
+                        impTokenToHandle(pConstrainedResolvedToken, nullptr, true /* mustRestoreHandle */);
                     if (typeHandleOp == nullptr)
                     {
                         assert(compDonotInline());
@@ -5339,7 +5339,7 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         assert(operCls != nullptr);
 
         // Ensure that the value class is restored
-        op2 = impTokenToHandle(pResolvedToken, nullptr, TRUE /* mustRestoreHandle */);
+        op2 = impTokenToHandle(pResolvedToken, nullptr, true /* mustRestoreHandle */);
         if (op2 == nullptr)
         {
             // We must be backing out of an inline.
@@ -5973,7 +5973,7 @@ GenTree* Compiler::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
     {
         return nullptr;
     }
-    BOOL runtimeLookup;
+    bool runtimeLookup;
 
     GenTree* node = impParentClassTokenToHandle(pResolvedToken, &runtimeLookup);
 
@@ -6813,7 +6813,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 
         constraintCallThisTransform    = callInfo->thisTransform;
         exactContextHnd                = callInfo->contextHandle;
-        exactContextNeedsRuntimeLookup = callInfo->exactContextNeedsRuntimeLookup == TRUE;
+        exactContextNeedsRuntimeLookup = callInfo->exactContextNeedsRuntimeLookup;
 
         switch (callInfo->kind)
         {
@@ -7299,7 +7299,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
         assert(opcode != CEE_CALLI);
 
         GenTree* instParam;
-        BOOL     runtimeLookup;
+        bool     runtimeLookup;
 
         // Instantiated generic method
         if (((SIZE_T)exactContextHnd & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_METHOD)
@@ -7331,7 +7331,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             }
             else
             {
-                instParam = impTokenToHandle(pResolvedToken, &runtimeLookup, TRUE /*mustRestoreHandle*/);
+                instParam = impTokenToHandle(pResolvedToken, &runtimeLookup, true /*mustRestoreHandle*/);
                 if (instParam == nullptr)
                 {
                     assert(compDonotInline());
@@ -7386,12 +7386,12 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                 // because pResolvedToken is an interface method and interface types make a poor generic context.
                 if (pConstrainedResolvedToken)
                 {
-                    instParam = impTokenToHandle(pConstrainedResolvedToken, &runtimeLookup, TRUE /*mustRestoreHandle*/,
-                                                 FALSE /* importParent */);
+                    instParam = impTokenToHandle(pConstrainedResolvedToken, &runtimeLookup, true /*mustRestoreHandle*/,
+                                                 false /* importParent */);
                 }
                 else
                 {
-                    instParam = impParentClassTokenToHandle(pResolvedToken, &runtimeLookup, TRUE /*mustRestoreHandle*/);
+                    instParam = impParentClassTokenToHandle(pResolvedToken, &runtimeLookup, true /*mustRestoreHandle*/);
                 }
 
                 if (instParam == nullptr)
@@ -11547,7 +11547,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef*/,
+                eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
                               combine(CORINFO_CALLINFO_SECURITYCHECKS, CORINFO_CALLINFO_LDFTN), &callInfo);
 
                 // This check really only applies to intrinsic Array.Address methods
@@ -11666,9 +11666,9 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 {
                     OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
-                    if (actualOpcode != CEE_CALLVIRT)
+                    if (actualOpcode != CEE_CALLVIRT && actualOpcode != CEE_CALL && actualOpcode != CEE_LDFTN)
                     {
-                        BADCODE("constrained. has to be followed by callvirt");
+                        BADCODE("constrained. has to be followed by callvirt, call or ldftn");
                     }
                 }
 
@@ -12402,7 +12402,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_STFLD:
             case CEE_STSFLD:
             {
-                BOOL isStoreStatic = (opcode == CEE_STSFLD);
+                bool isStoreStatic = (opcode == CEE_STSFLD);
 
                 CORINFO_CLASS_HANDLE fieldClsHnd; // class of the field (if it's a ref type)
 
@@ -12720,7 +12720,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 if (!opts.IsReadyToRun())
                 {
                     // Need to restore array classes before creating array objects on the heap
-                    op1 = impTokenToHandle(&resolvedToken, nullptr, TRUE /*mustRestoreHandle*/);
+                    op1 = impTokenToHandle(&resolvedToken, nullptr, true /*mustRestoreHandle*/);
                     if (op1 == nullptr)
                     { // compDonotInline()
                         return;
@@ -12769,7 +12769,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
                         // Need to restore array classes before creating array objects on the heap
-                        op1 = impTokenToHandle(&resolvedToken, nullptr, TRUE /*mustRestoreHandle*/);
+                        op1 = impTokenToHandle(&resolvedToken, nullptr, true /*mustRestoreHandle*/);
                         if (op1 == nullptr)
                         { // compDonotInline()
                             return;
@@ -12913,7 +12913,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (!opts.IsReadyToRun())
                 {
-                    op2 = impTokenToHandle(&resolvedToken, nullptr, FALSE);
+                    op2 = impTokenToHandle(&resolvedToken, nullptr, false);
                     if (op2 == nullptr)
                     {
                         return;
@@ -12953,7 +12953,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         //      3) Perform the 'is instance' check on the input object
                         // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
-                        op2 = impTokenToHandle(&resolvedToken, nullptr, FALSE);
+                        op2 = impTokenToHandle(&resolvedToken, nullptr, false);
                         if (op2 == nullptr)
                         {
                             return;
@@ -13065,7 +13065,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Ldtoken);
                 tokenType = info.compCompHnd->getTokenTypeAsHandle(&resolvedToken);
 
-                op1 = impTokenToHandle(&resolvedToken, nullptr, TRUE);
+                op1 = impTokenToHandle(&resolvedToken, nullptr, true);
                 if (op1 == nullptr)
                 { // compDonotInline()
                     return;
@@ -13100,7 +13100,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                BOOL runtimeLookup;
+                bool runtimeLookup;
                 op2 = impTokenToHandle(&resolvedToken, &runtimeLookup);
                 if (op2 == nullptr)
                 {
@@ -13369,7 +13369,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (!opts.IsReadyToRun())
                 {
-                    op2 = impTokenToHandle(&resolvedToken, nullptr, FALSE);
+                    op2 = impTokenToHandle(&resolvedToken, nullptr, false);
                     if (op2 == nullptr)
                     { // compDonotInline()
                         return;
@@ -13416,7 +13416,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             //      3) Check the object on the stack for the type-cast
                             // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
-                            op2 = impTokenToHandle(&resolvedToken, nullptr, FALSE);
+                            op2 = impTokenToHandle(&resolvedToken, nullptr, false);
                             if (op2 == nullptr)
                             {
                                 return;
@@ -13616,7 +13616,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                op2 = impTokenToHandle(&resolvedToken, nullptr, TRUE);
+                op2 = impTokenToHandle(&resolvedToken, nullptr, true);
                 if (op2 == nullptr)
                 {
                     return;
@@ -16120,6 +16120,14 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         if (isExplicitTailCall)
         {
             JITDUMP("Have a direct explicit tail call to boxed entry point; can't optimize further\n");
+        }
+        else if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+        {
+            // Per https://github.com/dotnet/runtime/issues/52483, crossgen2 seemingly gets
+            // confused about whether the unboxed entry requires an extra arg.
+            // So defer further optimization for now.
+            //
+            JITDUMP("Have a direct boxed entry point, prejitting. Can't optimize further yet.\n");
         }
         else
         {

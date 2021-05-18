@@ -81,7 +81,7 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->gtCallArgs            = args;
     call->gtCallLateArgs        = nullptr;
     call->fgArgInfo             = nullptr;
-    call->gtCallMoreFlags       = 0;
+    call->gtCallMoreFlags       = GTF_CALL_M_EMPTY;
     call->gtInlineCandidateInfo = nullptr;
     call->gtControlExpr         = nullptr;
 
@@ -2535,8 +2535,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
     JITDUMP("%s call [%06u] args\n", reMorphing ? "Remorphing" : "Morphing", call->gtTreeID);
 
-    unsigned argsSideEffects = 0;
-    unsigned argNum          = 0;
+    GenTreeFlags argsSideEffects = GTF_EMPTY;
+    unsigned     argNum          = 0;
     // Sometimes we need a second pass to morph args, most commonly for arguments
     // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
     // so if the args needs a temp EvalArgsToTemps won't be able to allocate one.
@@ -2769,7 +2769,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 
         arg->AsLclVar()->SetLclNum(lcl->GetPromotedFieldLclNum(0));
         arg->SetType(fieldType);
-        arg->gtFlags = 0;
+        arg->gtFlags = GTF_EMPTY;
 
         argInfo->SetArgType(fieldType);
 
@@ -2875,7 +2875,7 @@ void Compiler::abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* arg)
     GenTree* type    = arg->GetOp(1);
 
     GenTreeFieldList* fieldList = abiMakeFieldList(arg);
-    fieldList->gtFlags          = 0;
+    fieldList->gtFlags          = GTF_EMPTY;
     fieldList->AddField(this, dataPtr, OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
     fieldList->AddField(this, type, OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
 }
@@ -6666,7 +6666,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 //
 GenTree* Compiler::getLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                  CORINFO_LOOKUP*         pLookup,
-                                 unsigned                handleFlags,
+                                 GenTreeFlags            handleFlags,
                                  void*                   compileTimeHandle)
 {
     if (!pLookup->lookupKind.needsRuntimeLookup)
@@ -6833,7 +6833,7 @@ GenTree* Compiler::getVirtMethodPointerTree(GenTree*                thisPtr,
 GenTree* Compiler::getTokenHandleTree(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool parent)
 {
     CORINFO_GENERICHANDLE_RESULT embedInfo;
-    info.compCompHnd->embedGenericHandle(pResolvedToken, parent ? TRUE : FALSE, &embedInfo);
+    info.compCompHnd->embedGenericHandle(pResolvedToken, parent, &embedInfo);
 
     GenTree* result = getLookupTree(pResolvedToken, &embedInfo.lookup, gtTokenToIconFlags(pResolvedToken->token),
                                     embedInfo.compileTimeHandle);
@@ -8118,7 +8118,7 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
             //
             //     So to sum it up - this is pretty much restricted to INT now to minimize diffs.
 
-            unsigned destFlags = dest->gtFlags & GTF_COLON_COND;
+            GenTreeFlags destFlags = dest->gtFlags & GTF_COLON_COND;
 
             var_types initType     = TYP_UNDEF;
             var_types initBaseType = TYP_UNDEF;
@@ -8194,7 +8194,7 @@ GenTree* Compiler::fgMorphInitBlock(GenTreeOp* asg)
                 destLclNode->SetType(initType);
                 destLclNode->AsLclVarCommon()->SetLclNum(destLclNum);
 
-                destFlags |= GTF_DONT_CSE | GTF_VAR_DEF | (destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0);
+                destFlags |= GTF_DONT_CSE | GTF_VAR_DEF | (destLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY);
 
                 if (destLclNode->OperIs(GT_LCL_FLD))
                 {
@@ -8459,7 +8459,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitBlock(LclVarDsc* destLclVar, GenTree* 
         LclVarDsc* destFieldLcl    = lvaGetDesc(destFieldLclNum);
 
         GenTree* destField = gtNewLclvNode(destFieldLclNum, destFieldLcl->GetType());
-        destField->gtFlags |= destFieldLcl->lvAddrExposed ? GTF_GLOB_REF : 0;
+        destField->gtFlags |= destFieldLcl->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
 
         var_types type     = destFieldLcl->GetType();
         var_types baseType = varTypeIsSIMD(type) ? destFieldLcl->GetLayout()->GetElementType() : TYP_UNDEF;
@@ -9120,7 +9120,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                         src->ChangeOper(GT_LCL_VAR);
                         src->SetType(destLclVar->GetType());
                         src->AsLclVar()->SetLclNum(srcLclNum);
-                        src->gtFlags = 0;
+                        src->gtFlags = GTF_EMPTY;
                     }
                     else
                     {
@@ -9128,7 +9128,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                         src->SetType(destLclVar->GetType());
                         src->AsLclFld()->SetLclNum(srcLclNum);
                         src->AsLclFld()->SetLclOffs(srcLclOffs);
-                        src->gtFlags = 0;
+                        src->gtFlags = GTF_EMPTY;
 
                         lvaSetVarDoNotEnregister(srcLclNum DEBUGARG(DNER_LocalField));
 
@@ -9183,7 +9183,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             {
                 src->ChangeOper(GT_LCL_VAR);
                 src->AsLclVar()->SetLclNum(srcLclNum);
-                src->gtFlags = 0;
+                src->gtFlags = GTF_EMPTY;
 
                 if (!srcLclVar->lvPromoted)
                 {
@@ -9206,7 +9206,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
                 dest->ChangeOper(GT_LCL_VAR);
                 dest->AsLclVar()->SetLclNum(destLclNum);
                 dest->gtFlags = GTF_VAR_DEF;
-                dest->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+                dest->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
             }
         }
 
@@ -9215,7 +9215,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             if (src->GetType() != dest->GetType())
             {
                 src = gtNewIndir(dest->GetType(), gtNewAddrNode(srcLclNode, TYP_I_IMPL));
-                src->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+                src->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
             }
         }
 
@@ -9417,7 +9417,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             LclVarDsc* destFieldLclVar = lvaGetDesc(destFieldLclNum);
 
             destField = gtNewLclvNode(destFieldLclNum, destFieldLclVar->GetType());
-            destField->gtFlags |= destFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+            destField->gtFlags |= destFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
         }
         else if (destSingleLclVarAsg)
         {
@@ -9426,7 +9426,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             noway_assert(addr == nullptr);
 
             destField = gtNewLclvNode(destLclNum, destLclVar->GetType());
-            destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+            destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
         }
         else if (destLclVar != nullptr)
         {
@@ -9435,7 +9435,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             destField = gtNewLclFldNode(destLclNum, srcFieldLclVar->GetType(),
                                         destLclOffs + srcFieldLclVar->GetPromotedFieldOffset());
-            destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+            destField->gtFlags |= destLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
 
             // We don't have a field sequence for the destination field but one can be obtained from
             // the source field if the destination and source have the same type. Of course, other
@@ -9519,7 +9519,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             LclVarDsc* srcFieldLclVar = lvaGetDesc(srcFieldLclNum);
 
             srcField = gtNewLclvNode(srcFieldLclNum, srcFieldLclVar->GetType());
-            srcField->gtFlags |= srcFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+            srcField->gtFlags |= srcFieldLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
         }
         else if (srcSingleLclVarAsg)
         {
@@ -9528,7 +9528,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
             noway_assert(addr == nullptr);
 
             srcField = gtNewLclvNode(srcLclNum, srcLclVar->GetType());
-            srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+            srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
         }
         else if (srcLclVar != nullptr)
         {
@@ -9537,7 +9537,7 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
 
             srcField = gtNewLclFldNode(srcLclNum, destFieldLclVar->GetType(),
                                        srcLclOffs + destFieldLclVar->GetPromotedFieldOffset());
-            srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : 0;
+            srcField->gtFlags |= srcLclVar->lvAddrExposed ? GTF_GLOB_REF : GTF_EMPTY;
 
             // We don't have a field sequence for the source field but one can be obtained from
             // the destination field if the destination and source have the same type.
@@ -11610,6 +11610,14 @@ DONE_MORPHING_CHILDREN:
                 op2 = tree->AsOp()->gtOp2;
             }
 
+            // Fold "cmp & 1" to just "cmp"
+            if (tree->OperIs(GT_AND) && tree->TypeIs(TYP_INT) && op1->OperIsCompare() && op2->IsIntegralConst(1))
+            {
+                DEBUG_DESTROY_NODE(op2);
+                DEBUG_DESTROY_NODE(tree);
+                return op1;
+            }
+
             // See if we can fold floating point operations (can regress minopts mode)
             if (opts.OptimizationEnabled() && varTypeIsFloating(tree->TypeGet()) && !optValnumCSE_phase)
             {
@@ -12278,12 +12286,12 @@ DONE_MORPHING_CHILDREN:
                 // TBD: this transformation is currently necessary for correctness -- it might
                 // be good to analyze the failures that result if we don't do this, and fix them
                 // in other ways.  Ideally, this should be optional.
-                GenTree* commaNode = op1;
-                unsigned treeFlags = tree->gtFlags;
-                commaNode->gtType  = typ;
-                commaNode->gtFlags = (treeFlags & ~GTF_REVERSE_OPS); // Bashing the GT_COMMA flags here is
-                                                                     // dangerous, clear the GTF_REVERSE_OPS at
-                                                                     // least.
+                GenTree*     commaNode = op1;
+                GenTreeFlags treeFlags = tree->gtFlags;
+                commaNode->gtType      = typ;
+                commaNode->gtFlags     = (treeFlags & ~GTF_REVERSE_OPS); // Bashing the GT_COMMA flags here is
+                                                                         // dangerous, clear the GTF_REVERSE_OPS at
+                                                                         // least.
 
                 INDEBUG(commaNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
 
@@ -15215,8 +15223,8 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
     // if they are going to be cleared by fgSplitBlockAfterStatement(). We currently only do this only
     // for the GC safe point bit, the logic being that if 'block' was marked gcsafe, then surely
     // remainderBlock will still be GC safe.
-    unsigned    propagateFlags = block->bbFlags & BBF_GC_SAFE_POINT;
-    BasicBlock* remainderBlock = fgSplitBlockAfterStatement(block, stmt);
+    BasicBlockFlags propagateFlags = block->bbFlags & BBF_GC_SAFE_POINT;
+    BasicBlock*     remainderBlock = fgSplitBlockAfterStatement(block, stmt);
     fgRemoveRefPred(remainderBlock, block); // We're going to put more blocks between block and remainderBlock.
 
     BasicBlock* helperBlock = fgNewBBafter(BBJ_NONE, block, true);
@@ -15398,8 +15406,8 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     // if they are going to be cleared by fgSplitBlockAfterStatement(). We currently only do this only
     // for the GC safe point bit, the logic being that if 'block' was marked gcsafe, then surely
     // remainderBlock will still be GC safe.
-    unsigned    propagateFlags = block->bbFlags & BBF_GC_SAFE_POINT;
-    BasicBlock* remainderBlock = fgSplitBlockAfterStatement(block, stmt);
+    BasicBlockFlags propagateFlags = block->bbFlags & BBF_GC_SAFE_POINT;
+    BasicBlock*     remainderBlock = fgSplitBlockAfterStatement(block, stmt);
     fgRemoveRefPred(remainderBlock, block); // We're going to put more blocks between block and remainderBlock.
 
     BasicBlock* condBlock = fgNewBBafter(BBJ_COND, block, true);

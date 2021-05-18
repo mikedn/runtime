@@ -779,7 +779,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
     inlineInfo.inlineResult        = inlineResult;
 
     inlineInfo.retExpr                = nullptr;
-    inlineInfo.retBlockIRSummary      = 0;
+    inlineInfo.retBlockIRSummary      = BBF_EMPTY;
     inlineInfo.retExprClassHnd        = NO_CLASS_HANDLE;
     inlineInfo.retExprClassHndIsExact = false;
     inlineInfo.retSpillTempLclNum     = BAD_VAR_NUM;
@@ -1996,7 +1996,7 @@ Statement* Compiler::inlInsertSingleBlockInlineeStatements(const InlineInfo* inl
         stmtAfter = fgInsertStmtListAfter(block, stmtAfter, inlineeBlock->GetFirstStatement());
     }
 
-    uint64_t inlineeBlockFlags = inlineeBlock->bbFlags;
+    BasicBlockFlags inlineeBlockFlags = inlineeBlock->bbFlags;
     noway_assert((inlineeBlockFlags & BBF_HAS_JMP) == 0);
     noway_assert((inlineeBlockFlags & BBF_KEEP_BBJ_ALWAYS) == 0);
     // TODO-MIKE-Fix: This should only add BBF_IR_SUMMARY flags.
@@ -2018,7 +2018,7 @@ BasicBlock* Compiler::inlSplitInlinerBlock(const InlineInfo* inlineInfo, Stateme
 
     // Update block flags
     {
-        const uint64_t originalFlags = callBlock->bbFlags;
+        const BasicBlockFlags originalFlags = callBlock->bbFlags;
         noway_assert((originalFlags & BBF_SPLIT_NONEXIST) == 0);
         callBlock->bbFlags &= ~BBF_SPLIT_LOST;
         returnTargetBlock->bbFlags |= originalFlags & BBF_SPLIT_GAINED;

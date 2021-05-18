@@ -650,7 +650,7 @@ struct InlineInfo
     InlineResult*        inlineResult;
 
     GenTree*             retExpr;
-    uint64_t             retBlockIRSummary;
+    BasicBlockFlags      retBlockIRSummary;
     CORINFO_CLASS_HANDLE retExprClassHnd;
     bool                 retExprClassHndIsExact;
     unsigned             retSpillTempLclNum;
