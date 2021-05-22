@@ -1564,40 +1564,6 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 //
 void Lowering::ContainCheckSIMD(GenTreeSIMD* simdNode)
 {
-    switch (simdNode->gtSIMDIntrinsicID)
-    {
-        GenTree* op1;
-        GenTree* op2;
-
-        case SIMDIntrinsicGetItem:
-        {
-            // This implements get_Item method. The sources are:
-            //  - the source SIMD struct
-            //  - index (which element to get)
-            // The result is baseType of SIMD struct.
-            op1 = simdNode->GetOp(0);
-            op2 = simdNode->GetOp(1);
-
-            // If the index is a constant, mark it as contained.
-            if (op2->IsCnsIntOrI())
-            {
-                MakeSrcContained(simdNode, op2);
-            }
-
-            if (IsContainableMemoryOp(op1))
-            {
-                MakeSrcContained(simdNode, op1);
-                if (op1->OperGet() == GT_IND)
-                {
-                    op1->AsIndir()->Addr()->ClearContained();
-                }
-            }
-            break;
-        }
-
-        default:
-            break;
-    }
 }
 #endif // FEATURE_SIMD
 
@@ -1661,8 +1627,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_AdvSimd_InsertScalar:
             case NI_AdvSimd_LoadAndInsertScalar:
             case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
-            case NI_Vector64_GetElement:
-            case NI_Vector128_GetElement:
                 assert(hasImmediateOperand);
                 assert(varTypeIsIntegral(intrin.op2));
                 if (intrin.op2->IsCnsIntOrI())
@@ -1727,6 +1691,29 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     MakeSrcContained(node, node->GetOp(0));
                 }
                 break;
+
+            case NI_Vector64_GetElement:
+            case NI_Vector128_GetElement:
+            {
+                assert(hasImmediateOperand);
+                assert(varTypeIsIntegral(intrin.op2));
+
+                if (intrin.op2->IsCnsIntOrI())
+                {
+                    MakeSrcContained(node, intrin.op2);
+                }
+
+                if (IsContainableMemoryOp(intrin.op1))
+                {
+                    MakeSrcContained(node, intrin.op1);
+
+                    if (intrin.op1->OperIs(GT_IND))
+                    {
+                        intrin.op1->AsIndir()->Addr()->ClearContained();
+                    }
+                }
+                break;
+            }
 
             default:
                 unreached();

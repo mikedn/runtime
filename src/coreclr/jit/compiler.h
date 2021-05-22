@@ -1947,6 +1947,12 @@ public:
 #ifdef FEATURE_HW_INTRINSICS
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
+
+    GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types elementType, unsigned simdSize, GenTree* op1, GenTree* op2);
+
+    GenTreeHWIntrinsic* gtNewSimdWithElementNode(
+        var_types type, var_types simdBaseType, unsigned simdSize, GenTree* op1, GenTree* op2, GenTree* op3);
+
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
                                                  NamedIntrinsic hwIntrinsicID,
                                                  var_types      baseType,
@@ -2198,7 +2204,7 @@ public:
                                    CorInfoInlineTypeCheck typeCheckInliningResult);
     GenTree* gtFoldExprCall(GenTreeCall* call);
     GenTree* gtFoldTypeCompare(GenTree* tree);
-    GenTree* gtFoldTypeEqualityCall(CorInfoIntrinsics methodID, GenTree* op1, GenTree* op2);
+    GenTree* gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2);
 
     // Options to control behavior of gtTryRemoveBoxUpstreamEffects
     enum BoxRemovalOptions
@@ -3077,9 +3083,8 @@ protected:
                                               GenTree*                    newobjThis);
 
     GenTree* impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree* newobjThis);
-
+    GenTree* impSimdAsHWIntrinsicGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impSimdAsHWIntrinsicMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-
     GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
@@ -3092,6 +3097,7 @@ protected:
     GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
     GenTree* addRangeCheckIfNeeded(
         NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
+    GenTree* addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound);
 
 #ifdef TARGET_XARCH
     GenTree* impBaseIntrinsic(NamedIntrinsic              intrinsic,
@@ -4686,7 +4692,7 @@ private:
         unsigned   m_index;
 
         GenTreeLclVar* IsSIMDField(GenTree* node);
-        GenTreeLclVar* IsSIMDGetItem(GenTree* node);
+        GenTreeLclVar* IsSIMDGetElement(GenTree* node);
 
         bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, GenTreeLclVar* simdLclVar);
 
@@ -9227,6 +9233,7 @@ public:
             case GT_RETFILT:
             case GT_RUNTIMELOOKUP:
             case GT_KEEPALIVE:
+            case GT_INC_SATURATE:
             {
                 GenTreeUnOp* const unOp = node->AsUnOp();
                 if (unOp->gtOp1 != nullptr)

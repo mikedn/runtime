@@ -627,7 +627,7 @@ private:
             if (Compiler::gtHasCallOnStack(&m_ancestors))
             {
                 varDsc->lvQuirkToLong = true;
-                JITDUMP("Adding a quirk for the storage size of V%02u of type %s", val.LclNum(),
+                JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", val.LclNum(),
                         varTypeName(varDsc->TypeGet()));
             }
         }
@@ -1245,19 +1245,18 @@ private:
                 indir->AsLclVar()->SetLclNum(val.LclNum());
                 indir->gtFlags = GTF_VAR_DEF | GTF_DONT_CSE;
 
-                user->AsOp()->SetOp(1, NewSIMDNode(varDsc->GetType(),
-                                                   static_cast<SIMDIntrinsicID>(SIMDIntrinsicSetX + val.Offset() / 4),
-                                                   TYP_FLOAT, varTypeSize(varDsc->GetType()),
-                                                   NewLclVarNode(varDsc->GetType(), val.LclNum()),
-                                                   user->AsOp()->GetOp(1)));
+                user->AsOp()->SetOp(1, NewInsertElement(varDsc->GetType(), val.Offset() / 4, TYP_FLOAT,
+                                                        NewLclVarNode(varDsc->GetType(), val.LclNum()),
+                                                        user->AsOp()->GetOp(1)));
                 user->SetType(varDsc->GetType());
             }
             else
             {
-                indir->ChangeOper(GT_SIMD);
-                indir->AsSIMD()->SetIntrinsic(SIMDIntrinsicGetItem, TYP_FLOAT, varTypeSize(varDsc->GetType()), 2);
-                indir->AsSIMD()->SetOp(0, NewLclVarNode(varDsc->GetType(), val.LclNum()));
-                indir->AsSIMD()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
+                indir->ChangeOper(GT_HWINTRINSIC);
+                indir->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, varTypeSize(varDsc->GetType()),
+                                                     2);
+                indir->AsHWIntrinsic()->SetOp(0, NewLclVarNode(varDsc->GetType(), val.LclNum()));
+                indir->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
             }
 
             INDEBUG(m_stmtModified = true;)
@@ -1700,6 +1699,13 @@ private:
     }
 
 #ifdef FEATURE_SIMD
+    GenTreeHWIntrinsic* NewInsertElement(
+        var_types type, unsigned index, var_types elementType, GenTree* dest, GenTree* value)
+    {
+        return m_compiler->gtNewSimdWithElementNode(type, elementType, varTypeSize(type), dest,
+                                                    m_compiler->gtNewIconNode(index), value);
+    }
+
     GenTreeSIMD* NewSIMDNode(var_types type, SIMDIntrinsicID intrinsic, var_types baseType, unsigned size, GenTree* op1)
     {
         return m_compiler->gtNewSIMDNode(type, intrinsic, baseType, size, op1);

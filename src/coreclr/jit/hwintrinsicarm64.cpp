@@ -256,8 +256,6 @@ void HWIntrinsicInfo::lookupImmBounds(
             case NI_AdvSimd_StoreSelectedScalar:
             case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
             case NI_AdvSimd_Arm64_InsertSelectedScalar:
-            case NI_Vector64_GetElement:
-            case NI_Vector128_GetElement:
                 immUpperBound = Compiler::getSIMDVectorLength(simdSize, baseType) - 1;
                 break;
 
@@ -395,6 +393,24 @@ GenTree* Compiler::impSpecialIntrinsic(
             break;
         }
 
+        case NI_Vector64_GetElement:
+        case NI_Vector128_GetElement:
+        {
+            assert(!sig.hasThisParam);
+            assert(sig.paramCount == 2);
+
+            if (!featureSIMD || !compExactlyDependsOn(InstructionSet_AdvSimd))
+            {
+                return nullptr;
+            }
+
+            op2 = impPopStack().val;
+            op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
+
+            retNode = gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
+            break;
+        }
+
         case NI_Vector64_WithElement:
         case NI_Vector128_WithElement:
         {
@@ -419,37 +435,7 @@ GenTree* Compiler::impSpecialIntrinsic(
             impPopStack(); // pop the indexOp that we already have.
             GenTree* vectorOp = impSIMDPopStack(getSIMDTypeForSize(simdSize));
 
-            switch (baseType)
-            {
-                case TYP_LONG:
-                case TYP_ULONG:
-                case TYP_DOUBLE:
-                    if (simdSize == 16)
-                    {
-                        retNode = gtNewSimdHWIntrinsicNode(retType, NI_AdvSimd_Insert, baseType, simdSize, vectorOp,
-                                                           gtNewIconNode(imm8), valueOp);
-                    }
-                    else
-                    {
-                        retNode = gtNewSimdHWIntrinsicNode(retType, NI_Vector64_Create, baseType, simdSize, valueOp);
-                    }
-                    break;
-
-                case TYP_FLOAT:
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                case TYP_INT:
-                case TYP_UINT:
-                    retNode = gtNewSimdHWIntrinsicNode(retType, NI_AdvSimd_Insert, baseType, simdSize, vectorOp,
-                                                       gtNewIconNode(imm8), valueOp);
-                    break;
-
-                default:
-                    return nullptr;
-            }
-
+            retNode = gtNewSimdWithElementNode(retType, baseType, simdSize, vectorOp, indexOp, valueOp);
             break;
         }
 

@@ -47,9 +47,6 @@ SIMD_INTRINSIC(".ctor",                     true,        InitArrayX,            
 SIMD_INTRINSIC("CopyTo",                    true,        CopyToArray,              TYP_VOID,       2,      {TYP_BYREF, TYP_REF,     TYP_UNDEF},   {TYP_INT, TYP_FLOAT, TYP_DOUBLE, TYP_LONG, TYP_USHORT, TYP_UBYTE, TYP_BYTE, TYP_SHORT, TYP_UINT, TYP_ULONG})
 SIMD_INTRINSIC("CopyTo",                    true,        CopyToArrayX,             TYP_VOID,       3,      {TYP_BYREF, TYP_REF,     TYP_INT  },   {TYP_INT, TYP_FLOAT, TYP_DOUBLE, TYP_LONG, TYP_USHORT, TYP_UBYTE, TYP_BYTE, TYP_SHORT, TYP_UINT, TYP_ULONG})
 
-// Get operations
-SIMD_INTRINSIC("get_Item",                  true,        GetItem,                  TYP_UNKNOWN,    2,      {TYP_BYREF, TYP_INT,     TYP_UNDEF},   {TYP_INT, TYP_FLOAT, TYP_DOUBLE, TYP_LONG, TYP_USHORT, TYP_UBYTE, TYP_BYTE, TYP_SHORT, TYP_UINT, TYP_ULONG})
-
 // Convert int/uint to single
 SIMD_INTRINSIC("ConvertToSingle",           false,       ConvertToSingle,          TYP_STRUCT,     1,      {TYP_STRUCT, TYP_UNDEF,  TYP_UNDEF},   {TYP_INT, TYP_UINT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
 // Convert long/ulong to double
@@ -73,12 +70,6 @@ SIMD_INTRINSIC("UpperRestore",              false,       UpperRestore,          
 // Internal intrinsics for Widen
 SIMD_INTRINSIC("WidenHi",                   false,       WidenHi,                  TYP_VOID,       2,      {TYP_UNDEF, TYP_UNDEF,  TYP_UNDEF},    {TYP_INT, TYP_FLOAT, TYP_USHORT, TYP_UBYTE, TYP_BYTE, TYP_SHORT, TYP_UINT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
 SIMD_INTRINSIC("WidenLo",                   false,       WidenLo,                  TYP_VOID,       2,      {TYP_UNDEF, TYP_UNDEF,  TYP_UNDEF},    {TYP_INT, TYP_FLOAT, TYP_USHORT, TYP_UBYTE, TYP_BYTE, TYP_SHORT, TYP_UINT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
-
-// Internal set element intrinsics
-SIMD_INTRINSIC("set_X", true, SetX, TYP_VOID, 2, { TYP_BYREF, TYP_UNKNOWN, TYP_UNDEF }, { TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF })
-SIMD_INTRINSIC("set_Y", true, SetY, TYP_VOID, 2, { TYP_BYREF, TYP_UNKNOWN, TYP_UNDEF }, { TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF })
-SIMD_INTRINSIC("set_Z", true, SetZ, TYP_VOID, 2, { TYP_BYREF, TYP_UNKNOWN, TYP_UNDEF }, { TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF })
-SIMD_INTRINSIC("set_W", true, SetW, TYP_VOID, 2, { TYP_BYREF, TYP_UNKNOWN, TYP_UNDEF }, { TYP_FLOAT, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF })
 
 SIMD_INTRINSIC(nullptr,                     false,       Invalid,                  TYP_UNDEF,      0,      {TYP_UNDEF,  TYP_UNDEF, TYP_UNDEF},    {TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
 #undef SIMD_INTRINSIC

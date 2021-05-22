@@ -830,6 +830,7 @@ protected:
 
     void genCodeForDivMod(GenTreeOp* treeNode);
     void genCodeForMul(GenTreeOp* treeNode);
+    void genCodeForIncSaturate(GenTree* treeNode);
     void genCodeForMulHi(GenTreeOp* treeNode);
     void genLeaInstruction(GenTreeAddrMode* lea);
 
@@ -969,8 +970,6 @@ protected:
 #ifdef FEATURE_SIMD
     instruction getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_types baseType, unsigned* ival = nullptr);
     void genSIMDIntrinsicUnOp(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsicSetItem(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsicGetItem(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicUpperSave(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode);
     void genSIMDLo64BitConvert(SIMDIntrinsicID intrinsicID,

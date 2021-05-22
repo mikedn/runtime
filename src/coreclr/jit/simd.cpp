@@ -318,7 +318,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
 {
     switch (intrinsicId)
     {
-        case SIMDIntrinsicGetItem:
         case SIMDIntrinsicConvertToSingle:
         case SIMDIntrinsicConvertToDouble:
         case SIMDIntrinsicConvertToInt32:
@@ -627,24 +626,26 @@ GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDField(GenTree* node)
 
 // Recognize a SIMDIntrinsicGetItem that uses a SIMD local variable.
 //
-GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDGetItem(GenTree* node)
+GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDGetElement(GenTree* node)
 {
-    if (!node->OperIs(GT_SIMD))
+    if (!node->OperIs(GT_HWINTRINSIC))
     {
         return nullptr;
     }
 
-    GenTreeSIMD* getItem = node->AsSIMD();
+    GenTreeHWIntrinsic* getItem = node->AsHWIntrinsic();
 
-    if ((getItem->GetIntrinsic() != SIMDIntrinsicGetItem) || !getItem->GetOp(0)->OperIs(GT_LCL_VAR) ||
+    if ((getItem->GetIntrinsic() != NI_Vector128_GetElement) || !getItem->GetOp(0)->OperIs(GT_LCL_VAR) ||
         !getItem->GetOp(1)->IsIntegralConst(m_index))
     {
         return nullptr;
     }
 
-    // Morph may generate SIMDIntrinsicGetItem having other types but at this point
-    // we only expect to see SIMDIntrinsicGetItem generated from Vector2/3/4 fields.
-    assert(getItem->TypeIs(TYP_FLOAT));
+    // We only care about Vector2/3/4 so the element type is always FLOAT.
+    if (!getItem->TypeIs(TYP_FLOAT))
+    {
+        return nullptr;
+    }
 
     return getItem->GetOp(0)->AsLclVar();
 };
@@ -757,7 +758,7 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
         return false;
     }
 
-    GenTreeLclVar* simdLclVar = IsSIMDGetItem(asg->AsOp()->GetOp(1));
+    GenTreeLclVar* simdLclVar = IsSIMDGetElement(asg->AsOp()->GetOp(1));
 
     return Add(compiler, stmt, asg->AsOp(), simdLclVar);
 }
@@ -769,9 +770,9 @@ void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* bl
 {
     assert(m_index > 1);
 
-    GenTreeOp*   asg      = m_firstStmt->GetRootNode()->AsOp();
-    GenTreeSIMD* getItem  = asg->GetOp(1)->AsSIMD();
-    var_types    simdType = getSIMDTypeForSize(getItem->GetSIMDSize());
+    GenTreeOp*          asg        = m_firstStmt->GetRootNode()->AsOp();
+    GenTreeHWIntrinsic* getElement = asg->GetOp(1)->AsHWIntrinsic();
+    var_types           simdType   = getSIMDTypeForSize(getElement->GetSIMDSize());
 
 #ifdef DEBUG
     if (compiler->verbose)
@@ -792,7 +793,7 @@ void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* bl
 
     asg->SetType(simdType);
     ChangeToSIMDMem(compiler, asg->GetOp(0), simdType);
-    asg->SetOp(1, getItem->GetOp(0)->AsLclVar());
+    asg->SetOp(1, getElement->GetOp(0)->AsLclVar());
 
 #ifdef DEBUG
     if (compiler->verbose)
@@ -1063,47 +1064,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 retVal->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
                 retVal = gtNewAssignNode(retVal, op1);
             }
-        }
-        break;
-
-        case SIMDIntrinsicGetItem:
-        {
-            assert(instMethod);
-            // op1 is a SIMD variable that is "this" arg
-            // op2 is an index of TYP_INT
-            op2              = impPopStackCoerceArg(TYP_INT);
-            op1              = impSIMDPopStackAddr(simdType);
-            int vectorLength = getSIMDVectorLength(size, baseType);
-            if (!op2->IsCnsIntOrI() || op2->AsIntCon()->gtIconVal >= vectorLength || op2->AsIntCon()->gtIconVal < 0)
-            {
-                // We need to bounds-check the length of the vector.
-                // For that purpose, we need to clone the index expression.
-                GenTree* index = op2;
-                if ((index->gtFlags & GTF_SIDE_EFFECT) != 0)
-                {
-                    op2 = fgInsertCommaFormTemp(&index);
-                }
-                else
-                {
-                    op2 = gtCloneExpr(index);
-                }
-
-                // For the non-constant case, we don't want to CSE the SIMD value, as we will just need to store
-                // it to the stack to do the indexing anyway.
-                op1->gtFlags |= GTF_DONT_CSE;
-
-                GenTree*          lengthNode = new (this, GT_CNS_INT) GenTreeIntCon(TYP_INT, vectorLength);
-                GenTreeBoundsChk* simdChk =
-                    new (this, GT_SIMD_CHK) GenTreeBoundsChk(GT_SIMD_CHK, index, lengthNode, SCK_RNGCHK_FAIL);
-
-                op2 = gtNewCommaNode(simdChk, op2);
-            }
-
-            assert(op1->TypeGet() == simdType);
-            assert(op2->TypeGet() == TYP_INT);
-
-            simdTree = gtNewSIMDNode(genActualType(callType), simdIntrinsicID, baseType, size, op1, op2);
-            retVal   = simdTree;
         }
         break;
 

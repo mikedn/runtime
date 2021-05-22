@@ -289,6 +289,23 @@ GenTree* Compiler::addRangeCheckIfNeeded(
     assert(!immOp->IsIntCon());
     assert(varTypeIsUnsigned(immOp));
 
+    return addRangeCheckForHWIntrinsic(immOp, immLowerBound, immUpperBound);
+}
+
+//------------------------------------------------------------------------
+// addRangeCheckForHWIntrinsic: add a GT_HW_INTRINSIC_CHK node for an intrinsic
+//
+// Arguments:
+//    immOp         -- the immediate operand of the intrinsic
+//    immLowerBound -- lower incl. bound for a value of the immediate operand (for a non-full-range imm-intrinsic)
+//    immUpperBound -- upper incl. bound for a value of the immediate operand (for a non-full-range imm-intrinsic)
+//
+// Return Value:
+//     add a GT_HW_INTRINSIC_CHK node for non-full-range imm-intrinsic, which would throw ArgumentOutOfRangeException
+//     when the imm-argument is not in the valid range
+//
+GenTree* Compiler::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound)
+{
     // Bounds check for value of an immediate operand
     //   (immLowerBound <= immOp) && (immOp <= immUpperBound)
     //

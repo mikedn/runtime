@@ -240,11 +240,11 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             nextNode = DecomposeRotate(use);
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            nextNode = DecomposeSimd(use);
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            nextNode = DecomposeHWIntrinsic(use);
             break;
-#endif // FEATURE_SIMD
+#endif // FEATURE_HW_INTRINSICS
 
         case GT_LOCKADD:
         case GT_XORR:
@@ -1622,10 +1622,10 @@ GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-#ifdef FEATURE_SIMD
+#ifdef FEATURE_HW_INTRINSICS
 
 //------------------------------------------------------------------------
-// DecomposeSimd: Decompose GT_SIMD.
+// DecomposeHWIntrinsic: Decompose GT_HWINTRINSIC.
 //
 // Arguments:
 //    use - the LIR::Use object for the def that needs to be decomposed.
@@ -1633,22 +1633,21 @@ GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
 // Return Value:
 //    The next node to process.
 //
-GenTree* DecomposeLongs::DecomposeSimd(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
 {
-    GenTree*   tree = use.Def();
-    genTreeOps oper = tree->OperGet();
+    GenTree* tree = use.Def();
+    assert(tree->OperIs(GT_HWINTRINSIC));
 
-    assert(oper == GT_SIMD);
+    GenTreeHWIntrinsic* hwintrinsicTree = tree->AsHWIntrinsic();
 
-    GenTreeSIMD* simdTree = tree->AsSIMD();
-
-    switch (simdTree->gtSIMDIntrinsicID)
+    switch (hwintrinsicTree->gtHWIntrinsicId)
     {
-        case SIMDIntrinsicGetItem:
-            return DecomposeSimdGetItem(use);
+        case NI_Vector128_GetElement:
+        case NI_Vector256_GetElement:
+            return DecomposeHWIntrinsicGetElement(use, hwintrinsicTree);
 
         default:
-            noway_assert(!"unexpected GT_SIMD node in long decomposition");
+            noway_assert(!"unexpected GT_HWINTRINSIC node in long decomposition");
             break;
     }
 
@@ -1656,72 +1655,74 @@ GenTree* DecomposeLongs::DecomposeSimd(LIR::Use& use)
 }
 
 //------------------------------------------------------------------------
-// DecomposeSimdGetItem: Decompose GT_SIMD -- SIMDIntrinsicGetItem.
+// DecomposeHWIntrinsicGetElement: Decompose GT_HWINTRINSIC -- NI_Vector*_GetElement.
 //
-// Decompose a get[i] node on Vector<long>. For:
+// Decompose a get[i] node on Vector*<long>. For:
 //
-// GT_SIMD{get_item}[long](simd_var, index)
+// GT_HWINTRINSIC{GetElement}[long](simd_var, index)
 //
 // create:
 //
 // tmp_simd_var = simd_var
 // tmp_index = index
-// loResult = GT_SIMD{get_item}[int](tmp_simd_var, tmp_index * 2)
-// hiResult = GT_SIMD{get_item}[int](tmp_simd_var, tmp_index * 2 + 1)
+// loResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, tmp_index * 2)
+// hiResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, tmp_index * 2 + 1)
 // return: GT_LONG(loResult, hiResult)
 //
-// This isn't optimal codegen, since SIMDIntrinsicGetItem sometimes requires
+// This isn't optimal codegen, since NI_Vector*_GetElement sometimes requires
 // temps that could be shared, for example.
 //
 // Arguments:
 //    use - the LIR::Use object for the def that needs to be decomposed.
+//   node - the hwintrinsic node to decompose
 //
 // Return Value:
 //    The next node to process.
 //
-GenTree* DecomposeLongs::DecomposeSimdGetItem(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHWIntrinsic* node)
 {
-    GenTree*   tree = use.Def();
-    genTreeOps oper = tree->OperGet();
+    assert(node == use.Def());
+    assert((node->gtHWIntrinsicId == NI_Vector128_GetElement) || (node->gtHWIntrinsicId == NI_Vector256_GetElement));
+    assert(varTypeIsLong(node->GetType()));
 
-    assert(oper == GT_SIMD);
+    GenTree*  op1      = node->GetOp(0);
+    GenTree*  op2      = node->GetOp(1);
+    var_types baseType = node->GetSIMDBaseType();
+    unsigned  simdSize = node->GetSIMDSize();
 
-    GenTreeSIMD* simdTree = tree->AsSIMD();
-    var_types    baseType = simdTree->gtSIMDBaseType;
-    unsigned     simdSize = simdTree->gtSIMDSize;
-
-    assert(simdTree->gtSIMDIntrinsicID == SIMDIntrinsicGetItem);
     assert(varTypeIsLong(baseType));
-    assert(varTypeIsLong(simdTree));
-    assert(varTypeIsSIMD(simdTree->GetOp(0)->TypeGet()));
-    assert(simdTree->GetOp(1)->TypeGet() == TYP_INT);
+    assert(varTypeIsSIMD(op1->GetType()));
 
-    bool    indexIsConst = simdTree->GetOp(1)->IsCnsIntOrI();
+    bool    indexIsConst = op2->IsIntCon();
     ssize_t index        = 0;
+
     if (indexIsConst)
     {
-        index = simdTree->GetOp(1)->AsIntCon()->gtIconVal;
+        index = op2->AsIntCon()->gtIconVal;
     }
 
-    GenTree* simdTmpVar    = RepresentOpAsLocalVar(simdTree->GetOp(0), simdTree, &simdTree->GetUse(0).NodeRef());
+    GenTree* simdTmpVar    = RepresentOpAsLocalVar(op1, node, &node->GetUse(0).NodeRef());
     unsigned simdTmpVarNum = simdTmpVar->AsLclVarCommon()->GetLclNum();
-    JITDUMP("[DecomposeSimdGetItem]: Saving op1 tree to a temp var:\n");
+    JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op1 tree to a temp var:\n");
     DISPTREERANGE(Range(), simdTmpVar);
     Range().Remove(simdTmpVar);
+    op1 = node->GetOp(0);
 
     GenTree* indexTmpVar    = nullptr;
     unsigned indexTmpVarNum = 0;
+
     if (!indexIsConst)
     {
-        indexTmpVar    = RepresentOpAsLocalVar(simdTree->GetOp(1), simdTree, &simdTree->GetUse(1).NodeRef());
+        indexTmpVar    = RepresentOpAsLocalVar(op2, node, &node->GetUse(1).NodeRef());
         indexTmpVarNum = indexTmpVar->AsLclVarCommon()->GetLclNum();
-        JITDUMP("[DecomposeSimdGetItem]: Saving op2 tree to a temp var:\n");
+        JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op2 tree to a temp var:\n");
         DISPTREERANGE(Range(), indexTmpVar);
         Range().Remove(indexTmpVar);
+        op2 = node->GetOp(1);
     }
 
     // Create:
-    //      loResult = GT_SIMD{get_item}[int](tmp_simd_var, index * 2)
+    //      loResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, index * 2)
 
     GenTree* simdTmpVar1 = simdTmpVar;
     GenTree* indexTimesTwo1;
@@ -1729,34 +1730,34 @@ GenTree* DecomposeLongs::DecomposeSimdGetItem(LIR::Use& use)
     if (indexIsConst)
     {
         // Reuse the existing index constant node.
-        indexTimesTwo1 = simdTree->GetOp(1);
+        indexTimesTwo1 = node->GetOp(1);
         Range().Remove(indexTimesTwo1);
-        indexTimesTwo1->AsIntCon()->gtIconVal = index * 2;
+        indexTimesTwo1->AsIntCon()->SetIconValue(index * 2);
 
-        Range().InsertBefore(simdTree, simdTmpVar1, indexTimesTwo1);
+        Range().InsertBefore(node, simdTmpVar1, indexTimesTwo1);
     }
     else
     {
         GenTree* indexTmpVar1 = indexTmpVar;
         GenTree* two1         = m_compiler->gtNewIconNode(2, TYP_INT);
         indexTimesTwo1        = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, indexTmpVar1, two1);
-        Range().InsertBefore(simdTree, simdTmpVar1, indexTmpVar1, two1, indexTimesTwo1);
+        Range().InsertBefore(node, simdTmpVar1, indexTmpVar1, two1, indexTimesTwo1);
     }
 
-    GenTree* loResult =
-        m_compiler->gtNewSIMDNode(TYP_INT, SIMDIntrinsicGetItem, TYP_INT, simdSize, simdTmpVar1, indexTimesTwo1);
-    Range().InsertBefore(simdTree, loResult);
+    GenTree* loResult = m_compiler->gtNewSimdHWIntrinsicNode(TYP_INT, node->gtHWIntrinsicId, TYP_INT, simdSize,
+                                                             simdTmpVar1, indexTimesTwo1);
+    Range().InsertBefore(node, loResult);
 
     // Create:
-    //      hiResult = GT_SIMD{get_item}[int](tmp_simd_var, index * 2 + 1)
+    //      hiResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, index * 2 + 1)
 
-    GenTree* simdTmpVar2 = m_compiler->gtNewLclLNode(simdTmpVarNum, simdTree->GetOp(0)->TypeGet());
+    GenTree* simdTmpVar2 = m_compiler->gtNewLclLNode(simdTmpVarNum, op1->TypeGet());
     GenTree* indexTimesTwoPlusOne;
 
     if (indexIsConst)
     {
         indexTimesTwoPlusOne = m_compiler->gtNewIconNode(index * 2 + 1, TYP_INT);
-        Range().InsertBefore(simdTree, simdTmpVar2, indexTimesTwoPlusOne);
+        Range().InsertBefore(node, simdTmpVar2, indexTimesTwoPlusOne);
     }
     else
     {
@@ -1765,22 +1766,22 @@ GenTree* DecomposeLongs::DecomposeSimdGetItem(LIR::Use& use)
         GenTree* indexTimesTwo2 = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, indexTmpVar2, two2);
         GenTree* one            = m_compiler->gtNewIconNode(1, TYP_INT);
         indexTimesTwoPlusOne    = m_compiler->gtNewOperNode(GT_ADD, TYP_INT, indexTimesTwo2, one);
-        Range().InsertBefore(simdTree, simdTmpVar2, indexTmpVar2, two2, indexTimesTwo2);
-        Range().InsertBefore(simdTree, one, indexTimesTwoPlusOne);
+        Range().InsertBefore(node, simdTmpVar2, indexTmpVar2, two2, indexTimesTwo2);
+        Range().InsertBefore(node, one, indexTimesTwoPlusOne);
     }
 
-    GenTree* hiResult =
-        m_compiler->gtNewSIMDNode(TYP_INT, SIMDIntrinsicGetItem, TYP_INT, simdSize, simdTmpVar2, indexTimesTwoPlusOne);
-    Range().InsertBefore(simdTree, hiResult);
+    GenTree* hiResult = m_compiler->gtNewSimdHWIntrinsicNode(TYP_INT, node->gtHWIntrinsicId, TYP_INT, simdSize,
+                                                             simdTmpVar2, indexTimesTwoPlusOne);
+    Range().InsertBefore(node, hiResult);
 
     // Done with the original tree; remove it.
 
-    Range().Remove(simdTree);
+    Range().Remove(node);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-#endif // FEATURE_SIMD
+#endif // FEATURE_HW_INTRINSICS
 
 //------------------------------------------------------------------------
 // StoreNodeToVar: Check if the user is a STORE_LCL_VAR, and if it isn't,

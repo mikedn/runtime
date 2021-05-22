@@ -909,13 +909,29 @@ GenTree* Compiler::impBaseIntrinsic(
         case NI_Vector128_WithElement:
         {
             assert(sig.paramCount == 3);
-            GenTree* indexOp = impStackTop(1).val;
-            if (!compExactlyDependsOn(InstructionSet_SSE2) || !varTypeIsArithmetic(baseType) || !indexOp->OperIsConst())
+
+            if (!compExactlyDependsOn(InstructionSet_SSE2) || !varTypeIsArithmetic(baseType))
             {
                 // Using software fallback if
                 // 1. JIT/hardware don't support SSE2 instructions
-                // 2. baseType is not a numeric type (throw execptions)
-                // 3. index is not a constant
+                // 2. baseType is not a numeric type (throw exceptions)
+                return nullptr;
+            }
+
+            GenTree* indexOp = impStackTop(1).val;
+
+            if (!indexOp->OperIsConst())
+            {
+                // Index is not a constant, use the software fallback
+                return nullptr;
+            }
+
+            ssize_t imm8  = indexOp->AsIntCon()->GetValue();
+            ssize_t count = simdSize / varTypeSize(baseType);
+
+            if (imm8 >= count || imm8 < 0)
+            {
+                // Using software fallback if index is out of range (throw exeception)
                 return nullptr;
             }
 
@@ -948,174 +964,14 @@ GenTree* Compiler::impBaseIntrinsic(
                     break;
 
                 default:
-                    return nullptr;
-            }
-
-            ssize_t imm8       = indexOp->AsIntCon()->IconValue();
-            ssize_t cachedImm8 = imm8;
-            ssize_t count      = simdSize / genTypeSize(baseType);
-
-            if (imm8 >= count || imm8 < 0)
-            {
-                // Using software fallback if index is out of range (throw exeception)
-                return nullptr;
+                    unreached();
             }
 
             GenTree* valueOp = impPopStack().val;
-            impPopStack(); // pops the indexOp that we already have.
+            impPopStack(); // Pop the indexOp now that we know its valid
             GenTree* vectorOp = impSIMDPopStack(getSIMDTypeForSize(simdSize));
 
-            GenTree* clonedVectorOp = nullptr;
-
-            if (simdSize == 32)
-            {
-                // Extract the half vector that will be modified
-                assert(compIsaSupportedDebugOnly(InstructionSet_AVX));
-
-                // copy `vectorOp` to accept the modified half vector
-                vectorOp = impCloneExpr(vectorOp, &clonedVectorOp, sig.paramLayout[0],
-                                        CHECK_SPILL_ALL DEBUGARG("Vector256<T>.WithElement temp"));
-
-                if (imm8 >= count / 2)
-                {
-                    imm8 -= count / 2;
-                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, baseType, simdSize,
-                                                        vectorOp, gtNewIconNode(1));
-                }
-                else
-                {
-                    vectorOp =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_GetLower, baseType, simdSize, vectorOp);
-                }
-            }
-
-            GenTree* immNode = gtNewIconNode(imm8);
-
-            switch (baseType)
-            {
-                case TYP_LONG:
-                case TYP_ULONG:
-                    retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_X64_Insert, baseType, 16, vectorOp, valueOp,
-                                                       immNode);
-                    break;
-
-                case TYP_FLOAT:
-                {
-                    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
-                    {
-                        // Emulate Vector128<float>.WithElement by SSE instructions
-                        if (imm8 == 0)
-                        {
-                            // vector.WithElement(0, value)
-                            // =>
-                            // movss   xmm0, xmm1 (xmm0 = vector, xmm1 = value)
-                            valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT,
-                                                               16, valueOp);
-                            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, TYP_FLOAT, 16, vectorOp,
-                                                               valueOp);
-                        }
-                        else if (imm8 == 1)
-                        {
-                            // vector.WithElement(1, value)
-                            // =>
-                            // shufps  xmm1, xmm0, 0   (xmm0 = vector, xmm1 = value)
-                            // shufps  xmm1, xmm0, 226
-                            GenTree* tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                      TYP_FLOAT, 16, valueOp);
-                            GenTree* dupVectorOp = nullptr;
-                            vectorOp             = impCloneExpr(vectorOp, &dupVectorOp, sig.paramLayout[0],
-                                                    CHECK_SPILL_ALL DEBUGARG("Vector128<float>.WithElement temp"));
-                            tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, tmpOp, vectorOp,
-                                                             gtNewIconNode(0));
-                            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, tmpOp,
-                                                               dupVectorOp, gtNewIconNode(226));
-                        }
-                        else
-                        {
-                            ssize_t controlBits1 = 0;
-                            ssize_t controlBits2 = 0;
-                            if (imm8 == 2)
-                            {
-                                controlBits1 = 48;
-                                controlBits2 = 132;
-                            }
-                            else
-                            {
-                                controlBits1 = 32;
-                                controlBits2 = 36;
-                            }
-                            // vector.WithElement(2, value)
-                            // =>
-                            // shufps  xmm1, xmm0, 48   (xmm0 = vector, xmm1 = value)
-                            // shufps  xmm0, xmm1, 132
-                            //
-                            // vector.WithElement(3, value)
-                            // =>
-                            // shufps  xmm1, xmm0, 32   (xmm0 = vector, xmm1 = value)
-                            // shufps  xmm0, xmm1, 36
-                            GenTree* tmpOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                      TYP_FLOAT, 16, valueOp);
-                            GenTree* dupVectorOp = nullptr;
-                            vectorOp             = impCloneExpr(vectorOp, &dupVectorOp, sig.paramLayout[0],
-                                                    CHECK_SPILL_ALL DEBUGARG("Vector128<float>.WithElement temp"));
-                            valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, vectorOp,
-                                                               tmpOp, gtNewIconNode(controlBits1));
-                            retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, valueOp,
-                                                               dupVectorOp, gtNewIconNode(controlBits2));
-                        }
-                        break;
-                    }
-                    else
-                    {
-                        valueOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16,
-                                                           valueOp);
-                        immNode->AsIntCon()->SetIconValue(imm8 * 16);
-                        FALLTHROUGH;
-                    }
-                }
-
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_INT:
-                case TYP_UINT:
-                    retNode =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_Insert, baseType, 16, vectorOp, valueOp, immNode);
-                    break;
-
-                case TYP_SHORT:
-                case TYP_USHORT:
-                    retNode =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Insert, baseType, 16, vectorOp, valueOp, immNode);
-                    break;
-
-                case TYP_DOUBLE:
-                {
-                    // vector.WithElement(0, value)
-                    // =>
-                    // movsd   xmm0, xmm1  (xmm0 = vector, xmm1 = value)
-                    //
-                    // vector.WithElement(1, value)
-                    // =>
-                    // unpcklpd  xmm0, xmm1  (xmm0 = vector, xmm1 = value)
-                    valueOp =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_DOUBLE, 16, valueOp);
-                    NamedIntrinsic in = (imm8 == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;
-                    retNode           = gtNewSimdHWIntrinsicNode(TYP_SIMD16, in, TYP_DOUBLE, 16, vectorOp, valueOp);
-                    break;
-                }
-
-                default:
-                    return nullptr;
-            }
-
-            if (simdSize == 32)
-            {
-                assert(clonedVectorOp);
-                int upperOrLower = (cachedImm8 >= count / 2) ? 1 : 0;
-                retNode = gtNewSimdHWIntrinsicNode(retType, NI_AVX_InsertVector128, baseType, simdSize, clonedVectorOp,
-                                                   retNode, gtNewIconNode(upperOrLower));
-            }
-
+            retNode = gtNewSimdWithElementNode(retType, baseType, simdSize, vectorOp, indexOp, valueOp);
             break;
         }
 
@@ -1132,13 +988,12 @@ GenTree* Compiler::impBaseIntrinsic(
         case NI_Vector128_GetElement:
         {
             assert(sig.paramCount == 2);
-            GenTree* indexOp = impStackTop().val;
-            if (!compExactlyDependsOn(InstructionSet_SSE2) || !varTypeIsArithmetic(baseType) || !indexOp->OperIsConst())
+
+            if (!compExactlyDependsOn(InstructionSet_SSE2) || !varTypeIsArithmetic(baseType))
             {
                 // Using software fallback if
                 // 1. JIT/hardware don't support SSE2 instructions
-                // 2. baseType is not a numeric type (throw execptions)
-                // 3. index is not a constant
+                // 2. simdBaseType is not a numeric type (throw execptions)
                 return nullptr;
             }
 
@@ -1149,15 +1004,9 @@ GenTree* Compiler::impBaseIntrinsic(
                 case TYP_UBYTE:
                 case TYP_INT:
                 case TYP_UINT:
-                    if (!compExactlyDependsOn(InstructionSet_SSE41))
-                    {
-                        return nullptr;
-                    }
-                    break;
-
                 case TYP_LONG:
                 case TYP_ULONG:
-                    if (!compExactlyDependsOn(InstructionSet_SSE41_X64))
+                    if (!compExactlyDependsOn(InstructionSet_SSE41))
                     {
                         return nullptr;
                     }
@@ -1171,138 +1020,13 @@ GenTree* Compiler::impBaseIntrinsic(
                     break;
 
                 default:
-                    break;
+                    unreached();
             }
 
-            ssize_t imm8  = indexOp->AsIntCon()->IconValue();
-            ssize_t count = simdSize / genTypeSize(baseType);
+            GenTree* op2 = impPopStack().val;
+            GenTree* op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
 
-            if (imm8 >= count || imm8 < 0)
-            {
-                // Using software fallback if index is out of range (throw exeception)
-                return nullptr;
-            }
-
-            impPopStack();
-            GenTree*       vectorOp     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-            NamedIntrinsic resIntrinsic = NI_Illegal;
-
-            if (simdSize == 32)
-            {
-                assert(compIsaSupportedDebugOnly(InstructionSet_AVX));
-
-                if (imm8 >= count / 2)
-                {
-                    imm8 -= count / 2;
-                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, baseType, simdSize,
-                                                        vectorOp, gtNewIconNode(1));
-                }
-                else
-                {
-                    vectorOp =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_GetLower, baseType, simdSize, vectorOp);
-                }
-            }
-
-            if (imm8 == 0 && (genTypeSize(baseType) >= 4))
-            {
-                switch (baseType)
-                {
-                    case TYP_LONG:
-                        resIntrinsic = NI_SSE2_X64_ConvertToInt64;
-                        break;
-
-                    case TYP_ULONG:
-                        resIntrinsic = NI_SSE2_X64_ConvertToUInt64;
-                        break;
-
-                    case TYP_INT:
-                        resIntrinsic = NI_SSE2_ConvertToInt32;
-                        break;
-
-                    case TYP_UINT:
-                        resIntrinsic = NI_SSE2_ConvertToUInt32;
-                        break;
-
-                    case TYP_FLOAT:
-                    case TYP_DOUBLE:
-                        resIntrinsic = NI_Vector128_ToScalar;
-                        break;
-
-                    default:
-                        return nullptr;
-                }
-
-                return gtNewSimdHWIntrinsicNode(retType, resIntrinsic, baseType, 16, vectorOp);
-            }
-
-            GenTree* immNode = gtNewIconNode(imm8);
-
-            switch (baseType)
-            {
-                case TYP_LONG:
-                case TYP_ULONG:
-                    retNode = gtNewSimdHWIntrinsicNode(retType, NI_SSE41_X64_Extract, baseType, 16, vectorOp, immNode);
-                    break;
-
-                case TYP_FLOAT:
-                {
-                    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
-                    {
-                        assert(imm8 >= 1);
-                        assert(imm8 <= 3);
-                        // Emulate Vector128<float>.GetElement(i) by SSE instructions
-                        // vector.GetElement(i)
-                        // =>
-                        // shufps  xmm0, xmm0, control
-                        // (xmm0 = vector, control = i + 228)
-                        immNode->AsIntCon()->SetIconValue(228 + imm8);
-                        GenTree* clonedVectorOp = nullptr;
-                        vectorOp                = impCloneExpr(vectorOp, &clonedVectorOp, sig.paramLayout[0],
-                                                CHECK_SPILL_ALL DEBUGARG("Vector128<float>.GetElement temp"));
-                        vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, vectorOp,
-                                                            clonedVectorOp, immNode);
-                        return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_ToScalar, TYP_FLOAT, 16, vectorOp);
-                    }
-                    FALLTHROUGH;
-                }
-
-                case TYP_UBYTE:
-                case TYP_INT:
-                case TYP_UINT:
-                    retNode = gtNewSimdHWIntrinsicNode(retType, NI_SSE41_Extract, baseType, 16, vectorOp, immNode);
-                    break;
-
-                case TYP_BYTE:
-                    // We do not have SSE41/SSE2 Extract APIs on signed small int, so need a CAST on the result
-                    retNode = gtNewSimdHWIntrinsicNode(TYP_UBYTE, NI_SSE41_Extract, TYP_UBYTE, 16, vectorOp, immNode);
-                    retNode = gtNewCastNode(TYP_INT, retNode, true, TYP_BYTE);
-                    break;
-
-                case TYP_SHORT:
-                case TYP_USHORT:
-                    // We do not have SSE41/SSE2 Extract APIs on signed small int, so need a CAST on the result
-                    retNode = gtNewSimdHWIntrinsicNode(TYP_USHORT, NI_SSE2_Extract, TYP_USHORT, 16, vectorOp, immNode);
-                    if (baseType == TYP_SHORT)
-                    {
-                        retNode = gtNewCastNode(TYP_INT, retNode, true, TYP_SHORT);
-                    }
-                    break;
-
-                case TYP_DOUBLE:
-                    assert(imm8 == 1);
-                    // vector.GetElement(1)
-                    // =>
-                    // pshufd xmm1, xmm0, 0xEE (xmm0 = vector)
-                    vectorOp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, vectorOp,
-                                                        gtNewIconNode(0xEE));
-                    retNode = gtNewSimdHWIntrinsicNode(TYP_DOUBLE, NI_Vector128_ToScalar, TYP_DOUBLE, 16, vectorOp);
-                    break;
-
-                default:
-                    return nullptr;
-            }
-
+            retNode = gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
             break;
         }
 

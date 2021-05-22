@@ -285,10 +285,10 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
                     return nullptr;
                 }
 
-                // This must be one of the Create intrinsics.
+                // This must be one of the Create intrinsics or get_Item.
                 assert(signature.hasThisParam);
                 assert((signature.paramCount == 1) || (signature.paramCount == layout->GetElementCount()));
-                assert(signature.paramType[0] == layout->GetElementType());
+                assert((signature.paramType[0] == layout->GetElementType()) || (signature.paramType[0] == TYP_INT));
             }
             else
             {
@@ -338,6 +338,12 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             case NI_Vector4_CreateExtend1:
             case NI_Vector4_CreateExtend2:
                 return impSimdAsHWIntrinsicCreateExtend(signature, layout, newobjThis);
+            case NI_VectorT128_get_Item:
+#ifdef TARGET_XARCH
+            case NI_VectorT256_get_Item:
+#endif
+                assert(newobjThis == nullptr);
+                return impSimdAsHWIntrinsicGetItem(signature, layout);
             default:
                 assert(newobjThis == nullptr);
                 return impSimdAsHWIntrinsicSpecial(intrinsic, signature, layout);
@@ -902,6 +908,48 @@ GenTree* Compiler::impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree*
     }
 
     return impPopStack().val;
+}
+
+GenTree* Compiler::impSimdAsHWIntrinsicGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout)
+{
+    assert(sig.paramCount == 1);
+    assert(sig.paramType[0] == TYP_INT);
+
+    var_types elementType = layout->GetElementType();
+
+    switch (elementType)
+    {
+        case TYP_BYTE:
+        case TYP_UBYTE:
+        case TYP_INT:
+        case TYP_UINT:
+        case TYP_LONG:
+        case TYP_ULONG:
+#ifdef TARGET_XARCH
+            if (!compExactlyDependsOn(InstructionSet_SSE41))
+            {
+                return nullptr;
+            }
+#endif
+            break;
+
+        case TYP_DOUBLE:
+        case TYP_FLOAT:
+        case TYP_SHORT:
+        case TYP_USHORT:
+            break;
+
+        default:
+            unreached();
+    }
+
+    GenTree* index = impPopStack().val;
+    GenTree* value = impSIMDPopStackAddr(layout->GetSIMDType());
+
+    assert(value->GetType() == layout->GetSIMDType());
+    assert(varActualType(index->GetType()) == TYP_INT);
+
+    return gtNewSimdGetElementNode(elementType, layout->GetSize(), value, index);
 }
 
 #ifdef TARGET_ARMARCH
