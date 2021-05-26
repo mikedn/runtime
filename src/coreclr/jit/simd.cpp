@@ -322,8 +322,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
         case SIMDIntrinsicConvertToDouble:
         case SIMDIntrinsicConvertToInt32:
         case SIMDIntrinsicConvertToInt64:
-        case SIMDIntrinsicWidenHi:
-        case SIMDIntrinsicWidenLo:
             return true;
 
         default:
@@ -1091,23 +1089,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             JITDUMP("SIMD Conversion to Int64 is not supported on this platform\n");
             return nullptr;
 #endif
-        }
-        break;
-
-        case SIMDIntrinsicWiden:
-        {
-            GenTree* dstAddrHi = impPopStackCoerceArg(TYP_BYREF);
-            GenTree* dstAddrLo = impPopStackCoerceArg(TYP_BYREF);
-            GenTree* op1       = impSIMDPopStack(simdType);
-
-            GenTree* uses[2];
-            impMakeMultiUse(op1, uses, typGetObjLayout(clsHnd), CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
-
-            GenTree* widenLo = gtNewSIMDNode(simdType, SIMDIntrinsicWidenLo, baseType, size, uses[0]);
-            impAppendTree(impAssignSIMDAddr(dstAddrLo, widenLo), CHECK_SPILL_ALL, impCurStmtOffs);
-
-            GenTree* widenHi = gtNewSIMDNode(simdType, SIMDIntrinsicWidenHi, baseType, size, uses[1]);
-            retVal           = impAssignSIMDAddr(dstAddrHi, widenHi);
         }
         break;
 

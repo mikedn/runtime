@@ -5848,11 +5848,6 @@ void ValueNumStore::InitValueNumStoreStatics()
     vnfOpAttribs[vnfNum] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask) /* set the new arity value */
 
 #ifdef FEATURE_SIMD
-    // SIMDIntrinsicWidenHi has an entry of 2 for numArgs, but it only has one normal arg
-    ValueNumFuncSetArity(VNF_SIMD_WidenHi, 1);
-    // SIMDIntrinsicWidenLo has an entry of 2 for numArgs, but it only has one normal arg
-    ValueNumFuncSetArity(VNF_SIMD_WidenLo, 1);
-
     // Some SIMD intrinsic nodes have an extra VNF_SimdType arg
     //
     for (SIMDIntrinsicID id = SIMDIntrinsicID::SIMDIntrinsicNone; (id < SIMDIntrinsicID::SIMDIntrinsicInvalid);
