@@ -318,12 +318,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
 {
     switch (intrinsicId)
     {
-        case SIMDIntrinsicConvertToSingle:
-        case SIMDIntrinsicConvertToDouble:
-        case SIMDIntrinsicConvertToInt32:
-        case SIMDIntrinsicConvertToInt64:
-            return true;
-
         default:
             break;
     }
@@ -1061,34 +1055,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 retVal->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
                 retVal = gtNewAssignNode(retVal, op1);
             }
-        }
-        break;
-
-        // Unary operators that take and return a Vector.
-        case SIMDIntrinsicConvertToSingle:
-        case SIMDIntrinsicConvertToDouble:
-        case SIMDIntrinsicConvertToInt32:
-        {
-            assert(!instMethod);
-            op1 = impSIMDPopStack(simdType);
-
-            simdTree = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, op1);
-            retVal   = simdTree;
-        }
-        break;
-
-        case SIMDIntrinsicConvertToInt64:
-        {
-            assert(!instMethod);
-#ifdef TARGET_64BIT
-            op1 = impSIMDPopStack(simdType);
-
-            simdTree = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, op1);
-            retVal   = simdTree;
-#else
-            JITDUMP("SIMD Conversion to Int64 is not supported on this platform\n");
-            return nullptr;
-#endif
         }
         break;
 

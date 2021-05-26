@@ -311,12 +311,6 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            srcCount = BuildSIMD(tree->AsSIMD());
-            break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             srcCount = BuildHWIntrinsic(tree->AsHWIntrinsic());
@@ -722,72 +716,6 @@ int LinearScan::BuildNode(GenTree* tree)
     assert(dstCount == tree->GetRegisterDstCount(compiler));
     return srcCount;
 }
-
-#ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// BuildSIMD: Set the NodeInfo for a GT_SIMD tree.
-//
-// Arguments:
-//    tree       - The GT_SIMD node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
-{
-    int srcCount = 0;
-    int dstCount = simdTree->IsValue() ? 1 : 0;
-    assert(dstCount == 1);
-
-    bool buildUses = true;
-
-    switch (simdTree->gtSIMDIntrinsicID)
-    {
-        case SIMDIntrinsicConvertToSingle:
-        case SIMDIntrinsicConvertToInt32:
-        case SIMDIntrinsicConvertToDouble:
-        case SIMDIntrinsicConvertToInt64:
-            // No special handling required.
-            break;
-
-        case SIMDIntrinsicInitArrayX:
-        case SIMDIntrinsicCopyToArray:
-        case SIMDIntrinsicCopyToArrayX:
-        case SIMDIntrinsicNone:
-        case SIMDIntrinsicHWAccel:
-        case SIMDIntrinsicInvalid:
-            assert(!"These intrinsics should not be seen during register allocation");
-            FALLTHROUGH;
-
-        default:
-            unreached();
-    }
-    if (buildUses)
-    {
-        assert(simdTree->GetNumOps() <= 2);
-        assert(srcCount == 0);
-
-        for (GenTreeSIMD::Use& use : simdTree->Uses())
-        {
-            if (!use.GetNode()->isContained())
-            {
-                srcCount += BuildOperandUses(use.GetNode());
-            }
-        }
-    }
-    assert(internalCount <= MaxInternalCount);
-    buildInternalRegisterUses();
-    if (dstCount == 1)
-    {
-        BuildDef(simdTree);
-    }
-    else
-    {
-        assert(dstCount == 0);
-    }
-    return srcCount;
-}
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
 

@@ -3070,26 +3070,28 @@ protected:
 protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
-    GenTree* impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
-                                         const HWIntrinsicSignature& signature,
-                                         ClassLayout*                layout);
+    GenTree* impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& signature, ClassLayout* layout);
 
-    GenTree* impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& signature,
-                                        ClassLayout*                thisLayout,
-                                        GenTree*                    newobjThis);
+    GenTree* impVector234TCreate(const HWIntrinsicSignature& signature, ClassLayout* thisLayout, GenTree* newobjThis);
 
-    GenTree* impSimdAsHWIntrinsicCreateExtend(const HWIntrinsicSignature& signature,
-                                              ClassLayout*                layout,
-                                              GenTree*                    newobjThis);
+    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& signature, ClassLayout* layout, GenTree* newobjThis);
 
-    GenTree* impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree* newobjThis);
-    GenTree* impSimdAsHWIntrinsicGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impSimdAsHWIntrinsicMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impSimdAsHWIntrinsicNarrow128(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impSimdAsHWIntrinsicNarrow256(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
-    GenTree* impSimdAsHWIntrinsicWiden128(const HWIntrinsicSignature& sig);
-    GenTree* impSimdAsHWIntrinsicWiden256(const HWIntrinsicSignature& sig);
+    GenTree* impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis);
+    GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
+    GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
                                  const HWIntrinsicSignature& sig,
@@ -3114,7 +3116,7 @@ protected:
     GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 
-    GenTree* impSimdAsHWIntrinsicRelOp(
+    GenTree* impVectorTCompare(
         NamedIntrinsic intrinsic, var_types baseType, ClassLayout* layout, GenTree* op1, GenTree* op2);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS

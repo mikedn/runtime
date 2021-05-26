@@ -968,19 +968,8 @@ protected:
     void genCompareInt(GenTree* treeNode);
 
 #ifdef FEATURE_SIMD
-    instruction getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_types baseType, unsigned* ival = nullptr);
-    void genSIMDIntrinsicUnOp(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicUpperSave(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode);
-    void genSIMDLo64BitConvert(SIMDIntrinsicID intrinsicID,
-                               var_types       simdType,
-                               var_types       baseType,
-                               regNumber       tmpReg,
-                               regNumber       tmpIntReg,
-                               regNumber       targetReg);
-    void genSIMDIntrinsic32BitConvert(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsic64BitConvert(GenTreeSIMD* simdNode);
-    void genSIMDExtractUpperHalf(GenTreeSIMD* simdNode, regNumber srcReg, regNumber tgtReg);
     void genSIMDIntrinsic(GenTreeSIMD* simdNode);
 
     void genLoadSIMD12(GenTree* load);
