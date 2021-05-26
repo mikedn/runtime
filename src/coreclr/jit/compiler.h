@@ -3085,6 +3085,8 @@ protected:
     GenTree* impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree* newobjThis);
     GenTree* impSimdAsHWIntrinsicGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impSimdAsHWIntrinsicMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impSimdAsHWIntrinsicNarrow128(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impSimdAsHWIntrinsicNarrow256(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,

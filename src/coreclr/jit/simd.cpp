@@ -322,7 +322,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
         case SIMDIntrinsicConvertToDouble:
         case SIMDIntrinsicConvertToInt32:
         case SIMDIntrinsicConvertToInt64:
-        case SIMDIntrinsicNarrow:
         case SIMDIntrinsicWidenHi:
         case SIMDIntrinsicWidenLo:
             return true;
@@ -1092,16 +1091,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             JITDUMP("SIMD Conversion to Int64 is not supported on this platform\n");
             return nullptr;
 #endif
-        }
-        break;
-
-        case SIMDIntrinsicNarrow:
-        {
-            assert(!instMethod);
-            op2 = impSIMDPopStack(simdType);
-            op1 = impSIMDPopStack(simdType);
-
-            retVal = gtNewSIMDNode(simdType, simdIntrinsicID, baseType, size, op1, op2);
         }
         break;
 

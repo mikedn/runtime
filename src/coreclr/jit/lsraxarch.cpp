@@ -1858,16 +1858,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             buildInternalIntRegisterDefForNode(simdTree);
             break;
 
-        case SIMDIntrinsicNarrow:
-            // We need an internal register different from targetReg.
-            setInternalRegsDelayFree = true;
-            buildInternalFloatRegisterDefForNode(simdTree);
-            if ((compiler->getSIMDSupportLevel() == SIMD_AVX2_Supported) && (simdTree->gtSIMDBaseType != TYP_DOUBLE))
-            {
-                buildInternalFloatRegisterDefForNode(simdTree);
-            }
-            break;
-
         default:
             unreached();
     }

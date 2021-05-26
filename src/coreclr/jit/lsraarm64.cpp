@@ -752,14 +752,6 @@ int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
             // No special handling required.
             break;
 
-        case SIMDIntrinsicNarrow:
-            // Op1 will write to dst before Op2 is free
-            BuildUse(simdTree->GetOp(0));
-            setDelayFree(BuildUse(simdTree->GetOp(1)));
-            srcCount  = 2;
-            buildUses = false;
-            break;
-
         case SIMDIntrinsicInitArrayX:
         case SIMDIntrinsicCopyToArray:
         case SIMDIntrinsicCopyToArrayX:
