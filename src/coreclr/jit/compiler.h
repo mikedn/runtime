@@ -9240,6 +9240,10 @@ public:
             case GT_RUNTIMELOOKUP:
             case GT_KEEPALIVE:
             case GT_INC_SATURATE:
+#ifdef FEATURE_SIMD
+            case GT_SIMD_UPPER_SPILL:
+            case GT_SIMD_UPPER_UNSPILL:
+#endif
             {
                 GenTreeUnOp* const unOp = node->AsUnOp();
                 if (unOp->gtOp1 != nullptr)

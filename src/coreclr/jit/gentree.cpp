@@ -7530,6 +7530,10 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_PUTARG_SPLIT:
 #endif // FEATURE_ARG_SPLIT
         case GT_RETURNTRAP:
+#ifdef FEATURE_SIMD
+        case GT_SIMD_UPPER_SPILL:
+        case GT_SIMD_UPPER_UNSPILL:
+#endif
             m_edge = &m_node->AsUnOp()->gtOp1;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::Terminate;

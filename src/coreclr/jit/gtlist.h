@@ -303,6 +303,11 @@ GTNODE(IL_OFFSET        , Statement          ,0,GTK_LEAF|GTK_NOVALUE)           
 
 GTNODE(INSTR            , GenTreeInstr       ,0,GTK_SPECIAL)
 
+#ifdef FEATURE_SIMD
+GTNODE(SIMD_UPPER_SPILL  ,GenTreeUnOp        ,0,GTK_UNOP)
+GTNODE(SIMD_UPPER_UNSPILL,GenTreeUnOp        ,0,GTK_UNOP)
+#endif
+
 /*****************************************************************************/
 #undef  GTNODE
 /*****************************************************************************/

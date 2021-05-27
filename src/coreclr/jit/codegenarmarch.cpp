@@ -332,10 +332,13 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
 #ifdef FEATURE_SIMD
-        case GT_SIMD:
-            genSIMDIntrinsic(treeNode->AsSIMD());
+        case GT_SIMD_UPPER_SPILL:
+            genSIMDUpperSpill(treeNode->AsUnOp());
             break;
-#endif // FEATURE_SIMD
+        case GT_SIMD_UPPER_UNSPILL:
+            genSIMDUpperUnspill(treeNode->AsUnOp());
+            break;
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:

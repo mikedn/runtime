@@ -968,10 +968,8 @@ protected:
     void genCompareInt(GenTree* treeNode);
 
 #ifdef FEATURE_SIMD
-    void genSIMDIntrinsicUpperSave(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsic(GenTreeSIMD* simdNode);
-
+    void genSIMDUpperSpill(GenTreeUnOp* node);
+    void genSIMDUpperUnspill(GenTreeUnOp* node);
     void genLoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);

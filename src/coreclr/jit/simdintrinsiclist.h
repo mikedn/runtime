@@ -50,10 +50,6 @@ SIMD_INTRINSIC("CopyTo",                    true,        CopyToArrayX,          
 // Miscellaneous
 SIMD_INTRINSIC("get_IsHardwareAccelerated", false,       HWAccel,                  TYP_BOOL,       0,      {TYP_UNDEF,  TYP_UNDEF,  TYP_UNDEF},   {TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
 
-// Internal intrinsics for saving & restoring the upper half of a vector register
-SIMD_INTRINSIC("UpperSave",                 false,       UpperSave,                TYP_STRUCT,     2,      {TYP_UNDEF, TYP_UNDEF, TYP_UNDEF},     {TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
-SIMD_INTRINSIC("UpperRestore",              false,       UpperRestore,             TYP_STRUCT,     2,      {TYP_UNDEF, TYP_UNDEF, TYP_UNDEF},     {TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
-
 SIMD_INTRINSIC(nullptr,                     false,       Invalid,                  TYP_UNDEF,      0,      {TYP_UNDEF,  TYP_UNDEF, TYP_UNDEF},    {TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF, TYP_UNDEF})
 #undef SIMD_INTRINSIC
 #else // !defined(TARGET_XARCH) && !defined(TARGET_ARM64)

@@ -1558,10 +1558,13 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
 #ifdef FEATURE_SIMD
-        case GT_SIMD:
-            genSIMDIntrinsic(treeNode->AsSIMD());
+        case GT_SIMD_UPPER_SPILL:
+            genSIMDUpperSpill(treeNode->AsUnOp());
             break;
-#endif // FEATURE_SIMD
+        case GT_SIMD_UPPER_UNSPILL:
+            genSIMDUpperUnspill(treeNode->AsUnOp());
+            break;
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -8462,6 +8465,67 @@ void CodeGen::genStoreSIMD12ToStack(regNumber valueReg, regNumber tmpReg)
 }
 
 #endif // TARGET_X86
+
+#ifdef FEATURE_SIMD
+
+// Save the upper half of a TYP_SIMD32 vector to the given register, if any, or to memory.
+// The upper half of all AVX registers is volatile, even the callee-save registers.
+// When a 32-byte SIMD value is live across a call, the register allocator will use this intrinsic
+// to cause the upper half to be saved. It will first attempt to find another, unused, callee-save
+// register. If such a register cannot be found, it will save the upper half to the upper half
+// of the localVar's home location.
+// (Note that if there are no caller-save registers available, the entire 32 byte
+// value will be spilled to the stack.)
+void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
+{
+    GenTree* op1 = node->GetOp(0);
+    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD32));
+
+    regNumber srcReg = genConsumeReg(op1);
+    assert(srcReg != REG_NA);
+    regNumber dstReg = node->GetRegNum();
+
+    if (dstReg != REG_NA)
+    {
+        GetEmitter()->emitIns_R_R_I(INS_vextractf128, EA_32BYTE, dstReg, srcReg, 1);
+        genProduceReg(node);
+    }
+    else
+    {
+        unsigned lclNum = op1->AsLclVar()->GetLclNum();
+        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+
+        GetEmitter()->emitIns_S_R_I(INS_vextractf128, EA_32BYTE, lclNum, 16, srcReg, 1);
+    }
+}
+
+// Restore the upper half of a TYP_SIMD32 vector to the given register, if any, or to memory.
+// For consistency with genSIMDIntrinsicUpperSave, and to ensure that LCL_VAR nodes always
+// have their home register, this node has its dtsReg on the LCL_VAR operand, and its source
+// on the node.
+void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
+{
+    GenTree* op1 = node->GetOp(0);
+    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD32));
+
+    regNumber srcReg = node->GetRegNum();
+    regNumber dstReg = genConsumeReg(op1);
+    assert(dstReg != REG_NA);
+
+    if (srcReg != REG_NA)
+    {
+        GetEmitter()->emitIns_R_R_R_I(INS_vinsertf128, EA_32BYTE, dstReg, dstReg, srcReg, 1);
+    }
+    else
+    {
+        unsigned lclNum = op1->AsLclVar()->GetLclNum();
+        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+
+        GetEmitter()->emitIns_R_R_S_I(INS_vinsertf128, EA_32BYTE, dstReg, dstReg, lclNum, 16, 1);
+    }
+}
+
+#endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
 // genPushCalleeSavedRegisters: Push any callee-saved registers we have used.

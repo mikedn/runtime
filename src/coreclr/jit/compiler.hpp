@@ -4090,7 +4090,11 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_RETURNTRAP:
         case GT_KEEPALIVE:
         case GT_INC_SATURATE:
-            visitor(this->AsUnOp()->gtOp1);
+#ifdef FEATURE_SIMD
+        case GT_SIMD_UPPER_SPILL:
+        case GT_SIMD_UPPER_UNSPILL:
+#endif
+            visitor(AsUnOp()->gtOp1);
             return;
 
         // Special nodes
