@@ -1122,7 +1122,7 @@ public:
         if (gtType == TYP_VOID)
         {
             // These are the only operators which can produce either VOID or non-VOID results.
-            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || OperIsLong() || OperIsSIMD() ||
+            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || OperIsLong() ||
                    OperIsHWIntrinsic());
             return false;
         }
@@ -1510,15 +1510,6 @@ public:
         return OperIsSimple(gtOper);
     }
 
-#ifdef FEATURE_SIMD
-    bool isCommutativeSIMDIntrinsic();
-#else  // !
-    bool isCommutativeSIMDIntrinsic()
-    {
-        return false;
-    }
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
     bool isCommutativeHWIntrinsic() const;
     bool isContainableHWIntrinsic() const;
@@ -1547,8 +1538,7 @@ public:
 
     bool OperIsCommutative()
     {
-        return OperIsCommutative(gtOper) || (OperIsSIMD(gtOper) && isCommutativeSIMDIntrinsic()) ||
-               (OperIsHWIntrinsic(gtOper) && isCommutativeHWIntrinsic());
+        return OperIsCommutative(gtOper) || (OperIsHWIntrinsic(gtOper) && isCommutativeHWIntrinsic());
     }
 
     static bool OperMayOverflow(genTreeOps gtOper)
@@ -1622,21 +1612,6 @@ public:
                (oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK) || (oper == GT_STORE_DYN_BLK) || OperIsAtomicOp(oper);
     }
 
-    // This is here for cleaner FEATURE_SIMD #ifdefs.
-    static bool OperIsSIMD(genTreeOps gtOper)
-    {
-#ifdef FEATURE_SIMD
-        return gtOper == GT_SIMD;
-#else  // !FEATURE_SIMD
-        return false;
-#endif // !FEATURE_SIMD
-    }
-
-    bool OperIsSIMD() const
-    {
-        return OperIsSIMD(gtOper);
-    }
-
     static bool OperIsHWIntrinsic(genTreeOps gtOper)
     {
 #ifdef FEATURE_HW_INTRINSICS
@@ -1649,11 +1624,6 @@ public:
     bool OperIsHWIntrinsic() const
     {
         return OperIsHWIntrinsic(gtOper);
-    }
-
-    bool OperIsSimdOrHWintrinsic() const
-    {
-        return OperIsSIMD() || OperIsHWIntrinsic();
     }
 
     // This is here for cleaner GT_LONG #ifdefs.
@@ -2684,10 +2654,6 @@ class GenTreeUseEdgeIterator final
     void AdvanceStoreDynBlk();
     void AdvanceFieldList();
     void AdvancePhi();
-#ifdef FEATURE_SIMD
-    void AdvanceSIMD();
-    void AdvanceSIMDReverseOp();
-#endif
 #ifdef FEATURE_HW_INTRINSICS
     void AdvanceHWIntrinsic();
     void AdvanceHWIntrinsicReverseOp();
@@ -5401,7 +5367,6 @@ struct GenTreeIntrinsic : public GenTreeOp
 
 class GenTreeUse
 {
-    friend struct GenTreeSIMD;
     friend struct GenTreeHWIntrinsic;
     friend struct GenTreeInstr;
 
@@ -5433,240 +5398,6 @@ public:
         m_node = node;
     }
 };
-
-#ifdef FEATURE_SIMD
-
-struct GenTreeSIMD : public GenTree
-{
-    using Use = GenTreeUse;
-
-    SIMDIntrinsicID gtSIMDIntrinsicID; // operation Id
-    var_types       gtSIMDBaseType;    // SIMD vector base type
-    uint16_t        gtSIMDSize;        // SIMD vector size in bytes, use 0 for scalar intrinsics
-
-private:
-    uint16_t m_numOps;
-    union {
-        Use  m_inlineUses[3];
-        Use* m_uses;
-    };
-
-public:
-    GenTreeSIMD(var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size)
-        : GenTree(GT_SIMD, type)
-        , gtSIMDIntrinsicID(simdIntrinsicID)
-        , gtSIMDBaseType(baseType)
-        , gtSIMDSize(static_cast<uint16_t>(size))
-        , m_numOps(0)
-    {
-        assert(size <= UINT16_MAX);
-    }
-
-    GenTreeSIMD(var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
-        : GenTree(GT_SIMD, type)
-        , gtSIMDIntrinsicID(simdIntrinsicID)
-        , gtSIMDBaseType(baseType)
-        , gtSIMDSize(static_cast<uint16_t>(size))
-        , m_numOps(1)
-        , m_inlineUses{op1}
-    {
-        assert(size <= UINT16_MAX);
-
-        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
-    }
-
-    GenTreeSIMD(
-        var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
-        : GenTree(GT_SIMD, type)
-        , gtSIMDIntrinsicID(simdIntrinsicID)
-        , gtSIMDBaseType(baseType)
-        , gtSIMDSize(static_cast<uint16_t>(size))
-        , m_numOps(2)
-        , m_inlineUses{op1, op2}
-    {
-        assert(size <= UINT16_MAX);
-
-        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
-        gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
-    }
-
-    SIMDIntrinsicID GetIntrinsic() const
-    {
-        return gtSIMDIntrinsicID;
-    }
-
-    void SetIntrinsic(SIMDIntrinsicID intrinsic)
-    {
-        assert((SIMDIntrinsicNone < intrinsic) && (intrinsic < SIMDIntrinsicInvalid));
-        gtSIMDIntrinsicID = intrinsic;
-    }
-
-    var_types GetSIMDBaseType() const
-    {
-        return gtSIMDBaseType;
-    }
-
-    void SetSIMDBaseType(var_types type)
-    {
-        assert(varTypeIsIntegral(type) || varTypeIsFloating(type));
-        gtSIMDBaseType = type;
-    }
-
-    unsigned GetSIMDSize() const
-    {
-        return gtSIMDSize;
-    }
-
-    void SetSIMDSize(unsigned size)
-    {
-        assert(size <= UINT16_MAX);
-        gtSIMDSize = static_cast<uint16_t>(size);
-    }
-
-    unsigned GetNumOps() const
-    {
-        return m_numOps;
-    }
-
-    void SetNumOps(unsigned numOps)
-    {
-        assert(numOps < _countof(m_inlineUses));
-        assert((m_numOps == 0) || (numOps == 0));
-
-        m_numOps = static_cast<uint16_t>(numOps);
-
-        assert(HasInlineUses());
-        new (m_inlineUses) Use[numOps]();
-    }
-
-    void SetNumOps(unsigned numOps, CompAllocator alloc)
-    {
-        assert(numOps < UINT16_MAX);
-        assert((m_numOps == 0) || (numOps == 0));
-
-        m_numOps = static_cast<uint16_t>(numOps);
-
-        if (HasInlineUses())
-        {
-            new (m_inlineUses) Use[numOps]();
-        }
-        else
-        {
-            m_uses = new (alloc) Use[numOps]();
-        }
-    }
-
-    void SetIntrinsic(SIMDIntrinsicID intrinsic, var_types simdBaseType, unsigned simdSize, unsigned numOps)
-    {
-        SetIntrinsic(intrinsic);
-        SetSIMDBaseType(simdBaseType);
-        SetSIMDSize(simdSize);
-        SetNumOps(numOps);
-    }
-
-    bool IsUnary() const
-    {
-        return m_numOps == 1;
-    }
-
-    bool IsBinary() const
-    {
-        return m_numOps == 2;
-    }
-
-    bool IsTernary() const
-    {
-        return m_numOps == 3;
-    }
-
-    GenTree* GetOp(unsigned index) const
-    {
-        return GetUse(index).GetNode();
-    }
-
-    GenTree* GetLastOp() const
-    {
-        return m_numOps == 0 ? nullptr : GetOp(m_numOps - 1);
-    }
-
-    void SetOp(unsigned index, GenTree* node)
-    {
-        assert(node != nullptr);
-        GetUse(index).SetNode(node);
-    }
-
-    const Use& GetUse(unsigned index) const
-    {
-        assert(index < m_numOps);
-        return GetUses()[index];
-    }
-
-    Use& GetUse(unsigned index)
-    {
-        assert(index < m_numOps);
-        return GetUses()[index];
-    }
-
-    IteratorPair<Use*> Uses()
-    {
-        Use* uses = GetUses();
-        return MakeIteratorPair(uses, uses + GetNumOps());
-    }
-
-    static bool Equals(GenTreeSIMD* simd1, GenTreeSIMD* simd2)
-    {
-        if ((simd1->TypeGet() != simd2->TypeGet()) || (simd1->gtSIMDIntrinsicID != simd2->gtSIMDIntrinsicID) ||
-            (simd1->gtSIMDBaseType != simd2->gtSIMDBaseType) || (simd1->gtSIMDSize != simd2->gtSIMDSize) ||
-            (simd1->m_numOps != simd2->m_numOps))
-        {
-            return false;
-        }
-
-        for (unsigned i = 0; i < simd1->m_numOps; i++)
-        {
-            if (!Compare(simd1->GetOp(i), simd2->GetOp(i)))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    // Delete some functions inherited from GenTree to avoid accidental use, at least
-    // when the node object is accessed via GenTreeSIMD* rather than GenTree*.
-    GenTree*           gtGetOp1() const          = delete;
-    GenTree*           gtGetOp2() const          = delete;
-    GenTree*           gtGetOp2IfPresent() const = delete;
-    GenTreeUnOp*       AsUnOp()                  = delete;
-    const GenTreeUnOp* AsUnOp() const            = delete;
-    GenTreeOp*         AsOp()                    = delete;
-    const GenTreeOp*   AsOp() const              = delete;
-
-private:
-    bool HasInlineUses() const
-    {
-        return m_numOps <= _countof(m_inlineUses);
-    }
-
-    Use* GetUses()
-    {
-        return HasInlineUses() ? m_inlineUses : m_uses;
-    }
-
-    const Use* GetUses() const
-    {
-        return HasInlineUses() ? m_inlineUses : m_uses;
-    }
-
-#if DEBUGGABLE_GENTREE
-public:
-    GenTreeSIMD() : GenTree()
-    {
-    }
-#endif
-};
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
 
@@ -5955,7 +5686,7 @@ public:
     }
 
     // Delete some functions inherited from GenTree to avoid accidental use, at least
-    // when the node object is accessed via GenTreeSIMD* rather than GenTree*.
+    // when the node object is accessed via GenTreeHWIntrinsic* rather than GenTree*.
     GenTree*           gtGetOp1() const          = delete;
     GenTree*           gtGetOp2() const          = delete;
     GenTree*           gtGetOp2IfPresent() const = delete;

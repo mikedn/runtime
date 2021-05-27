@@ -1931,16 +1931,6 @@ public:
                                        var_types     type = TYP_I_IMPL);
 
 #ifdef FEATURE_SIMD
-    GenTreeSIMD* gtNewSIMDNode(
-        var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1);
-    GenTreeSIMD* gtNewSIMDNode(
-        var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2);
-    GenTreeSIMD* gtNewSIMDNode(var_types       type,
-                               SIMDIntrinsicID simdIntrinsicID,
-                               var_types       baseType,
-                               unsigned        size,
-                               unsigned        numOps,
-                               GenTree**       ops);
     void SetOpLclRelatedToSIMDIntrinsic(GenTree* op);
 #endif
 
@@ -4005,11 +3995,6 @@ public:
 
     // Does value-numbering for an intrinsic tree.
     void fgValueNumberIntrinsic(GenTree* tree);
-
-#ifdef FEATURE_SIMD
-    // Does value-numbering for a GT_SIMD tree
-    void fgValueNumberSimd(GenTreeSIMD* simdNode);
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
     // Does value-numbering for a GT_HWINTRINSIC tree
@@ -7293,9 +7278,6 @@ public:
 #endif // FEATURE_SIMD
     }
 
-#ifdef FEATURE_SIMD
-    static bool vnEncodesResultTypeForSIMDIntrinsic(SIMDIntrinsicID intrinsicId);
-#endif // !FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
     static bool vnEncodesResultTypeForHWIntrinsic(NamedIntrinsic hwIntrinsicID);
 #endif // FEATURE_HW_INTRINSICS
@@ -9279,35 +9261,6 @@ public:
                     }
                 }
                 break;
-
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-                if (TVisitor::UseExecutionOrder && node->AsSIMD()->IsBinary() && node->IsReverseOp())
-                {
-                    result = WalkTree(&node->AsSIMD()->GetUse(1).NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
-                    {
-                        return result;
-                    }
-                    result = WalkTree(&node->AsSIMD()->GetUse(0).NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
-                    {
-                        return result;
-                    }
-                }
-                else
-                {
-                    for (GenTreeSIMD::Use& use : node->AsSIMD()->Uses())
-                    {
-                        result = WalkTree(&use.NodeRef(), node);
-                        if (result == fgWalkResult::WALK_ABORT)
-                        {
-                            return result;
-                        }
-                    }
-                }
-                break;
-#endif
 
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:

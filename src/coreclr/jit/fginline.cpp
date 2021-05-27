@@ -374,9 +374,6 @@ private:
 
             case GT_LCL_VAR:
             case GT_FIELD:
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
 #endif
@@ -430,7 +427,7 @@ private:
 
     GenTree* GetStructAsgSrc(GenTree* src, ClassLayout* layout)
     {
-        if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsSimdOrHWintrinsic())
+        if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsHWIntrinsic())
         {
             GenTree* srcAddr = GetStructAddress(src);
 

@@ -3196,16 +3196,6 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
                 break;
 
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-                for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
-                {
-                    fgDebugCheckFlags(use.GetNode());
-                    chkFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
-                }
-                break;
-#endif
-
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
                 if (tree->OperRequiresAsgFlag())

@@ -1380,11 +1380,6 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             AsMultiRegOp()->ClearOtherRegFlags();
             break;
 #endif
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            AsSIMD()->SetNumOps(0);
-            break;
-#endif
         default:
             break;
     }
@@ -4117,18 +4112,6 @@ void GenTree::VisitOperands(TVisitor visitor)
                 }
             }
             return;
-
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            for (GenTreeSIMD::Use& use : AsSIMD()->Uses())
-            {
-                if (visitor(use.NodeRef()) == VisitResult::Abort)
-                {
-                    break;
-                }
-            }
-            return;
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:

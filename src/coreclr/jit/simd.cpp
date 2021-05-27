@@ -1,27 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//
-//   SIMD Support
-//
-// IMPORTANT NOTES AND CAVEATS:
-//
-// This implementation is preliminary, and may change dramatically.
-//
-// New JIT types, TYP_SIMDxx, are introduced, and the SIMD intrinsics are created as GT_SIMD nodes.
-// Nodes of SIMD types will be typed as TYP_SIMD* (e.g. TYP_SIMD8, TYP_SIMD16, etc.).
-//
-// Note that currently the "reference implementation" is the same as the runtime dll.  As such, it is currently
-// providing implementations for those methods not currently supported by the JIT as intrinsics.
-//
-// These are currently recognized using string compares, in order to provide an implementation in the JIT
-// without taking a dependency on the VM.
-// Furthermore, in the CTP, in order to limit the impact of doing these string compares
-// against assembly names, we only look for the SIMDVector assembly if we are compiling a class constructor.  This
-// makes it somewhat more "pay for play" but is a significant usability compromise.
-// This has been addressed for RTM by doing the assembly recognition in the VM.
-// --------------------------------------------------------------------------------------
-
 #include "jitpch.h"
 #include "simd.h"
 
@@ -312,16 +291,6 @@ const SIMDIntrinsicInfo* Compiler::getSIMDIntrinsicInfo(const char*           cl
     }
 
     return nullptr;
-}
-
-/* static */ bool Compiler::vnEncodesResultTypeForSIMDIntrinsic(SIMDIntrinsicID intrinsicId)
-{
-    switch (intrinsicId)
-    {
-        default:
-            break;
-    }
-    return false;
 }
 
 // impSIMDPopStack: Pops and returns GenTree node from importer's type stack.
@@ -1083,7 +1052,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 GenTreeOp* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
 {
     assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
-    assert(src->OperIs(GT_SIMD, GT_IND, GT_HWINTRINSIC));
+    assert(src->OperIs(GT_IND, GT_HWINTRINSIC));
     assert(varTypeIsSIMD(src->GetType()));
 
     // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
@@ -1097,7 +1066,7 @@ GenTreeOp* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     {
         dest = destAddr->AsUnOp()->GetOp(0);
 
-        if (src->OperIs(GT_SIMD, GT_HWINTRINSIC))
+        if (src->OperIs(GT_HWINTRINSIC))
         {
             setLclRelatedToSIMDIntrinsic(dest->AsLclVar());
         }

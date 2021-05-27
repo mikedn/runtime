@@ -3516,9 +3516,6 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
         case GT_CNS_DBL:
         case GT_CNS_STR:
 #endif // CSE_CONSTS
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-#endif
             return true;
 
 #ifdef FEATURE_HW_INTRINSICS

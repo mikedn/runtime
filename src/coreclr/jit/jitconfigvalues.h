@@ -329,11 +329,8 @@ CONFIG_INTEGER(JitSoftFP, W("JitSoftFP"), 0)
 // clang-format on
 
 #ifdef FEATURE_SIMD
-CONFIG_INTEGER(JitDisableSimdVN, W("JitDisableSimdVN"), 0) // Default 0, ValueNumbering of SIMD nodes and HW Intrinsic
-                                                           // nodes enabled
-                                                           // If 1, then disable ValueNumbering of SIMD nodes
+CONFIG_INTEGER(JitDisableSimdVN, W("JitDisableSimdVN"), 0) // Default 0, ValueNumbering of HW Intrinsic nodes enabled
                                                            // If 2, then disable ValueNumbering of HW Intrinsic nodes
-                                                           // If 3, disable both SIMD and HW Intrinsic nodes
 #endif                                                     // FEATURE_SIMD
 
 // Default 0, enable the CSE of Constants, including nearby offsets. (only for ARM64)

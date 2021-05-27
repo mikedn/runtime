@@ -3310,7 +3310,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
             // (On Arm64 we can just store REG_ZR.)
 
             assert(src->IsHWIntrinsicZero());
-            singleUseRef = BuildUse(src->AsSIMD()->GetOp(0));
+            singleUseRef = BuildUse(src->AsHWIntrinsic()->GetOp(0));
             srcCount     = 1;
         }
         else

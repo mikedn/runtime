@@ -1705,17 +1705,6 @@ private:
         return m_compiler->gtNewSimdWithElementNode(type, elementType, varTypeSize(type), dest,
                                                     m_compiler->gtNewIconNode(index), value);
     }
-
-    GenTreeSIMD* NewSIMDNode(var_types type, SIMDIntrinsicID intrinsic, var_types baseType, unsigned size, GenTree* op1)
-    {
-        return m_compiler->gtNewSIMDNode(type, intrinsic, baseType, size, op1);
-    }
-
-    GenTreeSIMD* NewSIMDNode(
-        var_types type, SIMDIntrinsicID intrinsic, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
-    {
-        return m_compiler->gtNewSIMDNode(type, intrinsic, baseType, size, op1, op2);
-    }
 #endif
 };
 

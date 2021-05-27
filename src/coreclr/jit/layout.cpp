@@ -593,9 +593,6 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
         case GT_LCL_FLD:
             return node->AsLclFld()->GetLayout(this);
         case GT_IND:
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
 #endif
@@ -629,8 +626,6 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
             FALLTHROUGH;
         case GT_IND:
             return typGetVectorLayout(node->GetType(), TYP_UNDEF);
-        case GT_SIMD:
-            return typGetVectorLayout(node->GetType(), node->AsSIMD()->GetSIMDBaseType());
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());

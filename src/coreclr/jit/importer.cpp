@@ -978,7 +978,7 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
-           (!src->TypeIs(TYP_STRUCT) && src->OperIsSimdOrHWintrinsic()));
+           (!src->TypeIs(TYP_STRUCT) && src->OperIsHWIntrinsic()));
 
     if (src->OperIs(GT_COMMA))
     {
@@ -1171,7 +1171,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsSimdOrHWintrinsic());
+        assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsHWIntrinsic());
         assert((layout == nullptr) || (src->GetType() == typGetStructType(layout)));
     }
 
@@ -1322,7 +1322,7 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
         return value->AsObj()->GetAddr();
     }
 
-    if (value->OperIs(GT_CALL, GT_RET_EXPR, GT_OBJ, GT_MKREFANY) || value->OperIsSimdOrHWintrinsic())
+    if (value->OperIs(GT_CALL, GT_RET_EXPR, GT_OBJ, GT_MKREFANY) || value->OperIsHWIntrinsic())
     {
         unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address temp"));
         impAppendTempAssign(tmpNum, value, structHnd, curLevel);
@@ -1376,13 +1376,8 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             isCanonical = true;
             break;
 
-#if defined(FEATURE_SIMD) || defined(FEATURE_HW_INTRINSICS)
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-#endif
             assert(varTypeIsSIMD(arg->GetType()));
             FALLTHROUGH;
 #endif
@@ -1413,7 +1408,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             }
 
 #ifdef FEATURE_SIMD
-            if (commaValue->OperIsSimdOrHWintrinsic())
+            if (commaValue->OperIsHWIntrinsic())
             {
                 lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argLayout, curLevel));
             }

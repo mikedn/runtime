@@ -101,7 +101,6 @@ private:
     void ContainCheckIntrinsic(GenTreeOp* node);
 #endif // TARGET_XARCH
 #ifdef FEATURE_SIMD
-    void ContainCheckSIMD(GenTreeSIMD* simdNode);
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
 #endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
@@ -366,9 +365,6 @@ private:
     GenTree* LowerArrElem(GenTree* node);
     void LowerRotate(GenTree* tree);
     void LowerShift(GenTreeOp* shift);
-#ifdef FEATURE_SIMD
-    void LowerSIMD(GenTreeSIMD* simdNode);
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
     void LowerHWIntrinsic(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition);
