@@ -8397,6 +8397,72 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
     }
 }
 
+void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
+{
+    if (value->isContained())
+    {
+        GenAddrMode src(value, this);
+
+#ifdef TARGET_64BIT
+        inst_R_AM(INS_mov, EA_8BYTE, tmpReg, src, 0);
+        inst_AM_R(INS_mov, EA_8BYTE, tmpReg, dst, 0);
+        inst_R_AM(INS_mov, EA_4BYTE, tmpReg, src, 8);
+        inst_AM_R(INS_mov, EA_4BYTE, tmpReg, dst, 8);
+#else
+        inst_R_AM(INS_movsdsse2, EA_8BYTE, tmpReg, src, 0);
+        inst_AM_R(INS_movsdsse2, EA_8BYTE, tmpReg, dst, 0);
+        inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
+        inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
+#endif
+        return;
+    }
+
+    regNumber valueReg = genConsumeReg(value);
+
+    inst_AM_R(INS_movsdsse2, EA_8BYTE, valueReg, dst, 0);
+
+    if (value->IsHWIntrinsicZero())
+    {
+        tmpReg = valueReg;
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+    }
+
+    inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
+}
+
+void CodeGen::genLoadSIMD12(GenTree* load)
+{
+    GenAddrMode src(load, this);
+
+    regNumber tmpReg = load->GetSingleTempReg();
+    regNumber dstReg = load->GetRegNum();
+
+    assert(tmpReg != dstReg);
+
+    inst_R_AM(INS_movsdsse2, EA_8BYTE, dstReg, src, 0);
+    inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
+    GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
+
+    genProduceReg(load);
+}
+
+#ifdef TARGET_X86
+
+void CodeGen::genStoreSIMD12ToStack(regNumber valueReg, regNumber tmpReg)
+{
+    assert(genIsValidFloatReg(valueReg));
+    assert(genIsValidFloatReg(tmpReg));
+
+    GetEmitter()->emitIns_AR_R(INS_movsdsse2, EA_8BYTE, valueReg, REG_SPBASE, 0);
+    GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+    GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, REG_SPBASE, 8);
+}
+
+#endif // TARGET_X86
+
 //------------------------------------------------------------------------
 // genPushCalleeSavedRegisters: Push any callee-saved registers we have used.
 //
