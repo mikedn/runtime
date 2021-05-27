@@ -3060,12 +3060,10 @@ protected:
 protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
-    GenTree* impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& signature, ClassLayout* layout);
-
-    GenTree* impVector234TCreate(const HWIntrinsicSignature& signature, ClassLayout* thisLayout, GenTree* newobjThis);
-
-    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& signature, ClassLayout* layout, GenTree* newobjThis);
-
+    GenTree* impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* thisLayout, GenTree* newobjThis);
+    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
+    GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
     GenTree* impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
@@ -3155,10 +3153,20 @@ public:
                           GenTree**    clone,
                           ClassLayout* layout,
                           unsigned spillCheckLevel DEBUGARG(const char* reason));
+
     void impMakeMultiUse(GenTree*  tree,
                          unsigned  useCount,
                          GenTree** uses,
                          unsigned spillCheckLevel DEBUGARG(const char* reason));
+
+    template <unsigned useCount>
+    void impMakeMultiUse(GenTree* tree,
+                         GenTree* (&uses)[useCount],
+                         unsigned spillCheckLevel DEBUGARG(const char* reason))
+    {
+        impMakeMultiUse(tree, useCount, uses, spillCheckLevel DEBUGARG(reason));
+    }
+
     void impMakeMultiUse(GenTree*     tree,
                          unsigned     useCount,
                          GenTree**    uses,

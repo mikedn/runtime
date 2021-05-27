@@ -872,8 +872,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
     switch (simdIntrinsicID)
     {
-        case SIMDIntrinsicInitArray:
-        case SIMDIntrinsicInitArrayX:
         case SIMDIntrinsicCopyToArray:
         case SIMDIntrinsicCopyToArrayX:
         {
@@ -930,16 +928,6 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
             if (op3 != nullptr)
             {
-                SpecialCodeKind op3CheckKind;
-                if (simdIntrinsicID == SIMDIntrinsicInitArrayX)
-                {
-                    op3CheckKind = SCK_RNGCHK_FAIL;
-                }
-                else
-                {
-                    assert(simdIntrinsicID == SIMDIntrinsicCopyToArrayX);
-                    op3CheckKind = SCK_ARG_RNG_EXCPN;
-                }
                 // We need to use the original expression on this, which is the first check.
                 GenTree* arrayRefForArgRngChk = arrayRefForArgChk;
                 // Then we clone the clone we just made for the next check.
@@ -957,7 +945,7 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
                 }
 
                 GenTreeArrLen* arrLen = gtNewArrLen(arrayRefForArgRngChk, OFFSETOF__CORINFO_Array__length, compCurBB);
-                argRngChk             = gtNewArrBoundsChk(index, arrLen, op3CheckKind);
+                argRngChk             = gtNewArrBoundsChk(index, arrLen, SCK_ARG_RNG_EXCPN);
                 // Now, clone op3 to create another node for the argChk
                 GenTree* index2 = gtCloneExpr(op3);
                 assert(index != nullptr);
@@ -966,17 +954,8 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
 
             // Insert a bounds check for index + offset - 1.
             // This must be a "normal" array.
-            SpecialCodeKind op2CheckKind;
-            if (simdIntrinsicID == SIMDIntrinsicInitArray || simdIntrinsicID == SIMDIntrinsicInitArrayX)
-            {
-                op2CheckKind = SCK_RNGCHK_FAIL;
-            }
-            else
-            {
-                op2CheckKind = SCK_ARG_EXCPN;
-            }
             GenTreeArrLen*    arrLen = gtNewArrLen(arrayRefForArgChk, OFFSETOF__CORINFO_Array__length, compCurBB);
-            GenTreeBoundsChk* argChk = gtNewArrBoundsChk(checkIndexExpr, arrLen, op2CheckKind);
+            GenTreeBoundsChk* argChk = gtNewArrBoundsChk(checkIndexExpr, arrLen, SCK_ARG_EXCPN);
 
             op2 = gtNewCommaNode(argChk, op2);
 
@@ -1006,24 +985,11 @@ GenTree* Compiler::impSIMDIntrinsic(OPCODE                opcode,
             op2 = gtNewOperNode(GT_ADD, TYP_BYREF, op2, op3);
             op2->gtFlags |= GTF_DONT_CSE;
 
-            if ((simdIntrinsicID == SIMDIntrinsicInitArray) || (simdIntrinsicID == SIMDIntrinsicInitArrayX))
-            {
-                op1      = getOp1ForConstructor(opcode, newobjThis, clsHnd);
-                simdTree = gtNewOperNode(GT_IND, simdType, op2);
-                simdTree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-                retVal = impAssignSIMDAddr(op1, simdTree);
-            }
-            else
-            {
-                assert((simdIntrinsicID == SIMDIntrinsicCopyToArray) || (simdIntrinsicID == SIMDIntrinsicCopyToArrayX));
-                assert(instMethod);
-
-                op1 = impSIMDPopStackAddr(simdType);
-                assert(op1->TypeGet() == simdType);
-                retVal = gtNewOperNode(GT_IND, simdType, op2);
-                retVal->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-                retVal = gtNewAssignNode(retVal, op1);
-            }
+            op1 = impSIMDPopStackAddr(simdType);
+            assert(op1->TypeGet() == simdType);
+            retVal = gtNewOperNode(GT_IND, simdType, op2);
+            retVal->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+            retVal = gtNewAssignNode(retVal, op1);
         }
         break;
 

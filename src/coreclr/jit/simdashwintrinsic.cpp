@@ -279,16 +279,18 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         {
             if (signature.paramLayout[0] == nullptr)
             {
-                if (signature.paramType[0] == TYP_REF)
-                {
-                    // Create from array intrinsics are handled by the old SIMD import code.
-                    return nullptr;
-                }
-
                 // This must be one of the Create intrinsics or get_Item.
                 assert(signature.hasThisParam);
-                assert((signature.paramCount == 1) || (signature.paramCount == layout->GetElementCount()));
-                assert((signature.paramType[0] == layout->GetElementType()) || (signature.paramType[0] == TYP_INT));
+
+                if (signature.paramType[0] == TYP_REF)
+                {
+                    assert((signature.paramCount == 1) || (signature.paramCount == 2));
+                }
+                else
+                {
+                    assert((signature.paramCount == 1) || (signature.paramCount == layout->GetElementCount()));
+                    assert((signature.paramType[0] == layout->GetElementType()) || (signature.paramType[0] == TYP_INT));
+                }
             }
             else
             {
@@ -323,16 +325,26 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         switch (intrinsic)
         {
+            case NI_VectorT128_FromArray:
+#ifdef TARGET_XARCH
+            case NI_VectorT256_FromArray:
+#endif
+                return impVectorTFromArray(signature, layout, newobjThis);
+            case NI_VectorT128_CreateBroadcast:
+#ifdef TARGET_XARCH
+            case NI_VectorT256_CreateBroadcast:
+#endif
+                if (signature.paramType[0] == TYP_REF)
+                {
+                    return impVectorTFromArray(signature, layout, newobjThis);
+                }
+                FALLTHROUGH;
             case NI_Vector2_CreateBroadcast:
             case NI_Vector2_Create:
             case NI_Vector3_CreateBroadcast:
             case NI_Vector3_Create:
             case NI_Vector4_CreateBroadcast:
             case NI_Vector4_Create:
-            case NI_VectorT128_CreateBroadcast:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_CreateBroadcast:
-#endif
                 return impVector234TCreate(signature, layout, newobjThis);
             case NI_Vector3_CreateExtend1:
             case NI_Vector4_CreateExtend1:
@@ -942,6 +954,71 @@ GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
 
     create->SetType(layout->GetSIMDType());
     return impAssignSIMDAddr(addr, create);
+}
+
+GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
+{
+    assert((sig.paramCount == 1) || (sig.paramCount == 2));
+    assert(sig.paramType[0] == TYP_REF);
+    assert((sig.paramCount == 1) || (sig.paramType[1] == TYP_INT));
+
+    GenTree* index = sig.paramCount == 1 ? nullptr : impPopStackCoerceArg(TYP_INT);
+    GenTree* array = impPopStackCoerceArg(TYP_REF);
+    GenTree* addr  = impGetVectorCtorThis(layout, newobjThis);
+
+    assert((index == nullptr) || (varActualType(index->GetType()) == TYP_INT));
+    assert(array->TypeIs(TYP_REF));
+    assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+    if ((index != nullptr) && index->IsIntegralConst(0))
+    {
+        index = nullptr;
+    }
+
+    GenTree* arrayUses[3];
+    impMakeMultiUse(array, index == nullptr ? 2 : 3, arrayUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.FromArray temp"));
+    array = arrayUses[0];
+
+    GenTree* lastIndex = gtNewIconNode(layout->GetElementCount() - 1);
+
+    if (index != nullptr)
+    {
+        GenTree* indexUses[3];
+        impMakeMultiUse(index, indexUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.FromArray temp"));
+        index = indexUses[0];
+
+        GenTreeArrLen* arrLen = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length, compCurBB);
+        array                 = gtNewCommaNode(gtNewArrBoundsChk(indexUses[2], arrLen, SCK_RNGCHK_FAIL), array);
+
+        lastIndex = gtNewOperNode(GT_ADD, TYP_INT, indexUses[1], lastIndex);
+    }
+
+    GenTreeArrLen* arrLen = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length, compCurBB);
+    array                 = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL), array);
+
+    GenTree* offset = gtNewIconNode(OFFSETOF__CORINFO_Array__data, TYP_I_IMPL);
+
+    if (index != nullptr)
+    {
+        GenTree* elementSize = gtNewIconNode(varTypeSize(layout->GetElementType()), TYP_I_IMPL);
+#ifdef TARGET_64BIT
+        index = gtNewCastNode(TYP_LONG, index, false, TYP_LONG);
+#endif
+        index = gtNewOperNode(GT_MUL, TYP_I_IMPL, index, elementSize);
+        // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
+        // from the previous implementation that imported SIMDIntrinsicInitArray
+        // as is, hiding the address mode and thus blocking CSE.
+        index->gtFlags |= GTF_DONT_CSE;
+        offset = gtNewOperNode(GT_ADD, TYP_I_IMPL, index, offset);
+        offset->gtFlags |= GTF_DONT_CSE;
+    }
+
+    offset = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
+    offset->gtFlags |= GTF_DONT_CSE;
+
+    GenTree* value = gtNewOperNode(GT_IND, layout->GetSIMDType(), offset);
+    value->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+    return impAssignSIMDAddr(addr, value);
 }
 
 GenTree* Compiler::impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis)
