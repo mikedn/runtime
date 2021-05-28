@@ -3,37 +3,24 @@
 
 #include "jitpch.h"
 
-SIMDLevel Compiler::getSIMDSupportLevel()
-{
-#if defined(TARGET_XARCH)
-    if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
-    {
-        return SIMD_AVX2_Supported;
-    }
-
-    if (compOpportunisticallyDependsOn(InstructionSet_SSE42))
-    {
-        return SIMD_SSE4_Supported;
-    }
-
-    // min bar is SSE2
-    return SIMD_SSE2_Supported;
-#else
-    assert(!"Available instruction set(s) for SIMD codegen is not defined for target arch");
-    unreached();
-    return SIMD_Not_Supported;
-#endif
-}
-
 #ifdef FEATURE_SIMD
 
 var_types Compiler::GetVectorTSimdType()
 {
 #if defined(TARGET_XARCH)
-    if (getSIMDSupportLevel() == SIMD_AVX2_Supported)
+    if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
     {
         return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
     }
+
+    // TODO-MIKE-Cleanup: This should not be necessary. Only a few intrinsics use SSE42
+    // and the import code has its own SSE42 checks.
+    // More generally, this should not use compOpportunisticallyDependsOn(AVX2) because
+    // it's called while searching for intrinsics and that does not imply that an AVX2
+    // instruction will actually be used (e.g. it could be a Vector2/3/4 intrinsic that
+    // only needs SSE2).
+
+    compOpportunisticallyDependsOn(InstructionSet_SSE42);
 
     compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
     return TYP_SIMD16;
