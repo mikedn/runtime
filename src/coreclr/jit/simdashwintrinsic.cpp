@@ -193,11 +193,6 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
                                         CORINFO_SIG_INFO*     sig,
                                         GenTree*              newobjThis)
 {
-    if (!featureSIMD)
-    {
-        return nullptr;
-    }
-
 #if defined(TARGET_XARCH)
     CORINFO_InstructionSet minimumIsa = InstructionSet_SSE2;
 #elif defined(TARGET_ARM64)
@@ -206,11 +201,19 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 #error Unsupported platform
 #endif
 
-    if (!compOpportunisticallyDependsOn(minimumIsa) || !JitConfig.EnableHWIntrinsic())
+    bool isSupported = featureSIMD && JitConfig.EnableHWIntrinsic() && compOpportunisticallyDependsOn(minimumIsa);
+
+    if ((intrinsic == NI_VectorT128_get_IsHardwareAccelerated)
+#ifdef TARGET_XARCH
+        || (intrinsic == NI_VectorT256_get_IsHardwareAccelerated)
+#endif
+            )
     {
-        // The user disabled support for the baseline ISA so
-        // don't emit any SIMD intrinsics as they all require
-        // this at a minimum
+        return gtNewIconNode(isSupported);
+    }
+
+    if (!isSupported)
+    {
         return nullptr;
     }
 
@@ -225,7 +228,6 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
     if (strcmp(className, "Vector") == 0)
     {
         assert(!signature.hasThisParam);
-        // IsHardwareAccelerated is imported by the old SIMD intrinsic code.
         assert(signature.paramCount != 0);
 
         layout = signature.paramLayout[0];

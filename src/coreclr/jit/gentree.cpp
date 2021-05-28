@@ -9634,16 +9634,6 @@ void Compiler::gtDispChild(GenTree*             child,
     indentStack->Pop();
 }
 
-#ifdef FEATURE_SIMD
-// Intrinsic Id to name map
-extern const char* const simdIntrinsicNames[] = {
-#define SIMD_INTRINSIC(mname, inst, id, r, ac, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10) #id,
-#include "simdintrinsiclist.h"
-};
-#endif // FEATURE_SIMD
-
-/*****************************************************************************/
-
 void Compiler::gtDispTree(GenTree*     tree,
                           IndentStack* indentStack,                 /* = nullptr */
                           __in __in_z __in_opt const char* msg,     /* = nullptr  */

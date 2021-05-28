@@ -7095,30 +7095,10 @@ private:
             (strcmp(namespaceName, "System.Numerics") == 0);
     }
 
-    // Get SIMD Intrinsic info given the method handle.
-    // Also sets typeHnd, argCount, baseType and sizeBytes out params.
-    const SIMDIntrinsicInfo* getSIMDIntrinsicInfo(const char*           className,
-                                                  const char*           methodName,
-                                                  CORINFO_SIG_INFO*     sig,
-                                                  bool                  isNewObj,
-                                                  CORINFO_CLASS_HANDLE* typeHnd,
-                                                  unsigned*             argCount,
-                                                  var_types*            baseType,
-                                                  unsigned*             sizeBytes);
-
     GenTree* impSIMDPopStack(var_types type);
     GenTree* impPopStackAddrAsVector(var_types type);
 
     void setLclRelatedToSIMDIntrinsic(GenTree* tree);
-
-    // check methodHnd to see if it is a SIMD method that is expanded as an intrinsic in the JIT.
-    GenTree* impSIMDIntrinsic(OPCODE                opcode,
-                              GenTree*              newobjThis,
-                              CORINFO_CLASS_HANDLE  clsHnd,
-                              CORINFO_METHOD_HANDLE method,
-                              CORINFO_SIG_INFO*     sig,
-                              unsigned              methodFlags,
-                              int                   memberRef);
 
     GenTreeOp* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
 
