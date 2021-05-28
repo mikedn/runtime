@@ -3212,7 +3212,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 // Instead, they provide software fallbacks that will be executed instead.
 
                 assert(!mustExpand);
-                return impSimdAsHWIntrinsic(ni, clsHnd, method, sig, newobjThis);
+                return impImportSysNumSimdIntrinsic(ni, clsHnd, method, sig, newobjThis);
             }
 #endif // FEATURE_HW_INTRINSICS
         }

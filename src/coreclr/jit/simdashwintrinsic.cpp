@@ -5,7 +5,7 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-enum class SimdAsHWIntrinsicClassId : unsigned
+enum class SysNumSimdIntrinsicClassId : uint8_t
 {
     Unknown,
     Vector2,
@@ -15,200 +15,51 @@ enum class SimdAsHWIntrinsicClassId : unsigned
     VectorT256,
 };
 
-enum class SimdAsHWIntrinsicFlag : unsigned
+enum class SysNumSimdIntrinsicFlag : uint8_t
 {
-    None = 0,
-
-    // Indicates the intrinsic is for an instance method.
-    InstanceMethod = 0x02,
-
-    // Indicates the operands should be swapped in importation.
-    NeedsOperandsSwapped = 0x04,
+    None         = 0,
+    HasThis      = 1,
+    SwapOperands = 2,
 };
 
-static constexpr SimdAsHWIntrinsicFlag operator|(SimdAsHWIntrinsicFlag lhs, SimdAsHWIntrinsicFlag rhs)
+static constexpr SysNumSimdIntrinsicFlag operator|(SysNumSimdIntrinsicFlag lhs, SysNumSimdIntrinsicFlag rhs)
 {
-    return static_cast<SimdAsHWIntrinsicFlag>(static_cast<unsigned int>(lhs) | static_cast<unsigned int>(rhs));
+    return static_cast<SysNumSimdIntrinsicFlag>(static_cast<unsigned>(lhs) | static_cast<unsigned>(rhs));
 }
 
-static constexpr SimdAsHWIntrinsicFlag operator&(SimdAsHWIntrinsicFlag lhs, SimdAsHWIntrinsicFlag rhs)
+static constexpr SysNumSimdIntrinsicFlag operator&(SysNumSimdIntrinsicFlag lhs, SysNumSimdIntrinsicFlag rhs)
 {
-    return static_cast<SimdAsHWIntrinsicFlag>(static_cast<unsigned int>(lhs) & static_cast<unsigned int>(rhs));
+    return static_cast<SysNumSimdIntrinsicFlag>(static_cast<unsigned>(lhs) & static_cast<unsigned>(rhs));
 }
 
-struct SimdAsHWIntrinsicInfo
+struct SysNumSimdIntrinsicInfo
 {
-    const char*              name;
-    SimdAsHWIntrinsicClassId classId : 4;
-    unsigned                 numArgs : 4;
-    SimdAsHWIntrinsicFlag    flags : 4;
-    NamedIntrinsic           hwIntrinsic[10];
+    const char*                name;
+    SysNumSimdIntrinsicClassId classId : 4;
+    SysNumSimdIntrinsicFlag    flags : 4;
+    uint8_t                    numArgs;
+    NamedIntrinsic             hwIntrinsic[10];
 
-    static const SimdAsHWIntrinsicInfo& lookup(NamedIntrinsic id);
-
-    static SimdAsHWIntrinsicClassId lookupClassId(const char* className,
-                                                  const char* enclosingClassName,
-                                                  int         sizeOfVectorT);
-
-    static NamedIntrinsic lookupHWIntrinsic(NamedIntrinsic id, var_types type)
+    NamedIntrinsic HWIntrinsic(var_types type) const
     {
         if ((type < TYP_BYTE) || (type > TYP_DOUBLE))
         {
             assert(!"Unexpected type");
             return NI_Illegal;
         }
-        return lookup(id).hwIntrinsic[type - TYP_BYTE];
+        return hwIntrinsic[type - TYP_BYTE];
     }
 
-    bool IsInstanceMethod() const
+    bool HasThis() const
     {
-        return (flags & SimdAsHWIntrinsicFlag::InstanceMethod) == SimdAsHWIntrinsicFlag::InstanceMethod;
+        return (flags & SysNumSimdIntrinsicFlag::HasThis) == SysNumSimdIntrinsicFlag::HasThis;
     }
 
-    bool NeedsOperandsSwapped() const
+    bool SwapOperands() const
     {
-        return (flags & SimdAsHWIntrinsicFlag::NeedsOperandsSwapped) == SimdAsHWIntrinsicFlag::NeedsOperandsSwapped;
+        return (flags & SysNumSimdIntrinsicFlag::SwapOperands) == SysNumSimdIntrinsicFlag::SwapOperands;
     }
 };
-
-static constexpr SimdAsHWIntrinsicInfo simdAsHWIntrinsicInfoArray[]
-{
-// clang-format off
-#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flags) \
-    {name, SimdAsHWIntrinsicClassId::classId, numarg, flags, {t1, t2, t3, t4, t5, t6, t7, t8, t9, t10}},
-// clang-format on
-#if defined(TARGET_XARCH)
-#include "simdashwintrinsiclistxarch.h"
-#elif defined(TARGET_ARM64)
-#include "simdashwintrinsiclistarm64.h"
-#else
-#error Unsupported platform
-#endif
-};
-
-//------------------------------------------------------------------------
-// lookup: Gets the SimdAsHWIntrinsicInfo associated with a given NamedIntrinsic
-//
-// Arguments:
-//    id -- The NamedIntrinsic associated with the SimdAsHWIntrinsic to lookup
-//
-// Return Value:
-//    The SimdAsHWIntrinsicInfo associated with id
-const SimdAsHWIntrinsicInfo& SimdAsHWIntrinsicInfo::lookup(NamedIntrinsic id)
-{
-    assert(id != NI_Illegal);
-
-    assert(id > NI_SIMD_AS_HWINTRINSIC_START);
-    assert(id < NI_SIMD_AS_HWINTRINSIC_END);
-
-    return simdAsHWIntrinsicInfoArray[id - NI_SIMD_AS_HWINTRINSIC_START - 1];
-}
-
-//------------------------------------------------------------------------
-// lookupId: Gets the NamedIntrinsic for a given method name and InstructionSet
-//
-// Arguments:
-//    className          -- The name of the class associated with the SimdIntrinsic to lookup
-//    methodName         -- The name of the method associated with the SimdIntrinsic to lookup
-//    enclosingClassName -- The name of the enclosing class
-//    sizeOfVectorT      -- The size of Vector<T> in bytes
-//
-// Return Value:
-//    The NamedIntrinsic associated with methodName and classId
-NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_SIG_INFO* sig,
-                                                    const char*       className,
-                                                    const char*       methodName,
-                                                    const char*       enclosingClassName,
-                                                    int               sizeOfVectorT)
-{
-    SimdAsHWIntrinsicClassId classId =
-        SimdAsHWIntrinsicInfo::lookupClassId(className, enclosingClassName, sizeOfVectorT);
-
-    if (classId == SimdAsHWIntrinsicClassId::Unknown)
-    {
-        return NI_Illegal;
-    }
-
-    bool     isInstanceMethod = sig->hasThis();
-    unsigned numArgs          = sig->numArgs + (isInstanceMethod ? 1 : 0);
-
-    for (int i = 0; i < (NI_SIMD_AS_HWINTRINSIC_END - NI_SIMD_AS_HWINTRINSIC_START - 1); i++)
-    {
-        const SimdAsHWIntrinsicInfo& intrinsicInfo = simdAsHWIntrinsicInfoArray[i];
-
-        if (classId != intrinsicInfo.classId)
-        {
-            continue;
-        }
-
-        if (numArgs != static_cast<unsigned>(intrinsicInfo.numArgs))
-        {
-            continue;
-        }
-
-        if (isInstanceMethod != intrinsicInfo.IsInstanceMethod())
-        {
-            continue;
-        }
-
-        if (strcmp(methodName, intrinsicInfo.name) != 0)
-        {
-            continue;
-        }
-
-        return static_cast<NamedIntrinsic>(NI_SIMD_AS_HWINTRINSIC_START + 1 + i);
-    }
-
-    return NI_Illegal;
-}
-
-//------------------------------------------------------------------------
-// lookupClassId: Gets the SimdAsHWIntrinsicClassId for a given class name and enclsoing class name
-//
-// Arguments:
-//    className          -- The name of the class associated with the SimdAsHWIntrinsicClassId to lookup
-//    enclosingClassName -- The name of the enclosing class
-//    sizeOfVectorT      -- The size of Vector<T> in bytes
-//
-// Return Value:
-//    The SimdAsHWIntrinsicClassId associated with className and enclosingClassName
-SimdAsHWIntrinsicClassId SimdAsHWIntrinsicInfo::lookupClassId(const char* className,
-                                                              const char* enclosingClassName,
-                                                              int         sizeOfVectorT)
-{
-    assert(className != nullptr);
-
-    if ((enclosingClassName != nullptr) || (className[0] != 'V'))
-    {
-        return SimdAsHWIntrinsicClassId::Unknown;
-    }
-    if (strcmp(className, "Vector2") == 0)
-    {
-        return SimdAsHWIntrinsicClassId::Vector2;
-    }
-    if (strcmp(className, "Vector3") == 0)
-    {
-        return SimdAsHWIntrinsicClassId::Vector3;
-    }
-    if (strcmp(className, "Vector4") == 0)
-    {
-        return SimdAsHWIntrinsicClassId::Vector4;
-    }
-    if ((strcmp(className, "Vector") == 0) || (strcmp(className, "Vector`1") == 0))
-    {
-#if defined(TARGET_XARCH)
-        if (sizeOfVectorT == 32)
-        {
-            return SimdAsHWIntrinsicClassId::VectorT256;
-        }
-#endif // TARGET_XARCH
-
-        assert(sizeOfVectorT == 16);
-        return SimdAsHWIntrinsicClassId::VectorT128;
-    }
-
-    return SimdAsHWIntrinsicClassId::Unknown;
-}
 
 #ifdef TARGET_XARCH
 NamedIntrinsic MapVectorTIntrinsic(NamedIntrinsic intrinsic, bool isAVX)
@@ -239,24 +90,108 @@ NamedIntrinsic MapVectorTIntrinsic(NamedIntrinsic intrinsic, bool isAVX)
 }
 #endif // TARGET_XARCH
 
-//------------------------------------------------------------------------
-// impSimdAsIntrinsic: Import a SIMD intrinsic as a GT_HWINTRINSIC node if possible
-//
-// Arguments:
-//    intrinsic  -- id of the intrinsic function.
-//    clsHnd     -- class handle containing the intrinsic function.
-//    method     -- method handle of the intrinsic function.
-//    sig        -- signature of the intrinsic call
-//    mustExpand -- true if the intrinsic must return a GenTree*; otherwise, false
-//
-// Return Value:
-//    The GT_HWINTRINSIC node, or nullptr if not a supported intrinsic
-//
-GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
-                                        CORINFO_CLASS_HANDLE  clsHnd,
-                                        CORINFO_METHOD_HANDLE method,
-                                        CORINFO_SIG_INFO*     sig,
-                                        GenTree*              newobjThis)
+static constexpr SysNumSimdIntrinsicInfo sysNumSimdIntrinsicInfo[]
+{
+// clang-format off
+#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flags) \
+    {name, SysNumSimdIntrinsicClassId::classId, flags, numarg, {t1, t2, t3, t4, t5, t6, t7, t8, t9, t10}},
+// clang-format on
+#if defined(TARGET_XARCH)
+#include "simdashwintrinsiclistxarch.h"
+#elif defined(TARGET_ARM64)
+#include "simdashwintrinsiclistarm64.h"
+#else
+#error Unsupported platform
+#endif
+};
+
+static_assert_no_msg(_countof(sysNumSimdIntrinsicInfo) ==
+                     NI_SIMD_AS_HWINTRINSIC_END - NI_SIMD_AS_HWINTRINSIC_START - 1);
+
+static constexpr const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic id)
+{
+    assert((NI_SIMD_AS_HWINTRINSIC_START < id) && (id < NI_SIMD_AS_HWINTRINSIC_END));
+
+    return sysNumSimdIntrinsicInfo[id - NI_SIMD_AS_HWINTRINSIC_START - 1];
+}
+
+static SysNumSimdIntrinsicClassId FindClassId(const char* className, const char* enclosingClassName, int sizeOfVectorT)
+{
+    assert(className != nullptr);
+
+    if ((enclosingClassName != nullptr) || (className[0] != 'V'))
+    {
+        return SysNumSimdIntrinsicClassId::Unknown;
+    }
+    if (strcmp(className, "Vector2") == 0)
+    {
+        return SysNumSimdIntrinsicClassId::Vector2;
+    }
+    if (strcmp(className, "Vector3") == 0)
+    {
+        return SysNumSimdIntrinsicClassId::Vector3;
+    }
+    if (strcmp(className, "Vector4") == 0)
+    {
+        return SysNumSimdIntrinsicClassId::Vector4;
+    }
+    if ((strcmp(className, "Vector") == 0) || (strcmp(className, "Vector`1") == 0))
+    {
+#if defined(TARGET_XARCH)
+        if (sizeOfVectorT == 32)
+        {
+            return SysNumSimdIntrinsicClassId::VectorT256;
+        }
+#endif // TARGET_XARCH
+
+        assert(sizeOfVectorT == 16);
+        return SysNumSimdIntrinsicClassId::VectorT128;
+    }
+
+    return SysNumSimdIntrinsicClassId::Unknown;
+}
+
+NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_SIG_INFO* sig,
+                                                    const char*       className,
+                                                    const char*       methodName,
+                                                    const char*       enclosingClassName,
+                                                    int               sizeOfVectorT)
+{
+    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName, sizeOfVectorT);
+
+    if (classId == SysNumSimdIntrinsicClassId::Unknown)
+    {
+        return NI_Illegal;
+    }
+
+    bool     hasThis = sig->hasThis();
+    unsigned numArgs = sig->numArgs + hasThis;
+
+    for (unsigned i = 0; i < _countof(sysNumSimdIntrinsicInfo); i++)
+    {
+        const SysNumSimdIntrinsicInfo& info = sysNumSimdIntrinsicInfo[i];
+
+        if ((classId != info.classId) || (numArgs != info.numArgs) || (hasThis != info.HasThis()))
+        {
+            continue;
+        }
+
+        if (strcmp(methodName, info.name) != 0)
+        {
+            continue;
+        }
+
+        return static_cast<NamedIntrinsic>(NI_SIMD_AS_HWINTRINSIC_START + 1 + i);
+    }
+
+    return NI_Illegal;
+}
+
+GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
+                                                CORINFO_CLASS_HANDLE  clsHnd,
+                                                CORINFO_METHOD_HANDLE method,
+                                                CORINFO_SIG_INFO*     sig,
+                                                GenTree*              newobjThis)
 {
 #if defined(TARGET_XARCH)
     CORINFO_InstructionSet minimumIsa = InstructionSet_SSE2;
@@ -376,7 +311,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         }
     }
 
-    NamedIntrinsic hwIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, layout->GetElementType());
+    NamedIntrinsic hwIntrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(layout->GetElementType());
 
     if (hwIntrinsic == NI_Illegal)
     {
@@ -471,7 +406,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (signature.hasThisParam)
     {
-        assert(SimdAsHWIntrinsicInfo::lookup(intrinsic).IsInstanceMethod());
+        assert(GetIntrinsicInfo(intrinsic).HasThis());
 
         switch (intrinsic)
         {
@@ -510,7 +445,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             ops[1] = impPopArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
             ops[0] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
 
-            if (SimdAsHWIntrinsicInfo::lookup(intrinsic).NeedsOperandsSwapped())
+            if (GetIntrinsicInfo(intrinsic).SwapOperands())
             {
                 // TODO-MIKE-Fix: This is nonsense, it changes the order of evaluation.
                 std::swap(ops[0], ops[1]);
@@ -527,11 +462,11 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout)
 {
     assert(featureSIMD);
-    assert(!SimdAsHWIntrinsicInfo::lookup(intrinsic).NeedsOperandsSwapped());
+    assert(!GetIntrinsicInfo(intrinsic).SwapOperands());
     assert(!sig.hasThisParam);
     assert(sig.paramCount <= 3);
 #if defined(TARGET_XARCH)
-    bool isAVX = (SimdAsHWIntrinsicInfo::lookup(intrinsic).classId == SimdAsHWIntrinsicClassId::VectorT256);
+    bool isAVX = (GetIntrinsicInfo(intrinsic).classId == SysNumSimdIntrinsicClassId::VectorT256);
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
     assert(!isAVX || compIsaSupportedDebugOnly(InstructionSet_AVX2));
 #elif defined(TARGET_ARM64)
@@ -635,7 +570,7 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
                     gtNewSimdHWIntrinsicNode(retType, GetCreateSimdHWIntrinsic(retType), retBaseType, retSize, bitMask);
 
                 intrinsic = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseAnd, isAVX);
-                intrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, retBaseType);
+                intrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(retBaseType);
 
                 return gtNewSimdHWIntrinsicNode(retType, intrinsic, retBaseType, retSize, ops[0], bitMask);
             }
@@ -1912,11 +1847,11 @@ GenTree* Compiler::impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1
     NamedIntrinsic andnIntrinsic = MapVectorTIntrinsic(NI_VectorT128_AndNot, type == TYP_SIMD32);
     NamedIntrinsic orIntrinsic   = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseOr, type == TYP_SIMD32);
 
-    assert(SimdAsHWIntrinsicInfo::lookup(andnIntrinsic).NeedsOperandsSwapped());
+    assert(GetIntrinsicInfo(andnIntrinsic).SwapOperands());
 
-    andIntrinsic  = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(andIntrinsic, baseType);
-    andnIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(andnIntrinsic, baseType);
-    orIntrinsic   = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(orIntrinsic, baseType);
+    andIntrinsic  = GetIntrinsicInfo(andIntrinsic).HWIntrinsic(baseType);
+    andnIntrinsic = GetIntrinsicInfo(andnIntrinsic).HWIntrinsic(baseType);
+    orIntrinsic   = GetIntrinsicInfo(orIntrinsic).HWIntrinsic(baseType);
 
     GenTree* uses[2];
     impMakeMultiUse(op1, uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.ConditionalSelect temp"));
@@ -1942,7 +1877,7 @@ GenTree* Compiler::impVectorTCompare(
 
             if (isAVX || ((baseType != TYP_LONG) && (baseType != TYP_ULONG)))
             {
-                NamedIntrinsic hwIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType);
+                NamedIntrinsic hwIntrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(baseType);
                 assert(hwIntrinsic != intrinsic);
                 return gtNewSimdHWIntrinsicNode(type, hwIntrinsic, baseType, size, op1, op2);
             }
@@ -2070,7 +2005,7 @@ GenTree* Compiler::impVectorTCompare(
 
             if (isAVX || (baseType != TYP_LONG))
             {
-                NamedIntrinsic hwIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType);
+                NamedIntrinsic hwIntrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(baseType);
                 assert(hwIntrinsic != intrinsic);
                 return gtNewSimdHWIntrinsicNode(type, hwIntrinsic, baseType, size, op1, op2);
             }
