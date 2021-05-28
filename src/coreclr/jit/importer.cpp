@@ -230,32 +230,6 @@ GenTree* Compiler::impPopStackCoerceArg(var_types signatureType)
     return tree;
 }
 
-#ifdef FEATURE_SIMD
-GenTree* Compiler::impSIMDPopStackAddr(var_types type)
-{
-    assert(varTypeIsSIMD(type));
-
-    GenTree* addr = impPopStack().val;
-
-    if (!addr->TypeIs(TYP_BYREF, TYP_I_IMPL))
-    {
-        BADCODE("incompatible stack type");
-    }
-
-    if (addr->OperIs(GT_ADDR))
-    {
-        GenTree* location = addr->AsUnOp()->GetOp(0);
-
-        if (location->GetType() == type)
-        {
-            return location;
-        }
-    }
-
-    return gtNewOperNode(GT_IND, type, addr);
-}
-#endif
-
 /*****************************************************************************
  *
  *  Peep at n'th (0-based) tree on the top of the stack.

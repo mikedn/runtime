@@ -10,11 +10,11 @@ static const SimdAsHWIntrinsicInfo simdAsHWIntrinsicInfoArray[] = {
 // clang-format off
 #if defined(TARGET_XARCH)
 #define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag)                      \
-    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, static_cast<SimdAsHWIntrinsicFlag>(flag)},
+    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag},
 #include "simdashwintrinsiclistxarch.h"
 #elif defined(TARGET_ARM64)
 #define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag)                      \
-    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, static_cast<SimdAsHWIntrinsicFlag>(flag)},
+    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag},
 #include "simdashwintrinsiclistarm64.h"
 #else
 #error Unsupported platform
@@ -350,6 +350,19 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             case NI_Vector4_CreateExtend1:
             case NI_Vector4_CreateExtend2:
                 return impVector234CreateExtend(signature, layout, newobjThis);
+            case NI_Vector2_CopyTo:
+            case NI_Vector2_CopyToAt:
+            case NI_Vector3_CopyTo:
+            case NI_Vector3_CopyToAt:
+            case NI_Vector4_CopyTo:
+            case NI_Vector4_CopyToAt:
+            case NI_VectorT128_CopyTo:
+            case NI_VectorT128_CopyToAt:
+#ifdef TARGET_XARCH
+            case NI_VectorT256_CopyTo:
+            case NI_VectorT256_CopyToAt:
+#endif
+                return impVector234TCopyTo(signature, layout);
             case NI_VectorT128_get_Item:
 #ifdef TARGET_XARCH
             case NI_VectorT256_get_Item:
@@ -410,7 +423,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
                 assert(signature.paramCount == 1);
 
                 ops[1] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
-                ops[0] = impSIMDPopStackAddr(signature.paramType[0]);
+                ops[0] = impPopStackAddrAsVector(signature.paramType[0]);
                 return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, size, ops[0], ops[1]);
 
             default:
@@ -956,19 +969,52 @@ GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
     return impAssignSIMDAddr(addr, create);
 }
 
-GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
+GenTree* Compiler::impPopStackAddrAsVector(var_types type)
 {
-    assert((sig.paramCount == 1) || (sig.paramCount == 2));
-    assert(sig.paramType[0] == TYP_REF);
-    assert((sig.paramCount == 1) || (sig.paramType[1] == TYP_INT));
+    assert(varTypeIsSIMD(type));
 
-    GenTree* index = sig.paramCount == 1 ? nullptr : impPopStackCoerceArg(TYP_INT);
-    GenTree* array = impPopStackCoerceArg(TYP_REF);
-    GenTree* addr  = impGetVectorCtorThis(layout, newobjThis);
+    GenTree* addr = impPopStack().val;
 
-    assert((index == nullptr) || (varActualType(index->GetType()) == TYP_INT));
+    if (!addr->TypeIs(TYP_BYREF, TYP_I_IMPL))
+    {
+        BADCODE("incompatible stack type");
+    }
+
+    if (addr->OperIs(GT_ADDR))
+    {
+        GenTree* location = addr->AsUnOp()->GetOp(0);
+
+        if (location->GetType() == type)
+        {
+            return location;
+        }
+    }
+
+    return gtNewOperNode(GT_IND, type, addr);
+}
+
+GenTree* Compiler::impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis)
+{
+    if (newobjThis != nullptr)
+    {
+        assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
+        unsigned  lclNum  = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
+        var_types lclType = lvaGetDesc(lclNum)->GetType();
+        impPushOnStack(gtNewLclvNode(lclNum, lclType), typeInfo(TI_STRUCT, layout->GetClassHandle()));
+        return newobjThis;
+    }
+
+    return impPopStack().val;
+}
+
+GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
+                                               GenTree*        array,
+                                               GenTree*        index,
+                                               SpecialCodeKind indexThrowKind,
+                                               SpecialCodeKind lastIndexThrowKind)
+{
     assert(array->TypeIs(TYP_REF));
-    assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+    assert((index == nullptr) || (varActualType(index->GetType()) == TYP_INT));
 
     if ((index != nullptr) && index->IsIntegralConst(0))
     {
@@ -976,7 +1022,7 @@ GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLay
     }
 
     GenTree* arrayUses[3];
-    impMakeMultiUse(array, index == nullptr ? 2 : 3, arrayUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.FromArray temp"));
+    impMakeMultiUse(array, index == nullptr ? 2 : 3, arrayUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.CopyTo temp"));
     array = arrayUses[0];
 
     GenTree* lastIndex = gtNewIconNode(layout->GetElementCount() - 1);
@@ -984,17 +1030,17 @@ GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLay
     if (index != nullptr)
     {
         GenTree* indexUses[3];
-        impMakeMultiUse(index, indexUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.FromArray temp"));
+        impMakeMultiUse(index, indexUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.CopyTo temp"));
         index = indexUses[0];
 
         GenTreeArrLen* arrLen = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length, compCurBB);
-        array                 = gtNewCommaNode(gtNewArrBoundsChk(indexUses[2], arrLen, SCK_RNGCHK_FAIL), array);
+        array                 = gtNewCommaNode(gtNewArrBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
 
         lastIndex = gtNewOperNode(GT_ADD, TYP_INT, indexUses[1], lastIndex);
     }
 
     GenTreeArrLen* arrLen = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length, compCurBB);
-    array                 = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL), array);
+    array                 = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
 
     GenTree* offset = gtNewIconNode(OFFSETOF__CORINFO_Array__data, TYP_I_IMPL);
 
@@ -1016,23 +1062,38 @@ GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLay
     offset = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
     offset->gtFlags |= GTF_DONT_CSE;
 
-    GenTree* value = gtNewOperNode(GT_IND, layout->GetSIMDType(), offset);
-    value->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-    return impAssignSIMDAddr(addr, value);
+    GenTree* indir = gtNewOperNode(GT_IND, layout->GetSIMDType(), offset)->AsIndir();
+    indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+    return indir;
 }
 
-GenTree* Compiler::impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis)
+GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
 {
-    if (newobjThis != nullptr)
-    {
-        assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
-        unsigned  lclNum  = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
-        var_types lclType = lvaGetDesc(lclNum)->GetType();
-        impPushOnStack(gtNewLclvNode(lclNum, lclType), typeInfo(TI_STRUCT, layout->GetClassHandle()));
-        return newobjThis;
-    }
+    assert((sig.paramCount == 1) || (sig.paramCount == 2));
+    assert(sig.paramType[0] == TYP_REF);
+    assert((sig.paramCount == 1) || (sig.paramType[1] == TYP_INT));
 
-    return impPopStack().val;
+    GenTree* index    = sig.paramCount == 1 ? nullptr : impPopStackCoerceArg(TYP_INT);
+    GenTree* array    = impPopStackCoerceArg(TYP_REF);
+    GenTree* destAddr = impGetVectorCtorThis(layout, newobjThis);
+
+    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, SCK_RNGCHK_FAIL, SCK_RNGCHK_FAIL);
+    return impAssignSIMDAddr(destAddr, indir);
+}
+
+GenTree* Compiler::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout)
+{
+    assert(sig.hasThisParam);
+    assert((sig.paramCount == 1) || (sig.paramCount == 2));
+    assert(sig.paramType[0] == TYP_REF);
+    assert((sig.paramCount == 1) || (sig.paramType[1] == TYP_INT));
+
+    GenTree* index = sig.paramCount == 1 ? nullptr : impPopStackCoerceArg(TYP_INT);
+    GenTree* array = impPopStackCoerceArg(TYP_REF);
+    GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
+
+    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, SCK_ARG_RNG_EXCPN, SCK_ARG_EXCPN);
+    return gtNewAssignNode(indir, value);
 }
 
 GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout)
@@ -1069,7 +1130,7 @@ GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayou
     }
 
     GenTree* index = impPopStack().val;
-    GenTree* value = impSIMDPopStackAddr(layout->GetSIMDType());
+    GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
 
     assert(value->GetType() == layout->GetSIMDType());
     assert(varActualType(index->GetType()) == TYP_INT);

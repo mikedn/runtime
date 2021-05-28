@@ -3065,6 +3065,12 @@ protected:
     GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
     GenTree* impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis);
+    GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
+                                         GenTree*        array,
+                                         GenTree*        index,
+                                         SpecialCodeKind indexThrowKind,
+                                         SpecialCodeKind lastIndexThrowKind);
+    GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
@@ -7101,7 +7107,7 @@ private:
                                                   unsigned*             sizeBytes);
 
     GenTree* impSIMDPopStack(var_types type);
-    GenTree* impSIMDPopStackAddr(var_types type);
+    GenTree* impPopStackAddrAsVector(var_types type);
 
     void setLclRelatedToSIMDIntrinsic(GenTree* tree);
 
@@ -7115,8 +7121,6 @@ private:
                               int                   memberRef);
 
     GenTreeOp* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
-
-    GenTree* getOp1ForConstructor(OPCODE opcode, GenTree* newobjThis, CORINFO_CLASS_HANDLE clsHnd);
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
