@@ -3043,7 +3043,6 @@ protected:
                                           CORINFO_METHOD_HANDLE method,
                                           CORINFO_SIG_INFO*     sig,
                                           bool                  mustExpand);
-    GenTree* impNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTree* impHWIntrinsic(NamedIntrinsic        intrinsic,
@@ -3051,6 +3050,13 @@ protected:
                             CORINFO_METHOD_HANDLE method,
                             CORINFO_SIG_INFO*     sig,
                             bool                  mustExpand);
+
+    NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_SIG_INFO* sig,
+                                              const char*       className,
+                                              const char*       methodName,
+                                              const char*       enclosingClassName,
+                                              int               sizeOfVectorT);
+
     GenTree* impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
                                   CORINFO_CLASS_HANDLE  clsHnd,
                                   CORINFO_METHOD_HANDLE method,

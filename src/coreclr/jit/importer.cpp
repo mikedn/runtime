@@ -4474,7 +4474,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
 
         int sizeOfVectorT = getSIMDVectorRegisterByteLength();
 
-        result = SimdAsHWIntrinsicInfo::lookupId(&sig, className, methodName, enclosingClassName, sizeOfVectorT);
+        result = impFindSysNumSimdIntrinsic(&sig, className, methodName, enclosingClassName, sizeOfVectorT);
     }
 #endif // FEATURE_HW_INTRINSICS
     else if (strncmp(namespaceName, "System.Runtime.Intrinsics", 25) == 0)
