@@ -19,9 +19,6 @@ enum class SimdAsHWIntrinsicFlag : unsigned int
 {
     None = 0,
 
-    // Indicates compFloatingPointUsed does not need to be set.
-    NoFloatingPointUsed = 0x1,
-
     // Indicates the intrinsic is for an instance method.
     InstanceMethod = 0x02,
 
@@ -99,14 +96,6 @@ struct SimdAsHWIntrinsicInfo
     static SimdAsHWIntrinsicFlag lookupFlags(NamedIntrinsic id)
     {
         return lookup(id).flags;
-    }
-
-    // Flags lookup
-
-    static bool IsFloatingPointUsed(NamedIntrinsic id)
-    {
-        SimdAsHWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & SimdAsHWIntrinsicFlag::NoFloatingPointUsed) == SimdAsHWIntrinsicFlag::None;
     }
 
     static bool IsInstanceMethod(NamedIntrinsic id)
@@ -434,10 +423,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
-    if (SimdAsHWIntrinsicInfo::IsFloatingPointUsed(intrinsic))
-    {
-        compFloatingPointUsed = true;
-    }
+    compFloatingPointUsed = true;
 
     if (hwIntrinsic == intrinsic)
     {
