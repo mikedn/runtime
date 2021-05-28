@@ -689,7 +689,7 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     {
 #ifdef FEATURE_SIMD
         if (m_isValueClass && ((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && compiler->supportSIMDTypes() &&
-            compiler->structSizeMightRepresentSIMDType(m_size))
+            (m_size >= varTypeSize(TYP_SIMD8)) && (m_size <= compiler->largestEnregisterableStructSize()))
         {
             m_layoutInfo = GetVectorLayoutInfo(classHandle, compiler);
 
