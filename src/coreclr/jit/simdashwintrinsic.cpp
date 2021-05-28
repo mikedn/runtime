@@ -6,20 +6,19 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-static const SimdAsHWIntrinsicInfo simdAsHWIntrinsicInfoArray[] = {
+static constexpr SimdAsHWIntrinsicInfo simdAsHWIntrinsicInfoArray[]
+{
 // clang-format off
+#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag) \
+    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, {t1, t2, t3, t4, t5, t6, t7, t8, t9, t10}, flag},
+// clang-format on
 #if defined(TARGET_XARCH)
-#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag)                      \
-    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag},
 #include "simdashwintrinsiclistxarch.h"
 #elif defined(TARGET_ARM64)
-#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag)                      \
-    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag},
 #include "simdashwintrinsiclistarm64.h"
 #else
 #error Unsupported platform
 #endif
-    // clang-format on
 };
 
 //------------------------------------------------------------------------
