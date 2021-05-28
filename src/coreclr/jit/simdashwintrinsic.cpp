@@ -26,24 +26,14 @@ enum class SimdAsHWIntrinsicFlag : unsigned int
     NeedsOperandsSwapped = 0x04,
 };
 
-inline SimdAsHWIntrinsicFlag operator~(SimdAsHWIntrinsicFlag value)
-{
-    return static_cast<SimdAsHWIntrinsicFlag>(~static_cast<unsigned int>(value));
-}
-
-inline SimdAsHWIntrinsicFlag operator|(SimdAsHWIntrinsicFlag lhs, SimdAsHWIntrinsicFlag rhs)
+static constexpr SimdAsHWIntrinsicFlag operator|(SimdAsHWIntrinsicFlag lhs, SimdAsHWIntrinsicFlag rhs)
 {
     return static_cast<SimdAsHWIntrinsicFlag>(static_cast<unsigned int>(lhs) | static_cast<unsigned int>(rhs));
 }
 
-inline SimdAsHWIntrinsicFlag operator&(SimdAsHWIntrinsicFlag lhs, SimdAsHWIntrinsicFlag rhs)
+static constexpr SimdAsHWIntrinsicFlag operator&(SimdAsHWIntrinsicFlag lhs, SimdAsHWIntrinsicFlag rhs)
 {
     return static_cast<SimdAsHWIntrinsicFlag>(static_cast<unsigned int>(lhs) & static_cast<unsigned int>(rhs));
-}
-
-inline SimdAsHWIntrinsicFlag operator^(SimdAsHWIntrinsicFlag lhs, SimdAsHWIntrinsicFlag rhs)
-{
-    return static_cast<SimdAsHWIntrinsicFlag>(static_cast<unsigned int>(lhs) ^ static_cast<unsigned int>(rhs));
 }
 
 struct SimdAsHWIntrinsicInfo
@@ -61,28 +51,6 @@ struct SimdAsHWIntrinsicInfo
                                                   const char* enclosingClassName,
                                                   int         sizeOfVectorT);
 
-    // Member lookup
-
-    static NamedIntrinsic lookupId(NamedIntrinsic id)
-    {
-        return lookup(id).id;
-    }
-
-    static const char* lookupName(NamedIntrinsic id)
-    {
-        return lookup(id).name;
-    }
-
-    static SimdAsHWIntrinsicClassId lookupClassId(NamedIntrinsic id)
-    {
-        return lookup(id).classId;
-    }
-
-    static int lookupNumArgs(NamedIntrinsic id)
-    {
-        return lookup(id).numArgs;
-    }
-
     static NamedIntrinsic lookupHWIntrinsic(NamedIntrinsic id, var_types type)
     {
         if ((type < TYP_BYTE) || (type > TYP_DOUBLE))
@@ -93,20 +61,15 @@ struct SimdAsHWIntrinsicInfo
         return lookup(id).hwIntrinsic[type - TYP_BYTE];
     }
 
-    static SimdAsHWIntrinsicFlag lookupFlags(NamedIntrinsic id)
-    {
-        return lookup(id).flags;
-    }
-
     static bool IsInstanceMethod(NamedIntrinsic id)
     {
-        SimdAsHWIntrinsicFlag flags = lookupFlags(id);
+        SimdAsHWIntrinsicFlag flags = lookup(id).flags;
         return (flags & SimdAsHWIntrinsicFlag::InstanceMethod) == SimdAsHWIntrinsicFlag::InstanceMethod;
     }
 
     static bool NeedsOperandsSwapped(NamedIntrinsic id)
     {
-        SimdAsHWIntrinsicFlag flags = lookupFlags(id);
+        SimdAsHWIntrinsicFlag flags = lookup(id).flags;
         return (flags & SimdAsHWIntrinsicFlag::NeedsOperandsSwapped) == SimdAsHWIntrinsicFlag::NeedsOperandsSwapped;
     }
 };
@@ -571,7 +534,7 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
     assert(!sig.hasThisParam);
     assert(sig.paramCount <= 3);
 #if defined(TARGET_XARCH)
-    bool isAVX = (SimdAsHWIntrinsicInfo::lookupClassId(intrinsic) == SimdAsHWIntrinsicClassId::VectorT256);
+    bool isAVX = (SimdAsHWIntrinsicInfo::lookup(intrinsic).classId == SimdAsHWIntrinsicClassId::VectorT256);
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
     assert(!isAVX || compIsaSupportedDebugOnly(InstructionSet_AVX2));
 #elif defined(TARGET_ARM64)
