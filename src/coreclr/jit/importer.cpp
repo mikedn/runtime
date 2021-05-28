@@ -4469,12 +4469,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
 #ifdef FEATURE_HW_INTRINSICS
     else if (strcmp(namespaceName, "System.Numerics") == 0)
     {
-        CORINFO_SIG_INFO sig;
-        info.compCompHnd->getMethodSig(method, &sig);
-
-        int sizeOfVectorT = getSIMDVectorRegisterByteLength();
-
-        result = impFindSysNumSimdIntrinsic(&sig, className, methodName, enclosingClassName, sizeOfVectorT);
+        result = impFindSysNumSimdIntrinsic(method, className, methodName, enclosingClassName);
     }
 #endif // FEATURE_HW_INTRINSICS
     else if (strncmp(namespaceName, "System.Runtime.Intrinsics", 25) == 0)

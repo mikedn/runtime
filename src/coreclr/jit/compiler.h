@@ -3051,11 +3051,10 @@ protected:
                             CORINFO_SIG_INFO*     sig,
                             bool                  mustExpand);
 
-    NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_SIG_INFO* sig,
-                                              const char*       className,
-                                              const char*       methodName,
-                                              const char*       enclosingClassName,
-                                              int               sizeOfVectorT);
+    NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
+                                              const char*           className,
+                                              const char*           methodName,
+                                              const char*           enclosingClassName);
 
     GenTree* impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
                                           CORINFO_CLASS_HANDLE  clsHnd,

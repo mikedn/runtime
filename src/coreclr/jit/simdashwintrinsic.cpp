@@ -115,7 +115,9 @@ static constexpr const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic 
     return sysNumSimdIntrinsicInfo[id - NI_SIMD_AS_HWINTRINSIC_START - 1];
 }
 
-static SysNumSimdIntrinsicClassId FindClassId(const char* className, const char* enclosingClassName, int sizeOfVectorT)
+static SysNumSimdIntrinsicClassId FindClassId(const char* className,
+                                              const char* enclosingClassName,
+                                              unsigned    vectorTSize)
 {
     assert(className != nullptr);
 
@@ -138,34 +140,35 @@ static SysNumSimdIntrinsicClassId FindClassId(const char* className, const char*
     if ((strcmp(className, "Vector") == 0) || (strcmp(className, "Vector`1") == 0))
     {
 #if defined(TARGET_XARCH)
-        if (sizeOfVectorT == 32)
+        if (vectorTSize == 32)
         {
             return SysNumSimdIntrinsicClassId::VectorT256;
         }
-#endif // TARGET_XARCH
+#endif
 
-        assert(sizeOfVectorT == 16);
+        assert(vectorTSize == 16);
         return SysNumSimdIntrinsicClassId::VectorT128;
     }
 
     return SysNumSimdIntrinsicClassId::Unknown;
 }
 
-NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_SIG_INFO* sig,
-                                                    const char*       className,
-                                                    const char*       methodName,
-                                                    const char*       enclosingClassName,
-                                                    int               sizeOfVectorT)
+NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
+                                                    const char*           className,
+                                                    const char*           methodName,
+                                                    const char*           enclosingClassName)
 {
-    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName, sizeOfVectorT);
+    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName, getSIMDVectorRegisterByteLength());
 
     if (classId == SysNumSimdIntrinsicClassId::Unknown)
     {
         return NI_Illegal;
     }
 
-    bool     hasThis = sig->hasThis();
-    unsigned numArgs = sig->numArgs + hasThis;
+    CORINFO_SIG_INFO sig;
+    info.compCompHnd->getMethodSig(method, &sig);
+    bool     hasThis = sig.hasThis();
+    unsigned numArgs = sig.numArgs + hasThis;
 
     for (unsigned i = 0; i < _countof(sysNumSimdIntrinsicInfo); i++)
     {
