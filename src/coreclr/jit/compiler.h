@@ -7140,40 +7140,6 @@ private:
 #endif // FEATURE_SIMD
 
 public:
-    //------------------------------------------------------------------------
-    // largestEnregisterableStruct: The size in bytes of the largest struct that can be enregistered.
-    //
-    // Notes: It is not guaranteed that the struct of this size or smaller WILL be a
-    //        candidate for enregistration.
-
-    unsigned largestEnregisterableStructSize()
-    {
-#ifdef FEATURE_SIMD
-#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-        if (opts.IsReadyToRun())
-        {
-            // This function is only used by ClassLayout as a throughput optimization. Return
-            // the largest SIMD register size instead of using compOpportunisticallyDependsOn,
-            // to avoid ISA usage reporting when we're not actually using any ISA instructions.
-            return YMM_REGSIZE_BYTES;
-        }
-#endif // defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-
-#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-        if (compOpportunisticallyDependsOn(InstructionSet_AVX))
-        {
-            return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
-        }
-
-        return XMM_REGSIZE_BYTES;
-#else
-        return varTypeSize(GetVectorTSimdType());
-#endif
-#else  // !FEATURE_SIMD
-        return TARGET_POINTER_SIZE;
-#endif // !FEATURE_SIMD
-    }
-
 #ifdef FEATURE_HW_INTRINSICS
     static bool vnEncodesResultTypeForHWIntrinsic(NamedIntrinsic hwIntrinsicID);
 #endif // FEATURE_HW_INTRINSICS
@@ -8047,6 +8013,9 @@ public:
     // Get the layout of a Vector2/3/4/T/NT type.
     ClassLayout* typGetVectorLayout(GenTree* node);
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
+#ifdef FEATURE_SIMD
+    unsigned typGetLargestSimdTypeSize();
+#endif
 
 //-------------------------- Global Compiler Data ------------------------------------
 

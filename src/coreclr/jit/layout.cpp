@@ -648,6 +648,30 @@ ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementT
 #endif
 }
 
+#ifdef FEATURE_SIMD
+unsigned Compiler::typGetLargestSimdTypeSize()
+{
+#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
+    if (opts.IsReadyToRun())
+    {
+        // This function is only used by ClassLayout as a throughput optimization. Return
+        // the largest SIMD register size instead of using compOpportunisticallyDependsOn,
+        // to avoid ISA usage reporting when we're not actually using any ISA instructions.
+        return YMM_REGSIZE_BYTES;
+    }
+
+    if (compOpportunisticallyDependsOn(InstructionSet_AVX))
+    {
+        return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
+    }
+
+    return XMM_REGSIZE_BYTES;
+#else
+    return varTypeSize(GetVectorTSimdType());
+#endif
+}
+#endif
+
 ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     : m_classHandle(classHandle)
     , m_size(0)
@@ -689,7 +713,7 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     {
 #ifdef FEATURE_SIMD
         if (m_isValueClass && ((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && compiler->supportSIMDTypes() &&
-            (m_size >= varTypeSize(TYP_SIMD8)) && (m_size <= compiler->largestEnregisterableStructSize()))
+            (m_size >= varTypeSize(TYP_SIMD8)) && (m_size <= compiler->typGetLargestSimdTypeSize()))
         {
             m_layoutInfo = GetVectorLayoutInfo(classHandle, compiler);
 
