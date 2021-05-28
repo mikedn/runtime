@@ -5,7 +5,7 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-enum class SimdAsHWIntrinsicClassId
+enum class SimdAsHWIntrinsicClassId : unsigned
 {
     Unknown,
     Vector2,
@@ -15,7 +15,7 @@ enum class SimdAsHWIntrinsicClassId
     VectorT256,
 };
 
-enum class SimdAsHWIntrinsicFlag : unsigned int
+enum class SimdAsHWIntrinsicFlag : unsigned
 {
     None = 0,
 
@@ -38,12 +38,11 @@ static constexpr SimdAsHWIntrinsicFlag operator&(SimdAsHWIntrinsicFlag lhs, Simd
 
 struct SimdAsHWIntrinsicInfo
 {
-    NamedIntrinsic           id;
     const char*              name;
-    SimdAsHWIntrinsicClassId classId;
-    int                      numArgs;
+    SimdAsHWIntrinsicClassId classId : 4;
+    unsigned                 numArgs : 4;
+    SimdAsHWIntrinsicFlag    flags : 4;
     NamedIntrinsic           hwIntrinsic[10];
-    SimdAsHWIntrinsicFlag    flags;
 
     static const SimdAsHWIntrinsicInfo& lookup(NamedIntrinsic id);
 
@@ -61,15 +60,13 @@ struct SimdAsHWIntrinsicInfo
         return lookup(id).hwIntrinsic[type - TYP_BYTE];
     }
 
-    static bool IsInstanceMethod(NamedIntrinsic id)
+    bool IsInstanceMethod() const
     {
-        SimdAsHWIntrinsicFlag flags = lookup(id).flags;
         return (flags & SimdAsHWIntrinsicFlag::InstanceMethod) == SimdAsHWIntrinsicFlag::InstanceMethod;
     }
 
-    static bool NeedsOperandsSwapped(NamedIntrinsic id)
+    bool NeedsOperandsSwapped() const
     {
-        SimdAsHWIntrinsicFlag flags = lookup(id).flags;
         return (flags & SimdAsHWIntrinsicFlag::NeedsOperandsSwapped) == SimdAsHWIntrinsicFlag::NeedsOperandsSwapped;
     }
 };
@@ -77,8 +74,8 @@ struct SimdAsHWIntrinsicInfo
 static constexpr SimdAsHWIntrinsicInfo simdAsHWIntrinsicInfoArray[]
 {
 // clang-format off
-#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag) \
-    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, {t1, t2, t3, t4, t5, t6, t7, t8, t9, t10}, flag},
+#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flags) \
+    {name, SimdAsHWIntrinsicClassId::classId, numarg, flags, {t1, t2, t3, t4, t5, t6, t7, t8, t9, t10}},
 // clang-format on
 #if defined(TARGET_XARCH)
 #include "simdashwintrinsiclistxarch.h"
@@ -149,7 +146,7 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_SIG_INFO* sig,
             continue;
         }
 
-        if (isInstanceMethod != SimdAsHWIntrinsicInfo::IsInstanceMethod(intrinsicInfo.id))
+        if (isInstanceMethod != intrinsicInfo.IsInstanceMethod())
         {
             continue;
         }
@@ -159,7 +156,7 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_SIG_INFO* sig,
             continue;
         }
 
-        return intrinsicInfo.id;
+        return static_cast<NamedIntrinsic>(NI_SIMD_AS_HWINTRINSIC_START + 1 + i);
     }
 
     return NI_Illegal;
@@ -474,7 +471,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (signature.hasThisParam)
     {
-        assert(SimdAsHWIntrinsicInfo::IsInstanceMethod(intrinsic));
+        assert(SimdAsHWIntrinsicInfo::lookup(intrinsic).IsInstanceMethod());
 
         switch (intrinsic)
         {
@@ -513,7 +510,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             ops[1] = impPopArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
             ops[0] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
 
-            if (SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic))
+            if (SimdAsHWIntrinsicInfo::lookup(intrinsic).NeedsOperandsSwapped())
             {
                 // TODO-MIKE-Fix: This is nonsense, it changes the order of evaluation.
                 std::swap(ops[0], ops[1]);
@@ -530,7 +527,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout)
 {
     assert(featureSIMD);
-    assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
+    assert(!SimdAsHWIntrinsicInfo::lookup(intrinsic).NeedsOperandsSwapped());
     assert(!sig.hasThisParam);
     assert(sig.paramCount <= 3);
 #if defined(TARGET_XARCH)
@@ -1915,7 +1912,7 @@ GenTree* Compiler::impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1
     NamedIntrinsic andnIntrinsic = MapVectorTIntrinsic(NI_VectorT128_AndNot, type == TYP_SIMD32);
     NamedIntrinsic orIntrinsic   = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseOr, type == TYP_SIMD32);
 
-    assert(SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(andnIntrinsic));
+    assert(SimdAsHWIntrinsicInfo::lookup(andnIntrinsic).NeedsOperandsSwapped());
 
     andIntrinsic  = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(andIntrinsic, baseType);
     andnIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(andnIntrinsic, baseType);
