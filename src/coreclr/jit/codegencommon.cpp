@@ -5636,7 +5636,6 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
 
         assert(bytesToWrite == 0);
 #elif defined(TARGET_XARCH)
-        assert(compiler->getSIMDSupportLevel() >= SIMD_SSE2_Supported);
         emitter*  emit        = GetEmitter();
         regNumber frameReg    = genFramePointerReg();
         regNumber zeroReg     = REG_NA;
