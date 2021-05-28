@@ -7025,27 +7025,7 @@ private:
     */
 
     // Get highest available level for SIMD codegen
-    SIMDLevel getSIMDSupportLevel()
-    {
-#if defined(TARGET_XARCH)
-        if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
-        {
-            return SIMD_AVX2_Supported;
-        }
-
-        if (compOpportunisticallyDependsOn(InstructionSet_SSE42))
-        {
-            return SIMD_SSE4_Supported;
-        }
-
-        // min bar is SSE2
-        return SIMD_SSE2_Supported;
-#else
-        assert(!"Available instruction set(s) for SIMD codegen is not defined for target arch");
-        unreached();
-        return SIMD_Not_Supported;
-#endif
-    }
+    SIMDLevel getSIMDSupportLevel();
 
     bool isIntrinsicType(CORINFO_CLASS_HANDLE clsHnd)
     {
@@ -7109,27 +7089,7 @@ private:
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
-    var_types getSIMDVectorType()
-    {
-#if defined(TARGET_XARCH)
-        if (getSIMDSupportLevel() == SIMD_AVX2_Supported)
-        {
-            return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
-        }
-        else
-        {
-            // Verify and record that AVX2 isn't supported
-            compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
-            assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
-            return TYP_SIMD16;
-        }
-#elif defined(TARGET_ARM64)
-        return TYP_SIMD16;
-#else
-        assert(!"getSIMDVectorType() unimplemented on target arch");
-        unreached();
-#endif
-    }
+    var_types getSIMDVectorType();
 
     // Get the the number of elements of basetype of SIMD vector given by its size and baseType
     static int getSIMDVectorLength(unsigned simdSize, var_types baseType);
@@ -7139,28 +7099,7 @@ private:
 
     // Get the number of bytes in a System.Numeric.Vector<T> for the current compilation.
     // Note - cannot be used for System.Runtime.Intrinsic
-    unsigned getSIMDVectorRegisterByteLength()
-    {
-#if defined(TARGET_XARCH)
-        if (getSIMDSupportLevel() == SIMD_AVX2_Supported)
-        {
-            return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
-        }
-        else
-        {
-            assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
-
-            // Verify and record that AVX2 isn't supported
-            compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
-            return XMM_REGSIZE_BYTES;
-        }
-#elif defined(TARGET_ARM64)
-        return FP_REGSIZE_BYTES;
-#else
-        assert(!"getSIMDVectorRegisterByteLength() unimplemented on target arch");
-        unreached();
-#endif
-    }
+    unsigned getSIMDVectorRegisterByteLength();
 
     // The minimum and maximum possible number of bytes in a SIMD vector.
 
