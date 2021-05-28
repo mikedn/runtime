@@ -27,48 +27,21 @@ SIMDLevel Compiler::getSIMDSupportLevel()
 
 #ifdef FEATURE_SIMD
 
-var_types Compiler::getSIMDVectorType()
+var_types Compiler::GetVectorTSimdType()
 {
 #if defined(TARGET_XARCH)
     if (getSIMDSupportLevel() == SIMD_AVX2_Supported)
     {
         return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
     }
-    else
-    {
-        // Verify and record that AVX2 isn't supported
-        compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
-        assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
-        return TYP_SIMD16;
-    }
+
+    assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
+    compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
+    return TYP_SIMD16;
 #elif defined(TARGET_ARM64)
     return TYP_SIMD16;
 #else
-    assert(!"getSIMDVectorType() unimplemented on target arch");
-    unreached();
-#endif
-}
-
-unsigned Compiler::getSIMDVectorRegisterByteLength()
-{
-#if defined(TARGET_XARCH)
-    if (getSIMDSupportLevel() == SIMD_AVX2_Supported)
-    {
-        return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
-    }
-    else
-    {
-        assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
-
-        // Verify and record that AVX2 isn't supported
-        compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
-        return XMM_REGSIZE_BYTES;
-    }
-#elif defined(TARGET_ARM64)
-    return FP_REGSIZE_BYTES;
-#else
-    assert(!"getSIMDVectorRegisterByteLength() unimplemented on target arch");
-    unreached();
+#error Unsupported platform
 #endif
 }
 
@@ -188,7 +161,7 @@ static constexpr const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic 
 
 static SysNumSimdIntrinsicClassId FindClassId(const char* className,
                                               const char* enclosingClassName,
-                                              unsigned    vectorTSize)
+                                              var_types   vectorTSimdType)
 {
     assert(className != nullptr);
 
@@ -211,13 +184,13 @@ static SysNumSimdIntrinsicClassId FindClassId(const char* className,
     if ((strcmp(className, "Vector") == 0) || (strcmp(className, "Vector`1") == 0))
     {
 #if defined(TARGET_XARCH)
-        if (vectorTSize == 32)
+        if (vectorTSimdType == TYP_SIMD32)
         {
             return SysNumSimdIntrinsicClassId::VectorT256;
         }
 #endif
 
-        assert(vectorTSize == 16);
+        assert(vectorTSimdType == TYP_SIMD16);
         return SysNumSimdIntrinsicClassId::VectorT128;
     }
 
@@ -229,7 +202,7 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method
                                                     const char*           methodName,
                                                     const char*           enclosingClassName)
 {
-    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName, getSIMDVectorRegisterByteLength());
+    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName, GetVectorTSimdType());
 
     if (classId == SysNumSimdIntrinsicClassId::Unknown)
     {

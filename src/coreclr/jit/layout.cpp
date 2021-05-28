@@ -914,9 +914,9 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
 
     if (isNumericsVector && strcmp(className, "Vector`1") == 0)
     {
-        unsigned size = compiler->getSIMDVectorRegisterByteLength();
-        assert((size == 16) || (size == 32));
-        return {VectorKind::VectorT, false, size == 32 ? TYP_SIMD32 : TYP_SIMD16, elementType};
+        var_types simdType = compiler->GetVectorTSimdType();
+        assert((simdType == TYP_SIMD16) || (simdType == TYP_SIMD32));
+        return {VectorKind::VectorT, false, simdType, elementType};
     }
 
     bool isNInt = (elementCorType == CORINFO_TYPE_NATIVEINT) || (elementCorType == CORINFO_TYPE_NATIVEUINT);

@@ -545,13 +545,13 @@ GenTree* Compiler::impBaseIntrinsic(
         {
             assert(sig.paramCount == 1);
 
-            if (getSIMDVectorRegisterByteLength() == YMM_REGSIZE_BYTES)
+            if (GetVectorTSimdType() == TYP_SIMD32)
             {
                 // Vector<T> is TYP_SIMD32, so we should treat this as a call to Vector128.ToVector256
                 return impBaseIntrinsic(NI_Vector128_ToVector256, sig, baseType, retType, simdSize);
             }
 
-            assert(getSIMDVectorRegisterByteLength() == XMM_REGSIZE_BYTES);
+            assert(GetVectorTSimdType() == TYP_SIMD16);
 
             // We fold away the cast here, as it only exists to satisfy
             // the type system. It is safe to do this here since the retNode type
@@ -625,7 +625,7 @@ GenTree* Compiler::impBaseIntrinsic(
         {
             assert(sig.paramCount == 1);
 
-            if (getSIMDVectorRegisterByteLength() == YMM_REGSIZE_BYTES)
+            if (GetVectorTSimdType() == TYP_SIMD32)
             {
                 // We fold away the cast here, as it only exists to satisfy
                 // the type system. It is safe to do this here since the retNode type
@@ -638,7 +638,7 @@ GenTree* Compiler::impBaseIntrinsic(
                 break;
             }
 
-            assert(getSIMDVectorRegisterByteLength() == XMM_REGSIZE_BYTES);
+            assert(GetVectorTSimdType() == TYP_SIMD16);
 
             if (compExactlyDependsOn(InstructionSet_AVX))
             {

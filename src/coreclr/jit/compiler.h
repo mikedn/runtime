@@ -7089,17 +7089,13 @@ private:
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
-    var_types getSIMDVectorType();
+    var_types GetVectorTSimdType();
 
     // Get the the number of elements of basetype of SIMD vector given by its size and baseType
     static int getSIMDVectorLength(unsigned simdSize, var_types baseType);
 
     // Get preferred alignment of SIMD type.
     int getSIMDTypeAlignment(var_types simdType);
-
-    // Get the number of bytes in a System.Numeric.Vector<T> for the current compilation.
-    // Note - cannot be used for System.Runtime.Intrinsic
-    unsigned getSIMDVectorRegisterByteLength();
 
     // The minimum and maximum possible number of bytes in a SIMD vector.
 
@@ -7121,7 +7117,7 @@ private:
             return XMM_REGSIZE_BYTES;
         }
 #else
-        return getSIMDVectorRegisterByteLength();
+        return varTypeSize(GetVectorTSimdType());
 #endif
     }
 
@@ -7164,7 +7160,7 @@ private:
             // to store a SIMD register in order to extract an element from it. But if
             // it's TYP_BLK then it won't have SIMD alignment. Bleah.
 
-            lvaTable[lvaSIMDInitTempVarNum].lvType = getSIMDVectorType();
+            lvaTable[lvaSIMDInitTempVarNum].lvType = GetVectorTSimdType();
         }
         return lvaSIMDInitTempVarNum;
     }
