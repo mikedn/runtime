@@ -7099,33 +7099,6 @@ private:
 
     // The minimum and maximum possible number of bytes in a SIMD vector.
 
-    // maxSIMDStructBytes
-    // The minimum SIMD size supported by System.Numeric.Vectors or System.Runtime.Intrinsic
-    // SSE:  16-byte Vector<T> and Vector128<T>
-    // AVX:  32-byte Vector256<T> (Vector<T> is 16-byte)
-    // AVX2: 32-byte Vector<T> and Vector256<T>
-    unsigned int maxSIMDStructBytes()
-    {
-#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-        if (compOpportunisticallyDependsOn(InstructionSet_AVX))
-        {
-            return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
-        }
-        else
-        {
-            assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
-            return XMM_REGSIZE_BYTES;
-        }
-#else
-        return varTypeSize(GetVectorTSimdType());
-#endif
-    }
-
-    unsigned int minSIMDStructBytes()
-    {
-        return emitTypeSize(TYP_SIMD8);
-    }
-
 public:
     static var_types getSIMDTypeForSize(unsigned size)
     {
@@ -7179,17 +7152,24 @@ public:
 #if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
         if (opts.IsReadyToRun())
         {
-            // Return constant instead of maxSIMDStructBytes, as maxSIMDStructBytes performs
-            // checks that are effected by the current level of instruction set support would
-            // otherwise cause the highest level of instruction set support to be reported to crossgen2.
-            // and this api is only ever used as an optimization or assert, so no reporting should
-            // ever happen.
+            // This function is only used by ClassLayout as a throughput optimization. Return
+            // the largest SIMD register size instead of using compOpportunisticallyDependsOn,
+            // to avoid ISA usage reporting when we're not actually using any ISA instructions.
             return YMM_REGSIZE_BYTES;
         }
 #endif // defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-        unsigned vectorRegSize = maxSIMDStructBytes();
-        assert(vectorRegSize >= TARGET_POINTER_SIZE);
-        return vectorRegSize;
+
+#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
+        if (compOpportunisticallyDependsOn(InstructionSet_AVX))
+        {
+            return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
+        }
+
+        assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
+        return XMM_REGSIZE_BYTES;
+#else
+        return varTypeSize(GetVectorTSimdType());
+#endif
 #else  // !FEATURE_SIMD
         return TARGET_POINTER_SIZE;
 #endif // !FEATURE_SIMD
