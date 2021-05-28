@@ -7165,7 +7165,6 @@ public:
             return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
         }
 
-        assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
         return XMM_REGSIZE_BYTES;
 #else
         return varTypeSize(GetVectorTSimdType());

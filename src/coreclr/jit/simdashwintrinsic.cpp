@@ -35,7 +35,6 @@ var_types Compiler::GetVectorTSimdType()
         return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
     }
 
-    assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
     compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
     return TYP_SIMD16;
 #elif defined(TARGET_ARM64)
