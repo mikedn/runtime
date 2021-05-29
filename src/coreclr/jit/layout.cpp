@@ -628,7 +628,7 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
             return typGetVectorLayout(node->GetType(), TYP_UNDEF);
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());
+            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSimdBaseType());
 #endif
         default:
             // This is not intended to be used before global morph so FIELD and INDEX are not handled.

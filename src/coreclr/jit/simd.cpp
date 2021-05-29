@@ -468,7 +468,7 @@ void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* bl
 
     GenTreeOp*          asg        = m_firstStmt->GetRootNode()->AsOp();
     GenTreeHWIntrinsic* getElement = asg->GetOp(1)->AsHWIntrinsic();
-    var_types           simdType   = getSIMDTypeForSize(getElement->GetSIMDSize());
+    var_types           simdType   = getSIMDTypeForSize(getElement->GetSimdSize());
 
 #ifdef DEBUG
     if (compiler->verbose)

@@ -1640,7 +1640,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
 
     GenTreeHWIntrinsic* hwintrinsicTree = tree->AsHWIntrinsic();
 
-    switch (hwintrinsicTree->gtHWIntrinsicId)
+    switch (hwintrinsicTree->GetIntrinsic())
     {
         case NI_Vector128_GetElement:
         case NI_Vector256_GetElement:
@@ -1682,13 +1682,13 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
 GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHWIntrinsic* node)
 {
     assert(node == use.Def());
-    assert((node->gtHWIntrinsicId == NI_Vector128_GetElement) || (node->gtHWIntrinsicId == NI_Vector256_GetElement));
+    assert((node->GetIntrinsic() == NI_Vector128_GetElement) || (node->GetIntrinsic() == NI_Vector256_GetElement));
     assert(varTypeIsLong(node->GetType()));
 
     GenTree*  op1      = node->GetOp(0);
     GenTree*  op2      = node->GetOp(1);
-    var_types baseType = node->GetSIMDBaseType();
-    unsigned  simdSize = node->GetSIMDSize();
+    var_types baseType = node->GetSimdBaseType();
+    unsigned  simdSize = node->GetSimdSize();
 
     assert(varTypeIsLong(baseType));
     assert(varTypeIsSIMD(op1->GetType()));
@@ -1744,7 +1744,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
         Range().InsertBefore(node, simdTmpVar1, indexTmpVar1, two1, indexTimesTwo1);
     }
 
-    GenTree* loResult = m_compiler->gtNewSimdHWIntrinsicNode(TYP_INT, node->gtHWIntrinsicId, TYP_INT, simdSize,
+    GenTree* loResult = m_compiler->gtNewSimdHWIntrinsicNode(TYP_INT, node->GetIntrinsic(), TYP_INT, simdSize,
                                                              simdTmpVar1, indexTimesTwo1);
     Range().InsertBefore(node, loResult);
 
@@ -1770,7 +1770,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
         Range().InsertBefore(node, one, indexTimesTwoPlusOne);
     }
 
-    GenTree* hiResult = m_compiler->gtNewSimdHWIntrinsicNode(TYP_INT, node->gtHWIntrinsicId, TYP_INT, simdSize,
+    GenTree* hiResult = m_compiler->gtNewSimdHWIntrinsicNode(TYP_INT, node->GetIntrinsic(), TYP_INT, simdSize,
                                                              simdTmpVar2, indexTimesTwoPlusOne);
     Range().InsertBefore(node, hiResult);
 

@@ -51,7 +51,7 @@ CodeGen::HWIntrinsicImmOpHelper::HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTre
     }
     else
     {
-        const HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrin->gtHWIntrinsicId);
+        const HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrin->GetIntrinsic());
 
         if (category == HW_Category_SIMDByIndexedElement)
         {
@@ -71,12 +71,12 @@ CodeGen::HWIntrinsicImmOpHelper::HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTre
             assert(varTypeIsSIMD(indexedElementOpType));
 
             const unsigned int indexedElementSimdSize = genTypeSize(indexedElementOpType);
-            HWIntrinsicInfo::lookupImmBounds(intrin->gtHWIntrinsicId, indexedElementSimdSize, intrin->gtSIMDBaseType,
+            HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), indexedElementSimdSize, intrin->GetSimdBaseType(),
                                              &immLowerBound, &immUpperBound);
         }
         else
         {
-            HWIntrinsicInfo::lookupImmBounds(intrin->gtHWIntrinsicId, intrin->gtSIMDSize, intrin->gtSIMDBaseType,
+            HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), intrin->GetSimdSize(), intrin->GetSimdBaseType(),
                                              &immLowerBound, &immUpperBound);
         }
 
@@ -95,7 +95,7 @@ CodeGen::HWIntrinsicImmOpHelper::HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTre
             // these by
             // using the same approach as in hwintrinsicxarch.cpp - adding an additional indirection level in form of a
             // branch table.
-            assert(!HWIntrinsicInfo::GeneratesMultipleIns(intrin->gtHWIntrinsicId));
+            assert(!HWIntrinsicInfo::GeneratesMultipleIns(intrin->GetIntrinsic()));
             branchTargetReg = intrin->GetSingleTempReg();
         }
 
@@ -257,7 +257,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        emitSize = emitActualTypeSize(getSIMDTypeForSize(node->gtSIMDSize));
+        emitSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
         opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
     }
 
@@ -792,7 +792,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 assert(intrin.numOperands == 2);
 
-                var_types simdType = getSIMDTypeForSize(node->GetSIMDSize());
+                var_types simdType = getSIMDTypeForSize(node->GetSimdSize());
 
                 if (simdType == TYP_SIMD12)
                 {

@@ -795,7 +795,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             {
                 // TODO-XArch-Cleanup: currently we use the BaseType to bring the type of the second argument
                 // to the code generator. May encode the overload info in other way.
-                retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
+                retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
             }
 #elif defined(TARGET_ARM64)
             switch (intrinsic)
@@ -804,7 +804,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 case NI_Crc32_ComputeCrc32C:
                 case NI_Crc32_Arm64_ComputeCrc32:
                 case NI_Crc32_Arm64_ComputeCrc32C:
-                    retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
+                    retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
                     break;
 
                 case NI_AdvSimd_AddWideningUpper:
@@ -821,12 +821,12 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 case NI_ArmBase_Arm64_MultiplyHigh:
                     if (sig->retType == CORINFO_TYPE_ULONG)
                     {
-                        retNode->AsHWIntrinsic()->gtSIMDBaseType = TYP_ULONG;
+                        retNode->AsHWIntrinsic()->SetSimdBaseType(TYP_ULONG);
                     }
                     else
                     {
                         assert(sig->retType == CORINFO_TYPE_LONG);
-                        retNode->AsHWIntrinsic()->gtSIMDBaseType = TYP_LONG;
+                        retNode->AsHWIntrinsic()->SetSimdBaseType(TYP_LONG);
                     }
                     break;
 

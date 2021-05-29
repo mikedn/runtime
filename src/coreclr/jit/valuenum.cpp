@@ -343,7 +343,7 @@ VNFunc GetVNFuncForNode(GenTree* node)
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            return VNFunc(VNF_HWI_FIRST + (node->AsHWIntrinsic()->gtHWIntrinsicId - NI_HW_INTRINSIC_START - 1));
+            return VNFunc(VNF_HWI_FIRST + (node->AsHWIntrinsic()->GetIntrinsic() - NI_HW_INTRINSIC_START - 1));
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_CAST:
@@ -8768,7 +8768,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
         return;
     }
 
-    if ((hwIntrinsicNode->GetIntrinsic() == NI_Vector128_Create) && (hwIntrinsicNode->GetSIMDSize() != 16))
+    if ((hwIntrinsicNode->GetIntrinsic() == NI_Vector128_Create) && (hwIntrinsicNode->GetSimdSize() != 16))
     {
         // TODO-MIKE-Fix: Vector128_Create may be used to create Vector2/3 values but
         // we ignore the SIMD size so we get the same VN for Vector128_Create(8, x),
@@ -8802,7 +8802,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
         return;
     }
 
-    bool encodeResultType = vnEncodesResultTypeForHWIntrinsic(hwIntrinsicNode->gtHWIntrinsicId);
+    bool encodeResultType = vnEncodesResultTypeForHWIntrinsic(hwIntrinsicNode->GetIntrinsic());
 
     ValueNumPair excSetPair = ValueNumStore::VNPForEmptyExcSet();
     ValueNumPair normalPair;
@@ -8810,8 +8810,8 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
 
     if (encodeResultType)
     {
-        ValueNum vnSize     = vnStore->VNForIntCon(hwIntrinsicNode->gtSIMDSize);
-        ValueNum vnBaseType = vnStore->VNForIntCon(INT32(hwIntrinsicNode->gtSIMDBaseType));
+        ValueNum vnSize     = vnStore->VNForIntCon(hwIntrinsicNode->GetSimdSize());
+        ValueNum vnBaseType = vnStore->VNForIntCon(INT32(hwIntrinsicNode->GetSimdBaseType()));
         ValueNum simdTypeVN = vnStore->VNForFunc(TYP_REF, VNF_SimdType, vnSize, vnBaseType);
         resvnp.SetBoth(simdTypeVN);
 
@@ -8825,7 +8825,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
 #endif
     }
 
-    const bool isVariableNumArgs = HWIntrinsicInfo::lookupNumArgs(hwIntrinsicNode->gtHWIntrinsicId) == -1;
+    const bool isVariableNumArgs = HWIntrinsicInfo::lookupNumArgs(hwIntrinsicNode->GetIntrinsic()) == -1;
 
     // There are some HWINTRINSICS operations that have zero args, i.e.  NI_Vector128_Zero
     if (hwIntrinsicNode->GetNumOps() == 0)

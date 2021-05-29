@@ -2123,10 +2123,10 @@ AGAIN:
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            hash += tree->AsHWIntrinsic()->gtHWIntrinsicId;
-            hash += tree->AsHWIntrinsic()->gtSIMDBaseType;
+            hash += tree->AsHWIntrinsic()->GetIntrinsic();
+            hash += tree->AsHWIntrinsic()->GetSimdBaseType();
+            hash += tree->AsHWIntrinsic()->GetSimdSize();
             hash += tree->AsHWIntrinsic()->GetAuxiliaryType();
-            hash += tree->AsHWIntrinsic()->gtSIMDSize;
             for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
@@ -6760,22 +6760,14 @@ GenTree* Compiler::gtCloneExpr(
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-        {
-            GenTreeHWIntrinsic* from = tree->AsHWIntrinsic();
-
-            copy = new (this, GT_HWINTRINSIC)
-                GenTreeHWIntrinsic(from->TypeGet(), from->gtHWIntrinsicId, from->gtSIMDBaseType, from->gtSIMDSize);
-            copy->AsHWIntrinsic()->SetAuxiliaryType(from->GetAuxiliaryType());
-            copy->AsHWIntrinsic()->SetNumOps(from->GetNumOps(), getAllocator(CMK_ASTNode));
-
-            for (unsigned i = 0; i < from->GetNumOps(); i++)
+            copy = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(tree->AsHWIntrinsic(), getAllocator(CMK_ASTNode));
+            for (unsigned i = 0; i < copy->AsHWIntrinsic()->GetNumOps(); i++)
             {
-                copy->AsHWIntrinsic()->SetOp(i, gtCloneExpr(from->GetOp(i), addFlags, deepVarNum, deepVarVal));
-                copy->gtFlags |= (copy->AsHWIntrinsic()->GetOp(i)->gtFlags & GTF_ALL_EFFECT);
+                copy->AsHWIntrinsic()->SetOp(i, gtCloneExpr(tree->AsHWIntrinsic()->GetOp(i), addFlags, deepVarNum,
+                                                            deepVarVal));
             }
-        }
-        break;
-#endif // FEATURE_HW_INTRINSICS
+            break;
+#endif
 
         case GT_INSTR:
             copy = new (this, GT_INSTR) GenTreeInstr(tree->AsInstr(), this);
@@ -9902,10 +9894,10 @@ void Compiler::gtDispTree(GenTree*     tree,
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             printf(" %s %s %u", GetHWIntrinsicIdName(tree->AsHWIntrinsic()->GetIntrinsic()),
-                   tree->AsHWIntrinsic()->GetSIMDBaseType() == TYP_UNKNOWN
+                   tree->AsHWIntrinsic()->GetSimdBaseType() == TYP_UNKNOWN
                        ? ""
-                       : varTypeName(tree->AsHWIntrinsic()->GetSIMDBaseType()),
-                   tree->AsHWIntrinsic()->GetSIMDSize());
+                       : varTypeName(tree->AsHWIntrinsic()->GetSimdBaseType()),
+                   tree->AsHWIntrinsic()->GetSimdSize());
 
             gtDispCommonEndLine(tree);
 
@@ -16087,7 +16079,7 @@ bool GenTree::isCommutativeHWIntrinsic() const
     assert(gtOper == GT_HWINTRINSIC);
 
 #ifdef TARGET_XARCH
-    return HWIntrinsicInfo::IsCommutative(AsHWIntrinsic()->gtHWIntrinsicId);
+    return HWIntrinsicInfo::IsCommutative(AsHWIntrinsic()->GetIntrinsic());
 #else
     return false;
 #endif // TARGET_XARCH
@@ -16097,7 +16089,7 @@ bool GenTree::isContainableHWIntrinsic() const
 {
     assert(gtOper == GT_HWINTRINSIC);
 
-    switch (AsHWIntrinsic()->gtHWIntrinsicId)
+    switch (AsHWIntrinsic()->GetIntrinsic())
     {
 #ifdef TARGET_XARCH
         case NI_SSE_LoadAlignedVector128:
@@ -16131,10 +16123,10 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
 #if defined(TARGET_XARCH)
     if (!comp->canUseVexEncoding())
     {
-        return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->gtHWIntrinsicId);
+        return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->GetIntrinsic());
     }
 
-    switch (AsHWIntrinsic()->gtHWIntrinsicId)
+    switch (AsHWIntrinsic()->GetIntrinsic())
     {
         // TODO-XArch-Cleanup: Move this switch block to be table driven.
 
@@ -16160,7 +16152,7 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
         }
     }
 #elif defined(TARGET_ARM64)
-    return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->gtHWIntrinsicId);
+    return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->GetIntrinsic());
 #else
     return false;
 #endif
@@ -16446,13 +16438,13 @@ GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
 bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
 {
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(gtHWIntrinsicId);
+    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(m_intrinsic);
     if (category == HW_Category_MemoryLoad)
     {
         return true;
     }
 #ifdef TARGET_XARCH
-    else if (HWIntrinsicInfo::MaybeMemoryLoad(gtHWIntrinsicId))
+    else if (HWIntrinsicInfo::MaybeMemoryLoad(m_intrinsic))
     {
         // Some intrinsics (without HW_Category_MemoryLoad) also have MemoryLoad semantics
 
@@ -16463,8 +16455,8 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
             // Vector128<byte> BroadcastScalarToVector128(byte* source)
             // So, we need to check the argument's type is memory-reference or Vector128
             assert(IsUnary());
-            return (gtHWIntrinsicId == NI_AVX2_BroadcastScalarToVector128 ||
-                    gtHWIntrinsicId == NI_AVX2_BroadcastScalarToVector256) &&
+            return (m_intrinsic == NI_AVX2_BroadcastScalarToVector128 ||
+                    m_intrinsic == NI_AVX2_BroadcastScalarToVector256) &&
                    GetOp(0)->TypeGet() != TYP_SIMD16;
         }
         else if (category == HW_Category_IMM)
@@ -16474,7 +16466,7 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
             {
                 return false;
             }
-            else if (HWIntrinsicInfo::isAVX2GatherIntrinsic(gtHWIntrinsicId))
+            else if (HWIntrinsicInfo::isAVX2GatherIntrinsic(m_intrinsic))
             {
                 return true;
             }
@@ -16489,13 +16481,13 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
 bool GenTreeHWIntrinsic::OperIsMemoryStore() const
 {
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(gtHWIntrinsicId);
+    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(m_intrinsic);
     if (category == HW_Category_MemoryStore)
     {
         return true;
     }
 #ifdef TARGET_XARCH
-    else if (HWIntrinsicInfo::MaybeMemoryStore(gtHWIntrinsicId) &&
+    else if (HWIntrinsicInfo::MaybeMemoryStore(m_intrinsic) &&
              (category == HW_Category_IMM || category == HW_Category_Scalar))
     {
         // Some intrinsics (without HW_Category_MemoryStore) also have MemoryStore semantics
@@ -16506,7 +16498,7 @@ bool GenTreeHWIntrinsic::OperIsMemoryStore() const
         // So, the 3-argument form is MemoryStore
         if (IsTernary())
         {
-            switch (gtHWIntrinsicId)
+            switch (m_intrinsic)
             {
                 case NI_BMI2_MultiplyNoFlags:
                 case NI_BMI2_X64_MultiplyNoFlags:

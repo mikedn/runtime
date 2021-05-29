@@ -1782,17 +1782,17 @@ int LinearScan::BuildIntrinsic(GenTree* tree)
 //
 int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
-    NamedIntrinsic      intrinsicId = intrinsicTree->gtHWIntrinsicId;
-    var_types           baseType    = intrinsicTree->gtSIMDBaseType;
+    NamedIntrinsic      intrinsicId = intrinsicTree->GetIntrinsic();
+    var_types           baseType    = intrinsicTree->GetSimdBaseType();
     HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
     int                 numArgs     = intrinsicTree->GetNumOps();
 
     // Set the AVX Flags if this instruction may use VEX encoding for SIMD operations.
     // Note that this may be true even if the ISA is not AVX (e.g. for platform-agnostic intrinsics
     // or non-AVX intrinsics that will use VEX encoding if it is available on the target).
-    if (intrinsicTree->isSIMD())
+    if (intrinsicTree->IsSimd())
     {
-        SetContainsAVXFlags(intrinsicTree->gtSIMDSize);
+        SetContainsAVXFlags(intrinsicTree->GetSimdSize());
     }
 
     GenTree* op1    = nullptr;

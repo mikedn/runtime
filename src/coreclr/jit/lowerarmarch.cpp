@@ -472,7 +472,7 @@ void Lowering::LowerRotate(GenTree* tree)
 //
 void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
 {
-    assert(node->gtHWIntrinsicId == NI_AdvSimd_FusedMultiplyAddScalar);
+    assert(node->GetIntrinsic() == NI_AdvSimd_FusedMultiplyAddScalar);
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
@@ -481,9 +481,8 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
     auto lowerOperand = [this](GenTree* op) {
         bool wasNegated = false;
 
-        if (op->OperIsHWIntrinsic() &&
-            ((op->AsHWIntrinsic()->gtHWIntrinsicId == NI_AdvSimd_Arm64_DuplicateToVector64) ||
-             (op->AsHWIntrinsic()->gtHWIntrinsicId == NI_Vector64_CreateScalarUnsafe)))
+        if (op->IsHWIntrinsic() && ((op->AsHWIntrinsic()->GetIntrinsic() == NI_AdvSimd_Arm64_DuplicateToVector64) ||
+                                    (op->AsHWIntrinsic()->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe)))
         {
             GenTreeHWIntrinsic* createVector64 = op->AsHWIntrinsic();
             GenTree*            valueOp        = createVector64->GetOp(0);
@@ -507,16 +506,16 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
     {
         if (op2WasNegated != op3WasNegated)
         {
-            node->gtHWIntrinsicId = NI_AdvSimd_FusedMultiplyAddNegatedScalar;
+            node->SetIntrinsic(NI_AdvSimd_FusedMultiplyAddNegatedScalar);
         }
         else
         {
-            node->gtHWIntrinsicId = NI_AdvSimd_FusedMultiplySubtractNegatedScalar;
+            node->SetIntrinsic(NI_AdvSimd_FusedMultiplySubtractNegatedScalar);
         }
     }
     else if (op2WasNegated != op3WasNegated)
     {
-        node->gtHWIntrinsicId = NI_AdvSimd_FusedMultiplySubtractScalar;
+        node->SetIntrinsic(NI_AdvSimd_FusedMultiplySubtractScalar);
     }
 }
 
@@ -537,7 +536,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         node->gtType = TYP_SIMD16;
     }
 
-    NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
+    NamedIntrinsic intrinsicId = node->GetIntrinsic();
 
     switch (intrinsicId)
     {
@@ -550,7 +549,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             // the same intrinsic as when it came in.
 
             LowerHWIntrinsicCreate(node);
-            assert(!node->OperIsHWIntrinsic() || (node->gtHWIntrinsicId != intrinsicId));
+            assert(!node->OperIsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
             LowerNode(node);
             return;
         }
@@ -581,7 +580,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             break;
 
         case NI_AdvSimd_Insert:
-            node->SetOp(2, TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(2)));
+            node->SetOp(2, TryRemoveCastIfPresent(node->GetSimdBaseType(), node->GetOp(2)));
             break;
 
         default:
@@ -604,19 +603,19 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 //     This check may end up modifying node's first operand if it is a cast node that can be removed
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
-    assert((node->gtHWIntrinsicId == NI_Vector64_Create) || (node->gtHWIntrinsicId == NI_Vector128_Create) ||
-           (node->gtHWIntrinsicId == NI_Vector64_CreateScalarUnsafe) ||
-           (node->gtHWIntrinsicId == NI_Vector128_CreateScalarUnsafe) ||
-           (node->gtHWIntrinsicId == NI_AdvSimd_DuplicateToVector64) ||
-           (node->gtHWIntrinsicId == NI_AdvSimd_DuplicateToVector128) ||
-           (node->gtHWIntrinsicId == NI_AdvSimd_Arm64_DuplicateToVector64) ||
-           (node->gtHWIntrinsicId == NI_AdvSimd_Arm64_DuplicateToVector128));
+    assert((node->GetIntrinsic() == NI_Vector64_Create) || (node->GetIntrinsic() == NI_Vector128_Create) ||
+           (node->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe) ||
+           (node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe) ||
+           (node->GetIntrinsic() == NI_AdvSimd_DuplicateToVector64) ||
+           (node->GetIntrinsic() == NI_AdvSimd_DuplicateToVector128) ||
+           (node->GetIntrinsic() == NI_AdvSimd_Arm64_DuplicateToVector64) ||
+           (node->GetIntrinsic() == NI_AdvSimd_Arm64_DuplicateToVector128));
     assert(node->IsUnary());
 
     GenTree* op1    = node->GetOp(0);
     GenTree* castOp = nullptr;
 
-    if (varTypeIsIntegral(node->gtSIMDBaseType) && op1->OperIs(GT_CAST))
+    if (varTypeIsIntegral(node->GetSimdBaseType()) && op1->OperIs(GT_CAST))
     {
         // We will sometimes get a cast around a constant value (such as for
         // certain long constants) which would block the below containment.
@@ -633,8 +632,8 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 
     if (GenTreeIntCon* icon = op1->IsIntCon())
     {
-        emitAttr emitSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSIMDSize()));
-        insOpts  opt      = emitSimdArrangementOpt(emitSize, node->GetSIMDBaseType());
+        emitAttr emitSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
+        insOpts  opt      = emitSimdArrangementOpt(emitSize, node->GetSimdBaseType());
 
         if (emitter::EncodeMoviImm(icon->GetUInt64Value(), opt).ins != INS_invalid)
         {
@@ -651,7 +650,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     }
     else if (GenTreeDblCon* dcon = op1->IsDblCon())
     {
-        assert(varTypeIsFloating(node->gtSIMDBaseType));
+        assert(varTypeIsFloating(node->GetSimdBaseType()));
         assert(castOp == nullptr);
 
         return comp->GetEmitter()->emitIns_valid_imm_for_fmov(dcon->GetValue());
@@ -669,9 +668,9 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 //
 void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 {
-    NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
-    var_types      baseType    = node->gtSIMDBaseType;
-    unsigned       simdSize    = node->gtSIMDSize;
+    NamedIntrinsic intrinsicId = node->GetIntrinsic();
+    var_types      baseType    = node->GetSimdBaseType();
+    unsigned       simdSize    = node->GetSimdSize();
     var_types      simdType    = getSIMDTypeForSize(simdSize);
 
     assert((intrinsicId == NI_Vector64_op_Equality) || (intrinsicId == NI_Vector64_op_Inequality) ||
@@ -789,8 +788,8 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
     var_types      simdType    = node->GetType();
-    var_types      baseType    = node->GetSIMDBaseType();
-    unsigned       simdSize    = node->GetSIMDSize();
+    var_types      baseType    = node->GetSimdBaseType();
+    unsigned       simdSize    = node->GetSimdSize();
     unsigned       argCnt      = node->GetNumOps();
     unsigned       cnsArgCnt   = 0;
     VectorConstant vecCns;
@@ -885,7 +884,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
                                                      : NI_AdvSimd_DuplicateToVector128);
         }
 
-        node->SetOp(0, TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(0)));
+        node->SetOp(0, TryRemoveCastIfPresent(node->GetSimdBaseType(), node->GetOp(0)));
 
         return;
     }
@@ -897,7 +896,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     GenTree* tmp2 = nullptr;
     GenTree* tmp3 = nullptr;
 
-    GenTree* op1 = TryRemoveCastIfPresent(node->GetSIMDBaseType(), node->GetOp(0));
+    GenTree* op1 = TryRemoveCastIfPresent(node->GetSimdBaseType(), node->GetOp(0));
 
     NamedIntrinsic createScalarUnsafe =
         (simdType == TYP_SIMD8) ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;
@@ -968,9 +967,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 //
 void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
-    var_types      baseType    = node->gtSIMDBaseType;
-    unsigned       simdSize    = node->gtSIMDSize;
+    NamedIntrinsic intrinsicId = node->GetIntrinsic();
+    var_types      baseType    = node->GetSimdBaseType();
+    unsigned       simdSize    = node->GetSimdSize();
     var_types      simdType    = getSIMDTypeForSize(simdSize);
 
     assert((intrinsicId == NI_Vector64_Dot) || (intrinsicId == NI_Vector128_Dot));

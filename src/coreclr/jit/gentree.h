@@ -5405,12 +5405,11 @@ struct GenTreeHWIntrinsic : public GenTree
 {
     using Use = GenTreeUse;
 
-    NamedIntrinsic gtHWIntrinsicId;
-    var_types      gtSIMDBaseType;  // SIMD vector base type
-    var_types      gtAuxiliaryType; // For intrinsics than need another type (e.g. Avx2.Gather* or SIMD (by element))
-    uint16_t       gtSIMDSize;      // SIMD vector size in bytes, use 0 for scalar intrinsics
-
 private:
+    NamedIntrinsic m_intrinsic;
+    var_types      m_simdBaseType;
+    uint8_t        m_simdSize;
+    var_types      m_auxiliaryType;
     regNumberSmall m_otherReg;
     uint8_t        m_numOps;
     union {
@@ -5419,27 +5418,27 @@ private:
     };
 
 public:
-    GenTreeHWIntrinsic(var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size)
+    GenTreeHWIntrinsic(var_types type, NamedIntrinsic intrinsic, var_types baseType, unsigned size)
         : GenTree(GT_HWINTRINSIC, type)
-        , gtHWIntrinsicId(hwIntrinsicID)
-        , gtSIMDBaseType(baseType)
-        , gtAuxiliaryType(TYP_UNKNOWN)
-        , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_intrinsic(intrinsic)
+        , m_simdBaseType(baseType)
+        , m_simdSize(static_cast<uint8_t>(size))
+        , m_auxiliaryType(TYP_UNKNOWN)
         , m_numOps(0)
     {
-        assert(size < UINT16_MAX);
+        assert(size < UINT8_MAX);
     }
 
-    GenTreeHWIntrinsic(var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
+    GenTreeHWIntrinsic(var_types type, NamedIntrinsic intrinsic, var_types baseType, unsigned size, GenTree* op1)
         : GenTree(GT_HWINTRINSIC, type)
-        , gtHWIntrinsicId(hwIntrinsicID)
-        , gtSIMDBaseType(baseType)
-        , gtAuxiliaryType(TYP_UNKNOWN)
-        , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_intrinsic(intrinsic)
+        , m_simdBaseType(baseType)
+        , m_simdSize(static_cast<uint8_t>(size))
+        , m_auxiliaryType(TYP_UNKNOWN)
         , m_numOps(1)
         , m_inlineUses{op1}
     {
-        assert(size < UINT16_MAX);
+        assert(size < UINT8_MAX);
 
         if (OperIsMemoryStore())
         {
@@ -5450,16 +5449,16 @@ public:
     }
 
     GenTreeHWIntrinsic(
-        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
+        var_types type, NamedIntrinsic intrinsic, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
         : GenTree(GT_HWINTRINSIC, type)
-        , gtHWIntrinsicId(hwIntrinsicID)
-        , gtSIMDBaseType(baseType)
-        , gtAuxiliaryType(TYP_UNKNOWN)
-        , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_intrinsic(intrinsic)
+        , m_simdBaseType(baseType)
+        , m_simdSize(static_cast<uint8_t>(size))
+        , m_auxiliaryType(TYP_UNKNOWN)
         , m_numOps(2)
         , m_inlineUses{op1, op2}
     {
-        assert(size < UINT16_MAX);
+        assert(size < UINT8_MAX);
 
         if (OperIsMemoryStore())
         {
@@ -5471,21 +5470,21 @@ public:
     }
 
     GenTreeHWIntrinsic(var_types      type,
-                       NamedIntrinsic hwIntrinsicID,
+                       NamedIntrinsic intrinsic,
                        var_types      baseType,
                        unsigned       size,
                        GenTree*       op1,
                        GenTree*       op2,
                        GenTree*       op3)
         : GenTree(GT_HWINTRINSIC, type)
-        , gtHWIntrinsicId(hwIntrinsicID)
-        , gtSIMDBaseType(baseType)
-        , gtAuxiliaryType(TYP_UNKNOWN)
-        , gtSIMDSize(static_cast<uint16_t>(size))
+        , m_intrinsic(intrinsic)
+        , m_simdBaseType(baseType)
+        , m_simdSize(static_cast<uint8_t>(size))
+        , m_auxiliaryType(TYP_UNKNOWN)
         , m_numOps(3)
         , m_inlineUses{op1, op2, op3}
     {
-        assert(size < UINT16_MAX);
+        assert(size < UINT8_MAX);
 
         if (OperIsMemoryStore())
         {
@@ -5497,15 +5496,32 @@ public:
         gtFlags |= op3->gtFlags & GTF_ALL_EFFECT;
     }
 
+    GenTreeHWIntrinsic(const GenTreeHWIntrinsic* copyFrom, CompAllocator alloc)
+        : GenTree(GT_HWINTRINSIC, copyFrom->GetType())
+        , m_intrinsic(copyFrom->m_intrinsic)
+        , m_simdBaseType(copyFrom->m_simdBaseType)
+        , m_simdSize(copyFrom->m_simdSize)
+        , m_auxiliaryType(copyFrom->m_auxiliaryType)
+        , m_numOps(0)
+    {
+        SetNumOps(copyFrom->GetNumOps(), alloc);
+
+        for (unsigned i = 0; i < copyFrom->GetNumOps(); i++)
+        {
+            SetOp(i, copyFrom->GetOp(i));
+            gtFlags |= GetOp(i)->GetSideEffects();
+        }
+    }
+
     NamedIntrinsic GetIntrinsic() const
     {
-        return gtHWIntrinsicId;
+        return m_intrinsic;
     }
 
     void SetIntrinsic(NamedIntrinsic intrinsic)
     {
         assert(intrinsic != NI_Illegal);
-        gtHWIntrinsicId = intrinsic;
+        m_intrinsic = intrinsic;
     }
 
     void SetIntrinsic(NamedIntrinsic intrinsic, unsigned numOps)
@@ -5517,38 +5533,43 @@ public:
     void SetIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned numOps)
     {
         SetIntrinsic(intrinsic);
-        SetSIMDBaseType(simdBaseType);
+        SetSimdBaseType(simdBaseType);
         SetNumOps(numOps);
     }
 
     void SetIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned simdSize, unsigned numOps)
     {
         SetIntrinsic(intrinsic);
-        SetSIMDBaseType(simdBaseType);
-        SetSIMDSize(simdSize);
+        SetSimdBaseType(simdBaseType);
+        SetSimdSize(simdSize);
         SetNumOps(numOps);
     }
 
-    var_types GetSIMDBaseType() const
+    var_types GetSimdBaseType() const
     {
-        return gtSIMDBaseType;
+        return m_simdBaseType;
     }
 
-    void SetSIMDBaseType(var_types type)
+    void SetSimdBaseType(var_types type)
     {
         assert(varTypeIsIntegral(type) || varTypeIsFloating(type));
-        gtSIMDBaseType = type;
+        m_simdBaseType = type;
     }
 
-    unsigned GetSIMDSize() const
+    unsigned GetSimdSize() const
     {
-        return gtSIMDSize;
+        return m_simdSize;
     }
 
-    void SetSIMDSize(unsigned size)
+    void SetSimdSize(unsigned size)
     {
-        assert(size <= UINT16_MAX);
-        gtSIMDSize = static_cast<uint16_t>(size);
+        assert(size <= UINT8_MAX);
+        m_simdSize = static_cast<uint8_t>(size);
+    }
+
+    bool IsSimd() const
+    {
+        return m_simdSize != 0;
     }
 
     unsigned GetNumOps() const
@@ -5634,24 +5655,19 @@ public:
 
     var_types GetAuxiliaryType() const
     {
-        return gtAuxiliaryType;
+        return m_auxiliaryType;
     }
 
     void SetAuxiliaryType(var_types type)
     {
-        gtAuxiliaryType = type;
-    }
-
-    bool isSIMD() const
-    {
-        return gtSIMDSize != 0;
+        m_auxiliaryType = type;
     }
 
     static bool Equals(GenTreeHWIntrinsic* simd1, GenTreeHWIntrinsic* simd2)
     {
-        if ((simd1->TypeGet() != simd2->TypeGet()) || (simd1->gtHWIntrinsicId != simd2->gtHWIntrinsicId) ||
-            (simd1->gtSIMDBaseType != simd2->gtSIMDBaseType) || (simd1->gtSIMDSize != simd2->gtSIMDSize) ||
-            (simd1->gtAuxiliaryType != simd2->gtAuxiliaryType) || (simd1->m_numOps != simd2->m_numOps))
+        if ((simd1->TypeGet() != simd2->TypeGet()) || (simd1->m_intrinsic != simd2->m_intrinsic) ||
+            (simd1->m_simdBaseType != simd2->m_simdBaseType) || (simd1->m_simdSize != simd2->m_simdSize) ||
+            (simd1->m_auxiliaryType != simd2->m_auxiliaryType) || (simd1->m_numOps != simd2->m_numOps))
         {
             return false;
         }
