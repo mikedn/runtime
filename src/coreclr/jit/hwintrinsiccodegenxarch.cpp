@@ -1283,7 +1283,7 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
                 regNumber indexReg = op2->GetRegNum();
 
                 // Store the vector to the temp location.
-                GetEmitter()->emitIns_S_R(ins_Store(simdType, compiler->isSIMDTypeLocalAligned(simdInitTempVarNum)),
+                GetEmitter()->emitIns_S_R(ins_Store(simdType, compiler->lvaIsSimdTypedLocalAligned(simdInitTempVarNum)),
                                           emitTypeSize(simdType), op1Reg, simdInitTempVarNum, 0);
 
                 // Now, load the desired element.

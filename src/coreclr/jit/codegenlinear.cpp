@@ -864,7 +864,7 @@ void CodeGen::genSpillVar(GenTreeLclVar* tree)
         // (below).
         if (!varDsc->lvLiveInOutOfHndlr)
         {
-            instruction storeIns = ins_Store(lclType, compiler->isSIMDTypeLocalAligned(varNum));
+            instruction storeIns = ins_Store(lclType, compiler->lvaIsSimdTypedLocalAligned(varNum));
             assert(varDsc->GetRegNum() == tree->GetRegNum());
             inst_TT_RV(storeIns, size, tree, tree->GetRegNum());
         }
@@ -1010,7 +1010,7 @@ void CodeGen::genUnspillLocal(
 {
     LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
     inst_set_SV_var(lclNode);
-    instruction ins = ins_Load(type, compiler->isSIMDTypeLocalAligned(varNum));
+    instruction ins = ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(varNum));
     GetEmitter()->emitIns_R_S(ins, emitTypeSize(type), regNum, varNum, 0);
 
     // TODO-Review: We would like to call:
@@ -1855,8 +1855,8 @@ void CodeGen::genSpillLocal(unsigned varNum, var_types type, GenTreeLclVar* lclN
     {
         // Store local variable to its home location.
         // Ensure that lclVar stores are typed correctly.
-        GetEmitter()->emitIns_S_R(ins_Store(type, compiler->isSIMDTypeLocalAligned(varNum)), emitTypeSize(type), regNum,
-                                  varNum, 0);
+        GetEmitter()->emitIns_S_R(ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(varNum)), emitTypeSize(type),
+                                  regNum, varNum, 0);
     }
 }
 

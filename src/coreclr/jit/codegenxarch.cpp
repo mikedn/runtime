@@ -3792,7 +3792,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 #endif
 
         var_types type = varDsc->GetRegisterType(tree);
-        GetEmitter()->emitIns_R_S(ins_Load(type, compiler->isSIMDTypeLocalAligned(tree->GetLclNum())),
+        GetEmitter()->emitIns_R_S(ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(tree->GetLclNum())),
                                   emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
         genProduceReg(tree);
     }
@@ -3879,7 +3879,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
         if (dstReg == REG_NA)
         {
-            GetEmitter()->emitIns_S_R(ins_Store(bitCastSrcType, compiler->isSIMDTypeLocalAligned(lclNum)),
+            GetEmitter()->emitIns_S_R(ins_Store(bitCastSrcType, compiler->lvaIsSimdTypedLocalAligned(lclNum)),
                                       emitTypeSize(lclRegType), bitCastSrcReg, lclNum, 0);
 
             genUpdateLife(store);
@@ -3897,7 +3897,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (dstReg == REG_NA)
     {
-        instruction ins  = ins_Store(lclRegType, compiler->isSIMDTypeLocalAligned(lclNum));
+        instruction ins  = ins_Store(lclRegType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
         emitAttr    attr = emitTypeSize(lclRegType);
 
         inst_set_SV_var(store);
@@ -6414,7 +6414,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     if (src->isContained())
     {
         unsigned    lclNum = src->AsLclVar()->GetLclNum();
-        instruction ins    = ins_Load(dstType, compiler->isSIMDTypeLocalAligned(lclNum));
+        instruction ins    = ins_Load(dstType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
         GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
     }
     else

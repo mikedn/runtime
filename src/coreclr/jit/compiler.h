@@ -7055,7 +7055,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     var_types GetVectorTSimdType();
 
     // Get preferred alignment of SIMD type.
-    int getSIMDTypeAlignment(var_types simdType);
+    int lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl);
 #endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -7066,7 +7066,7 @@ public:
 #endif // FEATURE_HW_INTRINSICS
 
 private:
-    bool isSIMDTypeLocalAligned(unsigned varNum);
+    bool lvaIsSimdTypedLocalAligned(unsigned varNum);
 
 #ifdef DEBUG
     // Answer the question: Is a particular ISA supported?

@@ -6520,7 +6520,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
     // such that all 8 byte objects are together, 4 byte objects are together, etc., which
     // would require at most one alignment padding per group.
     //
-    // TYP_SIMD structs locals have alignment preference given by getSIMDTypeAlignment() for
+    // TYP_SIMD structs locals have alignment preference given by lvaGetSimdTypedLocalPreferredAlignment() for
     // better performance.
     if ((size >= 8) && ((lvaDoneFrameLayout != FINAL_FRAME_LAYOUT) || ((stkOffs % 8) != 0)
 #if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
@@ -6536,7 +6536,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
 #if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
         if (varTypeIsSIMD(lcl->GetType()) && !lcl->IsImplicitByRefParam())
         {
-            int alignment = getSIMDTypeAlignment(lcl->GetType());
+            int alignment = lvaGetSimdTypedLocalPreferredAlignment(lcl);
 
             if (stkOffs % alignment != 0)
             {
@@ -7436,42 +7436,22 @@ int Compiler::lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased)
 }
 
 #ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// Get the preferred alignment of SIMD vector type for better performance.
-//
-// Arguments:
-//    typeHnd  - type handle of the SIMD vector
-//
-int Compiler::getSIMDTypeAlignment(var_types simdType)
+// Get the preferred alignment of SIMD typed local for better performance.
+int Compiler::lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl)
 {
-    unsigned size = varTypeSize(simdType);
+    assert(varTypeIsSIMD(lcl->GetType()));
 
-#ifdef TARGET_XARCH
-    if (size == 8)
+    if (lcl->GetType() == TYP_SIMD12)
     {
-        return 8;
-    }
-
-    if (size <= 16)
-    {
-        assert((size == 12) || (size == 16));
         return 16;
     }
 
-    assert(size == 32);
-    return 32;
-#elif defined(TARGET_ARM64)
-    // preferred alignment for 64-bit vectors is 8-bytes.
-    // For everything else, 16-bytes.
-    return (size == 8) ? 8 : 16;
-#else
-#error Unsupported platform
-#endif
+    return varTypeSize(lcl->GetType());
 }
 #endif // FEATURE_SIMD
 
 // Returns true if the TYP_SIMD locals on stack are aligned at their
-// preferred byte boundary specified by getSIMDTypeAlignment().
+// preferred byte boundary specified by lvaGetSimdTypedLocalPreferredAlignment().
 //
 // As per the Intel manual, the preferred alignment for AVX vectors is
 // 32-bytes. It is not clear whether additional stack space used in
@@ -7487,40 +7467,45 @@ int Compiler::getSIMDTypeAlignment(var_types simdType)
 // aligned. For RSP-based frames these are only sometimes aligned, depending
 // on the frame size.
 //
-bool Compiler::isSIMDTypeLocalAligned(unsigned varNum)
+bool Compiler::lvaIsSimdTypedLocalAligned(unsigned lclNum)
 {
-#if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
-    LclVarDsc* lcl = lvaGetDesc(varNum);
-
-    if (varTypeIsSIMD(lcl->GetType()))
-    {
-        int alignment = getSIMDTypeAlignment(lcl->GetType());
-        if (alignment <= STACK_ALIGN)
-        {
-            bool rbpBased;
-            int  off = lvaFrameAddress(varNum, &rbpBased);
-            // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
-            // first instruction of a function. If our frame is RBP based
-            // then RBP will always be 16 bytes aligned, so we can simply
-            // check the offset.
-            if (rbpBased)
-            {
-                return (off % alignment) == 0;
-            }
-
-            // For RSP-based frame the alignment of RSP depends on our
-            // locals. rsp+8 is aligned on entry and we just subtract frame
-            // size so it is not hard to compute. Note that the compiler
-            // tries hard to make sure the frame size means RSP will be
-            // 16-byte aligned, but for leaf functions without locals (i.e.
-            // frameSize = 0) it will not be.
-            int frameSize = codeGen->genTotalFrameSize();
-            return ((8 - frameSize + off) % alignment) == 0;
-        }
-    }
-#endif // FEATURE_SIMD
-
+#if !defined(FEATURE_SIMD) || !ALIGN_SIMD_TYPES
     return false;
+#else
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    if (!varTypeIsSIMD(lcl->GetType()))
+    {
+        return false;
+    }
+
+    int alignment = lvaGetSimdTypedLocalPreferredAlignment(lcl);
+
+    if (alignment > STACK_ALIGN)
+    {
+        return false;
+    }
+
+    bool rbpBased;
+    int  off = lvaFrameAddress(lclNum, &rbpBased);
+    // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
+    // first instruction of a function. If our frame is RBP based
+    // then RBP will always be 16 bytes aligned, so we can simply
+    // check the offset.
+    if (rbpBased)
+    {
+        return (off % alignment) == 0;
+    }
+
+    // For RSP-based frame the alignment of RSP depends on our
+    // locals. rsp+8 is aligned on entry and we just subtract frame
+    // size so it is not hard to compute. Note that the compiler
+    // tries hard to make sure the frame size means RSP will be
+    // 16-byte aligned, but for leaf functions without locals (i.e.
+    // frameSize = 0) it will not be.
+    int frameSize = codeGen->genTotalFrameSize();
+    return ((8 - frameSize + off) % alignment) == 0;
+#endif
 }
 
 /*****************************************************************************/
