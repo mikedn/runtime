@@ -7509,18 +7509,11 @@ bool Compiler::lvaIsSimdTypedLocalAligned(unsigned lclNum)
 }
 
 #ifdef FEATURE_SIMD
-//-------------------------------------------------------------------
 // Set the flag that indicates that the lclVar referenced by this tree
 // is used in a SIMD intrinsic.
-// Arguments:
-//      tree - GenTree*
-
-void Compiler::setLclRelatedToSIMDIntrinsic(GenTree* tree)
+void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVarCommon* lclVar)
 {
-    assert(tree->OperIsLocal());
-    unsigned   lclNum                = tree->AsLclVarCommon()->GetLclNum();
-    LclVarDsc* lclVarDsc             = &lvaTable[lclNum];
-    lclVarDsc->lvUsedInSIMDIntrinsic = true;
+    lvaGetDesc(lclVar)->lvUsedInSIMDIntrinsic = true;
 }
 #endif // FEATURE_SIMD
 

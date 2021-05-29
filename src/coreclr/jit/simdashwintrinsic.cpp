@@ -915,7 +915,7 @@ GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLay
         if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
             // Prevent the destination from being promoted since it would end up being dependent promoted.
-            setLclRelatedToSIMDIntrinsic(addr->AsUnOp()->GetOp(0));
+            lvaRecordSimdIntrinsicUse(addr->AsUnOp()->GetOp(0)->AsLclVar());
         }
     }
     else if ((sig.paramCount == 1) && (args[0]->IsIntegralConst(0) || args[0]->IsDblConPositiveZero()))
@@ -1058,7 +1058,7 @@ GenTree* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
 
         if (src->IsHWIntrinsic())
         {
-            setLclRelatedToSIMDIntrinsic(dest->AsLclVar());
+            lvaRecordSimdIntrinsicUse(dest->AsLclVar());
         }
 
         assert(lvaGetDesc(dest->AsLclVar())->GetType() == src->GetType());

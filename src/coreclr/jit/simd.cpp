@@ -173,7 +173,7 @@ void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree
 
             if (varTypeIsSIMD(location->GetType()) && location->OperIs(GT_LCL_VAR))
             {
-                compiler->setLclRelatedToSIMDIntrinsic(location);
+                compiler->lvaRecordSimdIntrinsicUse(location->AsLclVar());
             }
         }
 
@@ -362,7 +362,7 @@ void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
         return;
     }
 
-    compiler->setLclRelatedToSIMDIntrinsic(simdLclVar);
+    compiler->lvaRecordSimdIntrinsicUse(simdLclVar);
 
     GenTree* dest = asg->AsOp()->GetOp(0);
 
@@ -372,7 +372,7 @@ void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
 
         if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIsLocal())
         {
-            compiler->setLclRelatedToSIMDIntrinsic(addr->AsUnOp()->GetOp(0));
+            compiler->lvaRecordSimdIntrinsicUse(addr->AsUnOp()->GetOp(0)->AsLclVarCommon());
         }
     }
 

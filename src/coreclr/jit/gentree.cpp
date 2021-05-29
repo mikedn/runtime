@@ -6144,7 +6144,7 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     if (src->OperIsHWIntrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
         varTypeIsSIMD(dst->GetType()))
     {
-        setLclRelatedToSIMDIntrinsic(dst);
+        lvaRecordSimdIntrinsicUse(dst->AsLclVar());
     }
 #endif
 }
@@ -16054,7 +16054,7 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
 
     if (op->OperIsLocal())
     {
-        setLclRelatedToSIMDIntrinsic(op);
+        lvaRecordSimdIntrinsicUse(op->AsLclVarCommon());
     }
     else if (op->OperIs(GT_OBJ))
     {
@@ -16066,7 +16066,7 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
 
             if (addrOp1->OperIsLocal())
             {
-                setLclRelatedToSIMDIntrinsic(addrOp1);
+                lvaRecordSimdIntrinsicUse(addrOp1->AsLclVarCommon());
             }
         }
     }
