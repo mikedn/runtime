@@ -1208,7 +1208,7 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
     var_types      baseType    = node->gtSIMDBaseType;
     unsigned       simdSize    = node->gtSIMDSize;
-    var_types      simdType    = Compiler::getSIMDTypeForSize(simdSize);
+    var_types      simdType    = getSIMDTypeForSize(simdSize);
 
     assert((intrinsicId == NI_Vector128_op_Equality) || (intrinsicId == NI_Vector128_op_Inequality) ||
            (intrinsicId == NI_Vector256_op_Equality) || (intrinsicId == NI_Vector256_op_Inequality));
@@ -1504,7 +1504,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         unsigned cnsSize = (simdSize != 12) ? simdSize : 16;
         unsigned cnsAlign =
             (comp->compCodeOpt() != Compiler::SMALL_CODE) ? cnsSize : emitter::dataSection::MIN_DATA_ALIGN;
-        var_types dataType = Compiler::getSIMDTypeForSize(simdSize);
+        var_types dataType = getSIMDTypeForSize(simdSize);
 
         UNATIVE_OFFSET       cnum       = comp->GetEmitter()->emitDataConst(&vecCns, cnsSize, cnsAlign, dataType);
         CORINFO_FIELD_HANDLE hnd        = comp->eeFindJitDataOffs(cnum);
@@ -2907,7 +2907,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     NamedIntrinsic intrinsicId = node->gtHWIntrinsicId;
     var_types      baseType    = node->gtSIMDBaseType;
     unsigned       simdSize    = node->gtSIMDSize;
-    var_types      simdType    = Compiler::getSIMDTypeForSize(simdSize);
+    var_types      simdType    = getSIMDTypeForSize(simdSize);
     unsigned       simd16Count = comp->getSIMDVectorLength(16, baseType);
 
     assert((intrinsicId == NI_Vector128_Dot) || (intrinsicId == NI_Vector256_Dot));
@@ -3513,7 +3513,7 @@ void Lowering::LowerHWIntrinsicToScalar(GenTreeHWIntrinsic* node)
     ;
     var_types baseType = node->gtSIMDBaseType;
     unsigned  simdSize = node->gtSIMDSize;
-    var_types simdType = Compiler::getSIMDTypeForSize(simdSize);
+    var_types simdType = getSIMDTypeForSize(simdSize);
 
     assert((intrinsicId == NI_Vector128_ToScalar) || (intrinsicId == NI_Vector256_ToScalar));
     assert(varTypeIsSIMD(simdType));

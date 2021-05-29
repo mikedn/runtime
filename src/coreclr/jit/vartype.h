@@ -411,4 +411,23 @@ inline bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
     }
 }
 
+#ifdef FEATURE_SIMD
+constexpr var_types getSIMDTypeForSize(unsigned size)
+{
+    switch (size)
+    {
+        case 8:
+            return TYP_SIMD8;
+        case 12:
+            return TYP_SIMD12;
+        case 16:
+            return TYP_SIMD16;
+        case 32:
+            return TYP_SIMD32;
+        default:
+            unreached();
+    }
+}
+#endif
+
 #endif // _VARTYPE_H_

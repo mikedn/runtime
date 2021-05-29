@@ -257,7 +257,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        emitSize = emitActualTypeSize(Compiler::getSIMDTypeForSize(node->gtSIMDSize));
+        emitSize = emitActualTypeSize(getSIMDTypeForSize(node->gtSIMDSize));
         opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
     }
 
@@ -792,7 +792,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 assert(intrin.numOperands == 2);
 
-                var_types simdType = Compiler::getSIMDTypeForSize(node->GetSIMDSize());
+                var_types simdType = getSIMDTypeForSize(node->GetSIMDSize());
 
                 if (simdType == TYP_SIMD12)
                 {
