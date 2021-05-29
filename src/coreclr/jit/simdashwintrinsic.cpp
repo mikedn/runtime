@@ -1338,6 +1338,11 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* 
 
 #ifdef TARGET_XARCH
 
+constexpr ssize_t SHUFFLE_XXZX = 0x08; // 00 00 10 00
+constexpr ssize_t SHUFFLE_ZWXY = 0xB1; // 10 11 00 01
+constexpr ssize_t SHUFFLE_WWYY = 0xF5; // 11 11 01 01
+constexpr ssize_t SHUFFLE_ZZXX = 0xA0; // 10 10 00 00
+
 GenTree* Compiler::impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     GenTree* uses[2];
