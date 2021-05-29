@@ -1039,6 +1039,39 @@ GenTree* Compiler::impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis
     return impPopStack().val;
 }
 
+GenTree* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
+{
+    assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+    assert(src->OperIs(GT_IND, GT_HWINTRINSIC));
+    assert(varTypeIsSIMD(src->GetType()));
+
+    // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
+    // from the previous implementation that did this (in gtNewBlkOpNode).
+    src->gtFlags |= GTF_DONT_CSE;
+
+    GenTree* dest;
+
+    if (destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR) &&
+        (destAddr->AsUnOp()->GetOp(0)->GetType() == src->GetType()))
+    {
+        dest = destAddr->AsUnOp()->GetOp(0);
+
+        if (src->IsHWIntrinsic())
+        {
+            setLclRelatedToSIMDIntrinsic(dest->AsLclVar());
+        }
+
+        assert(lvaGetDesc(dest->AsLclVar())->GetType() == src->GetType());
+    }
+    else
+    {
+        dest = gtNewIndir(src->GetType(), destAddr);
+        dest->gtFlags |= GTF_GLOB_REF;
+    }
+
+    return gtNewAssignNode(dest, src);
+}
+
 GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
                                                GenTree*        array,
                                                GenTree*        index,
