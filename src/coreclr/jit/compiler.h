@@ -6414,7 +6414,6 @@ public:
     // Get the flags
 
     bool eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd);
-    bool eeIsJitIntrinsic(CORINFO_METHOD_HANDLE ftn);
 
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(TRACK_LSRA_STATS)
 
@@ -7012,36 +7011,20 @@ private:
 #pragma endregion // Note: region is NOT under !defined(__GNUC__)
 #endif
 
-    /*
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XX                                                                           XX
-    XX                               SIMD                                        XX
-    XX                                                                           XX
-    XX   Info about SIMD types, methods and the SIMD assembly (i.e. the assembly XX
-    XX   that contains the distinguished, well-known SIMD type definitions).     XX
-    XX                                                                           XX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    */
-
-    bool isIntrinsicType(CORINFO_CLASS_HANDLE clsHnd)
-    {
-        return info.compCompHnd->isIntrinsicType(clsHnd);
-    }
-
-    const char* getClassNameFromMetadata(CORINFO_CLASS_HANDLE cls, const char** namespaceName)
-    {
-        return info.compCompHnd->getClassNameFromMetadata(cls, namespaceName);
-    }
-
-    CORINFO_CLASS_HANDLE getTypeInstantiationArgument(CORINFO_CLASS_HANDLE cls, unsigned index)
-    {
-        return info.compCompHnd->getTypeInstantiationArgument(cls, index);
-    }
+/*
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XX                                                                           XX
+XX                               SIMD                                        XX
+XX                                                                           XX
+XX   Info about SIMD types, methods and the SIMD assembly (i.e. the assembly XX
+XX   that contains the distinguished, well-known SIMD type definitions).     XX
+XX                                                                           XX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+*/
 
 #ifdef FEATURE_SIMD
-
     // Should we support SIMD intrinsics?
     bool featureSIMD;
 
