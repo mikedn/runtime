@@ -7435,6 +7435,41 @@ int Compiler::lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased)
     return offset;
 }
 
+#ifdef FEATURE_SIMD
+//------------------------------------------------------------------------
+// Get the preferred alignment of SIMD vector type for better performance.
+//
+// Arguments:
+//    typeHnd  - type handle of the SIMD vector
+//
+int Compiler::getSIMDTypeAlignment(var_types simdType)
+{
+    unsigned size = varTypeSize(simdType);
+
+#ifdef TARGET_XARCH
+    if (size == 8)
+    {
+        return 8;
+    }
+
+    if (size <= 16)
+    {
+        assert((size == 12) || (size == 16));
+        return 16;
+    }
+
+    assert(size == 32);
+    return 32;
+#elif defined(TARGET_ARM64)
+    // preferred alignment for 64-bit vectors is 8-bytes.
+    // For everything else, 16-bytes.
+    return (size == 8) ? 8 : 16;
+#else
+#error Unsupported platform
+#endif
+}
+#endif // FEATURE_SIMD
+
 // Returns true if the TYP_SIMD locals on stack are aligned at their
 // preferred byte boundary specified by getSIMDTypeAlignment().
 //
