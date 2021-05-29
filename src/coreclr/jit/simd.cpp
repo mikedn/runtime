@@ -10,37 +10,6 @@
 
 #ifdef FEATURE_SIMD
 
-// impSIMDPopStack: Pops and returns GenTree node from importer's type stack.
-//
-// Arguments:
-//    type -  the type of value that the caller expects to be popped off the stack.
-//
-// Notes:
-//    If the popped value is a struct, and the expected type is a simd type, it will be set
-//    to that type, otherwise it will assert if the type being popped is not the expected type.
-//
-GenTree* Compiler::impSIMDPopStack(var_types type)
-{
-    assert(varTypeIsSIMD(type));
-
-    GenTree* tree = impPopStack().val;
-
-    if (tree->OperIs(GT_RET_EXPR, GT_CALL))
-    {
-        // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
-
-        ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
-
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
-        impAppendTempAssign(tmpNum, tree, layout, CHECK_SPILL_ALL);
-        tree = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
-    }
-
-    assert(tree->GetType() == type);
-
-    return tree;
-}
-
 // Check whether two memory locations are contiguous.
 //
 // This recognizes trivial patterns such as FIELD(o, 4) & FIELD(o, 8) or INDEX(a, 1) & INDEX(a, 2).

@@ -230,6 +230,32 @@ GenTree* Compiler::impPopStackCoerceArg(var_types signatureType)
     return tree;
 }
 
+#ifdef FEATURE_SIMD
+
+GenTree* Compiler::impSIMDPopStack(var_types type)
+{
+    assert(varTypeIsSIMD(type));
+
+    GenTree* tree = impPopStack().val;
+
+    if (tree->OperIs(GT_RET_EXPR, GT_CALL))
+    {
+        // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
+
+        ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
+
+        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
+        impAppendTempAssign(tmpNum, tree, layout, CHECK_SPILL_ALL);
+        tree = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
+    }
+
+    assert(tree->GetType() == type);
+
+    return tree;
+}
+
+#endif // FEATURE_SIMD
+
 /*****************************************************************************
  *
  *  Peep at n'th (0-based) tree on the top of the stack.
