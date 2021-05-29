@@ -240,7 +240,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
 #ifdef TARGET_XARCH
         || intrinsic == NI_VectorT256_get_IsHardwareAccelerated
 #endif
-            )
+        )
     {
         return gtNewIconNode(isSupported);
     }
@@ -1069,6 +1069,7 @@ GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
     array = arrayUses[0];
 
     GenTree* lastIndex = gtNewIconNode(layout->GetElementCount() - 1);
+    GenTree* arrLen    = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length, compCurBB);
 
     if (index != nullptr)
     {
@@ -1076,14 +1077,15 @@ GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
         impMakeMultiUse(index, indexUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.CopyTo temp"));
         index = indexUses[0];
 
-        GenTreeArrLen* arrLen = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length, compCurBB);
-        array                 = gtNewCommaNode(gtNewArrBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
-
         lastIndex = gtNewOperNode(GT_ADD, TYP_INT, indexUses[1], lastIndex);
+        array     = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
+        arrLen    = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length, compCurBB);
+        array     = gtNewCommaNode(gtNewArrBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
     }
-
-    GenTreeArrLen* arrLen = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length, compCurBB);
-    array                 = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
+    else
+    {
+        array = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
+    }
 
     GenTree* offset = gtNewIconNode(OFFSETOF__CORINFO_Array__data, TYP_I_IMPL);
 
