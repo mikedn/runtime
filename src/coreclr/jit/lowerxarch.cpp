@@ -2903,7 +2903,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     var_types baseType    = node->GetSimdBaseType();
     unsigned  simdSize    = node->GetSimdSize();
     var_types simdType    = getSIMDTypeForSize(simdSize);
-    unsigned  simd16Count = comp->getSIMDVectorLength(16, baseType);
+    unsigned  simd16Count = getSIMDVectorLength(16, baseType);
 
     assert(varTypeIsArithmetic(baseType));
 

@@ -428,6 +428,11 @@ constexpr var_types getSIMDTypeForSize(unsigned size)
             unreached();
     }
 }
-#endif
+
+inline int getSIMDVectorLength(unsigned simdSize, var_types baseType)
+{
+    return simdSize / varTypeSize(baseType);
+}
+#endif // FEATURE_SIMD
 
 #endif // _VARTYPE_H_

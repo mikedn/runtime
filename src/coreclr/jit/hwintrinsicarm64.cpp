@@ -239,7 +239,7 @@ void HWIntrinsicInfo::lookupImmBounds(
     }
     else if (category == HW_Category_SIMDByIndexedElement)
     {
-        immUpperBound = Compiler::getSIMDVectorLength(simdSize, baseType) - 1;
+        immUpperBound = getSIMDVectorLength(simdSize, baseType) - 1;
     }
     else
     {
@@ -256,7 +256,7 @@ void HWIntrinsicInfo::lookupImmBounds(
             case NI_AdvSimd_StoreSelectedScalar:
             case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
             case NI_AdvSimd_Arm64_InsertSelectedScalar:
-                immUpperBound = Compiler::getSIMDVectorLength(simdSize, baseType) - 1;
+                immUpperBound = getSIMDVectorLength(simdSize, baseType) - 1;
                 break;
 
             default:
@@ -375,7 +375,7 @@ GenTree* Compiler::impSpecialIntrinsic(
             assert(!sig.hasThisParam);
             assert(sig.paramCount == 0);
 
-            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType), TYP_INT);
+            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
             countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
             retNode = countNode;
             break;

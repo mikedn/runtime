@@ -662,7 +662,7 @@ GenTree* Compiler::impBaseIntrinsic(
         {
             assert(sig.paramCount == 0);
 
-            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType), TYP_INT);
+            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
             countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
             retNode = countNode;
             break;

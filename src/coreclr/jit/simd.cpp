@@ -11,20 +11,6 @@
 #ifdef FEATURE_SIMD
 
 //------------------------------------------------------------------------
-// getSIMDVectorLength: Get the length (number of elements of base type) of
-//                      SIMD Vector given its size and base (element) type.
-//
-// Arguments:
-//    simdSize   - size of the SIMD vector
-//    baseType   - type of the elements of the SIMD vector
-//
-// static
-int Compiler::getSIMDVectorLength(unsigned simdSize, var_types baseType)
-{
-    return simdSize / genTypeSize(baseType);
-}
-
-//------------------------------------------------------------------------
 // Get the preferred alignment of SIMD vector type for better performance.
 //
 // Arguments:

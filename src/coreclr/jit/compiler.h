@@ -7054,9 +7054,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     // This is the maximum SIMD type supported for this target.
     var_types GetVectorTSimdType();
 
-    // Get the the number of elements of basetype of SIMD vector given by its size and baseType
-    static int getSIMDVectorLength(unsigned simdSize, var_types baseType);
-
     // Get preferred alignment of SIMD type.
     int getSIMDTypeAlignment(var_types simdType);
 #endif // FEATURE_SIMD
