@@ -4889,6 +4889,7 @@ public:
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
     void inlUpdateRetSpillTempClass(InlineInfo* inlineInfo);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
+    bool inlIsSysNumOrSysRtIntrinsicClass(CORINFO_CLASS_HANDLE clsHnd);
     bool inlAnalyzeInlineeSignature(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
@@ -7059,23 +7060,6 @@ private:
     // that require indexed access to the individual fields of the vector, which is not well supported
     // by the hardware.  It is allocated when/if such situations are encountered during Lowering.
     unsigned lvaSIMDInitTempVarNum;
-
-    bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
-    {
-        if (!isIntrinsicType(clsHnd))
-        {
-            return false;
-        }
-
-        const char* namespaceName = nullptr;
-        getClassNameFromMetadata(clsHnd, &namespaceName);
-
-        return
-#ifdef FEATURE_HW_INTRINSICS
-            (strcmp(namespaceName, "System.Runtime.Intrinsics") == 0) ||
-#endif
-            (strcmp(namespaceName, "System.Numerics") == 0);
-    }
 
     GenTree* impSIMDPopStack(var_types type);
     GenTree* impPopStackAddrAsVector(var_types type);
