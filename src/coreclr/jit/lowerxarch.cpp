@@ -3518,7 +3518,7 @@ void Lowering::LowerHWIntrinsicToScalar(GenTreeHWIntrinsic* node)
         case TYP_UBYTE:
         case TYP_USHORT:
         case TYP_UINT:
-            node->SetType(TYP_UINT);
+            node->SetType(TYP_INT);
             node->SetSimdBaseType(TYP_UINT);
             node->SetIntrinsic(NI_SSE2_ConvertToUInt32);
             break;
