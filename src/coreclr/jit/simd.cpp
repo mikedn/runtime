@@ -370,9 +370,9 @@ void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
     {
         GenTree* addr = field->GetAddr();
 
-        if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIsLocal())
+        if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            compiler->lvaRecordSimdIntrinsicUse(addr->AsUnOp()->GetOp(0)->AsLclVarCommon());
+            compiler->lvaRecordSimdIntrinsicUse(addr->AsUnOp()->GetOp(0)->AsLclVar());
         }
     }
 

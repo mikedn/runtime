@@ -16052,9 +16052,9 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
         return;
     }
 
-    if (op->OperIsLocal())
+    if (op->OperIs(GT_LCL_VAR))
     {
-        lvaRecordSimdIntrinsicUse(op->AsLclVarCommon());
+        lvaRecordSimdIntrinsicUse(op->AsLclVar());
     }
     else if (op->OperIs(GT_OBJ))
     {
@@ -16064,9 +16064,9 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
         {
             GenTree* addrOp1 = addr->AsOp()->gtGetOp1();
 
-            if (addrOp1->OperIsLocal())
+            if (addrOp1->OperIs(GT_LCL_VAR))
             {
-                lvaRecordSimdIntrinsicUse(addrOp1->AsLclVarCommon());
+                lvaRecordSimdIntrinsicUse(addrOp1->AsLclVar());
             }
         }
     }

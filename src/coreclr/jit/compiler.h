@@ -7048,7 +7048,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     GenTree* impSIMDPopStack(var_types type);
     GenTree* impPopStackAddrAsVector(var_types type);
 
-    void lvaRecordSimdIntrinsicUse(GenTreeLclVarCommon* lclVar);
+    void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
