@@ -3087,6 +3087,7 @@ protected:
     GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
     GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
     GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);

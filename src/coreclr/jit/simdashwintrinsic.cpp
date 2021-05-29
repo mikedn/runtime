@@ -422,6 +422,8 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
                     return impVectorT256ConvertUInt64ToDouble(signature);
                 }
                 return impVectorT256ConvertInt64ToDouble(signature);
+            case NI_VectorT128_Dot:
+                return impVectorT128Dot(signature);
 #endif
             default:
                 assert(newobjThis == nullptr);
@@ -506,18 +508,6 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
     assert(compIsaSupportedDebugOnly(InstructionSet_AdvSimd));
 #else
 #error Unsupported platform
-#endif
-
-#ifdef TARGET_XARCH
-    if ((intrinsic == NI_VectorT128_Dot) && !compOpportunisticallyDependsOn(InstructionSet_SSE41))
-    {
-        // We need to exit early if this is Vector<T>.Dot for INT or UINT and SSE41 is
-        // not supported. The other types should be handled via the table driven paths.
-
-        var_types opType = sig.paramLayout[0]->GetElementType();
-        assert((opType == TYP_INT) || (opType == TYP_UINT));
-        return nullptr;
-    }
 #endif
 
     var_types    retType   = sig.retType;
@@ -699,18 +689,6 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
             retNode = gtNewSimdHWIntrinsicNode(retType, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, retSize, retNode,
                                                gtNewIconNode(16 - retSize));
             return retNode;
-        }
-
-        case NI_VectorT128_Dot:
-        {
-            assert(sig.paramCount == 2);
-            assert(sig.paramLayout[0] == sig.paramLayout[1]);
-
-            var_types opBaseType = sig.paramLayout[0]->GetElementType();
-            unsigned  opSize     = sig.paramLayout[0]->GetSize();
-            assert((opBaseType == TYP_INT) || (opBaseType == TYP_UINT));
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
-            return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_Dot, opBaseType, opSize, ops[0], ops[1]);
         }
 
         case NI_VectorT256_GreaterThan:
@@ -1661,6 +1639,26 @@ GenTree* Compiler::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature&
 
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_InsertVector128, TYP_LONG, 32, e[0], e[1], gtNewIconNode(1));
 #endif
+}
+
+GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+
+    var_types simdBaseType = sig.paramLayout[0]->GetElementType();
+    assert((simdBaseType == TYP_INT) || (simdBaseType == TYP_UINT));
+
+    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        return nullptr;
+    }
+
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+    GenTree* op2 = impSIMDPopStack(TYP_SIMD16);
+
+    unsigned simdSize = sig.paramLayout[0]->GetSize();
+    return gtNewSimdHWIntrinsicNode(sig.retType, NI_Vector128_Dot, simdBaseType, simdSize, op1, op2);
 }
 
 GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
