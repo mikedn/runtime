@@ -41,20 +41,6 @@ GenTree* Compiler::impSIMDPopStack(var_types type)
     return tree;
 }
 
-//-------------------------------------------------------------------
-// Set the flag that indicates that the lclVar referenced by this tree
-// is used in a SIMD intrinsic.
-// Arguments:
-//      tree - GenTree*
-
-void Compiler::setLclRelatedToSIMDIntrinsic(GenTree* tree)
-{
-    assert(tree->OperIsLocal());
-    unsigned   lclNum                = tree->AsLclVarCommon()->GetLclNum();
-    LclVarDsc* lclVarDsc             = &lvaTable[lclNum];
-    lclVarDsc->lvUsedInSIMDIntrinsic = true;
-}
-
 // Check whether two memory locations are contiguous.
 //
 // This recognizes trivial patterns such as FIELD(o, 4) & FIELD(o, 8) or INDEX(a, 1) & INDEX(a, 2).
