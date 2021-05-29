@@ -138,7 +138,7 @@ static constexpr SysNumSimdIntrinsicInfo sysNumSimdIntrinsicInfo[]
 static_assert_no_msg(_countof(sysNumSimdIntrinsicInfo) ==
                      NI_SIMD_AS_HWINTRINSIC_END - NI_SIMD_AS_HWINTRINSIC_START - 1);
 
-static constexpr const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic id)
+static const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic id)
 {
     assert((NI_SIMD_AS_HWINTRINSIC_START < id) && (id < NI_SIMD_AS_HWINTRINSIC_END));
 
@@ -236,9 +236,9 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
 
     bool isSupported = featureSIMD && JitConfig.EnableHWIntrinsic() && compOpportunisticallyDependsOn(minimumIsa);
 
-    if ((intrinsic == NI_VectorT128_get_IsHardwareAccelerated)
+    if (intrinsic == NI_VectorT128_get_IsHardwareAccelerated
 #ifdef TARGET_XARCH
-        || (intrinsic == NI_VectorT256_get_IsHardwareAccelerated)
+        || intrinsic == NI_VectorT256_get_IsHardwareAccelerated
 #endif
             )
     {
