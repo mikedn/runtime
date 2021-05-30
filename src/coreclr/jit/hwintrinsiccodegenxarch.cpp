@@ -1153,7 +1153,6 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
                 simdType = TYP_SIMD16;
             }
 
-            // Optimize the case of op1 is in memory and trying to access ith element.
             if (!op1->isUsedFromReg())
             {
                 assert(op1->isContained());
@@ -1217,13 +1216,13 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
                                             genTypeSize(baseType),            // by the size of the baseType
                                             offset);
             }
-            else if (op2->OperIsConst())
+            else
             {
                 assert(intrinsicId == NI_Vector128_GetElement);
                 assert(varTypeIsFloating(baseType));
                 assert(op1Reg != REG_NA);
 
-                ssize_t ival = op2->AsIntCon()->IconValue();
+                ssize_t ival = op2->AsIntCon()->GetValue();
 
                 if (baseType == TYP_FLOAT)
                 {
@@ -1256,44 +1255,6 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
                     assert(ival == 1);
                     emit->emitIns_SIMD_R_R_R(INS_unpckhpd, attr, targetReg, op1Reg, op1Reg);
                 }
-            }
-            else
-            {
-                // We don't have an instruction to implement this intrinsic if the index is not a constant.
-                // So we will use the SIMD temp location to store the vector, and the load the desired element.
-                // The range check will already have been performed, so at this point we know we have an index
-                // within the bounds of the vector.
-
-                unsigned simdInitTempVarNum = compiler->lvaSIMDInitTempVarNum;
-                noway_assert(simdInitTempVarNum != BAD_VAR_NUM);
-
-                bool     isEBPbased;
-                unsigned offs = compiler->lvaFrameAddress(simdInitTempVarNum, &isEBPbased);
-
-#if !FEATURE_FIXED_OUT_ARGS
-                if (!isEBPbased)
-                {
-                    // Adjust the offset by the amount currently pushed on the CPU stack
-                    offs += genStackLevel;
-                }
-#else
-                assert(genStackLevel == 0);
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-                regNumber indexReg = op2->GetRegNum();
-
-                // Store the vector to the temp location.
-                GetEmitter()->emitIns_S_R(ins_Store(simdType, compiler->lvaIsSimdTypedLocalAligned(simdInitTempVarNum)),
-                                          emitTypeSize(simdType), op1Reg, simdInitTempVarNum, 0);
-
-                // Now, load the desired element.
-                GetEmitter()->emitIns_R_ARX(ins_Move_Extend(baseType, false), // Load
-                                            emitTypeSize(baseType),           // Of the vector baseType
-                                            targetReg,                        // To targetReg
-                                            (isEBPbased) ? REG_EBP : REG_ESP, // Stack-based
-                                            indexReg,                         // Indexed
-                                            genTypeSize(baseType),            // by the size of the baseType
-                                            offs);
             }
             break;
         }

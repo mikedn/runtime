@@ -944,22 +944,8 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
         case NI_Vector128_GetElement:
         case NI_Vector256_GetElement:
-        {
             LowerHWIntrinsicGetElement(node);
-
-            if ((node->GetIntrinsic() == NI_Vector128_GetElement) || (node->GetIntrinsic() == NI_Vector256_GetElement))
-            {
-                // Most NI_Vector*_GetElement intrinsics are lowered to
-                // alternative nodes, such as the Extract intrinsics,
-                // which are themselves lowered.
-                //
-                // However, certain types may not have a direct equivalent
-                // in which case we specially handle them directly as GetElement
-                // and want to do the relevant containment checks.
-                break;
-            }
             return;
-        }
 
         case NI_Vector128_WithElement:
         case NI_Vector256_WithElement:
@@ -1016,6 +1002,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 node->SetIntrinsic(NI_Vector128_GetElement);
                 LowerNode(node);
+                return;
             }
             break;
         }
@@ -2324,43 +2311,32 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 {
+    NamedIntrinsic intrinsic    = node->GetIntrinsic();
+    var_types      simdBaseType = node->GetSimdBaseType();
+
+    assert(varTypeIsArithmetic(simdBaseType));
+
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
-    if (op1->OperIs(GT_IND))
-    {
-        // If the vector is already in memory, we force its
-        // addr to be evaluated into a reg.  This would allow
-        // us to generate [regBase] or [regBase + offset] or
-        // [regBase + sizeOf(simdBaseType) * regIndex] to access
-        // the required vector element directly from memory.
-        //
-        // TODO-CQ-XARCH: If addr of GT_IND is GT_LEA, we
-        // might be able update GT_LEA to fold the regIndex
-        // or offset in some cases.  Instead with this
-        // approach we always evaluate GT_LEA into a reg.
-        // Ideally, we should be able to lower GetItem intrinsic
-        // into GT_IND(newAddr) where newAddr combines
-        // the addr of the vector with the given index.
-        op1->gtFlags |= GTF_IND_REQ_ADDR_IN_REG;
-    }
-
     if (!op2->IsIntCon())
     {
-        // We will specially handle GetElement in codegen when op2 isn't a constant
+        unsigned tempLclNum = GetSimdMemoryTemp(op1->GetType());
+        GenTree* store      = NewStoreLclVar(tempLclNum, op1->GetType(), op1);
+        BlockRange().InsertAfter(op1, store);
+
+        op1 = comp->gtNewLclvNode(tempLclNum, op1->GetType());
+        BlockRange().InsertBefore(node, op1);
+        node->SetOp(0, op1);
+
+        ContainCheckHWIntrinsic(node);
         return;
     }
-
-    NamedIntrinsic intrinsic    = node->GetIntrinsic();
-    var_types      simdBaseType = node->GetSimdBaseType();
-    unsigned       simdSize     = node->GetSimdSize();
-
-    assert(varTypeIsArithmetic(simdBaseType));
 
     // We should have a bounds check inserted for any index outside the allowed range
     // but we need to generate some code anyways, and so we'll mask here for simplicity.
 
-    unsigned count = simdSize / varTypeSize(simdBaseType);
+    unsigned count = node->GetSimdSize() / varTypeSize(simdBaseType);
     unsigned index = op2->AsIntCon()->GetUInt32Value() % count;
 
     op2->AsIntCon()->SetValue(index);
@@ -2368,6 +2344,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     if (IsContainableMemoryOp(op1))
     {
         // We will specially handle GetElement in codegen when op1 is already in memory
+        ContainCheckHWIntrinsic(node);
         return;
     }
 
@@ -2451,6 +2428,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         node->SetIntrinsic(intrinsic, simdBaseType, 16, 1);
         node->SetOp(0, op1);
         BlockRange().Remove(op2);
+        LowerNode(node);
 
         return;
     }
@@ -2459,6 +2437,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     {
         // We specially handle float and double for better codegen.
         node->SetIntrinsic(intrinsic);
+        ContainCheckHWIntrinsic(node);
         return;
     }
 
@@ -5647,7 +5626,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         {
                             if (op1->OperIs(GT_IND))
                             {
-                                assert((op1->gtFlags & GTF_IND_REQ_ADDR_IN_REG) != 0);
                                 op1->AsIndir()->Addr()->ClearContained();
                             }
 

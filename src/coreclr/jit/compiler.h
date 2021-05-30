@@ -7041,11 +7041,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
     }
 
-    // This is a temp lclVar allocated on the stack as TYP_SIMD.  It is used to implement intrinsics
-    // that require indexed access to the individual fields of the vector, which is not well supported
-    // by the hardware.  It is allocated when/if such situations are encountered during Lowering.
-    unsigned lvaSIMDInitTempVarNum;
-
     GenTree* impSIMDPopStack(var_types type);
     GenTree* impPopStackAddrAsVector(var_types type);
 
@@ -7060,8 +7055,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
-    unsigned getSIMDInitTempVarNum();
-
 public:
     static bool vnEncodesResultTypeForHWIntrinsic(NamedIntrinsic hwIntrinsicID);
 #endif // FEATURE_HW_INTRINSICS

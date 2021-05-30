@@ -3492,6 +3492,15 @@ public:
         assert(OperIsLocal(oper) || OperIsLocalAddr(oper));
     }
 
+    GenTreeLclVar(var_types type,
+                  unsigned  lclNum,
+                  GenTree* value DEBUGARG(IL_OFFSET ilOffs = BAD_IL_OFFSET) DEBUGARG(bool largeNode = false))
+        : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode)) DEBUGARG(gtLclILoffs(ilOffs))
+    {
+        gtFlags |= GTF_ASG | GTF_VAR_DEF;
+        SetOp(0, value);
+    }
+
     GenTreeLclVar(GenTreeLclVar* copyFrom)
         : GenTreeLclVarCommon(copyFrom)
 #ifdef DEBUG

@@ -973,6 +973,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
             {
                 assert(!op2DelayFree);
+                assert(intrin.op2->IsIntCon() || intrin.op1->isContained());
 
                 if (!intrin.op2->IsCnsIntOrI() && (!intrin.op1->isContained() || intrin.op1->OperIsLocal()))
                 {
@@ -983,13 +984,6 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     // ensures that the index (op2) doesn't interfere with the target.
                     buildInternalIntRegisterDefForNode(intrinsicTree);
                     op2DelayFree = true;
-                }
-
-                if (!intrin.op2->IsCnsIntOrI() && !intrin.op1->isContained())
-                {
-                    // If the index is not a constant or op1 is in register,
-                    // we will use the SIMD temp location to store the vector.
-                    compiler->getSIMDInitTempVarNum();
                 }
             }
 

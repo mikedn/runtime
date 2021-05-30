@@ -558,6 +558,11 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             return;
         }
 
+        case NI_Vector64_GetElement:
+        case NI_Vector128_GetElement:
+            LowerHWIntrinsicGetElement(node);
+            return;
+
         case NI_Vector64_op_Equality:
         case NI_Vector128_op_Equality:
         {
@@ -954,6 +959,32 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     node->SetOp(0, tmp1);
     node->SetOp(1, idx);
     node->SetOp(2, opN);
+}
+
+void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
+{
+    NamedIntrinsic intrinsic    = node->GetIntrinsic();
+    var_types      simdBaseType = node->GetSimdBaseType();
+
+    assert(varTypeIsArithmetic(simdBaseType));
+
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
+
+    if (!op2->IsIntCon())
+    {
+        unsigned tempLclNum = GetSimdMemoryTemp(op1->GetType());
+        GenTree* store      = NewStoreLclVar(tempLclNum, op1->GetType(), op1);
+        BlockRange().InsertAfter(op1, store);
+
+        op1 = comp->gtNewLclvNode(tempLclNum, op1->GetType());
+        BlockRange().InsertBefore(node, op1);
+        node->SetOp(0, op1);
+
+        op1->SetContained();
+    }
+
+    ContainCheckHWIntrinsic(node);
 }
 
 //----------------------------------------------------------------------------------------------

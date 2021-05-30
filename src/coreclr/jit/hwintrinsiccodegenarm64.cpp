@@ -811,40 +811,25 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     regNumber indexReg = op2Reg;
 
                     // Optimize the case of op1 is in memory and trying to access ith element.
-                    if (!intrin.op1->isUsedFromReg())
+                    assert(!intrin.op1->isUsedFromReg());
+                    assert(intrin.op1->isContained());
+
+                    if (intrin.op1->OperIsLocal())
                     {
-                        assert(intrin.op1->isContained());
+                        unsigned varNum = intrin.op1->AsLclVarCommon()->GetLclNum();
+                        baseReg         = node->ExtractTempReg();
 
-                        if (intrin.op1->OperIsLocal())
-                        {
-                            unsigned varNum = intrin.op1->AsLclVarCommon()->GetLclNum();
-                            baseReg         = node->ExtractTempReg();
-
-                            // Load the address of varNum
-                            GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, baseReg, varNum, 0);
-                        }
-                        else
-                        {
-                            // Require GT_IND addr to be not contained.
-                            assert(intrin.op1->OperIs(GT_IND));
-
-                            GenTree* addr = intrin.op1->AsIndir()->Addr();
-                            assert(!addr->isContained());
-                            baseReg = addr->GetRegNum();
-                        }
+                        // Load the address of varNum
+                        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, baseReg, varNum, 0);
                     }
                     else
                     {
-                        unsigned simdInitTempVarNum = compiler->lvaSIMDInitTempVarNum;
-                        noway_assert(simdInitTempVarNum != BAD_VAR_NUM);
+                        // Require GT_IND addr to be not contained.
+                        assert(intrin.op1->OperIs(GT_IND));
 
-                        baseReg = node->ExtractTempReg();
-
-                        // Load the address of simdInitTempVarNum
-                        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, baseReg, simdInitTempVarNum, 0);
-
-                        // Store the vector to simdInitTempVarNum
-                        GetEmitter()->emitIns_R_R(INS_str, emitTypeSize(simdType), op1Reg, baseReg);
+                        GenTree* addr = intrin.op1->AsIndir()->Addr();
+                        assert(!addr->isContained());
+                        baseReg = addr->GetRegNum();
                     }
 
                     assert(genIsValidIntReg(indexReg));
@@ -891,8 +876,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else
                 {
-                    assert(intrin.op2->IsCnsIntOrI());
-                    ssize_t indexValue = intrin.op2->AsIntCon()->IconValue();
+                    ssize_t indexValue = intrin.op2->AsIntCon()->GetValue();
 
                     // no-op if vector is float/double, targetReg == op1Reg and fetching for 0th index.
                     if ((varTypeIsFloating(intrin.baseType) && (targetReg == op1Reg) && (indexValue == 0)))

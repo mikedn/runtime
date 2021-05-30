@@ -6661,3 +6661,35 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     return true;
 }
 #endif
+
+#ifdef FEATURE_HW_INTRINSICS
+unsigned Lowering::GetSimdMemoryTemp(var_types type)
+{
+#if defined(TARGET_XARCH)
+    assert((type == TYP_SIMD16) || (type == TYP_SIMD32));
+    unsigned& tempLclNum = type == TYP_SIMD32 ? m_simd32MemoryTemp : m_simd16MemoryTemp;
+#elif defined(TARGET_ARM64)
+    assert((type == TYP_SIMD16) || (type == TYP_SIMD8));
+    unsigned& tempLclNum = type == TYP_SIMD8 ? m_simd8MemoryTemp : m_simd16MemoryTemp;
+#endif
+
+    if (tempLclNum == BAD_VAR_NUM)
+    {
+        tempLclNum = comp->lvaGrabTempWithImplicitUse(false DEBUGARG("Vector GetElement temp"));
+
+        // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
+        // so it doesn't set layout, exact size etc. It happens to work because it
+        // is done late, after lowering, otherwise at least the lack of exact size
+        // would cause problems.
+        // And we don't have where to get a class handle to call lvaSetStruct...
+        // Could also be a TYP_BLK local, codegen only needs a memory location where
+        // to store a SIMD register in order to extract an element from it. But if
+        // it's TYP_BLK then it won't have SIMD alignment. Bleah.
+
+        comp->lvaGetDesc(tempLclNum)->lvType = type;
+        comp->lvaSetVarAddrExposed(tempLclNum);
+    }
+
+    return tempLclNum;
+}
+#endif

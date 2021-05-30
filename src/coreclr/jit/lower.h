@@ -21,13 +21,27 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 class Lowering final : public Phase
 {
+    LinearScan*   m_lsra;
+    SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
+    BasicBlock*   m_block;
+    unsigned      vtableCallTemp = BAD_VAR_NUM; // local variable we use as a temp for vtable calls
+#ifdef FEATURE_HW_INTRINSICS
+#ifdef TARGET_ARM64
+    unsigned m_simd8MemoryTemp = BAD_VAR_NUM;
+#endif
+    unsigned m_simd16MemoryTemp = BAD_VAR_NUM;
+#ifdef TARGET_XARCH
+    unsigned m_simd32MemoryTemp = BAD_VAR_NUM;
+#endif
+#endif // FEATURE_HW_INTRINSICS
+
 public:
     inline Lowering(Compiler* compiler, LinearScanInterface* lsra)
-        : Phase(compiler, PHASE_LOWERING), vtableCallTemp(BAD_VAR_NUM)
+        : Phase(compiler, PHASE_LOWERING), m_lsra(static_cast<LinearScan*>(lsra))
     {
-        m_lsra = (LinearScan*)lsra;
-        assert(m_lsra);
+        assert(m_lsra != nullptr);
     }
+
     virtual PhaseStatus DoPhase() override;
 
     // This variant of LowerRange is called from outside of the main Lowering pass,
@@ -213,24 +227,28 @@ private:
 
     GenTree* NewStoreLclVar(unsigned lclNum, var_types type, GenTree* value)
     {
-        // Don't bother with GTF_GLOB_REF for now, it's unlikely to be ever needed in LIR.
-        assert(!comp->lvaGetDesc(lclNum)->lvAddrExposed);
+        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+        GenTree*   store;
 
         if (type == TYP_STRUCT)
         {
-            LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
             assert(lcl->TypeIs(TYP_STRUCT));
             GenTree* addr = comp->gtNewLclVarAddrNode(lclNum);
             addr->gtFlags |= GTF_VAR_DEF;
-            GenTreeObj* store = new (comp, GT_STORE_OBJ) GenTreeObj(TYP_STRUCT, addr, value, lcl->GetLayout());
+            store = new (comp, GT_STORE_OBJ) GenTreeObj(TYP_STRUCT, addr, value, lcl->GetLayout());
             store->gtFlags |= GTF_IND_NONFAULTING;
             store->gtFlags &= ~GTF_GLOB_REF;
-            return store;
+        }
+        else
+        {
+            store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(type, lclNum, value);
         }
 
-        GenTreeLclVar* store = new (comp, GT_STORE_LCL_VAR) GenTreeLclVar(GT_STORE_LCL_VAR, type, lclNum);
-        store->gtFlags |= GTF_ASG | GTF_VAR_DEF;
-        store->SetOp(0, value);
+        if (lcl->lvAddrExposed)
+        {
+            store->gtFlags |= GTF_GLOB_REF;
+        }
+
         return store;
     }
 
@@ -371,6 +389,7 @@ private:
     void LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp);
     void LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicDot(GenTreeHWIntrinsic* node);
+    unsigned GetSimdMemoryTemp(var_types type);
 #if defined(TARGET_XARCH)
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicToScalar(GenTreeHWIntrinsic* node);
@@ -379,6 +398,8 @@ private:
 #elif defined(TARGET_ARM64)
     bool IsValidConstForMovImm(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
     struct VectorConstant
@@ -563,11 +584,6 @@ private:
             comp->lvaSetVarDoNotEnregister(lclNum DEBUG_ARG(Compiler::DNER_LocalField));
         }
     }
-
-    LinearScan*   m_lsra;
-    unsigned      vtableCallTemp;       // local variable we use as a temp for vtable calls
-    SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
-    BasicBlock*   m_block;
 };
 
 #endif // _LOWER_H_

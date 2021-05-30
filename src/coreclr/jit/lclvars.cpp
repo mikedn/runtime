@@ -74,9 +74,6 @@ void Compiler::lvaInit()
 #if defined(FEATURE_EH_FUNCLETS)
     lvaPSPSym = BAD_VAR_NUM;
 #endif
-#if FEATURE_SIMD
-    lvaSIMDInitTempVarNum = BAD_VAR_NUM;
-#endif // FEATURE_SIMD
     lvaCurEpoch = 0;
 
     structPromotionHelper = new (this, CMK_Generic) StructPromotionHelper(this);

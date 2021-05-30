@@ -1881,17 +1881,9 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 
             case NI_Vector128_GetElement:
             case NI_Vector256_GetElement:
-            {
                 assert(numArgs == 2);
-
-                if (!op2->OperIsConst() && !op1->isContained())
-                {
-                    // If the index is not a constant or op1 is in register,
-                    // we will use the SIMD temp location to store the vector.
-                    compiler->getSIMDInitTempVarNum();
-                }
+                assert(op2->IsIntCon() || op1->isContained());
                 break;
-            }
 
             case NI_Vector128_ToVector256:
             case NI_Vector128_ToVector256Unsafe:
