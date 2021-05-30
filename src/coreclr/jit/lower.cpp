@@ -240,15 +240,13 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
             ContainCheckBoundsChk(node->AsBoundsChk());
             break;
-#endif // TARGET_XARCH
+#endif
+
         case GT_ARR_ELEM:
             return LowerArrElem(node);
 

@@ -9061,27 +9061,20 @@ public:
             }
 
             case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            {
-                GenTreeBoundsChk* const boundsChk = node->AsBoundsChk();
-
-                result = WalkTree(&boundsChk->gtIndex, boundsChk);
+#endif
+                result = WalkTree(&node->AsBoundsChk()->gtIndex, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
-                result = WalkTree(&boundsChk->gtArrLen, boundsChk);
+                result = WalkTree(&node->AsBoundsChk()->gtArrLen, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
                 break;
-            }
 
             case GT_FIELD:
                 result = WalkTree(&node->AsField()->gtFldObj, node);

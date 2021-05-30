@@ -4151,21 +4151,15 @@ void GenTree::VisitOperands(TVisitor visitor)
         }
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-        {
-            GenTreeBoundsChk* const boundsChk = this->AsBoundsChk();
-            if (visitor(boundsChk->gtIndex) == VisitResult::Abort)
+#endif
+            if (visitor(AsBoundsChk()->gtIndex) == VisitResult::Abort)
             {
                 return;
             }
-            visitor(boundsChk->gtArrLen);
+            visitor(AsBoundsChk()->gtArrLen);
             return;
-        }
 
         case GT_FIELD:
             visitor(AsField()->gtFldObj);

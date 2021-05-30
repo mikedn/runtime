@@ -113,7 +113,7 @@ private:
 
     GenTreeIntCon intForm(var_types type, ssize_t value);
 
-    void genRangeCheck(GenTree* node);
+    void genRangeCheck(GenTreeBoundsChk* bndsChk);
 
     void genLockedInstructions(GenTreeOp* node);
 #ifdef TARGET_XARCH

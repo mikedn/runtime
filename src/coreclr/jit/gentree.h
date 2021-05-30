@@ -1646,32 +1646,6 @@ public:
         return (gtOper == GT_JTRUE) || (gtOper == GT_JCMP) || (gtOper == GT_JCC);
     }
 
-    static bool OperIsBoundsCheck(genTreeOps op)
-    {
-        if (op == GT_ARR_BOUNDS_CHECK)
-        {
-            return true;
-        }
-#ifdef FEATURE_SIMD
-        if (op == GT_SIMD_CHK)
-        {
-            return true;
-        }
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-        if (op == GT_HW_INTRINSIC_CHK)
-        {
-            return true;
-        }
-#endif // FEATURE_HW_INTRINSICS
-        return false;
-    }
-
-    bool OperIsBoundsCheck() const
-    {
-        return OperIsBoundsCheck(OperGet());
-    }
-
 #ifdef DEBUG
     bool NullOp1Legal() const
     {
@@ -5959,14 +5933,11 @@ struct GenTreeBoundsChk : public GenTree
     GenTreeBoundsChk(genTreeOps oper, GenTree* index, GenTree* length, SpecialCodeKind kind)
         : GenTree(oper, TYP_VOID), gtIndex(index), gtArrLen(length), m_throwBlock(nullptr), m_throwKind(kind)
     {
-        bool isValidOper = (oper == GT_ARR_BOUNDS_CHECK)
-#ifdef FEATURE_SIMD
-                           || (oper == GT_SIMD_CHK)
-#endif
+        bool isValidOper =
 #ifdef FEATURE_HW_INTRINSICS
-                           || (oper == GT_HW_INTRINSIC_CHK)
+            (oper == GT_HW_INTRINSIC_CHK) ||
 #endif
-            ;
+            (oper == GT_ARR_BOUNDS_CHECK);
         assert(isValidOper);
 
         gtFlags |= GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects();

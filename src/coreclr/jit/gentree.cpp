@@ -1497,9 +1497,6 @@ AGAIN:
                    Compare(op1->AsCmpXchg()->gtOpComparand, op2->AsCmpXchg()->gtOpComparand);
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif
@@ -1752,17 +1749,14 @@ AGAIN:
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            if (gtHasRef(tree->AsBoundsChk()->gtIndex, lclNum))
+#endif
+            if (gtHasRef(tree->AsBoundsChk()->GetIndex(), lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsBoundsChk()->gtArrLen, lclNum))
+            if (gtHasRef(tree->AsBoundsChk()->GetLength(), lclNum))
             {
                 return true;
             }
@@ -2154,14 +2148,11 @@ AGAIN:
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->gtIndex));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->gtArrLen));
+#endif
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetIndex()));
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetLength()));
             hash = genTreeHashAdd(hash, tree->AsBoundsChk()->GetThrowKind());
             break;
 
@@ -4519,28 +4510,23 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-
+#endif
             costEx = 4; // cmp reg,reg and jae throw (not taken)
             costSz = 7; // jump to cold section
 
-            level = gtSetEvalOrder(tree->AsBoundsChk()->gtIndex);
-            costEx += tree->AsBoundsChk()->gtIndex->GetCostEx();
-            costSz += tree->AsBoundsChk()->gtIndex->GetCostSz();
+            level = gtSetEvalOrder(tree->AsBoundsChk()->GetIndex());
+            costEx += tree->AsBoundsChk()->GetIndex()->GetCostEx();
+            costSz += tree->AsBoundsChk()->GetIndex()->GetCostSz();
 
-            lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->gtArrLen);
+            lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->GetLength());
             if (level < lvl2)
             {
                 level = lvl2;
             }
-            costEx += tree->AsBoundsChk()->gtArrLen->GetCostEx();
-            costSz += tree->AsBoundsChk()->gtArrLen->GetCostSz();
-
+            costEx += tree->AsBoundsChk()->GetLength()->GetCostEx();
+            costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
             break;
 
         case GT_STORE_DYN_BLK:
@@ -5017,30 +5003,15 @@ bool GenTree::OperMayThrow(Compiler* comp)
         case GT_ARR_OFFSET:
         case GT_LCLHEAP:
         case GT_CKFINITE:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
         case GT_INDEX_ADDR:
             return true;
 
 #ifdef FEATURE_HW_INTRINSICS
+        case GT_HW_INTRINSIC_CHK:
+            return true;
         case GT_HWINTRINSIC:
-        {
-            GenTreeHWIntrinsic* hwIntrinsicNode = this->AsHWIntrinsic();
-            assert(hwIntrinsicNode != nullptr);
-            if (hwIntrinsicNode->OperIsMemoryLoadOrStore())
-            {
-                // This operation contains an implicit indirection
-                //   it could throw a null reference exception.
-                //
-                return true;
-            }
-            break;
-        }
-#endif // FEATURE_HW_INTRINSICS
+            return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
+#endif
         default:
             break;
     }
@@ -6782,9 +6753,6 @@ GenTree* Compiler::gtCloneExpr(
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif
@@ -7499,12 +7467,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
             m_edge = &m_node->AsBoundsChk()->gtIndex;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::AdvanceBoundsChk;
@@ -10080,18 +10045,15 @@ void Compiler::gtDispTree(GenTree*     tree,
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
             {
-                gtDispChild(tree->AsBoundsChk()->gtIndex, indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsBoundsChk()->gtArrLen, indentStack, IIArcBottom, nullptr, topOnly);
+                gtDispChild(tree->AsBoundsChk()->GetIndex(), indentStack, IIArc, nullptr, topOnly);
+                gtDispChild(tree->AsBoundsChk()->GetLength(), indentStack, IIArcBottom, nullptr, topOnly);
             }
             break;
 

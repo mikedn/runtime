@@ -8610,15 +8610,12 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 break;
 
             case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
             {
-                ValueNumPair vnpIndex  = tree->AsBoundsChk()->gtIndex->gtVNPair;
-                ValueNumPair vnpArrLen = tree->AsBoundsChk()->gtArrLen->gtVNPair;
+                ValueNumPair vnpIndex  = tree->AsBoundsChk()->GetIndex()->gtVNPair;
+                ValueNumPair vnpArrLen = tree->AsBoundsChk()->GetLength()->gtVNPair;
 
                 ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
 
@@ -10138,13 +10135,10 @@ void Compiler::fgValueNumberAddExceptionSet(GenTree* tree)
                 fgValueNumberAddExceptionSetForDivision(tree);
                 break;
 
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+            case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            case GT_ARR_BOUNDS_CHECK:
+#endif
                 fgValueNumberAddExceptionSetForBoundsCheck(tree);
                 break;
 

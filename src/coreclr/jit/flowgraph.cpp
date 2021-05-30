@@ -2726,7 +2726,7 @@ void Compiler::fgFindOperOrder()
 // and computing lvaOutgoingArgumentAreaSize.
 //
 // Notes:
-//    Lowers GT_ARR_LENGTH, GT_ARR_BOUNDS_CHECK, and GT_SIMD_CHK.
+//    Lowers GT_ARR_LENGTH, GT_ARR_BOUNDS_CHECK
 //
 //    For target ABIs with fixed out args area, computes upper bound on
 //    the size of this area from the calls in the IR.
@@ -2784,9 +2784,6 @@ void Compiler::fgSimpleLowering()
                 }
 
                 case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-                case GT_SIMD_CHK:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
                 case GT_HW_INTRINSIC_CHK:
 #endif

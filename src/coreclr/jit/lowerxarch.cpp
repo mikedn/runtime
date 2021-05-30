@@ -4897,42 +4897,37 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckBoundsChk: determine whether any source of a bounds check node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
 void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 {
-    assert(node->OperIsBoundsCheck());
+    GenTree* index  = node->GetIndex();
+    GenTree* length = node->GetLength();
     GenTree* other;
-    if (CheckImmedAndMakeContained(node, node->gtIndex))
+
+    if (CheckImmedAndMakeContained(node, index))
     {
-        other = node->gtArrLen;
+        other = length;
     }
-    else if (CheckImmedAndMakeContained(node, node->gtArrLen))
+    else if (CheckImmedAndMakeContained(node, length))
     {
-        other = node->gtIndex;
+        other = index;
     }
-    else if (IsContainableMemoryOp(node->gtIndex))
+    else if (IsContainableMemoryOp(index))
     {
-        other = node->gtIndex;
+        other = index;
     }
     else
     {
-        other = node->gtArrLen;
+        other = length;
     }
 
-    if (node->gtIndex->TypeGet() == node->gtArrLen->TypeGet())
+    if (index->GetType() == length->GetType())
     {
         if (IsContainableMemoryOp(other))
         {
-            MakeSrcContained(node, other);
+            other->SetContained();
         }
         else
         {
-            // We can mark 'other' as reg optional, since it is not contained.
             other->SetRegOptional();
         }
     }

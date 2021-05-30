@@ -3165,19 +3165,15 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 break;
 
             case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-
+#endif
                 GenTreeBoundsChk* bndsChk;
                 bndsChk = tree->AsBoundsChk();
-                fgDebugCheckFlags(bndsChk->gtIndex);
-                chkFlags |= (bndsChk->gtIndex->gtFlags & GTF_ALL_EFFECT);
-                fgDebugCheckFlags(bndsChk->gtArrLen);
-                chkFlags |= (bndsChk->gtArrLen->gtFlags & GTF_ALL_EFFECT);
+                fgDebugCheckFlags(bndsChk->GetIndex());
+                chkFlags |= bndsChk->GetIndex()->GetSideEffects();
+                fgDebugCheckFlags(bndsChk->GetLength());
+                chkFlags |= bndsChk->GetLength()->GetSideEffects();
                 break;
 
             case GT_PHI:
