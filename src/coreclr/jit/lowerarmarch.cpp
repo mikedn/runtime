@@ -971,24 +971,28 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
-    if (!op2->IsIntCon())
+    if (IsContainableMemoryOp(op1) && IsSafeToContainMem(node, op1))
     {
-        if (!IsContainableMemoryOp(op1) || !IsSafeToContainMem(node, op1))
-        {
-            unsigned tempLclNum = GetSimdMemoryTemp(op1->GetType());
-            GenTree* store      = NewStoreLclVar(tempLclNum, op1->GetType(), op1);
-            BlockRange().InsertAfter(op1, store);
-
-            op1 = comp->gtNewLclvNode(tempLclNum, op1->GetType());
-            BlockRange().InsertBefore(node, op1);
-            node->SetOp(0, op1);
-        }
-
         op1->SetContained();
 
         if (GenTreeIndir* indir = op1->IsIndir())
         {
             indir->GetAddr()->ClearContained();
+        }
+    }
+
+    if (!op2->IsIntCon())
+    {
+        if (!op1->isContained())
+        {
+            unsigned tempLclNum = GetSimdMemoryTemp(op1->GetType());
+            GenTree* store = NewStoreLclVar(tempLclNum, op1->GetType(), op1);
+            BlockRange().InsertAfter(op1, store);
+
+            op1 = comp->gtNewLclvNode(tempLclNum, op1->GetType());
+            BlockRange().InsertBefore(node, op1);
+            node->SetOp(0, op1);
+            op1->SetContained();
         }
 
         return;
@@ -1001,8 +1005,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     unsigned index = op2->AsIntCon()->GetUInt32Value() % count;
 
     op2->AsIntCon()->SetValue(index);
-
-    ContainCheckHWIntrinsic(node);
+    op2->SetContained();
 }
 
 //----------------------------------------------------------------------------------------------
@@ -1701,29 +1704,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     MakeSrcContained(node, node->GetOp(0));
                 }
                 break;
-
-            case NI_Vector64_GetElement:
-            case NI_Vector128_GetElement:
-            {
-                assert(hasImmediateOperand);
-                assert(varTypeIsIntegral(intrin.op2));
-
-                if (intrin.op2->IsCnsIntOrI())
-                {
-                    MakeSrcContained(node, intrin.op2);
-                }
-
-                if (IsContainableMemoryOp(intrin.op1))
-                {
-                    MakeSrcContained(node, intrin.op1);
-
-                    if (intrin.op1->OperIs(GT_IND))
-                    {
-                        intrin.op1->AsIndir()->Addr()->ClearContained();
-                    }
-                }
-                break;
-            }
 
             default:
                 unreached();
