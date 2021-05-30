@@ -2321,15 +2321,24 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 
     if (!op2->IsIntCon())
     {
-        unsigned tempLclNum = GetSimdMemoryTemp(op1->GetType());
-        GenTree* store      = NewStoreLclVar(tempLclNum, op1->GetType(), op1);
-        BlockRange().InsertAfter(op1, store);
+        if (!IsContainableMemoryOp(op1) || !IsSafeToContainMem(node, op1))
+        {
+            unsigned tempLclNum = GetSimdMemoryTemp(op1->GetType());
+            GenTree* store      = NewStoreLclVar(tempLclNum, op1->GetType(), op1);
+            BlockRange().InsertAfter(op1, store);
 
-        op1 = comp->gtNewLclvNode(tempLclNum, op1->GetType());
-        BlockRange().InsertBefore(node, op1);
-        node->SetOp(0, op1);
+            op1 = comp->gtNewLclvNode(tempLclNum, op1->GetType());
+            BlockRange().InsertBefore(node, op1);
+            node->SetOp(0, op1);
+        }
 
-        ContainCheckHWIntrinsic(node);
+        op1->SetContained();
+
+        if (GenTreeIndir* indir = op1->IsIndir())
+        {
+            indir->GetAddr()->ClearContained();
+        }
+
         return;
     }
 
