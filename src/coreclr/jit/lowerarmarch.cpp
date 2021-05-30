@@ -982,7 +982,17 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         node->SetOp(0, op1);
 
         op1->SetContained();
+
+        return;
     }
+
+    // We should have a bounds check inserted for any index outside the allowed range
+    // but we need to generate some code anyways, and so we'll mask here for simplicity.
+
+    unsigned count = node->GetSimdSize() / varTypeSize(simdBaseType);
+    unsigned index = op2->AsIntCon()->GetUInt32Value() % count;
+
+    op2->AsIntCon()->SetValue(index);
 
     ContainCheckHWIntrinsic(node);
 }

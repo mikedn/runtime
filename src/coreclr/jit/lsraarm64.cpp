@@ -975,15 +975,9 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 assert(!op2DelayFree);
                 assert(intrin.op2->IsIntCon() || intrin.op1->isContained());
 
-                if (!intrin.op2->IsCnsIntOrI() && (!intrin.op1->isContained() || intrin.op1->OperIsLocal()))
+                if (!intrin.op2->IsIntCon() && intrin.op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
-                    // If the index is not a constant and the object is not contained or is a local
-                    // we will need a general purpose register to calculate the address
-                    // internal register must not clobber input index
-                    // TODO-Cleanup: An internal register will never clobber a source; this code actually
-                    // ensures that the index (op2) doesn't interfere with the target.
                     buildInternalIntRegisterDefForNode(intrinsicTree);
-                    op2DelayFree = true;
                 }
             }
 

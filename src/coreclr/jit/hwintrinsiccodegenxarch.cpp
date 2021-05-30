@@ -1085,36 +1085,26 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     genDefineTempLabel(switchTableEnd);
 }
 
-//------------------------------------------------------------------------
-// genBaseIntrinsic: Generates the code for a base hardware intrinsic node
-//
-// Arguments:
-//    node - The hardware intrinsic node
-//
-// Note:
-//    We currently assume that all base intrinsics have zero or one operand.
-//
 void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
 {
+    genConsumeHWIntrinsicOperands(node);
+
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
     regNumber      targetReg   = node->GetRegNum();
     var_types      baseType    = node->GetSimdBaseType();
 
     assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE));
-    assert((baseType >= TYP_BYTE) && (baseType <= TYP_DOUBLE));
+    assert(varTypeIsArithmetic(baseType));
+    assert(node->GetNumOps() <= 2);
 
     GenTree* op1 = node->GetNumOps() >= 1 ? node->GetOp(0) : nullptr;
     GenTree* op2 = node->GetNumOps() >= 2 ? node->GetOp(1) : nullptr;
-
-    genConsumeHWIntrinsicOperands(node);
-    regNumber op1Reg = (op1 == nullptr) ? REG_NA : op1->GetRegNum();
-
-    assert(node->GetNumOps() <= 2);
 
     emitter*    emit     = GetEmitter();
     var_types   simdType = getSIMDTypeForSize(node->GetSimdSize());
     emitAttr    attr     = emitActualTypeSize(simdType);
     instruction ins      = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
+    regNumber   op1Reg   = (op1 == nullptr) ? REG_NA : op1->GetRegNum();
 
     switch (intrinsicId)
     {
@@ -1146,118 +1136,8 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
 
         case NI_Vector128_GetElement:
         case NI_Vector256_GetElement:
-        {
-            if (simdType == TYP_SIMD12)
-            {
-                // op1 of TYP_SIMD12 should be considered as TYP_SIMD16
-                simdType = TYP_SIMD16;
-            }
-
-            if (!op1->isUsedFromReg())
-            {
-                assert(op1->isContained());
-
-                regNumber baseReg;
-                regNumber indexReg;
-                int       offset = 0;
-
-                if (op1->OperIsLocal())
-                {
-                    // There are three parts to the total offset here:
-                    // {offset of local} + {offset of vector field (lclFld only)} + {offset of element within vector}.
-                    bool     isEBPbased;
-                    unsigned varNum = op1->AsLclVarCommon()->GetLclNum();
-                    offset += compiler->lvaFrameAddress(varNum, &isEBPbased);
-
-#if !FEATURE_FIXED_OUT_ARGS
-                    if (!isEBPbased)
-                    {
-                        // Adjust the offset by the amount currently pushed on the CPU stack
-                        offset += genStackLevel;
-                    }
-#else
-                    assert(genStackLevel == 0);
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-                    if (op1->OperIs(GT_LCL_FLD))
-                    {
-                        offset += op1->AsLclFld()->GetLclOffs();
-                    }
-                    baseReg = (isEBPbased) ? REG_EBP : REG_ESP;
-                }
-                else
-                {
-                    // Require GT_IND addr to be not contained.
-                    assert(op1->OperIs(GT_IND));
-
-                    GenTree* addr = op1->AsIndir()->Addr();
-                    assert(!addr->isContained());
-                    baseReg = addr->GetRegNum();
-                }
-
-                if (op2->OperIsConst())
-                {
-                    assert(op2->isContained());
-                    indexReg = REG_NA;
-                    offset += (int)op2->AsIntCon()->IconValue() * genTypeSize(baseType);
-                }
-                else
-                {
-                    indexReg = op2->GetRegNum();
-                    assert(genIsValidIntReg(indexReg));
-                }
-
-                // Now, load the desired element.
-                GetEmitter()->emitIns_R_ARX(ins_Move_Extend(baseType, false), // Load
-                                            emitTypeSize(baseType),           // Of the vector baseType
-                                            targetReg,                        // To targetReg
-                                            baseReg,                          // Base Reg
-                                            indexReg,                         // Indexed
-                                            genTypeSize(baseType),            // by the size of the baseType
-                                            offset);
-            }
-            else
-            {
-                assert(intrinsicId == NI_Vector128_GetElement);
-                assert(varTypeIsFloating(baseType));
-                assert(op1Reg != REG_NA);
-
-                ssize_t ival = op2->AsIntCon()->GetValue();
-
-                if (baseType == TYP_FLOAT)
-                {
-                    if (ival == 1)
-                    {
-                        if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE3))
-                        {
-                            emit->emitIns_R_R(INS_movshdup, attr, targetReg, op1Reg);
-                        }
-                        else
-                        {
-                            emit->emitIns_SIMD_R_R_R_I(INS_shufps, attr, targetReg, op1Reg, op1Reg,
-                                                       static_cast<int8_t>(0x55));
-                        }
-                    }
-                    else if (ival == 2)
-                    {
-                        emit->emitIns_SIMD_R_R_R(INS_unpckhps, attr, targetReg, op1Reg, op1Reg);
-                    }
-                    else
-                    {
-                        assert(ival == 3);
-                        emit->emitIns_SIMD_R_R_R_I(INS_shufps, attr, targetReg, op1Reg, op1Reg,
-                                                   static_cast<int8_t>(0xFF));
-                    }
-                }
-                else
-                {
-                    assert(baseType == TYP_DOUBLE);
-                    assert(ival == 1);
-                    emit->emitIns_SIMD_R_R_R(INS_unpckhpd, attr, targetReg, op1Reg, op1Reg);
-                }
-            }
+            genVectorGetElement(node);
             break;
-        }
 
         case NI_Vector128_ToScalar:
         case NI_Vector256_ToScalar:
@@ -1356,6 +1236,101 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
     }
 
     genProduceReg(node);
+}
+
+void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
+{
+    var_types baseType = node->GetSimdBaseType();
+    GenTree*  src      = node->GetOp(0);
+    GenTree*  index    = node->GetOp(1);
+    regNumber destReg  = node->GetRegNum();
+
+    if (!src->isUsedFromReg())
+    {
+        regNumber baseReg;
+        int       offset;
+
+        if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            unsigned lclNum = src->AsLclVarCommon()->GetLclNum();
+            offset          = src->AsLclVarCommon()->GetLclOffs();
+
+            bool isEBPbased;
+            offset += compiler->lvaFrameAddress(lclNum, &isEBPbased);
+#if !FEATURE_FIXED_OUT_ARGS
+            if (!isEBPbased)
+            {
+                // Adjust the offset by the amount currently pushed on the CPU stack
+                offset += genStackLevel;
+            }
+#else
+            assert(genStackLevel == 0);
+#endif
+
+            baseReg = isEBPbased ? REG_EBP : REG_ESP;
+        }
+        else
+        {
+            offset = 0;
+
+            GenTree* addr = src->AsIndir()->GetAddr();
+            assert(addr->isUsedFromReg());
+            baseReg = addr->GetRegNum();
+        }
+
+        regNumber indexReg;
+
+        if (index->IsIntCon())
+        {
+            indexReg = REG_NA;
+            offset += index->AsIntCon()->GetInt32Value() * varTypeSize(baseType);
+        }
+        else
+        {
+            assert(index->isUsedFromReg());
+            indexReg = index->GetRegNum();
+        }
+
+        GetEmitter()->emitIns_R_ARX(ins_Load(baseType), emitTypeSize(baseType), destReg, baseReg, indexReg,
+                                    varTypeSize(baseType), offset);
+
+        return;
+    }
+
+    regNumber srcReg     = src->GetRegNum();
+    ssize_t   indexValue = index->AsIntCon()->GetValue();
+    emitter*  emit       = GetEmitter();
+
+    if (baseType == TYP_FLOAT)
+    {
+        if (indexValue == 1)
+        {
+            if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE3))
+            {
+                emit->emitIns_R_R(INS_movshdup, EA_16BYTE, destReg, srcReg);
+            }
+            else
+            {
+                emit->emitIns_SIMD_R_R_R_I(INS_shufps, EA_16BYTE, destReg, srcReg, srcReg, 0x55);
+            }
+        }
+        else if (indexValue == 2)
+        {
+            emit->emitIns_SIMD_R_R_R(INS_unpckhps, EA_16BYTE, destReg, srcReg, srcReg);
+        }
+        else
+        {
+            assert(indexValue == 3);
+            emit->emitIns_SIMD_R_R_R_I(INS_shufps, EA_16BYTE, destReg, srcReg, srcReg, -1);
+        }
+    }
+    else
+    {
+        assert(baseType == TYP_DOUBLE);
+        assert(indexValue == 1);
+
+        emit->emitIns_SIMD_R_R_R(INS_unpckhpd, EA_16BYTE, destReg, srcReg, srcReg);
+    }
 }
 
 //------------------------------------------------------------------------
