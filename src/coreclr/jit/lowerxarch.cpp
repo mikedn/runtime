@@ -2319,9 +2319,19 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
+    if (IsContainableMemoryOp(op1) && IsSafeToContainMem(node, op1))
+    {
+        op1->SetContained();
+
+        if (GenTreeIndir* indir = op1->IsIndir())
+        {
+            indir->GetAddr()->ClearContained();
+        }
+    }
+
     if (!op2->IsIntCon())
     {
-        if (!IsContainableMemoryOp(op1) || !IsSafeToContainMem(node, op1))
+        if (!op1->isContained())
         {
             unsigned tempLclNum = GetSimdMemoryTemp(op1->GetType());
             GenTree* store      = NewStoreLclVar(tempLclNum, op1->GetType(), op1);
@@ -2330,13 +2340,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
             op1 = comp->gtNewLclvNode(tempLclNum, op1->GetType());
             BlockRange().InsertBefore(node, op1);
             node->SetOp(0, op1);
-        }
-
-        op1->SetContained();
-
-        if (GenTreeIndir* indir = op1->IsIndir())
-        {
-            indir->GetAddr()->ClearContained();
+            op1->SetContained();
         }
 
         return;
@@ -2349,11 +2353,10 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     unsigned index = op2->AsIntCon()->GetUInt32Value() % count;
 
     op2->AsIntCon()->SetValue(index);
+    op2->SetContained();
 
-    if (IsContainableMemoryOp(op1))
+    if (op1->isContained())
     {
-        // We will specially handle GetElement in codegen when op1 is already in memory
-        ContainCheckHWIntrinsic(node);
         return;
     }
 
@@ -2446,7 +2449,6 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     {
         // We specially handle float and double for better codegen.
         node->SetIntrinsic(intrinsic);
-        ContainCheckHWIntrinsic(node);
         return;
     }
 
@@ -5624,52 +5626,14 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
 
                 case HW_Category_Helper:
-                {
                     // We don't currently have any IMM intrinsics which are also commutative
                     assert(!isCommutative);
-
-                    switch (intrinsicId)
-                    {
-                        case NI_Vector128_GetElement:
-                        case NI_Vector256_GetElement:
-                        {
-                            if (op1->OperIs(GT_IND))
-                            {
-                                op1->AsIndir()->Addr()->ClearContained();
-                            }
-
-                            if (op2->OperIsConst())
-                            {
-                                MakeSrcContained(node, op2);
-                            }
-
-                            if (IsContainableMemoryOp(op1))
-                            {
-                                MakeSrcContained(node, op1);
-
-                                if (op1->OperIs(GT_IND))
-                                {
-                                    op1->AsIndir()->Addr()->ClearContained();
-                                }
-                            }
-                            break;
-                        }
-
-                        default:
-                        {
-                            assert(!"Unhandled containment for helper binary hardware intrinsic");
-                            break;
-                        }
-                    }
-
+                    assert(!"Unhandled containment for helper binary hardware intrinsic");
                     break;
-                }
 
                 default:
-                {
                     unreached();
                     break;
-                }
             }
         }
         else if (numArgs == 3)
