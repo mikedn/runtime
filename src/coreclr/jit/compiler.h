@@ -3113,7 +3113,6 @@ protected:
                               var_types                   retType,
                               unsigned                    simdSize);
     GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* impSSE2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 

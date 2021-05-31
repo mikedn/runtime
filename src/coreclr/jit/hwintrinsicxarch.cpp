@@ -466,11 +466,10 @@ GenTree* Compiler::impSpecialIntrinsic(
         case InstructionSet_Vector256:
             return impBaseIntrinsic(intrinsic, sig, baseType, retType, simdSize);
         case InstructionSet_SSE:
-            return impSSEIntrinsic(intrinsic, sig);
         case InstructionSet_SSE2:
         case InstructionSet_SSE41:
         case InstructionSet_SSE41_X64:
-            return impSSE2Intrinsic(intrinsic, sig);
+            return impSSEIntrinsic(intrinsic, sig);
         case InstructionSet_AVX:
         case InstructionSet_AVX2:
             return impAvxOrAvx2Intrinsic(intrinsic, sig);
@@ -1018,13 +1017,17 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
         case NI_SSE_CompareScalarGreaterThanOrEqual:
         case NI_SSE_CompareScalarNotGreaterThan:
         case NI_SSE_CompareScalarNotGreaterThanOrEqual:
+        case NI_SSE2_CompareScalarGreaterThan:
+        case NI_SSE2_CompareScalarGreaterThanOrEqual:
+        case NI_SSE2_CompareScalarNotGreaterThan:
+        case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
         {
             assert(sig.paramCount == 2);
             GenTree* op2 = impSIMDPopStack(TYP_SIMD16);
             GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
 
             var_types baseType = sig.retLayout->GetElementType();
-            assert(baseType == TYP_FLOAT);
+            assert(varTypeIsFloating(baseType));
 
             if (compOpportunisticallyDependsOn(InstructionSet_AVX))
             {
@@ -1041,63 +1044,8 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
             impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
                             CHECK_SPILL_ALL DEBUGARG("Sse.CompareScalarGreaterThan temp"));
             GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, baseType, 16, op1Uses[1], retNode);
-        }
-
-        case NI_SSE_Prefetch0:
-        case NI_SSE_Prefetch1:
-        case NI_SSE_Prefetch2:
-        case NI_SSE_PrefetchNonTemporal:
-        {
-            assert(sig.paramCount == 1);
-            assert(sig.retType == TYP_VOID);
-            GenTree* op1 = impPopStack().val;
-            return gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
-        }
-
-        case NI_SSE_StoreFence:
-            assert(sig.paramCount == 0);
-            assert(sig.retType == TYP_VOID);
-            return gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, 0);
-
-        default:
-            JITDUMP("Not implemented hardware intrinsic");
-            return nullptr;
-    }
-}
-
-GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
-{
-    switch (intrinsic)
-    {
-        case NI_SSE2_CompareScalarGreaterThan:
-        case NI_SSE2_CompareScalarGreaterThanOrEqual:
-        case NI_SSE2_CompareScalarNotGreaterThan:
-        case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
-        {
-            assert(sig.paramCount == 2);
-            GenTree* op2 = impSIMDPopStack(TYP_SIMD16);
-            GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
-
-            var_types baseType = sig.retLayout->GetElementType();
-            assert(baseType == TYP_DOUBLE);
-
-            if (compOpportunisticallyDependsOn(InstructionSet_AVX))
-            {
-                // These intrinsics are "special import" because the non-AVX path isn't directly
-                // hardware supported. Instead, they start with "swapped operands" and we fix that here.
-
-                FloatComparisonMode comparison =
-                    static_cast<FloatComparisonMode>(HWIntrinsicInfo::lookupIval(intrinsic, true));
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, 16, op1, op2,
-                                                gtNewIconNode(static_cast<int>(comparison)));
-            }
-
-            GenTree* op1Uses[2];
-            impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
-                            CHECK_SPILL_ALL DEBUGARG("Sse2.CompareScalarGreaterThan temp"));
-            GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_MoveScalar, baseType, 16, op1Uses[1], retNode);
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, baseType == TYP_FLOAT ? NI_SSE_MoveScalar : NI_SSE2_MoveScalar,
+                                            baseType, 16, op1Uses[1], retNode);
         }
 
         case NI_SSE2_Extract:
@@ -1123,6 +1071,18 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
             return gtNewSimdHWIntrinsicNode(sig.retType, NI_Vector128_GetElement, baseType, 16, op1, op2);
         }
 
+        case NI_SSE_Prefetch0:
+        case NI_SSE_Prefetch1:
+        case NI_SSE_Prefetch2:
+        case NI_SSE_PrefetchNonTemporal:
+        {
+            assert(sig.paramCount == 1);
+            assert(sig.retType == TYP_VOID);
+            GenTree* op1 = impPopStack().val;
+            return gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
+        }
+
+        case NI_SSE_StoreFence:
         case NI_SSE2_LoadFence:
         case NI_SSE2_MemoryFence:
             assert(sig.paramCount == 0);
