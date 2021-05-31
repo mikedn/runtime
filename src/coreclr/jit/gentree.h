@@ -1925,6 +1925,18 @@ public:
         assert(isContained());
     }
 
+    void SetContained(bool contained)
+    {
+        if (contained)
+        {
+            SetContained();
+        }
+        else
+        {
+            ClearContained();
+        }
+    }
+
     void ClearContained()
     {
         assert(IsValue());

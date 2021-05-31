@@ -876,11 +876,25 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
         {
             assert(src->OperIs(GT_IND));
 
-            GenTree* addr = src->AsIndir()->GetAddr();
-            assert(addr->isUsedFromReg());
+            GenTree*  addr = src->AsIndir()->GetAddr();
+            regNumber baseReg;
+            int       offset;
 
-            regNumber baseReg = addr->GetRegNum();
-            int       offset  = index->AsIntCon()->GetInt32Value() * varTypeSize(baseType);
+            if (addr->isUsedFromReg())
+            {
+                baseReg = addr->GetRegNum();
+                offset  = 0;
+            }
+            else
+            {
+                GenTreeAddrMode* am = src->AsIndir()->GetAddr()->AsAddrMode();
+
+                baseReg = am->GetBase()->GetRegNum();
+                assert(!am->HasIndex());
+                offset = am->GetOffset();
+            }
+
+            offset += index->AsIntCon()->GetInt32Value() * varTypeSize(baseType);
 
             GetEmitter()->emitIns_R_R_I(ins_Load(baseType), emitActualTypeSize(baseType), destReg, baseReg, offset);
         }

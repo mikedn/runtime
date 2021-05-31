@@ -2322,11 +2322,6 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     if (IsContainableMemoryOp(op1) && IsSafeToContainMem(node, op1))
     {
         op1->SetContained();
-
-        if (GenTreeIndir* indir = op1->IsIndir())
-        {
-            indir->GetAddr()->ClearContained();
-        }
     }
 
     if (!op2->IsIntCon())
@@ -2341,6 +2336,10 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
             BlockRange().InsertBefore(node, op1);
             node->SetOp(0, op1);
             op1->SetContained();
+        }
+        else if (GenTreeIndir* indir = op1->IsIndir())
+        {
+            indir->GetAddr()->ClearContained();
         }
 
         return;
@@ -2357,6 +2356,18 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 
     if (op1->isContained())
     {
+        if (GenTreeIndir* indir = op1->IsIndir())
+        {
+            GenTree* addr = indir->GetAddr();
+
+            if (addr->isContained())
+            {
+                int offset = static_cast<int>(index * varTypeSize(simdBaseType));
+
+                addr->SetContained(addr->IsAddrMode() && (addr->AsAddrMode()->GetOffset() <= INT32_MAX - offset));
+            }
+        }
+
         return;
     }
 

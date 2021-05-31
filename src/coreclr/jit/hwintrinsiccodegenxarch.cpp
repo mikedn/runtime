@@ -1248,51 +1248,64 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
     if (!src->isUsedFromReg())
     {
         regNumber baseReg;
+        regNumber indexReg;
+        unsigned  scale;
         int       offset;
 
         if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            unsigned lclNum = src->AsLclVarCommon()->GetLclNum();
-            offset          = src->AsLclVarCommon()->GetLclOffs();
-
             bool isEBPbased;
-            offset += compiler->lvaFrameAddress(lclNum, &isEBPbased);
+            int  frameOffset = compiler->lvaFrameAddress(src->AsLclVarCommon()->GetLclNum(), &isEBPbased);
 #if !FEATURE_FIXED_OUT_ARGS
             if (!isEBPbased)
             {
                 // Adjust the offset by the amount currently pushed on the CPU stack
-                offset += genStackLevel;
+                frameOffset += genStackLevel;
             }
 #else
             assert(genStackLevel == 0);
 #endif
 
-            baseReg = isEBPbased ? REG_EBP : REG_ESP;
+            baseReg  = isEBPbased ? REG_EBP : REG_ESP;
+            indexReg = REG_NA;
+            scale    = 1;
+            offset   = frameOffset + src->AsLclVarCommon()->GetLclOffs();
+        }
+        else if (src->AsIndir()->GetAddr()->isUsedFromReg())
+        {
+            baseReg  = src->AsIndir()->GetAddr()->GetRegNum();
+            indexReg = REG_NA;
+            scale    = 1;
+            offset   = 0;
         }
         else
         {
-            offset = 0;
+            assert(index->IsIntCon());
 
-            GenTree* addr = src->AsIndir()->GetAddr();
-            assert(addr->isUsedFromReg());
-            baseReg = addr->GetRegNum();
+            GenTreeAddrMode* am = src->AsIndir()->GetAddr()->AsAddrMode();
+
+            baseReg  = am->GetBase()->GetRegNum();
+            indexReg = am->HasIndex() ? am->GetIndex()->GetRegNum() : REG_NA;
+            scale    = am->GetScale();
+            offset   = am->GetOffset();
         }
-
-        regNumber indexReg;
 
         if (index->IsIntCon())
         {
-            indexReg = REG_NA;
             offset += index->AsIntCon()->GetInt32Value() * varTypeSize(baseType);
         }
         else
         {
+            assert(indexReg == REG_NA);
+            assert(scale == 1);
             assert(index->isUsedFromReg());
+
             indexReg = index->GetRegNum();
+            scale    = varTypeSize(baseType);
         }
 
-        GetEmitter()->emitIns_R_ARX(ins_Load(baseType), emitTypeSize(baseType), destReg, baseReg, indexReg,
-                                    varTypeSize(baseType), offset);
+        GetEmitter()->emitIns_R_ARX(ins_Load(baseType), emitTypeSize(baseType), destReg, baseReg, indexReg, scale,
+                                    offset);
 
         return;
     }
