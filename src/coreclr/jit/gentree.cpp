@@ -16232,14 +16232,14 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     return node;
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types elementType,
-                                                      unsigned  simdSize,
-                                                      GenTree*  op1,
-                                                      GenTree*  op2)
+GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
+                                                      var_types elementType,
+                                                      GenTree*  value,
+                                                      GenTree*  index)
 {
+    assert(varTypeIsSIMD(simdType));
     assert(varTypeIsArithmetic(elementType));
-
-    NamedIntrinsic intrinsicId = NI_Vector128_GetElement;
+    assert(varActualType(index->GetType()) == TYP_INT);
 
     switch (elementType)
     {
@@ -16262,35 +16262,24 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types elementType,
             unreached();
     }
 
+    NamedIntrinsic intrinsic = NI_Vector128_GetElement;
+
 #ifdef TARGET_XARCH
-    if (simdSize == 32)
+    if (simdType == TYP_SIMD32)
     {
-        intrinsicId = NI_Vector256_GetElement;
+        intrinsic = NI_Vector256_GetElement;
     }
 #elif defined(TARGET_ARM64)
-    if (simdSize == 8)
+    if (simdType == TYP_SIMD8)
     {
-        intrinsicId = NI_Vector64_GetElement;
+        intrinsic = NI_Vector64_GetElement;
     }
 #else
 #error Unsupported platform
 #endif
 
-    int  immUpperBound    = getSIMDVectorLength(simdSize, elementType) - 1;
-    bool rangeCheckNeeded = !op2->OperIsConst();
-
-    if (!rangeCheckNeeded)
-    {
-        ssize_t imm8     = op2->AsIntCon()->GetValue();
-        rangeCheckNeeded = (imm8 < 0) || (imm8 > immUpperBound);
-    }
-
-    if (rangeCheckNeeded)
-    {
-        op2 = addRangeCheckForHWIntrinsic(op2, 0, immUpperBound);
-    }
-
-    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsicId, elementType, simdSize, op1, op2);
+    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsic, elementType, varTypeSize(simdType), value,
+                                    index);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(

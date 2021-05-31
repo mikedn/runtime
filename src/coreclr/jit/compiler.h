@@ -1938,7 +1938,10 @@ public:
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
 
-    GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types elementType, unsigned simdSize, GenTree* op1, GenTree* op2);
+    GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types simdType,
+                                                var_types elementType,
+                                                GenTree*  value,
+                                                GenTree*  index);
 
     GenTreeHWIntrinsic* gtNewSimdWithElementNode(
         var_types type, var_types simdBaseType, unsigned simdSize, GenTree* op1, GenTree* op2, GenTree* op3);
@@ -3050,6 +3053,8 @@ protected:
                             CORINFO_METHOD_HANDLE method,
                             CORINFO_SIG_INFO*     sig,
                             bool                  mustExpand);
+
+    GenTree* impVectorGetElement(ClassLayout* layout, GenTree* op1, GenTree* op2);
 
     NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
                                               const char*           className,

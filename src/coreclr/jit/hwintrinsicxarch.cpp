@@ -997,13 +997,11 @@ GenTree* Compiler::impBaseIntrinsic(
             }
 
             op2 = impPopStackCoerceArg(TYP_INT);
-            op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-            return gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
+            op1 = impSIMDPopStack(sig.paramType[0]);
+            return impVectorGetElement(sig.paramLayout[0], op1, op2);
 
         default:
-        {
             return nullptr;
-        }
     }
 
     return retNode;

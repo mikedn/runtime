@@ -3842,8 +3842,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
         // in a SIMD register and at the proper position.
 
-        regValue =
-            gtNewSimdGetElementNode(regType, varTypeSize(arg->GetType()), regValue, gtNewIconNode(regOffset / regSize));
+        regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
 
         if (i == 0)
         {
@@ -3999,7 +3998,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
             GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
             GenTree* simdValue    = gtNewLclvNode(lclNum, lcl->GetType());
 
-            regValue = gtNewSimdGetElementNode(regType, lclSize, simdValue, elementIndex);
+            regValue = gtNewSimdGetElementNode(lcl->GetType(), regType, simdValue, elementIndex);
         }
         else
 #endif

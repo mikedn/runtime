@@ -926,6 +926,31 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     return retNode;
 }
 
+GenTree* Compiler::impVectorGetElement(ClassLayout* layout, GenTree* value, GenTree* index)
+{
+    assert(value->GetType() == layout->GetSIMDType());
+    assert(varActualType(index->GetType()) == TYP_INT);
+
+    int  maxIndexValue = static_cast<int>(layout->GetElementCount() - 1);
+    bool rangeCheckNeeded;
+
+    if (GenTreeIntCon* intCon = index->IsIntCon())
+    {
+        rangeCheckNeeded = (intCon->GetInt32Value() < 0) || (intCon->GetInt32Value() > maxIndexValue);
+    }
+    else
+    {
+        rangeCheckNeeded = true;
+    }
+
+    if (rangeCheckNeeded)
+    {
+        index = addRangeCheckForHWIntrinsic(index, 0, maxIndexValue);
+    }
+
+    return gtNewSimdGetElementNode(layout->GetSIMDType(), layout->GetElementType(), value, index);
+}
+
 #ifdef DEBUG
 const char* GetHWIntrinsicIdName(NamedIntrinsic id)
 {

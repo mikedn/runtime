@@ -419,7 +419,7 @@ GenTree* Compiler::impSpecialIntrinsic(
 
             op2 = impPopStackCoerceArg(TYP_INT);
             op1 = impSIMDPopStack(sig.paramType[0]);
-            return gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
+            return impVectorGetElement(sig.paramLayout[0], op1, op2);
 
         case NI_AdvSimd_Extract:
             assert(!sig.hasThisParam);
@@ -435,7 +435,7 @@ GenTree* Compiler::impSpecialIntrinsic(
 
             if (op2->IsIntCon() && (op2->AsIntCon()->GetUInt8Value() < sig.paramLayout[0]->GetElementCount()))
             {
-                return gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
+                return gtNewSimdGetElementNode(sig.paramType[0], baseType, op1, op2);
             }
 
             return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);

@@ -1146,15 +1146,10 @@ GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayou
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_INT);
 
-    var_types elementType = layout->GetElementType();
-
     GenTree* index = impPopStackCoerceArg(TYP_INT);
     GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
 
-    assert(value->GetType() == layout->GetSIMDType());
-    assert(varActualType(index->GetType()) == TYP_INT);
-
-    return gtNewSimdGetElementNode(elementType, layout->GetSize(), value, index);
+    return impVectorGetElement(layout, value, index);
 }
 
 #ifdef TARGET_ARMARCH
