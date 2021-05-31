@@ -393,6 +393,19 @@ inline var_types varTypePointerAdd(var_types type)
     return (type == TYP_REF) ? TYP_BYREF : type;
 }
 
+inline var_types varTypeNodeType(var_types type)
+{
+    switch (type)
+    {
+        case TYP_UINT:
+            return TYP_INT;
+        case TYP_ULONG:
+            return TYP_LONG;
+        default:
+            return type;
+    }
+}
+
 inline bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
 {
     switch (type)

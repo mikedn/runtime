@@ -468,6 +468,8 @@ GenTree* Compiler::impSpecialIntrinsic(
         case InstructionSet_SSE:
             return impSSEIntrinsic(intrinsic, sig);
         case InstructionSet_SSE2:
+        case InstructionSet_SSE41:
+        case InstructionSet_SSE41_X64:
             return impSSE2Intrinsic(intrinsic, sig);
         case InstructionSet_AVX:
         case InstructionSet_AVX2:
@@ -1096,6 +1098,29 @@ GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
                             CHECK_SPILL_ALL DEBUGARG("Sse2.CompareScalarGreaterThan temp"));
             GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
             return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_MoveScalar, baseType, 16, op1Uses[1], retNode);
+        }
+
+        case NI_SSE2_Extract:
+        case NI_SSE41_Extract:
+        case NI_SSE41_X64_Extract:
+        {
+            assert(sig.paramCount == 2);
+            GenTree* op2 = impPopStackCoerceArg(TYP_INT);
+            GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+
+            var_types baseType  = sig.paramLayout[0]->GetElementType();
+            int       indexMask = static_cast<int>(sig.paramLayout[0]->GetElementCount()) - 1;
+
+            if (GenTreeIntCon* intCon = op2->IsIntCon())
+            {
+                intCon->SetValue(intCon->GetValue() & indexMask);
+            }
+            else
+            {
+                op2 = gtNewOperNode(GT_AND, TYP_INT, op2, gtNewIconNode(indexMask));
+            }
+
+            return gtNewSimdHWIntrinsicNode(sig.retType, NI_Vector128_GetElement, baseType, 16, op1, op2);
         }
 
         case NI_SSE2_LoadFence:

@@ -403,7 +403,7 @@ GenTree* Compiler::impSpecialIntrinsic(
                 return nullptr;
             }
 
-            op1       = impPopStack().val;
+            op1       = impSIMDPopStack(sig.paramType[0]);
             intrinsic = intrinsic == NI_Vector64_ToScalar ? NI_Vector64_GetElement : NI_Vector128_GetElement;
             return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, gtNewIconNode(0));
 
@@ -417,9 +417,28 @@ GenTree* Compiler::impSpecialIntrinsic(
                 return nullptr;
             }
 
-            op2 = impPopStack().val;
-            op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
+            op2 = impPopStackCoerceArg(TYP_INT);
+            op1 = impSIMDPopStack(sig.paramType[0]);
             return gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
+
+        case NI_AdvSimd_Extract:
+            assert(!sig.hasThisParam);
+            assert(sig.paramCount == 2);
+
+            if (!featureSIMD || !compExactlyDependsOn(InstructionSet_AdvSimd))
+            {
+                return nullptr;
+            }
+
+            op2 = impPopStackCoerceArg(TYP_INT);
+            op1 = impSIMDPopStack(sig.paramType[0]);
+
+            if (op2->IsIntCon() && (op2->AsIntCon()->GetUInt8Value() < sig.paramLayout[0]->GetElementCount()))
+            {
+                return gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
+            }
+
+            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
 
         case NI_Vector64_WithElement:
         case NI_Vector128_WithElement:

@@ -973,36 +973,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             unreached();
 
         case NI_SSE41_Extract:
-        {
-            if (varTypeIsFloating(node->GetSimdBaseType()))
-            {
-                assert(node->GetNumOps() == 2);
-                assert(node->GetSimdBaseType() == TYP_FLOAT);
-                assert(node->GetSimdSize() == 16);
-
-                GenTree* op2 = node->GetOp(1);
-
-                if (!op2->OperIsConst())
-                {
-                    // Extract allows the full range while GetElement only allows
-                    // 0-3, so we need to mask the index here so codegen works.
-
-                    GenTree* msk = comp->gtNewIconNode(3, TYP_INT);
-                    BlockRange().InsertAfter(op2, msk);
-
-                    GenTree* tmp = comp->gtNewOperNode(GT_AND, TYP_INT, op2, msk);
-                    BlockRange().InsertAfter(msk, tmp);
-                    LowerNode(tmp);
-
-                    node->SetOp(1, tmp);
-                }
-
-                node->SetIntrinsic(NI_Vector128_GetElement);
-                LowerNode(node);
-                return;
-            }
+            // Make sure the importer did not blindly import intrinsic with bogus return type
+            // "float Sse41.Extract(Vector128<float>)", the return type should have been int.
+            assert(!varTypeIsFloating(node->GetType()));
             break;
-        }
 
         case NI_SSE2_Insert:
         case NI_SSE41_Insert:

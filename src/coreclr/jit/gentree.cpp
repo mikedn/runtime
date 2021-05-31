@@ -16290,9 +16290,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types elementType,
         op2 = addRangeCheckForHWIntrinsic(op2, 0, immUpperBound);
     }
 
-    var_types type = varTypeIsSmall(elementType) ? elementType : varActualType(elementType);
-
-    return gtNewSimdHWIntrinsicNode(type, intrinsicId, elementType, simdSize, op1, op2);
+    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsicId, elementType, simdSize, op1, op2);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
