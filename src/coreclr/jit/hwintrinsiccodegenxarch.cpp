@@ -1314,6 +1314,14 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
     ssize_t   indexValue = index->AsIntCon()->GetValue();
     emitter*  emit       = GetEmitter();
 
+    assert(varTypeIsFloating(baseType));
+
+    if (indexValue == 0)
+    {
+        emit->emitIns_Mov(INS_movaps, EA_16BYTE, destReg, srcReg, true);
+        return;
+    }
+
     if (baseType == TYP_FLOAT)
     {
         if (indexValue == 1)

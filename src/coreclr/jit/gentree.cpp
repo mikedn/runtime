@@ -16249,11 +16249,6 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types elementType,
         case TYP_UINT:
         case TYP_LONG:
         case TYP_ULONG:
-#ifdef TARGET_XARCH
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
-#endif
-            break;
-
         case TYP_DOUBLE:
         case TYP_FLOAT:
         case TYP_SHORT:

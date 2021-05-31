@@ -976,17 +976,13 @@ GenTree* Compiler::impBaseIntrinsic(
         }
 
         case NI_Vector256_GetElement:
-        {
             if (!compExactlyDependsOn(InstructionSet_AVX))
             {
                 // Using software fallback if JIT/hardware don't support AVX instructions and YMM registers
                 return nullptr;
             }
             FALLTHROUGH;
-        }
-
         case NI_Vector128_GetElement:
-        {
             assert(sig.paramCount == 2);
 
             if (!compExactlyDependsOn(InstructionSet_SSE2) || !varTypeIsArithmetic(baseType))
@@ -997,38 +993,9 @@ GenTree* Compiler::impBaseIntrinsic(
                 return nullptr;
             }
 
-            switch (baseType)
-            {
-                // Using software fallback if baseType is not supported by hardware
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_INT:
-                case TYP_UINT:
-                case TYP_LONG:
-                case TYP_ULONG:
-                    if (!compExactlyDependsOn(InstructionSet_SSE41))
-                    {
-                        return nullptr;
-                    }
-                    break;
-
-                case TYP_DOUBLE:
-                case TYP_FLOAT:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                    // short/ushort/float/double is supported by SSE2
-                    break;
-
-                default:
-                    unreached();
-            }
-
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-
-            retNode = gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
-            break;
-        }
+            op2 = impPopStackCoerceArg(TYP_INT);
+            op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
+            return gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
 
         default:
         {

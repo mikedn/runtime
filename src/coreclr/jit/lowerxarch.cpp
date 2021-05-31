@@ -2311,10 +2311,10 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic intrinsic    = node->GetIntrinsic();
-    var_types      simdBaseType = node->GetSimdBaseType();
+    NamedIntrinsic intrinsic = node->GetIntrinsic();
+    var_types      eltType   = node->GetSimdBaseType();
 
-    assert(varTypeIsArithmetic(simdBaseType));
+    assert(varTypeIsArithmetic(eltType));
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
@@ -2348,7 +2348,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     // We should have a bounds check inserted for any index outside the allowed range
     // but we need to generate some code anyways, and so we'll mask here for simplicity.
 
-    unsigned count = node->GetSimdSize() / varTypeSize(simdBaseType);
+    unsigned count = node->GetSimdSize() / varTypeSize(eltType);
     unsigned index = op2->AsIntCon()->GetUInt32Value() % count;
 
     op2->AsIntCon()->SetValue(index);
@@ -2362,40 +2362,13 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 
             if (addr->isContained())
             {
-                int offset = static_cast<int>(index * varTypeSize(simdBaseType));
+                int offset = static_cast<int>(index * varTypeSize(eltType));
 
                 addr->SetContained(addr->IsAddrMode() && (addr->AsAddrMode()->GetOffset() <= INT32_MAX - offset));
             }
         }
 
         return;
-    }
-
-    switch (simdBaseType)
-    {
-        // Using software fallback if simdBaseType is not supported by hardware
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-        case TYP_UINT:
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
-            break;
-
-        case TYP_LONG:
-        case TYP_ULONG:
-            // We either support TYP_LONG or we have been decomposed into two TYP_INT inserts
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41_X64));
-            break;
-
-        case TYP_DOUBLE:
-        case TYP_FLOAT:
-        case TYP_SHORT:
-        case TYP_USHORT:
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE2));
-            break;
-
-        default:
-            unreached();
     }
 
     if (intrinsic == NI_Vector256_GetElement)
@@ -2408,92 +2381,104 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
             op2->AsIntCon()->SetValue(index);
 
             GenTree* one = comp->gtNewIconNode(1);
-            op1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, simdBaseType, 32, op1, one);
+            op1          = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, eltType, 32, op1, one);
             BlockRange().InsertBefore(node, one, op1);
             LowerNode(op1);
         }
         else
         {
-            op1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_GetLower, simdBaseType, 16, op1);
+            op1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_GetLower, eltType, 16, op1);
             BlockRange().InsertBefore(node, op1);
             LowerNode(op1);
         }
 
-        intrinsic = NI_Vector128_GetElement;
+        node->SetIntrinsic(NI_Vector128_GetElement);
         node->SetSimdSize(16);
         node->SetOp(0, op1);
     }
 
-    if ((index == 0) && !varTypeIsSmall(simdBaseType))
+    if (varTypeIsFloating(eltType))
     {
-        switch (simdBaseType)
+        // Defer to codegen to avoid having to create temps for shuffle/unpack.
+        return;
+    }
+
+    if ((index != 0) && !varTypeIsShort(eltType) && !comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        op2->AsIntCon()->SetValue(index * varTypeSize(eltType));
+        op1 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, eltType, 16, op1, op2);
+        BlockRange().InsertBefore(node, op1);
+        node->SetOp(0, op1);
+        index = 0;
+        op2   = nullptr;
+    }
+
+    if ((index != 0) || (eltType == TYP_USHORT) ||
+        ((eltType == TYP_UBYTE) && comp->compOpportunisticallyDependsOn(InstructionSet_SSE41)))
+    {
+        switch (eltType)
         {
             case TYP_LONG:
-                intrinsic = NI_SSE2_X64_ConvertToInt64;
+            case TYP_ULONG:
+                node->SetIntrinsic(NI_SSE41_X64_Extract);
+                break;
+            case TYP_BYTE:
+            case TYP_UBYTE:
+            case TYP_INT:
+            case TYP_UINT:
+                node->SetIntrinsic(NI_SSE41_Extract);
+                break;
+            case TYP_SHORT:
+            case TYP_USHORT:
+                node->SetIntrinsic(NI_SSE2_Extract);
+                break;
+            default:
+                unreached();
+        }
+    }
+    else
+    {
+        switch (eltType)
+        {
+            case TYP_LONG:
+                node->SetIntrinsic(NI_SSE2_X64_ConvertToInt64, eltType, 1);
                 break;
             case TYP_ULONG:
-                intrinsic = NI_SSE2_X64_ConvertToUInt64;
+                node->SetIntrinsic(NI_SSE2_X64_ConvertToUInt64, eltType, 1);
                 break;
             case TYP_INT:
-                intrinsic = NI_SSE2_ConvertToInt32;
+                node->SetIntrinsic(NI_SSE2_ConvertToInt32, eltType, 1);
                 break;
             case TYP_UINT:
-                intrinsic = NI_SSE2_ConvertToUInt32;
+                node->SetIntrinsic(NI_SSE2_ConvertToUInt32, eltType, 1);
                 break;
-            case TYP_FLOAT:
-            case TYP_DOUBLE:
-                intrinsic = NI_Vector128_ToScalar;
+            case TYP_SHORT:
+            case TYP_USHORT:
+            case TYP_BYTE:
+            case TYP_UBYTE:
+                node->SetIntrinsic(NI_SSE2_ConvertToInt32, TYP_INT, 1);
                 break;
             default:
                 unreached();
         }
 
-        node->SetIntrinsic(intrinsic, simdBaseType, 16, 1);
         node->SetOp(0, op1);
-        BlockRange().Remove(op2);
-        LowerNode(node);
 
-        return;
+        if (op2 != nullptr)
+        {
+            BlockRange().Remove(op2);
+        }
     }
 
-    if (varTypeIsFloating(simdBaseType))
-    {
-        // We specially handle float and double for better codegen.
-        node->SetIntrinsic(intrinsic);
-        return;
-    }
-
-    switch (simdBaseType)
-    {
-        case TYP_LONG:
-        case TYP_ULONG:
-            intrinsic = NI_SSE41_X64_Extract;
-            break;
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-        case TYP_UINT:
-            intrinsic = NI_SSE41_Extract;
-            break;
-        case TYP_SHORT:
-        case TYP_USHORT:
-            intrinsic = NI_SSE2_Extract;
-            break;
-        default:
-            unreached();
-    }
-
-    node->SetIntrinsic(intrinsic);
     LowerNode(node);
 
-    if ((simdBaseType == TYP_BYTE) || (simdBaseType == TYP_SHORT))
+    if ((eltType == TYP_BYTE) || (eltType == TYP_SHORT) ||
+        ((eltType == TYP_UBYTE) && !comp->compOpportunisticallyDependsOn(InstructionSet_SSE41)))
     {
-        // pextrb/pextrw zero extend, we need a separate cast to sign extend.
-
         LIR::Use use;
         if (BlockRange().TryGetUse(node, &use))
         {
-            GenTreeCast* cast = comp->gtNewCastNode(TYP_INT, node, false, simdBaseType);
+            GenTreeCast* cast = comp->gtNewCastNode(TYP_INT, node, false, eltType);
             BlockRange().InsertAfter(node, cast);
             use.ReplaceWith(comp, cast);
             LowerNode(cast);

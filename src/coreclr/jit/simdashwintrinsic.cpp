@@ -1148,33 +1148,7 @@ GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayou
 
     var_types elementType = layout->GetElementType();
 
-    switch (elementType)
-    {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-        case TYP_UINT:
-        case TYP_LONG:
-        case TYP_ULONG:
-#ifdef TARGET_XARCH
-            if (!compExactlyDependsOn(InstructionSet_SSE41))
-            {
-                return nullptr;
-            }
-#endif
-            break;
-
-        case TYP_DOUBLE:
-        case TYP_FLOAT:
-        case TYP_SHORT:
-        case TYP_USHORT:
-            break;
-
-        default:
-            unreached();
-    }
-
-    GenTree* index = impPopStack().val;
+    GenTree* index = impPopStackCoerceArg(TYP_INT);
     GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
 
     assert(value->GetType() == layout->GetSIMDType());
