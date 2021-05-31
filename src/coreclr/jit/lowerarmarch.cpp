@@ -1226,22 +1226,14 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         LowerNode(tmp2);
     }
 
-    // We will be constructing the following parts:
-    //   ...
-    //          /--*  tmp2 simd16
-    //   node = *  HWINTRINSIC   simd16 T ToScalar
+    GenTree* zero = comp->gtNewIconNode(0);
+    BlockRange().InsertBefore(node, zero);
 
-    // This is roughly the following managed code:
-    //   ...
-    //   return tmp2.ToScalar();
-
-    node->SetIntrinsic((simdSize == 8) ? NI_Vector64_ToScalar : NI_Vector128_ToScalar);
-    node->SetNumOps(1);
+    node->SetIntrinsic((simdSize == 8) ? NI_Vector64_GetElement : NI_Vector128_GetElement);
     node->SetOp(0, tmp2);
+    node->SetOp(1, zero);
 
     LowerNode(node);
-
-    return;
 }
 #endif // FEATURE_HW_INTRINSICS
 

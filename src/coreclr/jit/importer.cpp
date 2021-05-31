@@ -3875,7 +3875,8 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                     GenTree* res =
                         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, 16, op1, op2, op3);
 
-                    retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector128_ToScalar, callType, 16, res);
+                    retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector128_GetElement, callType, 16, res,
+                                                       gtNewIconNode(0));
                     break;
                 }
 #elif defined(TARGET_ARM64)
@@ -3907,7 +3908,8 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                     retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, simdSize,
                                                        op3, op2, op1);
 
-                    retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector64_ToScalar, callType, simdSize, retNode);
+                    retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, simdSize, retNode,
+                                                       gtNewIconNode(0));
                     break;
                 }
 #endif

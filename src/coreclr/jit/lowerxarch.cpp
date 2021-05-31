@@ -970,10 +970,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
         case NI_Vector128_ToScalar:
         case NI_Vector256_ToScalar:
-        {
-            LowerHWIntrinsicToScalar(node);
-            break;
-        }
+            unreached();
 
         case NI_SSE41_Extract:
         {
@@ -2939,10 +2936,13 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                 BlockRange().InsertAfter(tmp2, tmp3);
                 LowerNode(tmp3);
 
-                node->SetIntrinsic(NI_Vector128_ToScalar);
+                GenTree* zero = comp->gtNewIconNode(0);
+                BlockRange().InsertBefore(node, zero);
+
+                node->SetIntrinsic(NI_Vector128_GetElement);
                 node->SetSimdSize(16);
-                node->SetNumOps(1);
                 node->SetOp(0, tmp3);
+                node->SetOp(1, zero);
 
                 LowerNode(node);
 
@@ -3031,9 +3031,12 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                     BlockRange().InsertAfter(idx, tmp3);
                     LowerNode(tmp3);
 
-                    node->SetIntrinsic(NI_Vector128_ToScalar);
-                    node->SetNumOps(1);
+                    GenTree* zero = comp->gtNewIconNode(0);
+                    BlockRange().InsertBefore(node, zero);
+
+                    node->SetIntrinsic(NI_Vector128_GetElement);
                     node->SetOp(0, tmp3);
+                    node->SetOp(1, zero);
 
                     LowerNode(node);
 
@@ -3076,9 +3079,12 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
                     BlockRange().InsertAfter(idx, tmp3);
                     LowerNode(tmp3);
 
-                    node->SetIntrinsic(NI_Vector128_ToScalar);
-                    node->SetNumOps(1);
+                    GenTree* zero = comp->gtNewIconNode(0);
+                    BlockRange().InsertBefore(node, zero);
+
+                    node->SetIntrinsic(NI_Vector128_GetElement);
                     node->SetOp(0, tmp3);
+                    node->SetOp(1, zero);
 
                     LowerNode(node);
 
@@ -3420,90 +3426,18 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
         node->SetSimdSize(16);
     }
 
-    // We will be constructing the following parts:
-    //   ...
-    //          /--*  tmp1 simd16
-    //   node = *  HWINTRINSIC   simd16 T ToScalar
+    GenTree* zero = comp->gtNewIconNode(0);
+    BlockRange().InsertBefore(node, zero);
 
-    // This is roughly the following managed code:
-    //   ...
-    //   return tmp1.ToScalar();
-
-    node->SetIntrinsic(NI_Vector128_ToScalar);
-    node->SetNumOps(1);
+    node->SetIntrinsic(NI_Vector128_GetElement);
     node->SetOp(0, tmp1);
+    node->SetOp(1, zero);
 
     LowerNode(node);
 
     return;
 }
 
-//----------------------------------------------------------------------------------------------
-// Lowering::LowerHWIntrinsicToScalar: Lowers a Vector128 or Vector256 ToScalar call
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
-void Lowering::LowerHWIntrinsicToScalar(GenTreeHWIntrinsic* node)
-{
-    assert((node->GetIntrinsic() == NI_Vector128_ToScalar) || (node->GetIntrinsic() == NI_Vector256_ToScalar));
-
-    var_types baseType = node->GetSimdBaseType();
-
-    switch (baseType)
-    {
-        case TYP_BYTE:
-        case TYP_SHORT:
-        case TYP_INT:
-            node->SetType(TYP_INT);
-            node->SetSimdBaseType(TYP_INT);
-            node->SetIntrinsic(NI_SSE2_ConvertToInt32);
-            break;
-
-        case TYP_UBYTE:
-        case TYP_USHORT:
-        case TYP_UINT:
-            node->SetType(TYP_INT);
-            node->SetSimdBaseType(TYP_UINT);
-            node->SetIntrinsic(NI_SSE2_ConvertToUInt32);
-            break;
-
-#if defined(TARGET_AMD64)
-        case TYP_LONG:
-            node->SetIntrinsic(NI_SSE2_X64_ConvertToInt64);
-            break;
-
-        case TYP_ULONG:
-            node->SetIntrinsic(NI_SSE2_X64_ConvertToUInt64);
-            break;
-#endif // TARGET_AMD64
-
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            ContainCheckHWIntrinsic(node);
-            return;
-
-        default:
-            unreached();
-    }
-
-    LowerNode(node);
-
-    if (genTypeSize(baseType) < 4)
-    {
-        LIR::Use use;
-        bool     foundUse = BlockRange().TryGetUse(node, &use);
-
-        GenTreeCast* cast = comp->gtNewCastNode(baseType, node, node->IsUnsigned(), baseType);
-        BlockRange().InsertAfter(node, cast);
-
-        if (foundUse)
-        {
-            use.ReplaceWith(comp, cast);
-        }
-        LowerNode(cast);
-    }
-}
 #endif // FEATURE_HW_INTRINSICS
 
 //----------------------------------------------------------------------------------------------

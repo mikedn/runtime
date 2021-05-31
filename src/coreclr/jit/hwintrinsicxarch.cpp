@@ -783,7 +783,8 @@ GenTree* Compiler::impBaseIntrinsic(
             if (isSupported)
             {
                 op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+                retNode = gtNewSimdHWIntrinsicNode(retType, NI_Vector128_GetElement, baseType, simdSize, op1,
+                                                   gtNewIconNode(0));
             }
             break;
         }
@@ -831,7 +832,8 @@ GenTree* Compiler::impBaseIntrinsic(
             if (isSupported)
             {
                 op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+                retNode = gtNewSimdHWIntrinsicNode(retType, NI_Vector256_GetElement, baseType, simdSize, op1,
+                                                   gtNewIconNode(0));
             }
             break;
         }

@@ -393,9 +393,22 @@ GenTree* Compiler::impSpecialIntrinsic(
             break;
         }
 
+        case NI_Vector64_ToScalar:
+        case NI_Vector128_ToScalar:
+            assert(!sig.hasThisParam);
+            assert(sig.paramCount == 1);
+
+            if (!featureSIMD || !compExactlyDependsOn(InstructionSet_AdvSimd))
+            {
+                return nullptr;
+            }
+
+            op1       = impPopStack().val;
+            intrinsic = intrinsic == NI_Vector64_ToScalar ? NI_Vector64_GetElement : NI_Vector128_GetElement;
+            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, gtNewIconNode(0));
+
         case NI_Vector64_GetElement:
         case NI_Vector128_GetElement:
-        {
             assert(!sig.hasThisParam);
             assert(sig.paramCount == 2);
 
@@ -406,10 +419,7 @@ GenTree* Compiler::impSpecialIntrinsic(
 
             op2 = impPopStack().val;
             op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-
-            retNode = gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
-            break;
-        }
+            return gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
 
         case NI_Vector64_WithElement:
         case NI_Vector128_WithElement:
@@ -455,9 +465,7 @@ GenTree* Compiler::impSpecialIntrinsic(
         }
 
         default:
-        {
             return nullptr;
-        }
     }
 
     return retNode;

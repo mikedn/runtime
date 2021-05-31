@@ -1851,64 +1851,42 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         switch (intrinsicId)
         {
             case NI_Vector128_CreateScalarUnsafe:
-            case NI_Vector128_ToScalar:
             case NI_Vector256_CreateScalarUnsafe:
-            case NI_Vector256_ToScalar:
-            {
                 assert(numArgs == 1);
 
-                if (varTypeIsFloating(baseType))
+                if (varTypeIsFloating(baseType) && !op1->isContained())
                 {
-                    if (op1->isContained())
-                    {
-                        srcCount += BuildOperandUses(op1);
-                    }
-                    else
-                    {
-                        // We will either be in memory and need to be moved
-                        // into a register of the appropriate size or we
-                        // are already in an XMM/YMM register and can stay
-                        // where we are.
-
-                        tgtPrefUse = BuildUse(op1);
-                        srcCount += 1;
-                    }
-
+                    tgtPrefUse = BuildUse(op1);
+                    srcCount += 1;
                     buildUses = false;
                 }
                 break;
-            }
 
             case NI_Vector128_GetElement:
             case NI_Vector256_GetElement:
                 assert(numArgs == 2);
                 assert(op2->IsIntCon() || op1->isContained());
+
+                if (varTypeIsFloating(baseType) && !op1->isContained() && op2->IsIntegralConst(0))
+                {
+                    tgtPrefUse = BuildUse(op1);
+                    srcCount += 1;
+                    buildUses = false;
+                }
                 break;
 
             case NI_Vector128_ToVector256:
             case NI_Vector128_ToVector256Unsafe:
             case NI_Vector256_GetLower:
-            {
                 assert(numArgs == 1);
 
-                if (op1->isContained())
+                if (!op1->isContained())
                 {
-                    srcCount += BuildOperandUses(op1);
-                }
-                else
-                {
-                    // We will either be in memory and need to be moved
-                    // into a register of the appropriate size or we
-                    // are already in an XMM/YMM register and can stay
-                    // where we are.
-
                     tgtPrefUse = BuildUse(op1);
                     srcCount += 1;
+                    buildUses = false;
                 }
-
-                buildUses = false;
                 break;
-            }
 
             case NI_SSE2_MaskMove:
             {

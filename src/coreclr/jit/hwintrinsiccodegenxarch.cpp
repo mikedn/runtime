@@ -1139,25 +1139,6 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
             genVectorGetElement(node);
             break;
 
-        case NI_Vector128_ToScalar:
-        case NI_Vector256_ToScalar:
-        {
-            assert(varTypeIsFloating(baseType));
-
-            attr = emitTypeSize(TYP_SIMD16);
-
-            if (op1->isContained() || op1->isUsedFromSpillTemp())
-            {
-                genHWIntrinsic_R_RM(node, ins, attr, targetReg, op1);
-            }
-            else
-            {
-                // Just use movaps for reg->reg moves as it has zero-latency on modern CPUs
-                emit->emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
-            }
-            break;
-        }
-
         case NI_Vector128_ToVector256:
         {
             // ToVector256 has zero-extend semantics in order to ensure it is deterministic
@@ -1229,10 +1210,7 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
             break;
 
         default:
-        {
             unreached();
-            break;
-        }
     }
 
     genProduceReg(node);

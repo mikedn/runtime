@@ -392,7 +392,6 @@ private:
     unsigned GetSimdMemoryTemp(var_types type);
 #if defined(TARGET_XARCH)
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicToScalar(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);
 #elif defined(TARGET_ARM64)

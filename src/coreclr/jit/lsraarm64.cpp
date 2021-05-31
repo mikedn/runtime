@@ -849,9 +849,9 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         {
             simdRegToSimdRegMove = (intrin.op1->TypeGet() == TYP_DOUBLE);
         }
-        else if ((intrin.id == NI_Vector64_ToScalar) || (intrin.id == NI_Vector128_ToScalar))
+        else if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
         {
-            simdRegToSimdRegMove = varTypeIsFloating(intrinsicTree);
+            simdRegToSimdRegMove = varTypeIsFloating(intrinsicTree->GetType()) && intrin.op2->IsIntegralConst(0);
         }
 
         // If we have an RMW intrinsic or an intrinsic with simple move semantic between two SIMD registers,
