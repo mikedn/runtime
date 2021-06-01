@@ -4893,8 +4893,11 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
 
                 default:
                 {
-                    // These intrinsics only expect 16 or 32-byte nodes for containment
-                    assert((genTypeSize(node->TypeGet()) == 16) || (genTypeSize(node->TypeGet()) == 32));
+                    if (!node->TypeIs(TYP_SIMD16, TYP_SIMD32))
+                    {
+                        *supportsRegOptional = false;
+                        return false;
+                    }
 
                     if (!comp->canUseVexEncoding())
                     {
@@ -4954,8 +4957,12 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
                 case NI_AVX2_ShuffleHigh:
                 case NI_AVX2_ShuffleLow:
                 {
-                    // These intrinsics only expect 16 or 32-byte nodes for containment
-                    assert((genTypeSize(node->TypeGet()) == 16) || (genTypeSize(node->TypeGet()) == 32));
+                    if (!node->TypeIs(TYP_SIMD16, TYP_SIMD32))
+                    {
+                        *supportsRegOptional = false;
+                        return false;
+                    }
+
                     assert(supportsSIMDScalarLoads == false);
 
                     supportsAlignedSIMDLoads   = !comp->canUseVexEncoding() || !comp->opts.MinOpts();
