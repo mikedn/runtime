@@ -963,33 +963,32 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic intrinsic    = node->GetIntrinsic();
-    var_types      simdBaseType = node->GetSimdBaseType();
+    var_types eltType = node->GetSimdBaseType();
 
-    assert(varTypeIsArithmetic(simdBaseType));
+    assert(varTypeIsArithmetic(eltType));
 
-    GenTree* op1 = node->GetOp(0);
-    GenTree* op2 = node->GetOp(1);
+    GenTree* vec = node->GetOp(0);
+    GenTree* idx = node->GetOp(1);
 
-    if (IsContainableMemoryOp(op1) && IsSafeToContainMem(node, op1))
+    if (IsContainableMemoryOp(vec) && IsSafeToContainMem(node, vec))
     {
-        op1->SetContained();
+        vec->SetContained();
     }
 
-    if (!op2->IsIntCon())
+    if (!idx->IsIntCon())
     {
-        if (!op1->isContained())
+        if (!vec->isContained())
         {
-            unsigned tempLclNum = GetSimdMemoryTemp(op1->GetType());
-            GenTree* store      = NewStoreLclVar(tempLclNum, op1->GetType(), op1);
-            BlockRange().InsertAfter(op1, store);
+            unsigned tempLclNum = GetSimdMemoryTemp(vec->GetType());
+            GenTree* store      = NewStoreLclVar(tempLclNum, vec->GetType(), vec);
+            BlockRange().InsertAfter(vec, store);
 
-            op1 = comp->gtNewLclvNode(tempLclNum, op1->GetType());
-            BlockRange().InsertBefore(node, op1);
-            node->SetOp(0, op1);
-            op1->SetContained();
+            vec = comp->gtNewLclvNode(tempLclNum, vec->GetType());
+            BlockRange().InsertBefore(node, vec);
+            node->SetOp(0, vec);
+            vec->SetContained();
         }
-        else if (GenTreeIndir* indir = op1->IsIndir())
+        else if (GenTreeIndir* indir = vec->IsIndir())
         {
             indir->GetAddr()->ClearContained();
         }
@@ -1000,21 +999,21 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     // We should have a bounds check inserted for any index outside the allowed range
     // but we need to generate some code anyways, and so we'll mask here for simplicity.
 
-    unsigned count = node->GetSimdSize() / varTypeSize(simdBaseType);
-    unsigned index = op2->AsIntCon()->GetUInt32Value() % count;
+    unsigned count = node->GetSimdSize() / varTypeSize(eltType);
+    unsigned index = idx->AsIntCon()->GetUInt32Value() % count;
 
-    op2->AsIntCon()->SetValue(index);
-    op2->SetContained();
+    idx->AsIntCon()->SetValue(index);
+    idx->SetContained();
 
-    if (op1->isContained())
+    if (vec->isContained())
     {
-        if (GenTreeIndir* indir = op1->IsIndir())
+        if (GenTreeIndir* indir = vec->IsIndir())
         {
             GenTree* addr = indir->GetAddr();
 
             if (addr->isContained())
             {
-                int offset = static_cast<int>(index * varTypeSize(simdBaseType));
+                int offset = static_cast<int>(index * varTypeSize(eltType));
 
                 addr->SetContained(addr->IsAddrMode() && !addr->AsAddrMode()->HasIndex() &&
                                    (addr->AsAddrMode()->GetOffset() <= INT32_MAX - offset) &&
