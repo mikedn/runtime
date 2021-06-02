@@ -2308,6 +2308,15 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
             indir->GetAddr()->ClearContained();
         }
 
+#ifdef TARGET_64BIT
+        // TODO-MIKE-CQ: Most of the time this isn't necessary as the index is usually
+        // produced by a 32 bit instruction that implicitly zero extends. CAST codegen
+        // attempts to eliminate such redundant casts but it rarely succeeds.
+        idx = comp->gtNewCastNode(TYP_LONG, idx, true, TYP_LONG);
+        BlockRange().InsertBefore(node, idx);
+        node->SetOp(1, idx);
+#endif
+
         return;
     }
 

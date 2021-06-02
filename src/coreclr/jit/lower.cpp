@@ -6381,7 +6381,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 
             // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
             // if there are any advantages in doing such a transform earlier (in fact there may be one
-            // disatvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+            // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
 
             if (dstType == TYP_UINT)
             {

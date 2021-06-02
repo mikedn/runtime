@@ -846,7 +846,7 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
             assert(baseReg != indexReg);
 
             GetEmitter()->emitIns_R_R_R_Ext(ins_Load(baseType), emitTypeSize(baseType), destReg, baseReg, indexReg,
-                                            INS_OPTS_LSL, genLog2(varTypeSize(baseType)));
+                                            INS_OPTS_UXTW, genLog2(varTypeSize(baseType)));
         }
         else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
