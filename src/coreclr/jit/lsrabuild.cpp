@@ -937,7 +937,7 @@ regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     regMaskTP killMask = RBM_NONE;
 #ifdef TARGET_XARCH
-    switch (node->gtHWIntrinsicId)
+    switch (node->GetIntrinsic())
     {
         case NI_SSE2_MaskMove:
             // maskmovdqu uses edi as the implicit address register.
@@ -3310,7 +3310,7 @@ int LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
             // (On Arm64 we can just store REG_ZR.)
 
             assert(src->IsHWIntrinsicZero());
-            singleUseRef = BuildUse(src->AsSIMD()->GetOp(0));
+            singleUseRef = BuildUse(src->AsHWIntrinsic()->GetOp(0));
             srcCount     = 1;
         }
         else

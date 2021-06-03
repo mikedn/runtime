@@ -795,7 +795,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
             {
                 // TODO-XArch-Cleanup: currently we use the BaseType to bring the type of the second argument
                 // to the code generator. May encode the overload info in other way.
-                retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
+                retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
             }
 #elif defined(TARGET_ARM64)
             switch (intrinsic)
@@ -804,7 +804,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 case NI_Crc32_ComputeCrc32C:
                 case NI_Crc32_Arm64_ComputeCrc32:
                 case NI_Crc32_Arm64_ComputeCrc32C:
-                    retNode->AsHWIntrinsic()->gtSIMDBaseType = sigReader.paramType[1];
+                    retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
                     break;
 
                 case NI_AdvSimd_AddWideningUpper:
@@ -821,12 +821,12 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 case NI_ArmBase_Arm64_MultiplyHigh:
                     if (sig->retType == CORINFO_TYPE_ULONG)
                     {
-                        retNode->AsHWIntrinsic()->gtSIMDBaseType = TYP_ULONG;
+                        retNode->AsHWIntrinsic()->SetSimdBaseType(TYP_ULONG);
                     }
                     else
                     {
                         assert(sig->retType == CORINFO_TYPE_LONG);
-                        retNode->AsHWIntrinsic()->gtSIMDBaseType = TYP_LONG;
+                        retNode->AsHWIntrinsic()->SetSimdBaseType(TYP_LONG);
                     }
                     break;
 
@@ -924,6 +924,31 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
         retNode->gtFlags |= (GTF_GLOB_REF | GTF_EXCEPT);
     }
     return retNode;
+}
+
+GenTree* Compiler::impVectorGetElement(ClassLayout* layout, GenTree* value, GenTree* index)
+{
+    assert(value->GetType() == layout->GetSIMDType());
+    assert(varActualType(index->GetType()) == TYP_INT);
+
+    int  maxIndexValue = static_cast<int>(layout->GetElementCount() - 1);
+    bool rangeCheckNeeded;
+
+    if (GenTreeIntCon* intCon = index->IsIntCon())
+    {
+        rangeCheckNeeded = (intCon->GetInt32Value() < 0) || (intCon->GetInt32Value() > maxIndexValue);
+    }
+    else
+    {
+        rangeCheckNeeded = true;
+    }
+
+    if (rangeCheckNeeded)
+    {
+        index = addRangeCheckForHWIntrinsic(index, 0, maxIndexValue);
+    }
+
+    return gtNewSimdGetElementNode(layout->GetSIMDType(), layout->GetElementType(), value, index);
 }
 
 #ifdef DEBUG

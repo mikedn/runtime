@@ -502,7 +502,7 @@ bool Compiler::isNativePrimitiveStructType(ClassLayout* layout)
     }
 
     const char* namespaceName = nullptr;
-    const char* typeName      = getClassNameFromMetadata(layout->GetClassHandle(), &namespaceName);
+    const char* typeName      = info.compCompHnd->getClassNameFromMetadata(layout->GetClassHandle(), &namespaceName);
 
     return (strcmp(namespaceName, "System.Runtime.InteropServices") == 0) &&
            (strcmp(typeName, "CLong") == 0 || strcmp(typeName, "CULong") == 0 || strcmp(typeName, "NFloat") == 0);

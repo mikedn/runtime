@@ -466,9 +466,10 @@ GenTree* Compiler::impSpecialIntrinsic(
         case InstructionSet_Vector256:
             return impBaseIntrinsic(intrinsic, sig, baseType, retType, simdSize);
         case InstructionSet_SSE:
-            return impSSEIntrinsic(intrinsic, sig);
         case InstructionSet_SSE2:
-            return impSSE2Intrinsic(intrinsic, sig);
+        case InstructionSet_SSE41:
+        case InstructionSet_SSE41_X64:
+            return impSSEIntrinsic(intrinsic, sig);
         case InstructionSet_AVX:
         case InstructionSet_AVX2:
             return impAvxOrAvx2Intrinsic(intrinsic, sig);
@@ -545,13 +546,13 @@ GenTree* Compiler::impBaseIntrinsic(
         {
             assert(sig.paramCount == 1);
 
-            if (getSIMDVectorRegisterByteLength() == YMM_REGSIZE_BYTES)
+            if (GetVectorTSimdType() == TYP_SIMD32)
             {
                 // Vector<T> is TYP_SIMD32, so we should treat this as a call to Vector128.ToVector256
                 return impBaseIntrinsic(NI_Vector128_ToVector256, sig, baseType, retType, simdSize);
             }
 
-            assert(getSIMDVectorRegisterByteLength() == XMM_REGSIZE_BYTES);
+            assert(GetVectorTSimdType() == TYP_SIMD16);
 
             // We fold away the cast here, as it only exists to satisfy
             // the type system. It is safe to do this here since the retNode type
@@ -625,7 +626,7 @@ GenTree* Compiler::impBaseIntrinsic(
         {
             assert(sig.paramCount == 1);
 
-            if (getSIMDVectorRegisterByteLength() == YMM_REGSIZE_BYTES)
+            if (GetVectorTSimdType() == TYP_SIMD32)
             {
                 // We fold away the cast here, as it only exists to satisfy
                 // the type system. It is safe to do this here since the retNode type
@@ -638,7 +639,7 @@ GenTree* Compiler::impBaseIntrinsic(
                 break;
             }
 
-            assert(getSIMDVectorRegisterByteLength() == XMM_REGSIZE_BYTES);
+            assert(GetVectorTSimdType() == TYP_SIMD16);
 
             if (compExactlyDependsOn(InstructionSet_AVX))
             {
@@ -662,7 +663,7 @@ GenTree* Compiler::impBaseIntrinsic(
         {
             assert(sig.paramCount == 0);
 
-            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType), TYP_INT);
+            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
             countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
             retNode = countNode;
             break;
@@ -783,7 +784,8 @@ GenTree* Compiler::impBaseIntrinsic(
             if (isSupported)
             {
                 op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+                retNode = gtNewSimdHWIntrinsicNode(retType, NI_Vector128_GetElement, baseType, simdSize, op1,
+                                                   gtNewIconNode(0));
             }
             break;
         }
@@ -831,7 +833,8 @@ GenTree* Compiler::impBaseIntrinsic(
             if (isSupported)
             {
                 op1     = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-                retNode = gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1);
+                retNode = gtNewSimdHWIntrinsicNode(retType, NI_Vector256_GetElement, baseType, simdSize, op1,
+                                                   gtNewIconNode(0));
             }
             break;
         }
@@ -976,17 +979,13 @@ GenTree* Compiler::impBaseIntrinsic(
         }
 
         case NI_Vector256_GetElement:
-        {
             if (!compExactlyDependsOn(InstructionSet_AVX))
             {
                 // Using software fallback if JIT/hardware don't support AVX instructions and YMM registers
                 return nullptr;
             }
             FALLTHROUGH;
-        }
-
         case NI_Vector128_GetElement:
-        {
             assert(sig.paramCount == 2);
 
             if (!compExactlyDependsOn(InstructionSet_SSE2) || !varTypeIsArithmetic(baseType))
@@ -997,43 +996,12 @@ GenTree* Compiler::impBaseIntrinsic(
                 return nullptr;
             }
 
-            switch (baseType)
-            {
-                // Using software fallback if baseType is not supported by hardware
-                case TYP_BYTE:
-                case TYP_UBYTE:
-                case TYP_INT:
-                case TYP_UINT:
-                case TYP_LONG:
-                case TYP_ULONG:
-                    if (!compExactlyDependsOn(InstructionSet_SSE41))
-                    {
-                        return nullptr;
-                    }
-                    break;
-
-                case TYP_DOUBLE:
-                case TYP_FLOAT:
-                case TYP_SHORT:
-                case TYP_USHORT:
-                    // short/ushort/float/double is supported by SSE2
-                    break;
-
-                default:
-                    unreached();
-            }
-
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
-
-            retNode = gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
-            break;
-        }
+            op2 = impPopStackCoerceArg(TYP_INT);
+            op1 = impSIMDPopStack(sig.paramType[0]);
+            return impVectorGetElement(sig.paramLayout[0], op1, op2);
 
         default:
-        {
             return nullptr;
-        }
     }
 
     return retNode;
@@ -1047,13 +1015,17 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
         case NI_SSE_CompareScalarGreaterThanOrEqual:
         case NI_SSE_CompareScalarNotGreaterThan:
         case NI_SSE_CompareScalarNotGreaterThanOrEqual:
+        case NI_SSE2_CompareScalarGreaterThan:
+        case NI_SSE2_CompareScalarGreaterThanOrEqual:
+        case NI_SSE2_CompareScalarNotGreaterThan:
+        case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
         {
             assert(sig.paramCount == 2);
             GenTree* op2 = impSIMDPopStack(TYP_SIMD16);
             GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
 
             var_types baseType = sig.retLayout->GetElementType();
-            assert(baseType == TYP_FLOAT);
+            assert(varTypeIsFloating(baseType));
 
             if (compOpportunisticallyDependsOn(InstructionSet_AVX))
             {
@@ -1070,7 +1042,31 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
             impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
                             CHECK_SPILL_ALL DEBUGARG("Sse.CompareScalarGreaterThan temp"));
             GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, baseType, 16, op1Uses[1], retNode);
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, baseType == TYP_FLOAT ? NI_SSE_MoveScalar : NI_SSE2_MoveScalar,
+                                            baseType, 16, op1Uses[1], retNode);
+        }
+
+        case NI_SSE2_Extract:
+        case NI_SSE41_Extract:
+        case NI_SSE41_X64_Extract:
+        {
+            assert(sig.paramCount == 2);
+            GenTree* op2 = impPopStackCoerceArg(TYP_INT);
+            GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+
+            var_types baseType  = sig.paramLayout[0]->GetElementType();
+            int       indexMask = static_cast<int>(sig.paramLayout[0]->GetElementCount()) - 1;
+
+            if (GenTreeIntCon* intCon = op2->IsIntCon())
+            {
+                intCon->SetValue(intCon->GetValue() & indexMask);
+            }
+            else
+            {
+                op2 = gtNewOperNode(GT_AND, TYP_INT, op2, gtNewIconNode(indexMask));
+            }
+
+            return gtNewSimdHWIntrinsicNode(sig.retType, NI_Vector128_GetElement, baseType, 16, op1, op2);
         }
 
         case NI_SSE_Prefetch0:
@@ -1085,50 +1081,6 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
         }
 
         case NI_SSE_StoreFence:
-            assert(sig.paramCount == 0);
-            assert(sig.retType == TYP_VOID);
-            return gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, 0);
-
-        default:
-            JITDUMP("Not implemented hardware intrinsic");
-            return nullptr;
-    }
-}
-
-GenTree* Compiler::impSSE2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
-{
-    switch (intrinsic)
-    {
-        case NI_SSE2_CompareScalarGreaterThan:
-        case NI_SSE2_CompareScalarGreaterThanOrEqual:
-        case NI_SSE2_CompareScalarNotGreaterThan:
-        case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
-        {
-            assert(sig.paramCount == 2);
-            GenTree* op2 = impSIMDPopStack(TYP_SIMD16);
-            GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
-
-            var_types baseType = sig.retLayout->GetElementType();
-            assert(baseType == TYP_DOUBLE);
-
-            if (compOpportunisticallyDependsOn(InstructionSet_AVX))
-            {
-                // These intrinsics are "special import" because the non-AVX path isn't directly
-                // hardware supported. Instead, they start with "swapped operands" and we fix that here.
-
-                FloatComparisonMode comparison =
-                    static_cast<FloatComparisonMode>(HWIntrinsicInfo::lookupIval(intrinsic, true));
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, 16, op1, op2,
-                                                gtNewIconNode(static_cast<int>(comparison)));
-            }
-
-            GenTree* op1Uses[2];
-            impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
-                            CHECK_SPILL_ALL DEBUGARG("Sse2.CompareScalarGreaterThan temp"));
-            GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_MoveScalar, baseType, 16, op1Uses[1], retNode);
-        }
-
         case NI_SSE2_LoadFence:
         case NI_SSE2_MemoryFence:
             assert(sig.paramCount == 0);

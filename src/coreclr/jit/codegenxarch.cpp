@@ -1558,10 +1558,13 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
 #ifdef FEATURE_SIMD
-        case GT_SIMD:
-            genSIMDIntrinsic(treeNode->AsSIMD());
+        case GT_SIMD_UPPER_SPILL:
+            genSIMDUpperSpill(treeNode->AsUnOp());
             break;
-#endif // FEATURE_SIMD
+        case GT_SIMD_UPPER_UNSPILL:
+            genSIMDUpperUnspill(treeNode->AsUnOp());
+            break;
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -1683,13 +1686,10 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            genRangeCheck(treeNode);
+#endif
+            genRangeCheck(treeNode->AsBoundsChk());
             break;
 
         case GT_PHYSREG:
@@ -3164,16 +3164,13 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* tree)
     genProduceReg(tree);
 }
 
-// generate code for BoundsCheck nodes
-void CodeGen::genRangeCheck(GenTree* oper)
+void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
 {
-    noway_assert(oper->OperIsBoundsCheck());
-    GenTreeBoundsChk* bndsChk = oper->AsBoundsChk();
+    GenTree* arrIndex = bndsChk->GetIndex();
+    GenTree* arrLen   = bndsChk->GetLength();
 
-    GenTree* arrIndex = bndsChk->gtIndex;
-    GenTree* arrLen   = bndsChk->gtArrLen;
-
-    GenTree *    src1, *src2;
+    GenTree*     src1;
+    GenTree*     src2;
     emitJumpKind jmpKind;
     instruction  cmpKind;
 
@@ -3789,7 +3786,7 @@ void CodeGen::genCodeForLclVar(GenTreeLclVar* tree)
 #endif
 
         var_types type = varDsc->GetRegisterType(tree);
-        GetEmitter()->emitIns_R_S(ins_Load(type, compiler->isSIMDTypeLocalAligned(tree->GetLclNum())),
+        GetEmitter()->emitIns_R_S(ins_Load(type, compiler->lvaIsSimdTypedLocalAligned(tree->GetLclNum())),
                                   emitTypeSize(type), tree->GetRegNum(), tree->GetLclNum(), 0);
         genProduceReg(tree);
     }
@@ -3876,7 +3873,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
         if (dstReg == REG_NA)
         {
-            GetEmitter()->emitIns_S_R(ins_Store(bitCastSrcType, compiler->isSIMDTypeLocalAligned(lclNum)),
+            GetEmitter()->emitIns_S_R(ins_Store(bitCastSrcType, compiler->lvaIsSimdTypedLocalAligned(lclNum)),
                                       emitTypeSize(lclRegType), bitCastSrcReg, lclNum, 0);
 
             genUpdateLife(store);
@@ -3894,7 +3891,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (dstReg == REG_NA)
     {
-        instruction ins  = ins_Store(lclRegType, compiler->isSIMDTypeLocalAligned(lclNum));
+        instruction ins  = ins_Store(lclRegType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
         emitAttr    attr = emitTypeSize(lclRegType);
 
         inst_set_SV_var(store);
@@ -6411,7 +6408,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     if (src->isContained())
     {
         unsigned    lclNum = src->AsLclVar()->GetLclNum();
-        instruction ins    = ins_Load(dstType, compiler->isSIMDTypeLocalAligned(lclNum));
+        instruction ins    = ins_Load(dstType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
         GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
     }
     else
@@ -8396,6 +8393,133 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
                                     addrMode.Disp(offset));
     }
 }
+
+void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
+{
+    if (value->isContained())
+    {
+        GenAddrMode src(value, this);
+
+#ifdef TARGET_64BIT
+        inst_R_AM(INS_mov, EA_8BYTE, tmpReg, src, 0);
+        inst_AM_R(INS_mov, EA_8BYTE, tmpReg, dst, 0);
+        inst_R_AM(INS_mov, EA_4BYTE, tmpReg, src, 8);
+        inst_AM_R(INS_mov, EA_4BYTE, tmpReg, dst, 8);
+#else
+        inst_R_AM(INS_movsdsse2, EA_8BYTE, tmpReg, src, 0);
+        inst_AM_R(INS_movsdsse2, EA_8BYTE, tmpReg, dst, 0);
+        inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
+        inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
+#endif
+        return;
+    }
+
+    regNumber valueReg = genConsumeReg(value);
+
+    inst_AM_R(INS_movsdsse2, EA_8BYTE, valueReg, dst, 0);
+
+    if (value->IsHWIntrinsicZero())
+    {
+        tmpReg = valueReg;
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+    }
+
+    inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
+}
+
+void CodeGen::genLoadSIMD12(GenTree* load)
+{
+    GenAddrMode src(load, this);
+
+    regNumber tmpReg = load->GetSingleTempReg();
+    regNumber dstReg = load->GetRegNum();
+
+    assert(tmpReg != dstReg);
+
+    inst_R_AM(INS_movsdsse2, EA_8BYTE, dstReg, src, 0);
+    inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
+    GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
+
+    genProduceReg(load);
+}
+
+#ifdef TARGET_X86
+
+void CodeGen::genStoreSIMD12ToStack(regNumber valueReg, regNumber tmpReg)
+{
+    assert(genIsValidFloatReg(valueReg));
+    assert(genIsValidFloatReg(tmpReg));
+
+    GetEmitter()->emitIns_AR_R(INS_movsdsse2, EA_8BYTE, valueReg, REG_SPBASE, 0);
+    GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+    GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, REG_SPBASE, 8);
+}
+
+#endif // TARGET_X86
+
+#ifdef FEATURE_SIMD
+
+// Save the upper half of a TYP_SIMD32 vector to the given register, if any, or to memory.
+// The upper half of all AVX registers is volatile, even the callee-save registers.
+// When a 32-byte SIMD value is live across a call, the register allocator will use this intrinsic
+// to cause the upper half to be saved. It will first attempt to find another, unused, callee-save
+// register. If such a register cannot be found, it will save the upper half to the upper half
+// of the localVar's home location.
+// (Note that if there are no caller-save registers available, the entire 32 byte
+// value will be spilled to the stack.)
+void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
+{
+    GenTree* op1 = node->GetOp(0);
+    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD32));
+
+    regNumber srcReg = genConsumeReg(op1);
+    assert(srcReg != REG_NA);
+    regNumber dstReg = node->GetRegNum();
+
+    if (dstReg != REG_NA)
+    {
+        GetEmitter()->emitIns_R_R_I(INS_vextractf128, EA_32BYTE, dstReg, srcReg, 1);
+        genProduceReg(node);
+    }
+    else
+    {
+        unsigned lclNum = op1->AsLclVar()->GetLclNum();
+        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+
+        GetEmitter()->emitIns_S_R_I(INS_vextractf128, EA_32BYTE, lclNum, 16, srcReg, 1);
+    }
+}
+
+// Restore the upper half of a TYP_SIMD32 vector to the given register, if any, or to memory.
+// For consistency with genSIMDIntrinsicUpperSave, and to ensure that LCL_VAR nodes always
+// have their home register, this node has its dtsReg on the LCL_VAR operand, and its source
+// on the node.
+void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
+{
+    GenTree* op1 = node->GetOp(0);
+    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD32));
+
+    regNumber srcReg = node->GetRegNum();
+    regNumber dstReg = genConsumeReg(op1);
+    assert(dstReg != REG_NA);
+
+    if (srcReg != REG_NA)
+    {
+        GetEmitter()->emitIns_R_R_R_I(INS_vinsertf128, EA_32BYTE, dstReg, dstReg, srcReg, 1);
+    }
+    else
+    {
+        unsigned lclNum = op1->AsLclVar()->GetLclNum();
+        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+
+        GetEmitter()->emitIns_R_R_S_I(INS_vinsertf128, EA_32BYTE, dstReg, dstReg, lclNum, 16, 1);
+    }
+}
+
+#endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
 // genPushCalleeSavedRegisters: Push any callee-saved registers we have used.

@@ -231,30 +231,30 @@ GenTree* Compiler::impPopStackCoerceArg(var_types signatureType)
 }
 
 #ifdef FEATURE_SIMD
-GenTree* Compiler::impSIMDPopStackAddr(var_types type)
+
+GenTree* Compiler::impSIMDPopStack(var_types type)
 {
     assert(varTypeIsSIMD(type));
 
-    GenTree* addr = impPopStack().val;
+    GenTree* tree = impPopStack().val;
 
-    if (!addr->TypeIs(TYP_BYREF, TYP_I_IMPL))
+    if (tree->OperIs(GT_RET_EXPR, GT_CALL))
     {
-        BADCODE("incompatible stack type");
+        // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
+
+        ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
+
+        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
+        impAppendTempAssign(tmpNum, tree, layout, CHECK_SPILL_ALL);
+        tree = gtNewLclvNode(tmpNum, lvaGetDesc(tmpNum)->GetType());
     }
 
-    if (addr->OperIs(GT_ADDR))
-    {
-        GenTree* location = addr->AsUnOp()->GetOp(0);
+    assert(tree->GetType() == type);
 
-        if (location->GetType() == type)
-        {
-            return location;
-        }
-    }
-
-    return gtNewOperNode(GT_IND, type, addr);
+    return tree;
 }
-#endif
+
+#endif // FEATURE_SIMD
 
 /*****************************************************************************
  *
@@ -978,7 +978,7 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
 GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLayout* layout, unsigned curLevel)
 {
     assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_FIELD, GT_IND, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR, GT_COMMA) ||
-           (!src->TypeIs(TYP_STRUCT) && src->OperIsSimdOrHWintrinsic()));
+           (!src->TypeIs(TYP_STRUCT) && src->OperIsHWIntrinsic()));
 
     if (src->OperIs(GT_COMMA))
     {
@@ -1171,7 +1171,7 @@ GenTree* Compiler::impAssignStructAddr(GenTree* destAddr, GenTree* src, ClassLay
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsSimdOrHWintrinsic());
+        assert(src->OperIs(GT_IND, GT_FIELD) || src->OperIsHWIntrinsic());
         assert((layout == nullptr) || (src->GetType() == typGetStructType(layout)));
     }
 
@@ -1322,7 +1322,7 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
         return value->AsObj()->GetAddr();
     }
 
-    if (value->OperIs(GT_CALL, GT_RET_EXPR, GT_OBJ, GT_MKREFANY) || value->OperIsSimdOrHWintrinsic())
+    if (value->OperIs(GT_CALL, GT_RET_EXPR, GT_OBJ, GT_MKREFANY) || value->OperIsHWIntrinsic())
     {
         unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address temp"));
         impAppendTempAssign(tmpNum, value, structHnd, curLevel);
@@ -1376,13 +1376,8 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             isCanonical = true;
             break;
 
-#if defined(FEATURE_SIMD) || defined(FEATURE_HW_INTRINSICS)
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-#endif
             assert(varTypeIsSIMD(arg->GetType()));
             FALLTHROUGH;
 #endif
@@ -1413,7 +1408,7 @@ GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             }
 
 #ifdef FEATURE_SIMD
-            if (commaValue->OperIsSimdOrHWintrinsic())
+            if (commaValue->OperIsHWIntrinsic())
             {
                 lastComma->AsOp()->SetOp(1, impCanonicalizeStructCallArg(commaValue, argLayout, curLevel));
             }
@@ -3243,7 +3238,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 // Instead, they provide software fallbacks that will be executed instead.
 
                 assert(!mustExpand);
-                return impSimdAsHWIntrinsic(ni, clsHnd, method, sig, newobjThis);
+                return impImportSysNumSimdIntrinsic(ni, clsHnd, method, sig, newobjThis);
             }
 #endif // FEATURE_HW_INTRINSICS
         }
@@ -3880,7 +3875,8 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                     GenTree* res =
                         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, 16, op1, op2, op3);
 
-                    retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector128_ToScalar, callType, 16, res);
+                    retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector128_GetElement, callType, 16, res,
+                                                       gtNewIconNode(0));
                     break;
                 }
 #elif defined(TARGET_ARM64)
@@ -3912,7 +3908,8 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                     retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, simdSize,
                                                        op3, op2, op1);
 
-                    retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector64_ToScalar, callType, simdSize, retNode);
+                    retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, simdSize, retNode,
+                                                       gtNewIconNode(0));
                     break;
                 }
 #endif
@@ -4500,12 +4497,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
 #ifdef FEATURE_HW_INTRINSICS
     else if (strcmp(namespaceName, "System.Numerics") == 0)
     {
-        CORINFO_SIG_INFO sig;
-        info.compCompHnd->getMethodSig(method, &sig);
-
-        int sizeOfVectorT = getSIMDVectorRegisterByteLength();
-
-        result = SimdAsHWIntrinsicInfo::lookupId(&sig, className, methodName, enclosingClassName, sizeOfVectorT);
+        result = impFindSysNumSimdIntrinsic(method, className, methodName, enclosingClassName);
     }
 #endif // FEATURE_HW_INTRINSICS
     else if (strncmp(namespaceName, "System.Runtime.Intrinsics", 25) == 0)
@@ -6820,18 +6812,6 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                 goto DONE_INTRINSIC;
             }
         }
-
-#ifdef FEATURE_SIMD
-        if (featureSIMD)
-        {
-            call = impSIMDIntrinsic(opcode, newobjThis, clsHnd, methHnd, sig, mflags, pResolvedToken->token);
-            if (call != nullptr)
-            {
-                bIntrinsicImported = true;
-                goto DONE_INTRINSIC;
-            }
-        }
-#endif // FEATURE_SIMD
 
         if ((mflags & CORINFO_FLG_VIRTUAL) && (mflags & CORINFO_FLG_EnC) && (opcode == CEE_CALLVIRT))
         {

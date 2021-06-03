@@ -374,9 +374,6 @@ private:
 
             case GT_LCL_VAR:
             case GT_FIELD:
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
 #endif
@@ -430,7 +427,7 @@ private:
 
     GenTree* GetStructAsgSrc(GenTree* src, ClassLayout* layout)
     {
-        if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsSimdOrHWintrinsic())
+        if (!src->OperIs(GT_LCL_VAR, GT_FIELD) && !src->OperIsHWIntrinsic())
         {
             GenTree* srcAddr = GetStructAddress(src);
 
@@ -1184,6 +1181,23 @@ unsigned Compiler::inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo)
     return depth;
 }
 
+bool Compiler::inlIsSysNumOrSysRtIntrinsicClass(CORINFO_CLASS_HANDLE clsHnd)
+{
+    if (!info.compCompHnd->isIntrinsicType(clsHnd))
+    {
+        return false;
+    }
+
+    const char* namespaceName = nullptr;
+    info.compCompHnd->getClassNameFromMetadata(clsHnd, &namespaceName);
+
+    return
+#ifdef FEATURE_HW_INTRINSICS
+        (strcmp(namespaceName, "System.Runtime.Intrinsics") == 0) ||
+#endif
+        (strcmp(namespaceName, "System.Numerics") == 0);
+}
+
 bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 {
     CORINFO_SIG_INFO& argsSig = inlineInfo->inlineCandidateInfo->methInfo.args;
@@ -1276,7 +1290,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
             assert(argNode->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
 #ifdef FEATURE_SIMD
-            if (!foundSIMDType && isSIMDorHWSIMDClass(methodClass))
+            if (!foundSIMDType && inlIsSysNumOrSysRtIntrinsicClass(methodClass))
             {
                 foundSIMDType = true;
             }
@@ -1307,7 +1321,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
         else if (paramType == TYP_STRUCT)
         {
 #ifdef FEATURE_SIMD
-            if (isSIMDorHWSIMDClass(paramClass))
+            if (inlIsSysNumOrSysRtIntrinsicClass(paramClass))
             {
                 // If this is a SIMD class (i.e. in the SIMD assembly), then we will consider that we've
                 // found a SIMD type, even if this may not be a type we recognize (the assumption is that
@@ -1607,7 +1621,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
                 }
             }
 #ifdef FEATURE_SIMD
-            else if (isSIMDorHWSIMDClass(lclClass))
+            else if (inlIsSysNumOrSysRtIntrinsicClass(lclClass))
             {
                 foundSIMDType = true;
                 lclType       = typGetStructType(lclClass);

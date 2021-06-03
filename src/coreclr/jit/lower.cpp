@@ -240,15 +240,13 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
             ContainCheckBoundsChk(node->AsBoundsChk());
             break;
-#endif // TARGET_XARCH
+#endif
+
         case GT_ARR_ELEM:
             return LowerArrElem(node);
 
@@ -295,12 +293,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
             ContainCheckIntrinsic(node->AsOp());
             break;
 #endif // TARGET_XARCH
-
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            LowerSIMD(node->AsSIMD());
-            break;
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -5804,7 +5796,6 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
             break;
 
 #ifdef FEATURE_SIMD
-        case GT_SIMD:
         case GT_HWINTRINSIC:
             assert(node->TypeGet() != TYP_SIMD12);
             break;
@@ -6174,11 +6165,6 @@ void Lowering::ContainCheckNode(GenTree* node)
             ContainCheckIntrinsic(node->AsOp());
             break;
 #endif // TARGET_XARCH
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            ContainCheckSIMD(node->AsSIMD());
-            break;
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             ContainCheckHWIntrinsic(node->AsHWIntrinsic());
@@ -6395,7 +6381,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 
             // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
             // if there are any advantages in doing such a transform earlier (in fact there may be one
-            // disatvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+            // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
 
             if (dstType == TYP_UINT)
             {
@@ -6673,5 +6659,37 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     }
 
     return true;
+}
+#endif
+
+#ifdef FEATURE_HW_INTRINSICS
+unsigned Lowering::GetSimdMemoryTemp(var_types type)
+{
+#if defined(TARGET_XARCH)
+    assert((type == TYP_SIMD16) || (type == TYP_SIMD32));
+    unsigned& tempLclNum = type == TYP_SIMD32 ? m_simd32MemoryTemp : m_simd16MemoryTemp;
+#elif defined(TARGET_ARM64)
+    assert((type == TYP_SIMD16) || (type == TYP_SIMD8));
+    unsigned& tempLclNum = type == TYP_SIMD8 ? m_simd8MemoryTemp : m_simd16MemoryTemp;
+#endif
+
+    if (tempLclNum == BAD_VAR_NUM)
+    {
+        tempLclNum = comp->lvaGrabTempWithImplicitUse(false DEBUGARG("Vector GetElement temp"));
+
+        // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
+        // so it doesn't set layout, exact size etc. It happens to work because it
+        // is done late, after lowering, otherwise at least the lack of exact size
+        // would cause problems.
+        // And we don't have where to get a class handle to call lvaSetStruct...
+        // Could also be a TYP_BLK local, codegen only needs a memory location where
+        // to store a SIMD register in order to extract an element from it. But if
+        // it's TYP_BLK then it won't have SIMD alignment. Bleah.
+
+        comp->lvaGetDesc(tempLclNum)->lvType = type;
+        comp->lvaSetVarAddrExposed(tempLclNum);
+    }
+
+    return tempLclNum;
 }
 #endif

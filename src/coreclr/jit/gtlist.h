@@ -206,10 +206,6 @@ GTNODE(LSH_HI           , GenTreeOp          ,0,GTK_BINOP)
 GTNODE(RSH_LO           , GenTreeOp          ,0,GTK_BINOP)
 #endif // !defined(TARGET_64BIT)
 
-#ifdef FEATURE_SIMD
-GTNODE(SIMD             , GenTreeSIMD        ,0,GTK_SPECIAL)     // SIMD functions/operators/intrinsics
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
 GTNODE(HWINTRINSIC      , GenTreeHWIntrinsic ,0,GTK_SPECIAL)               // hardware intrinsics
 #endif // FEATURE_HW_INTRINSICS
@@ -302,6 +298,11 @@ GTNODE(SWAP             , GenTreeOp          ,0,GTK_BINOP|GTK_NOVALUE)          
 GTNODE(IL_OFFSET        , Statement          ,0,GTK_LEAF|GTK_NOVALUE)            // marks an IL offset for debugging purposes
 
 GTNODE(INSTR            , GenTreeInstr       ,0,GTK_SPECIAL)
+
+#ifdef FEATURE_SIMD
+GTNODE(SIMD_UPPER_SPILL  ,GenTreeUnOp        ,0,GTK_UNOP)
+GTNODE(SIMD_UPPER_UNSPILL,GenTreeUnOp        ,0,GTK_UNOP)
+#endif
 
 /*****************************************************************************/
 #undef  GTNODE

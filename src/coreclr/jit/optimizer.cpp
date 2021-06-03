@@ -7352,8 +7352,8 @@ GenTree* Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, 
 
     noway_assert(stmt != nullptr);
     noway_assert((comma != nullptr && comma->OperIs(GT_COMMA) && comma->gtGetOp1() == check) ||
-                 (check != nullptr && check->OperIsBoundsCheck() && comma == nullptr));
-    noway_assert(check->OperIsBoundsCheck());
+                 (check != nullptr && check->IsBoundsChk() && comma == nullptr));
+    noway_assert(check->IsBoundsChk());
 
     GenTree* tree = comma != nullptr ? comma : check;
 
@@ -7448,7 +7448,6 @@ void Compiler::optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt)
 {
     assert(comma != nullptr && comma->OperIs(GT_COMMA));
     assert(stmt != nullptr);
-    assert(comma->gtGetOp1()->OperIsBoundsCheck());
 
     optRemoveRangeCheck(comma->gtGetOp1()->AsBoundsChk(), comma, stmt);
 }

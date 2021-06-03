@@ -113,7 +113,7 @@ private:
 
     GenTreeIntCon intForm(var_types type, ssize_t value);
 
-    void genRangeCheck(GenTree* node);
+    void genRangeCheck(GenTreeBoundsChk* bndsChk);
 
     void genLockedInstructions(GenTreeOp* node);
 #ifdef TARGET_XARCH
@@ -968,23 +968,8 @@ protected:
     void genCompareInt(GenTree* treeNode);
 
 #ifdef FEATURE_SIMD
-    instruction getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_types baseType, unsigned* ival = nullptr);
-    void genSIMDIntrinsicUnOp(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsicUpperSave(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode);
-    void genSIMDLo64BitConvert(SIMDIntrinsicID intrinsicID,
-                               var_types       simdType,
-                               var_types       baseType,
-                               regNumber       tmpReg,
-                               regNumber       tmpIntReg,
-                               regNumber       targetReg);
-    void genSIMDIntrinsic32BitConvert(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsic64BitConvert(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsicNarrow(GenTreeSIMD* simdNode);
-    void genSIMDExtractUpperHalf(GenTreeSIMD* simdNode, regNumber srcReg, regNumber tgtReg);
-    void genSIMDIntrinsicWiden(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsic(GenTreeSIMD* simdNode);
-
+    void genSIMDUpperSpill(GenTreeUnOp* node);
+    void genSIMDUpperUnspill(GenTreeUnOp* node);
     void genLoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
@@ -993,6 +978,7 @@ protected:
 
 #ifdef FEATURE_HW_INTRINSICS
     void genHWIntrinsic(GenTreeHWIntrinsic* node);
+    void genVectorGetElement(GenTreeHWIntrinsic* node);
 #if defined(TARGET_XARCH)
     void genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber reg, GenTree* rmOp);
     void genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t ival);

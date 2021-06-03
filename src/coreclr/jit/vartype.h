@@ -358,27 +358,52 @@ inline var_types varTypeToUnsigned(var_types type)
     switch (type)
     {
         case TYP_BYTE:
-            type = TYP_UBYTE;
-            break;
+            return TYP_UBYTE;
         case TYP_SHORT:
-            type = TYP_USHORT;
-            break;
+            return TYP_USHORT;
         case TYP_INT:
-            type = TYP_UINT;
-            break;
+            return TYP_UINT;
         case TYP_LONG:
-            type = TYP_ULONG;
-            break;
+            return TYP_ULONG;
         default:
-            break;
+            return type;
     }
+}
 
-    return type;
+inline var_types varTypeToSigned(var_types type)
+{
+    switch (type)
+    {
+        case TYP_BOOL:
+        case TYP_UBYTE:
+            return TYP_BYTE;
+        case TYP_USHORT:
+            return TYP_SHORT;
+        case TYP_UINT:
+            return TYP_INT;
+        case TYP_ULONG:
+            return TYP_LONG;
+        default:
+            return type;
+    }
 }
 
 inline var_types varTypePointerAdd(var_types type)
 {
     return (type == TYP_REF) ? TYP_BYREF : type;
+}
+
+inline var_types varTypeNodeType(var_types type)
+{
+    switch (type)
+    {
+        case TYP_UINT:
+            return TYP_INT;
+        case TYP_ULONG:
+            return TYP_LONG;
+        default:
+            return type;
+    }
 }
 
 inline bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
@@ -398,5 +423,29 @@ inline bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
             unreached();
     }
 }
+
+#ifdef FEATURE_SIMD
+constexpr var_types getSIMDTypeForSize(unsigned size)
+{
+    switch (size)
+    {
+        case 8:
+            return TYP_SIMD8;
+        case 12:
+            return TYP_SIMD12;
+        case 16:
+            return TYP_SIMD16;
+        case 32:
+            return TYP_SIMD32;
+        default:
+            unreached();
+    }
+}
+
+inline int getSIMDVectorLength(unsigned simdSize, var_types baseType)
+{
+    return simdSize / varTypeSize(baseType);
+}
+#endif // FEATURE_SIMD
 
 #endif // _VARTYPE_H_

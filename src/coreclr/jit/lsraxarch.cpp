@@ -307,12 +307,6 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildIntrinsic(tree->AsOp());
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            srcCount = BuildSIMD(tree->AsSIMD());
-            break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             srcCount = BuildHWIntrinsic(tree->AsHWIntrinsic());
@@ -472,17 +466,12 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-
-            // Consumes arrLen & index - has no result
+#endif
             assert(dstCount == 0);
-            srcCount = BuildOperandUses(tree->AsBoundsChk()->gtIndex);
-            srcCount += BuildOperandUses(tree->AsBoundsChk()->gtArrLen);
+            srcCount = BuildOperandUses(tree->AsBoundsChk()->GetIndex());
+            srcCount += BuildOperandUses(tree->AsBoundsChk()->GetLength());
             break;
 
         case GT_ARR_ELEM:
@@ -1776,240 +1765,6 @@ int LinearScan::BuildIntrinsic(GenTree* tree)
     return srcCount;
 }
 
-#ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// BuildSIMD: Set the NodeInfo for a GT_SIMD tree.
-//
-// Arguments:
-//    simdTree - The GT_SIMD node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
-{
-    // All intrinsics have a dstCount of 1
-    assert(simdTree->IsValue());
-
-    bool      buildUses     = true;
-    regMaskTP dstCandidates = RBM_NONE;
-
-    SetContainsAVXFlags(simdTree->gtSIMDSize);
-
-    int srcCount = 0;
-
-    switch (simdTree->gtSIMDIntrinsicID)
-    {
-
-        case SIMDIntrinsicConvertToSingle:
-            if (simdTree->gtSIMDBaseType == TYP_UINT)
-            {
-                // We need an internal register different from targetReg.
-                setInternalRegsDelayFree = true;
-                buildInternalFloatRegisterDefForNode(simdTree);
-                buildInternalFloatRegisterDefForNode(simdTree);
-                // We also need an integer register.
-                buildInternalIntRegisterDefForNode(simdTree);
-            }
-            break;
-
-        case SIMDIntrinsicConvertToInt32:
-            break;
-
-        case SIMDIntrinsicWidenLo:
-        case SIMDIntrinsicWidenHi:
-            if (varTypeIsIntegral(simdTree->gtSIMDBaseType))
-            {
-                // We need an internal register different from targetReg.
-                setInternalRegsDelayFree = true;
-                buildInternalFloatRegisterDefForNode(simdTree);
-            }
-            break;
-
-        case SIMDIntrinsicConvertToInt64:
-            // We need an internal register different from targetReg.
-            setInternalRegsDelayFree = true;
-            buildInternalFloatRegisterDefForNode(simdTree);
-            if (compiler->getSIMDSupportLevel() == SIMD_AVX2_Supported)
-            {
-                buildInternalFloatRegisterDefForNode(simdTree);
-            }
-            // We also need an integer register.
-            buildInternalIntRegisterDefForNode(simdTree);
-            break;
-
-        case SIMDIntrinsicConvertToDouble:
-            // We need an internal register different from targetReg.
-            setInternalRegsDelayFree = true;
-            buildInternalFloatRegisterDefForNode(simdTree);
-#ifdef TARGET_X86
-            if (simdTree->gtSIMDBaseType == TYP_LONG)
-            {
-                buildInternalFloatRegisterDefForNode(simdTree);
-                buildInternalFloatRegisterDefForNode(simdTree);
-            }
-            else
-#endif
-                if ((compiler->getSIMDSupportLevel() == SIMD_AVX2_Supported) || (simdTree->gtSIMDBaseType == TYP_ULONG))
-            {
-                buildInternalFloatRegisterDefForNode(simdTree);
-            }
-            // We also need an integer register.
-            buildInternalIntRegisterDefForNode(simdTree);
-            break;
-
-        case SIMDIntrinsicNarrow:
-            // We need an internal register different from targetReg.
-            setInternalRegsDelayFree = true;
-            buildInternalFloatRegisterDefForNode(simdTree);
-            if ((compiler->getSIMDSupportLevel() == SIMD_AVX2_Supported) && (simdTree->gtSIMDBaseType != TYP_DOUBLE))
-            {
-                buildInternalFloatRegisterDefForNode(simdTree);
-            }
-            break;
-
-        default:
-            unreached();
-    }
-    if (buildUses)
-    {
-        assert(srcCount == 0);
-
-        if (simdTree->IsUnary())
-        {
-            srcCount = BuildSIMDUnaryRMWUses(simdTree);
-        }
-        else
-        {
-            srcCount = BuildSIMDBinaryRMWUses(simdTree);
-        }
-    }
-
-    buildInternalRegisterUses();
-    BuildDef(simdTree, dstCandidates);
-    return srcCount;
-}
-
-//------------------------------------------------------------------------
-// BuildSIMDUnaryRMWUses: Build uses for a RMW unary SIMD node.
-//
-// Arguments:
-//    node - The GT_SIMD node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-// Notes:
-//    SSE unary instructions (sqrtps, cvttps2dq etc.) aren't really RMW,
-//    they have "dst, src" forms even when the VEX encoding is not available.
-//    However, it seems that SIMDIntrinsicConvertToSingle with UINT base type
-//    could benefit from getting the same register for both destination and
-//    source because its rather complicated codegen expansion starts by copying
-//    the source to the destination register.
-//
-int LinearScan::BuildSIMDUnaryRMWUses(GenTreeSIMD* node)
-{
-    assert(node->IsUnary());
-
-    GenTree* op1 = node->GetOp(0);
-
-    if (op1->isContained())
-    {
-        return BuildOperandUses(op1);
-    }
-
-    tgtPrefUse = BuildUse(op1);
-    return 1;
-}
-
-//------------------------------------------------------------------------
-// BuildSIMDBinaryRMWUses: Build uses for a RMW binary SIMD node.
-//
-// Arguments:
-//    node - The GT_SIMD node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildSIMDBinaryRMWUses(GenTreeSIMD* node)
-{
-    assert(node->IsBinary());
-
-    GenTree* op1 = node->GetOp(0);
-    GenTree* op2 = node->GetOp(1);
-
-    // Determine which operand, if any, should be delayRegFree. Normally, this would be op2,
-    // but if we have a commutative operator codegen can swap the operands, avoiding the need
-    // for delayRegFree.
-    //
-    // TODO-XArch-CQ: This should not be necessary when VEX encoding is available, at least
-    // for those intrinsics that directly map to SSE/AVX instructions. Intrinsics that require
-    // custom codegen expansion may still neeed this.
-    //
-    // Also, this doesn't check if the intrinsic is really RMW:
-    //  - SIMDIntrinsicOpEquality/SIMDIntrinsicOpInEquality - they don't have a register def.
-    //  - SIMDIntrinsicShuffleSSE2 - the second operand is always a contained immediate so they're
-    //    really unary as far as the register allocator is concerned.
-    //  - SIMDIntrinsicGetItem - the second operand is always an integer but the first may be a float
-    //    and in that case delayRegFree is not needed. Either way, it's not a real RMW operation. It's
-    //    also the only binary SIMD intrinsic that can have a contained op1.
-
-    GenTree* delayUseOperand = op2;
-
-    if (node->isCommutativeSIMDIntrinsic())
-    {
-        if (op1->isContained())
-        {
-            delayUseOperand = op1;
-        }
-        else if (!op2->isContained() || op2->IsCnsIntOrI())
-        {
-            // If we have a commutative operator and op2 is not a memory op, we don't need
-            // to set delayRegFree on either operand because codegen can swap them.
-            delayUseOperand = nullptr;
-        }
-    }
-    else if (op1->isContained())
-    {
-        delayUseOperand = nullptr;
-    }
-
-    int srcCount = 0;
-
-    // Build first use
-    if (!op1->isContained())
-    {
-        tgtPrefUse = BuildUse(op1);
-        srcCount++;
-    }
-    else if (delayUseOperand == op1)
-    {
-        srcCount += BuildDelayFreeUses(op1);
-    }
-    else
-    {
-        srcCount += BuildOperandUses(op1);
-    }
-
-    // Build second use
-    if (node->isCommutativeSIMDIntrinsic() && !op2->isContained())
-    {
-        tgtPrefUse2 = BuildUse(op2);
-        srcCount++;
-    }
-    else if (delayUseOperand == op2)
-    {
-        srcCount += BuildDelayFreeUses(op2);
-    }
-    else
-    {
-        srcCount += BuildOperandUses(op2);
-    }
-
-    return srcCount;
-}
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
 //------------------------------------------------------------------------
 // BuildHWIntrinsic: Set the NodeInfo for a GT_HWINTRINSIC tree.
@@ -2022,17 +1777,17 @@ int LinearScan::BuildSIMDBinaryRMWUses(GenTreeSIMD* node)
 //
 int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 {
-    NamedIntrinsic      intrinsicId = intrinsicTree->gtHWIntrinsicId;
-    var_types           baseType    = intrinsicTree->gtSIMDBaseType;
+    NamedIntrinsic      intrinsicId = intrinsicTree->GetIntrinsic();
+    var_types           baseType    = intrinsicTree->GetSimdBaseType();
     HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
     int                 numArgs     = intrinsicTree->GetNumOps();
 
     // Set the AVX Flags if this instruction may use VEX encoding for SIMD operations.
     // Note that this may be true even if the ISA is not AVX (e.g. for platform-agnostic intrinsics
     // or non-AVX intrinsics that will use VEX encoding if it is available on the target).
-    if (intrinsicTree->isSIMD())
+    if (intrinsicTree->IsSimd())
     {
-        SetContainsAVXFlags(intrinsicTree->gtSIMDSize);
+        SetContainsAVXFlags(intrinsicTree->GetSimdSize());
     }
 
     GenTree* op1    = nullptr;
@@ -2096,72 +1851,42 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         switch (intrinsicId)
         {
             case NI_Vector128_CreateScalarUnsafe:
-            case NI_Vector128_ToScalar:
             case NI_Vector256_CreateScalarUnsafe:
-            case NI_Vector256_ToScalar:
-            {
                 assert(numArgs == 1);
 
-                if (varTypeIsFloating(baseType))
+                if (varTypeIsFloating(baseType) && !op1->isContained())
                 {
-                    if (op1->isContained())
-                    {
-                        srcCount += BuildOperandUses(op1);
-                    }
-                    else
-                    {
-                        // We will either be in memory and need to be moved
-                        // into a register of the appropriate size or we
-                        // are already in an XMM/YMM register and can stay
-                        // where we are.
-
-                        tgtPrefUse = BuildUse(op1);
-                        srcCount += 1;
-                    }
-
+                    tgtPrefUse = BuildUse(op1);
+                    srcCount += 1;
                     buildUses = false;
                 }
                 break;
-            }
 
             case NI_Vector128_GetElement:
             case NI_Vector256_GetElement:
-            {
                 assert(numArgs == 2);
+                assert(op2->IsIntCon() || op1->isContained());
 
-                if (!op2->OperIsConst() && !op1->isContained())
+                if (varTypeIsFloating(baseType) && !op1->isContained() && op2->IsIntegralConst(0))
                 {
-                    // If the index is not a constant or op1 is in register,
-                    // we will use the SIMD temp location to store the vector.
-                    compiler->getSIMDInitTempVarNum();
+                    tgtPrefUse = BuildUse(op1);
+                    srcCount += 1;
+                    buildUses = false;
                 }
                 break;
-            }
 
             case NI_Vector128_ToVector256:
             case NI_Vector128_ToVector256Unsafe:
             case NI_Vector256_GetLower:
-            {
                 assert(numArgs == 1);
 
-                if (op1->isContained())
+                if (!op1->isContained())
                 {
-                    srcCount += BuildOperandUses(op1);
-                }
-                else
-                {
-                    // We will either be in memory and need to be moved
-                    // into a register of the appropriate size or we
-                    // are already in an XMM/YMM register and can stay
-                    // where we are.
-
                     tgtPrefUse = BuildUse(op1);
                     srcCount += 1;
+                    buildUses = false;
                 }
-
-                buildUses = false;
                 break;
-            }
 
             case NI_SSE2_MaskMove:
             {

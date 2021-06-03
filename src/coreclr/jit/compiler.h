@@ -1931,16 +1931,6 @@ public:
                                        var_types     type = TYP_I_IMPL);
 
 #ifdef FEATURE_SIMD
-    GenTreeSIMD* gtNewSIMDNode(
-        var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1);
-    GenTreeSIMD* gtNewSIMDNode(
-        var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2);
-    GenTreeSIMD* gtNewSIMDNode(var_types       type,
-                               SIMDIntrinsicID simdIntrinsicID,
-                               var_types       baseType,
-                               unsigned        size,
-                               unsigned        numOps,
-                               GenTree**       ops);
     void SetOpLclRelatedToSIMDIntrinsic(GenTree* op);
 #endif
 
@@ -1948,7 +1938,10 @@ public:
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
 
-    GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types elementType, unsigned simdSize, GenTree* op1, GenTree* op2);
+    GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types simdType,
+                                                var_types elementType,
+                                                GenTree*  value,
+                                                GenTree*  index);
 
     GenTreeHWIntrinsic* gtNewSimdWithElementNode(
         var_types type, var_types simdBaseType, unsigned simdSize, GenTree* op1, GenTree* op2, GenTree* op3);
@@ -3053,7 +3046,6 @@ protected:
                                           CORINFO_METHOD_HANDLE method,
                                           CORINFO_SIG_INFO*     sig,
                                           bool                  mustExpand);
-    GenTree* impNewMustThrowException(unsigned helper, var_types type, CORINFO_CLASS_HANDLE clsHnd);
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTree* impHWIntrinsic(NamedIntrinsic        intrinsic,
@@ -3061,31 +3053,51 @@ protected:
                             CORINFO_METHOD_HANDLE method,
                             CORINFO_SIG_INFO*     sig,
                             bool                  mustExpand);
-    GenTree* impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
-                                  CORINFO_CLASS_HANDLE  clsHnd,
-                                  CORINFO_METHOD_HANDLE method,
-                                  CORINFO_SIG_INFO*     sig,
-                                  GenTree*              newobjThis);
+
+    GenTree* impVectorGetElement(ClassLayout* layout, GenTree* op1, GenTree* op2);
+
+    NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
+                                              const char*           className,
+                                              const char*           methodName,
+                                              const char*           enclosingClassName);
+
+    GenTree* impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
+                                          CORINFO_CLASS_HANDLE  clsHnd,
+                                          CORINFO_METHOD_HANDLE method,
+                                          CORINFO_SIG_INFO*     sig,
+                                          GenTree*              newobjThis);
 
 protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
-    GenTree* impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
-                                         const HWIntrinsicSignature& signature,
-                                         ClassLayout*                layout);
-
-    GenTree* impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& signature,
-                                        ClassLayout*                thisLayout,
-                                        GenTree*                    newobjThis);
-
-    GenTree* impSimdAsHWIntrinsicCreateExtend(const HWIntrinsicSignature& signature,
-                                              ClassLayout*                layout,
-                                              GenTree*                    newobjThis);
-
-    GenTree* impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree* newobjThis);
-    GenTree* impSimdAsHWIntrinsicGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impSimdAsHWIntrinsicMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
+    GenTree* impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* thisLayout, GenTree* newobjThis);
+    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
+    GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
+    GenTree* impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis);
+    GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
+    GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
+                                         GenTree*        array,
+                                         GenTree*        index,
+                                         SpecialCodeKind indexThrowKind,
+                                         SpecialCodeKind lastIndexThrowKind);
+    GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
+    GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
                                  const HWIntrinsicSignature& sig,
@@ -3106,11 +3118,10 @@ protected:
                               var_types                   retType,
                               unsigned                    simdSize);
     GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* impSSE2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 
-    GenTree* impSimdAsHWIntrinsicRelOp(
+    GenTree* impVectorTCompare(
         NamedIntrinsic intrinsic, var_types baseType, ClassLayout* layout, GenTree* op1, GenTree* op2);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
@@ -3159,10 +3170,20 @@ public:
                           GenTree**    clone,
                           ClassLayout* layout,
                           unsigned spillCheckLevel DEBUGARG(const char* reason));
+
     void impMakeMultiUse(GenTree*  tree,
                          unsigned  useCount,
                          GenTree** uses,
                          unsigned spillCheckLevel DEBUGARG(const char* reason));
+
+    template <unsigned useCount>
+    void impMakeMultiUse(GenTree* tree,
+                         GenTree* (&uses)[useCount],
+                         unsigned spillCheckLevel DEBUGARG(const char* reason))
+    {
+        impMakeMultiUse(tree, useCount, uses, spillCheckLevel DEBUGARG(reason));
+    }
+
     void impMakeMultiUse(GenTree*     tree,
                          unsigned     useCount,
                          GenTree**    uses,
@@ -3999,11 +4020,6 @@ public:
 
     // Does value-numbering for an intrinsic tree.
     void fgValueNumberIntrinsic(GenTree* tree);
-
-#ifdef FEATURE_SIMD
-    // Does value-numbering for a GT_SIMD tree
-    void fgValueNumberSimd(GenTreeSIMD* simdNode);
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
     // Does value-numbering for a GT_HWINTRINSIC tree
@@ -4879,6 +4895,7 @@ public:
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
     void inlUpdateRetSpillTempClass(InlineInfo* inlineInfo);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
+    bool inlIsSysNumOrSysRtIntrinsicClass(CORINFO_CLASS_HANDLE clsHnd);
     bool inlAnalyzeInlineeSignature(InlineInfo* inlineInfo);
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
@@ -6403,7 +6420,6 @@ public:
     // Get the flags
 
     bool eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd);
-    bool eeIsJitIntrinsic(CORINFO_METHOD_HANDLE ftn);
 
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(TRACK_LSRA_STATS)
 
@@ -7001,59 +7017,20 @@ private:
 #pragma endregion // Note: region is NOT under !defined(__GNUC__)
 #endif
 
-    /*
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XX                                                                           XX
-    XX                               SIMD                                        XX
-    XX                                                                           XX
-    XX   Info about SIMD types, methods and the SIMD assembly (i.e. the assembly XX
-    XX   that contains the distinguished, well-known SIMD type definitions).     XX
-    XX                                                                           XX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    */
-
-    // Get highest available level for SIMD codegen
-    SIMDLevel getSIMDSupportLevel()
-    {
-#if defined(TARGET_XARCH)
-        if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
-        {
-            return SIMD_AVX2_Supported;
-        }
-
-        if (compOpportunisticallyDependsOn(InstructionSet_SSE42))
-        {
-            return SIMD_SSE4_Supported;
-        }
-
-        // min bar is SSE2
-        return SIMD_SSE2_Supported;
-#else
-        assert(!"Available instruction set(s) for SIMD codegen is not defined for target arch");
-        unreached();
-        return SIMD_Not_Supported;
-#endif
-    }
-
-    bool isIntrinsicType(CORINFO_CLASS_HANDLE clsHnd)
-    {
-        return info.compCompHnd->isIntrinsicType(clsHnd);
-    }
-
-    const char* getClassNameFromMetadata(CORINFO_CLASS_HANDLE cls, const char** namespaceName)
-    {
-        return info.compCompHnd->getClassNameFromMetadata(cls, namespaceName);
-    }
-
-    CORINFO_CLASS_HANDLE getTypeInstantiationArgument(CORINFO_CLASS_HANDLE cls, unsigned index)
-    {
-        return info.compCompHnd->getTypeInstantiationArgument(cls, index);
-    }
+/*
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XX                                                                           XX
+XX                               SIMD                                        XX
+XX                                                                           XX
+XX   Info about SIMD types, methods and the SIMD assembly (i.e. the assembly XX
+XX   that contains the distinguished, well-known SIMD type definitions).     XX
+XX                                                                           XX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+*/
 
 #ifdef FEATURE_SIMD
-
     // Should we support SIMD intrinsics?
     bool featureSIMD;
 
@@ -7068,285 +7045,26 @@ private:
 #endif
     }
 
-    // This is a temp lclVar allocated on the stack as TYP_SIMD.  It is used to implement intrinsics
-    // that require indexed access to the individual fields of the vector, which is not well supported
-    // by the hardware.  It is allocated when/if such situations are encountered during Lowering.
-    unsigned lvaSIMDInitTempVarNum;
-
-    bool isSIMDorHWSIMDClass(CORINFO_CLASS_HANDLE clsHnd)
-    {
-        if (!isIntrinsicType(clsHnd))
-        {
-            return false;
-        }
-
-        const char* namespaceName = nullptr;
-        getClassNameFromMetadata(clsHnd, &namespaceName);
-
-        return
-#ifdef FEATURE_HW_INTRINSICS
-            (strcmp(namespaceName, "System.Runtime.Intrinsics") == 0) ||
-#endif
-            (strcmp(namespaceName, "System.Numerics") == 0);
-    }
-
-    // Get SIMD Intrinsic info given the method handle.
-    // Also sets typeHnd, argCount, baseType and sizeBytes out params.
-    const SIMDIntrinsicInfo* getSIMDIntrinsicInfo(const char*           className,
-                                                  const char*           methodName,
-                                                  CORINFO_SIG_INFO*     sig,
-                                                  bool                  isNewObj,
-                                                  CORINFO_CLASS_HANDLE* typeHnd,
-                                                  unsigned*             argCount,
-                                                  var_types*            baseType,
-                                                  unsigned*             sizeBytes);
-
     GenTree* impSIMDPopStack(var_types type);
-    GenTree* impSIMDPopStackAddr(var_types type);
+    GenTree* impPopStackAddrAsVector(var_types type);
 
-    void setLclRelatedToSIMDIntrinsic(GenTree* tree);
-
-    // check methodHnd to see if it is a SIMD method that is expanded as an intrinsic in the JIT.
-    GenTree* impSIMDIntrinsic(OPCODE                opcode,
-                              GenTree*              newobjThis,
-                              CORINFO_CLASS_HANDLE  clsHnd,
-                              CORINFO_METHOD_HANDLE method,
-                              CORINFO_SIG_INFO*     sig,
-                              unsigned              methodFlags,
-                              int                   memberRef);
-
-    GenTreeOp* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
-
-    GenTree* getOp1ForConstructor(OPCODE opcode, GenTree* newobjThis, CORINFO_CLASS_HANDLE clsHnd);
+    void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
-    var_types getSIMDVectorType()
-    {
-#if defined(TARGET_XARCH)
-        if (getSIMDSupportLevel() == SIMD_AVX2_Supported)
-        {
-            return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
-        }
-        else
-        {
-            // Verify and record that AVX2 isn't supported
-            compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
-            assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
-            return TYP_SIMD16;
-        }
-#elif defined(TARGET_ARM64)
-        return TYP_SIMD16;
-#else
-        assert(!"getSIMDVectorType() unimplemented on target arch");
-        unreached();
-#endif
-    }
-
-    // Get the the number of elements of basetype of SIMD vector given by its size and baseType
-    static int getSIMDVectorLength(unsigned simdSize, var_types baseType);
+    var_types GetVectorTSimdType();
 
     // Get preferred alignment of SIMD type.
-    int getSIMDTypeAlignment(var_types simdType);
-
-    // Get the number of bytes in a System.Numeric.Vector<T> for the current compilation.
-    // Note - cannot be used for System.Runtime.Intrinsic
-    unsigned getSIMDVectorRegisterByteLength()
-    {
-#if defined(TARGET_XARCH)
-        if (getSIMDSupportLevel() == SIMD_AVX2_Supported)
-        {
-            return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
-        }
-        else
-        {
-            assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
-
-            // Verify and record that AVX2 isn't supported
-            compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
-            return XMM_REGSIZE_BYTES;
-        }
-#elif defined(TARGET_ARM64)
-        return FP_REGSIZE_BYTES;
-#else
-        assert(!"getSIMDVectorRegisterByteLength() unimplemented on target arch");
-        unreached();
-#endif
-    }
-
-    // The minimum and maximum possible number of bytes in a SIMD vector.
-
-    // maxSIMDStructBytes
-    // The minimum SIMD size supported by System.Numeric.Vectors or System.Runtime.Intrinsic
-    // SSE:  16-byte Vector<T> and Vector128<T>
-    // AVX:  32-byte Vector256<T> (Vector<T> is 16-byte)
-    // AVX2: 32-byte Vector<T> and Vector256<T>
-    unsigned int maxSIMDStructBytes()
-    {
-#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-        if (compOpportunisticallyDependsOn(InstructionSet_AVX))
-        {
-            return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
-        }
-        else
-        {
-            assert(getSIMDSupportLevel() >= SIMD_SSE2_Supported);
-            return XMM_REGSIZE_BYTES;
-        }
-#else
-        return getSIMDVectorRegisterByteLength();
-#endif
-    }
-
-    unsigned int minSIMDStructBytes()
-    {
-        return emitTypeSize(TYP_SIMD8);
-    }
-
-public:
-    static var_types getSIMDTypeForSize(unsigned size)
-    {
-        switch (size)
-        {
-            case 8:
-                return TYP_SIMD8;
-            case 12:
-                return TYP_SIMD12;
-            case 16:
-                return TYP_SIMD16;
-            case 32:
-                return TYP_SIMD32;
-            default:
-                unreached();
-        }
-    }
-
-private:
-    unsigned getSIMDInitTempVarNum()
-    {
-        if (lvaSIMDInitTempVarNum == BAD_VAR_NUM)
-        {
-            lvaSIMDInitTempVarNum = lvaGrabTempWithImplicitUse(false DEBUGARG("SIMDInitTempVar"));
-
-            // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
-            // so it doesn't set layout, exact size etc. It happens to work because it
-            // is done late, after lowering, otherwise at least the lack of exact size
-            // would cause problems.
-            // And we don't have where to get a class handle to call lvaSetStruct...
-            // Could also be a TYP_BLK local, codegen only needs a memory location where
-            // to store a SIMD register in order to extract an element from it. But if
-            // it's TYP_BLK then it won't have SIMD alignment. Bleah.
-
-            lvaTable[lvaSIMDInitTempVarNum].lvType = getSIMDVectorType();
-        }
-        return lvaSIMDInitTempVarNum;
-    }
+    int lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl);
 #endif // FEATURE_SIMD
 
-public:
-    //------------------------------------------------------------------------
-    // largestEnregisterableStruct: The size in bytes of the largest struct that can be enregistered.
-    //
-    // Notes: It is not guaranteed that the struct of this size or smaller WILL be a
-    //        candidate for enregistration.
-
-    unsigned largestEnregisterableStructSize()
-    {
-#ifdef FEATURE_SIMD
-#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-        if (opts.IsReadyToRun())
-        {
-            // Return constant instead of maxSIMDStructBytes, as maxSIMDStructBytes performs
-            // checks that are effected by the current level of instruction set support would
-            // otherwise cause the highest level of instruction set support to be reported to crossgen2.
-            // and this api is only ever used as an optimization or assert, so no reporting should
-            // ever happen.
-            return YMM_REGSIZE_BYTES;
-        }
-#endif // defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-        unsigned vectorRegSize = maxSIMDStructBytes();
-        assert(vectorRegSize >= TARGET_POINTER_SIZE);
-        return vectorRegSize;
-#else  // !FEATURE_SIMD
-        return TARGET_POINTER_SIZE;
-#endif // !FEATURE_SIMD
-    }
-
-    // Use to determine if a struct *might* be a SIMD type. As this function only takes a size, many
-    // structs will fit the criteria.
-    bool structSizeMightRepresentSIMDType(size_t structSize)
-    {
-#ifdef FEATURE_SIMD
-        // Do not use maxSIMDStructBytes as that api in R2R on X86 and X64 may notify the JIT
-        // about the size of a struct under the assumption that the struct size needs to be recorded.
-        // By using largestEnregisterableStructSize here, the detail of whether or not Vector256<T> is
-        // enregistered or not will not be messaged to the R2R compiler.
-        return (structSize >= minSIMDStructBytes()) && (structSize <= largestEnregisterableStructSize());
-#else
-        return false;
-#endif // FEATURE_SIMD
-    }
-
-#ifdef FEATURE_SIMD
-    static bool vnEncodesResultTypeForSIMDIntrinsic(SIMDIntrinsicID intrinsicId);
-#endif // !FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
+public:
     static bool vnEncodesResultTypeForHWIntrinsic(NamedIntrinsic hwIntrinsicID);
 #endif // FEATURE_HW_INTRINSICS
 
 private:
-    // Returns true if the TYP_SIMD locals on stack are aligned at their
-    // preferred byte boundary specified by getSIMDTypeAlignment().
-    //
-    // As per the Intel manual, the preferred alignment for AVX vectors is
-    // 32-bytes. It is not clear whether additional stack space used in
-    // aligning stack is worth the benefit and for now will use 16-byte
-    // alignment for AVX 256-bit vectors with unaligned load/stores to/from
-    // memory. On x86, the stack frame is aligned to 4 bytes. We need to extend
-    // existing support for double (8-byte) alignment to 16 or 32 byte
-    // alignment for frames with local SIMD vars, if that is determined to be
-    // profitable.
-    //
-    // On Amd64 and SysV, RSP+8 is aligned on entry to the function (before
-    // prolog has run). This means that in RBP-based frames RBP will be 16-byte
-    // aligned. For RSP-based frames these are only sometimes aligned, depending
-    // on the frame size.
-    //
-    bool isSIMDTypeLocalAligned(unsigned varNum)
-    {
-#if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
-        LclVarDsc* lcl = lvaGetDesc(varNum);
-
-        if (varTypeIsSIMD(lcl->GetType()))
-        {
-            int alignment = getSIMDTypeAlignment(lcl->GetType());
-            if (alignment <= STACK_ALIGN)
-            {
-                bool rbpBased;
-                int  off = lvaFrameAddress(varNum, &rbpBased);
-                // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
-                // first instruction of a function. If our frame is RBP based
-                // then RBP will always be 16 bytes aligned, so we can simply
-                // check the offset.
-                if (rbpBased)
-                {
-                    return (off % alignment) == 0;
-                }
-
-                // For RSP-based frame the alignment of RSP depends on our
-                // locals. rsp+8 is aligned on entry and we just subtract frame
-                // size so it is not hard to compute. Note that the compiler
-                // tries hard to make sure the frame size means RSP will be
-                // 16-byte aligned, but for leaf functions without locals (i.e.
-                // frameSize = 0) it will not be.
-                int frameSize = codeGen->genTotalFrameSize();
-                return ((8 - frameSize + off) % alignment) == 0;
-            }
-        }
-#endif // FEATURE_SIMD
-
-        return false;
-    }
+    bool lvaIsSimdTypedLocalAligned(unsigned varNum);
 
 #ifdef DEBUG
     // Answer the question: Is a particular ISA supported?
@@ -8163,6 +7881,9 @@ public:
     // Get the layout of a Vector2/3/4/T/NT type.
     ClassLayout* typGetVectorLayout(GenTree* node);
     ClassLayout* typGetVectorLayout(var_types simdType, var_types elementType);
+#ifdef FEATURE_SIMD
+    unsigned typGetLargestSimdTypeSize();
+#endif
 
 //-------------------------- Global Compiler Data ------------------------------------
 
@@ -9234,6 +8955,10 @@ public:
             case GT_RUNTIMELOOKUP:
             case GT_KEEPALIVE:
             case GT_INC_SATURATE:
+#ifdef FEATURE_SIMD
+            case GT_SIMD_UPPER_SPILL:
+            case GT_SIMD_UPPER_UNSPILL:
+#endif
             {
                 GenTreeUnOp* const unOp = node->AsUnOp();
                 if (unOp->gtOp1 != nullptr)
@@ -9269,35 +8994,6 @@ public:
                     }
                 }
                 break;
-
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-                if (TVisitor::UseExecutionOrder && node->AsSIMD()->IsBinary() && node->IsReverseOp())
-                {
-                    result = WalkTree(&node->AsSIMD()->GetUse(1).NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
-                    {
-                        return result;
-                    }
-                    result = WalkTree(&node->AsSIMD()->GetUse(0).NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
-                    {
-                        return result;
-                    }
-                }
-                else
-                {
-                    for (GenTreeSIMD::Use& use : node->AsSIMD()->Uses())
-                    {
-                        result = WalkTree(&use.NodeRef(), node);
-                        if (result == fgWalkResult::WALK_ABORT)
-                        {
-                            return result;
-                        }
-                    }
-                }
-                break;
-#endif
 
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
@@ -9362,27 +9058,20 @@ public:
             }
 
             case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            {
-                GenTreeBoundsChk* const boundsChk = node->AsBoundsChk();
-
-                result = WalkTree(&boundsChk->gtIndex, boundsChk);
+#endif
+                result = WalkTree(&node->AsBoundsChk()->gtIndex, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
-                result = WalkTree(&boundsChk->gtArrLen, boundsChk);
+                result = WalkTree(&node->AsBoundsChk()->gtArrLen, node);
                 if (result == fgWalkResult::WALK_ABORT)
                 {
                     return result;
                 }
                 break;
-            }
 
             case GT_FIELD:
                 result = WalkTree(&node->AsField()->gtFldObj, node);

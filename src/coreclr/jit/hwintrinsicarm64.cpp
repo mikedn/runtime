@@ -239,7 +239,7 @@ void HWIntrinsicInfo::lookupImmBounds(
     }
     else if (category == HW_Category_SIMDByIndexedElement)
     {
-        immUpperBound = Compiler::getSIMDVectorLength(simdSize, baseType) - 1;
+        immUpperBound = getSIMDVectorLength(simdSize, baseType) - 1;
     }
     else
     {
@@ -256,7 +256,7 @@ void HWIntrinsicInfo::lookupImmBounds(
             case NI_AdvSimd_StoreSelectedScalar:
             case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
             case NI_AdvSimd_Arm64_InsertSelectedScalar:
-                immUpperBound = Compiler::getSIMDVectorLength(simdSize, baseType) - 1;
+                immUpperBound = getSIMDVectorLength(simdSize, baseType) - 1;
                 break;
 
             default:
@@ -375,7 +375,7 @@ GenTree* Compiler::impSpecialIntrinsic(
             assert(!sig.hasThisParam);
             assert(sig.paramCount == 0);
 
-            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType), TYP_INT);
+            GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
             countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
             retNode = countNode;
             break;
@@ -393,9 +393,22 @@ GenTree* Compiler::impSpecialIntrinsic(
             break;
         }
 
+        case NI_Vector64_ToScalar:
+        case NI_Vector128_ToScalar:
+            assert(!sig.hasThisParam);
+            assert(sig.paramCount == 1);
+
+            if (!featureSIMD || !compExactlyDependsOn(InstructionSet_AdvSimd))
+            {
+                return nullptr;
+            }
+
+            op1       = impSIMDPopStack(sig.paramType[0]);
+            intrinsic = intrinsic == NI_Vector64_ToScalar ? NI_Vector64_GetElement : NI_Vector128_GetElement;
+            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, gtNewIconNode(0));
+
         case NI_Vector64_GetElement:
         case NI_Vector128_GetElement:
-        {
             assert(!sig.hasThisParam);
             assert(sig.paramCount == 2);
 
@@ -404,12 +417,28 @@ GenTree* Compiler::impSpecialIntrinsic(
                 return nullptr;
             }
 
-            op2 = impPopStack().val;
-            op1 = impSIMDPopStack(getSIMDTypeForSize(simdSize));
+            op2 = impPopStackCoerceArg(TYP_INT);
+            op1 = impSIMDPopStack(sig.paramType[0]);
+            return impVectorGetElement(sig.paramLayout[0], op1, op2);
 
-            retNode = gtNewSimdGetElementNode(baseType, simdSize, op1, op2);
-            break;
-        }
+        case NI_AdvSimd_Extract:
+            assert(!sig.hasThisParam);
+            assert(sig.paramCount == 2);
+
+            if (!featureSIMD || !compExactlyDependsOn(InstructionSet_AdvSimd))
+            {
+                return nullptr;
+            }
+
+            op2 = impPopStackCoerceArg(TYP_INT);
+            op1 = impSIMDPopStack(sig.paramType[0]);
+
+            if (op2->IsIntCon() && (op2->AsIntCon()->GetUInt8Value() < sig.paramLayout[0]->GetElementCount()))
+            {
+                return gtNewSimdGetElementNode(sig.paramType[0], baseType, op1, op2);
+            }
+
+            return gtNewSimdHWIntrinsicNode(retType, intrinsic, baseType, simdSize, op1, op2);
 
         case NI_Vector64_WithElement:
         case NI_Vector128_WithElement:
@@ -455,9 +484,7 @@ GenTree* Compiler::impSpecialIntrinsic(
         }
 
         default:
-        {
             return nullptr;
-        }
     }
 
     return retNode;

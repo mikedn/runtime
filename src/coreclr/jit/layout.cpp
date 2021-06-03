@@ -593,9 +593,6 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
         case GT_LCL_FLD:
             return node->AsLclFld()->GetLayout(this);
         case GT_IND:
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
 #endif
@@ -629,11 +626,9 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
             FALLTHROUGH;
         case GT_IND:
             return typGetVectorLayout(node->GetType(), TYP_UNDEF);
-        case GT_SIMD:
-            return typGetVectorLayout(node->GetType(), node->AsSIMD()->GetSIMDBaseType());
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSIMDBaseType());
+            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSimdBaseType());
 #endif
         default:
             // This is not intended to be used before global morph so FIELD and INDEX are not handled.
@@ -652,6 +647,30 @@ ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementT
     return nullptr;
 #endif
 }
+
+#ifdef FEATURE_SIMD
+unsigned Compiler::typGetLargestSimdTypeSize()
+{
+#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
+    if (opts.IsReadyToRun())
+    {
+        // This function is only used by ClassLayout as a throughput optimization. Return
+        // the largest SIMD register size instead of using compOpportunisticallyDependsOn,
+        // to avoid ISA usage reporting when we're not actually using any ISA instructions.
+        return YMM_REGSIZE_BYTES;
+    }
+
+    if (compOpportunisticallyDependsOn(InstructionSet_AVX))
+    {
+        return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
+    }
+
+    return XMM_REGSIZE_BYTES;
+#else
+    return varTypeSize(GetVectorTSimdType());
+#endif
+}
+#endif
 
 ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     : m_classHandle(classHandle)
@@ -694,7 +713,7 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     {
 #ifdef FEATURE_SIMD
         if (m_isValueClass && ((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && compiler->supportSIMDTypes() &&
-            compiler->structSizeMightRepresentSIMDType(m_size))
+            (m_size >= varTypeSize(TYP_SIMD8)) && (m_size <= compiler->typGetLargestSimdTypeSize()))
         {
             m_layoutInfo = GetVectorLayoutInfo(classHandle, compiler);
 
@@ -919,9 +938,9 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
 
     if (isNumericsVector && strcmp(className, "Vector`1") == 0)
     {
-        unsigned size = compiler->getSIMDVectorRegisterByteLength();
-        assert((size == 16) || (size == 32));
-        return {VectorKind::VectorT, false, size == 32 ? TYP_SIMD32 : TYP_SIMD16, elementType};
+        var_types simdType = compiler->GetVectorTSimdType();
+        assert((simdType == TYP_SIMD16) || (simdType == TYP_SIMD32));
+        return {VectorKind::VectorT, false, simdType, elementType};
     }
 
     bool isNInt = (elementCorType == CORINFO_TYPE_NATIVEINT) || (elementCorType == CORINFO_TYPE_NATIVEUINT);

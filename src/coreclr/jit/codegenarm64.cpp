@@ -3515,371 +3515,63 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 
 #ifdef FEATURE_SIMD
 
-//------------------------------------------------------------------------
-// genSIMDIntrinsic: Generate code for a SIMD Intrinsic.  This is the main
-// routine which in turn calls appropriate genSIMDIntrinsicXXX() routine.
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    Currently, we only recognize SIMDVector<float> and SIMDVector<int>, and
-//    a limited set of methods.
-//
-// TODO-CLEANUP Merge all versions of this function and move to new file simdcodegencommon.cpp.
-void CodeGen::genSIMDIntrinsic(GenTreeSIMD* simdNode)
+// Save the upper half of a TYP_SIMD16 vector to the given register, if any, or to memory.
+// The upper half of all SIMD registers are volatile, even the callee-save registers.
+// When a 16-byte SIMD value is live across a call, the register allocator will use this intrinsic
+// to cause the upper half to be saved.  It will first attempt to find another, unused, callee-save
+// register. If such a register cannot be found, it will save it to an available caller-save register.
+// In that case, this node will be marked GTF_SPILL, which will cause this method to save
+// the upper half to the lclVar's home location.
+void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 {
-    // NYI for unsupported base types
-    if (!varTypeIsArithmetic(simdNode->gtSIMDBaseType))
-    {
-        noway_assert(!"SIMD intrinsic with unsupported base type.");
-    }
+    GenTree* op1 = node->GetOp(0);
+    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
 
-    switch (simdNode->gtSIMDIntrinsicID)
-    {
-        case SIMDIntrinsicConvertToSingle:
-        case SIMDIntrinsicConvertToInt32:
-        case SIMDIntrinsicConvertToDouble:
-        case SIMDIntrinsicConvertToInt64:
-            genSIMDIntrinsicUnOp(simdNode);
-            break;
-
-        case SIMDIntrinsicWidenLo:
-        case SIMDIntrinsicWidenHi:
-            genSIMDIntrinsicWiden(simdNode);
-            break;
-
-        case SIMDIntrinsicNarrow:
-            genSIMDIntrinsicNarrow(simdNode);
-            break;
-
-        case SIMDIntrinsicUpperSave:
-            genSIMDIntrinsicUpperSave(simdNode);
-            break;
-
-        case SIMDIntrinsicUpperRestore:
-            genSIMDIntrinsicUpperRestore(simdNode);
-            break;
-
-        default:
-            noway_assert(!"Unimplemented SIMD intrinsic.");
-            unreached();
-    }
-}
-
-// getOpForSIMDIntrinsic: return the opcode for the given SIMD Intrinsic
-//
-// Arguments:
-//   intrinsicId    -   SIMD intrinsic Id
-//   baseType       -   Base type of the SIMD vector
-//   ival           -   Out param. Any immediate byte operand that needs to be passed to SSE2 opcode
-//
-//
-// Return Value:
-//   Instruction (op) to be used, and immed is set if instruction requires an immediate operand.
-//
-instruction CodeGen::getOpForSIMDIntrinsic(SIMDIntrinsicID intrinsicId, var_types baseType, unsigned* ival /*=nullptr*/)
-{
-    instruction result = INS_invalid;
-    if (varTypeIsFloating(baseType))
-    {
-        switch (intrinsicId)
-        {
-            case SIMDIntrinsicConvertToInt32:
-            case SIMDIntrinsicConvertToInt64:
-                result = INS_fcvtzs;
-                break;
-            case SIMDIntrinsicNarrow:
-                // Use INS_fcvtn lower bytes of result followed by INS_fcvtn2 for upper bytes
-                // Return lower bytes instruction here
-                result = INS_fcvtn;
-                break;
-            case SIMDIntrinsicWidenLo:
-                result = INS_fcvtl;
-                break;
-            case SIMDIntrinsicWidenHi:
-                result = INS_fcvtl2;
-                break;
-            default:
-                assert(!"Unsupported SIMD intrinsic");
-                unreached();
-        }
-    }
-    else
-    {
-        bool isUnsigned = varTypeIsUnsigned(baseType);
-
-        switch (intrinsicId)
-        {
-            case SIMDIntrinsicConvertToDouble:
-            case SIMDIntrinsicConvertToSingle:
-                result = isUnsigned ? INS_ucvtf : INS_scvtf;
-                break;
-            case SIMDIntrinsicNarrow:
-                // Use INS_xtn lower bytes of result followed by INS_xtn2 for upper bytes
-                // Return lower bytes instruction here
-                result = INS_xtn;
-                break;
-            case SIMDIntrinsicWidenLo:
-                result = isUnsigned ? INS_uxtl : INS_sxtl;
-                break;
-            case SIMDIntrinsicWidenHi:
-                result = isUnsigned ? INS_uxtl2 : INS_sxtl2;
-                break;
-            default:
-                assert(!"Unsupported SIMD intrinsic");
-                unreached();
-        }
-    }
-
-    noway_assert(result != INS_invalid);
-    return result;
-}
-
-//----------------------------------------------------------------------------------
-// genSIMDIntrinsicUnOp: Generate code for SIMD Intrinsic unary operations like sqrt.
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Return Value:
-//    None.
-//
-void CodeGen::genSIMDIntrinsicUnOp(GenTreeSIMD* simdNode)
-{
-    assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicConvertToSingle ||
-           simdNode->gtSIMDIntrinsicID == SIMDIntrinsicConvertToInt32 ||
-           simdNode->gtSIMDIntrinsicID == SIMDIntrinsicConvertToDouble ||
-           simdNode->gtSIMDIntrinsicID == SIMDIntrinsicConvertToInt64);
-
-    GenTree*  op1       = simdNode->GetOp(0);
-    var_types baseType  = simdNode->gtSIMDBaseType;
-    regNumber targetReg = simdNode->GetRegNum();
-    assert(targetReg != REG_NA);
-    var_types targetType = simdNode->TypeGet();
-
-    genConsumeRegs(op1);
-    regNumber op1Reg = op1->GetRegNum();
-
-    assert(genIsValidFloatReg(op1Reg));
-    assert(genIsValidFloatReg(targetReg));
-
-    instruction ins  = getOpForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID, baseType);
-    emitAttr    attr = (simdNode->gtSIMDSize > 8) ? EA_16BYTE : EA_8BYTE;
-
-    if (GetEmitter()->IsMovInstruction(ins))
-    {
-        GetEmitter()->emitIns_Mov(ins, attr, targetReg, op1Reg, /* canSkip */ false, INS_OPTS_NONE);
-    }
-    else
-    {
-        GetEmitter()->emitIns_R_R(ins, attr, targetReg, op1Reg, emitSimdArrangementOpt(attr, baseType));
-    }
-    genProduceReg(simdNode);
-}
-
-//--------------------------------------------------------------------------------
-// genSIMDIntrinsicWiden: Generate code for SIMD Intrinsic Widen operations
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Notes:
-//    The Widen intrinsics are broken into separate intrinsics for the two results.
-//
-void CodeGen::genSIMDIntrinsicWiden(GenTreeSIMD* simdNode)
-{
-    assert((simdNode->gtSIMDIntrinsicID == SIMDIntrinsicWidenLo) ||
-           (simdNode->gtSIMDIntrinsicID == SIMDIntrinsicWidenHi));
-
-    GenTree*  op1       = simdNode->GetOp(0);
-    var_types baseType  = simdNode->gtSIMDBaseType;
-    regNumber targetReg = simdNode->GetRegNum();
-    assert(targetReg != REG_NA);
-    var_types simdType = simdNode->TypeGet();
-
-    genConsumeRegs(op1);
-    regNumber op1Reg   = op1->GetRegNum();
-    regNumber srcReg   = op1Reg;
-    emitAttr  emitSize = emitActualTypeSize(simdType);
-
-    instruction ins = getOpForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID, baseType);
-
-    emitAttr attr = (simdNode->gtSIMDIntrinsicID == SIMDIntrinsicWidenHi) ? EA_16BYTE : EA_8BYTE;
-    insOpts  opt  = emitSimdArrangementOpt(attr, baseType);
-
-    GetEmitter()->emitIns_R_R(ins, attr, targetReg, op1Reg, opt);
-
-    genProduceReg(simdNode);
-}
-
-//--------------------------------------------------------------------------------
-// genSIMDIntrinsicNarrow: Generate code for SIMD Intrinsic Narrow operations
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Notes:
-//    This intrinsic takes two arguments. The first operand is narrowed to produce the
-//    lower elements of the results, and the second operand produces the high elements.
-//
-void CodeGen::genSIMDIntrinsicNarrow(GenTreeSIMD* simdNode)
-{
-    assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicNarrow);
-
-    GenTree*  op1       = simdNode->GetOp(0);
-    GenTree*  op2       = simdNode->GetOp(1);
-    var_types baseType  = simdNode->gtSIMDBaseType;
-    regNumber targetReg = simdNode->GetRegNum();
-    assert(targetReg != REG_NA);
-    var_types simdType = simdNode->TypeGet();
-    emitAttr  emitSize = emitTypeSize(simdType);
-
-    genConsumeRegs(op1);
-    genConsumeRegs(op2);
-    regNumber op1Reg = op1->GetRegNum();
-    regNumber op2Reg = op2->GetRegNum();
-
-    assert(genIsValidFloatReg(op1Reg));
-    assert(genIsValidFloatReg(op2Reg));
-    assert(genIsValidFloatReg(targetReg));
-    assert(op2Reg != targetReg);
-    assert(simdNode->gtSIMDSize == 16);
-
-    instruction ins = getOpForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID, baseType);
-    assert((ins == INS_fcvtn) || (ins == INS_xtn));
-
-    instruction ins2 = (ins == INS_fcvtn) ? INS_fcvtn2 : INS_xtn2;
-
-    insOpts opt  = INS_OPTS_NONE;
-    insOpts opt2 = INS_OPTS_NONE;
-
-    // This is not the same as genGetSimdInsOpt()
-    // Basetype is the soure operand type
-    // However encoding is based on the destination operand type which is 1/2 the basetype.
-    switch (baseType)
-    {
-        case TYP_ULONG:
-        case TYP_LONG:
-        case TYP_DOUBLE:
-            opt  = INS_OPTS_2S;
-            opt2 = INS_OPTS_4S;
-            break;
-        case TYP_UINT:
-        case TYP_INT:
-            opt  = INS_OPTS_4H;
-            opt2 = INS_OPTS_8H;
-            break;
-        case TYP_USHORT:
-        case TYP_SHORT:
-            opt  = INS_OPTS_8B;
-            opt2 = INS_OPTS_16B;
-            break;
-        default:
-            assert(!"Unsupported narrowing element type");
-            unreached();
-    }
-
-    GetEmitter()->emitIns_R_R(ins, EA_8BYTE, targetReg, op1Reg, opt);
-    GetEmitter()->emitIns_R_R(ins2, EA_16BYTE, targetReg, op2Reg, opt2);
-
-    genProduceReg(simdNode);
-}
-
-//-----------------------------------------------------------------------------
-// genSIMDIntrinsicUpperSave: save the upper half of a TYP_SIMD16 vector to
-//                            the given register, if any, or to memory.
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    The upper half of all SIMD registers are volatile, even the callee-save registers.
-//    When a 16-byte SIMD value is live across a call, the register allocator will use this intrinsic
-//    to cause the upper half to be saved.  It will first attempt to find another, unused, callee-save
-//    register.  If such a register cannot be found, it will save it to an available caller-save register.
-//    In that case, this node will be marked GTF_SPILL, which will cause this method to save
-//    the upper half to the lclVar's home location.
-//
-void CodeGen::genSIMDIntrinsicUpperSave(GenTreeSIMD* simdNode)
-{
-    assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicUpperSave);
-
-    GenTree* op1 = simdNode->GetOp(0);
-    assert(op1->IsLocal());
-    assert(emitTypeSize(op1->TypeGet()) == 16);
-    regNumber targetReg = simdNode->GetRegNum();
-    regNumber op1Reg    = genConsumeReg(op1);
-    assert(op1Reg != REG_NA);
-    assert(targetReg != REG_NA);
-    GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, targetReg, op1Reg, 0, 1);
-
-    if ((simdNode->gtFlags & GTF_SPILL) != 0)
-    {
-        // This is not a normal spill; we'll spill it to the lclVar location.
-        // The localVar must have a stack home.
-        unsigned   varNum = op1->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-        assert(varDsc->lvOnFrame);
-        // We want to store this to the upper 8 bytes of this localVar's home.
-        int offset = 8;
-
-        emitAttr attr = emitTypeSize(TYP_SIMD8);
-        GetEmitter()->emitIns_S_R(INS_str, attr, targetReg, varNum, offset);
-    }
-    else
-    {
-        genProduceReg(simdNode);
-    }
-}
-
-//-----------------------------------------------------------------------------
-// genSIMDIntrinsicUpperRestore: Restore the upper half of a TYP_SIMD16 vector to
-//                               the given register, if any, or to memory.
-//
-// Arguments:
-//    simdNode - The GT_SIMD node
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    For consistency with genSIMDIntrinsicUpperSave, and to ensure that lclVar nodes always
-//    have their home register, this node has its targetReg on the lclVar child, and its source
-//    on the simdNode.
-//    Regarding spill, please see the note above on genSIMDIntrinsicUpperSave.  If we have spilled
-//    an upper-half to the lclVar's home location, this node will be marked GTF_SPILLED.
-//
-void CodeGen::genSIMDIntrinsicUpperRestore(GenTreeSIMD* simdNode)
-{
-    assert(simdNode->gtSIMDIntrinsicID == SIMDIntrinsicUpperRestore);
-
-    GenTree* op1 = simdNode->GetOp(0);
-    assert(op1->IsLocal());
-    assert(emitTypeSize(op1->TypeGet()) == 16);
-    regNumber srcReg    = simdNode->GetRegNum();
-    regNumber lclVarReg = genConsumeReg(op1);
-    unsigned  varNum    = op1->AsLclVarCommon()->GetLclNum();
-    assert(lclVarReg != REG_NA);
+    regNumber srcReg = genConsumeReg(op1);
     assert(srcReg != REG_NA);
-    if (simdNode->gtFlags & GTF_SPILLED)
-    {
-        // The localVar must have a stack home.
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-        assert(varDsc->lvOnFrame);
-        // We will load this from the upper 8 bytes of this localVar's home.
-        int offset = 8;
+    regNumber dstReg = node->GetRegNum();
+    assert(dstReg != REG_NA);
 
-        emitAttr attr = emitTypeSize(TYP_SIMD8);
-        GetEmitter()->emitIns_R_S(INS_ldr, attr, srcReg, varNum, offset);
+    GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 0, 1);
+
+    if ((node->gtFlags & GTF_SPILL) != 0)
+    {
+        unsigned lclNum = op1->AsLclVar()->GetLclNum();
+        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+
+        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, dstReg, lclNum, 8);
     }
-    GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, lclVarReg, srcReg, 1, 0);
+    else
+    {
+        genProduceReg(node);
+    }
+}
+
+// Restore the upper half of a TYP_SIMD16 vector to the given register, if any, or to memory.
+// For consistency with genSIMDIntrinsicUpperSave, and to ensure that lclVar nodes always
+// have their home register, this node has its targetReg on the lclVar child, and its source
+// on the simdNode.
+// Regarding spill, please see the note above on genSIMDIntrinsicUpperSave.  If we have spilled
+// an upper-half to the lclVar's home location, this node will be marked GTF_SPILLED.
+void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
+{
+    GenTree* op1 = node->GetOp(0);
+    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
+
+    regNumber srcReg = node->GetRegNum();
+    assert(srcReg != REG_NA);
+    regNumber dstReg = genConsumeReg(op1);
+    assert(dstReg != REG_NA);
+
+    if ((node->gtFlags & GTF_SPILLED) != 0)
+    {
+        unsigned lclNum = op1->AsLclVar()->GetLclNum();
+        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+
+        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, srcReg, lclNum, 8);
+    }
+
+    GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 1, 0);
 }
 
 //-----------------------------------------------------------------------------

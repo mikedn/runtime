@@ -341,13 +341,9 @@ VNFunc GetVNFuncForNode(GenTree* node)
             }
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            return VNFunc(VNF_SIMD_FIRST + node->AsSIMD()->gtSIMDIntrinsicID);
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            return VNFunc(VNF_HWI_FIRST + (node->AsHWIntrinsic()->gtHWIntrinsicId - NI_HW_INTRINSIC_START - 1));
+            return VNFunc(VNF_HWI_FIRST + (node->AsHWIntrinsic()->GetIntrinsic() - NI_HW_INTRINSIC_START - 1));
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_CAST:
@@ -5847,33 +5843,6 @@ void ValueNumStore::InitValueNumStoreStatics()
     vnfOpAttribs[vnfNum] &= ~VNFOA_ArityMask;                               /* clear old arity value   */              \
     vnfOpAttribs[vnfNum] |= ((arity << VNFOA_ArityShift) & VNFOA_ArityMask) /* set the new arity value */
 
-#ifdef FEATURE_SIMD
-    // SIMDIntrinsicWidenHi has an entry of 2 for numArgs, but it only has one normal arg
-    ValueNumFuncSetArity(VNF_SIMD_WidenHi, 1);
-    // SIMDIntrinsicWidenLo has an entry of 2 for numArgs, but it only has one normal arg
-    ValueNumFuncSetArity(VNF_SIMD_WidenLo, 1);
-
-    // Some SIMD intrinsic nodes have an extra VNF_SimdType arg
-    //
-    for (SIMDIntrinsicID id = SIMDIntrinsicID::SIMDIntrinsicNone; (id < SIMDIntrinsicID::SIMDIntrinsicInvalid);
-         id                 = (SIMDIntrinsicID)(id + 1))
-    {
-        bool encodeResultType = Compiler::vnEncodesResultTypeForSIMDIntrinsic(id);
-
-        if (encodeResultType)
-        {
-            // These SIMDIntrinsic's have an extra VNF_SimdType arg.
-            //
-            VNFunc   func     = VNFunc(VNF_SIMD_FIRST + id);
-            unsigned oldArity = VNFuncArity(func);
-            unsigned newArity = oldArity + 1;
-
-            ValueNumFuncSetArity(func, newArity);
-        }
-    }
-
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
 
     for (NamedIntrinsic id = (NamedIntrinsic)(NI_HW_INTRINSIC_START + 1); (id < NI_HW_INTRINSIC_END);
@@ -7323,18 +7292,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 {
     genTreeOps oper = tree->OperGet();
 
-#ifdef FEATURE_SIMD
-    if ((JitConfig.JitDisableSimdVN() & 1) == 1)
-    {
-        // This Jit Config forces the previous behavior of value numbering for SIMD nodes
-        if (oper == GT_SIMD)
-        {
-            tree->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, TYP_UNKNOWN));
-            return;
-        }
-    }
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
     if ((JitConfig.JitDisableSimdVN() & 2) == 2)
     {
@@ -8653,15 +8610,12 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 break;
 
             case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
             {
-                ValueNumPair vnpIndex  = tree->AsBoundsChk()->gtIndex->gtVNPair;
-                ValueNumPair vnpArrLen = tree->AsBoundsChk()->gtArrLen->gtVNPair;
+                ValueNumPair vnpIndex  = tree->AsBoundsChk()->GetIndex()->gtVNPair;
+                ValueNumPair vnpArrLen = tree->AsBoundsChk()->GetLength()->gtVNPair;
 
                 ValueNumPair vnpExcSet = ValueNumStore::VNPForEmptyExcSet();
 
@@ -8718,12 +8672,6 @@ void Compiler::fgValueNumberTree(GenTree* tree)
                 fgValueNumberAddExceptionSetForIndirection(tree, comparand);
                 break;
             }
-
-#ifdef FEATURE_SIMD
-            case GT_SIMD:
-                fgValueNumberSimd(tree->AsSIMD());
-                break;
-#endif
 
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
@@ -8799,96 +8747,6 @@ void Compiler::fgValueNumberIntrinsic(GenTree* tree)
     }
 }
 
-#ifdef FEATURE_SIMD
-// Does value-numbering for a GT_SIMD node.
-void Compiler::fgValueNumberSimd(GenTreeSIMD* simdNode)
-{
-    if (simdNode->GetNumOps() > 2)
-    {
-        // We have a SIMD node with 3 or more args
-        // For now we will generate a unique value number for this case.
-
-        // Generate a unique VN
-        simdNode->gtVNPair.SetBoth(vnStore->VNForExpr(compCurBB, simdNode->TypeGet()));
-        return;
-    }
-
-    VNFunc       simdFunc = GetVNFuncForNode(simdNode);
-    ValueNumPair excSetPair;
-    ValueNumPair normalPair;
-
-    // There are some SIMD operations that have zero args, i.e.  NI_Vector128_Zero
-    if (simdNode->GetNumOps() == 0)
-    {
-        excSetPair = ValueNumStore::VNPForEmptyExcSet();
-        normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc);
-    }
-    else // SIMD unary or binary operator.
-    {
-        assert(!simdNode->OperIsImplicitIndir());
-
-        ValueNumPair resvnp = ValueNumPair();
-        ValueNumPair op1vnp;
-        ValueNumPair op1Xvnp;
-        vnStore->VNPUnpackExc(simdNode->GetOp(0)->gtVNPair, &op1vnp, &op1Xvnp);
-
-        bool encodeResultType = vnEncodesResultTypeForSIMDIntrinsic(simdNode->gtSIMDIntrinsicID);
-
-        if (encodeResultType)
-        {
-            ValueNum vnSize     = vnStore->VNForIntCon(simdNode->gtSIMDSize);
-            ValueNum vnBaseType = vnStore->VNForIntCon(INT32(simdNode->gtSIMDBaseType));
-            ValueNum simdTypeVN = vnStore->VNForFunc(TYP_REF, VNF_SimdType, vnSize, vnBaseType);
-            resvnp.SetBoth(simdTypeVN);
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("    simdTypeVN is ");
-                vnPrint(simdTypeVN, 1);
-                printf("\n");
-            }
-#endif
-        }
-
-        if (simdNode->IsUnary())
-        {
-            // Unary SIMD nodes have a nullptr for op2.
-            excSetPair = op1Xvnp;
-            if (encodeResultType)
-            {
-                normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc, op1vnp, resvnp);
-                assert(vnStore->VNFuncArity(simdFunc) == 2);
-            }
-            else
-            {
-                normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc, op1vnp);
-                assert(vnStore->VNFuncArity(simdFunc) == 1);
-            }
-        }
-        else
-        {
-            ValueNumPair op2vnp;
-            ValueNumPair op2Xvnp;
-            vnStore->VNPUnpackExc(simdNode->GetOp(1)->gtVNPair, &op2vnp, &op2Xvnp);
-
-            excSetPair = vnStore->VNPExcSetUnion(op1Xvnp, op2Xvnp);
-            if (encodeResultType)
-            {
-                normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc, op1vnp, op2vnp, resvnp);
-                assert(vnStore->VNFuncArity(simdFunc) == 3);
-            }
-            else
-            {
-                normalPair = vnStore->VNPairForFunc(simdNode->TypeGet(), simdFunc, op1vnp, op2vnp);
-                assert(vnStore->VNFuncArity(simdFunc) == 2);
-            }
-        }
-    }
-    simdNode->gtVNPair = vnStore->VNPWithExc(normalPair, excSetPair);
-}
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
 // Does value-numbering for a GT_HWINTRINSIC node
 void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
@@ -8907,7 +8765,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
         return;
     }
 
-    if ((hwIntrinsicNode->GetIntrinsic() == NI_Vector128_Create) && (hwIntrinsicNode->GetSIMDSize() != 16))
+    if ((hwIntrinsicNode->GetIntrinsic() == NI_Vector128_Create) && (hwIntrinsicNode->GetSimdSize() != 16))
     {
         // TODO-MIKE-Fix: Vector128_Create may be used to create Vector2/3 values but
         // we ignore the SIMD size so we get the same VN for Vector128_Create(8, x),
@@ -8941,7 +8799,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
         return;
     }
 
-    bool encodeResultType = vnEncodesResultTypeForHWIntrinsic(hwIntrinsicNode->gtHWIntrinsicId);
+    bool encodeResultType = vnEncodesResultTypeForHWIntrinsic(hwIntrinsicNode->GetIntrinsic());
 
     ValueNumPair excSetPair = ValueNumStore::VNPForEmptyExcSet();
     ValueNumPair normalPair;
@@ -8949,8 +8807,8 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
 
     if (encodeResultType)
     {
-        ValueNum vnSize     = vnStore->VNForIntCon(hwIntrinsicNode->gtSIMDSize);
-        ValueNum vnBaseType = vnStore->VNForIntCon(INT32(hwIntrinsicNode->gtSIMDBaseType));
+        ValueNum vnSize     = vnStore->VNForIntCon(hwIntrinsicNode->GetSimdSize());
+        ValueNum vnBaseType = vnStore->VNForIntCon(INT32(hwIntrinsicNode->GetSimdBaseType()));
         ValueNum simdTypeVN = vnStore->VNForFunc(TYP_REF, VNF_SimdType, vnSize, vnBaseType);
         resvnp.SetBoth(simdTypeVN);
 
@@ -8964,7 +8822,7 @@ void Compiler::fgValueNumberHWIntrinsic(GenTreeHWIntrinsic* hwIntrinsicNode)
 #endif
     }
 
-    const bool isVariableNumArgs = HWIntrinsicInfo::lookupNumArgs(hwIntrinsicNode->gtHWIntrinsicId) == -1;
+    const bool isVariableNumArgs = HWIntrinsicInfo::lookupNumArgs(hwIntrinsicNode->GetIntrinsic()) == -1;
 
     // There are some HWINTRINSICS operations that have zero args, i.e.  NI_Vector128_Zero
     if (hwIntrinsicNode->GetNumOps() == 0)
@@ -10277,13 +10135,10 @@ void Compiler::fgValueNumberAddExceptionSet(GenTree* tree)
                 fgValueNumberAddExceptionSetForDivision(tree);
                 break;
 
-#ifdef FEATURE_SIMD
-            case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
+            case GT_ARR_BOUNDS_CHECK:
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            case GT_ARR_BOUNDS_CHECK:
+#endif
                 fgValueNumberAddExceptionSetForBoundsCheck(tree);
                 break;
 

@@ -51,7 +51,7 @@ CodeGen::HWIntrinsicImmOpHelper::HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTre
     }
     else
     {
-        const HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrin->gtHWIntrinsicId);
+        const HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrin->GetIntrinsic());
 
         if (category == HW_Category_SIMDByIndexedElement)
         {
@@ -71,12 +71,12 @@ CodeGen::HWIntrinsicImmOpHelper::HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTre
             assert(varTypeIsSIMD(indexedElementOpType));
 
             const unsigned int indexedElementSimdSize = genTypeSize(indexedElementOpType);
-            HWIntrinsicInfo::lookupImmBounds(intrin->gtHWIntrinsicId, indexedElementSimdSize, intrin->gtSIMDBaseType,
+            HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), indexedElementSimdSize, intrin->GetSimdBaseType(),
                                              &immLowerBound, &immUpperBound);
         }
         else
         {
-            HWIntrinsicInfo::lookupImmBounds(intrin->gtHWIntrinsicId, intrin->gtSIMDSize, intrin->gtSIMDBaseType,
+            HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), intrin->GetSimdSize(), intrin->GetSimdBaseType(),
                                              &immLowerBound, &immUpperBound);
         }
 
@@ -95,7 +95,7 @@ CodeGen::HWIntrinsicImmOpHelper::HWIntrinsicImmOpHelper(CodeGen* codeGen, GenTre
             // these by
             // using the same approach as in hwintrinsicxarch.cpp - adding an additional indirection level in form of a
             // branch table.
-            assert(!HWIntrinsicInfo::GeneratesMultipleIns(intrin->gtHWIntrinsicId));
+            assert(!HWIntrinsicInfo::GeneratesMultipleIns(intrin->GetIntrinsic()));
             branchTargetReg = intrin->GetSingleTempReg();
         }
 
@@ -257,7 +257,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        emitSize = emitActualTypeSize(Compiler::getSIMDTypeForSize(node->gtSIMDSize));
+        emitSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
         opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
     }
 
@@ -789,138 +789,8 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 
             case NI_Vector64_GetElement:
             case NI_Vector128_GetElement:
-            {
-                assert(intrin.numOperands == 2);
-
-                var_types simdType = Compiler::getSIMDTypeForSize(node->GetSIMDSize());
-
-                if (simdType == TYP_SIMD12)
-                {
-                    // op1 of TYP_SIMD12 should be considered as TYP_SIMD16
-                    simdType = TYP_SIMD16;
-                }
-
-                if (!intrin.op2->OperIsConst())
-                {
-                    assert(!intrin.op2->isContained());
-
-                    emitAttr baseTypeSize  = emitTypeSize(intrin.baseType);
-                    unsigned baseTypeScale = genLog2(EA_SIZE_IN_BYTES(baseTypeSize));
-
-                    regNumber baseReg;
-                    regNumber indexReg = op2Reg;
-
-                    // Optimize the case of op1 is in memory and trying to access ith element.
-                    if (!intrin.op1->isUsedFromReg())
-                    {
-                        assert(intrin.op1->isContained());
-
-                        if (intrin.op1->OperIsLocal())
-                        {
-                            unsigned varNum = intrin.op1->AsLclVarCommon()->GetLclNum();
-                            baseReg         = node->ExtractTempReg();
-
-                            // Load the address of varNum
-                            GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, baseReg, varNum, 0);
-                        }
-                        else
-                        {
-                            // Require GT_IND addr to be not contained.
-                            assert(intrin.op1->OperIs(GT_IND));
-
-                            GenTree* addr = intrin.op1->AsIndir()->Addr();
-                            assert(!addr->isContained());
-                            baseReg = addr->GetRegNum();
-                        }
-                    }
-                    else
-                    {
-                        unsigned simdInitTempVarNum = compiler->lvaSIMDInitTempVarNum;
-                        noway_assert(simdInitTempVarNum != BAD_VAR_NUM);
-
-                        baseReg = node->ExtractTempReg();
-
-                        // Load the address of simdInitTempVarNum
-                        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, baseReg, simdInitTempVarNum, 0);
-
-                        // Store the vector to simdInitTempVarNum
-                        GetEmitter()->emitIns_R_R(INS_str, emitTypeSize(simdType), op1Reg, baseReg);
-                    }
-
-                    assert(genIsValidIntReg(indexReg));
-                    assert(genIsValidIntReg(baseReg));
-                    assert(baseReg != indexReg);
-
-                    // Load item at baseReg[index]
-                    GetEmitter()->emitIns_R_R_R_Ext(ins_Load(intrin.baseType), baseTypeSize, targetReg, baseReg,
-                                                    indexReg, INS_OPTS_LSL, baseTypeScale);
-                }
-                else if (!GetEmitter()->isValidVectorIndex(emitTypeSize(simdType), emitTypeSize(intrin.baseType),
-                                                           intrin.op2->AsIntCon()->IconValue()))
-                {
-                    // We only need to generate code for the get if the index is valid
-                    // If the index is invalid, previously generated for the range check will throw
-                }
-                else if (!intrin.op1->isUsedFromReg())
-                {
-                    assert(intrin.op1->isContained());
-                    assert(intrin.op2->IsCnsIntOrI());
-
-                    int         offset = (int)intrin.op2->AsIntCon()->IconValue() * genTypeSize(intrin.baseType);
-                    instruction ins    = ins_Load(intrin.baseType);
-
-                    assert(!intrin.op1->isUsedFromReg());
-
-                    if (intrin.op1->OperIsLocal())
-                    {
-                        unsigned varNum = intrin.op1->AsLclVarCommon()->GetLclNum();
-                        GetEmitter()->emitIns_R_S(ins, emitActualTypeSize(intrin.baseType), targetReg, varNum, offset);
-                    }
-                    else
-                    {
-                        assert(intrin.op1->OperIs(GT_IND));
-
-                        GenTree* addr = intrin.op1->AsIndir()->Addr();
-                        assert(!addr->isContained());
-                        regNumber baseReg = addr->GetRegNum();
-
-                        // ldr targetReg, [baseReg, #offset]
-                        GetEmitter()->emitIns_R_R_I(ins, emitActualTypeSize(intrin.baseType), targetReg, baseReg,
-                                                    offset);
-                    }
-                }
-                else
-                {
-                    assert(intrin.op2->IsCnsIntOrI());
-                    ssize_t indexValue = intrin.op2->AsIntCon()->IconValue();
-
-                    // no-op if vector is float/double, targetReg == op1Reg and fetching for 0th index.
-                    if ((varTypeIsFloating(intrin.baseType) && (targetReg == op1Reg) && (indexValue == 0)))
-                    {
-                        break;
-                    }
-
-                    GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg, indexValue,
-                                                INS_OPTS_NONE);
-                }
+                genVectorGetElement(node);
                 break;
-            }
-
-            case NI_Vector64_ToScalar:
-            case NI_Vector128_ToScalar:
-            {
-                const ssize_t indexValue = 0;
-
-                // no-op if vector is float/double, targetReg == op1Reg and fetching for 0th index.
-                if ((varTypeIsFloating(intrin.baseType) && (targetReg == op1Reg) && (indexValue == 0)))
-                {
-                    break;
-                }
-
-                GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg, indexValue,
-                                            INS_OPTS_NONE);
-            }
-            break;
 
             case NI_AdvSimd_ReverseElement16:
                 GetEmitter()->emitIns_R_R(ins, emitSize, targetReg, op1Reg,
@@ -943,6 +813,88 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 
     genProduceReg(node);
+}
+
+void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
+{
+    var_types baseType = node->GetSimdBaseType();
+    GenTree*  src      = node->GetOp(0);
+    GenTree*  index    = node->GetOp(1);
+    regNumber destReg  = node->GetRegNum();
+
+    if (!src->isUsedFromReg())
+    {
+        if (!index->IsIntCon())
+        {
+            regNumber baseReg;
+
+            if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            {
+                unsigned lclNum = src->AsLclVarCommon()->GetLclNum();
+                baseReg         = node->ExtractTempReg();
+                GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, baseReg, lclNum, 0);
+            }
+            else
+            {
+                GenTree* addr = src->AsIndir()->GetAddr();
+                assert(addr->isUsedFromReg());
+                baseReg = addr->GetRegNum();
+            }
+
+            assert(index->isUsedFromReg());
+            regNumber indexReg = index->GetRegNum();
+            assert(baseReg != indexReg);
+
+            GetEmitter()->emitIns_R_R_R_Ext(ins_Load(baseType), emitTypeSize(baseType), destReg, baseReg, indexReg,
+                                            INS_OPTS_UXTW, genLog2(varTypeSize(baseType)));
+        }
+        else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        {
+            unsigned lclNum = src->AsLclVarCommon()->GetLclNum();
+            int      offset = src->AsLclVarCommon()->GetLclOffs();
+            offset += index->AsIntCon()->GetInt32Value() * varTypeSize(baseType);
+
+            GetEmitter()->emitIns_R_S(ins_Load(baseType), emitActualTypeSize(baseType), destReg, lclNum, offset);
+        }
+        else
+        {
+            assert(src->OperIs(GT_IND));
+
+            GenTree*  addr = src->AsIndir()->GetAddr();
+            regNumber baseReg;
+            int       offset;
+
+            if (addr->isUsedFromReg())
+            {
+                baseReg = addr->GetRegNum();
+                offset  = 0;
+            }
+            else
+            {
+                GenTreeAddrMode* am = src->AsIndir()->GetAddr()->AsAddrMode();
+
+                baseReg = am->GetBase()->GetRegNum();
+                assert(!am->HasIndex());
+                offset = am->GetOffset();
+            }
+
+            offset += index->AsIntCon()->GetInt32Value() * varTypeSize(baseType);
+
+            GetEmitter()->emitIns_R_R_I(ins_Load(baseType), emitActualTypeSize(baseType), destReg, baseReg, offset);
+        }
+
+        return;
+    }
+
+    regNumber srcReg     = src->GetRegNum();
+    ssize_t   indexValue = index->AsIntCon()->GetValue();
+
+    if (!varTypeIsFloating(baseType) || (destReg != srcReg) || (indexValue != 0))
+    {
+        instruction ins = HWIntrinsicInfo::lookupIns(node->GetIntrinsic(), baseType);
+
+        GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(baseType), destReg, srcReg, indexValue, INS_OPTS_NONE);
+    }
 }
 
 #endif // FEATURE_HW_INTRINSICS

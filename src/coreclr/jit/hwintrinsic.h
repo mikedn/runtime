@@ -727,7 +727,7 @@ struct HWIntrinsic final
     GenTree*            op4;
 
     HWIntrinsic(const GenTreeHWIntrinsic* node)
-        : id(node->gtHWIntrinsicId)
+        : id(node->GetIntrinsic())
         , category(HWIntrinsicInfo::lookupCategory(id))
         , baseType(TYP_UNDEF)
         , numOperands(node->GetNumOps())
@@ -753,7 +753,7 @@ struct HWIntrinsic final
 private:
     void InitializeBaseType(const GenTreeHWIntrinsic* node)
     {
-        baseType = node->gtSIMDBaseType;
+        baseType = node->GetSimdBaseType();
 
         if (baseType == TYP_UNKNOWN)
         {

@@ -290,7 +290,7 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum)
 
             // TODO-MIKE-Cleanup: So if it's enough why bother to begin with?
 
-            assert(def->OperIsSimdOrHWintrinsic() || def->OperIs(GT_IND));
+            assert(def->OperIsHWIntrinsic() || def->OperIs(GT_IND));
 
             lcl->lvType = type;
         }

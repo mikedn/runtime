@@ -332,10 +332,13 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
 #ifdef FEATURE_SIMD
-        case GT_SIMD:
-            genSIMDIntrinsic(treeNode->AsSIMD());
+        case GT_SIMD_UPPER_SPILL:
+            genSIMDUpperSpill(treeNode->AsUnOp());
             break;
-#endif // FEATURE_SIMD
+        case GT_SIMD_UPPER_UNSPILL:
+            genSIMDUpperUnspill(treeNode->AsUnOp());
+            break;
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -458,13 +461,10 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            genRangeCheck(treeNode);
+#endif
+            genRangeCheck(treeNode->AsBoundsChk());
             break;
 
         case GT_PHYSREG:
@@ -1227,17 +1227,11 @@ void CodeGen::GenStoreLclVarMultiRegSIMD(GenTreeLclVar* store)
 
 #endif // FEATURE_SIMD
 
-//------------------------------------------------------------------------
-// genRangeCheck: generate code for GT_ARR_BOUNDS_CHECK node.
-//
-void CodeGen::genRangeCheck(GenTree* oper)
+void CodeGen::genRangeCheck(GenTreeBoundsChk* bndsChk)
 {
-    noway_assert(oper->OperIsBoundsCheck());
-    GenTreeBoundsChk* bndsChk = oper->AsBoundsChk();
-
-    GenTree* arrLen    = bndsChk->gtArrLen;
-    GenTree* arrIndex  = bndsChk->gtIndex;
-    GenTree* arrRef    = NULL;
+    GenTree* arrLen    = bndsChk->GetLength();
+    GenTree* arrIndex  = bndsChk->GetIndex();
+    GenTree* arrRef    = nullptr;
     int      lenOffset = 0;
 
     GenTree*     src1;

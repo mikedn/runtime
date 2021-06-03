@@ -964,7 +964,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                 {
                     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
                     methodHnd      = resolvedToken.hMethod;
-                    isJitIntrinsic = eeIsJitIntrinsic(methodHnd);
+                    isJitIntrinsic = info.compCompHnd->isJitIntrinsic(methodHnd);
                 }
 
                 if (isJitIntrinsic)

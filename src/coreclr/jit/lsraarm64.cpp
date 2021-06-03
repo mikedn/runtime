@@ -311,12 +311,6 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            srcCount = BuildSIMD(tree->AsSIMD());
-            break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             srcCount = BuildHWIntrinsic(tree->AsHWIntrinsic());
@@ -557,20 +551,13 @@ int LinearScan::BuildNode(GenTree* tree)
         break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-        {
-            GenTreeBoundsChk* node = tree->AsBoundsChk();
-            // Consumes arrLen & index - has no result
+#endif
             assert(dstCount == 0);
-            srcCount = BuildOperandUses(node->gtIndex);
-            srcCount += BuildOperandUses(node->gtArrLen);
-        }
-        break;
+            srcCount = BuildOperandUses(tree->AsBoundsChk()->GetIndex());
+            srcCount += BuildOperandUses(tree->AsBoundsChk()->GetLength());
+            break;
 
         case GT_ARR_ELEM:
             // These must have been lowered to GT_ARR_INDEX
@@ -723,83 +710,6 @@ int LinearScan::BuildNode(GenTree* tree)
     return srcCount;
 }
 
-#ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// BuildSIMD: Set the NodeInfo for a GT_SIMD tree.
-//
-// Arguments:
-//    tree       - The GT_SIMD node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildSIMD(GenTreeSIMD* simdTree)
-{
-    int srcCount = 0;
-    int dstCount = simdTree->IsValue() ? 1 : 0;
-    assert(dstCount == 1);
-
-    bool buildUses = true;
-
-    switch (simdTree->gtSIMDIntrinsicID)
-    {
-        case SIMDIntrinsicConvertToSingle:
-        case SIMDIntrinsicConvertToInt32:
-        case SIMDIntrinsicConvertToDouble:
-        case SIMDIntrinsicConvertToInt64:
-        case SIMDIntrinsicWidenLo:
-        case SIMDIntrinsicWidenHi:
-            // No special handling required.
-            break;
-
-        case SIMDIntrinsicNarrow:
-            // Op1 will write to dst before Op2 is free
-            BuildUse(simdTree->GetOp(0));
-            setDelayFree(BuildUse(simdTree->GetOp(1)));
-            srcCount  = 2;
-            buildUses = false;
-            break;
-
-        case SIMDIntrinsicInitArrayX:
-        case SIMDIntrinsicCopyToArray:
-        case SIMDIntrinsicCopyToArrayX:
-        case SIMDIntrinsicNone:
-        case SIMDIntrinsicHWAccel:
-        case SIMDIntrinsicWiden:
-        case SIMDIntrinsicInvalid:
-            assert(!"These intrinsics should not be seen during register allocation");
-            FALLTHROUGH;
-
-        default:
-            unreached();
-    }
-    if (buildUses)
-    {
-        assert(simdTree->GetNumOps() <= 2);
-        assert(srcCount == 0);
-
-        for (GenTreeSIMD::Use& use : simdTree->Uses())
-        {
-            if (!use.GetNode()->isContained())
-            {
-                srcCount += BuildOperandUses(use.GetNode());
-            }
-        }
-    }
-    assert(internalCount <= MaxInternalCount);
-    buildInternalRegisterUses();
-    if (dstCount == 1)
-    {
-        BuildDef(simdTree);
-    }
-    else
-    {
-        assert(dstCount == 0);
-    }
-    return srcCount;
-}
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
 
 #include "hwintrinsic.h"
@@ -856,7 +766,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         }
         else
         {
-            HWIntrinsicInfo::lookupImmBounds(intrin.id, intrinsicTree->gtSIMDSize, intrin.baseType, &immLowerBound,
+            HWIntrinsicInfo::lookupImmBounds(intrin.id, intrinsicTree->GetSimdSize(), intrin.baseType, &immLowerBound,
                                              &immUpperBound);
         }
 
@@ -939,9 +849,9 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         {
             simdRegToSimdRegMove = (intrin.op1->TypeGet() == TYP_DOUBLE);
         }
-        else if ((intrin.id == NI_Vector64_ToScalar) || (intrin.id == NI_Vector128_ToScalar))
+        else if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
         {
-            simdRegToSimdRegMove = varTypeIsFloating(intrinsicTree);
+            simdRegToSimdRegMove = varTypeIsFloating(intrinsicTree->GetType()) && intrin.op2->IsIntegralConst(0);
         }
 
         // If we have an RMW intrinsic or an intrinsic with simple move semantic between two SIMD registers,
@@ -1063,23 +973,11 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
             {
                 assert(!op2DelayFree);
+                assert(intrin.op2->IsIntCon() || intrin.op1->isContained());
 
-                if (!intrin.op2->IsCnsIntOrI() && (!intrin.op1->isContained() || intrin.op1->OperIsLocal()))
+                if (!intrin.op2->IsIntCon() && intrin.op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
-                    // If the index is not a constant and the object is not contained or is a local
-                    // we will need a general purpose register to calculate the address
-                    // internal register must not clobber input index
-                    // TODO-Cleanup: An internal register will never clobber a source; this code actually
-                    // ensures that the index (op2) doesn't interfere with the target.
                     buildInternalIntRegisterDefForNode(intrinsicTree);
-                    op2DelayFree = true;
-                }
-
-                if (!intrin.op2->IsCnsIntOrI() && !intrin.op1->isContained())
-                {
-                    // If the index is not a constant or op1 is in register,
-                    // we will use the SIMD temp location to store the vector.
-                    compiler->getSIMDInitTempVarNum();
                 }
             }
 

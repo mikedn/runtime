@@ -130,9 +130,6 @@ void StackLevelSetter::SetThrowHelperBlocks(GenTree* node, BasicBlock* block)
     switch (node->OperGet())
     {
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif

@@ -1882,12 +1882,6 @@ private:
     }
 #endif // TARGET_X86
 
-#ifdef FEATURE_SIMD
-    int BuildSIMD(GenTreeSIMD* tree);
-    int BuildSIMDUnaryRMWUses(GenTreeSIMD* node);
-    int BuildSIMDBinaryRMWUses(GenTreeSIMD* node);
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
     int BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree);
 #endif // FEATURE_HW_INTRINSICS

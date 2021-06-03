@@ -1353,12 +1353,12 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call)
                 }
                 else
                 {
-                    // We may not be able to recover the struct handle from SIMD/HWINTRINSIC
+                    // We may not be able to recover the struct handle from HWINTRINSIC
                     // nodes and SIMD typed IND nodes.
 
                     // TODO-MIKE-Cleanup: So why bother at all?
 
-                    assert(varTypeIsSIMD(arg->GetType()) && (arg->OperIsSimdOrHWintrinsic() || arg->OperIs(GT_IND)));
+                    assert(varTypeIsSIMD(arg->GetType()) && (arg->OperIsHWIntrinsic() || arg->OperIs(GT_IND)));
                     tempLcl->lvType = arg->GetType();
                 }
 
@@ -3842,8 +3842,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         // TODO-MIKE-CQ: We probably don't need to extract the first element because it's already
         // in a SIMD register and at the proper position.
 
-        regValue =
-            gtNewSimdGetElementNode(regType, varTypeSize(arg->GetType()), regValue, gtNewIconNode(regOffset / regSize));
+        regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
 
         if (i == 0)
         {
@@ -3999,7 +3998,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
             GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
             GenTree* simdValue    = gtNewLclvNode(lclNum, lcl->GetType());
 
-            regValue = gtNewSimdGetElementNode(regType, lclSize, simdValue, elementIndex);
+            regValue = gtNewSimdGetElementNode(lcl->GetType(), regType, simdValue, elementIndex);
         }
         else
 #endif
@@ -8958,9 +8957,9 @@ GenTree* Compiler::fgMorphCopyBlock(GenTreeOp* asg)
         JITDUMP(" src is a call");
         requiresCopyBlock = true;
     }
-    else if (src->OperIsSimdOrHWintrinsic())
+    else if (src->OperIsHWIntrinsic())
     {
-        JITDUMP(" src is a SIMD/HWINTRINSIC node");
+        JITDUMP(" src is a HWINTRINSIC node");
         requiresCopyBlock = true;
     }
 #if defined(TARGET_ARM)
@@ -9818,7 +9817,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_ADDR:
-            assert(!op1->OperIsSimdOrHWintrinsic());
+            assert(!op1->OperIsHWIntrinsic());
 
             // op1 of a GT_ADDR is an l-value. Only r-values can be CSEed
             op1->gtFlags |= GTF_DONT_CSE;
@@ -13562,9 +13561,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif
@@ -13658,17 +13654,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
                 tree->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
             }
             break;
-
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            tree->gtFlags &= ~GTF_ALL_EFFECT;
-            for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
-            {
-                use.SetNode(fgMorphTree(use.GetNode()));
-                tree->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
-            }
-            break;
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:

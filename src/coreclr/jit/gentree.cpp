@@ -315,11 +315,6 @@ void GenTree::InitNodeSize()
 #if FEATURE_ARG_SPLIT
     static_assert_no_msg(sizeof(GenTreePutArgSplit)  <= TREE_NODE_SZ_LARGE);
 #endif
-
-#ifdef FEATURE_SIMD
-    static_assert_no_msg(sizeof(GenTreeSIMD)         <= TREE_NODE_SZ_SMALL);
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
     static_assert_no_msg(sizeof(GenTreeHWIntrinsic)  <= TREE_NODE_SZ_SMALL);
 #endif // FEATURE_HW_INTRINSICS
@@ -1489,11 +1484,6 @@ AGAIN:
             return GenTreeFieldList::Equals(op1->AsFieldList(), op2->AsFieldList());
 
 #ifdef FEATURE_SIMD
-        case GT_SIMD:
-            return GenTreeSIMD::Equals(op1->AsSIMD(), op2->AsSIMD());
-#endif
-
-#ifdef FEATURE_SIMD
         case GT_HWINTRINSIC:
             return GenTreeHWIntrinsic::Equals(op1->AsHWIntrinsic(), op2->AsHWIntrinsic());
 #endif
@@ -1507,9 +1497,6 @@ AGAIN:
                    Compare(op1->AsCmpXchg()->gtOpComparand, op2->AsCmpXchg()->gtOpComparand);
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif
@@ -1724,18 +1711,6 @@ AGAIN:
             }
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
-            {
-                if (gtHasRef(use.GetNode(), lclNum))
-                {
-                    return true;
-                }
-            }
-            break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
@@ -1774,17 +1749,14 @@ AGAIN:
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            if (gtHasRef(tree->AsBoundsChk()->gtIndex, lclNum))
+#endif
+            if (gtHasRef(tree->AsBoundsChk()->GetIndex(), lclNum))
             {
                 return true;
             }
-            if (gtHasRef(tree->AsBoundsChk()->gtArrLen, lclNum))
+            if (gtHasRef(tree->AsBoundsChk()->GetLength(), lclNum))
             {
                 return true;
             }
@@ -2143,24 +2115,12 @@ AGAIN:
             }
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            hash += tree->AsSIMD()->gtSIMDIntrinsicID;
-            hash += tree->AsSIMD()->gtSIMDBaseType;
-            hash += tree->AsSIMD()->gtSIMDSize;
-            for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
-            {
-                hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
-            }
-            break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            hash += tree->AsHWIntrinsic()->gtHWIntrinsicId;
-            hash += tree->AsHWIntrinsic()->gtSIMDBaseType;
+            hash += tree->AsHWIntrinsic()->GetIntrinsic();
+            hash += tree->AsHWIntrinsic()->GetSimdBaseType();
+            hash += tree->AsHWIntrinsic()->GetSimdSize();
             hash += tree->AsHWIntrinsic()->GetAuxiliaryType();
-            hash += tree->AsHWIntrinsic()->gtSIMDSize;
             for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
@@ -2188,14 +2148,11 @@ AGAIN:
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->gtIndex));
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->gtArrLen));
+#endif
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetIndex()));
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsBoundsChk()->GetLength()));
             hash = genTreeHashAdd(hash, tree->AsBoundsChk()->GetThrowKind());
             break;
 
@@ -4446,57 +4403,6 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            if (tree->AsSIMD()->IsBinary())
-            {
-                GenTree* op1 = tree->AsSIMD()->GetOp(0);
-                GenTree* op2 = tree->AsSIMD()->GetOp(1);
-
-                if (tree->IsReverseOp())
-                {
-                    std::swap(op1, op2);
-                }
-
-                level = gtSetEvalOrder(op1);
-                lvl2  = gtSetEvalOrder(op2);
-
-                if ((fgOrder == FGOrderTree) && (level < lvl2) && gtCanSwapOrder(op1, op2))
-                {
-                    tree->gtFlags ^= GTF_REVERSE_OPS;
-                    std::swap(level, lvl2);
-                }
-
-                if (level == 0)
-                {
-                    level = lvl2;
-                }
-                else if (level == lvl2)
-                {
-                    level += 1;
-                }
-
-                costEx = op1->GetCostEx() + op2->GetCostEx() + 1;
-                costSz = op1->GetCostSz() + op2->GetCostSz() + 1;
-            }
-            else
-            {
-                level  = 0;
-                costEx = tree->AsSIMD()->GetNumOps();
-                costSz = tree->AsSIMD()->GetNumOps();
-
-                for (GenTreeSIMD::Use& use : tree->AsSIMD()->Uses())
-                {
-                    level = max(level, gtSetEvalOrder(use.GetNode()));
-                    costEx += use.GetNode()->GetCostEx();
-                    costSz += use.GetNode()->GetCostSz();
-                }
-
-                level++;
-            }
-            break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
 #ifdef TARGET_XARCH
@@ -4604,28 +4510,23 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
-
+#endif
             costEx = 4; // cmp reg,reg and jae throw (not taken)
             costSz = 7; // jump to cold section
 
-            level = gtSetEvalOrder(tree->AsBoundsChk()->gtIndex);
-            costEx += tree->AsBoundsChk()->gtIndex->GetCostEx();
-            costSz += tree->AsBoundsChk()->gtIndex->GetCostSz();
+            level = gtSetEvalOrder(tree->AsBoundsChk()->GetIndex());
+            costEx += tree->AsBoundsChk()->GetIndex()->GetCostEx();
+            costSz += tree->AsBoundsChk()->GetIndex()->GetCostSz();
 
-            lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->gtArrLen);
+            lvl2 = gtSetEvalOrder(tree->AsBoundsChk()->GetLength());
             if (level < lvl2)
             {
                 level = lvl2;
             }
-            costEx += tree->AsBoundsChk()->gtArrLen->GetCostEx();
-            costSz += tree->AsBoundsChk()->gtArrLen->GetCostSz();
-
+            costEx += tree->AsBoundsChk()->GetLength()->GetCostEx();
+            costSz += tree->AsBoundsChk()->GetLength()->GetCostSz();
             break;
 
         case GT_STORE_DYN_BLK:
@@ -5102,30 +5003,15 @@ bool GenTree::OperMayThrow(Compiler* comp)
         case GT_ARR_OFFSET:
         case GT_LCLHEAP:
         case GT_CKFINITE:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
         case GT_INDEX_ADDR:
             return true;
 
 #ifdef FEATURE_HW_INTRINSICS
+        case GT_HW_INTRINSIC_CHK:
+            return true;
         case GT_HWINTRINSIC:
-        {
-            GenTreeHWIntrinsic* hwIntrinsicNode = this->AsHWIntrinsic();
-            assert(hwIntrinsicNode != nullptr);
-            if (hwIntrinsicNode->OperIsMemoryLoadOrStore())
-            {
-                // This operation contains an implicit indirection
-                //   it could throw a null reference exception.
-                //
-                return true;
-            }
-            break;
-        }
-#endif // FEATURE_HW_INTRINSICS
+            return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
+#endif
         default:
             break;
     }
@@ -6226,10 +6112,10 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     // prevent the local from getting promoted, fgMorphCopyBlock doesn't handle this case
     // and the local would end up being dependent promoted.
 
-    if (src->OperIsSimdOrHWintrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
+    if (src->OperIsHWIntrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
         varTypeIsSIMD(dst->GetType()))
     {
-        setLclRelatedToSIMDIntrinsic(dst);
+        lvaRecordSimdIntrinsicUse(dst->AsLclVar());
     }
 #endif
 }
@@ -6843,42 +6729,16 @@ GenTree* Compiler::gtCloneExpr(
             }
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-        {
-            GenTreeSIMD* simdOp = tree->AsSIMD();
-
-            copy = new (this, GT_SIMD)
-                GenTreeSIMD(simdOp->TypeGet(), simdOp->gtSIMDIntrinsicID, simdOp->gtSIMDBaseType, simdOp->gtSIMDSize);
-            copy->AsSIMD()->SetNumOps(simdOp->GetNumOps(), getAllocator(CMK_ASTNode));
-
-            for (unsigned i = 0; i < simdOp->GetNumOps(); i++)
-            {
-                copy->AsSIMD()->SetOp(i, gtCloneExpr(simdOp->GetOp(i), addFlags, deepVarNum, deepVarVal));
-                copy->gtFlags |= (copy->AsSIMD()->GetOp(i)->gtFlags & GTF_ALL_EFFECT);
-            }
-        }
-        break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-        {
-            GenTreeHWIntrinsic* from = tree->AsHWIntrinsic();
-
-            copy = new (this, GT_HWINTRINSIC)
-                GenTreeHWIntrinsic(from->TypeGet(), from->gtHWIntrinsicId, from->gtSIMDBaseType, from->gtSIMDSize);
-            copy->AsHWIntrinsic()->SetAuxiliaryType(from->GetAuxiliaryType());
-            copy->AsHWIntrinsic()->SetNumOps(from->GetNumOps(), getAllocator(CMK_ASTNode));
-
-            for (unsigned i = 0; i < from->GetNumOps(); i++)
+            copy = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(tree->AsHWIntrinsic(), getAllocator(CMK_ASTNode));
+            for (unsigned i = 0; i < copy->AsHWIntrinsic()->GetNumOps(); i++)
             {
-                copy->AsHWIntrinsic()->SetOp(i, gtCloneExpr(from->GetOp(i), addFlags, deepVarNum, deepVarVal));
-                copy->gtFlags |= (copy->AsHWIntrinsic()->GetOp(i)->gtFlags & GTF_ALL_EFFECT);
+                copy->AsHWIntrinsic()->SetOp(i, gtCloneExpr(tree->AsHWIntrinsic()->GetOp(i), addFlags, deepVarNum,
+                                                            deepVarVal));
             }
-        }
-        break;
-#endif // FEATURE_HW_INTRINSICS
+            break;
+#endif
 
         case GT_INSTR:
             copy = new (this, GT_INSTR) GenTreeInstr(tree->AsInstr(), this);
@@ -6893,9 +6753,6 @@ GenTree* Compiler::gtCloneExpr(
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif
@@ -7530,6 +7387,10 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_PUTARG_SPLIT:
 #endif // FEATURE_ARG_SPLIT
         case GT_RETURNTRAP:
+#ifdef FEATURE_SIMD
+        case GT_SIMD_UPPER_SPILL:
+        case GT_SIMD_UPPER_UNSPILL:
+#endif
             m_edge = &m_node->AsUnOp()->gtOp1;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::Terminate;
@@ -7571,22 +7432,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvanceFieldList();
             return;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            if (m_node->AsSIMD()->IsBinary() && m_node->IsReverseOp())
-            {
-                m_edge    = &m_node->AsSIMD()->GetUse(1).NodeRef();
-                m_advance = &GenTreeUseEdgeIterator::AdvanceSIMDReverseOp;
-            }
-            else
-            {
-                m_statePtr = m_node->AsSIMD()->Uses().begin();
-                m_advance  = &GenTreeUseEdgeIterator::AdvanceSIMD;
-                AdvanceSIMD();
-            }
-            return;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             if (m_node->AsHWIntrinsic()->IsBinary() && m_node->IsReverseOp())
@@ -7622,12 +7467,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
             m_edge = &m_node->AsBoundsChk()->gtIndex;
             assert(*m_edge != nullptr);
             m_advance = &GenTreeUseEdgeIterator::AdvanceBoundsChk;
@@ -7836,36 +7678,6 @@ void GenTreeUseEdgeIterator::AdvanceFieldList()
         m_statePtr                        = currentUse->GetNext();
     }
 }
-
-#ifdef FEATURE_SIMD
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceSIMD: produces the next operand of a SIMD node and advances the state.
-//
-void GenTreeUseEdgeIterator::AdvanceSIMD()
-{
-    assert(m_state == 0);
-
-    if (m_statePtr == m_node->AsSIMD()->Uses().end())
-    {
-        m_state = -1;
-    }
-    else
-    {
-        GenTreeSIMD::Use* currentUse = static_cast<GenTreeSIMD::Use*>(m_statePtr);
-        m_edge                       = &currentUse->NodeRef();
-        m_statePtr                   = currentUse + 1;
-    }
-}
-
-void GenTreeUseEdgeIterator::AdvanceSIMDReverseOp()
-{
-    assert(m_state == 0);
-    assert(m_edge == &m_node->AsSIMD()->GetUse(1).NodeRef());
-
-    m_edge    = &m_node->AsSIMD()->GetUse(0).NodeRef();
-    m_advance = &GenTreeUseEdgeIterator::Terminate;
-}
-#endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
 //------------------------------------------------------------------------
@@ -9779,16 +9591,6 @@ void Compiler::gtDispChild(GenTree*             child,
     indentStack->Pop();
 }
 
-#ifdef FEATURE_SIMD
-// Intrinsic Id to name map
-extern const char* const simdIntrinsicNames[] = {
-#define SIMD_INTRINSIC(mname, inst, id, r, ac, arg1, arg2, arg3, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10) #id,
-#include "simdintrinsiclist.h"
-};
-#endif // FEATURE_SIMD
-
-/*****************************************************************************/
-
 void Compiler::gtDispTree(GenTree*     tree,
                           IndentStack* indentStack,                 /* = nullptr */
                           __in __in_z __in_opt const char* msg,     /* = nullptr  */
@@ -10054,31 +9856,13 @@ void Compiler::gtDispTree(GenTree*     tree,
             }
             break;
 
-#ifdef FEATURE_SIMD
-        case GT_SIMD:
-            printf(" %s %s %u", simdIntrinsicNames[tree->AsSIMD()->gtSIMDIntrinsicID],
-                   varTypeName(tree->AsSIMD()->gtSIMDBaseType), tree->AsSIMD()->gtSIMDSize);
-
-            gtDispCommonEndLine(tree);
-
-            if (!topOnly)
-            {
-                for (unsigned i = 0; i < tree->AsSIMD()->GetNumOps(); i++)
-                {
-                    gtDispChild(tree->AsSIMD()->GetOp(i), indentStack,
-                                (i == tree->AsSIMD()->GetNumOps() - 1) ? IIArcBottom : IIArc);
-                }
-            }
-            break;
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             printf(" %s %s %u", GetHWIntrinsicIdName(tree->AsHWIntrinsic()->GetIntrinsic()),
-                   tree->AsHWIntrinsic()->GetSIMDBaseType() == TYP_UNKNOWN
+                   tree->AsHWIntrinsic()->GetSimdBaseType() == TYP_UNKNOWN
                        ? ""
-                       : varTypeName(tree->AsHWIntrinsic()->GetSIMDBaseType()),
-                   tree->AsHWIntrinsic()->GetSIMDSize());
+                       : varTypeName(tree->AsHWIntrinsic()->GetSimdBaseType()),
+                   tree->AsHWIntrinsic()->GetSimdSize());
 
             gtDispCommonEndLine(tree);
 
@@ -10261,18 +10045,15 @@ void Compiler::gtDispTree(GenTree*     tree,
             break;
 
         case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_CHK:
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
-#endif // FEATURE_HW_INTRINSICS
+#endif
             gtDispCommonEndLine(tree);
 
             if (!topOnly)
             {
-                gtDispChild(tree->AsBoundsChk()->gtIndex, indentStack, IIArc, nullptr, topOnly);
-                gtDispChild(tree->AsBoundsChk()->gtArrLen, indentStack, IIArcBottom, nullptr, topOnly);
+                gtDispChild(tree->AsBoundsChk()->GetIndex(), indentStack, IIArc, nullptr, topOnly);
+                gtDispChild(tree->AsBoundsChk()->GetLength(), indentStack, IIArcBottom, nullptr, topOnly);
             }
             break;
 
@@ -12373,12 +12154,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         return tree;
     }
 
-#ifdef FEATURE_SIMD
-    if (tree->OperGet() == GT_SIMD)
-    {
-        return tree;
-    }
-#endif // FEATURE_SIMD
 #ifdef FEATURE_HW_INTRINSICS
     if (tree->OperGet() == GT_HWINTRINSIC)
     {
@@ -16231,42 +16006,7 @@ bool FieldSeqNode::IsField() const
 }
 
 #ifdef FEATURE_SIMD
-GenTreeSIMD* Compiler::gtNewSIMDNode(
-    var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
-{
-    SetOpLclRelatedToSIMDIntrinsic(op1);
-    return new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, op1);
-}
-
-GenTreeSIMD* Compiler::gtNewSIMDNode(
-    var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
-{
-    SetOpLclRelatedToSIMDIntrinsic(op1);
-    SetOpLclRelatedToSIMDIntrinsic(op2);
-    return new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size, op1, op2);
-}
-
-GenTreeSIMD* Compiler::gtNewSIMDNode(
-    var_types type, SIMDIntrinsicID simdIntrinsicID, var_types baseType, unsigned size, unsigned numOps, GenTree** ops)
-{
-    GenTreeSIMD* node = new (this, GT_SIMD) GenTreeSIMD(type, simdIntrinsicID, baseType, size);
-    node->SetNumOps(numOps, getAllocator(CMK_ASTNode));
-    for (unsigned i = 0; i < numOps; i++)
-    {
-        SetOpLclRelatedToSIMDIntrinsic(ops[i]);
-        node->SetOp(i, ops[i]);
-        node->gtFlags |= ops[i]->gtFlags & GTF_ALL_EFFECT;
-    }
-    return node;
-}
-
-//-------------------------------------------------------------------
-// SetOpLclRelatedToSIMDIntrinsic: Determine if the tree has a local var that needs to be set
-// as used by a SIMD intrinsic, and if so, set that local var appropriately.
-//
-// Arguments:
-//     op - The tree, to be an operand of a new GT_SIMD node, to check.
-//
+// Mark locals used by SIMD intrinsics to prevent struct promotion.
 void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
 {
     if (op == nullptr)
@@ -16274,9 +16014,9 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
         return;
     }
 
-    if (op->OperIsLocal())
+    if (op->OperIs(GT_LCL_VAR))
     {
-        setLclRelatedToSIMDIntrinsic(op);
+        lvaRecordSimdIntrinsicUse(op->AsLclVar());
     }
     else if (op->OperIs(GT_OBJ))
     {
@@ -16286,17 +16026,12 @@ void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
         {
             GenTree* addrOp1 = addr->AsOp()->gtGetOp1();
 
-            if (addrOp1->OperIsLocal())
+            if (addrOp1->OperIs(GT_LCL_VAR))
             {
-                setLclRelatedToSIMDIntrinsic(addrOp1);
+                lvaRecordSimdIntrinsicUse(addrOp1->AsLclVar());
             }
         }
     }
-}
-
-bool GenTree::isCommutativeSIMDIntrinsic()
-{
-    return false;
 }
 #endif // FEATURE_SIMD
 
@@ -16306,7 +16041,7 @@ bool GenTree::isCommutativeHWIntrinsic() const
     assert(gtOper == GT_HWINTRINSIC);
 
 #ifdef TARGET_XARCH
-    return HWIntrinsicInfo::IsCommutative(AsHWIntrinsic()->gtHWIntrinsicId);
+    return HWIntrinsicInfo::IsCommutative(AsHWIntrinsic()->GetIntrinsic());
 #else
     return false;
 #endif // TARGET_XARCH
@@ -16316,7 +16051,7 @@ bool GenTree::isContainableHWIntrinsic() const
 {
     assert(gtOper == GT_HWINTRINSIC);
 
-    switch (AsHWIntrinsic()->gtHWIntrinsicId)
+    switch (AsHWIntrinsic()->GetIntrinsic())
     {
 #ifdef TARGET_XARCH
         case NI_SSE_LoadAlignedVector128:
@@ -16350,10 +16085,10 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
 #if defined(TARGET_XARCH)
     if (!comp->canUseVexEncoding())
     {
-        return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->gtHWIntrinsicId);
+        return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->GetIntrinsic());
     }
 
-    switch (AsHWIntrinsic()->gtHWIntrinsicId)
+    switch (AsHWIntrinsic()->GetIntrinsic())
     {
         // TODO-XArch-Cleanup: Move this switch block to be table driven.
 
@@ -16379,7 +16114,7 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
         }
     }
 #elif defined(TARGET_ARM64)
-    return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->gtHWIntrinsicId);
+    return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->GetIntrinsic());
 #else
     return false;
 #endif
@@ -16497,14 +16232,14 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     return node;
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types elementType,
-                                                      unsigned  simdSize,
-                                                      GenTree*  op1,
-                                                      GenTree*  op2)
+GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
+                                                      var_types elementType,
+                                                      GenTree*  value,
+                                                      GenTree*  index)
 {
+    assert(varTypeIsSIMD(simdType));
     assert(varTypeIsArithmetic(elementType));
-
-    NamedIntrinsic intrinsicId = NI_Vector128_GetElement;
+    assert(varActualType(index->GetType()) == TYP_INT);
 
     switch (elementType)
     {
@@ -16514,11 +16249,6 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types elementType,
         case TYP_UINT:
         case TYP_LONG:
         case TYP_ULONG:
-#ifdef TARGET_XARCH
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
-#endif
-            break;
-
         case TYP_DOUBLE:
         case TYP_FLOAT:
         case TYP_SHORT:
@@ -16532,37 +16262,24 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types elementType,
             unreached();
     }
 
+    NamedIntrinsic intrinsic = NI_Vector128_GetElement;
+
 #ifdef TARGET_XARCH
-    if (simdSize == 32)
+    if (simdType == TYP_SIMD32)
     {
-        intrinsicId = NI_Vector256_GetElement;
+        intrinsic = NI_Vector256_GetElement;
     }
 #elif defined(TARGET_ARM64)
-    if (simdSize == 8)
+    if (simdType == TYP_SIMD8)
     {
-        intrinsicId = NI_Vector64_GetElement;
+        intrinsic = NI_Vector64_GetElement;
     }
 #else
 #error Unsupported platform
 #endif
 
-    int  immUpperBound    = getSIMDVectorLength(simdSize, elementType) - 1;
-    bool rangeCheckNeeded = !op2->OperIsConst();
-
-    if (!rangeCheckNeeded)
-    {
-        ssize_t imm8     = op2->AsIntCon()->GetValue();
-        rangeCheckNeeded = (imm8 < 0) || (imm8 > immUpperBound);
-    }
-
-    if (rangeCheckNeeded)
-    {
-        op2 = addRangeCheckForHWIntrinsic(op2, 0, immUpperBound);
-    }
-
-    var_types type = varTypeIsSmall(elementType) ? elementType : varActualType(elementType);
-
-    return gtNewSimdHWIntrinsicNode(type, intrinsicId, elementType, simdSize, op1, op2);
+    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsic, elementType, varTypeSize(simdType), value,
+                                    index);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
@@ -16665,13 +16382,13 @@ GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
 bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
 {
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(gtHWIntrinsicId);
+    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(m_intrinsic);
     if (category == HW_Category_MemoryLoad)
     {
         return true;
     }
 #ifdef TARGET_XARCH
-    else if (HWIntrinsicInfo::MaybeMemoryLoad(gtHWIntrinsicId))
+    else if (HWIntrinsicInfo::MaybeMemoryLoad(m_intrinsic))
     {
         // Some intrinsics (without HW_Category_MemoryLoad) also have MemoryLoad semantics
 
@@ -16682,8 +16399,8 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
             // Vector128<byte> BroadcastScalarToVector128(byte* source)
             // So, we need to check the argument's type is memory-reference or Vector128
             assert(IsUnary());
-            return (gtHWIntrinsicId == NI_AVX2_BroadcastScalarToVector128 ||
-                    gtHWIntrinsicId == NI_AVX2_BroadcastScalarToVector256) &&
+            return (m_intrinsic == NI_AVX2_BroadcastScalarToVector128 ||
+                    m_intrinsic == NI_AVX2_BroadcastScalarToVector256) &&
                    GetOp(0)->TypeGet() != TYP_SIMD16;
         }
         else if (category == HW_Category_IMM)
@@ -16693,7 +16410,7 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
             {
                 return false;
             }
-            else if (HWIntrinsicInfo::isAVX2GatherIntrinsic(gtHWIntrinsicId))
+            else if (HWIntrinsicInfo::isAVX2GatherIntrinsic(m_intrinsic))
             {
                 return true;
             }
@@ -16708,13 +16425,13 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
 bool GenTreeHWIntrinsic::OperIsMemoryStore() const
 {
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(gtHWIntrinsicId);
+    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(m_intrinsic);
     if (category == HW_Category_MemoryStore)
     {
         return true;
     }
 #ifdef TARGET_XARCH
-    else if (HWIntrinsicInfo::MaybeMemoryStore(gtHWIntrinsicId) &&
+    else if (HWIntrinsicInfo::MaybeMemoryStore(m_intrinsic) &&
              (category == HW_Category_IMM || category == HW_Category_Scalar))
     {
         // Some intrinsics (without HW_Category_MemoryStore) also have MemoryStore semantics
@@ -16725,7 +16442,7 @@ bool GenTreeHWIntrinsic::OperIsMemoryStore() const
         // So, the 3-argument form is MemoryStore
         if (IsTernary())
         {
-            switch (gtHWIntrinsicId)
+            switch (m_intrinsic)
             {
                 case NI_BMI2_MultiplyNoFlags:
                 case NI_BMI2_X64_MultiplyNoFlags:

@@ -476,7 +476,7 @@ void Rationalizer::RewriteAddress(LIR::Use& use)
     GenTree*   location   = address->gtGetOp1();
     genTreeOps locationOp = location->OperGet();
 
-    assert(!location->OperIsSimdOrHWintrinsic());
+    assert(!location->OperIsHWIntrinsic());
 
     if (location->IsLocal())
     {

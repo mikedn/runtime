@@ -6226,9 +6226,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
     saveLcl->SetRegNum(lclVarReg);
     SetLsraAdded(saveLcl);
 
-    // The base type is irrelevant, just set it to something valid so bogus asserts don't fire.
-    GenTree* simdNode = compiler->gtNewSIMDNode(LargeVectorSaveType, SIMDIntrinsicUpperSave, TYP_FLOAT,
-                                                varTypeSize(lcl->GetType()), saveLcl);
+    GenTree* simdNode = compiler->gtNewOperNode(GT_SIMD_UPPER_SPILL, LargeVectorSaveType, saveLcl);
 
     SetLsraAdded(simdNode);
     simdNode->SetRegNum(spillReg);
@@ -6283,9 +6281,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     restoreLcl->SetRegNum(lclVarReg);
     SetLsraAdded(restoreLcl);
 
-    // The base type is irrelevant, just set it to something valid so bogus asserts don't fire.
-    GenTree* simdNode = compiler->gtNewSIMDNode(lcl->GetType(), SIMDIntrinsicUpperRestore, TYP_FLOAT,
-                                                varTypeSize(lcl->GetType()), restoreLcl);
+    GenTree* simdNode = compiler->gtNewOperNode(GT_SIMD_UPPER_UNSPILL, lcl->GetType(), restoreLcl);
 
     regNumber restoreReg = upperVectorInterval->physReg;
     SetLsraAdded(simdNode);

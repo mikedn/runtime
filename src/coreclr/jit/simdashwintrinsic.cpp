@@ -2,148 +2,94 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#include "simdashwintrinsic.h"
 
-#ifdef FEATURE_HW_INTRINSICS
+#ifdef FEATURE_SIMD
 
-static const SimdAsHWIntrinsicInfo simdAsHWIntrinsicInfoArray[] = {
-// clang-format off
+var_types Compiler::GetVectorTSimdType()
+{
 #if defined(TARGET_XARCH)
-#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag)                      \
-    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, static_cast<SimdAsHWIntrinsicFlag>(flag)},
-#include "simdashwintrinsiclistxarch.h"
+    if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
+    {
+        return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
+    }
+
+    // TODO-MIKE-Cleanup: This should not be necessary. Only a few intrinsics use SSE42
+    // and the import code has its own SSE42 checks.
+    // More generally, this should not use compOpportunisticallyDependsOn(AVX2) because
+    // it's called while searching for intrinsics and that does not imply that an AVX2
+    // instruction will actually be used (e.g. it could be a Vector2/3/4 intrinsic that
+    // only needs SSE2).
+
+    compOpportunisticallyDependsOn(InstructionSet_SSE42);
+
+    compVerifyInstructionSetUnuseable(InstructionSet_AVX2);
+    return TYP_SIMD16;
 #elif defined(TARGET_ARM64)
-#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flag)                      \
-    {NI_##classId##_##id, name, SimdAsHWIntrinsicClassId::classId, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, static_cast<SimdAsHWIntrinsicFlag>(flag)},
-#include "simdashwintrinsiclistarm64.h"
+    return TYP_SIMD16;
 #else
 #error Unsupported platform
 #endif
-    // clang-format on
+}
+
+#endif // FEATURE_SIMD
+
+#ifdef FEATURE_HW_INTRINSICS
+
+enum class SysNumSimdIntrinsicClassId : uint8_t
+{
+    Unknown,
+    Vector2,
+    Vector3,
+    Vector4,
+    VectorT128,
+    VectorT256,
 };
 
-//------------------------------------------------------------------------
-// lookup: Gets the SimdAsHWIntrinsicInfo associated with a given NamedIntrinsic
-//
-// Arguments:
-//    id -- The NamedIntrinsic associated with the SimdAsHWIntrinsic to lookup
-//
-// Return Value:
-//    The SimdAsHWIntrinsicInfo associated with id
-const SimdAsHWIntrinsicInfo& SimdAsHWIntrinsicInfo::lookup(NamedIntrinsic id)
+enum class SysNumSimdIntrinsicFlag : uint8_t
 {
-    assert(id != NI_Illegal);
+    None         = 0,
+    HasThis      = 1,
+    SwapOperands = 2,
+};
 
-    assert(id > NI_SIMD_AS_HWINTRINSIC_START);
-    assert(id < NI_SIMD_AS_HWINTRINSIC_END);
-
-    return simdAsHWIntrinsicInfoArray[id - NI_SIMD_AS_HWINTRINSIC_START - 1];
+static constexpr SysNumSimdIntrinsicFlag operator|(SysNumSimdIntrinsicFlag lhs, SysNumSimdIntrinsicFlag rhs)
+{
+    return static_cast<SysNumSimdIntrinsicFlag>(static_cast<unsigned>(lhs) | static_cast<unsigned>(rhs));
 }
 
-//------------------------------------------------------------------------
-// lookupId: Gets the NamedIntrinsic for a given method name and InstructionSet
-//
-// Arguments:
-//    className          -- The name of the class associated with the SimdIntrinsic to lookup
-//    methodName         -- The name of the method associated with the SimdIntrinsic to lookup
-//    enclosingClassName -- The name of the enclosing class
-//    sizeOfVectorT      -- The size of Vector<T> in bytes
-//
-// Return Value:
-//    The NamedIntrinsic associated with methodName and classId
-NamedIntrinsic SimdAsHWIntrinsicInfo::lookupId(CORINFO_SIG_INFO* sig,
-                                               const char*       className,
-                                               const char*       methodName,
-                                               const char*       enclosingClassName,
-                                               int               sizeOfVectorT)
+static constexpr SysNumSimdIntrinsicFlag operator&(SysNumSimdIntrinsicFlag lhs, SysNumSimdIntrinsicFlag rhs)
 {
-    SimdAsHWIntrinsicClassId classId = lookupClassId(className, enclosingClassName, sizeOfVectorT);
-
-    if (classId == SimdAsHWIntrinsicClassId::Unknown)
-    {
-        return NI_Illegal;
-    }
-
-    bool     isInstanceMethod = sig->hasThis();
-    unsigned numArgs          = sig->numArgs + (isInstanceMethod ? 1 : 0);
-
-    for (int i = 0; i < (NI_SIMD_AS_HWINTRINSIC_END - NI_SIMD_AS_HWINTRINSIC_START - 1); i++)
-    {
-        const SimdAsHWIntrinsicInfo& intrinsicInfo = simdAsHWIntrinsicInfoArray[i];
-
-        if (classId != intrinsicInfo.classId)
-        {
-            continue;
-        }
-
-        if (numArgs != static_cast<unsigned>(intrinsicInfo.numArgs))
-        {
-            continue;
-        }
-
-        if (isInstanceMethod != SimdAsHWIntrinsicInfo::IsInstanceMethod(intrinsicInfo.id))
-        {
-            continue;
-        }
-
-        if (strcmp(methodName, intrinsicInfo.name) != 0)
-        {
-            continue;
-        }
-
-        return intrinsicInfo.id;
-    }
-
-    return NI_Illegal;
+    return static_cast<SysNumSimdIntrinsicFlag>(static_cast<unsigned>(lhs) & static_cast<unsigned>(rhs));
 }
 
-//------------------------------------------------------------------------
-// lookupClassId: Gets the SimdAsHWIntrinsicClassId for a given class name and enclsoing class name
-//
-// Arguments:
-//    className          -- The name of the class associated with the SimdAsHWIntrinsicClassId to lookup
-//    enclosingClassName -- The name of the enclosing class
-//    sizeOfVectorT      -- The size of Vector<T> in bytes
-//
-// Return Value:
-//    The SimdAsHWIntrinsicClassId associated with className and enclosingClassName
-SimdAsHWIntrinsicClassId SimdAsHWIntrinsicInfo::lookupClassId(const char* className,
-                                                              const char* enclosingClassName,
-                                                              int         sizeOfVectorT)
+struct SysNumSimdIntrinsicInfo
 {
-    assert(className != nullptr);
+    const char*                name;
+    SysNumSimdIntrinsicClassId classId : 4;
+    SysNumSimdIntrinsicFlag    flags : 4;
+    uint8_t                    numArgs;
+    NamedIntrinsic             hwIntrinsic[10];
 
-    if ((enclosingClassName != nullptr) || (className[0] != 'V'))
+    NamedIntrinsic HWIntrinsic(var_types type) const
     {
-        return SimdAsHWIntrinsicClassId::Unknown;
-    }
-    if (strcmp(className, "Vector2") == 0)
-    {
-        return SimdAsHWIntrinsicClassId::Vector2;
-    }
-    if (strcmp(className, "Vector3") == 0)
-    {
-        return SimdAsHWIntrinsicClassId::Vector3;
-    }
-    if (strcmp(className, "Vector4") == 0)
-    {
-        return SimdAsHWIntrinsicClassId::Vector4;
-    }
-    if ((strcmp(className, "Vector") == 0) || (strcmp(className, "Vector`1") == 0))
-    {
-#if defined(TARGET_XARCH)
-        if (sizeOfVectorT == 32)
+        if ((type < TYP_BYTE) || (type > TYP_DOUBLE))
         {
-            return SimdAsHWIntrinsicClassId::VectorT256;
+            assert(!"Unexpected type");
+            return NI_Illegal;
         }
-#endif // TARGET_XARCH
-
-        assert(sizeOfVectorT == 16);
-        return SimdAsHWIntrinsicClassId::VectorT128;
+        return hwIntrinsic[type - TYP_BYTE];
     }
 
-    return SimdAsHWIntrinsicClassId::Unknown;
-}
+    bool HasThis() const
+    {
+        return (flags & SysNumSimdIntrinsicFlag::HasThis) == SysNumSimdIntrinsicFlag::HasThis;
+    }
+
+    bool SwapOperands() const
+    {
+        return (flags & SysNumSimdIntrinsicFlag::SwapOperands) == SysNumSimdIntrinsicFlag::SwapOperands;
+    }
+};
 
 #ifdef TARGET_XARCH
 NamedIntrinsic MapVectorTIntrinsic(NamedIntrinsic intrinsic, bool isAVX)
@@ -174,30 +120,112 @@ NamedIntrinsic MapVectorTIntrinsic(NamedIntrinsic intrinsic, bool isAVX)
 }
 #endif // TARGET_XARCH
 
-//------------------------------------------------------------------------
-// impSimdAsIntrinsic: Import a SIMD intrinsic as a GT_HWINTRINSIC node if possible
-//
-// Arguments:
-//    intrinsic  -- id of the intrinsic function.
-//    clsHnd     -- class handle containing the intrinsic function.
-//    method     -- method handle of the intrinsic function.
-//    sig        -- signature of the intrinsic call
-//    mustExpand -- true if the intrinsic must return a GenTree*; otherwise, false
-//
-// Return Value:
-//    The GT_HWINTRINSIC node, or nullptr if not a supported intrinsic
-//
-GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
-                                        CORINFO_CLASS_HANDLE  clsHnd,
-                                        CORINFO_METHOD_HANDLE method,
-                                        CORINFO_SIG_INFO*     sig,
-                                        GenTree*              newobjThis)
+static constexpr SysNumSimdIntrinsicInfo sysNumSimdIntrinsicInfo[]
 {
-    if (!featureSIMD)
+// clang-format off
+#define SIMD_AS_HWINTRINSIC(classId, id, name, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, flags) \
+    {name, SysNumSimdIntrinsicClassId::classId, flags, numarg, {t1, t2, t3, t4, t5, t6, t7, t8, t9, t10}},
+// clang-format on
+#if defined(TARGET_XARCH)
+#include "simdashwintrinsiclistxarch.h"
+#elif defined(TARGET_ARM64)
+#include "simdashwintrinsiclistarm64.h"
+#else
+#error Unsupported platform
+#endif
+};
+
+static_assert_no_msg(_countof(sysNumSimdIntrinsicInfo) ==
+                     NI_SIMD_AS_HWINTRINSIC_END - NI_SIMD_AS_HWINTRINSIC_START - 1);
+
+static const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic id)
+{
+    assert((NI_SIMD_AS_HWINTRINSIC_START < id) && (id < NI_SIMD_AS_HWINTRINSIC_END));
+
+    return sysNumSimdIntrinsicInfo[id - NI_SIMD_AS_HWINTRINSIC_START - 1];
+}
+
+static SysNumSimdIntrinsicClassId FindClassId(const char* className,
+                                              const char* enclosingClassName,
+                                              var_types   vectorTSimdType)
+{
+    assert(className != nullptr);
+
+    if ((enclosingClassName != nullptr) || (className[0] != 'V'))
     {
-        return nullptr;
+        return SysNumSimdIntrinsicClassId::Unknown;
+    }
+    if (strcmp(className, "Vector2") == 0)
+    {
+        return SysNumSimdIntrinsicClassId::Vector2;
+    }
+    if (strcmp(className, "Vector3") == 0)
+    {
+        return SysNumSimdIntrinsicClassId::Vector3;
+    }
+    if (strcmp(className, "Vector4") == 0)
+    {
+        return SysNumSimdIntrinsicClassId::Vector4;
+    }
+    if ((strcmp(className, "Vector") == 0) || (strcmp(className, "Vector`1") == 0))
+    {
+#if defined(TARGET_XARCH)
+        if (vectorTSimdType == TYP_SIMD32)
+        {
+            return SysNumSimdIntrinsicClassId::VectorT256;
+        }
+#endif
+
+        assert(vectorTSimdType == TYP_SIMD16);
+        return SysNumSimdIntrinsicClassId::VectorT128;
     }
 
+    return SysNumSimdIntrinsicClassId::Unknown;
+}
+
+NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
+                                                    const char*           className,
+                                                    const char*           methodName,
+                                                    const char*           enclosingClassName)
+{
+    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName, GetVectorTSimdType());
+
+    if (classId == SysNumSimdIntrinsicClassId::Unknown)
+    {
+        return NI_Illegal;
+    }
+
+    CORINFO_SIG_INFO sig;
+    info.compCompHnd->getMethodSig(method, &sig);
+    bool     hasThis = sig.hasThis();
+    unsigned numArgs = sig.numArgs + hasThis;
+
+    for (unsigned i = 0; i < _countof(sysNumSimdIntrinsicInfo); i++)
+    {
+        const SysNumSimdIntrinsicInfo& info = sysNumSimdIntrinsicInfo[i];
+
+        if ((classId != info.classId) || (numArgs != info.numArgs) || (hasThis != info.HasThis()))
+        {
+            continue;
+        }
+
+        if (strcmp(methodName, info.name) != 0)
+        {
+            continue;
+        }
+
+        return static_cast<NamedIntrinsic>(NI_SIMD_AS_HWINTRINSIC_START + 1 + i);
+    }
+
+    return NI_Illegal;
+}
+
+GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
+                                                CORINFO_CLASS_HANDLE  clsHnd,
+                                                CORINFO_METHOD_HANDLE method,
+                                                CORINFO_SIG_INFO*     sig,
+                                                GenTree*              newobjThis)
+{
 #if defined(TARGET_XARCH)
     CORINFO_InstructionSet minimumIsa = InstructionSet_SSE2;
 #elif defined(TARGET_ARM64)
@@ -206,11 +234,19 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 #error Unsupported platform
 #endif
 
-    if (!compOpportunisticallyDependsOn(minimumIsa) || !JitConfig.EnableHWIntrinsic())
+    bool isSupported = featureSIMD && JitConfig.EnableHWIntrinsic() && compOpportunisticallyDependsOn(minimumIsa);
+
+    if (intrinsic == NI_VectorT128_get_IsHardwareAccelerated
+#ifdef TARGET_XARCH
+        || intrinsic == NI_VectorT256_get_IsHardwareAccelerated
+#endif
+        )
     {
-        // The user disabled support for the baseline ISA so
-        // don't emit any SIMD intrinsics as they all require
-        // this at a minimum
+        return gtNewIconNode(isSupported);
+    }
+
+    if (!isSupported)
+    {
         return nullptr;
     }
 
@@ -225,7 +261,6 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
     if (strcmp(className, "Vector") == 0)
     {
         assert(!signature.hasThisParam);
-        // IsHardwareAccelerated is imported by the old SIMD intrinsic code.
         assert(signature.paramCount != 0);
 
         layout = signature.paramLayout[0];
@@ -279,16 +314,18 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         {
             if (signature.paramLayout[0] == nullptr)
             {
-                if (signature.paramType[0] == TYP_REF)
-                {
-                    // Create from array intrinsics are handled by the old SIMD import code.
-                    return nullptr;
-                }
-
                 // This must be one of the Create intrinsics or get_Item.
                 assert(signature.hasThisParam);
-                assert((signature.paramCount == 1) || (signature.paramCount == layout->GetElementCount()));
-                assert((signature.paramType[0] == layout->GetElementType()) || (signature.paramType[0] == TYP_INT));
+
+                if (signature.paramType[0] == TYP_REF)
+                {
+                    assert((signature.paramCount == 1) || (signature.paramCount == 2));
+                }
+                else
+                {
+                    assert((signature.paramCount == 1) || (signature.paramCount == layout->GetElementCount()));
+                    assert((signature.paramType[0] == layout->GetElementType()) || (signature.paramType[0] == TYP_INT));
+                }
             }
             else
             {
@@ -307,46 +344,90 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         }
     }
 
-    NamedIntrinsic hwIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, layout->GetElementType());
+    NamedIntrinsic hwIntrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(layout->GetElementType());
 
     if (hwIntrinsic == NI_Illegal)
     {
         return nullptr;
     }
 
-    if (SimdAsHWIntrinsicInfo::IsFloatingPointUsed(intrinsic))
-    {
-        compFloatingPointUsed = true;
-    }
+    compFloatingPointUsed = true;
 
     if (hwIntrinsic == intrinsic)
     {
         switch (intrinsic)
         {
+            case NI_VectorT128_FromArray:
+#ifdef TARGET_XARCH
+            case NI_VectorT256_FromArray:
+#endif
+                return impVectorTFromArray(signature, layout, newobjThis);
+            case NI_VectorT128_CreateBroadcast:
+#ifdef TARGET_XARCH
+            case NI_VectorT256_CreateBroadcast:
+#endif
+                if (signature.paramType[0] == TYP_REF)
+                {
+                    return impVectorTFromArray(signature, layout, newobjThis);
+                }
+                FALLTHROUGH;
             case NI_Vector2_CreateBroadcast:
             case NI_Vector2_Create:
             case NI_Vector3_CreateBroadcast:
             case NI_Vector3_Create:
             case NI_Vector4_CreateBroadcast:
             case NI_Vector4_Create:
-            case NI_VectorT128_CreateBroadcast:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_CreateBroadcast:
-#endif
-                return impSimdAsHWIntrinsicCreate(signature, layout, newobjThis);
+                return impVector234TCreate(signature, layout, newobjThis);
             case NI_Vector3_CreateExtend1:
             case NI_Vector4_CreateExtend1:
             case NI_Vector4_CreateExtend2:
-                return impSimdAsHWIntrinsicCreateExtend(signature, layout, newobjThis);
+                return impVector234CreateExtend(signature, layout, newobjThis);
+            case NI_Vector2_CopyTo:
+            case NI_Vector2_CopyToAt:
+            case NI_Vector3_CopyTo:
+            case NI_Vector3_CopyToAt:
+            case NI_Vector4_CopyTo:
+            case NI_Vector4_CopyToAt:
+            case NI_VectorT128_CopyTo:
+            case NI_VectorT128_CopyToAt:
+#ifdef TARGET_XARCH
+            case NI_VectorT256_CopyTo:
+            case NI_VectorT256_CopyToAt:
+#endif
+                return impVector234TCopyTo(signature, layout);
             case NI_VectorT128_get_Item:
 #ifdef TARGET_XARCH
             case NI_VectorT256_get_Item:
 #endif
                 assert(newobjThis == nullptr);
-                return impSimdAsHWIntrinsicGetItem(signature, layout);
+                return impVectorTGetItem(signature, layout);
+            case NI_VectorT128_Widen:
+                return impVectorT128Widen(signature);
+#ifdef TARGET_XARCH
+            case NI_VectorT256_Widen:
+                return impVectorT256Widen(signature);
+            case NI_VectorT128_ConvertToInt64:
+                return impVectorT128ConvertDoubleToInt64(signature);
+            case NI_VectorT256_ConvertToInt64:
+                return impVectorT256ConvertDoubleToInt64(signature);
+            case NI_VectorT128_ConvertToDouble:
+                if (signature.paramLayout[0]->GetElementType() == TYP_ULONG)
+                {
+                    return impVectorT128ConvertUInt64ToDouble(signature);
+                }
+                return impVectorT128ConvertInt64ToDouble(signature);
+            case NI_VectorT256_ConvertToDouble:
+                if (signature.paramLayout[0]->GetElementType() == TYP_ULONG)
+                {
+                    return impVectorT256ConvertUInt64ToDouble(signature);
+                }
+                return impVectorT256ConvertInt64ToDouble(signature);
+            case NI_VectorT128_Dot:
+                return impVectorT128Dot(signature);
+#endif
             default:
                 assert(newobjThis == nullptr);
-                return impSimdAsHWIntrinsicSpecial(intrinsic, signature, layout);
+                return impVector234TSpecial(intrinsic, signature, layout);
         }
     }
 
@@ -360,7 +441,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (signature.hasThisParam)
     {
-        assert(SimdAsHWIntrinsicInfo::IsInstanceMethod(intrinsic));
+        assert(GetIntrinsicInfo(intrinsic).HasThis());
 
         switch (intrinsic)
         {
@@ -376,7 +457,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
                 assert(signature.paramCount == 1);
 
                 ops[1] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
-                ops[0] = impSIMDPopStackAddr(signature.paramType[0]);
+                ops[0] = impPopStackAddrAsVector(signature.paramType[0]);
                 return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, size, ops[0], ops[1]);
 
             default:
@@ -399,7 +480,7 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
             ops[1] = impPopArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
             ops[0] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
 
-            if (SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic))
+            if (GetIntrinsicInfo(intrinsic).SwapOperands())
             {
                 // TODO-MIKE-Fix: This is nonsense, it changes the order of evaluation.
                 std::swap(ops[0], ops[1]);
@@ -413,34 +494,20 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
     }
 }
 
-GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intrinsic,
-                                               const HWIntrinsicSignature& sig,
-                                               ClassLayout*                layout)
+GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout)
 {
     assert(featureSIMD);
-    assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
+    assert(!GetIntrinsicInfo(intrinsic).SwapOperands());
     assert(!sig.hasThisParam);
     assert(sig.paramCount <= 3);
 #if defined(TARGET_XARCH)
-    bool isAVX = (SimdAsHWIntrinsicInfo::lookupClassId(intrinsic) == SimdAsHWIntrinsicClassId::VectorT256);
+    bool isAVX = (GetIntrinsicInfo(intrinsic).classId == SysNumSimdIntrinsicClassId::VectorT256);
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
     assert(!isAVX || compIsaSupportedDebugOnly(InstructionSet_AVX2));
 #elif defined(TARGET_ARM64)
     assert(compIsaSupportedDebugOnly(InstructionSet_AdvSimd));
 #else
 #error Unsupported platform
-#endif
-
-#ifdef TARGET_XARCH
-    if ((intrinsic == NI_VectorT128_Dot) && !compOpportunisticallyDependsOn(InstructionSet_SSE41))
-    {
-        // We need to exit early if this is Vector<T>.Dot for INT or UINT and SSE41 is
-        // not supported. The other types should be handled via the table driven paths.
-
-        var_types opType = sig.paramLayout[0]->GetElementType();
-        assert((opType == TYP_INT) || (opType == TYP_UINT));
-        return nullptr;
-    }
 #endif
 
     var_types    retType   = sig.retType;
@@ -526,7 +593,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                     gtNewSimdHWIntrinsicNode(retType, GetCreateSimdHWIntrinsic(retType), retBaseType, retSize, bitMask);
 
                 intrinsic = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseAnd, isAVX);
-                intrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, retBaseType);
+                intrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(retBaseType);
 
                 return gtNewSimdHWIntrinsicNode(retType, intrinsic, retBaseType, retSize, ops[0], bitMask);
             }
@@ -567,7 +634,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                 NamedIntrinsic lessIntrinsic = MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX);
 
                 sign = gtNewZeroSimdHWIntrinsicNode(retLayout);
-                sign = impSimdAsHWIntrinsicRelOp(lessIntrinsic, retBaseType, retLayout, uses[0], sign);
+                sign = impVectorTCompare(lessIntrinsic, retBaseType, retLayout, uses[0], sign);
             }
 
             GenTree* signUses[2];
@@ -579,6 +646,28 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             GenTree* tmp = gtNewSimdHWIntrinsicNode(retType, xorIntrinsic, retBaseType, retSize, signUses[0], uses[1]);
             return gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, tmp, signUses[1]);
         }
+
+        case NI_VectorT128_ConvertToInt32:
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Int32WithTruncation, TYP_FLOAT, 16,
+                                            ops[0]);
+
+        case NI_VectorT256_ConvertToInt32:
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_ConvertToVector256Int32WithTruncation, TYP_INT, 32,
+                                            ops[0]);
+
+        case NI_VectorT128_ConvertToSingle:
+            if (sig.paramLayout[0]->GetElementType() == TYP_INT)
+            {
+                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_INT, 16, ops[0]);
+            }
+            return impVectorT128ConvertUInt32ToSingle(sig, ops[0]);
+
+        case NI_VectorT256_ConvertToSingle:
+            if (sig.paramLayout[0]->GetElementType() == TYP_INT)
+            {
+                return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_ConvertToVector256Single, TYP_FLOAT, 32, ops[0]);
+            }
+            return impVectorT256ConvertUInt32ToSingle(sig, ops[0]);
 
         case NI_Vector2_op_Division:
         case NI_Vector3_op_Division:
@@ -600,18 +689,6 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             retNode = gtNewSimdHWIntrinsicNode(retType, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, retSize, retNode,
                                                gtNewIconNode(16 - retSize));
             return retNode;
-        }
-
-        case NI_VectorT128_Dot:
-        {
-            assert(sig.paramCount == 2);
-            assert(sig.paramLayout[0] == sig.paramLayout[1]);
-
-            var_types opBaseType = sig.paramLayout[0]->GetElementType();
-            unsigned  opSize     = sig.paramLayout[0]->GetSize();
-            assert((opBaseType == TYP_INT) || (opBaseType == TYP_UINT));
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE41));
-            return gtNewSimdHWIntrinsicNode(retType, NI_Vector128_Dot, opBaseType, opSize, ops[0], ops[1]);
         }
 
         case NI_VectorT256_GreaterThan:
@@ -636,7 +713,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             assert(retType == opLayout->GetSIMDType());
             assert(retLayout->GetSize() == opLayout->GetSize());
 
-            return impSimdAsHWIntrinsicRelOp(intrinsic, opLayout->GetElementType(), opLayout, ops[0], ops[1]);
+            return impVectorTCompare(intrinsic, opLayout->GetElementType(), opLayout, ops[0], ops[1]);
         }
 
         case NI_VectorT256_Max:
@@ -706,13 +783,18 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                     break;
             }
 
-            GenTree* condition = impSimdAsHWIntrinsicRelOp(intrinsic, retBaseType, retLayout, uses[0][0], uses[1][0]);
-            return impSimdAsHWIntrinsicCndSel(retLayout, condition, uses[0][1], uses[1][1]);
+            GenTree* condition = impVectorTCompare(intrinsic, retBaseType, retLayout, uses[0][0], uses[1][0]);
+            return impVectorTConditionalSelect(retLayout, condition, uses[0][1], uses[1][1]);
         }
+
+        case NI_VectorT128_Narrow:
+            return impVectorT128Narrow(sig, ops[0], ops[1]);
+        case NI_VectorT256_Narrow:
+            return impVectorT256Narrow(sig, ops[0], ops[1]);
 
         case NI_VectorT128_op_Multiply:
         case NI_VectorT256_op_Multiply:
-            return impSimdAsHWIntrinsicMultiply(sig, ops[0], ops[1]);
+            return impVectorTMultiply(sig, ops[0], ops[1]);
 
         case NI_VectorT128_ConditionalSelect:
         case NI_VectorT256_ConditionalSelect:
@@ -721,7 +803,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
             assert(sig.paramLayout[0]->GetSIMDType() == sig.paramLayout[1]->GetSIMDType());
             assert(retLayout == sig.paramLayout[1]);
 
-            return impSimdAsHWIntrinsicCndSel(retLayout, ops[0], ops[1], ops[2]);
+            return impVectorTConditionalSelect(retLayout, ops[0], ops[1], ops[2]);
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
@@ -753,8 +835,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
                                             uses[0][1], uses[1][1]);
         }
 
+        case NI_VectorT128_Narrow:
+            return impVectorT128Narrow(sig, ops[0], ops[1]);
+
         case NI_VectorT128_op_Multiply:
-            return impSimdAsHWIntrinsicMultiply(sig, ops[0], ops[1]);
+            return impVectorTMultiply(sig, ops[0], ops[1]);
 
         case NI_VectorT128_ConditionalSelect:
             assert(sig.paramCount == 3);
@@ -773,7 +858,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic              intri
     }
 }
 
-GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
+GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -796,7 +881,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
         }
     }
 
-    GenTree* addr = impSimdAsHWIntrinsicGetCtorThis(layout, newobjThis);
+    GenTree* addr = impGetVectorCtorThis(layout, newobjThis);
     GenTree* create;
 
     if (areArgsContiguous)
@@ -808,7 +893,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
         if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
             // Prevent the destination from being promoted since it would end up being dependent promoted.
-            setLclRelatedToSIMDIntrinsic(addr->AsUnOp()->GetOp(0));
+            lvaRecordSimdIntrinsicUse(addr->AsUnOp()->GetOp(0)->AsLclVar());
         }
     }
     else if ((sig.paramCount == 1) && (args[0]->IsIntegralConst(0) || args[0]->IsDblConPositiveZero()))
@@ -824,9 +909,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreate(const HWIntrinsicSignature& sig, C
     return impAssignSIMDAddr(addr, create);
 }
 
-GenTree* Compiler::impSimdAsHWIntrinsicCreateExtend(const HWIntrinsicSignature& sig,
-                                                    ClassLayout*                layout,
-                                                    GenTree*                    newobjThis)
+GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -842,7 +925,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreateExtend(const HWIntrinsicSignature& 
 
     args[0] = impSIMDPopStack(sig.paramType[0]);
 
-    GenTree* addr = impSimdAsHWIntrinsicGetCtorThis(layout, newobjThis);
+    GenTree* addr = impGetVectorCtorThis(layout, newobjThis);
     GenTree* create;
 
     unsigned insertIndex = sig.paramType[0] == TYP_SIMD12 ? 3 : 2;
@@ -896,7 +979,31 @@ GenTree* Compiler::impSimdAsHWIntrinsicCreateExtend(const HWIntrinsicSignature& 
     return impAssignSIMDAddr(addr, create);
 }
 
-GenTree* Compiler::impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree* newobjThis)
+GenTree* Compiler::impPopStackAddrAsVector(var_types type)
+{
+    assert(varTypeIsSIMD(type));
+
+    GenTree* addr = impPopStack().val;
+
+    if (!addr->TypeIs(TYP_BYREF, TYP_I_IMPL))
+    {
+        BADCODE("incompatible stack type");
+    }
+
+    if (addr->OperIs(GT_ADDR))
+    {
+        GenTree* location = addr->AsUnOp()->GetOp(0);
+
+        if (location->GetType() == type)
+        {
+            return location;
+        }
+    }
+
+    return gtNewOperNode(GT_IND, type, addr);
+}
+
+GenTree* Compiler::impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis)
 {
     if (newobjThis != nullptr)
     {
@@ -910,51 +1017,212 @@ GenTree* Compiler::impSimdAsHWIntrinsicGetCtorThis(ClassLayout* layout, GenTree*
     return impPopStack().val;
 }
 
-GenTree* Compiler::impSimdAsHWIntrinsicGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout)
+GenTree* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
+{
+    assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+    assert(src->OperIs(GT_IND, GT_HWINTRINSIC));
+    assert(varTypeIsSIMD(src->GetType()));
+
+    // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
+    // from the previous implementation that did this (in gtNewBlkOpNode).
+    src->gtFlags |= GTF_DONT_CSE;
+
+    GenTree* dest;
+
+    if (destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR) &&
+        (destAddr->AsUnOp()->GetOp(0)->GetType() == src->GetType()))
+    {
+        dest = destAddr->AsUnOp()->GetOp(0);
+
+        if (src->IsHWIntrinsic())
+        {
+            lvaRecordSimdIntrinsicUse(dest->AsLclVar());
+        }
+
+        assert(lvaGetDesc(dest->AsLclVar())->GetType() == src->GetType());
+    }
+    else
+    {
+        dest = gtNewIndir(src->GetType(), destAddr);
+        dest->gtFlags |= GTF_GLOB_REF;
+    }
+
+    return gtNewAssignNode(dest, src);
+}
+
+GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
+                                               GenTree*        array,
+                                               GenTree*        index,
+                                               SpecialCodeKind indexThrowKind,
+                                               SpecialCodeKind lastIndexThrowKind)
+{
+    assert(array->TypeIs(TYP_REF));
+    assert((index == nullptr) || (varActualType(index->GetType()) == TYP_INT));
+
+    if ((index != nullptr) && index->IsIntegralConst(0))
+    {
+        index = nullptr;
+    }
+
+    GenTree* arrayUses[3];
+    impMakeMultiUse(array, index == nullptr ? 2 : 3, arrayUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.CopyTo temp"));
+    array = arrayUses[0];
+
+    GenTree* lastIndex = gtNewIconNode(layout->GetElementCount() - 1);
+    GenTree* arrLen    = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length, compCurBB);
+
+    if (index != nullptr)
+    {
+        GenTree* indexUses[3];
+        impMakeMultiUse(index, indexUses, CHECK_SPILL_ALL DEBUGARG("Vector<T>.CopyTo temp"));
+        index = indexUses[0];
+
+        lastIndex = gtNewOperNode(GT_ADD, TYP_INT, indexUses[1], lastIndex);
+        array     = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
+        arrLen    = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length, compCurBB);
+        array     = gtNewCommaNode(gtNewArrBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
+    }
+    else
+    {
+        array = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
+    }
+
+    GenTree* offset = gtNewIconNode(OFFSETOF__CORINFO_Array__data, TYP_I_IMPL);
+
+    if (index != nullptr)
+    {
+        GenTree* elementSize = gtNewIconNode(varTypeSize(layout->GetElementType()), TYP_I_IMPL);
+#ifdef TARGET_64BIT
+        index = gtNewCastNode(TYP_LONG, index, false, TYP_LONG);
+#endif
+        index = gtNewOperNode(GT_MUL, TYP_I_IMPL, index, elementSize);
+        // TODO-MIKE-CQ: This should be removed, it's here only to minimize diffs
+        // from the previous implementation that imported SIMDIntrinsicInitArray
+        // as is, hiding the address mode and thus blocking CSE.
+        index->gtFlags |= GTF_DONT_CSE;
+        offset = gtNewOperNode(GT_ADD, TYP_I_IMPL, index, offset);
+        offset->gtFlags |= GTF_DONT_CSE;
+    }
+
+    offset = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
+    offset->gtFlags |= GTF_DONT_CSE;
+
+    GenTree* indir = gtNewOperNode(GT_IND, layout->GetSIMDType(), offset)->AsIndir();
+    indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+    return indir;
+}
+
+GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
+{
+    assert((sig.paramCount == 1) || (sig.paramCount == 2));
+    assert(sig.paramType[0] == TYP_REF);
+    assert((sig.paramCount == 1) || (sig.paramType[1] == TYP_INT));
+
+    GenTree* index    = sig.paramCount == 1 ? nullptr : impPopStackCoerceArg(TYP_INT);
+    GenTree* array    = impPopStackCoerceArg(TYP_REF);
+    GenTree* destAddr = impGetVectorCtorThis(layout, newobjThis);
+
+    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, SCK_RNGCHK_FAIL, SCK_RNGCHK_FAIL);
+    return impAssignSIMDAddr(destAddr, indir);
+}
+
+GenTree* Compiler::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout)
+{
+    assert(sig.hasThisParam);
+    assert((sig.paramCount == 1) || (sig.paramCount == 2));
+    assert(sig.paramType[0] == TYP_REF);
+    assert((sig.paramCount == 1) || (sig.paramType[1] == TYP_INT));
+
+    GenTree* index = sig.paramCount == 1 ? nullptr : impPopStackCoerceArg(TYP_INT);
+    GenTree* array = impPopStackCoerceArg(TYP_REF);
+    GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
+
+    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, SCK_ARG_RNG_EXCPN, SCK_ARG_EXCPN);
+    return gtNewAssignNode(indir, value);
+}
+
+GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_INT);
 
-    var_types elementType = layout->GetElementType();
+    GenTree* index = impPopStackCoerceArg(TYP_INT);
+    GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
 
-    switch (elementType)
-    {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-        case TYP_UINT:
-        case TYP_LONG:
-        case TYP_ULONG:
-#ifdef TARGET_XARCH
-            if (!compExactlyDependsOn(InstructionSet_SSE41))
-            {
-                return nullptr;
-            }
-#endif
-            break;
-
-        case TYP_DOUBLE:
-        case TYP_FLOAT:
-        case TYP_SHORT:
-        case TYP_USHORT:
-            break;
-
-        default:
-            unreached();
-    }
-
-    GenTree* index = impPopStack().val;
-    GenTree* value = impSIMDPopStackAddr(layout->GetSIMDType());
-
-    assert(value->GetType() == layout->GetSIMDType());
-    assert(varActualType(index->GetType()) == TYP_INT);
-
-    return gtNewSimdGetElementNode(elementType, layout->GetSize(), value, index);
+    return impVectorGetElement(layout, value, index);
 }
 
 #ifdef TARGET_ARMARCH
 
-GenTree* Compiler::impSimdAsHWIntrinsicMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+{
+    assert(sig.retType == TYP_SIMD16);
+    assert(sig.paramCount == 2);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+    assert(sig.retLayout->GetSIMDType() == sig.paramLayout[0]->GetSIMDType());
+    assert(varTypeSize(sig.retLayout->GetElementType()) == varTypeSize(sig.paramLayout[0]->GetElementType()) / 2);
+
+    NamedIntrinsic lower;
+    NamedIntrinsic upper;
+
+    if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
+    {
+        lower = NI_AdvSimd_Arm64_ConvertToSingleLower;
+        upper = NI_AdvSimd_Arm64_ConvertToSingleUpper;
+    }
+    else
+    {
+        lower = NI_AdvSimd_ExtractNarrowingLower;
+        upper = NI_AdvSimd_ExtractNarrowingUpper;
+    }
+
+    var_types retEltType = sig.retLayout->GetElementType();
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, lower, retEltType, 8, op1);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, upper, retEltType, 16, op1, op2);
+}
+
+GenTree* Compiler::impVectorT128Widen(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 3);
+    assert(sig.paramLayout[0]->GetSIMDType() == TYP_SIMD16);
+    assert(sig.paramType[1] == TYP_BYREF);
+    assert(sig.paramType[2] == TYP_BYREF);
+
+    GenTree* hiAddr = impPopStack().val;
+    GenTree* loAddr = impPopStack().val;
+    GenTree* value  = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
+
+    GenTree* uses[2];
+    impMakeMultiUse(value, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
+
+    var_types      eltType = sig.paramLayout[0]->GetElementType();
+    NamedIntrinsic lower;
+    NamedIntrinsic upper;
+
+    if (eltType == TYP_FLOAT)
+    {
+        lower = NI_AdvSimd_Arm64_ConvertToDouble;
+        upper = NI_AdvSimd_Arm64_ConvertToDoubleUpper;
+    }
+    else if (varTypeIsSigned(eltType))
+    {
+        lower = NI_AdvSimd_SignExtendWideningLower;
+        upper = NI_AdvSimd_SignExtendWideningUpper;
+    }
+    else
+    {
+        lower = NI_AdvSimd_ZeroExtendWideningLower;
+        upper = NI_AdvSimd_ZeroExtendWideningUpper;
+    }
+
+    GenTree* lo = gtNewSimdHWIntrinsicNode(TYP_SIMD16, lower, eltType, 8, uses[0]);
+    GenTree* hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, upper, eltType, 16, uses[1]);
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    return impAssignSIMDAddr(hiAddr, hi);
+}
+
+GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
 
@@ -999,7 +1267,574 @@ GenTree* Compiler::impSimdAsHWIntrinsicMultiply(const HWIntrinsicSignature& sig,
 
 #ifdef TARGET_XARCH
 
-GenTree* Compiler::impSimdAsHWIntrinsicMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+constexpr ssize_t SHUFFLE_XXZX = 0x08; // 00 00 10 00
+constexpr ssize_t SHUFFLE_ZWXY = 0xB1; // 10 11 00 01
+constexpr ssize_t SHUFFLE_WWYY = 0xF5; // 11 11 01 01
+constexpr ssize_t SHUFFLE_ZZXX = 0xA0; // 10 10 00 00
+
+GenTree* Compiler::impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
+{
+    GenTree* uses[2];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* c;
+    uses[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_INT, 16, uses[0], gtNewIconNode(16));
+    c       = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, gtNewIconNode(0x53000000));
+    uses[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Or, TYP_FLOAT, 16, uses[0], c);
+    c       = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, gtNewIconNode(0x53000000));
+    uses[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Subtract, TYP_FLOAT, 16, uses[0], c);
+
+    uses[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_INT, 16, uses[1], gtNewIconNode(16));
+    uses[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_INT, 16, uses[1], gtNewIconNode(16));
+    uses[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_INT, 16, uses[1]);
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, uses[0], uses[1]);
+}
+
+GenTree* Compiler::impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
+{
+    GenTree* uses[2];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* c;
+    uses[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_INT, 32, uses[0], gtNewIconNode(16));
+    c       = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_INT, 32, gtNewIconNode(0x53000000));
+    uses[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Or, TYP_FLOAT, 32, uses[0], c);
+    c       = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_INT, 32, gtNewIconNode(0x53000000));
+    uses[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Subtract, TYP_FLOAT, 32, uses[0], c);
+
+    uses[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_INT, 32, uses[1], gtNewIconNode(16));
+    uses[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_INT, 32, uses[1], gtNewIconNode(16));
+    uses[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_ConvertToVector256Single, TYP_FLOAT, 32, uses[1]);
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Add, TYP_FLOAT, 32, uses[0], uses[1]);
+}
+
+GenTree* Compiler::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramType[0] == TYP_SIMD16);
+    assert(sig.paramLayout[0]->GetElementType() == TYP_LONG);
+    assert(sig.retType == TYP_SIMD16);
+    assert(sig.retLayout->GetElementType() == TYP_DOUBLE);
+
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+
+#ifndef TARGET_64BIT
+    GenTree* uses[3];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* sign =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, uses[0], gtNewIconNode(63));
+    sign = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, 16, sign, gtNewIconNode(63));
+
+    GenTree* uns = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, uses[1], gtNewIconNode(0xF5));
+    uns = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, TYP_INT, 16, uns, gtNewIconNode(32));
+    GenTree* unsUses[2];
+    impMakeMultiUse(uns, unsUses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+    uns = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, 16, uses[2], unsUses[0]);
+    uns = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_LONG, 16, uns, unsUses[1]);
+
+    GenTree* e[2];
+    GenTree* c[2];
+
+    impMakeMultiUse(uns, 2, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, uses[0], gtNewIconNode(32));
+    c[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(0x4530000000000000));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, 16, e[0], c[0]);
+    c[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(0x4530000000000000));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, 16, e[0], c[0]);
+
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, 16, uses[1], gtNewIconNode(32));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, e[1], gtNewIconNode(32));
+    c[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(0x4330000000000000));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, 16, e[1], c[1]);
+    c[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(0x4330000000000000));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, 16, e[1], c[1]);
+
+    uns = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Add, TYP_DOUBLE, 16, e[0], e[1]);
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Or, TYP_FLOAT, 16, uns, sign);
+#else
+    GenTree* uses[4];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* e[2];
+
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
+    e[0] =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[1], e[0]);
+
+    if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        e[1] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], gtNewIconNode(1));
+    }
+    else
+    {
+        e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, uses[2], gtNewIconNode(0b00001110));
+        e[1] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, e[1]);
+    }
+
+    e[1] =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[3], e[1]);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, 16, e[0], e[1]);
+#endif
+}
+
+GenTree* Compiler::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramType[0] == TYP_SIMD32);
+    assert(sig.paramLayout[0]->GetElementType() == TYP_LONG);
+    assert(sig.retType == TYP_SIMD32);
+    assert(sig.retLayout->GetElementType() == TYP_DOUBLE);
+
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD32);
+
+#ifndef TARGET_64BIT
+    GenTree* uses[3];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* sign =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, uses[0], gtNewIconNode(63));
+    sign = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, 32, sign, gtNewIconNode(63));
+
+    GenTree* uns = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, 32, uses[1], gtNewIconNode(0xF5));
+    uns = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightArithmetic, TYP_INT, 32, uns, gtNewIconNode(32));
+    GenTree* unsUses[2];
+    impMakeMultiUse(uns, unsUses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+    uns = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Xor, TYP_LONG, 32, uses[2], unsUses[0]);
+    uns = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Subtract, TYP_LONG, 32, uns, unsUses[1]);
+
+    GenTree* e[2];
+    GenTree* c[2];
+
+    impMakeMultiUse(uns, 2, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, uses[0], gtNewIconNode(32));
+    c[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, gtNewLconNode(0x4530000000000000));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, 32, e[0], c[0]);
+    c[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, gtNewLconNode(0x4530000000000000));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, 32, e[0], c[0]);
+
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, 32, uses[1], gtNewIconNode(32));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, e[1], gtNewIconNode(32));
+    c[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_Create, TYP_LONG, 32, gtNewLconNode(0x4330000000000000));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, 32, e[1], c[1]);
+    c[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_Create, TYP_LONG, 32, gtNewLconNode(0x4330000000000000));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, 32, e[1], c[1]);
+
+    uns = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Add, TYP_DOUBLE, 32, e[0], e[1]);
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Or, TYP_FLOAT, 32, uns, sign);
+#else
+    // TODO-MIKE-Cleanup: These temps should be SIMD16 but we don't have a SIMD16 layout
+    // handy so they're SIMD32 instead. This would mean that all the uses should really
+    // be NI_Vector256_GetLower but that's kind of overkill, ignore it for now.
+    GenTree* uses[5];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* e[4];
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
+    e[0] =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[1], e[0]);
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], gtNewIconNode(1));
+    e[1] =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[3], e[1]);
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, 16, e[0], e[1]);
+
+    uses[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, uses[4], gtNewIconNode(1));
+    uses[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, TYP_LONG, 16, uses[0]);
+    impMakeMultiUse(uses[0], 4, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    e[2] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
+    e[2] =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[1], e[2]);
+    e[3] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], gtNewIconNode(1));
+    e[3] =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[3], e[3]);
+    e[2] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, 16, e[2], e[3]);
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_InsertVector128, TYP_DOUBLE, 32, e[0], e[2], gtNewIconNode(1));
+#endif
+}
+
+GenTree* Compiler::impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramType[0] == TYP_SIMD16);
+    assert(sig.paramLayout[0]->GetElementType() == TYP_ULONG);
+    assert(sig.retType == TYP_SIMD16);
+    assert(sig.retLayout->GetElementType() == TYP_DOUBLE);
+
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+
+    GenTree* uses[2];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* e[2];
+    GenTree* c[2];
+
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, uses[0], gtNewIconNode(32));
+    c[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(0x4530000000000000));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, 16, e[0], c[0]);
+    c[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(0x4530000000000000));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, 16, e[0], c[0]);
+
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, 16, uses[1], gtNewIconNode(32));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, e[1], gtNewIconNode(32));
+    c[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(0x4330000000000000));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, 16, e[1], c[1]);
+    c[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(0x4330000000000000));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, 16, e[1], c[1]);
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Add, TYP_DOUBLE, 16, e[0], e[1]);
+}
+
+GenTree* Compiler::impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramType[0] == TYP_SIMD32);
+    assert(sig.paramLayout[0]->GetElementType() == TYP_ULONG);
+    assert(sig.retType == TYP_SIMD32);
+    assert(sig.retLayout->GetElementType() == TYP_DOUBLE);
+
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD32);
+
+    GenTree* uses[2];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* e[2];
+    GenTree* c[2];
+
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, uses[0], gtNewIconNode(32));
+    c[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, gtNewLconNode(0x4530000000000000));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, 32, e[0], c[0]);
+    c[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, gtNewLconNode(0x4530000000000000));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, 32, e[0], c[0]);
+
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, 32, uses[1], gtNewIconNode(32));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, e[1], gtNewIconNode(32));
+    c[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, gtNewLconNode(0x4330000000000000));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, 32, e[1], c[1]);
+    c[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, gtNewLconNode(0x4330000000000000));
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, 32, e[1], c[1]);
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Add, TYP_DOUBLE, 32, e[0], e[1]);
+}
+
+GenTree* Compiler::impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramType[0] == TYP_SIMD16);
+    assert(sig.paramLayout[0]->GetElementType() == TYP_DOUBLE);
+    assert(sig.retType == TYP_SIMD16);
+    assert(sig.retLayout->GetElementType() == TYP_LONG);
+
+#ifndef TARGET_64BIT
+    return nullptr;
+#else
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+
+    GenTree* uses[4];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* e[2];
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, uses[2]);
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[0]);
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, 16, uses[0], uses[1]);
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[1]);
+
+    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[1]);
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_LONG, 16, e[0], e[1]);
+    }
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, 16, e[0], e[1], gtNewIconNode(1));
+#endif
+}
+
+GenTree* Compiler::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramType[0] == TYP_SIMD32);
+    assert(sig.paramLayout[0]->GetElementType() == TYP_DOUBLE);
+    assert(sig.retType == TYP_SIMD32);
+    assert(sig.retLayout->GetElementType() == TYP_LONG);
+
+#ifndef TARGET_64BIT
+    return nullptr;
+#else
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD32);
+
+    // TODO-MIKE-Cleanup: These temps should be SIMD16 but we don't have a SIMD16 layout
+    // handy so they're SIMD32 instead. This would mean that all the uses should really
+    // be NI_Vector256_GetLower but that's kind of overkill, ignore it for now.
+    GenTree* uses[4];
+    impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    GenTree* e[4];
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, uses[2]);
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[0]);
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, 16, uses[0], uses[1]);
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[1]);
+
+    uses[3] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, uses[3], gtNewIconNode(1));
+    uses[3] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, TYP_LONG, 16, uses[3]);
+    impMakeMultiUse(uses[3], 3, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
+
+    e[2] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, uses[2]);
+    e[2] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[2]);
+    e[3] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, 16, uses[0], uses[1]);
+    e[3] = gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[3]);
+
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, 16, e[0], e[1], gtNewIconNode(1));
+    e[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, TYP_LONG, 16, e[0]);
+    e[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, 16, e[2], e[3], gtNewIconNode(1));
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_InsertVector128, TYP_LONG, 32, e[0], e[1], gtNewIconNode(1));
+#endif
+}
+
+GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+
+    var_types simdBaseType = sig.paramLayout[0]->GetElementType();
+    assert((simdBaseType == TYP_INT) || (simdBaseType == TYP_UINT));
+
+    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        return nullptr;
+    }
+
+    GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+    GenTree* op2 = impSIMDPopStack(TYP_SIMD16);
+
+    unsigned simdSize = sig.paramLayout[0]->GetSize();
+    return gtNewSimdHWIntrinsicNode(sig.retType, NI_Vector128_Dot, simdBaseType, simdSize, op1, op2);
+}
+
+GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+{
+    assert(sig.retType == TYP_SIMD16);
+    assert(sig.paramCount == 2);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+    assert(sig.retLayout->GetSIMDType() == sig.paramLayout[0]->GetSIMDType());
+    assert(varTypeSize(sig.retLayout->GetElementType()) == varTypeSize(sig.paramLayout[0]->GetElementType()) / 2);
+
+    var_types eltType = varTypeToSigned(sig.paramLayout[0]->GetElementType());
+
+    if (eltType == TYP_DOUBLE)
+    {
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_DOUBLE, 16, op1);
+        op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_DOUBLE, 16, op2);
+
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, op1, op2);
+    }
+
+    if (eltType == TYP_LONG)
+    {
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, op1, gtNewIconNode(128));
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_LONG, 16, op1,
+                                       gtNewIconNode(8));
+        op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, op2, gtNewIconNode(8));
+        op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical128BitLane, TYP_LONG, 16, op2,
+                                       gtNewIconNode(8));
+
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_INT, 16, op1, op2);
+    }
+
+    assert((eltType == TYP_SHORT) || (eltType == TYP_INT));
+
+    var_types retEltType = varTypeToSigned(sig.retLayout->GetElementType());
+    ssize_t   retEltSize = varTypeSize(retEltType) * 8;
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, eltType, 16, op1, gtNewIconNode(retEltSize));
+    op1 =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, 16, op1, gtNewIconNode(retEltSize));
+    op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, eltType, 16, op2, gtNewIconNode(retEltSize));
+    op2 =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, 16, op2, gtNewIconNode(retEltSize));
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_PackSignedSaturate, retEltType, 16, op1, op2);
+}
+
+GenTree* Compiler::impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+{
+    assert(sig.retType == TYP_SIMD32);
+    assert(sig.paramCount == 2);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+    assert(sig.retLayout->GetSIMDType() == sig.paramLayout[0]->GetSIMDType());
+    assert(varTypeSize(sig.retLayout->GetElementType()) == varTypeSize(sig.paramLayout[0]->GetElementType()) / 2);
+
+    var_types eltType = varTypeToSigned(sig.paramLayout[0]->GetElementType());
+
+    if (eltType == TYP_DOUBLE)
+    {
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ConvertToVector128Single, TYP_FLOAT, 32, op1);
+        op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_ConvertToVector128Single, TYP_FLOAT, 32, op2);
+
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_InsertVector128, TYP_FLOAT, 32, op1, op2, gtNewIconNode(1));
+    }
+
+    GenTree* uses[2][2];
+    impMakeMultiUse(op1, uses[0], sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Narrow temp"));
+    impMakeMultiUse(op2, uses[1], sig.paramLayout[1], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Narrow temp"));
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Permute2x128, eltType, 32, uses[0][0], uses[1][0],
+                                   gtNewIconNode(32));
+    op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Permute2x128, eltType, 32, uses[0][1], uses[1][1],
+                                   gtNewIconNode(49));
+
+    if (eltType == TYP_LONG)
+    {
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, 32, op1, gtNewIconNode(8));
+        op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, 32, op2, gtNewIconNode(8));
+
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_UnpackLow, TYP_LONG, 32, op1, op2);
+    }
+
+    assert((eltType == TYP_SHORT) || (eltType == TYP_INT));
+
+    var_types retEltType = varTypeToUnsigned(sig.retLayout->GetElementType());
+    ssize_t   retEltSize = varTypeSize(retEltType) * 8;
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, eltType, 32, op1, gtNewIconNode(retEltSize));
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, eltType, 32, op1, gtNewIconNode(retEltSize));
+    op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, eltType, 32, op2, gtNewIconNode(retEltSize));
+    op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, eltType, 32, op2, gtNewIconNode(retEltSize));
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PackUnsignedSaturate, retEltType, 32, op1, op2);
+}
+
+GenTree* Compiler::impVectorT128Widen(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 3);
+    assert(sig.paramLayout[0]->GetSIMDType() == TYP_SIMD16);
+    assert(sig.paramType[1] == TYP_BYREF);
+    assert(sig.paramType[2] == TYP_BYREF);
+
+    var_types eltType = sig.paramLayout[0]->GetElementType();
+    GenTree*  hiAddr  = impPopStack().val;
+    GenTree*  loAddr  = impPopStack().val;
+    GenTree*  value   = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
+    GenTree*  hi;
+    GenTree*  lo;
+
+    if (eltType == TYP_FLOAT)
+    {
+        GenTree* uses[3];
+        impMakeMultiUse(value, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
+
+        lo = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Double, TYP_FLOAT, 16, uses[0]);
+        hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, uses[1], uses[2]);
+        hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Double, TYP_FLOAT, 16, hi);
+    }
+    else if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        NamedIntrinsic intrinsic;
+
+        switch (eltType)
+        {
+            case TYP_BYTE:
+            case TYP_UBYTE:
+                intrinsic = NI_SSE41_ConvertToVector128Int16;
+                break;
+            case TYP_SHORT:
+            case TYP_USHORT:
+                intrinsic = NI_SSE41_ConvertToVector128Int32;
+                break;
+            default:
+                assert((eltType == TYP_INT) || (eltType == TYP_UINT));
+                intrinsic = NI_SSE41_ConvertToVector128Int64;
+                break;
+        }
+
+        GenTree* uses[2];
+        impMakeMultiUse(value, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
+        // TODO-MIKE-CQ: NI_SSE2_UnpackHigh would be better but it tends to generate an extra movaps.
+        uses[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, eltType, 16, uses[1],
+                                           gtNewIconNode(8));
+
+        lo = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, uses[0]);
+        hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, uses[1]);
+    }
+    else
+    {
+        GenTree* sign[2]{gtNewZeroSimdHWIntrinsicNode(sig.paramLayout[0])};
+        GenTree* uses[3];
+
+        if (varTypeIsSigned(eltType))
+        {
+            impMakeMultiUse(value, 3, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
+            sign[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareGreaterThan, eltType, 16, sign[0], uses[2]);
+            impMakeMultiUse(sign[0], sign, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
+        }
+        else
+        {
+            impMakeMultiUse(value, 2, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
+            sign[1] = gtNewZeroSimdHWIntrinsicNode(sig.paramLayout[0]);
+        }
+
+        lo = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, 16, uses[0], sign[0]);
+        hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackHigh, eltType, 16, uses[1], sign[1]);
+    }
+
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    return impAssignSIMDAddr(hiAddr, hi);
+}
+
+GenTree* Compiler::impVectorT256Widen(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 3);
+    assert(sig.paramLayout[0]->GetSIMDType() == TYP_SIMD32);
+    assert(sig.paramType[1] == TYP_BYREF);
+    assert(sig.paramType[2] == TYP_BYREF);
+
+    var_types eltType = sig.paramLayout[0]->GetElementType();
+    GenTree*  hiAddr  = impPopStack().val;
+    GenTree*  loAddr  = impPopStack().val;
+    GenTree*  value   = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
+    GenTree*  hi;
+    GenTree*  lo;
+
+    GenTree* uses[2];
+    impMakeMultiUse(value, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
+
+    NamedIntrinsic widenIntrinsic;
+    NamedIntrinsic extractIntrinsic;
+
+    switch (eltType)
+    {
+        case TYP_BYTE:
+        case TYP_UBYTE:
+            widenIntrinsic   = NI_AVX2_ConvertToVector256Int16;
+            extractIntrinsic = NI_AVX2_ExtractVector128;
+            break;
+        case TYP_SHORT:
+        case TYP_USHORT:
+            widenIntrinsic   = NI_AVX2_ConvertToVector256Int32;
+            extractIntrinsic = NI_AVX2_ExtractVector128;
+            break;
+        case TYP_INT:
+        case TYP_UINT:
+            widenIntrinsic   = NI_AVX2_ConvertToVector256Int64;
+            extractIntrinsic = NI_AVX2_ExtractVector128;
+            break;
+        default:
+            assert(eltType == TYP_FLOAT);
+            widenIntrinsic   = NI_AVX_ConvertToVector256Double;
+            extractIntrinsic = NI_AVX_ExtractVector128;
+            break;
+    }
+
+    lo = gtNewSimdHWIntrinsicNode(TYP_SIMD32, widenIntrinsic, eltType, 32, uses[0]);
+    hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, extractIntrinsic, eltType, 32, uses[1], gtNewIconNode(1));
+    hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, widenIntrinsic, eltType, 32, hi);
+
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    return impAssignSIMDAddr(hiAddr, hi);
+}
+
+GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
 
@@ -1071,7 +1906,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicMultiply(const HWIntrinsicSignature& sig,
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, 16, t, u);
 }
 
-GenTree* Compiler::impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3)
+GenTree* Compiler::impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3)
 {
     var_types type     = layout->GetSIMDType();
     var_types baseType = layout->GetElementType();
@@ -1081,11 +1916,11 @@ GenTree* Compiler::impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1,
     NamedIntrinsic andnIntrinsic = MapVectorTIntrinsic(NI_VectorT128_AndNot, type == TYP_SIMD32);
     NamedIntrinsic orIntrinsic   = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseOr, type == TYP_SIMD32);
 
-    assert(SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(andnIntrinsic));
+    assert(GetIntrinsicInfo(andnIntrinsic).SwapOperands());
 
-    andIntrinsic  = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(andIntrinsic, baseType);
-    andnIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(andnIntrinsic, baseType);
-    orIntrinsic   = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(orIntrinsic, baseType);
+    andIntrinsic  = GetIntrinsicInfo(andIntrinsic).HWIntrinsic(baseType);
+    andnIntrinsic = GetIntrinsicInfo(andnIntrinsic).HWIntrinsic(baseType);
+    orIntrinsic   = GetIntrinsicInfo(orIntrinsic).HWIntrinsic(baseType);
 
     GenTree* uses[2];
     impMakeMultiUse(op1, uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.ConditionalSelect temp"));
@@ -1094,7 +1929,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicCndSel(ClassLayout* layout, GenTree* op1,
     return gtNewSimdHWIntrinsicNode(type, orIntrinsic, baseType, size, op2, op3);
 }
 
-GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
+GenTree* Compiler::impVectorTCompare(
     NamedIntrinsic intrinsic, var_types baseType, ClassLayout* layout, GenTree* op1, GenTree* op2)
 {
     var_types type  = layout->GetSIMDType();
@@ -1111,7 +1946,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
 
             if (isAVX || ((baseType != TYP_LONG) && (baseType != TYP_ULONG)))
             {
-                NamedIntrinsic hwIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType);
+                NamedIntrinsic hwIntrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(baseType);
                 assert(hwIntrinsic != intrinsic);
                 return gtNewSimdHWIntrinsicNode(type, hwIntrinsic, baseType, size, op1, op2);
             }
@@ -1180,8 +2015,8 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
             impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThanOrEqual temp"));
             impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThanOrEqual temp"));
 
-            GenTree* eq   = impSimdAsHWIntrinsicRelOp(eqIntrinsic, baseType, layout, uses[0][0], uses[1][0]);
-            GenTree* less = impSimdAsHWIntrinsicRelOp(intrinsic, baseType, layout, uses[0][1], uses[1][1]);
+            GenTree* eq   = impVectorTCompare(eqIntrinsic, baseType, layout, uses[0][0], uses[1][0]);
+            GenTree* less = impVectorTCompare(intrinsic, baseType, layout, uses[0][1], uses[1][1]);
             return gtNewSimdHWIntrinsicNode(type, orIntrinsic, baseType, size, eq, less);
         }
 
@@ -1239,7 +2074,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
 
             if (isAVX || (baseType != TYP_LONG))
             {
-                NamedIntrinsic hwIntrinsic = SimdAsHWIntrinsicInfo::lookupHWIntrinsic(intrinsic, baseType);
+                NamedIntrinsic hwIntrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(baseType);
                 assert(hwIntrinsic != intrinsic);
                 return gtNewSimdHWIntrinsicNode(type, hwIntrinsic, baseType, size, op1, op2);
             }
@@ -1276,7 +2111,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
             impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.GreaterLessThan temp"));
             impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan temp"));
 
-            GenTree* v = impSimdAsHWIntrinsicRelOp(intrinsic, TYP_UINT, layout, uses[0][0], uses[1][0]);
+            GenTree* v = impVectorTCompare(intrinsic, TYP_UINT, layout, uses[0][0], uses[1][0]);
             v = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, v, gtNewIconNode(SHUFFLE_ZZXX));
             intrinsic = (intrinsic == NI_VectorT128_GreaterThan) ? NI_SSE2_CompareGreaterThan : NI_SSE2_CompareLessThan;
             GenTree* t = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, TYP_INT, 16, uses[0][1], uses[1][1]);
@@ -1294,5 +2129,405 @@ GenTree* Compiler::impSimdAsHWIntrinsicRelOp(
     }
 }
 #endif // TARGET_XARCH
+
+// Check whether two memory locations are contiguous.
+//
+// This recognizes trivial patterns such as FIELD(o, 4) & FIELD(o, 8) or INDEX(a, 1) & INDEX(a, 2).
+// Pointer arithmetic isn't recognized (and probably not very useful anyway) and in the case of
+// arrays only constant indices are recognized. Might be useful to also recognize i, i+1, i+2...
+// If the locations are determined to be adjacent this also implies that the trees are also free
+// of persistent side effects and they can be discarded. They may have exception side effects that
+// may need to be preserved - a[1] doesn't imply that a[2] is also a valid array element.
+//
+bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, GenTree* l2)
+{
+    if ((l1->GetOper() != l2->GetOper()) || l1->TypeIs(TYP_STRUCT))
+    {
+        return false;
+    }
+
+    auto AreValuesEqual = [](GenTree* v1, GenTree* v2) {
+        while (v1->GetOper() == v2->GetOper())
+        {
+            if (v1->OperIs(GT_ADDR))
+            {
+                v1 = v1->AsUnOp()->GetOp(0);
+                v2 = v2->AsUnOp()->GetOp(0);
+
+                continue;
+            }
+
+            if (v1->OperIs(GT_FIELD))
+            {
+                if ((v1->AsField()->GetFieldHandle() == v2->AsField()->GetFieldHandle()) &&
+                    !v1->AsField()->IsVolatile() && !v2->AsField()->IsVolatile())
+                {
+                    v1 = v1->AsField()->GetAddr();
+                    v2 = v2->AsField()->GetAddr();
+
+                    continue;
+                }
+
+                return false;
+            }
+
+            if (v1->OperIs(GT_LCL_VAR))
+            {
+                return v1->AsLclVar()->GetLclNum() == v2->AsLclVar()->GetLclNum();
+            }
+
+            break;
+        }
+
+        return false;
+    };
+
+    auto AreConsecutiveConstants = [](GenTree* i1, GenTree* i2) {
+        return i1->OperIs(GT_CNS_INT) && i2->OperIs(GT_CNS_INT) &&
+               (i1->AsIntCon()->GetValue() + 1 == i2->AsIntCon()->GetValue());
+    };
+
+    auto AreContiguosArrayElements = [&](GenTreeIndex* e1, GenTreeIndex* e2) {
+        return AreConsecutiveConstants(e1->GetIndex(), e2->GetIndex()) &&
+               AreValuesEqual(e1->GetArray(), e2->GetArray());
+    };
+
+    auto AreContiguosFields = [&](GenTreeField* f1, GenTreeField* f2) {
+        return (f1->GetOffset() + varTypeSize(f1->GetType()) == f2->GetOffset()) && !f1->IsVolatile() &&
+               !f2->IsVolatile() && AreValuesEqual(f1->GetAddr(), f2->GetAddr());
+    };
+
+    auto AreContiguosLocalFields = [](GenTreeLclFld* f1, GenTreeLclFld* f2) {
+        return (f1->GetLclNum() == f2->GetLclNum()) &&
+               (f1->GetLclOffs() + varTypeSize(f1->GetType()) == f2->GetLclOffs());
+    };
+
+    switch (l1->GetOper())
+    {
+        case GT_INDEX:
+            return AreContiguosArrayElements(l1->AsIndex(), l2->AsIndex());
+        case GT_FIELD:
+            return AreContiguosFields(l1->AsField(), l2->AsField());
+        case GT_LCL_FLD:
+            return AreContiguosLocalFields(l1->AsLclFld(), l2->AsLclFld());
+        default:
+            return false;
+    }
+}
+
+// Change a FIELD/INDEX/LCL_FLD node into a SIMD typed IND/LCL_FLD.
+//
+void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType)
+{
+    assert(tree->TypeIs(TYP_FLOAT));
+
+    if (tree->OperIs(GT_LCL_FLD))
+    {
+        tree->SetType(simdType);
+        tree->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+
+        // This may have changed a partial local field into full local field
+        if (tree->IsPartialLclFld(compiler))
+        {
+            tree->gtFlags |= GTF_VAR_USEASG;
+        }
+        else
+        {
+            tree->gtFlags &= ~GTF_VAR_USEASG;
+        }
+
+        return;
+    }
+
+    GenTree* addr   = nullptr;
+    unsigned offset = 0;
+
+    if (GenTreeField* field = tree->IsField())
+    {
+        assert(!tree->AsField()->IsVolatile());
+
+        addr   = field->GetAddr();
+        offset = field->GetOffset();
+
+        if (addr->OperIs(GT_ADDR))
+        {
+            GenTree* location = addr->AsUnOp()->GetOp(0);
+
+            // If this is the field of a local struct variable then set lvUsedInSIMDIntrinsic to prevent
+            // the local from being promoted. If it gets promoted then it will be dependent-promoted due
+            // to the indirection we're creating.
+
+            // TODO-MIKE-Cleanup: This is done only for SIMD locals but it really should be done for any
+            // struct local since the whole point is to block poor promotion.
+
+            if (varTypeIsSIMD(location->GetType()) && location->OperIs(GT_LCL_VAR))
+            {
+                compiler->lvaRecordSimdIntrinsicUse(location->AsLclVar());
+            }
+        }
+
+        // TODO-MIKE-Fix: This code replaces FIELD with and ADD(addr, offset) without adding
+        // a NULLCHECK when the field offset is large enough to require it. It's not worth
+        // fixing this until FIELD is replaced by FIELD_ADDR, otherwise we need to add ADDR
+        // on top of the existing FIELD and then use that as the address of the indir.
+    }
+    else if (GenTreeIndex* element = tree->IsIndex())
+    {
+        GenTree* array = element->GetArray();
+        unsigned index = static_cast<unsigned>(element->GetIndex()->AsIntCon()->GetValue());
+
+        // Generate a bounds check for the array access. We access multiple array elements but for
+        // bounds checking purposes it's sufficient to check if the last element index is valid,
+        // then all the element indices before it will also be valid.
+
+        unsigned simdElementCount = varTypeSize(simdType) / varTypeSize(TYP_FLOAT);
+
+        GenTree* lastIndex = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
+        GenTree* arrLen =
+            compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length, compiler->compCurBB);
+        GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL);
+
+        addr   = compiler->gtNewCommaNode(arrBndsChk, array);
+        offset = OFFSETOF__CORINFO_Array__data + index * varTypeSize(TYP_FLOAT);
+    }
+    else
+    {
+        unreached();
+    }
+
+    if (offset != 0)
+    {
+        addr = compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, compiler->gtNewIconNode(offset, TYP_I_IMPL));
+    }
+
+    tree->ChangeOper(GT_IND);
+    tree->SetType(simdType);
+    tree->AsIndir()->SetAddr(addr);
+}
+
+// Recognize a field of a SIMD local variable (Vector2/3/4 fields).
+//
+GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDField(GenTree* node)
+{
+    if (!node->OperIs(GT_FIELD))
+    {
+        return nullptr;
+    }
+
+    if (node->AsField()->IsVolatile())
+    {
+        // It probably doesn't make sense to coalesce volatile fields. Anyway LocalAddressVisitor
+        // doesn't generate SIMDIntrinsicGetItem out of a volatile field and ChangeToSIMDMem does
+        // not bother to make the indir it creates volatile...
+
+        return nullptr;
+    }
+
+    if (node->AsField()->GetOffset() != m_index * varTypeSize(TYP_FLOAT))
+    {
+        return nullptr;
+    }
+
+    GenTree* addr = node->AsField()->GetAddr();
+
+    if ((addr == nullptr) || !addr->OperIs(GT_ADDR) || !addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+    {
+        return nullptr;
+    }
+
+    GenTreeLclVar* lclVar = addr->AsUnOp()->GetOp(0)->AsLclVar();
+
+    if (!varTypeIsSIMD(lclVar->GetType()))
+    {
+        return nullptr;
+    }
+
+    assert(node->TypeIs(TYP_FLOAT));
+
+    return lclVar;
+}
+
+// Recognize a SIMDIntrinsicGetItem that uses a SIMD local variable.
+//
+GenTreeLclVar* Compiler::SIMDCoalescingBuffer::IsSIMDGetElement(GenTree* node)
+{
+    if (!node->OperIs(GT_HWINTRINSIC))
+    {
+        return nullptr;
+    }
+
+    GenTreeHWIntrinsic* getItem = node->AsHWIntrinsic();
+
+    if ((getItem->GetIntrinsic() != NI_Vector128_GetElement) || !getItem->GetOp(0)->OperIs(GT_LCL_VAR) ||
+        !getItem->GetOp(1)->IsIntegralConst(m_index))
+    {
+        return nullptr;
+    }
+
+    // We only care about Vector2/3/4 so the element type is always FLOAT.
+    if (!getItem->TypeIs(TYP_FLOAT))
+    {
+        return nullptr;
+    }
+
+    return getItem->GetOp(0)->AsLclVar();
+};
+
+// Try to add an assignment statement to the coalescing buffer (common code for Add and Mark).
+// Return true if the statment is added and the number of statements in the buffer equals the number of SIMD elements.
+//
+bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, GenTreeLclVar* simdLclVar)
+{
+    if (simdLclVar == nullptr)
+    {
+        Clear();
+        return false;
+    }
+
+    if (m_index == 0)
+    {
+        m_firstStmt = stmt;
+        m_lastStmt  = stmt;
+        m_lclNum    = simdLclVar->GetLclNum();
+        m_index++;
+        return false;
+    }
+
+    if (simdLclVar->GetLclNum() != m_lclNum)
+    {
+        Clear();
+        return false;
+    }
+
+    GenTreeOp* lastAsg = m_lastStmt->GetRootNode()->AsOp();
+
+    if (!AreContiguousMemoryLocations(lastAsg->GetOp(0), asg->AsOp()->GetOp(0)))
+    {
+        Clear();
+        return false;
+    }
+
+    m_lastStmt = stmt;
+    m_index++;
+
+    return (m_index == varTypeSize(compiler->lvaGetDesc(simdLclVar)->GetType()) / varTypeSize(TYP_FLOAT));
+}
+
+// Mark local variables that may be subject to SIMD coalescing to prevent struct promotion.
+//
+// TODO-MIKE-Cleanup: It's unfortunate that we need to do SIMD coalescing in two steps: first mark
+// locals that are subject to coalescing, to prevent struct promotion, and then actually do coalescing.
+// In general phase ordering in this area is messy and it's likely better to be:
+//     - import (no SIMD coalescing marking)
+//     - other unrelated phases (e.g. inlining)
+//     - "local address visitor" - convert every (recognized) indirect local access to LCL_VAR/LCL_FLD
+//       and record some information to help guide struct promotion (though it's questionable if this
+//       phase needs to exist at all, most of it can be done during import and it's really importer's
+//       job to deal with issues arising from unfortunate IL characteristics)
+//     - struct promotion + implicit byref params + DNER marking
+//     - SIMD coalescing (likely done during the same flow graph traversal as struct promotion)
+//     - global morph
+//
+// That said, SIMD coalescing (or any other kind of memory coalescing) is better done in lowering,
+// doing it in the frontend interferes with VN and anything it depends on it. Unfortunately after
+// global morph it's more difficult to recognize contiguous memory locations because INDEX gets
+// expanded into more complex trees. But then the coalescing code only recognizes constant array
+// indices and COMMAs aren't present in LIR so probably there's not much difference.
+//
+void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
+{
+    GenTree* asg = stmt->GetRootNode();
+
+    if (!asg->TypeIs(TYP_FLOAT) || !asg->OperIs(GT_ASG))
+    {
+        Clear();
+        return;
+    }
+
+    GenTreeLclVar* simdLclVar = IsSIMDField(asg->AsOp()->GetOp(1));
+
+    if (!Add(compiler, stmt, asg->AsOp(), simdLclVar))
+    {
+        return;
+    }
+
+    compiler->lvaRecordSimdIntrinsicUse(simdLclVar);
+
+    GenTree* dest = asg->AsOp()->GetOp(0);
+
+    if (GenTreeField* field = dest->IsField())
+    {
+        GenTree* addr = field->GetAddr();
+
+        if ((addr != nullptr) && addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+        {
+            compiler->lvaRecordSimdIntrinsicUse(addr->AsUnOp()->GetOp(0)->AsLclVar());
+        }
+    }
+
+    Clear();
+}
+
+// Try to add an assignment statement to the coalescing buffer.
+// Return true if the statment is added and the number of statements in the buffer equals the number of SIMD elements.
+//
+bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
+{
+    GenTree* asg = stmt->GetRootNode();
+
+    if (!asg->TypeIs(TYP_FLOAT) || !asg->OperIs(GT_ASG))
+    {
+        Clear();
+        return false;
+    }
+
+    GenTreeLclVar* simdLclVar = IsSIMDGetElement(asg->AsOp()->GetOp(1));
+
+    return Add(compiler, stmt, asg->AsOp(), simdLclVar);
+}
+
+// Transform the first assignment in the buffer into a SIMD assignment
+// and remove the rest of the statements from the block.
+//
+void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
+{
+    assert(m_index > 1);
+
+    GenTreeOp*          asg        = m_firstStmt->GetRootNode()->AsOp();
+    GenTreeHWIntrinsic* getElement = asg->GetOp(1)->AsHWIntrinsic();
+    var_types           simdType   = getSIMDTypeForSize(getElement->GetSimdSize());
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("\nFound %u contiguous assignments from a %s local to memory in " FMT_BB ":\n", m_index,
+               varTypeName(simdType), block->bbNum);
+        for (Statement* s = m_firstStmt; s != m_lastStmt->GetNextStmt(); s = s->GetNextStmt())
+        {
+            compiler->gtDispStmt(s);
+        }
+    }
+#endif
+
+    for (unsigned i = 1; i < m_index; i++)
+    {
+        compiler->fgRemoveStmt(block, m_firstStmt->GetNextStmt());
+    }
+
+    asg->SetType(simdType);
+    ChangeToSIMDMem(compiler, asg->GetOp(0), simdType);
+    asg->SetOp(1, getElement->GetOp(0)->AsLclVar());
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("Changed to a single %s assignment:\n", varTypeName(simdType));
+        compiler->gtDispStmt(m_firstStmt);
+        printf("\n");
+    }
+#endif
+
+    Clear();
+}
 
 #endif // FEATURE_HW_INTRINSICS
