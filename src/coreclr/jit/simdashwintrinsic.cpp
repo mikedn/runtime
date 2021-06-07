@@ -224,7 +224,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
                                                 CORINFO_CLASS_HANDLE  clsHnd,
                                                 CORINFO_METHOD_HANDLE method,
                                                 CORINFO_SIG_INFO*     sig,
-                                                GenTree*              newobjThis)
+                                                bool                  isNewObj)
 {
 #if defined(TARGET_XARCH)
     CORINFO_InstructionSet minimumIsa = InstructionSet_SSE2;
@@ -361,14 +361,14 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
 #ifdef TARGET_XARCH
             case NI_VectorT256_FromArray:
 #endif
-                return impVectorTFromArray(signature, layout, newobjThis);
+                return impVectorTFromArray(signature, layout, isNewObj);
             case NI_VectorT128_CreateBroadcast:
 #ifdef TARGET_XARCH
             case NI_VectorT256_CreateBroadcast:
 #endif
                 if (signature.paramType[0] == TYP_REF)
                 {
-                    return impVectorTFromArray(signature, layout, newobjThis);
+                    return impVectorTFromArray(signature, layout, isNewObj);
                 }
                 FALLTHROUGH;
             case NI_Vector2_CreateBroadcast:
@@ -377,11 +377,11 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
             case NI_Vector3_Create:
             case NI_Vector4_CreateBroadcast:
             case NI_Vector4_Create:
-                return impVector234TCreate(signature, layout, newobjThis);
+                return impVector234TCreate(signature, layout, isNewObj);
             case NI_Vector3_CreateExtend1:
             case NI_Vector4_CreateExtend1:
             case NI_Vector4_CreateExtend2:
-                return impVector234CreateExtend(signature, layout, newobjThis);
+                return impVector234CreateExtend(signature, layout, isNewObj);
             case NI_Vector2_CopyTo:
             case NI_Vector2_CopyToAt:
             case NI_Vector3_CopyTo:
@@ -399,7 +399,6 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
 #ifdef TARGET_XARCH
             case NI_VectorT256_get_Item:
 #endif
-                assert(newobjThis == nullptr);
                 return impVectorTGetItem(signature, layout);
             case NI_VectorT128_Widen:
                 return impVectorT128Widen(signature);
@@ -426,7 +425,6 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
                 return impVectorT128Dot(signature);
 #endif
             default:
-                assert(newobjThis == nullptr);
                 return impVector234TSpecial(intrinsic, signature, layout);
         }
     }
@@ -858,7 +856,7 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
     }
 }
 
-GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
+GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -881,7 +879,7 @@ GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLay
         }
     }
 
-    GenTree* addr = impGetVectorCtorThis(layout, newobjThis);
+    GenTree* destAddr = isNewObj ? nullptr : impPopStack().val;
     GenTree* create;
 
     if (areArgsContiguous)
@@ -890,10 +888,10 @@ GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLay
 
         create = args[0];
 
-        if (addr->OperIs(GT_ADDR) && addr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+        if ((destAddr != nullptr) && destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
             // Prevent the destination from being promoted since it would end up being dependent promoted.
-            lvaRecordSimdIntrinsicUse(addr->AsUnOp()->GetOp(0)->AsLclVar());
+            lvaRecordSimdIntrinsicUse(destAddr->AsUnOp()->GetOp(0)->AsLclVar());
         }
     }
     else if ((sig.paramCount == 1) && (args[0]->IsIntegralConst(0) || args[0]->IsDblConPositiveZero()))
@@ -906,10 +904,15 @@ GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLay
                                           layout->GetElementType(), layout->GetSize(), sig.paramCount, args);
     }
 
-    return impAssignSIMDAddr(addr, create);
+    if (destAddr != nullptr)
+    {
+        return impAssignSIMDAddr(destAddr, create);
+    }
+
+    return create;
 }
 
-GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
+GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -925,7 +928,7 @@ GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
 
     args[0] = impSIMDPopStack(sig.paramType[0]);
 
-    GenTree* addr = impGetVectorCtorThis(layout, newobjThis);
+    GenTree* destAddr = isNewObj ? nullptr : impPopStack().val;
     GenTree* create;
 
     unsigned insertIndex = sig.paramType[0] == TYP_SIMD12 ? 3 : 2;
@@ -976,7 +979,13 @@ GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
 #endif
 
     create->SetType(layout->GetSIMDType());
-    return impAssignSIMDAddr(addr, create);
+
+    if (destAddr != nullptr)
+    {
+        return impAssignSIMDAddr(destAddr, create);
+    }
+
+    return create;
 }
 
 GenTree* Compiler::impPopStackAddrAsVector(var_types type)
@@ -1001,20 +1010,6 @@ GenTree* Compiler::impPopStackAddrAsVector(var_types type)
     }
 
     return gtNewOperNode(GT_IND, type, addr);
-}
-
-GenTree* Compiler::impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis)
-{
-    if (newobjThis != nullptr)
-    {
-        assert(newobjThis->OperIs(GT_ADDR) && newobjThis->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR));
-        unsigned  lclNum  = newobjThis->AsUnOp()->GetOp(0)->AsLclVar()->GetLclNum();
-        var_types lclType = lvaGetDesc(lclNum)->GetType();
-        impPushOnStack(gtNewLclvNode(lclNum, lclType), typeInfo(TI_STRUCT, layout->GetClassHandle()));
-        return newobjThis;
-    }
-
-    return impPopStack().val;
 }
 
 GenTree* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
@@ -1112,7 +1107,7 @@ GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
     return indir;
 }
 
-GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis)
+GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert((sig.paramCount == 1) || (sig.paramCount == 2));
     assert(sig.paramType[0] == TYP_REF);
@@ -1120,10 +1115,16 @@ GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLay
 
     GenTree* index    = sig.paramCount == 1 ? nullptr : impPopStackCoerceArg(TYP_INT);
     GenTree* array    = impPopStackCoerceArg(TYP_REF);
-    GenTree* destAddr = impGetVectorCtorThis(layout, newobjThis);
+    GenTree* destAddr = isNewObj ? nullptr : impPopStack().val;
 
     GenTree* indir = impGetArrayElementsAsVector(layout, array, index, SCK_RNGCHK_FAIL, SCK_RNGCHK_FAIL);
-    return impAssignSIMDAddr(destAddr, indir);
+
+    if (destAddr != nullptr)
+    {
+        return impAssignSIMDAddr(destAddr, indir);
+    }
+
+    return indir;
 }
 
 GenTree* Compiler::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout)

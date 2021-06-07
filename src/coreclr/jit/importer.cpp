@@ -3238,7 +3238,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                 // Instead, they provide software fallbacks that will be executed instead.
 
                 assert(!mustExpand);
-                return impImportSysNumSimdIntrinsic(ni, clsHnd, method, sig, newobjThis);
+                return impImportSysNumSimdIntrinsic(ni, clsHnd, method, sig, false);
             }
 #endif // FEATURE_HW_INTRINSICS
         }
@@ -11829,20 +11829,61 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     // reverse copy prop for struct return values from newobj or
                     // any function returning structs.
 
-                    /* get a temporary for the new object */
-                    lclNum = lvaGrabTemp(true DEBUGARG("NewObj constructor temp"));
-                    if (compDonotInline())
-                    {
-                        // Fail fast if lvaGrabTemp fails with CALLSITE_TOO_MANY_LOCALS.
-                        assert(compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS);
-                        return;
-                    }
-
                     // In the value class case we only need clsHnd for size calcs.
                     //
                     // The lookup of the code pointer will be handled by CALL in this case
-                    if (clsFlags & CORINFO_FLG_VALUECLASS)
+                    if ((clsFlags & CORINFO_FLG_VALUECLASS) != 0)
                     {
+                        CorInfoType  corType = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
+                        ClassLayout* layout = impIsPrimitive(corType) ? nullptr : typGetObjLayout(resolvedToken.hClass);
+
+#ifdef FEATURE_SIMD
+                        if ((layout != nullptr) && layout->IsVector() && ((mflags & CORINFO_FLG_JIT_INTRINSIC) != 0))
+                        {
+                            // Only System.Numerics vectors have intrinsic constructors.
+                            assert((layout->GetVectorKind() == VectorKind::Vector234) ||
+                                   (layout->GetVectorKind() == VectorKind::VectorT));
+
+                            const char* className          = nullptr;
+                            const char* namespaceName      = nullptr;
+                            const char* enclosingClassName = nullptr;
+                            const char* methodName =
+                                info.compCompHnd->getMethodNameFromMetadata(callInfo.hMethod, &className,
+                                                                            &namespaceName, &enclosingClassName);
+
+                            NamedIntrinsic ni =
+                                impFindSysNumSimdIntrinsic(callInfo.hMethod, className, methodName, enclosingClassName);
+
+                            if (ni != NI_Illegal)
+                            {
+                                GenTree* intrinsic =
+                                    impImportSysNumSimdIntrinsic(ni, resolvedToken.hClass, callInfo.hMethod,
+                                                                 &callInfo.sig, true);
+
+                                // TODO-MIKE-Cleanup: This should probably be an assert. impFindSysNumSimdIntrinsic is
+                                // dumb and returns an intrinsic even if intrinsics are disabled or if the relevant
+                                // ISAs aren't available. Otherwise there's no reason for intrinsic import to fail.
+                                if (intrinsic != nullptr)
+                                {
+                                    // Set the call type for ICorDebugInfo::CALL_SITE_BOUNDARIES, even if we treated
+                                    // this call as an intrinsic. These are constructors so the type is always VOID.
+                                    callTyp = TYP_VOID;
+
+                                    impPushOnStack(intrinsic, typeInfo(TI_STRUCT, resolvedToken.hClass));
+                                    break;
+                                }
+                            }
+                        }
+#endif // FEATURE_SIMD
+
+                        lclNum = lvaGrabTemp(true DEBUGARG("newobj temp"));
+                        if (compDonotInline())
+                        {
+                            // Fail fast if lvaGrabTemp fails with CALLSITE_TOO_MANY_LOCALS.
+                            assert(compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS);
+                            return;
+                        }
+
                         if (compIsForInlining())
                         {
                             // If value class has GC fields, inform the inliner. It may choose to
@@ -11870,18 +11911,16 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                             }
                         }
 
-                        CorInfoType jitTyp = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
-
-                        if (impIsPrimitive(jitTyp))
+                        if (layout == nullptr)
                         {
-                            lvaGetDesc(lclNum)->SetType(JITtype2varType(jitTyp));
+                            lvaGetDesc(lclNum)->SetType(JITtype2varType(corType));
                         }
                         else
                         {
                             // The local variable itself is the allocated space.
                             // Here we need unsafe value cls check, since the address of struct is taken for further use
                             // and potentially exploitable.
-                            lvaSetStruct(lclNum, resolvedToken.hClass, /* checkUnsafeBuffer */ true);
+                            lvaSetStruct(lclNum, layout, /* checkUnsafeBuffer */ true);
                         }
 
                         bool bbInALoop  = impBlockIsInALoop(block);
@@ -11904,6 +11943,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     else
                     {
+                        lclNum = lvaNewTemp(TYP_REF, true DEBUGARG("newobj temp"));
+                        if (compDonotInline())
+                        {
+                            assert(compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS);
+                            return;
+                        }
+
                         op1 = gtNewAllocObjNode(&resolvedToken, /* useParent */ true);
                         if (op1 == nullptr)
                         {
@@ -11915,7 +11961,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         optMethodFlags |= OMF_HAS_NEWOBJ;
 
                         LclVarDsc* lcl = lvaGetDesc(lclNum);
-                        lcl->SetType(TYP_REF);
                         assert(lcl->lvSingleDef == 0);
                         lcl->lvSingleDef = 1;
                         JITDUMP("Marked V%02u as a single def local\n", lclNum);

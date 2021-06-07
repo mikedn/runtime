@@ -3064,16 +3064,15 @@ protected:
                                           CORINFO_CLASS_HANDLE  clsHnd,
                                           CORINFO_METHOD_HANDLE method,
                                           CORINFO_SIG_INFO*     sig,
-                                          GenTree*              newobjThis);
+                                          bool                  isNewObj);
 
 protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
     GenTree* impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* thisLayout, GenTree* newobjThis);
-    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
-    GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, GenTree* newobjThis);
-    GenTree* impGetVectorCtorThis(ClassLayout* layout, GenTree* newobjThis);
+    GenTree* impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* thisLayout, bool isNewObj);
+    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
     GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
                                          GenTree*        array,
