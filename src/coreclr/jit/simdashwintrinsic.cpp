@@ -1621,12 +1621,29 @@ GenTree* Compiler::impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree*
     assert(varTypeIsLong(eltType));
 
     GenTree* uses[2][2];
-    impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
-    impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+    impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax temp"));
+    impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax temp"));
 
-    NamedIntrinsic intrinsic = isMax ? NI_VectorT256_GreaterThan : NI_VectorT256_LessThan;
-    GenTree*       condition = impVectorTCompare(intrinsic, eltType, layout, uses[0][0], uses[1][0]);
-    return impVectorTConditionalSelect(layout, condition, uses[0][1], uses[1][1]);
+    if (eltType == TYP_ULONG)
+    {
+        GenTree* constVal    = gtNewLconNode(0x8000000000000000);
+        GenTree* constVector = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, constVal);
+        GenTree* constUses[2];
+        impMakeMultiUse(constVector, constUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax const temp"));
+
+        uses[0][0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Subtract, TYP_LONG, 32, uses[0][0], constUses[0]);
+        uses[1][0] = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Subtract, TYP_LONG, 32, uses[1][0], constUses[1]);
+    }
+
+    GenTree* mask =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_CompareGreaterThan, TYP_LONG, 32, uses[0][0], uses[1][0]);
+
+    if (isMax)
+    {
+        std::swap(uses[0][1], uses[1][1]);
+    }
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_BlendVariable, TYP_UBYTE, 32, uses[0][1], uses[1][1], mask);
 }
 
 GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
