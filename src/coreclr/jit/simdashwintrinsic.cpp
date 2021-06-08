@@ -714,76 +714,14 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
             return impVectorTCompare(intrinsic, opLayout->GetElementType(), opLayout, ops[0], ops[1]);
         }
 
-        case NI_VectorT256_Max:
-        case NI_VectorT256_Min:
-            assert(varTypeIsLong(retLayout->GetElementType()));
-            FALLTHROUGH;
         case NI_VectorT128_Max:
+            return impVectorT128MinMax(sig, ops[0], ops[1], true);
         case NI_VectorT128_Min:
-        {
-            assert(sig.paramCount == 2);
-            assert((retLayout == sig.paramLayout[0]) && (retLayout == sig.paramLayout[1]));
-            assert(!varTypeIsFloating(retLayout->GetElementType()));
-
-            var_types retBaseType = retLayout->GetElementType();
-            unsigned  retSize     = retLayout->GetSize();
-
-            if ((retBaseType == TYP_BYTE) || (retBaseType == TYP_USHORT))
-            {
-                intrinsic = (intrinsic == NI_VectorT128_Max) ? NI_SSE2_Max : NI_SSE2_Min;
-
-                GenTree*       constVal;
-                NamedIntrinsic preIntrinsic;
-                NamedIntrinsic postIntrinsic;
-
-                if (retBaseType == TYP_BYTE)
-                {
-                    constVal      = gtNewIconNode(0x80808080);
-                    preIntrinsic  = NI_SSE2_Subtract;
-                    postIntrinsic = NI_SSE2_Add;
-                    retBaseType   = TYP_UBYTE;
-                }
-                else
-                {
-                    constVal      = gtNewIconNode(0x80008000);
-                    preIntrinsic  = NI_SSE2_Add;
-                    postIntrinsic = NI_SSE2_Subtract;
-                    retBaseType   = TYP_SHORT;
-                }
-
-                GenTree* constVector = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, constVal);
-                GenTree* constUses[3];
-                impMakeMultiUse(constVector, constUses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
-
-                ops[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, preIntrinsic, retBaseType, 16, ops[0], constUses[0]);
-                ops[1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, preIntrinsic, retBaseType, 16, ops[1], constUses[1]);
-                ops[0] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, retBaseType, 16, ops[0], ops[1]);
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, postIntrinsic, retBaseType, 16, ops[0], constUses[2]);
-            }
-
-            GenTree* uses[2][2];
-            impMakeMultiUse(ops[0], uses[0], retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
-            impMakeMultiUse(ops[1], uses[1], retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
-
-            switch (intrinsic)
-            {
-                case NI_VectorT128_Max:
-                    intrinsic = NI_VectorT128_GreaterThan;
-                    break;
-                case NI_VectorT256_Max:
-                    intrinsic = NI_VectorT256_GreaterThan;
-                    break;
-                case NI_VectorT128_Min:
-                    intrinsic = NI_VectorT128_LessThan;
-                    break;
-                default:
-                    intrinsic = NI_VectorT256_LessThan;
-                    break;
-            }
-
-            GenTree* condition = impVectorTCompare(intrinsic, retBaseType, retLayout, uses[0][0], uses[1][0]);
-            return impVectorTConditionalSelect(retLayout, condition, uses[0][1], uses[1][1]);
-        }
+            return impVectorT128MinMax(sig, ops[0], ops[1], false);
+        case NI_VectorT256_Max:
+            return impVectorT256MinMax(sig, ops[0], ops[1], true);
+        case NI_VectorT256_Min:
+            return impVectorT256MinMax(sig, ops[0], ops[1], false);
 
         case NI_VectorT128_Narrow:
             return impVectorT128Narrow(sig, ops[0], ops[1]);
@@ -1611,6 +1549,84 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
 
     unsigned simdSize = sig.paramLayout[0]->GetSize();
     return gtNewSimdHWIntrinsicNode(sig.retType, NI_Vector128_Dot, simdBaseType, simdSize, op1, op2);
+}
+
+GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.retType == TYP_SIMD16);
+    assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
+
+    ClassLayout* layout  = sig.paramLayout[0];
+    var_types    eltType = layout->GetElementType();
+
+    if (((eltType == TYP_BYTE) || (eltType == TYP_USHORT) || (eltType == TYP_INT) || (eltType == TYP_UINT)) &&
+        compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, isMax ? NI_SSE41_Max : NI_SSE41_Min, eltType, 16, op1, op2);
+    }
+
+    if ((eltType == TYP_BYTE) || (eltType == TYP_USHORT))
+    {
+        GenTree*       constVal;
+        NamedIntrinsic preIntrinsic;
+        NamedIntrinsic intrinsic = isMax ? NI_SSE2_Max : NI_SSE2_Min;
+        NamedIntrinsic postIntrinsic;
+
+        if (eltType == TYP_BYTE)
+        {
+            constVal      = gtNewIconNode(0x80808080);
+            preIntrinsic  = NI_SSE2_Subtract;
+            postIntrinsic = NI_SSE2_Add;
+            eltType       = TYP_UBYTE;
+        }
+        else
+        {
+            constVal      = gtNewIconNode(0x80008000);
+            preIntrinsic  = NI_SSE2_Add;
+            postIntrinsic = NI_SSE2_Subtract;
+            eltType       = TYP_SHORT;
+        }
+
+        GenTree* constVector = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, constVal);
+        GenTree* constUses[3];
+        impMakeMultiUse(constVector, constUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, preIntrinsic, eltType, 16, op1, constUses[0]);
+        op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, preIntrinsic, eltType, 16, op2, constUses[1]);
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, postIntrinsic, eltType, 16, op1, constUses[2]);
+    }
+
+    assert((eltType == TYP_INT) || (eltType == TYP_UINT) || varTypeIsLong(eltType));
+
+    GenTree* uses[2][2];
+    impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+    impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+
+    NamedIntrinsic intrinsic = isMax ? NI_VectorT128_GreaterThan : NI_VectorT128_LessThan;
+    GenTree*       condition = impVectorTCompare(intrinsic, eltType, layout, uses[0][0], uses[1][0]);
+    return impVectorTConditionalSelect(layout, condition, uses[0][1], uses[1][1]);
+}
+
+GenTree* Compiler::impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.retType == TYP_SIMD32);
+    assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
+
+    ClassLayout* layout  = sig.paramLayout[0];
+    var_types    eltType = layout->GetElementType();
+
+    assert(varTypeIsLong(eltType));
+
+    GenTree* uses[2][2];
+    impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+    impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
+
+    NamedIntrinsic intrinsic = isMax ? NI_VectorT256_GreaterThan : NI_VectorT256_LessThan;
+    GenTree*       condition = impVectorTCompare(intrinsic, eltType, layout, uses[0][0], uses[1][0]);
+    return impVectorTConditionalSelect(layout, condition, uses[0][1], uses[1][1]);
 }
 
 GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
