@@ -733,13 +733,9 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
             return impVectorTMultiply(sig, ops[0], ops[1]);
 
         case NI_VectorT128_ConditionalSelect:
+            return impVectorT128ConditionalSelect(sig, ops[0], ops[1], ops[2]);
         case NI_VectorT256_ConditionalSelect:
-            assert(sig.paramCount == 3);
-            assert(sig.paramLayout[1] == sig.paramLayout[2]);
-            assert(sig.paramLayout[0]->GetSIMDType() == sig.paramLayout[1]->GetSIMDType());
-            assert(retLayout == sig.paramLayout[1]);
-
-            return impVectorTConditionalSelect(retLayout, ops[0], ops[1], ops[2]);
+            return impVectorT256ConditionalSelect(sig, ops[0], ops[1], ops[2]);
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
@@ -1954,27 +1950,48 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* 
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, 16, t, u);
 }
 
-GenTree* Compiler::impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3)
+GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig,
+                                                  GenTree*                    mask,
+                                                  GenTree*                    op1,
+                                                  GenTree*                    op2)
 {
-    var_types type     = layout->GetSIMDType();
-    var_types baseType = layout->GetElementType();
-    unsigned  size     = layout->GetSize();
+    assert(sig.paramCount == 3);
+    assert(sig.paramLayout[1] == sig.paramLayout[2]);
+    assert(sig.paramLayout[0]->GetSIMDType() == sig.paramLayout[1]->GetSIMDType());
+    assert(sig.retLayout == sig.paramLayout[1]);
+    assert(sig.retType == TYP_SIMD16);
 
-    NamedIntrinsic andIntrinsic  = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseAnd, type == TYP_SIMD32);
-    NamedIntrinsic andnIntrinsic = MapVectorTIntrinsic(NI_VectorT128_AndNot, type == TYP_SIMD32);
-    NamedIntrinsic orIntrinsic   = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseOr, type == TYP_SIMD32);
+    GenTree* maskUses[2];
+    impMakeMultiUse(mask, maskUses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.ConditionalSelect temp"));
 
-    assert(GetIntrinsicInfo(andnIntrinsic).SwapOperands());
+    var_types eltType = sig.retLayout->GetElementType();
+    bool      sse     = eltType == TYP_FLOAT;
 
-    andIntrinsic  = GetIntrinsicInfo(andIntrinsic).HWIntrinsic(baseType);
-    andnIntrinsic = GetIntrinsicInfo(andnIntrinsic).HWIntrinsic(baseType);
-    orIntrinsic   = GetIntrinsicInfo(orIntrinsic).HWIntrinsic(baseType);
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, sse ? NI_SSE_And : NI_SSE2_And, eltType, 16, op1, maskUses[0]);
+    op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, sse ? NI_SSE_AndNot : NI_SSE2_AndNot, eltType, 16, maskUses[1], op2);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, sse ? NI_SSE_Or : NI_SSE2_Or, eltType, 16, op1, op2);
+}
 
-    GenTree* uses[2];
-    impMakeMultiUse(op1, uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.ConditionalSelect temp"));
-    op2 = gtNewSimdHWIntrinsicNode(type, andIntrinsic, baseType, size, op2, uses[0]);
-    op3 = gtNewSimdHWIntrinsicNode(type, andnIntrinsic, baseType, size, uses[1], op3);
-    return gtNewSimdHWIntrinsicNode(type, orIntrinsic, baseType, size, op2, op3);
+GenTree* Compiler::impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig,
+                                                  GenTree*                    mask,
+                                                  GenTree*                    op1,
+                                                  GenTree*                    op2)
+{
+    assert(sig.paramCount == 3);
+    assert(sig.paramLayout[1] == sig.paramLayout[2]);
+    assert(sig.paramLayout[0]->GetSIMDType() == sig.paramLayout[1]->GetSIMDType());
+    assert(sig.retLayout == sig.paramLayout[1]);
+    assert(sig.retType == TYP_SIMD32);
+
+    GenTree* maskUses[2];
+    impMakeMultiUse(mask, maskUses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.ConditionalSelect temp"));
+
+    var_types eltType = sig.retLayout->GetElementType();
+    bool      avx     = varTypeIsFloating(eltType);
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, avx ? NI_AVX_And : NI_AVX2_And, eltType, 32, op1, maskUses[0]);
+    op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, avx ? NI_AVX_AndNot : NI_AVX2_AndNot, eltType, 32, maskUses[1], op2);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, avx ? NI_AVX_Or : NI_AVX2_Or, eltType, 32, op1, op2);
 }
 
 GenTree* Compiler::impVectorTCompare(

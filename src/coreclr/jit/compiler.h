@@ -3095,7 +3095,8 @@ protected:
     GenTree* impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
     GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorTConditionalSelect(ClassLayout* layout, GenTree* op1, GenTree* op2, GenTree* op3);
+    GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
 
