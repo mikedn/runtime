@@ -1611,11 +1611,16 @@ GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
         std::swap(uses[0][1], uses[1][1]);
     }
 
-    GenTree* maskUses[2];
-    impMakeMultiUse(mask, maskUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax mask temp"));
-    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, eltType, 16, uses[1][1], maskUses[0]);
-    op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_AndNot, eltType, 16, maskUses[1], uses[0][1]);
-    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, eltType, 16, op1, op2);
+    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        GenTree* maskUses[2];
+        impMakeMultiUse(mask, maskUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax mask temp"));
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, eltType, 16, uses[1][1], maskUses[0]);
+        op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_AndNot, eltType, 16, maskUses[1], uses[0][1]);
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, eltType, 16, op1, op2);
+    }
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_BlendVariable, TYP_UBYTE, 16, uses[0][1], uses[1][1], mask);
 }
 
 GenTree* Compiler::impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
