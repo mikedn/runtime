@@ -3082,6 +3082,8 @@ protected:
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Abs(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig);

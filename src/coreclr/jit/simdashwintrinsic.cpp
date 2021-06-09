@@ -559,91 +559,14 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
         }
 
 #ifdef TARGET_XARCH
+        case NI_VectorT256_Abs:
+            return impVectorT256Abs(sig, ops[0]);
+
         case NI_Vector2_Abs:
         case NI_Vector3_Abs:
         case NI_Vector4_Abs:
         case NI_VectorT128_Abs:
-        case NI_VectorT256_Abs:
-        {
-            assert(sig.paramCount == 1);
-            assert(retLayout == sig.paramLayout[0]);
-
-            var_types retBaseType = retLayout->GetElementType();
-            unsigned  retSize     = retLayout->GetSize();
-
-            if (varTypeIsFloating(retBaseType))
-            {
-                // Abs(vf) = vf & new SIMDVector<float>(0x7fffffff);
-                // Abs(vd) = vf & new SIMDVector<double>(0x7fffffffffffffff);
-                GenTree* bitMask;
-
-                if (retBaseType == TYP_FLOAT)
-                {
-                    bitMask = gtNewDconNode(jitstd::bit_cast<float, int32_t>(0x7fffffff), TYP_FLOAT);
-                }
-                else
-                {
-                    assert(retBaseType == TYP_DOUBLE);
-                    bitMask = gtNewDconNode(jitstd::bit_cast<double, int64_t>(0x7fffffffffffffffLL), TYP_DOUBLE);
-                }
-
-                bitMask =
-                    gtNewSimdHWIntrinsicNode(retType, GetCreateSimdHWIntrinsic(retType), retBaseType, retSize, bitMask);
-
-                intrinsic = MapVectorTIntrinsic(NI_VectorT128_op_BitwiseAnd, isAVX);
-                intrinsic = GetIntrinsicInfo(intrinsic).HWIntrinsic(retBaseType);
-
-                return gtNewSimdHWIntrinsicNode(retType, intrinsic, retBaseType, retSize, ops[0], bitMask);
-            }
-
-            if (varTypeIsUnsigned(retBaseType))
-            {
-                return ops[0];
-            }
-
-            if ((retBaseType != TYP_LONG) && compOpportunisticallyDependsOn(InstructionSet_SSSE3))
-            {
-                return gtNewSimdHWIntrinsicNode(retType, NI_SSSE3_Abs, retBaseType, retSize, ops[0]);
-            }
-
-            GenTree* uses[2];
-            impMakeMultiUse(ops[0], uses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs temp"));
-
-            GenTree* sign;
-
-            if ((retBaseType == TYP_SHORT) || (retBaseType == TYP_INT) ||
-                ((retBaseType == TYP_LONG) && !compOpportunisticallyDependsOn(InstructionSet_SSE42)))
-            {
-                NamedIntrinsic sraIntrinsic = isAVX ? NI_AVX2_ShiftRightArithmetic : NI_SSE2_ShiftRightArithmetic;
-
-                sign = gtNewSimdHWIntrinsicNode(retType, sraIntrinsic, retBaseType == TYP_LONG ? TYP_INT : retBaseType,
-                                                retSize, uses[0], gtNewIconNode(31));
-
-                if (retBaseType == TYP_LONG)
-                {
-                    NamedIntrinsic shufdIntrinsic = isAVX ? NI_AVX2_Shuffle : NI_SSE2_Shuffle;
-
-                    sign = gtNewSimdHWIntrinsicNode(retType, shufdIntrinsic, TYP_INT, retSize, sign,
-                                                    gtNewIconNode(0b11110101));
-                }
-            }
-            else
-            {
-                NamedIntrinsic lessIntrinsic = MapVectorTIntrinsic(NI_VectorT128_LessThan, isAVX);
-
-                sign = gtNewZeroSimdHWIntrinsicNode(retLayout);
-                sign = impVectorTCompare(lessIntrinsic, retBaseType, retLayout, uses[0], sign);
-            }
-
-            GenTree* signUses[2];
-            impMakeMultiUse(sign, signUses, retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs sign temp"));
-
-            NamedIntrinsic xorIntrinsic = isAVX ? NI_AVX2_Xor : NI_SSE2_Xor;
-            NamedIntrinsic subIntrinsic = isAVX ? NI_AVX2_Subtract : NI_SSE2_Subtract;
-
-            GenTree* tmp = gtNewSimdHWIntrinsicNode(retType, xorIntrinsic, retBaseType, retSize, signUses[0], uses[1]);
-            return gtNewSimdHWIntrinsicNode(retType, subIntrinsic, retBaseType, retSize, tmp, signUses[1]);
-        }
+            return impVectorT128Abs(sig, ops[0]);
 
         case NI_VectorT128_ConvertToInt32:
             return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Int32WithTruncation, TYP_FLOAT, 16,
@@ -1201,6 +1124,128 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* 
 #endif // TARGET_ARMARCH
 
 #ifdef TARGET_XARCH
+
+GenTree* Compiler::impVectorT128Abs(const HWIntrinsicSignature& sig, GenTree* op1)
+{
+    assert(sig.paramCount == 1);
+    assert(sig.retLayout == sig.paramLayout[0]);
+
+    ClassLayout* layout  = sig.retLayout;
+    var_types    eltType = layout->GetElementType();
+
+    if (varTypeIsUnsigned(eltType))
+    {
+        return op1;
+    }
+
+    if (varTypeIsFloating(eltType))
+    {
+        GenTree*       mask;
+        NamedIntrinsic intrinsic;
+
+        if (eltType == TYP_FLOAT)
+        {
+            mask      = gtNewDconNode(jitstd::bit_cast<float, int32_t>(0x7fffffff), TYP_FLOAT);
+            intrinsic = NI_SSE_And;
+        }
+        else
+        {
+            assert(eltType == TYP_DOUBLE);
+            mask      = gtNewDconNode(jitstd::bit_cast<double, int64_t>(0x7fffffffffffffffLL), TYP_DOUBLE);
+            intrinsic = NI_SSE2_And;
+        }
+
+        mask = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, eltType, 16, mask);
+        return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, 16, op1, mask);
+    }
+
+    if ((eltType != TYP_LONG) && compOpportunisticallyDependsOn(InstructionSet_SSSE3))
+    {
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSSE3_Abs, eltType, 16, op1);
+    }
+
+    GenTree* uses[2];
+    impMakeMultiUse(op1, uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs temp"));
+
+    GenTree* sign;
+
+    if (eltType == TYP_BYTE)
+    {
+        sign = gtNewZeroSimdHWIntrinsicNode(layout);
+        sign = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareGreaterThan, TYP_BYTE, 16, sign, uses[0]);
+    }
+    else if ((eltType == TYP_SHORT) || (eltType == TYP_INT))
+    {
+        sign = gtNewIconNode(varTypeBitSize(eltType) - 1);
+        sign = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, 16, uses[0], sign);
+    }
+    else if (compOpportunisticallyDependsOn(InstructionSet_SSE42))
+    {
+        sign = gtNewZeroSimdHWIntrinsicNode(layout);
+        sign = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE42_CompareGreaterThan, TYP_LONG, 16, sign, uses[0]);
+    }
+    else
+    {
+        sign = gtNewIconNode(31);
+        sign = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, TYP_INT, 16, uses[0], sign);
+        sign = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, sign, gtNewIconNode(0b11110101));
+    }
+
+    GenTree* signUses[2];
+    impMakeMultiUse(sign, signUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs sign temp"));
+
+    GenTree* tmp = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Xor, eltType, 16, signUses[0], uses[1]);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Subtract, eltType, 16, tmp, signUses[1]);
+}
+
+GenTree* Compiler::impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1)
+{
+    assert(sig.paramCount == 1);
+    assert(sig.retLayout == sig.paramLayout[0]);
+    assert(sig.retType == TYP_SIMD32);
+
+    ClassLayout* layout  = sig.retLayout;
+    var_types    eltType = layout->GetElementType();
+
+    if (varTypeIsUnsigned(eltType))
+    {
+        return op1;
+    }
+
+    if (varTypeIsFloating(eltType))
+    {
+        GenTree* mask;
+
+        if (eltType == TYP_FLOAT)
+        {
+            mask = gtNewDconNode(jitstd::bit_cast<float, int32_t>(0x7fffffff), TYP_FLOAT);
+        }
+        else
+        {
+            assert(eltType == TYP_DOUBLE);
+            mask = gtNewDconNode(jitstd::bit_cast<double, int64_t>(0x7fffffffffffffffLL), TYP_DOUBLE);
+        }
+
+        mask = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_Create, eltType, 32, mask);
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_And, eltType, 32, op1, mask);
+    }
+
+    if (eltType == TYP_LONG)
+    {
+        GenTree* uses[2];
+        impMakeMultiUse(op1, uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs temp"));
+
+        GenTree* zero = gtNewZeroSimdHWIntrinsicNode(layout);
+        GenTree* sign = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_CompareGreaterThan, TYP_LONG, 32, zero, uses[0]);
+        GenTree* signUses[2];
+        impMakeMultiUse(sign, signUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs sign temp"));
+
+        GenTree* tmp = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Xor, eltType, 32, signUses[0], uses[1]);
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Subtract, eltType, 32, tmp, signUses[1]);
+    }
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Abs, eltType, 32, op1);
+}
 
 constexpr ssize_t SHUFFLE_XXZX = 0x08; // 00 00 10 00
 constexpr ssize_t SHUFFLE_ZWXY = 0xB1; // 10 11 00 01
