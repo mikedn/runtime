@@ -3069,6 +3069,8 @@ protected:
 protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
+    GenTree* impVector234TOne(const HWIntrinsicSignature& sig);
+    GenTree* impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* thisLayout, bool isNewObj);
     GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
@@ -3083,8 +3085,10 @@ protected:
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
 #ifdef TARGET_ARM64
+    GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
 #endif
 #ifdef TARGET_XARCH
     var_types impVectorTUnsignedCompareAdjust(ClassLayout* layout, var_types eltType, GenTree** op1, GenTree** op2);
@@ -3109,6 +3113,7 @@ protected:
     GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
     GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
     GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
     GenTree* impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
