@@ -3099,6 +3099,7 @@ protected:
     GenTree* impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan = false);
     GenTree* impVectorT128Abs(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Compare(const HWIntrinsicSignature& sig,
                                   NamedIntrinsic              intrinsic,

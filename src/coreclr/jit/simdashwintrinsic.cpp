@@ -47,9 +47,8 @@ enum class SysNumSimdIntrinsicClassId : uint8_t
 
 enum class SysNumSimdIntrinsicFlag : uint8_t
 {
-    None         = 0,
-    HasThis      = 1,
-    SwapOperands = 2,
+    None    = 0,
+    HasThis = 1
 };
 
 static constexpr SysNumSimdIntrinsicFlag operator|(SysNumSimdIntrinsicFlag lhs, SysNumSimdIntrinsicFlag rhs)
@@ -83,11 +82,6 @@ struct SysNumSimdIntrinsicInfo
     bool HasThis() const
     {
         return (flags & SysNumSimdIntrinsicFlag::HasThis) == SysNumSimdIntrinsicFlag::HasThis;
-    }
-
-    bool SwapOperands() const
-    {
-        return (flags & SysNumSimdIntrinsicFlag::SwapOperands) == SysNumSimdIntrinsicFlag::SwapOperands;
     }
 };
 
@@ -406,13 +400,6 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
         case 2:
             ops[1] = impPopArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
             ops[0] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
-
-            if (GetIntrinsicInfo(intrinsic).SwapOperands())
-            {
-                // TODO-MIKE-Fix: This is nonsense, it changes the order of evaluation.
-                std::swap(ops[0], ops[1]);
-            }
-
             return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, size, ops[0], ops[1]);
 
         default:
@@ -427,7 +414,6 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
                                         bool                        isNewObj)
 {
     assert(featureSIMD);
-    assert(!GetIntrinsicInfo(intrinsic).SwapOperands());
 #if defined(TARGET_XARCH)
     bool isAVX = (GetIntrinsicInfo(intrinsic).classId == SysNumSimdIntrinsicClassId::VectorT256);
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
@@ -544,6 +530,9 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
             return impVectorT128Abs(sig, ops[0]);
         case NI_VectorT256_Abs:
             return impVectorT256Abs(sig, ops[0]);
+        case NI_VectorT128_AndNot:
+        case NI_VectorT256_AndNot:
+            return impVectorTAndNot(sig, ops[0], ops[1]);
         case NI_VectorT128_ConvertToInt32:
             return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Int32WithTruncation, TYP_FLOAT, 16,
                                             ops[0]);
@@ -1224,6 +1213,41 @@ GenTree* Compiler::impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op
     }
 
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Abs, eltType, 32, op1);
+}
+
+GenTree* Compiler::impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+{
+    assert(sig.paramCount == 2);
+    assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
+
+    // PANDN/ANDNPS/ANDNPS is actually ~x & y rather than x & ~y
+    // so we need to swap the operand order.
+
+    if (!gtCanSwapOrder(op1, op2))
+    {
+        // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
+
+        unsigned lclNum = lvaGrabTemp(true DEBUGARG("Vector<T>.AndNot temp"));
+        impAppendTempAssign(lclNum, op1, sig.paramLayout[0], CHECK_SPILL_ALL);
+        op1 = gtNewLclvNode(lclNum, sig.paramType[0]);
+    }
+
+    var_types type    = sig.retLayout->GetSIMDType();
+    var_types eltType = sig.retLayout->GetElementType();
+    unsigned  size    = sig.retLayout->GetSize();
+
+    NamedIntrinsic intrinsic;
+
+    if (type == TYP_SIMD16)
+    {
+        intrinsic = (eltType == TYP_FLOAT) ? NI_SSE_AndNot : NI_SSE2_AndNot;
+    }
+    else
+    {
+        intrinsic = varTypeIsFloating(eltType) ? NI_AVX_AndNot : NI_AVX2_AndNot;
+    }
+
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, size, op2, op1);
 }
 
 constexpr ssize_t SHUFFLE_XXZX = 0x08; // 00 00 10 00
