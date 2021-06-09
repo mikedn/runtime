@@ -3088,15 +3088,18 @@ protected:
 #endif
 #ifdef TARGET_XARCH
     var_types impVectorTUnsignedCompareAdjust(ClassLayout* layout, var_types eltType, GenTree** op1, GenTree** op2);
-    GenTree* impVectorT128LongGreaterThanSse2(NamedIntrinsic intrinsic,
-                                              ClassLayout*   layout,
-                                              GenTree*       op1,
-                                              GenTree*       op2);
+    GenTree* impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan = false);
     GenTree* impVectorT128Abs(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT128Compare(
-        NamedIntrinsic intrinsic, var_types eltType, ClassLayout* layout, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT256Compare(NamedIntrinsic intrinsic, ClassLayout* layout, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Compare(const HWIntrinsicSignature& sig,
+                                  NamedIntrinsic              intrinsic,
+                                  GenTree*                    op1,
+                                  GenTree*                    op2);
+    GenTree* impVectorT256Compare(const HWIntrinsicSignature& sig,
+                                  NamedIntrinsic              intrinsic,
+                                  GenTree*                    op1,
+                                  GenTree*                    op2);
     GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig);

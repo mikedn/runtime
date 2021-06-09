@@ -613,25 +613,13 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
         }
 
         case NI_VectorT128_Equals:
-            assert(varTypeIsLong(sig.paramLayout[0]->GetElementType()));
-            FALLTHROUGH;
+            return impVectorT128LongEquals(sig, ops[0], ops[1]);
+
         case NI_VectorT128_GreaterThan:
         case NI_VectorT128_GreaterThanOrEqual:
         case NI_VectorT128_LessThan:
         case NI_VectorT128_LessThanOrEqual:
-        {
-            assert(sig.paramCount == 2);
-            assert(sig.paramLayout[0] == sig.paramLayout[1]);
-
-            ClassLayout* opLayout = sig.paramLayout[0];
-
-            // Return base type may be different from the param base type (e.g. int/float)
-            // but otherwise the return and param types must be identical.
-            assert(retType == opLayout->GetSIMDType());
-            assert(retLayout->GetSize() == opLayout->GetSize());
-
-            return impVectorT128Compare(intrinsic, opLayout->GetElementType(), opLayout, ops[0], ops[1]);
-        }
+            return impVectorT128Compare(sig, intrinsic, ops[0], ops[1]);
 
         case NI_VectorT256_GreaterThan:
         case NI_VectorT256_LessThan:
@@ -639,19 +627,7 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
             FALLTHROUGH;
         case NI_VectorT256_GreaterThanOrEqual:
         case NI_VectorT256_LessThanOrEqual:
-        {
-            assert(sig.paramCount == 2);
-            assert(sig.paramLayout[0] == sig.paramLayout[1]);
-
-            ClassLayout* opLayout = sig.paramLayout[0];
-
-            // Return base type may be different from the param base type (e.g. int/float)
-            // but otherwise the return and param types must be identical.
-            assert(retType == opLayout->GetSIMDType());
-            assert(retLayout->GetSize() == opLayout->GetSize());
-
-            return impVectorT256Compare(intrinsic, opLayout, ops[0], ops[1]);
-        }
+            return impVectorT256Compare(sig, intrinsic, ops[0], ops[1]);
 
         case NI_VectorT128_Max:
             return impVectorT128MinMax(sig, ops[0], ops[1], true);
@@ -1675,7 +1651,7 @@ GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
     }
     else
     {
-        mask = impVectorT128LongGreaterThanSse2(NI_VectorT128_GreaterThan, layout, uses[0][0], uses[1][0]);
+        mask = impVectorT128LongGreaterThanSse2(layout, uses[0][0], uses[1][0]);
     }
 
     if (isMax)
@@ -2107,12 +2083,8 @@ var_types Compiler::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
     return eltType;
 }
 
-GenTree* Compiler::impVectorT128LongGreaterThanSse2(NamedIntrinsic intrinsic,
-                                                    ClassLayout*   layout,
-                                                    GenTree*       op1,
-                                                    GenTree*       op2)
+GenTree* Compiler::impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan)
 {
-    assert((intrinsic == NI_VectorT128_GreaterThan) || (intrinsic == NI_VectorT128_LessThan));
     assert(layout->GetSIMDType() == TYP_SIMD16);
     assert(varTypeIsLong(layout->GetElementType()));
 
@@ -2142,7 +2114,7 @@ GenTree* Compiler::impVectorT128LongGreaterThanSse2(NamedIntrinsic intrinsic,
     impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan temp"));
 
     impVectorTUnsignedCompareAdjust(layout, TYP_UINT, &uses[0][0], &uses[1][0]);
-    intrinsic = (intrinsic == NI_SSE2_CompareLessThan) ? NI_SSE2_CompareGreaterThan : NI_SSE2_CompareLessThan;
+    NamedIntrinsic intrinsic = lessThan ? NI_SSE2_CompareLessThan : NI_SSE2_CompareGreaterThan;
 
     GenTree* v = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, TYP_INT, 16, uses[0][0], uses[1][0]);
     v          = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, v, gtNewIconNode(SHUFFLE_ZZXX));
@@ -2155,113 +2127,145 @@ GenTree* Compiler::impVectorT128LongGreaterThanSse2(NamedIntrinsic intrinsic,
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_LONG, 16, t, v);
 }
 
-GenTree* Compiler::impVectorT128Compare(
-    NamedIntrinsic intrinsic, var_types eltType, ClassLayout* layout, GenTree* op1, GenTree* op2)
+GenTree* Compiler::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
+    assert(sig.paramCount == 2);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+    assert(sig.paramType[0] == TYP_SIMD16);
+    assert(sig.retType == TYP_SIMD16);
+
+    ClassLayout* layout  = sig.paramLayout[0];
+    var_types    eltType = layout->GetElementType();
+    assert(varTypeIsLong(eltType));
+
+    if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_CompareEqual, eltType, 16, op1, op2);
+    }
+
+    GenTree* eq = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, op1, op2);
+    GenTree* eqUses[2];
+    impMakeMultiUse(eq, eqUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Equals temp"));
+
+    GenTree* shuffleEq =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, eqUses[0], gtNewIconNode(SHUFFLE_ZWXY));
+
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, eltType, 16, shuffleEq, eqUses[1]);
+}
+
+GenTree* Compiler::impVectorT128Compare(const HWIntrinsicSignature& sig,
+                                        NamedIntrinsic              intrinsic,
+                                        GenTree*                    op1,
+                                        GenTree*                    op2)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+    assert(sig.paramType[0] == TYP_SIMD16);
+    assert(sig.retType == TYP_SIMD16);
+
+    ClassLayout* layout  = sig.paramLayout[0];
+    var_types    eltType = layout->GetElementType();
+
     assert(varTypeIsIntegral(eltType));
+
+    if (varTypeIsUnsigned(eltType))
+    {
+        eltType = impVectorTUnsignedCompareAdjust(layout, eltType, &op1, &op2);
+    }
+
+    bool greaterThan = true;
+    bool orEqual     = false;
 
     switch (intrinsic)
     {
-        case NI_VectorT128_Equals:
-        {
-            if (!varTypeIsLong(eltType))
-            {
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, eltType, 16, op1, op2);
-            }
-
-            if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
-            {
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_CompareEqual, eltType, 16, op1, op2);
-            }
-
-            GenTree* eq = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, op1, op2);
-            GenTree* eqUses[2];
-            impMakeMultiUse(eq, eqUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Equals temp"));
-
-            GenTree* shuffleEq = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, eqUses[0],
-                                                          gtNewIconNode(SHUFFLE_ZWXY));
-
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, eltType, 16, shuffleEq, eqUses[1]);
-        }
-
         case NI_VectorT128_GreaterThanOrEqual:
+            orEqual     = true;
+            greaterThan = false;
+            break;
         case NI_VectorT128_LessThanOrEqual:
-        {
-            GenTree* uses[2][2];
-            impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThanOrEqual temp"));
-            impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThanOrEqual temp"));
-
-            intrinsic =
-                (intrinsic == NI_VectorT128_GreaterThanOrEqual) ? NI_VectorT128_GreaterThan : NI_VectorT128_LessThan;
-            GenTree* gt = impVectorT128Compare(intrinsic, eltType, layout, uses[0][0], uses[1][0]);
-            GenTree* eq = impVectorT128Compare(NI_VectorT128_Equals, eltType, layout, uses[0][1], uses[1][1]);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, eltType, 16, gt, eq);
-        }
-
-        case NI_VectorT128_GreaterThan:
+            orEqual = true;
+            break;
         case NI_VectorT128_LessThan:
-            if (varTypeIsUnsigned(eltType))
-            {
-                eltType = impVectorTUnsignedCompareAdjust(layout, eltType, &op1, &op2);
-            }
-
-            if (eltType != TYP_LONG)
-            {
-                intrinsic =
-                    (intrinsic == NI_VectorT128_GreaterThan) ? NI_SSE2_CompareGreaterThan : NI_SSE2_CompareLessThan;
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
-            }
-
-            if (compOpportunisticallyDependsOn(InstructionSet_SSE42))
-            {
-                intrinsic =
-                    (intrinsic == NI_VectorT128_GreaterThan) ? NI_SSE42_CompareGreaterThan : NI_SSE42_CompareLessThan;
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
-            }
-
-            return impVectorT128LongGreaterThanSse2(intrinsic, layout, op1, op2);
-
+            greaterThan = false;
+            break;
         default:
-            unreached();
+            assert(intrinsic == NI_VectorT128_GreaterThan);
+            break;
     }
+
+    GenTree* gt;
+
+    if (eltType != TYP_LONG)
+    {
+        gt = gtNewSimdHWIntrinsicNode(TYP_SIMD16, greaterThan ? NI_SSE2_CompareGreaterThan : NI_SSE2_CompareLessThan,
+                                      eltType, 16, op1, op2);
+    }
+    else if (compOpportunisticallyDependsOn(InstructionSet_SSE42))
+    {
+        gt = gtNewSimdHWIntrinsicNode(TYP_SIMD16, greaterThan ? NI_SSE42_CompareGreaterThan : NI_SSE42_CompareLessThan,
+                                      eltType, 16, op1, op2);
+    }
+    else
+    {
+        gt = impVectorT128LongGreaterThanSse2(layout, op1, op2, !greaterThan);
+    }
+
+    if (!orEqual)
+    {
+        return gt;
+    }
+
+    GenTree* allBitsSet = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_get_AllBitsSet, eltType, 16);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Xor, eltType, 16, gt, allBitsSet);
 }
 
-GenTree* Compiler::impVectorT256Compare(NamedIntrinsic intrinsic, ClassLayout* layout, GenTree* op1, GenTree* op2)
+GenTree* Compiler::impVectorT256Compare(const HWIntrinsicSignature& sig,
+                                        NamedIntrinsic              intrinsic,
+                                        GenTree*                    op1,
+                                        GenTree*                    op2)
 {
-    var_types eltType = layout->GetElementType();
+    assert(sig.paramCount == 2);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+    assert(sig.paramType[0] == TYP_SIMD32);
+    assert(sig.retType == TYP_SIMD32);
+
+    ClassLayout* layout  = sig.paramLayout[0];
+    var_types    eltType = layout->GetElementType();
 
     assert(varTypeIsIntegral(eltType));
+
+    if (varTypeIsUnsigned(eltType))
+    {
+        eltType = impVectorTUnsignedCompareAdjust(layout, eltType, &op1, &op2);
+    }
+
+    bool orEqual = false;
 
     switch (intrinsic)
     {
         case NI_VectorT256_GreaterThanOrEqual:
-        case NI_VectorT256_LessThanOrEqual:
-        {
-            GenTree* uses[2][2];
-            impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThanOrEqual temp"));
-            impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThanOrEqual temp"));
-
-            intrinsic =
-                (intrinsic == NI_VectorT256_GreaterThanOrEqual) ? NI_VectorT256_GreaterThan : NI_VectorT256_LessThan;
-            GenTree* gt = impVectorT256Compare(intrinsic, layout, uses[0][0], uses[1][0]);
-            GenTree* eq =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_CompareEqual, eltType, 32, uses[0][1], uses[1][1]);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Or, eltType, 32, gt, eq);
-        }
-
-        case NI_VectorT256_GreaterThan:
+            orEqual = true;
+            FALLTHROUGH;
         case NI_VectorT256_LessThan:
-            if (varTypeIsUnsigned(eltType))
-            {
-                eltType = impVectorTUnsignedCompareAdjust(layout, eltType, &op1, &op2);
-            }
-
-            intrinsic = (intrinsic == NI_VectorT256_GreaterThan) ? NI_AVX2_CompareGreaterThan : NI_AVX2_CompareLessThan;
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, intrinsic, eltType, 32, op1, op2);
-
+            intrinsic = NI_AVX2_CompareLessThan;
+            break;
+        case NI_VectorT256_LessThanOrEqual:
+            orEqual = true;
+            FALLTHROUGH;
         default:
-            unreached();
+            intrinsic = NI_AVX2_CompareGreaterThan;
+            break;
     }
+
+    GenTree* gt = gtNewSimdHWIntrinsicNode(TYP_SIMD32, intrinsic, eltType, 32, op1, op2);
+
+    if (!orEqual)
+    {
+        return gt;
+    }
+
+    GenTree* allBitsSet = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector256_get_AllBitsSet, eltType, 32);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Xor, eltType, 32, gt, allBitsSet);
 }
 #endif // TARGET_XARCH
 
