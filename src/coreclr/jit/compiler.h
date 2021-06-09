@@ -3082,8 +3082,21 @@ protected:
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+#ifdef TARGET_ARM64
+    GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
+#endif
+#ifdef TARGET_XARCH
+    var_types impVectorTUnsignedCompareAdjust(ClassLayout* layout, var_types eltType, GenTree** op1, GenTree** op2);
+    GenTree* impVectorT128LongGreaterThanSse2(NamedIntrinsic intrinsic,
+                                              ClassLayout*   layout,
+                                              GenTree*       op1,
+                                              GenTree*       op2);
     GenTree* impVectorT128Abs(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128Compare(
+        NamedIntrinsic intrinsic, var_types eltType, ClassLayout* layout, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT256Compare(NamedIntrinsic intrinsic, ClassLayout* layout, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
@@ -3101,6 +3114,7 @@ protected:
     GenTree* impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
+#endif // TARGET_XARCH
 
     GenTree* impSpecialIntrinsic(NamedIntrinsic              intrinsic,
                                  const HWIntrinsicSignature& sig,
@@ -3123,9 +3137,6 @@ protected:
     GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-
-    GenTree* impVectorTCompare(
-        NamedIntrinsic intrinsic, var_types baseType, ClassLayout* layout, GenTree* op1, GenTree* op2);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
     GenTree* impArrayAccessIntrinsic(CORINFO_CLASS_HANDLE clsHnd,
