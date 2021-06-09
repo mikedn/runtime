@@ -2074,16 +2074,18 @@ var_types Compiler::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
             unreached();
     }
 
-    var_types      type     = layout->GetSIMDType();
-    unsigned       size     = layout->GetSize();
-    NamedIntrinsic create   = GetCreateSimdHWIntrinsic(type);
-    NamedIntrinsic subtract = (type == TYP_SIMD32) ? NI_AVX2_Subtract : NI_SSE2_Subtract;
+    var_types      type   = layout->GetSIMDType();
+    unsigned       size   = layout->GetSize();
+    NamedIntrinsic create = GetCreateSimdHWIntrinsic(type);
+    // We don't have carry so SUB(x, INT_MIN) is the same as XOR(x, INT_MIN).
+    // On Ryzen XOR has slightly higher throuput.
+    NamedIntrinsic pxor = (type == TYP_SIMD32) ? NI_AVX2_Xor : NI_SSE2_Xor;
 
     GenTree* constVector = gtNewSimdHWIntrinsicNode(type, create, constVal->GetType(), size, constVal);
     GenTree* constUses[2];
     impMakeMultiUse(constVector, constUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan const temp"));
-    *op1 = gtNewSimdHWIntrinsicNode(type, subtract, eltType, size, *op1, constUses[0]);
-    *op2 = gtNewSimdHWIntrinsicNode(type, subtract, eltType, size, *op2, constUses[1]);
+    *op1 = gtNewSimdHWIntrinsicNode(type, pxor, eltType, size, *op1, constUses[0]);
+    *op2 = gtNewSimdHWIntrinsicNode(type, pxor, eltType, size, *op2, constUses[1]);
 
     return eltType;
 }
