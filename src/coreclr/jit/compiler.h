@@ -3107,10 +3107,10 @@ protected:
                                   GenTree*                    op2);
     GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
     GenTree* impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
