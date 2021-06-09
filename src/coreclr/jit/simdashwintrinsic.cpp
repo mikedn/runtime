@@ -2093,45 +2093,44 @@ var_types Compiler::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
 GenTree* Compiler::impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan)
 {
     assert(layout->GetSIMDType() == TYP_SIMD16);
-    assert(varTypeIsLong(layout->GetElementType()));
 
-    // There is no direct SSE2 support for comparing TYP_LONG vectors.
-    // These have to be implemented in terms of TYP_INT vector comparison operations.
-    //
-    // Let us consider the case of single long element comparison.
-    // Say op1 = (x1, y1) and op2 = (x2, y2) where x1, y1, x2, and y2 are 32-bit integers that comprise the
-    // longs op1 and op2.
-    //
-    // GreaterThan(op1, op2) can be expressed in terms of > relationship between 32-bit integers that
-    // comprise op1 and op2 as
-    //                    =  (x1, y1) > (x2, y2)
-    //                    =  (x1 > x2) || [(x1 == x2) && (y1 > y2)]   - eq (1)
-    //
-    // v = unsigned emulated PCMPGTD(op1, op2)
-    // v = PSHUFD(v, (2, 2, 0, 0)) - This corresponds to (y1 > y2) in eq(1) above
-    // t = PCMPGTD(op1, op2)
-    // t = PSHUFD(t, (3, 3, 1, 1)) - This corresponds to (x1 > x2) in eq(1) above
-    // u = PCMPEQD(op1, op2)
-    // u = PSHUFD(u, (3, 3, 1, 1)) - This corresponds to (x1 == x2) in eq(1) above
-    // v = PAND(v, u)              - This corresponds to [(x1 == x2) && (y1 > y2)] in eq(1) above
-    // result = POR(t, v)
+    // Signed long compares can be implemented by comparing the 2 int halves:
+    //   x > y =>
+    //   (xh, xl) > (yh, yl) =>
+    //   (xh > yh) || ((xh == yh) && (xl unsigned > yl))
+    // so we generate:
+    //   ; make the lower halves unsigned by adjusting the operands
+    //   gt = PCMPGTD x, y
+    //   gl = PSHUFD gt, ZZXX ; move the xl > yl result to the upper halves
+    //   eq = PCMPEQD x, y
+    //   g  = PAND eq, gl
+    //   g  = POR gt, g
+    //   g  = PSHUFD g, WWYY  ; copy result in upper halves to lower halves
 
-    GenTree* uses[2][3];
+    GenTree* uses[2][2];
     impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan temp"));
     impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan temp"));
 
-    impVectorTUnsignedCompareAdjust(layout, TYP_UINT, &uses[0][0], &uses[1][0]);
     NamedIntrinsic intrinsic = lessThan ? NI_SSE2_CompareLessThan : NI_SSE2_CompareGreaterThan;
 
-    GenTree* v = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, TYP_INT, 16, uses[0][0], uses[1][0]);
-    v          = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, v, gtNewIconNode(SHUFFLE_ZZXX));
-    GenTree* t = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, TYP_INT, 16, uses[0][1], uses[1][1]);
-    t          = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, t, gtNewIconNode(SHUFFLE_WWYY));
-    GenTree* u = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, uses[0][2], uses[1][2]);
-    u          = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, u, gtNewIconNode(SHUFFLE_WWYY));
-    v          = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, TYP_INT, 16, v, u);
+    GenTree* sign = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, gtNewLconNode(1LL << 31));
+    GenTree* signUses[2];
+    impMakeMultiUse(sign, signUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan const temp"));
 
-    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_LONG, 16, t, v);
+    uses[0][1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, 16, uses[0][1], signUses[0]);
+    uses[1][1] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, 16, uses[1][1], signUses[1]);
+
+    GenTree* gt = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, TYP_INT, 16, uses[0][1], uses[1][1]);
+    GenTree* gtUses[2];
+    impMakeMultiUse(gt, gtUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan temp"));
+
+    GenTree* im = gtNewIconNode(SHUFFLE_ZZXX);
+    GenTree* gl = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, gtUses[0], im);
+    GenTree* eq = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, uses[0][0], uses[1][0]);
+
+    gt = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, TYP_INT, 16, eq, gl);
+    gt = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Or, TYP_INT, 16, gtUses[1], gt);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, gt, gtNewIconNode(SHUFFLE_WWYY));
 }
 
 GenTree* Compiler::impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan)
