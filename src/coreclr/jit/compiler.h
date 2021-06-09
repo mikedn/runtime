@@ -3071,7 +3071,10 @@ protected:
 
     GenTree* impVector234TOne(const HWIntrinsicSignature& sig);
     GenTree* impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVector234TSpecial(NamedIntrinsic              intrinsic,
+                                  const HWIntrinsicSignature& sig,
+                                  ClassLayout*                layout,
+                                  bool                        isNewObj);
     GenTree* impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* thisLayout, bool isNewObj);
     GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);

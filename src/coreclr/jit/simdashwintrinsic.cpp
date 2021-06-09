@@ -355,80 +355,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
 
     if (hwIntrinsic == intrinsic)
     {
-        switch (intrinsic)
-        {
-            case NI_Vector2_get_One:
-            case NI_Vector3_get_One:
-            case NI_Vector4_get_One:
-            case NI_VectorT128_get_One:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_get_One:
-#endif
-                return impVector234TOne(signature);
-
-            case NI_VectorT128_get_Count:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_get_Count:
-#endif
-                return impVectorTCount(signature, layout);
-            case NI_VectorT128_FromArray:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_FromArray:
-#endif
-                return impVectorTFromArray(signature, layout, isNewObj);
-            case NI_VectorT128_CreateBroadcast:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_CreateBroadcast:
-#endif
-                if (signature.paramType[0] == TYP_REF)
-                {
-                    return impVectorTFromArray(signature, layout, isNewObj);
-                }
-                FALLTHROUGH;
-            case NI_Vector2_CreateBroadcast:
-            case NI_Vector2_Create:
-            case NI_Vector3_CreateBroadcast:
-            case NI_Vector3_Create:
-            case NI_Vector4_CreateBroadcast:
-            case NI_Vector4_Create:
-                return impVector234TCreate(signature, layout, isNewObj);
-            case NI_Vector3_CreateExtend1:
-            case NI_Vector4_CreateExtend1:
-            case NI_Vector4_CreateExtend2:
-                return impVector234CreateExtend(signature, layout, isNewObj);
-            case NI_Vector2_CopyTo:
-            case NI_Vector2_CopyToAt:
-            case NI_Vector3_CopyTo:
-            case NI_Vector3_CopyToAt:
-            case NI_Vector4_CopyTo:
-            case NI_Vector4_CopyToAt:
-            case NI_VectorT128_CopyTo:
-            case NI_VectorT128_CopyToAt:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_CopyTo:
-            case NI_VectorT256_CopyToAt:
-#endif
-                return impVector234TCopyTo(signature, layout);
-            case NI_VectorT128_get_Item:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_get_Item:
-#endif
-                return impVectorTGetItem(signature, layout);
-            case NI_VectorT128_Widen:
-                return impVectorT128Widen(signature);
-#ifdef TARGET_XARCH
-            case NI_VectorT256_Widen:
-                return impVectorT256Widen(signature);
-            case NI_VectorT128_ConvertToInt64:
-                return impVectorT128ConvertDoubleToInt64(signature);
-            case NI_VectorT256_ConvertToInt64:
-                return impVectorT256ConvertDoubleToInt64(signature);
-            case NI_VectorT128_Dot:
-                return impVectorT128Dot(signature);
-#endif
-            default:
-                return impVector234TSpecial(intrinsic, signature, layout);
-        }
+        return impVector234TSpecial(intrinsic, signature, layout, isNewObj);
     }
 
     if (!compOpportunisticallyDependsOn(HWIntrinsicInfo::lookupIsa(hwIntrinsic)))
@@ -494,12 +421,13 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
     }
 }
 
-GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig, ClassLayout* layout)
+GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
+                                        const HWIntrinsicSignature& sig,
+                                        ClassLayout*                layout,
+                                        bool                        isNewObj)
 {
     assert(featureSIMD);
     assert(!GetIntrinsicInfo(intrinsic).SwapOperands());
-    assert(!sig.hasThisParam);
-    assert((1 <= sig.paramCount) && (sig.paramCount <= 3));
 #if defined(TARGET_XARCH)
     bool isAVX = (GetIntrinsicInfo(intrinsic).classId == SysNumSimdIntrinsicClassId::VectorT256);
     assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
@@ -509,6 +437,84 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
 #else
 #error Unsupported platform
 #endif
+
+    switch (intrinsic)
+    {
+        case NI_Vector2_get_One:
+        case NI_Vector3_get_One:
+        case NI_Vector4_get_One:
+        case NI_VectorT128_get_One:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_get_One:
+#endif
+            return impVector234TOne(sig);
+
+        case NI_VectorT128_get_Count:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_get_Count:
+#endif
+            return impVectorTCount(sig, layout);
+        case NI_VectorT128_FromArray:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_FromArray:
+#endif
+            return impVectorTFromArray(sig, layout, isNewObj);
+        case NI_VectorT128_CreateBroadcast:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_CreateBroadcast:
+#endif
+            if (sig.paramType[0] == TYP_REF)
+            {
+                return impVectorTFromArray(sig, layout, isNewObj);
+            }
+            FALLTHROUGH;
+        case NI_Vector2_CreateBroadcast:
+        case NI_Vector2_Create:
+        case NI_Vector3_CreateBroadcast:
+        case NI_Vector3_Create:
+        case NI_Vector4_CreateBroadcast:
+        case NI_Vector4_Create:
+            return impVector234TCreate(sig, layout, isNewObj);
+        case NI_Vector3_CreateExtend1:
+        case NI_Vector4_CreateExtend1:
+        case NI_Vector4_CreateExtend2:
+            return impVector234CreateExtend(sig, layout, isNewObj);
+        case NI_Vector2_CopyTo:
+        case NI_Vector2_CopyToAt:
+        case NI_Vector3_CopyTo:
+        case NI_Vector3_CopyToAt:
+        case NI_Vector4_CopyTo:
+        case NI_Vector4_CopyToAt:
+        case NI_VectorT128_CopyTo:
+        case NI_VectorT128_CopyToAt:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_CopyTo:
+        case NI_VectorT256_CopyToAt:
+#endif
+            return impVector234TCopyTo(sig, layout);
+        case NI_VectorT128_get_Item:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_get_Item:
+#endif
+            return impVectorTGetItem(sig, layout);
+        case NI_VectorT128_Widen:
+            return impVectorT128Widen(sig);
+#ifdef TARGET_XARCH
+        case NI_VectorT256_Widen:
+            return impVectorT256Widen(sig);
+        case NI_VectorT128_ConvertToInt64:
+            return impVectorT128ConvertDoubleToInt64(sig);
+        case NI_VectorT256_ConvertToInt64:
+            return impVectorT256ConvertDoubleToInt64(sig);
+        case NI_VectorT128_Dot:
+            return impVectorT128Dot(sig);
+#endif
+        default:
+            break;
+    }
+
+    assert(!sig.hasThisParam);
+    assert((1 <= sig.paramCount) && (sig.paramCount <= 3));
 
     GenTree* ops[3];
 
@@ -609,7 +615,7 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic intrinsic, const HWIntrin
 #ifdef TARGET_ARM64
         case NI_VectorT128_Abs:
             assert(sig.paramCount == 1);
-            assert(varTypeIsUnsigned(retLayout->GetElementType()));
+            assert(varTypeIsUnsigned(sig.retLayout->GetElementType()));
             return ops[0];
         case NI_VectorT128_ConditionalSelect:
             return impVectorT128ConditionalSelect(sig, ops[0], ops[1], ops[2]);
