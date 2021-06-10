@@ -566,6 +566,10 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_Vector2_op_Division:
         case NI_Vector3_op_Division:
             return impVector23Division(sig, ops[0], ops[1]);
+        case NI_Vector2_Dot:
+        case NI_Vector3_Dot:
+        case NI_Vector4_Dot:
+            return impVector234Dot(sig, ops[0], ops[1]);
         case NI_VectorT128_Equals:
             return impVectorT128LongEquals(sig, ops[0], ops[1]);
         case NI_VectorT128_GreaterThan:
@@ -1590,15 +1594,42 @@ GenTree* Compiler::impVector23Division(const HWIntrinsicSignature& sig, GenTree*
     return d;
 }
 
-GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
+GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
     assert(sig.paramLayout[0] == sig.paramLayout[1]);
+    assert(sig.paramLayout[0]->GetElementType() == TYP_FLOAT);
+    assert(sig.retType == TYP_FLOAT);
 
-    var_types simdBaseType = sig.paramLayout[0]->GetElementType();
-    assert((simdBaseType == TYP_INT) || (simdBaseType == TYP_UINT));
+    ClassLayout* layout = sig.paramLayout[0];
+    unsigned     size   = layout->GetSize();
 
-    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        uint8_t imm = 0b11110000;
+        imm >>= 4 - layout->GetElementCount();
+        imm &= 0b11110000;
+        imm |= 0b00000001;
+
+        op1 = gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_SSE41_DotProduct, TYP_FLOAT, size, op1, op2, gtNewIconNode(imm));
+        return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_GetElement, TYP_FLOAT, size, op1, gtNewIconNode(0));
+    }
+
+    return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_Dot, TYP_FLOAT, size, op1, op2);
+}
+
+GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.paramType[0] == TYP_SIMD16);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+
+    var_types eltType = sig.paramLayout[0]->GetElementType();
+    assert((eltType == TYP_INT) || (eltType == TYP_UINT) || varTypeIsFloating(eltType));
+
+    bool hasSse41 = compOpportunisticallyDependsOn(InstructionSet_SSE41);
+
+    if (!varTypeIsFloating(eltType) && !hasSse41)
     {
         return nullptr;
     }
@@ -1606,8 +1637,15 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
     GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
     GenTree* op2 = impSIMDPopStack(TYP_SIMD16);
 
-    unsigned simdSize = sig.paramLayout[0]->GetSize();
-    return gtNewSimdHWIntrinsicNode(sig.retType, NI_Vector128_Dot, simdBaseType, simdSize, op1, op2);
+    if (varTypeIsFloating(eltType) && hasSse41)
+    {
+        uint8_t imm = eltType == TYP_FLOAT ? 0b11110001 : 0b00110001;
+
+        op1 = gtNewSimdHWIntrinsicNode(eltType, NI_SSE41_DotProduct, eltType, 16, op1, op2, gtNewIconNode(imm));
+        return gtNewSimdHWIntrinsicNode(eltType, NI_Vector128_GetElement, eltType, 16, op1, gtNewIconNode(0));
+    }
+
+    return gtNewSimdHWIntrinsicNode(eltType, NI_Vector128_Dot, eltType, 16, op1, op2);
 }
 
 GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)

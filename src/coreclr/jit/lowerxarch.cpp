@@ -2784,52 +2784,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
             case TYP_FLOAT:
             {
-                if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-                {
-                    // We will be constructing the following parts:
-                    //   idx  =    CNS_INT       int    0xFF
-                    //          /--*  op1  simd16
-                    //          +--*  op2  simd16
-                    //          +--*  idx  int
-                    //   tmp3 = *  HWINTRINSIC   simd16 T DotProduct
-                    //          /--*  tmp3 simd16
-                    //   node = *  HWINTRINSIC   simd16 T ToScalar
-
-                    // This is roughly the following managed code:
-                    //   var tmp3 = Avx.DotProduct(op1, op2, 0xFF);
-                    //   return tmp3.ToScalar();
-
-                    if (simdSize == 8)
-                    {
-                        idx = comp->gtNewIconNode(0x31, TYP_INT);
-                    }
-                    else if (simdSize == 12)
-                    {
-                        idx = comp->gtNewIconNode(0x71, TYP_INT);
-                    }
-                    else
-                    {
-                        assert(simdSize == 16);
-                        idx = comp->gtNewIconNode(0xF1, TYP_INT);
-                    }
-                    BlockRange().InsertBefore(node, idx);
-
-                    tmp3 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_SSE41_DotProduct, baseType, simdSize, op1, op2,
-                                                          idx);
-                    BlockRange().InsertAfter(idx, tmp3);
-                    LowerNode(tmp3);
-
-                    GenTree* zero = comp->gtNewIconNode(0);
-                    BlockRange().InsertBefore(node, zero);
-
-                    node->SetIntrinsic(NI_Vector128_GetElement);
-                    node->SetOp(0, tmp3);
-                    node->SetOp(1, zero);
-
-                    LowerNode(node);
-
-                    return;
-                }
+                assert(!comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
 
                 multiply      = NI_SSE_Multiply;
                 horizontalAdd = NI_SSE3_HorizontalAdd;
@@ -2844,40 +2799,7 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
 
             case TYP_DOUBLE:
             {
-                if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-                {
-                    // We will be constructing the following parts:
-                    //   idx  =    CNS_INT       int    0x31
-                    //          /--*  op1  simd16
-                    //          +--*  op2  simd16
-                    //          +--*  idx  int
-                    //   tmp3 = *  HWINTRINSIC   simd16 T DotProduct
-                    //          /--*  tmp3 simd16
-                    //   node = *  HWINTRINSIC   simd16 T ToScalar
-
-                    // This is roughly the following managed code:
-                    //   var tmp3 = Avx.DotProduct(op1, op2, 0x31);
-                    //   return tmp3.ToScalar();
-
-                    idx = comp->gtNewIconNode(0x31, TYP_INT);
-                    BlockRange().InsertBefore(node, idx);
-
-                    tmp3 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_SSE41_DotProduct, baseType, simdSize, op1, op2,
-                                                          idx);
-                    BlockRange().InsertAfter(idx, tmp3);
-                    LowerNode(tmp3);
-
-                    GenTree* zero = comp->gtNewIconNode(0);
-                    BlockRange().InsertBefore(node, zero);
-
-                    node->SetIntrinsic(NI_Vector128_GetElement);
-                    node->SetOp(0, tmp3);
-                    node->SetOp(1, zero);
-
-                    LowerNode(node);
-
-                    return;
-                }
+                assert(!comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
 
                 multiply      = NI_SSE2_Multiply;
                 horizontalAdd = NI_SSE3_HorizontalAdd;
