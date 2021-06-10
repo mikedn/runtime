@@ -3087,7 +3087,9 @@ protected:
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVector234InstanceEquals(const HWIntrinsicSignature& sig);
 #ifdef TARGET_ARM64
+    GenTree* impVector234Equals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
     GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
@@ -3120,6 +3122,7 @@ protected:
     GenTree* impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
+    GenTree* impVector234Equals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
     GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
     GenTree* impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
     GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);

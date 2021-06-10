@@ -680,7 +680,7 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 
     assert(varTypeIsSIMD(simdType));
     assert(varTypeIsArithmetic(baseType));
-    assert(simdSize != 0);
+    assert((simdSize == 8) || (simdSize == 16));
     assert(node->gtType == TYP_BOOL);
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
 
@@ -725,26 +725,6 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     GenTree* cmp = comp->gtNewSimdHWIntrinsicNode(simdType, cmpIntrinsic, baseType, simdSize, op1, op2);
     BlockRange().InsertBefore(node, cmp);
     LowerNode(cmp);
-
-    if ((baseType == TYP_FLOAT) && (simdSize == 12))
-    {
-        // For TYP_SIMD12 we don't want the upper bits to participate in the comparison. So, we will insert all ones
-        // into those bits of the result, "as if" the upper bits are equal. Then if all lower bits are equal, we get the
-        // expected all-ones result, and will get the expected 0's only where there are non-matching bits.
-
-        GenTree* idxCns = comp->gtNewIconNode(3, TYP_INT);
-        BlockRange().InsertAfter(cmp, idxCns);
-
-        GenTree* insCns = comp->gtNewIconNode(-1, TYP_INT);
-        BlockRange().InsertAfter(idxCns, insCns);
-
-        GenTree* tmp =
-            comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Insert, TYP_INT, simdSize, cmp, idxCns, insCns);
-        BlockRange().InsertAfter(insCns, tmp);
-        LowerNode(tmp);
-
-        cmp = tmp;
-    }
 
     GenTree* msk = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_MinAcross, TYP_UBYTE, simdSize, cmp);
     BlockRange().InsertAfter(cmp, msk);

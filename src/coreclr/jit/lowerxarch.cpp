@@ -1173,6 +1173,7 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     assert(varTypeIsArithmetic(baseType));
     assert(node->gtType == TYP_BOOL);
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
+    assert((simdSize == 16) || (simdSize == 32));
 
     // We have the following (with the appropriate simd size and where the intrinsic could be op_Inequality):
     //          /--*  op2  simd
@@ -1242,8 +1243,6 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
             }
             else
             {
-                assert(simdSize == 16);
-
                 cmpIntrinsic = NI_SSE2_CompareEqual;
                 mskIntrinsic = NI_SSE2_MoveMask;
                 mskConstant  = 0xFFFF;
@@ -1265,8 +1264,6 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
             }
             else
             {
-                assert(simdSize == 16);
-
                 if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
                 {
                     cmpIntrinsic = NI_SSE41_CompareEqual;
@@ -1299,20 +1296,7 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
             {
                 cmpIntrinsic = NI_SSE_CompareEqual;
                 mskIntrinsic = NI_SSE_MoveMask;
-
-                if (simdSize == 16)
-                {
-                    mskConstant = 0xF;
-                }
-                else if (simdSize == 12)
-                {
-                    mskConstant = 0x7;
-                }
-                else
-                {
-                    assert(simdSize == 8);
-                    mskConstant = 0x3;
-                }
+                mskConstant  = 0xF;
             }
             break;
         }
@@ -1330,8 +1314,6 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
             }
             else
             {
-                assert(simdSize == 16);
-
                 cmpIntrinsic = NI_SSE2_CompareEqual;
                 mskIntrinsic = NI_SSE2_MoveMask;
                 mskConstant  = 0x3;
@@ -1355,20 +1337,6 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 
     GenTree* mskCns = comp->gtNewIconNode(mskConstant, TYP_INT);
     BlockRange().InsertAfter(msk, mskCns);
-
-    if ((baseType == TYP_FLOAT) && (simdSize < 16))
-    {
-        // For TYP_SIMD8 and TYP_SIMD12 we need to clear the upper bits and can't assume their value
-
-        GenTree* tmp = comp->gtNewOperNode(GT_AND, TYP_INT, msk, mskCns);
-        BlockRange().InsertAfter(mskCns, tmp);
-        LowerNode(tmp);
-
-        msk = tmp;
-
-        mskCns = comp->gtNewIconNode(mskConstant, TYP_INT);
-        BlockRange().InsertAfter(msk, mskCns);
-    }
 
     node->ChangeOper(cmpOp);
 

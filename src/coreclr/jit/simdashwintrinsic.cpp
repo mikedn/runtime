@@ -357,50 +357,33 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
-    var_types baseType = layout->GetElementType();
-    unsigned  size     = layout->GetSize();
+    var_types eltType = layout->GetElementType();
+    unsigned  size    = layout->GetSize();
+    GenTree*  ops[2];
 
     if (signature.hasThisParam)
     {
         assert(GetIntrinsicInfo(intrinsic).HasThis());
+        assert(signature.paramCount == 1);
 
-        switch (intrinsic)
-        {
-            GenTree* ops[2];
-
-            case NI_Vector2_EqualsInstance:
-            case NI_Vector3_EqualsInstance:
-            case NI_Vector4_EqualsInstance:
-            case NI_VectorT128_EqualsInstance:
-#ifdef TARGET_XARCH
-            case NI_VectorT256_EqualsInstance:
-#endif
-                assert(signature.paramCount == 1);
-
-                ops[1] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
-                ops[0] = impPopStackAddrAsVector(signature.paramType[0]);
-                return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, size, ops[0], ops[1]);
-
-            default:
-                return nullptr;
-        }
+        ops[1] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
+        ops[0] = impPopStackAddrAsVector(signature.paramType[0]);
+        return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, eltType, size, ops[0], ops[1]);
     }
 
     switch (signature.paramCount)
     {
-        GenTree* ops[2];
-
         case 0:
-            return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, size);
+            return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, eltType, size);
 
         case 1:
             ops[0] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
-            return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, size, ops[0]);
+            return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, eltType, size, ops[0]);
 
         case 2:
             ops[1] = impPopArgForHWIntrinsic(signature.paramType[1], signature.paramLayout[1]);
             ops[0] = impPopArgForHWIntrinsic(signature.paramType[0], signature.paramLayout[0]);
-            return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, baseType, size, ops[0], ops[1]);
+            return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, eltType, size, ops[0], ops[1]);
 
         default:
             assert(!"Unexpected SimdAsHWIntrinsic");
@@ -495,6 +478,10 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_VectorT128_Dot:
             return impVectorT128Dot(sig);
 #endif
+        case NI_Vector2_Equals:
+        case NI_Vector3_Equals:
+        case NI_Vector4_Equals:
+            return impVector234InstanceEquals(sig);
         default:
             break;
     }
@@ -521,6 +508,15 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
             SetOpLclRelatedToSIMDIntrinsic(ops[0]);
             assert(ops[0]->GetType() == sig.retLayout->GetSIMDType());
             return ops[0];
+
+        case NI_Vector2_op_Equality:
+        case NI_Vector3_op_Equality:
+        case NI_Vector4_op_Equality:
+            return impVector234Equals(sig, ops[0], ops[1]);
+        case NI_Vector2_op_Inequality:
+        case NI_Vector3_op_Inequality:
+        case NI_Vector4_op_Inequality:
+            return impVector234Equals(sig, ops[0], ops[1], true);
 
 #ifdef TARGET_XARCH
         case NI_Vector2_Abs:
@@ -946,7 +942,46 @@ GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayou
     return impVectorGetElement(layout, value, index);
 }
 
+GenTree* Compiler::impVector234InstanceEquals(const HWIntrinsicSignature& sig)
+{
+    assert(sig.hasThisParam && (sig.paramCount == 1));
+
+    GenTree* op1 = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
+    GenTree* op2 = impPopStackAddrAsVector(sig.paramType[0]);
+
+    return impVector234Equals(sig, op1, op2);
+}
+
 #ifdef TARGET_ARMARCH
+
+GenTree* Compiler::impVector234Equals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
+{
+    assert((sig.hasThisParam && (sig.paramCount == 1)) || (sig.paramCount == 2));
+    assert(varTypeIsSIMD(sig.paramType[0]));
+    assert(sig.paramLayout[0]->GetVectorKind() == VectorKind::Vector234);
+
+    ClassLayout* layout    = sig.paramLayout[0];
+    var_types    type      = layout->GetSIMDType();
+    unsigned     size      = layout->GetSize();
+    bool         isVector3 = type == TYP_SIMD12;
+
+    if (isVector3)
+    {
+        type = TYP_SIMD16;
+        size = 16;
+    }
+
+    op1 = gtNewSimdHWIntrinsicNode(type, NI_AdvSimd_CompareEqual, TYP_FLOAT, size, op1, op2);
+
+    if (isVector3)
+    {
+        op1 = gtNewSimdWithElementNode(type, TYP_INT, size, op1, gtNewIconNode(3), gtNewIconNode(-1));
+    }
+
+    op1 = gtNewSimdHWIntrinsicNode(type, NI_AdvSimd_Arm64_MinAcross, TYP_UBYTE, size, op1);
+    op1 = gtNewSimdGetElementNode(type, TYP_UBYTE, op1, gtNewIconNode(0));
+    return gtNewOperNode(notEqual ? GT_EQ : GT_NE, TYP_INT, op1, gtNewIconNode(0));
+}
 
 GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig,
                                                   GenTree*                    mask,
@@ -1646,6 +1681,28 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
     }
 
     return gtNewSimdHWIntrinsicNode(eltType, NI_Vector128_Dot, eltType, 16, op1, op2);
+}
+
+GenTree* Compiler::impVector234Equals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
+{
+    assert((sig.hasThisParam && (sig.paramCount == 1)) || (sig.paramCount == 2));
+    assert(varTypeIsSIMD(sig.paramType[0]));
+    assert(sig.paramLayout[0]->GetVectorKind() == VectorKind::Vector234);
+
+    ClassLayout* layout = sig.paramLayout[0];
+    var_types    type   = layout->GetSIMDType();
+    unsigned     size   = layout->GetSize();
+    uint8_t      mask   = 0b1111 >> (4 - layout->GetElementCount());
+
+    op1 = gtNewSimdHWIntrinsicNode(type, NI_SSE_CompareEqual, TYP_FLOAT, size, op1, op2);
+    op1 = gtNewSimdHWIntrinsicNode(TYP_INT, NI_SSE_MoveMask, TYP_FLOAT, size, op1);
+
+    if (layout->GetElementCount() < 4)
+    {
+        op1 = gtNewOperNode(GT_AND, TYP_INT, op1, gtNewIconNode(mask));
+    }
+
+    return gtNewOperNode(notEqual ? GT_NE : GT_EQ, TYP_INT, op1, gtNewIconNode(mask));
 }
 
 GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
