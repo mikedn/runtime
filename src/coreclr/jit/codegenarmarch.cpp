@@ -527,18 +527,20 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
 #ifdef TARGET_ARM
-
-        case GT_CLS_VAR_ADDR:
-            emit->emitIns_R_C(INS_lea, EA_PTRSIZE, targetReg, treeNode->AsClsVar()->gtClsVarHnd, 0);
-            genProduceReg(treeNode);
-            break;
-
         case GT_LONG:
             assert(treeNode->isUsedFromReg());
             genConsumeRegs(treeNode);
             break;
+#endif
 
-#endif // TARGET_ARM
+        case GT_CLS_VAR_ADDR:
+#ifdef TARGET_ARM
+            emit->emitIns_R_C(INS_lea, EA_4BYTE, targetReg, treeNode->AsClsVar()->GetFieldHandle(), 0);
+#else
+            emit->emitIns_R_C(INS_adr, EA_8BYTE, targetReg, REG_NA, treeNode->AsClsVar()->GetFieldHandle(), 0);
+#endif
+            genProduceReg(treeNode);
+            break;
 
         case GT_IL_OFFSET:
             // Do nothing; these nodes are simply markers for debug info.
