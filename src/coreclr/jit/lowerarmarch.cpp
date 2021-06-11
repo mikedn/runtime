@@ -1030,35 +1030,6 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     GenTree* tmp1 = nullptr;
     GenTree* tmp2 = nullptr;
 
-    if (simdSize == 12)
-    {
-        assert(baseType == TYP_FLOAT);
-
-        // For 12 byte SIMD, we need to clear the upper 4 bytes:
-        //   idx  =    CNS_INT       int    0x03
-        //   tmp1 = *  CNS_DLB       float  0.0
-        //          /--*  op1  simd16
-        //          +--*  idx  int
-        //          +--*  tmp1 simd16
-        //   op1  = *  HWINTRINSIC   simd16 T Insert
-        //   ...
-
-        // This is roughly the following managed code:
-        //    op1 = AdvSimd.Insert(op1, 0x03, 0.0f);
-        //    ...
-
-        idx = comp->gtNewIconNode(0x03, TYP_INT);
-        BlockRange().InsertAfter(op1, idx);
-
-        tmp1 = comp->gtNewZeroConNode(TYP_FLOAT);
-        BlockRange().InsertAfter(idx, tmp1);
-        LowerNode(tmp1);
-
-        op1 = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Insert, baseType, simdSize, op1, idx, tmp1);
-        BlockRange().InsertAfter(tmp1, op1);
-        LowerNode(op1);
-    }
-
     // We will be constructing the following parts:
     //   ...
     //          /--*  op1  simd16
@@ -1077,6 +1048,18 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     tmp1 = comp->gtNewSimdHWIntrinsicNode(simdType, multiply, baseType, simdSize, op1, op2);
     BlockRange().InsertBefore(node, tmp1);
     LowerNode(tmp1);
+
+    if (simdSize == 12)
+    {
+        assert(baseType == TYP_FLOAT);
+
+        GenTree* idx = comp->gtNewIconNode(3, TYP_INT);
+        GenTree* elt = comp->gtNewDconNode(0, TYP_FLOAT);
+        GenTree* ins = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Insert, TYP_FLOAT, 16, tmp1, idx, elt);
+        BlockRange().InsertAfter(tmp1, idx, elt, ins);
+        LowerNode(ins);
+        tmp1 = ins;
+    }
 
     if (varTypeIsFloating(baseType))
     {
