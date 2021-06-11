@@ -608,6 +608,8 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
             return ops[0];
         case NI_VectorT128_ConditionalSelect:
             return impVectorT128ConditionalSelect(sig, ops[0], ops[1], ops[2]);
+        case NI_VectorT128_Dot:
+            return impVectorT128Dot(sig, ops[0], ops[1]);
         case NI_VectorT128_Max:
             return impVectorT128MinMax(sig, ops[0], ops[1], true);
         case NI_VectorT128_Min:
@@ -989,13 +991,27 @@ GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& si
                                                   GenTree*                    op2)
 {
     assert(sig.paramCount == 3);
-    assert(sig.paramLayout[0]->GetSIMDType() == TYP_SIMD16);
+    assert(sig.paramType[0] == TYP_SIMD16);
     assert((sig.retLayout == sig.paramLayout[1]) && (sig.retLayout == sig.paramLayout[2]));
     assert(sig.retLayout->GetSIMDType() == TYP_SIMD16);
 
     var_types eltType = sig.retLayout->GetElementType();
 
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, eltType, 16, mask, op1, op2);
+}
+
+GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+{
+    assert(sig.paramCount == 2);
+    assert(sig.paramType[0] == TYP_SIMD16);
+    assert(sig.paramLayout[0] == sig.paramLayout[1]);
+
+    ClassLayout* layout  = sig.paramLayout[0];
+    var_types    eltType = layout->GetElementType();
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Multiply, eltType, 16, op1, op2);
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddAcross, eltType, 16, op1);
+    return gtNewSimdGetElementNode(TYP_SIMD16, eltType, op1, gtNewIconNode(0));
 }
 
 GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)

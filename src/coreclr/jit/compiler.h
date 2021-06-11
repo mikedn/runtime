@@ -3091,6 +3091,7 @@ protected:
 #ifdef TARGET_ARM64
     GenTree* impVector234Equals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
     GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
     GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
