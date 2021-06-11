@@ -571,13 +571,21 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(node), targetReg, op1Reg, /* canSkip */ true);
 
-                if (intrin.op3->isContainedFltOrDblImmed())
+                if (intrin.op3->isContained())
                 {
-                    assert(intrin.op2->isContainedIntOrIImmed());
-                    assert(intrin.op2->AsIntCon()->gtIconVal == 0);
+                    assert(intrin.op2->isContained());
 
-                    const double dataValue = intrin.op3->AsDblCon()->gtDconVal;
-                    GetEmitter()->emitIns_R_F(INS_fmov, emitSize, targetReg, dataValue, opt);
+                    if (intrin.op3->IsIntegralConst(0) || intrin.op3->IsDblConPositiveZero())
+                    {
+                        ssize_t imm = intrin.op2->AsIntCon()->GetValue();
+                        GetEmitter()->emitIns_R_R_I(INS_ins, emitSize, targetReg, REG_ZR, imm, opt);
+                    }
+                    else
+                    {
+                        assert(intrin.op2->IsIntegralConst(0));
+                        double imm = intrin.op3->AsDblCon()->GetValue();
+                        GetEmitter()->emitIns_R_F(INS_fmov, emitSize, targetReg, imm, opt);
+                    }
                 }
                 else
                 {
