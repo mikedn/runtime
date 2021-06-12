@@ -956,17 +956,12 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
         case NI_Vector128_op_Equality:
         case NI_Vector256_op_Equality:
-        {
-            LowerHWIntrinsicCmpOp(node, GT_EQ);
+            LowerHWIntrinsicEquality(node, GT_EQ);
             return;
-        }
-
         case NI_Vector128_op_Inequality:
         case NI_Vector256_op_Inequality:
-        {
-            LowerHWIntrinsicCmpOp(node, GT_NE);
+            LowerHWIntrinsicEquality(node, GT_NE);
             return;
-        }
 
         case NI_Vector128_ToScalar:
         case NI_Vector256_ToScalar:
@@ -1153,14 +1148,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     ContainCheckHWIntrinsic(node);
 }
 
-//----------------------------------------------------------------------------------------------
-// Lowering::LowerHWIntrinsicCmpOp: Lowers a Vector128 or Vector256 comparison intrinsic
-//
-//  Arguments:
-//     node  - The hardware intrinsic node.
-//     cmpOp - The comparison operation, currently must be GT_EQ or GT_NE
-//
-void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
+void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 {
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
     var_types      baseType    = node->GetSimdBaseType();
@@ -1175,11 +1163,6 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     assert(node->gtType == TYP_BOOL);
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
     assert((simdSize == 16) || (simdSize == 32));
-
-    // We have the following (with the appropriate simd size and where the intrinsic could be op_Inequality):
-    //          /--*  op2  simd
-    //          /--*  op1  simd
-    //   node = *  HWINTRINSIC   simd   T op_Equality
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
@@ -1207,91 +1190,25 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
         BlockRange().InsertAfter(op1, op2);
         node->SetOp(1, op2);
 
-        if (simdSize == 32)
-        {
-            node->SetIntrinsic(NI_AVX_TestZ);
-            LowerHWIntrinsicCC(node, NI_AVX_PTEST, cmpCnd);
-        }
-        else
-        {
-            node->SetIntrinsic(NI_SSE41_TestZ);
-            LowerHWIntrinsicCC(node, NI_SSE41_PTEST, cmpCnd);
-        }
+        NamedIntrinsic testz = simdSize == 32 ? NI_AVX_TestZ : NI_SSE41_TestZ;
+        NamedIntrinsic ptest = simdSize == 32 ? NI_AVX_PTEST : NI_SSE41_PTEST;
+
+        node->SetIntrinsic(testz);
+        LowerHWIntrinsicCC(node, ptest, cmpCnd);
 
         return;
     }
 
-    NamedIntrinsic cmpIntrinsic;
-    var_types      cmpType;
-    NamedIntrinsic mskIntrinsic;
-    var_types      mskType;
-    int            mskConstant;
+    NamedIntrinsic cmpIntrinsic = simdSize == 32 ? NI_AVX2_CompareEqual : NI_SSE2_CompareEqual;
+    NamedIntrinsic mskIntrinsic = simdSize == 32 ? NI_AVX2_MoveMask : NI_SSE2_MoveMask;
+    int            mskConstant  = simdSize == 32 ? -1 : 0xFFFF;
 
-    switch (baseType)
-    {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_SHORT:
-        case TYP_USHORT:
-        case TYP_INT:
-        case TYP_UINT:
-        {
-            cmpType = baseType;
-            mskType = TYP_UBYTE;
-
-            if (simdSize == 32)
-            {
-                cmpIntrinsic = NI_AVX2_CompareEqual;
-                mskIntrinsic = NI_AVX2_MoveMask;
-                mskConstant  = -1;
-            }
-            else
-            {
-                cmpIntrinsic = NI_SSE2_CompareEqual;
-                mskIntrinsic = NI_SSE2_MoveMask;
-                mskConstant  = 0xFFFF;
-            }
-            break;
-        }
-
-        case TYP_LONG:
-        case TYP_ULONG:
-        {
-            mskType = TYP_UBYTE;
-
-            if (simdSize == 32)
-            {
-                cmpIntrinsic = NI_AVX2_CompareEqual;
-                cmpType      = baseType;
-                mskIntrinsic = NI_AVX2_MoveMask;
-                mskConstant  = -1;
-            }
-            else
-            {
-                cmpIntrinsic = NI_SSE41_CompareEqual;
-                cmpType      = baseType;
-                mskIntrinsic = NI_SSE2_MoveMask;
-                mskConstant  = 0xFFFF;
-            }
-            break;
-        }
-
-        default:
-        {
-            unreached();
-        }
-    }
-
-    GenTree* cmp = comp->gtNewSimdHWIntrinsicNode(simdType, cmpIntrinsic, cmpType, simdSize, op1, op2);
-    BlockRange().InsertBefore(node, cmp);
-    LowerNode(cmp);
-
-    GenTree* msk = comp->gtNewSimdHWIntrinsicNode(TYP_INT, mskIntrinsic, mskType, simdSize, cmp);
-    BlockRange().InsertAfter(cmp, msk);
-    LowerNode(msk);
-
+    GenTree* cmp    = comp->gtNewSimdHWIntrinsicNode(simdType, cmpIntrinsic, TYP_UBYTE, simdSize, op1, op2);
+    GenTree* msk    = comp->gtNewSimdHWIntrinsicNode(TYP_INT, mskIntrinsic, TYP_UBYTE, simdSize, cmp);
     GenTree* mskCns = comp->gtNewIconNode(mskConstant, TYP_INT);
-    BlockRange().InsertAfter(msk, mskCns);
+    BlockRange().InsertBefore(node, cmp, msk, mskCns);
+    LowerNode(cmp);
+    LowerNode(msk);
 
     node->ChangeOper(cmpOp);
 
