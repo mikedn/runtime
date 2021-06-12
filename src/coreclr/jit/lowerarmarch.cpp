@@ -565,17 +565,9 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
         case NI_Vector64_op_Equality:
         case NI_Vector128_op_Equality:
-        {
-            LowerHWIntrinsicCmpOp(node, GT_EQ);
-            return;
-        }
-
         case NI_Vector64_op_Inequality:
         case NI_Vector128_op_Inequality:
-        {
-            LowerHWIntrinsicCmpOp(node, GT_NE);
-            return;
-        }
+            unreached();
 
         case NI_AdvSimd_FusedMultiplyAddScalar:
             LowerHWIntrinsicFusedMultiplyAddScalar(node);
@@ -659,105 +651,6 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     }
 
     return false;
-}
-
-//----------------------------------------------------------------------------------------------
-// Lowering::LowerHWIntrinsicCmpOp: Lowers a Vector128 or Vector256 comparison intrinsic
-//
-//  Arguments:
-//     node  - The hardware intrinsic node.
-//     cmpOp - The comparison operation, currently must be GT_EQ or GT_NE
-//
-void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
-{
-    NamedIntrinsic intrinsicId = node->GetIntrinsic();
-    var_types      baseType    = node->GetSimdBaseType();
-    unsigned       simdSize    = node->GetSimdSize();
-    var_types      simdType    = getSIMDTypeForSize(simdSize);
-
-    assert((intrinsicId == NI_Vector64_op_Equality) || (intrinsicId == NI_Vector64_op_Inequality) ||
-           (intrinsicId == NI_Vector128_op_Equality) || (intrinsicId == NI_Vector128_op_Inequality));
-
-    assert(varTypeIsSIMD(simdType));
-    assert(varTypeIsArithmetic(baseType));
-    assert((simdSize == 8) || (simdSize == 16));
-    assert(node->gtType == TYP_BOOL);
-    assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
-
-    // We have the following (with the appropriate simd size and where the intrinsic could be op_Inequality):
-    //          /--*  op2  simd
-    //          /--*  op1  simd
-    //   node = *  HWINTRINSIC   simd   T op_Equality
-
-    GenTree* op1 = node->GetOp(0);
-    GenTree* op2 = node->GetOp(1);
-
-    NamedIntrinsic cmpIntrinsic;
-
-    switch (baseType)
-    {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_SHORT:
-        case TYP_USHORT:
-        case TYP_INT:
-        case TYP_UINT:
-        case TYP_FLOAT:
-        {
-            cmpIntrinsic = NI_AdvSimd_CompareEqual;
-            break;
-        }
-
-        case TYP_LONG:
-        case TYP_ULONG:
-        case TYP_DOUBLE:
-        {
-            cmpIntrinsic = NI_AdvSimd_Arm64_CompareEqual;
-            break;
-        }
-
-        default:
-        {
-            unreached();
-        }
-    }
-
-    GenTree* cmp = comp->gtNewSimdHWIntrinsicNode(simdType, cmpIntrinsic, baseType, simdSize, op1, op2);
-    BlockRange().InsertBefore(node, cmp);
-    LowerNode(cmp);
-
-    GenTree* msk = comp->gtNewSimdHWIntrinsicNode(simdType, NI_AdvSimd_Arm64_MinAcross, TYP_UBYTE, simdSize, cmp);
-    BlockRange().InsertAfter(cmp, msk);
-    LowerNode(msk);
-
-    GenTree* zroCns = comp->gtNewIconNode(0, TYP_INT);
-    BlockRange().InsertAfter(msk, zroCns);
-
-    GenTree* val = comp->gtNewSimdHWIntrinsicNode(TYP_UBYTE, NI_AdvSimd_Extract, TYP_UBYTE, simdSize, msk, zroCns);
-    BlockRange().InsertAfter(zroCns, val);
-    LowerNode(val);
-
-    zroCns = comp->gtNewIconNode(0, TYP_INT);
-    BlockRange().InsertAfter(val, zroCns);
-
-    node->ChangeOper(cmpOp);
-
-    GenTreeOp* relop = static_cast<GenTree*>(node)->AsOp();
-    relop->SetType(TYP_INT);
-    relop->SetOp(0, val);
-    relop->SetOp(1, zroCns);
-
-    // The CompareEqual will set (condition is true) or clear (condition is false) all bits of the respective element
-    // The MinAcross then ensures we get either all bits set (all conditions are true) or clear (any condition is false)
-    // So, we need to invert the condition from the operation since we compare against zero
-
-    GenCondition cmpCnd = (cmpOp == GT_EQ) ? GenCondition::NE : GenCondition::EQ;
-    GenTree*     cc     = LowerNodeCC(relop, cmpCnd);
-
-    relop->SetType(TYP_VOID);
-    relop->ClearUnusedValue();
-
-    LowerNode(relop);
 }
 
 //----------------------------------------------------------------------------------------------

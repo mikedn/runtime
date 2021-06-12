@@ -1170,7 +1170,8 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     assert((intrinsicId == NI_Vector128_op_Equality) || (intrinsicId == NI_Vector128_op_Inequality) ||
            (intrinsicId == NI_Vector256_op_Equality) || (intrinsicId == NI_Vector256_op_Inequality));
 
-    assert(varTypeIsArithmetic(baseType));
+    assert(varTypeIsIntegral(baseType));
+    assert(comp->compOpportunisticallyDependsOn(InstructionSet_SSE41));
     assert(node->gtType == TYP_BOOL);
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
     assert((simdSize == 16) || (simdSize == 32));
@@ -1185,20 +1186,23 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 
     GenCondition cmpCnd = (cmpOp == GT_EQ) ? GenCondition::EQ : GenCondition::NE;
 
-    if (op2->IsHWIntrinsicZero() && varTypeIsIntegral(baseType) &&
-        comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if (op1->IsHWIntrinsicZero())
+    {
+        std::swap(op1, op2);
+    }
+
+    if (op2->IsHWIntrinsicZero())
     {
         // On SSE4.1 or higher we can optimize comparisons against zero to
         // just use PTEST. We can't support it for floating-point, however,
         // as it has both +0.0 and -0.0 where +0.0 == -0.0
 
-        node->SetOp(0, op1);
         BlockRange().Remove(op2);
 
+        node->SetOp(0, op1);
         LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
         ReplaceWithLclVar(op1Use);
         op1 = node->GetOp(0);
-
         op2 = comp->gtClone(op1);
         BlockRange().InsertAfter(op1, op2);
         node->SetOp(1, op2);
@@ -1264,59 +1268,10 @@ void Lowering::LowerHWIntrinsicCmpOp(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
             }
             else
             {
-                if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-                {
-                    cmpIntrinsic = NI_SSE41_CompareEqual;
-                    cmpType      = baseType;
-                }
-                else
-                {
-                    cmpIntrinsic = NI_SSE2_CompareEqual;
-                    cmpType      = TYP_UINT;
-                }
-
+                cmpIntrinsic = NI_SSE41_CompareEqual;
+                cmpType      = baseType;
                 mskIntrinsic = NI_SSE2_MoveMask;
                 mskConstant  = 0xFFFF;
-            }
-            break;
-        }
-
-        case TYP_FLOAT:
-        {
-            cmpType = baseType;
-            mskType = baseType;
-
-            if (simdSize == 32)
-            {
-                cmpIntrinsic = NI_AVX_CompareEqual;
-                mskIntrinsic = NI_AVX_MoveMask;
-                mskConstant  = 0xFF;
-            }
-            else
-            {
-                cmpIntrinsic = NI_SSE_CompareEqual;
-                mskIntrinsic = NI_SSE_MoveMask;
-                mskConstant  = 0xF;
-            }
-            break;
-        }
-
-        case TYP_DOUBLE:
-        {
-            cmpType = baseType;
-            mskType = baseType;
-
-            if (simdSize == 32)
-            {
-                cmpIntrinsic = NI_AVX_CompareEqual;
-                mskIntrinsic = NI_AVX_MoveMask;
-                mskConstant  = 0xF;
-            }
-            else
-            {
-                cmpIntrinsic = NI_SSE2_CompareEqual;
-                mskIntrinsic = NI_SSE2_MoveMask;
-                mskConstant  = 0x3;
             }
             break;
         }

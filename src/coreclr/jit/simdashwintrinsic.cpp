@@ -481,7 +481,11 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_Vector2_Equals:
         case NI_Vector3_Equals:
         case NI_Vector4_Equals:
-            return impVector234InstanceEquals(sig);
+        case NI_VectorT128_EqualsInstance:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_EqualsInstance:
+#endif
+            return impVector234TInstanceEquals(sig);
         default:
             break;
     }
@@ -512,11 +516,19 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_Vector2_op_Equality:
         case NI_Vector3_op_Equality:
         case NI_Vector4_op_Equality:
-            return impVector234Equals(sig, ops[0], ops[1]);
+        case NI_VectorT128_op_Equality:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_op_Equality:
+#endif
+            return impVector234TEquals(sig, ops[0], ops[1]);
         case NI_Vector2_op_Inequality:
         case NI_Vector3_op_Inequality:
         case NI_Vector4_op_Inequality:
-            return impVector234Equals(sig, ops[0], ops[1], true);
+        case NI_VectorT128_op_Inequality:
+#ifdef TARGET_XARCH
+        case NI_VectorT256_op_Inequality:
+#endif
+            return impVector234TEquals(sig, ops[0], ops[1], true);
 
 #ifdef TARGET_XARCH
         case NI_Vector2_Abs:
@@ -944,26 +956,26 @@ GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayou
     return impVectorGetElement(layout, value, index);
 }
 
-GenTree* Compiler::impVector234InstanceEquals(const HWIntrinsicSignature& sig)
+GenTree* Compiler::impVector234TInstanceEquals(const HWIntrinsicSignature& sig)
 {
     assert(sig.hasThisParam && (sig.paramCount == 1));
 
     GenTree* op1 = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
     GenTree* op2 = impPopStackAddrAsVector(sig.paramType[0]);
 
-    return impVector234Equals(sig, op1, op2);
+    return impVector234TEquals(sig, op1, op2);
 }
 
 #ifdef TARGET_ARMARCH
 
-GenTree* Compiler::impVector234Equals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
+GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
 {
     assert((sig.hasThisParam && (sig.paramCount == 1)) || (sig.paramCount == 2));
     assert(varTypeIsSIMD(sig.paramType[0]));
-    assert(sig.paramLayout[0]->GetVectorKind() == VectorKind::Vector234);
 
     ClassLayout* layout    = sig.paramLayout[0];
     var_types    type      = layout->GetSIMDType();
+    var_types    eltType   = layout->GetElementType();
     unsigned     size      = layout->GetSize();
     bool         isVector3 = type == TYP_SIMD12;
 
@@ -973,7 +985,8 @@ GenTree* Compiler::impVector234Equals(const HWIntrinsicSignature& sig, GenTree* 
         size = 16;
     }
 
-    op1 = gtNewSimdHWIntrinsicNode(type, NI_AdvSimd_CompareEqual, TYP_FLOAT, size, op1, op2);
+    NamedIntrinsic intrinsic = varTypeSize(eltType) == 8 ? NI_AdvSimd_Arm64_CompareEqual : NI_AdvSimd_CompareEqual;
+    op1                      = gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, size, op1, op2);
 
     if (isVector3)
     {
@@ -1699,21 +1712,71 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
     return gtNewSimdHWIntrinsicNode(eltType, NI_Vector128_Dot, eltType, 16, op1, op2);
 }
 
-GenTree* Compiler::impVector234Equals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
+GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
 {
     assert((sig.hasThisParam && (sig.paramCount == 1)) || (sig.paramCount == 2));
     assert(varTypeIsSIMD(sig.paramType[0]));
-    assert(sig.paramLayout[0]->GetVectorKind() == VectorKind::Vector234);
 
-    ClassLayout* layout = sig.paramLayout[0];
-    var_types    type   = layout->GetSIMDType();
-    unsigned     size   = layout->GetSize();
-    uint8_t      mask   = 0b1111 >> (4 - layout->GetElementCount());
+    ClassLayout* layout  = sig.paramLayout[0];
+    var_types    type    = layout->GetSIMDType();
+    var_types    eltType = layout->GetElementType();
+    unsigned     size    = layout->GetSize();
 
-    op1 = gtNewSimdHWIntrinsicNode(type, NI_SSE_CompareEqual, TYP_FLOAT, size, op1, op2);
-    op1 = gtNewSimdHWIntrinsicNode(TYP_INT, NI_SSE_MoveMask, TYP_FLOAT, size, op1);
+    // Import integral vector equality as NI_Vector128_op_Equality & co. if we have PTEST.
+    // It's too early to use PTEST here because op2 may not be a constant zero vector yet
+    // and it's rather cumbersome to import to CompareEqual/MoveMask and pattern match in
+    // lowering to change to PTEST.
+    if (varTypeIsIntegral(eltType) && compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        NamedIntrinsic eq;
 
-    if (layout->GetElementCount() < 4)
+        if (type == TYP_SIMD32)
+        {
+            eq = notEqual ? NI_Vector256_op_Inequality : NI_Vector256_op_Equality;
+        }
+        else
+        {
+            eq = notEqual ? NI_Vector128_op_Inequality : NI_Vector128_op_Equality;
+        }
+
+        return gtNewSimdHWIntrinsicNode(sig.retType, eq, eltType, size, op1, op2);
+    }
+
+    NamedIntrinsic cmpeq;
+    NamedIntrinsic movmsk;
+    int32_t        mask;
+
+    if (type == TYP_SIMD32)
+    {
+        assert(varTypeIsFloating(eltType));
+        cmpeq  = NI_AVX_CompareEqual;
+        movmsk = NI_AVX_MoveMask;
+        mask   = eltType == TYP_FLOAT ? 0xFF : 0x0F;
+    }
+    else if (eltType == TYP_FLOAT)
+    {
+        cmpeq  = NI_SSE_CompareEqual;
+        movmsk = NI_SSE_MoveMask;
+        mask   = 0b1111 >> (4 - layout->GetElementCount());
+    }
+    else if (eltType == TYP_DOUBLE)
+    {
+        cmpeq  = NI_SSE2_CompareEqual;
+        movmsk = NI_SSE2_MoveMask;
+        mask   = 0b0011;
+    }
+    else
+    {
+        cmpeq   = NI_SSE2_CompareEqual;
+        movmsk  = NI_SSE2_MoveMask;
+        mask    = 0xFFFF;
+        eltType = TYP_UBYTE;
+    }
+
+    op1 = gtNewSimdHWIntrinsicNode(type, cmpeq, eltType, size, op1, op2);
+    op1 = gtNewSimdHWIntrinsicNode(TYP_INT, movmsk, eltType, size, op1);
+
+    if ((type == TYP_SIMD8) || (type == TYP_SIMD12))
     {
         op1 = gtNewOperNode(GT_AND, TYP_INT, op1, gtNewIconNode(mask));
     }
