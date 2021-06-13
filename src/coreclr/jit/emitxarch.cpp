@@ -11210,7 +11210,7 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         int byteSize = EA_SIZE_IN_BYTES(size);
 
         // this instruction has a fixed size (4) src.
-        if (ins == INS_cvttss2si || ins == INS_cvtss2sd || ins == INS_vbroadcastss)
+        if (ins == INS_cvttss2si || ins == INS_cvtss2sd || ins == INS_vbroadcastss || ins == INS_insertps)
         {
             byteSize = 4;
         }

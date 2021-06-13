@@ -973,8 +973,22 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             assert(!varTypeIsFloating(node->GetType()));
             break;
 
-        case NI_SSE2_Insert:
         case NI_SSE41_Insert:
+            if ((node->GetSimdBaseType() == TYP_FLOAT) && node->GetOp(1)->IsHWIntrinsic() && node->GetOp(2)->IsIntCon())
+            {
+                GenTreeHWIntrinsic* elt = node->GetOp(1)->AsHWIntrinsic();
+                GenTreeIntCon*      imm = node->GetOp(2)->IsIntCon();
+
+                if (((imm->GetValue() & 0b11000000) == 0) && (elt->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe))
+                {
+                    node->SetOp(1, elt->GetOp(0));
+                    BlockRange().Remove(elt);
+                }
+
+                break;
+            }
+            FALLTHROUGH;
+        case NI_SSE2_Insert:
         case NI_SSE41_X64_Insert:
             assert(node->IsTernary());
             // Insert takes either a 32-bit register or a memory operand.
@@ -2349,13 +2363,6 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
         LowerNode(vec);
     }
 
-    if (varTypeIsFloating(eltType))
-    {
-        elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, eltType, 16, elt);
-        BlockRange().InsertBefore(node, elt);
-        LowerNode(elt);
-    }
-
     switch (eltType)
     {
         case TYP_BYTE:
@@ -2383,27 +2390,37 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
             intrinsic = (index == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;
             BlockRange().Remove(idx);
             idx = nullptr;
+            elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_DOUBLE, 16, elt);
+            BlockRange().InsertBefore(node, elt);
+            LowerNode(elt);
             break;
 
         case TYP_FLOAT:
             assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE));
 
-            if (index == 0)
+            if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41) && ((index != 0) || elt->IsDblCon()))
+            {
+                intrinsic = NI_SSE41_Insert;
+                idx->AsIntCon()->SetIconValue(index << 4);
+            }
+            else if (index == 0)
             {
                 intrinsic = NI_SSE_MoveScalar;
                 BlockRange().Remove(idx);
                 idx = nullptr;
-            }
-            else if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-            {
-                intrinsic = NI_SSE41_Insert;
-                idx->AsIntCon()->SetIconValue(index << 4);
+                elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, elt);
+                BlockRange().InsertBefore(node, elt);
+                LowerNode(elt);
             }
             else
             {
                 node->SetOp(0, vec);
                 LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
                 vec = ReplaceWithLclVar(op1Use);
+
+                elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, elt);
+                BlockRange().InsertBefore(node, elt);
+                LowerNode(elt);
 
                 GenTree*      vec2 = comp->gtClone(vec);
                 constexpr int controlBits1[]{0, 0, 0b00110000, 0b00100000};
@@ -5238,13 +5255,19 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     switch (intrinsicId)
                     {
+                        case NI_SSE41_Insert:
+                            if ((baseType == TYP_FLOAT) && op2->IsDblCon())
+                            {
+                                op2->SetContained();
+                                break;
+                            }
+                            FALLTHROUGH;
                         case NI_SSE_Shuffle:
                         case NI_SSE2_Insert:
                         case NI_SSE2_Shuffle:
                         case NI_SSSE3_AlignRight:
                         case NI_SSE41_Blend:
                         case NI_SSE41_DotProduct:
-                        case NI_SSE41_Insert:
                         case NI_SSE41_X64_Insert:
                         case NI_SSE41_MultipleSumAbsoluteDifferences:
                         case NI_AVX_Blend:

@@ -633,6 +633,23 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
+        if (GenTreeDblCon* dblCon = op2->IsDblCon())
+        {
+            assert(ins == INS_insertps);
+
+            if (dblCon->IsPositiveZero())
+            {
+                emit->emitIns_SIMD_R_R_R_I(ins, simdSize, targetReg, op1Reg, op1Reg, ival | (1 << ((ival >> 4) & 3)));
+            }
+            else
+            {
+                CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+                emit->emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, hnd, 0, ival);
+            }
+
+            return;
+        }
+
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
         assertIsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2);
 
