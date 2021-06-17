@@ -388,6 +388,7 @@ private:
     void LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition);
     void LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp);
     void LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node);
+    void LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicDot(GenTreeHWIntrinsic* node);
     unsigned GetSimdMemoryTemp(var_types type);
 #if defined(TARGET_XARCH)
