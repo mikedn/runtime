@@ -438,12 +438,13 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
             }
             FALLTHROUGH;
         case NI_Vector2_CreateBroadcast:
-        case NI_Vector2_Create:
         case NI_Vector3_CreateBroadcast:
-        case NI_Vector3_Create:
         case NI_Vector4_CreateBroadcast:
+            return impVector234TCreateBroadcast(sig, layout, isNewObj);
+        case NI_Vector2_Create:
+        case NI_Vector3_Create:
         case NI_Vector4_Create:
-            return impVector234TCreate(sig, layout, isNewObj);
+            return impVector234Create(sig, layout, isNewObj);
         case NI_Vector3_CreateExtend1:
         case NI_Vector4_CreateExtend1:
         case NI_Vector4_CreateExtend2:
@@ -659,26 +660,63 @@ GenTree* Compiler::impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout*
     return countNode;
 }
 
-GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
+GenTree* Compiler::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
     assert(layout->IsVector());
-    assert((sig.paramCount == 1) || (sig.paramCount == layout->GetElementCount()));
+    assert(sig.paramCount == 1);
+
+    GenTree* arg      = impPopStackCoerceArg(varActualType(sig.paramType[0]));
+    GenTree* destAddr = isNewObj ? nullptr : impPopStack().val;
+    GenTree* create;
+
+    if (arg->IsIntegralConst(0) || arg->IsDblConPositiveZero())
+    {
+        create = gtNewZeroSimdHWIntrinsicNode(layout);
+    }
+    else
+    {
+        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateSimdHWIntrinsic(layout->GetSIMDType()),
+                                          layout->GetElementType(), layout->GetSize(), arg);
+    }
+
+    if (destAddr != nullptr)
+    {
+        return impAssignSIMDAddr(destAddr, create);
+    }
+
+    return create;
+}
+
+GenTree* Compiler::impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
+{
+    assert(sig.retType == TYP_VOID);
+    assert(sig.hasThisParam);
+    assert(sig.paramCount == layout->GetElementCount());
+    assert(layout->GetVectorKind() == VectorKind::Vector234);
+    assert(layout->GetElementType() == TYP_FLOAT);
 
     GenTree* args[4];
     assert(sig.paramCount <= _countof(args));
     bool areArgsContiguous = sig.paramCount > 1;
+    bool areArgsZero       = true;
 
     for (unsigned i = 0; i < sig.paramCount; i++)
     {
         unsigned argIndex = sig.paramCount - i - 1;
-        args[argIndex]    = impPopStackCoerceArg(varActualType(sig.paramType[argIndex]));
+        assert(sig.paramType[i] == TYP_FLOAT);
+        args[argIndex] = impPopStackCoerceArg(TYP_FLOAT);
 
         if ((i > 0) && areArgsContiguous)
         {
             // We're popping the args off the stack in reverse order so we already have the next arg.
             areArgsContiguous = SIMDCoalescingBuffer::AreContiguousMemoryLocations(args[argIndex], args[argIndex + 1]);
+        }
+
+        if (!args[argIndex]->IsDblConPositiveZero())
+        {
+            areArgsZero = false;
         }
     }
 
@@ -697,14 +735,14 @@ GenTree* Compiler::impVector234TCreate(const HWIntrinsicSignature& sig, ClassLay
             lvaRecordSimdIntrinsicUse(destAddr->AsUnOp()->GetOp(0)->AsLclVar());
         }
     }
-    else if ((sig.paramCount == 1) && (args[0]->IsIntegralConst(0) || args[0]->IsDblConPositiveZero()))
+    else if (areArgsZero)
     {
         create = gtNewZeroSimdHWIntrinsicNode(layout);
     }
     else
     {
         create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateSimdHWIntrinsic(layout->GetSIMDType()),
-                                          layout->GetElementType(), layout->GetSize(), sig.paramCount, args);
+                                          TYP_FLOAT, layout->GetSize(), sig.paramCount, args);
     }
 
     if (destAddr != nullptr)

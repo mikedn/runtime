@@ -3075,7 +3075,8 @@ protected:
                                   const HWIntrinsicSignature& sig,
                                   ClassLayout*                layout,
                                   bool                        isNewObj);
-    GenTree* impVector234TCreate(const HWIntrinsicSignature& sig, ClassLayout* thisLayout, bool isNewObj);
+    GenTree* impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
