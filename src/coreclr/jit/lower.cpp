@@ -6692,4 +6692,165 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
 
     return tempLclNum;
 }
+
+GenTree* Lowering::TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
+{
+    if (!op->IsCast() || op->gtOverflow() || !varTypeIsIntegral(expectedType))
+    {
+        return op;
+    }
+
+    GenTree* castOp = op->AsCast()->GetOp(0);
+
+    if (!varTypeIsIntegral(castOp->GetType()))
+    {
+        return op;
+    }
+
+    if (varTypeSize(op->AsCast()->GetCastType()) > varTypeSize(varActualType(castOp->GetType())))
+    {
+        return op;
+    }
+
+    if (varTypeSize(op->AsCast()->GetCastType()) < varTypeSize(expectedType))
+    {
+        return op;
+    }
+
+    BlockRange().Remove(op);
+    castOp->ClearContained();
+    return castOp;
+}
+
+bool Lowering::VectorConstant::AllBitsZero(unsigned vectorByteSize) const
+{
+    for (unsigned i = 0; i < vectorByteSize; i++)
+    {
+        if (u8[i] != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Lowering::VectorConstant::AllBitsOne(unsigned vectorByteSize) const
+{
+    for (unsigned i = 0; i < vectorByteSize; i++)
+    {
+        if (u8[i] != 0xFF)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Lowering::VectorConstant::Insert(var_types type, int index, GenTree* value)
+{
+    if (GenTreeIntCon* icon = value->IsIntCon())
+    {
+        switch (type)
+        {
+            case TYP_BYTE:
+            case TYP_UBYTE:
+                u8[index] = value->AsIntCon()->GetUInt8Value();
+                return true;
+            case TYP_SHORT:
+            case TYP_USHORT:
+                u16[index] = value->AsIntCon()->GetUInt16Value();
+                return true;
+            case TYP_INT:
+            case TYP_UINT:
+                u32[index] = value->AsIntCon()->GetUInt32Value();
+                return true;
+#ifdef TARGET_64BIT
+            case TYP_LONG:
+            case TYP_ULONG:
+                u64[index] = value->AsIntCon()->GetUInt64Value();
+                return true;
+#endif
+            default:
+                return false;
+        }
+    }
+
+    if (GenTreeDblCon* dcon = value->IsDblCon())
+    {
+        if (type == TYP_FLOAT)
+        {
+            u32[index] = value->AsDblCon()->GetFloatBits();
+        }
+        else
+        {
+            u64[index] = value->AsDblCon()->GetDoubleBits();
+        }
+
+        return true;
+    }
+
+#ifndef TARGET_64BIT
+    if (value->OperIs(GT_LONG) && value->AsOp()->GetOp(0)->IsIntCon() && value->AsOp()->GetOp(1)->IsIntCon())
+    {
+        uint64_t loBits = value->AsOp()->GetOp(0)->AsIntCon()->GetUInt32Value();
+        uint64_t hiBits = value->AsOp()->GetOp(1)->AsIntCon()->GetUInt32Value();
+        u64[index]      = (hiBits << 32) | loBits;
+        return true;
+    }
+#endif
+
+    return false;
+}
+
+bool Lowering::VectorConstant::Create(GenTreeHWIntrinsic* create)
+{
+    unsigned  numOps  = create->GetNumOps();
+    var_types eltType = create->GetSimdBaseType();
+
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        if (!Insert(eltType, i, create->GetOp(i)))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
+{
+    var_types eltType = create->GetSimdBaseType();
+    GenTree*  op1     = create->GetOp(0);
+
+    if (!Insert(eltType, 0, op1))
+    {
+        return false;
+    }
+
+    unsigned eltCount = create->GetSimdSize() / varTypeSize(eltType);
+    unsigned eltSize  = varTypeSize(eltType);
+
+    for (unsigned i = 1; i < eltCount; i++)
+    {
+        switch (eltSize)
+        {
+            case 1:
+                u8[i] = u8[0];
+                break;
+            case 2:
+                u16[i] = u16[0];
+                break;
+            case 4:
+                u32[i] = u32[0];
+                break;
+            default:
+                assert(eltSize == 8);
+                u64[i] = u64[0];
+                break;
+        }
+    }
+
+    return true;
+}
 #endif

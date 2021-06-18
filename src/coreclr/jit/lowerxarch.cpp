@@ -921,7 +921,14 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         case NI_Vector128_Create:
         case NI_Vector256_Create:
-            LowerHWIntrinsicCreate(node);
+            if (node->IsUnary())
+            {
+                LowerHWIntrinsicCreateBroadcast(node);
+            }
+            else
+            {
+                LowerHWIntrinsicCreate(node);
+            }
             assert(!node->OperIsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
             LowerNode(node);
             return;
@@ -1228,94 +1235,24 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
 
 void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 {
-    var_types      eltType     = node->GetSimdBaseType();
-    unsigned       size        = node->GetSimdSize();
-    unsigned       numOps      = node->GetNumOps();
-    unsigned       numConstOps = 0;
-    VectorConstant vecCns;
+    var_types eltType = node->GetSimdBaseType();
+    unsigned  size    = node->GetSimdSize();
+    unsigned  numOps  = node->GetNumOps();
 
     assert(varTypeIsSIMD(node->GetType()));
     assert(varTypeIsArithmetic(eltType));
-    assert((size == 8) || (size == 12) || (size == 16) || (size == 32));
-
-    if (numOps == 1)
-    {
-        for (unsigned i = 0; i < size / varTypeSize(eltType); i++)
-        {
-            if (vecCns.SetConstant(eltType, i, node->GetOp(0)))
-            {
-                numConstOps = 1;
-            }
-        }
-    }
-    else
-    {
-        assert(numOps == (size / varTypeSize(eltType)));
-
-        for (unsigned i = 0; i < numOps; i++)
-        {
-            if (vecCns.SetConstant(eltType, i, node->GetOp(i)))
-            {
-                numConstOps += 1;
-            }
-        }
-    }
+    assert((size == 16) || (size == 32));
+    assert(numOps == (size / varTypeSize(eltType)));
 
     // TODO-XARCH-CQ: We should be able to modify at least the paths that use Insert to trivially support partial
     // vector constants. With this, we can create a constant if say 50% of the inputs are also constant and just
     // insert the non-constant values which should still allow some gains.
 
-    if (numOps == numConstOps)
+    VectorConstant vecConst;
+
+    if (vecConst.Create(node))
     {
-        for (unsigned i = 0; i < numOps; i++)
-        {
-#ifndef TARGET_64BIT
-            if (node->GetOp(i)->OperIs(GT_LONG))
-            {
-                BlockRange().Remove(node->GetOp(i)->AsOp()->GetOp(0));
-                BlockRange().Remove(node->GetOp(i)->AsOp()->GetOp(1));
-            }
-#endif
-
-            BlockRange().Remove(node->GetOp(i));
-        }
-
-        if (vecCns.AllBitsZero(size))
-        {
-            node->SetIntrinsic((size <= 16) ? NI_Vector128_get_Zero : NI_Vector256_get_Zero);
-            node->SetNumOps(0);
-            return;
-        }
-
-        if ((size >= 16) && vecCns.AllBitsOne(size))
-        {
-            node->SetIntrinsic((size == 16) ? NI_Vector128_get_AllBitsSet : NI_Vector256_get_AllBitsSet);
-            node->SetNumOps(0);
-            return;
-        }
-
-        unsigned cnsSize = (size != 12) ? size : 16;
-        unsigned cnsAlign =
-            (comp->compCodeOpt() != Compiler::SMALL_CODE) ? cnsSize : emitter::dataSection::MIN_DATA_ALIGN;
-        var_types cnsType = getSIMDTypeForSize(size);
-
-        UNATIVE_OFFSET       cnum       = comp->GetEmitter()->emitDataConst(&vecCns, cnsSize, cnsAlign, cnsType);
-        CORINFO_FIELD_HANDLE hnd        = comp->eeFindJitDataOffs(cnum);
-        GenTree*             clsVarAddr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(GT_CLS_VAR_ADDR, TYP_I_IMPL, hnd);
-        BlockRange().InsertBefore(node, clsVarAddr);
-
-        GenTree* indir = node;
-        indir->ChangeOper(GT_IND);
-        indir->AsIndir()->SetAddr(clsVarAddr);
-
-        return;
-    }
-
-    GenTree* op1 = node->GetOp(0);
-
-    if (numOps == 1)
-    {
-        LowerHWIntrinsicCreateBroadcast(node);
+        LowerHWIntrinsicCreateConst(node, vecConst);
         return;
     }
 
@@ -1369,6 +1306,8 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         BlockRange().InsertAfter(scalar, vec);
         return vec;
     };
+
+    GenTree* op1 = node->GetOp(0);
 
     if (varTypeIsLong(eltType) && comp->compOpportunisticallyDependsOn(InstructionSet_SSE41_X64))
     {
@@ -1581,9 +1520,24 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 {
+    assert(node->IsUnary());
+
     NamedIntrinsic intrinsic = node->GetIntrinsic();
     var_types      eltType   = node->GetSimdBaseType();
+    unsigned       size      = node->GetSimdSize();
     GenTree*       op1       = node->GetOp(0);
+
+    assert(varTypeIsSIMD(node->GetType()));
+    assert(varTypeIsArithmetic(eltType));
+    assert((size == 8) || (size == 12) || (size == 16) || (size == 32));
+
+    VectorConstant vecConst;
+
+    if (vecConst.Broadcast(node))
+    {
+        LowerHWIntrinsicCreateConst(node, vecConst);
+        return;
+    }
 
     if ((intrinsic == NI_Vector256_Create) && !comp->compOpportunisticallyDependsOn(InstructionSet_AVX2))
     {
@@ -1768,6 +1722,54 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     node->SetIntrinsic(NI_SSE2_Shuffle, TYP_UINT, 2);
     node->SetOp(0, vec);
     node->SetOp(1, idx);
+}
+
+void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
+{
+    unsigned numOps = node->GetNumOps();
+
+    for (unsigned i = 0; i < numOps; i++)
+    {
+#ifndef TARGET_64BIT
+        if (node->GetOp(i)->OperIs(GT_LONG))
+        {
+            BlockRange().Remove(node->GetOp(i)->AsOp()->GetOp(0));
+            BlockRange().Remove(node->GetOp(i)->AsOp()->GetOp(1));
+        }
+#endif
+
+        BlockRange().Remove(node->GetOp(i));
+    }
+
+    unsigned size = node->GetSimdSize();
+
+    if (vecConst.AllBitsZero(size))
+    {
+        node->SetIntrinsic((size <= 16) ? NI_Vector128_get_Zero : NI_Vector256_get_Zero);
+        node->SetNumOps(0);
+        return;
+    }
+
+    if ((size >= 16) && vecConst.AllBitsOne(size))
+    {
+        node->SetIntrinsic((size == 16) ? NI_Vector128_get_AllBitsSet : NI_Vector256_get_AllBitsSet);
+        node->SetNumOps(0);
+        return;
+    }
+
+    var_types type = getSIMDTypeForSize(size);
+    size           = (size != 12) ? size : 16;
+    unsigned align = (comp->compCodeOpt() != Compiler::SMALL_CODE) ? size : emitter::dataSection::MIN_DATA_ALIGN;
+
+    UNATIVE_OFFSET       offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
+    CORINFO_FIELD_HANDLE handle = comp->eeFindJitDataOffs(offset);
+
+    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(GT_CLS_VAR_ADDR, TYP_I_IMPL, handle);
+    BlockRange().InsertBefore(node, addr);
+
+    GenTree* indir = node;
+    indir->ChangeOper(GT_IND);
+    indir->AsIndir()->SetAddr(addr);
 }
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
@@ -2782,7 +2784,7 @@ bool Lowering::IsBinOpInRMWStoreInd(GenTree* tree)
 // where RegIndirOpSource is the register where indirOpSource was computed.
 //
 // Right now, we recognize few cases:
-//     a) The gtInd child is a lea/lclVar/lclVarAddr/clsVarAddr/constant
+//     a) The gtInd child is a lea/lclVar/lclVarAddr/addr/constant
 //     b) BinOp is either add, sub, xor, or, and, shl, rsh, rsz.
 //     c) unaryOp is either not/neg
 //

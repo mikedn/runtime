@@ -539,7 +539,14 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         case NI_Vector64_Create:
         case NI_Vector128_Create:
-            LowerHWIntrinsicCreate(node);
+            if (node->IsUnary())
+            {
+                LowerHWIntrinsicCreateBroadcast(node);
+            }
+            else
+            {
+                LowerHWIntrinsicCreate(node);
+            }
             assert(!node->OperIsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
             LowerNode(node);
             return;
@@ -646,94 +653,25 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 {
-    var_types      type        = node->GetType();
-    var_types      eltType     = node->GetSimdBaseType();
-    unsigned       size        = node->GetSimdSize();
-    unsigned       numOps      = node->GetNumOps();
-    unsigned       numConstOps = 0;
-    VectorConstant vecCns;
+    var_types type    = node->GetType();
+    var_types eltType = node->GetSimdBaseType();
+    unsigned  size    = node->GetSimdSize();
+    unsigned  numOps  = node->GetNumOps();
 
     assert(varTypeIsSIMD(type));
     assert(varTypeIsArithmetic(eltType));
-    assert((size == 8) || (size == 12) || (size == 16));
-
-    if (numOps == 1)
-    {
-        for (unsigned i = 0; i < size / varTypeSize(eltType); i++)
-        {
-            if (vecCns.SetConstant(eltType, i, node->GetOp(0)))
-            {
-                numConstOps = 1;
-            }
-        }
-    }
-    else
-    {
-        assert(numOps == (size / varTypeSize(eltType)));
-
-        for (unsigned i = 0; i < numOps; i++)
-        {
-            if (vecCns.SetConstant(eltType, i, node->GetOp(i)))
-            {
-                numConstOps += 1;
-            }
-        }
-    }
-
-    if ((numOps == numConstOps) && (numOps == 1))
-    {
-        if (IsValidConstForMovImm(node))
-        {
-            // Set the numConstOps to zero so we get lowered to a DuplicateToVector
-            // intrinsic, which will itself mark the node as contained.
-            numConstOps = 0;
-        }
-    }
+    assert((size == 8) || (size == 16));
+    assert(numOps == (size / varTypeSize(eltType)));
 
     // TODO-ARM64-CQ: We should be able to modify at least the paths that use Insert to trivially support partial
     // vector constants. With this, we can create a constant if say 50% of the inputs are also constant and just
     // insert the non-constant values which should still allow some gains.
 
-    if (numOps == numConstOps)
+    VectorConstant vecConst;
+
+    if (vecConst.Create(node))
     {
-        for (unsigned i = 0; i < numOps; i++)
-        {
-            BlockRange().Remove(node->GetOp(i));
-        }
-
-        if (vecCns.AllBitsZero(size))
-        {
-            node->SetIntrinsic((size == 8) ? NI_Vector64_get_Zero : NI_Vector128_get_Zero);
-            node->SetNumOps(0);
-            return;
-        }
-
-        if ((size != 12) && vecCns.AllBitsOne(size))
-        {
-            node->SetIntrinsic((size == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
-            node->SetNumOps(0);
-            return;
-        }
-
-        unsigned  cnsSize  = (size == 12) ? 16 : size;
-        unsigned  cnsAlign = cnsSize;
-        var_types cnsType  = getSIMDTypeForSize(size);
-
-        UNATIVE_OFFSET       cnum       = comp->GetEmitter()->emitDataConst(&vecCns, cnsSize, cnsAlign, cnsType);
-        CORINFO_FIELD_HANDLE hnd        = comp->eeFindJitDataOffs(cnum);
-        GenTree*             clsVarAddr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(GT_CLS_VAR_ADDR, TYP_I_IMPL, hnd);
-        BlockRange().InsertBefore(node, clsVarAddr);
-
-        GenTree* indir = node;
-        indir->ChangeOper(GT_IND);
-        indir->AsIndir()->SetAddr(clsVarAddr);
-
-        return;
-    }
-
-    if (numOps == 1)
-    {
-        LowerHWIntrinsicCreateBroadcast(node);
+        LowerHWIntrinsicCreateConst(node, vecConst);
         return;
     }
 
@@ -773,8 +711,22 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 {
+    assert(node->IsUnary());
+
     var_types eltType = node->GetSimdBaseType();
     unsigned  size    = node->GetSimdSize();
+
+    assert(varTypeIsSIMD(node->GetType()));
+    assert(varTypeIsArithmetic(eltType));
+    assert((size == 8) || (size == 12) || (size == 16));
+
+    VectorConstant vecConst;
+
+    if (!IsValidConstForMovImm(node) && vecConst.Broadcast(node))
+    {
+        LowerHWIntrinsicCreateConst(node, vecConst);
+        return;
+    }
 
     NamedIntrinsic intrinsic;
 
@@ -789,6 +741,46 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
     node->SetIntrinsic(intrinsic);
     node->SetOp(0, TryRemoveCastIfPresent(eltType, node->GetOp(0)));
+}
+
+void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
+{
+    unsigned numOps = node->GetNumOps();
+
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        BlockRange().Remove(node->GetOp(i));
+    }
+
+    unsigned size = node->GetSimdSize();
+
+    if (vecConst.AllBitsZero(size))
+    {
+        node->SetIntrinsic((size == 8) ? NI_Vector64_get_Zero : NI_Vector128_get_Zero);
+        node->SetNumOps(0);
+        return;
+    }
+
+    if ((size != 12) && vecConst.AllBitsOne(size))
+    {
+        node->SetIntrinsic((size == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
+        node->SetNumOps(0);
+        return;
+    }
+
+    var_types type = getSIMDTypeForSize(size);
+    size           = (size == 12) ? 16 : size;
+    unsigned align = size;
+
+    UNATIVE_OFFSET       offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
+    CORINFO_FIELD_HANDLE handle = comp->eeFindJitDataOffs(offset);
+
+    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(GT_CLS_VAR_ADDR, TYP_I_IMPL, handle);
+    BlockRange().InsertBefore(node, addr);
+
+    GenTree* indir = node;
+    indir->ChangeOper(GT_IND);
+    indir->AsIndir()->SetAddr(addr);
 }
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)

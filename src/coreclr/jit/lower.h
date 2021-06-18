@@ -415,116 +415,16 @@ private:
         {
         }
 
-        bool AllBitsZero(unsigned vectorByteSize)
-        {
-            for (unsigned i = 0; i < vectorByteSize; i++)
-            {
-                if (u8[i] != 0)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        bool AllBitsOne(unsigned vectorByteSize)
-        {
-            for (unsigned i = 0; i < vectorByteSize; i++)
-            {
-                if (u8[i] != 0xFF)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        bool SetConstant(var_types type, int index, GenTree* value)
-        {
-            if (GenTreeIntCon* icon = value->IsIntCon())
-            {
-                switch (type)
-                {
-                    case TYP_BYTE:
-                    case TYP_UBYTE:
-                        u8[index] = value->AsIntCon()->GetUInt8Value();
-                        return true;
-                    case TYP_SHORT:
-                    case TYP_USHORT:
-                        u16[index] = value->AsIntCon()->GetUInt16Value();
-                        return true;
-                    case TYP_INT:
-                    case TYP_UINT:
-                        u32[index] = value->AsIntCon()->GetUInt32Value();
-                        return true;
-#ifdef TARGET_64BIT
-                    case TYP_LONG:
-                    case TYP_ULONG:
-                        u64[index] = value->AsIntCon()->GetUInt64Value();
-                        return true;
-#endif
-                    default:
-                        return false;
-                }
-            }
-
-            if (GenTreeDblCon* dcon = value->IsDblCon())
-            {
-                if (type == TYP_FLOAT)
-                {
-                    u32[index] = value->AsDblCon()->GetFloatBits();
-                }
-                else
-                {
-                    u64[index] = value->AsDblCon()->GetDoubleBits();
-                }
-
-                return true;
-            }
-
-#ifndef TARGET_64BIT
-            if (value->OperIs(GT_LONG) && value->AsOp()->GetOp(0)->IsIntCon() && value->AsOp()->GetOp(1)->IsIntCon())
-            {
-                uint64_t loBits = value->AsOp()->GetOp(0)->AsIntCon()->GetUInt32Value();
-                uint64_t hiBits = value->AsOp()->GetOp(1)->AsIntCon()->GetUInt32Value();
-                u64[index]      = (hiBits << 32) | loBits;
-                return true;
-            }
-#endif
-
-            return false;
-        }
+        bool AllBitsZero(unsigned vectorByteSize) const;
+        bool AllBitsOne(unsigned vectorByteSize) const;
+        bool Insert(var_types type, int index, GenTree* value);
+        bool Create(GenTreeHWIntrinsic* create);
+        bool Broadcast(GenTreeHWIntrinsic* create);
     };
+
+    void LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* create, const VectorConstant& vecConst);
+    GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op);
 #endif // FEATURE_HW_INTRINSICS
-
-    GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
-    {
-        if (!op->IsCast() || op->gtOverflow() || !varTypeIsIntegral(expectedType))
-        {
-            return op;
-        }
-
-        GenTree* castOp = op->AsCast()->GetOp(0);
-
-        if (!varTypeIsIntegral(castOp->GetType()))
-        {
-            return op;
-        }
-
-        if (varTypeSize(op->AsCast()->GetCastType()) > varTypeSize(varActualType(castOp->GetType())))
-        {
-            return op;
-        }
-
-        if (varTypeSize(op->AsCast()->GetCastType()) < varTypeSize(expectedType))
-        {
-            return op;
-        }
-
-        BlockRange().Remove(op);
-        castOp->ClearContained();
-        return castOp;
-    }
 
     // Utility functions
 public:
