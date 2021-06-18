@@ -741,8 +741,27 @@ GenTree* Compiler::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
     }
     else
     {
+        unsigned size     = layout->GetSize();
+        unsigned argCount = sig.paramCount;
+
+        switch (size)
+        {
+#ifdef TARGET_XARCH
+            case 8:
+                args[2] = gtNewDconNode(0, TYP_FLOAT);
+                FALLTHROUGH;
+#endif
+            case 12:
+                args[3]  = gtNewDconNode(0, TYP_FLOAT);
+                size     = 16;
+                argCount = 4;
+                break;
+            default:
+                break;
+        }
+
         create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateSimdHWIntrinsic(layout->GetSIMDType()),
-                                          TYP_FLOAT, layout->GetSize(), sig.paramCount, args);
+                                          TYP_FLOAT, size, argCount, args);
     }
 
     if (destAddr != nullptr)

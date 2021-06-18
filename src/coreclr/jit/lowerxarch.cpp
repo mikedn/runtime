@@ -1471,10 +1471,11 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         numOps  = 4;
     }
 
+    assert(numOps == 4);
+
     if (eltType != TYP_FLOAT)
     {
         assert((eltType == TYP_INT) || (eltType == TYP_UINT));
-        assert(numOps == 4);
 
         v[0] = UnpackLow(TYP_UINT, v[0], v[1]);
         BlockRange().InsertAfter(v[1], v[0]);
@@ -1483,31 +1484,12 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
         node->SetIntrinsic(NI_SSE2_UnpackLow, TYP_ULONG, 16, 2);
     }
-    else if (numOps == 2)
-    {
-        v[0] = UnpackLow(TYP_FLOAT, v[0], v[1]);
-        v[1] = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
-        BlockRange().InsertBefore(node, v[0], v[1]);
-
-        node->SetIntrinsic(NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, 2);
-    }
     else
     {
         v[0] = UnpackLow(TYP_FLOAT, v[0], v[1]);
         BlockRange().InsertAfter(v[1], v[0]);
-
-        if (numOps == 3)
-        {
-            v[3] = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
-            v[1] = UnpackLow(TYP_FLOAT, v[2], v[3]);
-            BlockRange().InsertBefore(node, v[3], v[1]);
-        }
-        else
-        {
-            assert(numOps == 4);
-            v[1] = UnpackLow(TYP_FLOAT, v[2], v[3]);
-            BlockRange().InsertBefore(node, v[1]);
-        }
+        v[1] = UnpackLow(TYP_FLOAT, v[2], v[3]);
+        BlockRange().InsertBefore(node, v[1]);
 
         node->SetIntrinsic(NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, 2);
     }
