@@ -1357,6 +1357,14 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     }
 
     auto ScalarToVector128 = [this](var_types eltType, GenTree* scalar) -> GenTree* {
+        if (scalar->IsIntegralConst(0) || scalar->IsDblConPositiveZero())
+        {
+            scalar->ChangeOper(GT_HWINTRINSIC);
+            scalar->SetType(TYP_SIMD16);
+            scalar->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_get_Zero, eltType, 16, 0);
+            return scalar;
+        }
+
         GenTree* vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, eltType, 16, scalar);
         BlockRange().InsertAfter(scalar, vec);
         return vec;
