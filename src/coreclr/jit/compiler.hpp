@@ -1341,6 +1341,16 @@ inline void GenTree::ChangeOperConst(genTreeOps oper)
     }
 }
 
+inline void GenTree::ChangeToIntCon(ssize_t value)
+{
+    // TODO-MIKE-Review: This should just call SetOperResetFlags but that one seems to be broken,
+    // it keeps only GTF_NODE_MASK flags and GTF_NODE_MASK does not contain GTF_LATE_ARG.
+    SetOper(GT_CNS_INT);
+    gtFlags &= GTF_NODE_MASK | GTF_LATE_ARG;
+    AsIntCon()->SetValue(value);
+    AsIntCon()->gtCompileTimeHandle = 0;
+}
+
 inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 {
     assert(!OperIsConst(oper)); // use ChangeOperConst() instead

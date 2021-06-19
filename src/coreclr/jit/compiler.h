@@ -4837,6 +4837,10 @@ private:
     GenTreeLclVar* fgMorphTryFoldObjAsLclVar(GenTreeObj* obj);
     GenTree* fgMorphAssociative(GenTreeOp* tree);
 
+#ifdef FEATURE_HW_INTRINSICS
+    GenTree* fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree);
+#endif
+
 public:
     GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
 

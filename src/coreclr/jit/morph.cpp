@@ -3157,21 +3157,8 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             GenTreeLclVar* field0LclNode = gtNewLclvNode(lcl->GetPromotedFieldLclNum(0), TYP_FLOAT);
             GenTreeLclVar* field1LclNode = gtNewLclvNode(lcl->GetPromotedFieldLclNum(1), TYP_FLOAT);
 
-            // TODO-MIKE-CQ: INSERTPS might work better when available, it can insert a float from memory.
-            // Also, there's no constant folding for intrinsics so this produces poor code when both fields
-            // are constant. Though not worse than the previous approach of going through memory...
-            // Attempting to recognize constants here and generate a constant DOUBLE directly might be too
-            // early because these are promoted struct fields and it's unlikely they'll ever be constant in
-            // the absence of some sort of constant propagation. Yet local assertion propagation would be
-            // sufficient to handle the typical case (e.g. Draw(new PointF(20, 30), new PointF(40, 50))) but
-            // apparently it doesn't have any effect now.
-
             GenTree* doubleValue =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16,
-                                         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                  TYP_FLOAT, 16, field0LclNode),
-                                         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                  TYP_FLOAT, 16, field1LclNode));
+                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, field0LclNode, field1LclNode);
 
 #ifdef UNIX_AMD64_ABI
             return doubleValue;
@@ -3622,15 +3609,8 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, LclVarDs
                 if ((nextFieldType == TYP_FLOAT) && (nextFieldOffset == fieldOffset + 4))
                 {
                     GenTreeLclVar* nextFieldNode = gtNewLclvNode(nextFieldLclNum, nextFieldType);
-
-                    // TODO-MIKE-CQ: INSERTPS might work better when available, it can insert a float from memory.
-                    fieldNode =
-                        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16,
-                                                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                          TYP_FLOAT, 16, fieldNode),
-                                                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe,
-                                                                          TYP_FLOAT, 16, nextFieldNode));
-
+                    fieldNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, fieldNode,
+                                                         nextFieldNode);
                     field++;
                 }
             }
@@ -13660,22 +13640,9 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            tree->gtFlags &= ~GTF_ALL_EFFECT;
-            if (tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
-            {
-                tree->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
-                if (tree->AsHWIntrinsic()->OperIsMemoryStore())
-                {
-                    tree->gtFlags |= GTF_ASG;
-                }
-            }
-            for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
-            {
-                use.SetNode(fgMorphTree(use.GetNode()));
-                tree->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
-            }
+            fgMorphHWIntrinsic(tree->AsHWIntrinsic());
             break;
-#endif // FEATURE_SIMD
+#endif
 
         case GT_INSTR:
             assert(compRationalIRForm);
@@ -15936,3 +15903,49 @@ bool Compiler::fgCanTailCallViaJitHelper()
     return true;
 #endif
 }
+
+#ifdef FEATURE_HW_INTRINSICS
+GenTree* Compiler::fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
+{
+#ifdef TARGET_AMD64
+    if (tree->GetIntrinsic() == NI_SSE2_X64_ConvertToInt64)
+    {
+        if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
+        {
+            if ((create->GetIntrinsic() == NI_Vector128_Create) && (create->GetSimdBaseType() == TYP_FLOAT) &&
+                (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
+            {
+                assert(tree->TypeIs(TYP_LONG));
+
+                uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
+                uint64_t bits1 = create->GetOp(1)->AsDblCon()->GetFloatBits();
+                tree->ChangeToIntCon(bits0 | (bits1 << 32));
+
+                return tree;
+            }
+        }
+    }
+#endif
+
+    GenTreeFlags sideEffects = GTF_NONE;
+
+    if (tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+    {
+        sideEffects |= GTF_EXCEPT | GTF_GLOB_REF;
+        if (tree->AsHWIntrinsic()->OperIsMemoryStore())
+        {
+            sideEffects |= GTF_ASG;
+        }
+    }
+
+    for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
+    {
+        use.SetNode(fgMorphTree(use.GetNode()));
+        sideEffects |= use.GetNode()->GetSideEffects();
+    }
+
+    tree->SetSideEffects(sideEffects);
+
+    return tree;
+}
+#endif

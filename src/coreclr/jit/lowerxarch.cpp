@@ -1253,7 +1253,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     assert(varTypeIsSIMD(node->GetType()));
     assert(varTypeIsArithmetic(eltType));
     assert((size == 16) || (size == 32));
-    assert(numOps == (size / varTypeSize(eltType)));
+    assert((numOps == (size / varTypeSize(eltType))) || ((numOps == 2) && (eltType == TYP_FLOAT)));
 
     // TODO-XARCH-CQ: We should be able to modify at least the paths that use Insert to trivially support partial
     // vector constants. With this, we can create a constant if say 50% of the inputs are also constant and just
@@ -1373,6 +1373,29 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         LowerNode(vec2);
 
         return;
+    }
+
+    if ((eltType == TYP_FLOAT) && (numOps == 2))
+    {
+        GenTree* op2 = node->GetOp(1);
+
+        // Special case of Create with 2 operands for the x64 ABI. If both operands are in registers
+        // then unpcklps is preferrable to insertps as it's shorter. However, insertps can contain
+        // FLOAT memory operands so try to use that when we definitly know we have a memory operand.
+
+        bool op2IsMem = IsContainableMemoryOp(op2) || op2->IsDblCon();
+
+        if (!op2IsMem || !comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+        {
+            op1 = ScalarToVector128(TYP_FLOAT, op1);
+            op2 = ScalarToVector128(TYP_FLOAT, op2);
+            node->SetIntrinsic(NI_SSE_UnpackLow);
+            node->SetOp(0, op1);
+            node->SetOp(1, op2);
+            LowerNode(node);
+
+            return;
+        }
     }
 
     if ((eltType == TYP_FLOAT) && comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
