@@ -1580,20 +1580,22 @@ void CodeGen::genConsumeRegs(GenTree* tree)
             genUpdateLife(tree);
         }
 #ifdef FEATURE_HW_INTRINSICS
-        else if (tree->OperIs(GT_HWINTRINSIC))
+        else if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
         {
-            // Only load/store HW intrinsics can be contained (and the address may also be contained).
-            HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(tree->AsHWIntrinsic()->GetIntrinsic());
-            assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
-            genConsumeAddress(tree->AsHWIntrinsic()->GetOp(0));
-            if (category == HW_Category_MemoryStore)
+            if (hwi->GetNumOps() != 0)
             {
-                assert(tree->AsHWIntrinsic()->IsBinary());
-                genConsumeReg(tree->AsHWIntrinsic()->GetOp(1));
-            }
-            else
-            {
-                assert(tree->AsHWIntrinsic()->IsUnary());
+                HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwi->GetIntrinsic());
+                assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
+                genConsumeAddress(hwi->GetOp(0));
+                if (category == HW_Category_MemoryStore)
+                {
+                    assert(hwi->IsBinary());
+                    genConsumeReg(hwi->GetOp(1));
+                }
+                else
+                {
+                    assert(hwi->IsUnary());
+                }
             }
         }
 #endif // FEATURE_HW_INTRINSICS

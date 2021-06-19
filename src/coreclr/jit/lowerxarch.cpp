@@ -933,6 +933,11 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerNode(node);
             return;
 
+        case NI_Vector128_CreateScalarUnsafe:
+        case NI_Vector256_CreateScalarUnsafe:
+            LowerHWIntrinsicCreateScalarUnsafe(node);
+            break;
+
         case NI_Vector128_Dot:
         case NI_Vector256_Dot:
             LowerHWIntrinsicDot(node);
@@ -968,18 +973,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             break;
 
         case NI_SSE41_Insert:
-            if ((node->GetSimdBaseType() == TYP_FLOAT) && node->GetOp(1)->IsHWIntrinsic() && node->GetOp(2)->IsIntCon())
+            if (node->GetSimdBaseType() == TYP_FLOAT)
             {
-                GenTreeHWIntrinsic* elt = node->GetOp(1)->AsHWIntrinsic();
-                GenTreeIntCon*      imm = node->GetOp(2)->IsIntCon();
-
-                if (((imm->GetValue() & 0b11000000) == 0) && (elt->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe))
-                {
-                    node->SetOp(1, elt->GetOp(0));
-                    BlockRange().Remove(elt);
-                }
-
-                break;
+                LowerHWIntrinsicInsertFloat(node);
+                return;
             }
             FALLTHROUGH;
         case NI_SSE2_Insert:
@@ -1231,6 +1228,20 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
     relop->ClearUnusedValue();
 
     LowerNode(relop);
+}
+
+void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
+{
+    GenTree* op = node->GetOp(0);
+
+    if (op->IsDblConPositiveZero() || op->IsIntegralConst(0))
+    {
+        BlockRange().Remove(op);
+
+        node->SetIntrinsic(node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe ? NI_Vector128_get_Zero
+                                                                                   : NI_Vector256_get_Zero,
+                           0);
+    }
 }
 
 void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
@@ -2095,6 +2106,104 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
     }
 
     LowerNode(node);
+}
+
+void Lowering::LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
+{
+    assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetSimdBaseType() == TYP_FLOAT));
+
+    GenTree* vec = node->GetOp(0);
+    GenTree* elt = node->GetOp(1);
+    GenTree* imm = node->GetOp(2);
+
+    if (!imm->IsIntCon())
+    {
+        return;
+    }
+
+    if ((imm->AsIntCon()->GetUInt8Value() >> 6) == 0)
+    {
+        // If the first element of a vector is inserted then we may be able to change that
+        // to a float value so it can be contained if it's a contant or memory location.
+
+        if (GenTreeHWIntrinsic* vecElt = elt->IsHWIntrinsic())
+        {
+            switch (vecElt->GetIntrinsic())
+            {
+                case NI_Vector128_CreateScalarUnsafe:
+                    elt = vecElt->GetOp(0);
+                    node->SetOp(1, elt);
+                    BlockRange().Remove(vecElt);
+                    break;
+                case NI_SSE_LoadScalarVector128:
+                case NI_SSE_LoadVector128:
+                case NI_SSE_LoadAlignedVector128:
+                    GenTree* addr;
+                    addr = vecElt->GetOp(0);
+                    elt->ChangeOper(GT_IND);
+                    elt->SetType(TYP_FLOAT);
+                    elt->AsIndir()->SetAddr(addr);
+                    break;
+                default:
+                    break;
+            }
+        }
+        else if (elt->OperIs(GT_IND, GT_LCL_FLD))
+        {
+            elt->SetType(TYP_FLOAT);
+        }
+        else if (elt->OperIs(GT_LCL_VAR) && comp->lvaGetDesc(elt->AsLclVar())->lvDoNotEnregister)
+        {
+            elt->ChangeOper(GT_LCL_FLD);
+            elt->SetType(TYP_FLOAT);
+        }
+    }
+
+    ContainHWIntrinsicInsertFloat(node);
+}
+
+void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
+{
+    assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetSimdBaseType() == TYP_FLOAT));
+
+    GenTree* vec = node->GetOp(0);
+    GenTree* elt = node->GetOp(1);
+    GenTree* imm = node->GetOp(2);
+
+    if (!imm->IsIntCon())
+    {
+        return;
+    }
+
+    imm->SetContained();
+
+    // FLOAT constants and memory operands can be contained. This is true even for 0.0f, codegen
+    // will just use the vector source register as the element source register and adjust immValue to
+    // zero out the element.
+
+    if (elt->TypeIs(TYP_FLOAT))
+    {
+        if (elt->IsDblCon() || (IsContainableMemoryOp(elt) && IsSafeToContainMem(node, elt)))
+        {
+            elt->SetContained();
+            return;
+        }
+    }
+
+    // We can contain 0 if we insert into it, codegen will use the element source register as the
+    // vector source register and adjust the immValue to zero out the rest of the elements. That means
+    // that we cannot make elt reg optional, we'd be left with no source registers. So we'll make
+    // trade-off - only make elt reg optional if it is a LCL_VAR, otherwise it means that it's
+    // more likely to already be in a register so reg optional isn't useful.
+
+    if (vec->IsHWIntrinsicZero() && !elt->OperIs(GT_LCL_VAR) && comp->canUseVexEncoding())
+    {
+        vec->SetContained();
+    }
+    else if (elt->TypeIs(TYP_FLOAT))
+    {
+        elt->SetRegOptional();
+    }
 }
 
 //----------------------------------------------------------------------------------------------
@@ -3339,7 +3448,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
             useLeaEncoding = true;
         }
 
-        MakeSrcContained(node, imm); // The imm is always contained
+        MakeSrcContained(node, imm); // The immValue is always contained
         if (IsContainableMemoryOp(other))
         {
             memOp = other; // memOp may be contained below
@@ -4190,27 +4299,8 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
                 case NI_SSE41_X64_Insert:
                 {
                     assert(containingNode->GetOp(1) == node);
-
-                    if (containingNode->GetSimdBaseType() == TYP_FLOAT)
-                    {
-                        assert(containingIntrinsicId == NI_SSE41_Insert);
-                        assert(node->TypeIs(TYP_SIMD16, TYP_FLOAT));
-
-                        if (node->TypeIs(TYP_FLOAT))
-                        {
-                            supportsGeneralLoads = true;
-                        }
-                        else if (GenTreeIntCon* imm = containingNode->GetOp(2)->IsIntCon())
-                        {
-                            // If the source element index is 0 then we can effectively treat
-                            // the (memory) source as FLOAT and contain it.
-
-                            supportsSIMDScalarLoads = (imm->GetValue() & 0xC0) == 0;
-                            supportsGeneralLoads    = supportsSIMDScalarLoads;
-                        }
-                        break;
-                    }
-
+                    // insertps has its own special handling
+                    assert(containingNode->GetSimdBaseType() != TYP_FLOAT);
                     // We should only get here for integral nodes.
                     assert(varTypeIsIntegral(node->TypeGet()));
 
@@ -4429,6 +4519,12 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (HWIntrinsicInfo::lookupCategory(intrinsicId) == HW_Category_IMM)
     {
+        if ((intrinsicId == NI_SSE41_Insert) && (baseType == TYP_FLOAT))
+        {
+            ContainHWIntrinsicInsertFloat(node);
+            return;
+        }
+
         GenTree* lastOp = node->GetLastOp();
         assert(lastOp != nullptr);
 
@@ -4633,7 +4729,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         case NI_AVX2_ShiftRightArithmetic:
                         case NI_AVX2_ShiftRightLogical:
                         {
-                            // These intrinsics can have op2 be imm or reg/mem
+                            // These intrinsics can have op2 be immValue or reg/mem
 
                             if (!HWIntrinsicInfo::isImmOp(intrinsicId, op2))
                             {
@@ -4657,7 +4753,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         case NI_AVX2_ShuffleHigh:
                         case NI_AVX2_ShuffleLow:
                         {
-                            // These intrinsics have op2 as an imm and op1 as a reg/mem
+                            // These intrinsics have op2 as an immValue and op1 as a reg/mem
 
                             if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
                             {
@@ -4681,8 +4777,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         case NI_AVX_Permute:
                         {
-                            // These intrinsics can have op2 be imm or reg/mem
-                            // They also can have op1 be reg/mem and op2 be imm
+                            // These intrinsics can have op2 be immValue or reg/mem
+                            // They also can have op1 be reg/mem and op2 be immValue
 
                             if (HWIntrinsicInfo::isImmOp(intrinsicId, op2))
                             {
@@ -4876,11 +4972,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     switch (intrinsicId)
                     {
                         case NI_SSE41_Insert:
-                            if ((baseType == TYP_FLOAT) && op2->IsDblCon())
-                            {
-                                op2->SetContained();
-                                break;
-                            }
+                            assert(baseType != TYP_FLOAT);
                             FALLTHROUGH;
                         case NI_SSE_Shuffle:
                         case NI_SSE2_Insert:

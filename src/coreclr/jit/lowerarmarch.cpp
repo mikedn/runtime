@@ -551,6 +551,11 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerNode(node);
             return;
 
+        case NI_Vector64_CreateScalarUnsafe:
+        case NI_Vector128_CreateScalarUnsafe:
+            LowerHWIntrinsicCreateScalarUnsafe(node);
+            return;
+
         case NI_Vector64_Dot:
         case NI_Vector128_Dot:
             LowerHWIntrinsicDot(node);
@@ -649,6 +654,24 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     }
 
     return false;
+}
+
+void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
+{
+    GenTree* op = node->GetOp(0);
+
+    if (op->IsDblConPositiveZero() || op->IsIntegralConst(0))
+    {
+        BlockRange().Remove(op);
+
+        node->SetIntrinsic(node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe ? NI_Vector128_get_Zero
+                                                                                   : NI_Vector64_get_Zero,
+                           0);
+    }
+    else
+    {
+        ContainCheckHWIntrinsic(node);
+    }
 }
 
 void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
