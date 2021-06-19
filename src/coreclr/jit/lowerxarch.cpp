@@ -1379,27 +1379,87 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     {
         assert(numOps <= 4);
 
-        GenTree* vec = ScalarToVector128(TYP_FLOAT, op1);
-        LowerNode(vec);
+        unsigned nonZeroOpMask = 0;
 
-        for (unsigned i = 1, zeroBits = 0b1100; i < numOps; i++, zeroBits = (zeroBits << 1) & 0b1111)
+        for (unsigned i = 0; i < numOps; i++)
         {
-            GenTree* op  = node->GetOp(i);
-            GenTree* idx = comp->gtNewIconNode((i << 4) | zeroBits);
+            GenTree* op = node->GetOp(i);
 
-            if (i < numOps - 1)
+            if (op->IsDblConPositiveZero())
             {
-                vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, 16, vec, op, idx);
-                BlockRange().InsertAfter(op, idx, vec);
-                LowerNode(vec);
+                BlockRange().Remove(op);
             }
             else
             {
-                BlockRange().InsertBefore(node, idx);
+                nonZeroOpMask |= 1 << i;
+            }
+        }
+
+        unsigned zeroOpMask = ~nonZeroOpMask & 0b1111;
+        GenTree* vec        = nullptr;
+
+        for (unsigned i = 0; nonZeroOpMask != 0; nonZeroOpMask >>= 1, i++)
+        {
+            if ((nonZeroOpMask & 1) == 0)
+            {
+                continue;
+            }
+
+            GenTree* op = node->GetOp(i);
+
+            // There are other non-zero operands so we can generate a movaps for the
+            // first operand and leave any necessary zeroing to the next insertps.
+            // Otherwise it means that only the first operand is non-zero so we have
+            // no choice but to generate an insertps for it. This requires us to
+            // also generate a 0 vector to have something to insert into and hope
+            // that containment will prevent generating a useless xorps.
+            if ((i == 0) && ((nonZeroOpMask >> 1) != 0))
+            {
+                vec = ScalarToVector128(TYP_FLOAT, op);
+                continue;
+            }
+
+            GenTree* zero = nullptr;
+
+            if (vec == nullptr)
+            {
+                zero = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
+                vec  = zero;
+            }
+
+            GenTree* idx = comp->gtNewIconNode((i << 4) | zeroOpMask);
+
+            if (nonZeroOpMask != 1)
+            {
+                vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, 16, vec, op, idx);
+
+                if (zero == nullptr)
+                {
+                    BlockRange().InsertAfter(op, idx, vec);
+                }
+                else
+                {
+                    BlockRange().InsertAfter(op, zero, idx, vec);
+                }
+
+                LowerHWIntrinsicInsertFloat(vec->AsHWIntrinsic());
+            }
+            else
+            {
+                if (zero == nullptr)
+                {
+                    BlockRange().InsertBefore(node, idx);
+                }
+                else
+                {
+                    BlockRange().InsertBefore(node, zero, idx);
+                }
+
                 node->SetIntrinsic(NI_SSE41_Insert, TYP_FLOAT, 16, 3);
                 node->SetOp(0, vec);
                 node->SetOp(1, op);
                 node->SetOp(2, idx);
+                LowerHWIntrinsicInsertFloat(node);
             }
         }
 
