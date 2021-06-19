@@ -694,16 +694,8 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_Vector128_CreateScalarUnsafe:
                 if (intrin.op1->isContainedFltOrDblImmed())
                 {
-                    // fmov reg, #imm8
-                    const double dataValue = intrin.op1->AsDblCon()->gtDconVal;
-                    GetEmitter()->emitIns_R_F(ins, emitTypeSize(intrin.baseType), targetReg, dataValue, INS_OPTS_NONE);
-                }
-                else if (varTypeIsFloating(intrin.baseType))
-                {
-                    // fmov reg1, reg2
-                    assert(GetEmitter()->IsMovInstruction(ins));
-                    GetEmitter()->emitIns_Mov(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg,
-                                              /* canSkip */ false, INS_OPTS_NONE);
+                    GetEmitter()->emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), targetReg,
+                                              intrin.op1->AsDblCon()->GetValue(), INS_OPTS_NONE);
                 }
                 else if (intrin.op1->isContainedIntOrIImmed())
                 {
@@ -711,8 +703,8 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else
                 {
-                    GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(intrin.baseType), targetReg, op1Reg, 0,
-                                                INS_OPTS_NONE);
+                    GetEmitter()->emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), targetReg, op1Reg,
+                                              /* canSkip */ varTypeIsFloating(intrin.baseType), INS_OPTS_NONE);
                 }
                 break;
 

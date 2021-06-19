@@ -798,7 +798,7 @@ GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
 
     for (unsigned i = 1; i < sig.paramCount; i++)
     {
-        create  = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Insert, TYP_FLOAT, 16, create,
+        create = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Insert, TYP_FLOAT, 16, create,
                                           gtNewIconNode(insertIndex + i - 1), args[i]);
     }
 #elif defined(TARGET_XARCH)
