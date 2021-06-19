@@ -1500,10 +1500,10 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         return;
     }
 
-    assert(varTypeIsIntegral(eltType) || (eltType == TYP_FLOAT));
+    assert((varTypeSize(eltType) == 1) || (varTypeSize(eltType) == 4));
+    assert((numOps == 16) || (numOps == 4));
 
     GenTree* v[16];
-    assert((numOps <= 4) || (numOps == 16));
 
     for (unsigned i = 0; i < numOps; i++)
     {
@@ -1515,27 +1515,28 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     }
 
     auto UnpackLow = [this](var_types eltType, GenTree* op1, GenTree* op2) -> GenTree* {
+        if (op1->IsHWIntrinsicZero() && op2->IsHWIntrinsicZero())
+        {
+            BlockRange().Remove(op1);
+            return op2;
+        }
+
         NamedIntrinsic intrinsic = eltType == TYP_FLOAT ? NI_SSE_UnpackLow : NI_SSE2_UnpackLow;
-        return comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
+        GenTree*       unpack    = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
+        BlockRange().InsertAfter(op2, unpack);
+        LowerNode(unpack);
+        return unpack;
     };
 
     if (varTypeIsByte(eltType))
     {
         assert(numOps == 16);
 
-        for (unsigned i = 0; i < numOps; i += 4)
+        for (unsigned i = 0; i < 16; i += 4)
         {
-            v[i] = UnpackLow(TYP_UBYTE, v[i], v[i + 1]);
-            BlockRange().InsertAfter(v[i + 1], v[i]);
-            LowerNode(v[i]);
-
+            v[i]     = UnpackLow(TYP_UBYTE, v[i], v[i + 1]);
             v[i + 1] = UnpackLow(TYP_UBYTE, v[i + 2], v[i + 3]);
-            BlockRange().InsertAfter(v[i + 3], v[i + 1]);
-            LowerNode(v[i + 1]);
-
             v[i / 4] = UnpackLow(TYP_USHORT, v[i], v[i + 1]);
-            BlockRange().InsertAfter(v[i + 1], v[i / 4]);
-            LowerNode(v[i / 4]);
         }
 
         eltType = TYP_UINT;
@@ -1544,31 +1545,25 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     assert(numOps == 4);
 
+    v[0] = UnpackLow(eltType, v[0], v[1]);
+    v[1] = UnpackLow(eltType, v[2], v[3]);
+
+    NamedIntrinsic intrinsic;
+
     if (eltType != TYP_FLOAT)
     {
         assert((eltType == TYP_INT) || (eltType == TYP_UINT));
-
-        v[0] = UnpackLow(TYP_UINT, v[0], v[1]);
-        BlockRange().InsertAfter(v[1], v[0]);
-        v[1] = UnpackLow(TYP_UINT, v[2], v[3]);
-        BlockRange().InsertAfter(v[3], v[1]);
-
-        node->SetIntrinsic(NI_SSE2_UnpackLow, TYP_ULONG, 16, 2);
+        intrinsic = NI_SSE2_UnpackLow;
+        eltType   = TYP_ULONG;
     }
     else
     {
-        v[0] = UnpackLow(TYP_FLOAT, v[0], v[1]);
-        BlockRange().InsertAfter(v[1], v[0]);
-        v[1] = UnpackLow(TYP_FLOAT, v[2], v[3]);
-        BlockRange().InsertBefore(node, v[1]);
-
-        node->SetIntrinsic(NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, 2);
+        intrinsic = NI_SSE_MoveLowToHigh;
     }
 
+    node->SetIntrinsic(intrinsic, eltType, 16, 2);
     node->SetOp(0, v[0]);
     node->SetOp(1, v[1]);
-    LowerNode(v[0]);
-    LowerNode(v[1]);
 }
 
 void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
