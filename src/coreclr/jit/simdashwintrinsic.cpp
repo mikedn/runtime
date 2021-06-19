@@ -798,7 +798,6 @@ GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
 
     for (unsigned i = 1; i < sig.paramCount; i++)
     {
-        args[i] = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, args[i]);
         create  = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Insert, TYP_FLOAT, 16, create,
                                           gtNewIconNode(insertIndex + i - 1), args[i]);
     }
