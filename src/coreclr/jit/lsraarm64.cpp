@@ -841,7 +841,8 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
     {
         bool simdRegToSimdRegMove = false;
 
-        if ((intrin.id == NI_Vector64_CreateScalarUnsafe) || (intrin.id == NI_Vector128_CreateScalarUnsafe))
+        if ((intrin.id == NI_Vector64_CreateScalarUnsafe) || (intrin.id == NI_Vector128_CreateScalarUnsafe) ||
+            (intrin.id == NI_Vector64_CreateScalar) || (intrin.id == NI_Vector128_CreateScalar))
         {
             simdRegToSimdRegMove = varTypeIsFloating(intrin.op1);
         }

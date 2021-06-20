@@ -692,19 +692,28 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 
             case NI_Vector64_CreateScalarUnsafe:
             case NI_Vector128_CreateScalarUnsafe:
+                if (intrin.op1->isContainedIntOrIImmed())
+                {
+                    GetEmitter()->emitIns_R_I(INS_movi, emitSize, targetReg, intrin.op1->AsIntCon()->GetValue(), opt);
+                    break;
+                }
+                FALLTHROUGH;
+            case NI_Vector64_CreateScalar:
+            case NI_Vector128_CreateScalar:
                 if (intrin.op1->isContainedFltOrDblImmed())
                 {
                     GetEmitter()->emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), targetReg,
                                               intrin.op1->AsDblCon()->GetValue(), INS_OPTS_NONE);
                 }
-                else if (intrin.op1->isContainedIntOrIImmed())
-                {
-                    GetEmitter()->emitIns_R_I(INS_movi, emitSize, targetReg, intrin.op1->AsIntCon()->GetValue(), opt);
-                }
                 else
                 {
-                    GetEmitter()->emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), targetReg, op1Reg,
-                                              /* canSkip */ varTypeIsFloating(intrin.baseType), INS_OPTS_NONE);
+                    assert(intrin.op1->isUsedFromReg());
+
+                    bool canSkip =
+                        varTypeIsFloating(intrin.baseType) && ((intrin.id == NI_Vector64_CreateScalarUnsafe) ||
+                                                               (intrin.id == NI_Vector128_CreateScalarUnsafe));
+                    GetEmitter()->emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), targetReg, op1Reg, canSkip,
+                                              INS_OPTS_NONE);
                 }
                 break;
 

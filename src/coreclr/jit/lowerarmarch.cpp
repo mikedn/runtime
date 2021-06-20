@@ -601,6 +601,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_Vector64_Create) || (node->GetIntrinsic() == NI_Vector128_Create) ||
+           (node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
            (node->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe) ||
            (node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe) ||
            (node->GetIntrinsic() == NI_AdvSimd_DuplicateToVector64) ||
@@ -631,6 +632,11 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     {
         emitAttr emitSize = emitActualTypeSize(getSIMDTypeForSize(node->GetSimdSize()));
         insOpts  opt      = emitSimdArrangementOpt(emitSize, node->GetSimdBaseType());
+
+        if ((node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar))
+        {
+            return false;
+        }
 
         if (emitter::EncodeMoviImm(icon->GetUInt64Value(), opt).ins != INS_invalid)
         {
@@ -698,31 +704,112 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         return;
     }
 
+    unsigned nonZeroOpMask = 0;
+
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        GenTree* op = node->GetOp(i);
+
+        // TODO-MIKE-CQ: This can be extended to small int elements but special handling is
+        // needed to account for CreateScalar not having a small int version. We'd need to
+        // either zero extend the small int value or not skip the first couple of 0 inserts.
+        // Zero extending might be best as uxtb/h is faster than ins and we may get it for
+        // free (e.g. if the operand is an indir or constant).
+
+        if (op->IsDblConPositiveZero() || (!varTypeIsSmall(eltType) && op->IsIntegralConst(0)))
+        {
+            BlockRange().Remove(op);
+        }
+        else
+        {
+            nonZeroOpMask |= 1 << i;
+        }
+    }
+
+    // Only the first operand is non-0, convert to CreateScalar.
+    if (nonZeroOpMask == 1)
+    {
+        GenTree* op = node->GetOp(0);
+        node->SetIntrinsic((size == 8) ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar, 1);
+        node->SetOp(0, op);
+        LowerNode(node);
+
+        return;
+    }
+
     // TODO-MIKE-Review: Much of this code assumes that operand order matches evaluation order.
     // This assumption only holds because gtSetEvalOrder/GTF_REVERSE_OPS aren't able to control
     // the ordering of intrinsic nodes with more than 2 operands.
 
-    NamedIntrinsic createScalar = (size == 8) ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;
+    GenTree* vec = nullptr;
 
-    GenTree* op1 = TryRemoveCastIfPresent(eltType, node->GetOp(0));
-    GenTree* vec = comp->gtNewSimdHWIntrinsicNode(type, createScalar, eltType, size, op1);
-    BlockRange().InsertAfter(op1, vec);
-    LowerNode(vec);
-
-    for (unsigned i = 1; i < numOps; i++)
+    for (unsigned i = 0; nonZeroOpMask != 0; nonZeroOpMask >>= 1, i++)
     {
-        GenTree* op  = node->GetOp(i);
+        if ((nonZeroOpMask & 1) == 0)
+        {
+            continue;
+        }
+
+        GenTree* op = node->GetOp(i);
+
+        if (i == 0)
+        {
+            NamedIntrinsic createScalar;
+
+            // If we have 0 operands then use CreateScalar to ensure that upper elements are zeroed.
+            if (nonZeroOpMask != ((1u << numOps) - 1))
+            {
+                createScalar = (size == 8) ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar;
+            }
+            else
+            {
+                createScalar = (size == 8) ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;
+            }
+
+            op  = TryRemoveCastIfPresent(eltType, op);
+            vec = comp->gtNewSimdHWIntrinsicNode(type, createScalar, eltType, size, op);
+            BlockRange().InsertAfter(op, vec);
+            LowerNode(vec);
+
+            continue;
+        }
+
+        GenTree* zero = nullptr;
+
+        if (vec == nullptr)
+        {
+            zero = comp->gtNewZeroSimdHWIntrinsicNode(type, eltType);
+            vec  = zero;
+        }
+
         GenTree* idx = comp->gtNewIconNode(i);
 
-        if (i < numOps - 1)
+        if (nonZeroOpMask != 1)
         {
             vec = comp->gtNewSimdHWIntrinsicNode(type, NI_AdvSimd_Insert, eltType, size, vec, idx, op);
-            BlockRange().InsertAfter(op, idx, vec);
+
+            if (zero == nullptr)
+            {
+                BlockRange().InsertAfter(op, idx, vec);
+            }
+            else
+            {
+                BlockRange().InsertAfter(op, zero, idx, vec);
+            }
+
             LowerNode(vec);
         }
         else
         {
-            BlockRange().InsertBefore(node, idx);
+            if (zero == nullptr)
+            {
+                BlockRange().InsertBefore(node, idx);
+            }
+            else
+            {
+                BlockRange().InsertBefore(node, zero, idx);
+            }
+
             node->SetIntrinsic(NI_AdvSimd_Insert, 3);
             node->SetOp(0, vec);
             node->SetOp(1, idx);
@@ -1506,6 +1593,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                 MakeSrcContained(node, intrin.op4);
                 break;
 
+            case NI_Vector64_CreateScalar:
+            case NI_Vector128_CreateScalar:
             case NI_Vector64_CreateScalarUnsafe:
             case NI_Vector128_CreateScalarUnsafe:
             case NI_AdvSimd_DuplicateToVector64:
