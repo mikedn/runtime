@@ -2084,7 +2084,6 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
 
         case TYP_SHORT:
         case TYP_USHORT:
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE2));
             intrinsic = NI_SSE2_Insert;
             break;
 
@@ -2095,7 +2094,6 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
             break;
 
         case TYP_DOUBLE:
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE2));
             intrinsic = (index == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;
             BlockRange().Remove(idx);
             idx = nullptr;
@@ -2105,8 +2103,6 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
             break;
 
         case TYP_FLOAT:
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE));
-
             if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41) && ((index != 0) || elt->IsDblCon()))
             {
                 intrinsic = NI_SSE41_Insert;
@@ -2417,8 +2413,6 @@ void Lowering::LowerHWIntrinsicDot(GenTreeHWIntrinsic* node)
     }
     else
     {
-        assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE2));
-
         switch (baseType)
         {
             case TYP_SHORT:

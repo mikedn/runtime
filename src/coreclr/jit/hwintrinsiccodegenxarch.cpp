@@ -1116,7 +1116,6 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
     regNumber      targetReg   = node->GetRegNum();
     var_types      baseType    = node->GetSimdBaseType();
 
-    assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE));
     assert(varTypeIsArithmetic(baseType));
     assert(node->GetNumOps() <= 2);
 

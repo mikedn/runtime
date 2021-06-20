@@ -16242,27 +16242,6 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
     assert(varTypeIsArithmetic(elementType));
     assert(varActualType(index->GetType()) == TYP_INT);
 
-    switch (elementType)
-    {
-        case TYP_BYTE:
-        case TYP_UBYTE:
-        case TYP_INT:
-        case TYP_UINT:
-        case TYP_LONG:
-        case TYP_ULONG:
-        case TYP_DOUBLE:
-        case TYP_FLOAT:
-        case TYP_SHORT:
-        case TYP_USHORT:
-#ifdef TARGET_XARCH
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
-#endif
-            break;
-
-        default:
-            unreached();
-    }
-
     NamedIntrinsic intrinsic = NI_Vector128_GetElement;
 
 #ifdef TARGET_XARCH
@@ -16316,7 +16295,6 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
         case TYP_FLOAT:
         case TYP_SHORT:
         case TYP_USHORT:
-            assert(compIsaSupportedDebugOnly(InstructionSet_SSE2));
             break;
 
         default:
