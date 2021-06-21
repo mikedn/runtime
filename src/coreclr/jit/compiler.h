@@ -6145,8 +6145,7 @@ protected:
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-    bool optLocalAssertionProp;  // indicates that we are performing local assertion prop
-    bool optAssertionPropagated; // set to true if we modified the trees
+    bool optLocalAssertionProp; // indicates that we are performing local assertion prop
     bool optAssertionPropagatedCurrentStmt;
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;

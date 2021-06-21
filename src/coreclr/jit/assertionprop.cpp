@@ -551,9 +551,8 @@ void Compiler::optAssertionInit(bool isLocalProp)
     }
 
     optAssertionTraitsInit(optMaxAssertionCount);
-    optAssertionCount      = 0;
-    optAssertionPropagated = false;
-    bbJtrueAssertionOut    = nullptr;
+    optAssertionCount   = 0;
+    bbJtrueAssertionOut = nullptr;
 }
 
 #ifdef DEBUG
@@ -4200,7 +4199,6 @@ GenTree* Compiler::optAssertionProp_Update(GenTree* newTree, GenTree* tree, Stat
     }
 
     // Record that we propagated the assertion.
-    optAssertionPropagated            = true;
     optAssertionPropagatedCurrentStmt = true;
 
     return newTree;
