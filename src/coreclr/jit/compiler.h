@@ -6158,7 +6158,7 @@ protected:
     AssertionIndex optMaxAssertionCount;
 
 public:
-    void optVNNonNullPropTree(BasicBlock* block, Statement* stmt, GenTree* tree);
+    void optVNNonNullPropTree(GenTree* tree);
     void optVNNonNullPropCall(GenTreeCall* call);
     void optVNNonNullPropIndir(GenTreeIndir* indir);
     fgWalkResult optVNConstantPropStmt(BasicBlock* block, Statement* stmt, GenTree* tree);

@@ -5244,27 +5244,10 @@ GenTree* Compiler::optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, 
     return newTree;
 }
 
-//------------------------------------------------------------------------------
-// optVNNonNullPropStmt
-//    Performs VN based non-null propagation on the tree node.
-//
-// Assumption:
-//    This function is called as part of a pre-order tree walk.
-//
-// Arguments:
-//    block - The block that contains the statement that contains the tree.
-//    stmt  - The statement node in which the "tree" is present.
-//    tree  - The currently visited tree node.
-//
-// Return Value:
-//    None.
-//
-// Description:
-//    Performs value number based non-null propagation on GT_CALL and
-//    indirections. This is different from flow based assertions and helps
-//    unify VN based constant prop and non-null prop in a single pre-order walk.
-//
-void Compiler::optVNNonNullPropTree(BasicBlock* block, Statement* stmt, GenTree* tree)
+// Performs value number based non-null propagation on GT_CALL and
+// indirections. This is different from flow based assertions and helps
+// unify VN based constant prop and non-null prop in a single pre-order walk.
+void Compiler::optVNNonNullPropTree(GenTree* tree)
 {
     if (GenTreeCall* call = tree->IsCall())
     {
@@ -5373,7 +5356,7 @@ Compiler::fgWalkResult Compiler::optVNAssertionPropStmtVisitor(GenTree** ppTree,
     VNAssertionPropVisitorInfo* pData = (VNAssertionPropVisitorInfo*)data->pCallbackData;
     Compiler*                   pThis = pData->pThis;
 
-    pThis->optVNNonNullPropTree(pData->block, pData->stmt, *ppTree);
+    pThis->optVNNonNullPropTree(*ppTree);
 
     return pThis->optVNConstantPropStmt(pData->block, pData->stmt, *ppTree);
 }
