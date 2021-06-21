@@ -5085,7 +5085,7 @@ GenTree* Compiler::optVNConstantPropOnJTrue(BasicBlock* block, GenTree* test)
 }
 
 //------------------------------------------------------------------------------
-// optVNConstantPropCurStmt
+// optVNConstantPropStmt
 //    Performs constant prop on the current statement's tree nodes.
 //
 // Assumption:
@@ -5104,7 +5104,7 @@ GenTree* Compiler::optVNConstantPropOnJTrue(BasicBlock* block, GenTree* test)
 //    evaluates to constant, then the tree is replaced by its side effects and
 //    the constant node.
 //
-Compiler::fgWalkResult Compiler::optVNConstantPropCurStmt(BasicBlock* block, Statement* stmt, GenTree* tree)
+Compiler::fgWalkResult Compiler::optVNConstantPropStmt(BasicBlock* block, Statement* stmt, GenTree* tree)
 {
     // Don't perform const prop on expressions marked with GTF_DONT_CSE
     if (!tree->CanCSE())
@@ -5195,12 +5195,53 @@ Compiler::fgWalkResult Compiler::optVNConstantPropCurStmt(BasicBlock* block, Sta
     // sub-tree (with side-effects) visits.
     // TODO #18291: at that moment stmt could be already removed from the stmt list.
 
-    optAssertionProp_Update(newTree, tree, stmt);
+    optVNConstantPropStmtUpdate(newTree, tree, stmt);
 
     JITDUMP("After constant propagation on [%06u]:\n", tree->gtTreeID);
     DBEXEC(VERBOSE, gtDispStmt(stmt));
 
     return WALK_SKIP_SUBTREES;
+}
+
+GenTree* Compiler::optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, Statement* stmt)
+{
+    assert(newTree != nullptr);
+    assert(tree != nullptr);
+    assert(stmt != nullptr);
+
+    // If newTree == tree then we modified the tree in-place otherwise we have to
+    // locate our parent node and update it so that it points to newTree.
+    if (newTree != tree)
+    {
+        FindLinkData linkData = gtFindLink(stmt, tree);
+        GenTree**    useEdge  = linkData.result;
+        GenTree*     parent   = linkData.parent;
+        noway_assert(useEdge != nullptr);
+
+        if (parent != nullptr)
+        {
+            parent->ReplaceOperand(useEdge, newTree);
+        }
+        else
+        {
+            // If there's no parent, the tree being replaced is the root of the
+            // statement.
+            assert((stmt->GetRootNode() == tree) && (stmt->GetRootNodePointer() == useEdge));
+            stmt->SetRootNode(newTree);
+        }
+
+        // We only need to ensure that the gtNext field is set as it is used to traverse
+        // to the next node in the tree. We will re-morph this entire statement in
+        // optVNAssertionProp(). It will reset the gtPrev and gtNext links for all nodes.
+        newTree->gtNext = tree->gtNext;
+
+        // Old tree should not be referenced anymore.
+        DEBUG_DESTROY_NODE(tree);
+    }
+
+    optVNAssertionPropStmtMorphPending = true;
+
+    return newTree;
 }
 
 //------------------------------------------------------------------------------
@@ -5227,6 +5268,7 @@ void Compiler::optVnNonNullPropCurStmt(BasicBlock* block, Statement* stmt, GenTr
 {
     ASSERT_TP empty   = BitVecOps::UninitVal();
     GenTree*  newTree = nullptr;
+
     if (tree->OperGet() == GT_CALL)
     {
         newTree = optNonNullAssertionProp_Call(empty, tree->AsCall());
@@ -5235,10 +5277,11 @@ void Compiler::optVnNonNullPropCurStmt(BasicBlock* block, Statement* stmt, GenTr
     {
         newTree = optAssertionProp_Ind(empty, tree, stmt);
     }
-    if (newTree)
+
+    if (newTree != nullptr)
     {
         assert(newTree == tree);
-        optAssertionProp_Update(newTree, tree, stmt);
+        optVNAssertionPropStmtMorphPending = true;
     }
 }
 
@@ -5265,7 +5308,7 @@ Compiler::fgWalkResult Compiler::optVNAssertionPropStmtVisitor(GenTree** ppTree,
 
     pThis->optVnNonNullPropCurStmt(pData->block, pData->stmt, *ppTree);
 
-    return pThis->optVNConstantPropCurStmt(pData->block, pData->stmt, *ppTree);
+    return pThis->optVNConstantPropStmt(pData->block, pData->stmt, *ppTree);
 }
 
 /*****************************************************************************
