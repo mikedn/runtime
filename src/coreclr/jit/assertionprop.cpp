@@ -4190,7 +4190,7 @@ GenTree* Compiler::optAssertionProp_Update(GenTree* newTree, GenTree* tree, Stat
 
             // We only need to ensure that the gtNext field is set as it is used to traverse
             // to the next node in the tree. We will re-morph this entire statement in
-            // optAssertionPropMain(). It will reset the gtPrev and gtNext links for all nodes.
+            // optVNAssertionProp(). It will reset the gtPrev and gtNext links for all nodes.
             newTree->gtNext = tree->gtNext;
 
             // Old tree should not be referenced anymore.
@@ -5244,7 +5244,7 @@ void Compiler::optVnNonNullPropCurStmt(BasicBlock* block, Statement* stmt, GenTr
 }
 
 //------------------------------------------------------------------------------
-// optVNAssertionPropCurStmtVisitor
+// optVNAssertionPropStmtVisitor
 //    Unified Value Numbering based assertion propagation visitor.
 //
 // Assumption:
@@ -5259,7 +5259,7 @@ void Compiler::optVnNonNullPropCurStmt(BasicBlock* block, Statement* stmt, GenTr
 //    value numbers.
 //
 /* static */
-Compiler::fgWalkResult Compiler::optVNAssertionPropCurStmtVisitor(GenTree** ppTree, fgWalkData* data)
+Compiler::fgWalkResult Compiler::optVNAssertionPropStmtVisitor(GenTree** ppTree, fgWalkData* data)
 {
     VNAssertionPropVisitorInfo* pData = (VNAssertionPropVisitorInfo*)data->pCallbackData;
     Compiler*                   pThis = pData->pThis;
@@ -5278,7 +5278,7 @@ Compiler::fgWalkResult Compiler::optVNAssertionPropCurStmtVisitor(GenTree** ppTr
  *   Returns the skipped next stmt if the current statement or next few
  *   statements got removed, else just returns the incoming stmt.
  */
-Statement* Compiler::optVNAssertionPropCurStmt(BasicBlock* block, Statement* stmt)
+Statement* Compiler::optVNAssertionPropStmt(BasicBlock* block, Statement* stmt)
 {
     // TODO-Review: EH successor/predecessor iteration seems broken.
     // See: SELF_HOST_TESTS_ARM\jit\Directed\ExcepFilters\fault\fault.exe
@@ -5295,11 +5295,11 @@ Statement* Compiler::optVNAssertionPropCurStmt(BasicBlock* block, Statement* stm
     optAssertionPropagatedCurrentStmt = false;
 
     VNAssertionPropVisitorInfo data(this, block, stmt);
-    fgWalkTreePre(stmt->GetRootNodePointer(), Compiler::optVNAssertionPropCurStmtVisitor, &data);
+    fgWalkTreePre(stmt->GetRootNodePointer(), Compiler::optVNAssertionPropStmtVisitor, &data);
 
     if (optAssertionPropagatedCurrentStmt)
     {
-        fgMorphBlockStmt(block, stmt DEBUGARG("optVNAssertionPropCurStmt"));
+        fgMorphBlockStmt(block, stmt DEBUGARG("optVNAssertionPropStmt"));
     }
 
     // Check if propagation removed statements starting from current stmt.
@@ -5308,21 +5308,17 @@ Statement* Compiler::optVNAssertionPropCurStmt(BasicBlock* block, Statement* stm
     return nextStmt;
 }
 
-/*****************************************************************************
- *
- *   The entry point for assertion propagation
- */
-
-void Compiler::optAssertionPropMain()
+void Compiler::optVNAssertionProp()
 {
     if (fgSsaPassesCompleted == 0)
     {
         return;
     }
+
 #ifdef DEBUG
     if (verbose)
     {
-        printf("*************** In optAssertionPropMain()\n");
+        printf("*************** In optVNAssertionProp()\n");
         printf("Blocks/Trees at start of phase\n");
         fgDispBasicBlocks(true);
     }
@@ -5332,51 +5328,46 @@ void Compiler::optAssertionPropMain()
 
     noway_assert(optAssertionCount == 0);
 
-    // First discover all value assignments and record them in the table.
-    for (BasicBlock* block = fgFirstBB; block; block = block->bbNext)
+    // Traverse all blocks, perform VN constant propagation and generate assertions.
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
-        compCurBB = block;
-
+        compCurBB           = block;
         fgRemoveRestOfBlock = false;
 
-        Statement* stmt = block->firstStmt();
+        Statement* stmt = block->GetFirstStatement();
+
         while (stmt != nullptr)
         {
-            // We need to remove the rest of the block.
+            Statement* nextStmt = optVNAssertionPropStmt(block, stmt);
+
             if (fgRemoveRestOfBlock)
             {
-                fgRemoveStmt(block, stmt);
-                stmt = stmt->GetNextStmt();
+                break;
+            }
+
+            // Propagation removed the current stmt or next few stmts, so skip them.
+            if (stmt != nextStmt)
+            {
+                stmt = nextStmt;
                 continue;
             }
-            else
-            {
-                // Perform VN based assertion prop before assertion gen.
-                Statement* nextStmt = optVNAssertionPropCurStmt(block, stmt);
 
-                // Propagation resulted in removal of the remaining stmts, perform it.
-                if (fgRemoveRestOfBlock)
-                {
-                    stmt = stmt->GetNextStmt();
-                    continue;
-                }
-
-                // Propagation removed the current stmt or next few stmts, so skip them.
-                if (stmt != nextStmt)
-                {
-                    stmt = nextStmt;
-                    continue;
-                }
-            }
-
-            // Perform assertion gen for control flow based assertions.
             for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
             {
                 optAssertionGen(tree);
             }
 
-            // Advance the iterator
             stmt = stmt->GetNextStmt();
+        }
+
+        if (fgRemoveRestOfBlock)
+        {
+            for (stmt = stmt->GetNextStmt(); stmt != nullptr; stmt = stmt->GetNextStmt())
+            {
+                fgRemoveStmt(block, stmt);
+            }
+
+            fgRemoveRestOfBlock = false;
         }
     }
 
@@ -5499,7 +5490,7 @@ void Compiler::optAssertionPropMain()
                 }
 #endif
                 // Re-morph the statement.
-                fgMorphBlockStmt(block, stmt DEBUGARG("optAssertionPropMain"));
+                fgMorphBlockStmt(block, stmt DEBUGARG("optVNAssertionProp"));
             }
 
             // Check if propagation removed statements starting from current stmt.

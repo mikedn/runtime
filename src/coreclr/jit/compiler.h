@@ -6141,7 +6141,7 @@ public:
 
 protected:
     static fgWalkPreFn optAddCopiesCallback;
-    static fgWalkPreFn optVNAssertionPropCurStmtVisitor;
+    static fgWalkPreFn optVNAssertionPropStmtVisitor;
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
@@ -6183,8 +6183,8 @@ public:
 #endif
 
     // Assertion prop data flow functions.
-    void       optAssertionPropMain();
-    Statement* optVNAssertionPropCurStmt(BasicBlock* block, Statement* stmt);
+    void       optVNAssertionProp();
+    Statement* optVNAssertionPropStmt(BasicBlock* block, Statement* stmt);
     bool optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
     ASSERT_TP* optInitAssertionDataflowFlags();
     ASSERT_TP* optComputeAssertionGen();
