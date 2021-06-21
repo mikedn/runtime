@@ -1931,10 +1931,6 @@ public:
                                        FieldSeqNode* fieldSeq,
                                        var_types     type = TYP_I_IMPL);
 
-#ifdef FEATURE_SIMD
-    void SetOpLclRelatedToSIMDIntrinsic(GenTree* op);
-#endif
-
 #ifdef FEATURE_HW_INTRINSICS
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
@@ -7085,6 +7081,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     GenTree* impSIMDPopStack(var_types type);
     GenTree* impPopStackAddrAsVector(var_types type);
 
+    void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
 
     // Get the type for the hardware SIMD vector.

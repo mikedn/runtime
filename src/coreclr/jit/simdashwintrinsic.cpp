@@ -730,7 +730,6 @@ GenTree* Compiler::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
 
         if ((destAddr != nullptr) && destAddr->OperIs(GT_ADDR) && destAddr->AsUnOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            // Prevent the destination from being promoted since it would end up being dependent promoted.
             lvaRecordSimdIntrinsicUse(destAddr->AsUnOp()->GetOp(0)->AsLclVar());
         }
     }

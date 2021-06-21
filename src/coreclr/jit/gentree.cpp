@@ -16006,36 +16006,6 @@ bool FieldSeqNode::IsField() const
     return (this != FieldSeqStore::NotAField()) && !IsBoxedValueField();
 }
 
-#ifdef FEATURE_SIMD
-// Mark locals used by SIMD intrinsics to prevent struct promotion.
-void Compiler::SetOpLclRelatedToSIMDIntrinsic(GenTree* op)
-{
-    if (op == nullptr)
-    {
-        return;
-    }
-
-    if (op->OperIs(GT_LCL_VAR))
-    {
-        lvaRecordSimdIntrinsicUse(op->AsLclVar());
-    }
-    else if (op->OperIs(GT_OBJ))
-    {
-        GenTree* addr = op->AsIndir()->Addr();
-
-        if (addr->OperIs(GT_ADDR))
-        {
-            GenTree* addrOp1 = addr->AsOp()->gtGetOp1();
-
-            if (addrOp1->OperIs(GT_LCL_VAR))
-            {
-                lvaRecordSimdIntrinsicUse(addrOp1->AsLclVar());
-            }
-        }
-    }
-}
-#endif // FEATURE_SIMD
-
 #ifdef FEATURE_HW_INTRINSICS
 bool GenTree::isCommutativeHWIntrinsic() const
 {
@@ -16145,15 +16115,15 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
 {
-    SetOpLclRelatedToSIMDIntrinsic(op1);
+    lvaRecordSimdIntrinsicUse(op1);
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
 {
-    SetOpLclRelatedToSIMDIntrinsic(op1);
-    SetOpLclRelatedToSIMDIntrinsic(op2);
+    lvaRecordSimdIntrinsicUse(op1);
+    lvaRecordSimdIntrinsicUse(op2);
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1, op2);
 }
 
@@ -16165,9 +16135,9 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
                                                        GenTree*       op2,
                                                        GenTree*       op3)
 {
-    SetOpLclRelatedToSIMDIntrinsic(op1);
-    SetOpLclRelatedToSIMDIntrinsic(op2);
-    SetOpLclRelatedToSIMDIntrinsic(op3);
+    lvaRecordSimdIntrinsicUse(op1);
+    lvaRecordSimdIntrinsicUse(op2);
+    lvaRecordSimdIntrinsicUse(op3);
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1, op2, op3);
 }
 
@@ -16189,7 +16159,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
         node->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
-        SetOpLclRelatedToSIMDIntrinsic(use.GetNode());
+        lvaRecordSimdIntrinsicUse(use.GetNode());
     }
     return node;
 }
@@ -16214,7 +16184,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
         node->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
-        SetOpLclRelatedToSIMDIntrinsic(use.GetNode());
+        lvaRecordSimdIntrinsicUse(use.GetNode());
     }
     return node;
 }
@@ -16228,7 +16198,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     {
         node->SetOp(i, ops[i]);
         node->gtFlags |= ops[i]->gtFlags & GTF_ALL_EFFECT;
-        SetOpLclRelatedToSIMDIntrinsic(ops[i]);
+        lvaRecordSimdIntrinsicUse(ops[i]);
     }
     return node;
 }

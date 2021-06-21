@@ -7504,8 +7504,27 @@ bool Compiler::lvaIsSimdTypedLocalAligned(unsigned lclNum)
 }
 
 #ifdef FEATURE_SIMD
-// Set the flag that indicates that the lclVar referenced by this tree
-// is used in a SIMD intrinsic.
+// Mark locals used by SIMD intrinsics to prevent struct promotion.
+void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
+{
+    if (op->OperIs(GT_OBJ, GT_IND))
+    {
+        GenTree* addr = op->AsIndir()->Addr();
+
+        if (!addr->OperIs(GT_ADDR))
+        {
+            return;
+        }
+
+        op = addr->AsUnOp()->GetOp(0);
+    }
+
+    if (op->OperIs(GT_LCL_VAR))
+    {
+        lvaRecordSimdIntrinsicUse(op->AsLclVar());
+    }
+}
+
 void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
 {
     lvaGetDesc(lclVar)->lvUsedInSIMDIntrinsic = true;
