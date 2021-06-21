@@ -2445,7 +2445,7 @@ GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
     {
         // Treat JTRUE separately to extract side effects into separate statements
         // rather than creating COMMA trees.
-        return optVNConstantPropOnJTrue(block, tree);
+        return optVNConstantPropJTrue(block, tree->AsUnOp());
     }
 
     // If relop is part of JTRUE, this should be optimized as part of the parent JTRUE.
@@ -2600,7 +2600,7 @@ GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
 
     newTree->SetVNs(vnp);
 
-    GenTree* sideEffects = optExtractSideEffListFromConst(tree);
+    GenTree* sideEffects = optVNConstantPropExtractSideEffects(tree);
 
     if (sideEffects != nullptr)
     {
@@ -4202,7 +4202,7 @@ GenTree* Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, GenTree* tree, 
 
             if (block != nullptr)
             {
-                return optVNConstantPropOnJTrue(block, tree);
+                return optVNConstantPropJTrue(block, tree->AsUnOp());
             }
             return nullptr;
 
@@ -4894,7 +4894,7 @@ struct VNAssertionPropVisitorInfo
 };
 
 //------------------------------------------------------------------------------
-// optExtractSideEffListFromConst
+// optVNConstantPropExtractSideEffects
 //    Extracts side effects from a tree so it can be replaced with a comma
 //    separated list of side effects + a const tree.
 //
@@ -4911,7 +4911,7 @@ struct VNAssertionPropVisitorInfo
 //      2. When no side-effects are present, returns null.
 //
 //
-GenTree* Compiler::optExtractSideEffListFromConst(GenTree* tree)
+GenTree* Compiler::optVNConstantPropExtractSideEffects(GenTree* tree)
 {
     assert(vnStore->IsVNConstant(vnStore->VNConservativeNormalValue(tree->gtVNPair)));
 
@@ -4936,14 +4936,10 @@ GenTree* Compiler::optExtractSideEffListFromConst(GenTree* tree)
 }
 
 //------------------------------------------------------------------------------
-// optVNConstantPropOnJTrue
+// optVNConstantPropJTrue
 //    Constant propagate on the JTrue node by extracting side effects and moving
 //    them into their own statements. The relop node is then modified to yield
 //    true or false, so the branch can be folded.
-//
-// Arguments:
-//    block - The block that contains the JTrue.
-//    test  - The JTrue node whose relop evaluates to 0 or non-zero value.
 //
 // Return Value:
 //    The jmpTrue tree node that has relop of the form "0 =/!= 0".
@@ -4965,9 +4961,9 @@ GenTree* Compiler::optExtractSideEffListFromConst(GenTree* tree)
 //  sensitive to adding new statements. Hence the change is not made directly
 //  into fgFoldConditional.
 //
-GenTree* Compiler::optVNConstantPropOnJTrue(BasicBlock* block, GenTree* test)
+GenTree* Compiler::optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
 {
-    GenTree* relop = test->gtGetOp1();
+    GenTree* relop = jtrue->GetOp(0);
 
     // VN based assertion non-null on this relop has been performed.
     if (!relop->OperIsCompare())
@@ -4975,58 +4971,58 @@ GenTree* Compiler::optVNConstantPropOnJTrue(BasicBlock* block, GenTree* test)
         return nullptr;
     }
 
-    //
-    // Make sure GTF_RELOP_JMP_USED flag is set so that we can later skip constant
-    // prop'ing a JTRUE's relop child node for a second time in the pre-order
-    // tree walk.
-    //
+    // Make sure GTF_RELOP_JMP_USED flag is set so that we don't replace the
+    // relop with a constant when we reach it later in the pre-order walk.
     assert((relop->gtFlags & GTF_RELOP_JMP_USED) != 0);
 
-    // We want to use the Normal ValueNumber when checking for constants.
     ValueNum vnCns = vnStore->VNConservativeNormalValue(relop->gtVNPair);
-    ValueNum vnLib = vnStore->VNLiberalNormalValue(relop->gtVNPair);
+
     if (!vnStore->IsVNConstant(vnCns))
     {
         return nullptr;
     }
 
-    // Prepare the tree for replacement so any side effects can be extracted.
-    GenTree* sideEffList = optExtractSideEffListFromConst(relop);
+    GenTree* sideEffects = optVNConstantPropExtractSideEffects(relop);
 
-    // Transform the relop's operands to be both zeroes.
-    ValueNum vnZero                = vnStore->VNZeroForType(TYP_INT);
-    relop->AsOp()->gtOp1           = gtNewIconNode(0);
-    relop->AsOp()->gtOp1->gtVNPair = ValueNumPair(vnZero, vnZero);
-    relop->AsOp()->gtOp2           = gtNewIconNode(0);
-    relop->AsOp()->gtOp2->gtVNPair = ValueNumPair(vnZero, vnZero);
+    // Transform the relop into EQ|NE(0, 0)
+    ValueNum vnZero = vnStore->VNZeroForType(TYP_INT);
+    GenTree* op1    = gtNewIconNode(0);
+    op1->SetVNs(ValueNumPair(vnZero, vnZero));
+    relop->AsOp()->SetOp(0, op1);
+    GenTree* op2 = gtNewIconNode(0);
+    op2->SetVNs(ValueNumPair(vnZero, vnZero));
+    relop->AsOp()->SetOp(1, op2);
+    relop->SetOper(vnStore->CoercedConstantValue<int64_t>(vnCns) != 0 ? GT_EQ : GT_NE);
+    ValueNum vnLib = vnStore->VNLiberalNormalValue(relop->gtVNPair);
+    relop->SetVNs(ValueNumPair(vnLib, vnCns));
 
-    // Update the oper and restore the value numbers.
-    bool evalsToTrue = (vnStore->CoercedConstantValue<INT64>(vnCns) != 0);
-    relop->SetOper(evalsToTrue ? GT_EQ : GT_NE);
-    relop->gtVNPair = ValueNumPair(vnLib, vnCns);
-
-    // Insert side effects back after they were removed from the JTrue stmt.
-    // It is important not to allow duplicates exist in the IR, that why we delete
-    // these side effects from the JTrue stmt before insert them back here.
-    while (sideEffList != nullptr)
+    while (sideEffects != nullptr)
     {
         Statement* newStmt;
-        if (sideEffList->OperGet() == GT_COMMA)
+
+        if (sideEffects->OperIs(GT_COMMA))
         {
-            newStmt     = fgNewStmtNearEnd(block, sideEffList->gtGetOp1());
-            sideEffList = sideEffList->gtGetOp2();
+            newStmt     = fgNewStmtNearEnd(block, sideEffects->AsOp()->GetOp(0));
+            sideEffects = sideEffects->AsOp()->GetOp(1);
         }
         else
         {
-            newStmt     = fgNewStmtNearEnd(block, sideEffList);
-            sideEffList = nullptr;
+            newStmt     = fgNewStmtNearEnd(block, sideEffects);
+            sideEffects = nullptr;
         }
+
         // fgMorphBlockStmt could potentially affect stmts after the current one,
         // for example when it decides to fgRemoveRestOfBlock.
+        
+        // TODO-MIKE-Review: Do we really need to remorph? Seems like simply
+        // fgSetStmtSeq should suffice here. Also, this morphs trees before
+        // doing constant propagation so we may morph again if they contains
+        // constants.
+
         fgMorphBlockStmt(block, newStmt DEBUGARG(__FUNCTION__));
     }
 
-    return test;
+    return jtrue;
 }
 
 // Replaces the given tree with a constant node if it has a constant VN.
