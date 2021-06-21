@@ -537,7 +537,6 @@ GenTree* Compiler::impBaseIntrinsic(
             assert(sig.paramCount == 1);
 
             retNode = impSIMDPopStack(retType);
-            SetOpLclRelatedToSIMDIntrinsic(retNode);
             assert(retNode->GetType() == sig.retType);
             break;
         }
@@ -559,7 +558,6 @@ GenTree* Compiler::impBaseIntrinsic(
             // and the signature return type are both the same SIMD type.
 
             retNode = impSIMDPopStack(retType);
-            SetOpLclRelatedToSIMDIntrinsic(retNode);
             assert(retNode->GetType() == sig.retType);
 
             break;
@@ -580,7 +578,6 @@ GenTree* Compiler::impBaseIntrinsic(
             // and the signature return type are both the same SIMD type.
 
             retNode = impSIMDPopStack(retType);
-            SetOpLclRelatedToSIMDIntrinsic(retNode);
             assert(retNode->GetType() == sig.retType);
 
             break;
@@ -606,7 +603,6 @@ GenTree* Compiler::impBaseIntrinsic(
                     // the type system. It is safe to do this here since the retNode type
                     // and the signature return type are both the same SIMD type.
                     retNode = impSIMDPopStack(retType);
-                    SetOpLclRelatedToSIMDIntrinsic(retNode);
                     assert(retNode->GetType() == sig.retType);
                     break;
 
@@ -633,7 +629,6 @@ GenTree* Compiler::impBaseIntrinsic(
                 // and the signature return type are both the same SIMD type.
 
                 retNode = impSIMDPopStack(retType);
-                SetOpLclRelatedToSIMDIntrinsic(retNode);
                 assert(retNode->GetType() == sig.retType);
 
                 break;

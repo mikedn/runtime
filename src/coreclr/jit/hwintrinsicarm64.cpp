@@ -338,7 +338,6 @@ GenTree* Compiler::impSpecialIntrinsic(
             // and the signature return type are both the same TYP_SIMD.
 
             retNode = impSIMDPopStack(retType);
-            SetOpLclRelatedToSIMDIntrinsic(retNode);
             assert(retNode->GetType() == sig.retType);
             break;
         }

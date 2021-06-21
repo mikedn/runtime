@@ -510,7 +510,6 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_VectorT256_As:
 #endif
             assert(sig.paramCount == 1);
-            SetOpLclRelatedToSIMDIntrinsic(ops[0]);
             assert(ops[0]->GetType() == sig.retLayout->GetSIMDType());
             return ops[0];
 
