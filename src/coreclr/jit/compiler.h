@@ -1877,7 +1877,7 @@ public:
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* pValue);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
 
-    GenTree* gtNewLconNode(__int64 value);
+    GenTree* gtNewLconNode(int64_t value);
 
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
 
@@ -6164,7 +6164,7 @@ public:
     fgWalkResult optVNConstantPropTree(BasicBlock* block, Statement* stmt, GenTree* tree);
     GenTree* optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, Statement* stmt);
     GenTree* optVNConstantPropOnJTrue(BasicBlock* block, GenTree* test);
-    GenTree* optVNConstantPropOnTree(BasicBlock* block, GenTree* tree);
+    GenTree* optVNConstantPropTree(BasicBlock* block, GenTree* tree);
     GenTree* optExtractSideEffListFromConst(GenTree* tree);
 
     AssertionIndex GetAssertionCount()

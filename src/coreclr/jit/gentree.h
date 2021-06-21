@@ -3114,18 +3114,19 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
 struct GenTreeLngCon : public GenTreeIntConCommon
 {
-    INT64 gtLconVal; // Must overlap and have the same offset with the gtIconVal field in GenTreeIntCon above.
-    INT32 LoVal()
+    int64_t gtLconVal; // Must overlap and have the same offset with the gtIconVal field in GenTreeIntCon above.
+
+    int32_t LoVal() const
     {
-        return (INT32)(gtLconVal & 0xffffffff);
+        return static_cast<int32_t>(gtLconVal & 0xffffffff);
     }
 
-    INT32 HiVal()
+    int32_t HiVal() const
     {
-        return (INT32)(gtLconVal >> 32);
+        return static_cast<int32_t>(gtLconVal >> 32);
     }
 
-    GenTreeLngCon(INT64 val) : GenTreeIntConCommon(GT_CNS_NATIVELONG, TYP_LONG)
+    GenTreeLngCon(int64_t val) : GenTreeIntConCommon(GT_CNS_NATIVELONG, TYP_LONG)
     {
         SetLngValue(val);
     }

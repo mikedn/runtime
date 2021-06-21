@@ -2436,139 +2436,102 @@ AssertionIndex Compiler::optAssertionIsSubtype(GenTree* tree, GenTree* methodTab
     return NO_ASSERTION_INDEX;
 }
 
-//------------------------------------------------------------------------------
-// optVNConstantPropOnTree: Substitutes tree with an evaluated constant while
-//                          managing side-effects.
-//
-// Arguments:
-//    block -  The block containing the tree.
-//    stmt  -  The statement in the block containing the tree.
-//    tree  -  The tree node whose value is known at compile time.
-//             The tree should have a constant value number.
-//
-// Return Value:
-//    Returns a potentially new or a transformed tree node.
-//    Returns nullptr when no transformation is possible.
-//
-// Description:
-//    Transforms a tree node if its result evaluates to a constant. The
-//    transformation can be a "ChangeOper" to a constant or a new constant node
-//    with extracted side-effects.
-//
-//    Before replacing or substituting the "tree" with a constant, extracts any
-//    side effects from the "tree" and creates a comma separated side effect list
-//    and then appends the transformed node at the end of the list.
-//    This comma separated list is then returned.
-//
-//    For JTrue nodes, side effects are not put into a comma separated list. If
-//    the relop will evaluate to "true" or "false" statically, then the side-effects
-//    will be put into new statements, presuming the JTrue will be folded away.
-//
-GenTree* Compiler::optVNConstantPropOnTree(BasicBlock* block, GenTree* tree)
+// Replaces a tree that evaluates to a constant with a constant node.
+// If the tree contains side effects then they are preserved using
+// a COMMA node.
+GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
 {
-    if (tree->OperGet() == GT_JTRUE)
+    if (tree->OperIs(GT_JTRUE))
     {
-        // Treat JTRUE separately to extract side effects into respective statements rather
-        // than using a COMMA separated op1.
+        // Treat JTRUE separately to extract side effects into separate statements
+        // rather than creating COMMA trees.
         return optVNConstantPropOnJTrue(block, tree);
     }
+
     // If relop is part of JTRUE, this should be optimized as part of the parent JTRUE.
-    // Or if relop is part of QMARK or anything else, we simply bail here.
-    else if (tree->OperIsCompare() && (tree->gtFlags & GTF_RELOP_JMP_USED))
+    if (tree->OperIsCompare() && ((tree->gtFlags & GTF_RELOP_JMP_USED) != 0))
     {
         return nullptr;
     }
 
-    // We want to use the Normal ValueNumber when checking for constants.
-    ValueNumPair vnPair = tree->gtVNPair;
-    ValueNum     vnCns  = vnStore->VNConservativeNormalValue(vnPair);
+    ValueNumPair vnp = tree->gtVNPair;
+    ValueNum     vn  = vnStore->VNConservativeNormalValue(vnp);
 
-    // Check if node evaluates to a constant.
-    if (!vnStore->IsVNConstant(vnCns))
+    if (!vnStore->IsVNConstant(vn))
     {
         return nullptr;
     }
 
-    GenTree* conValTree = nullptr;
-    switch (vnStore->TypeOfVN(vnCns))
+    GenTree* newTree = nullptr;
+
+    // TODO-MIKE-Review: The code below does some bizarre reinterpretation of constants,
+    // how could VN compute a FLOAT constant for an INT node?!?
+
+    switch (vnStore->TypeOfVN(vn))
     {
         case TYP_FLOAT:
         {
-            float value = vnStore->ConstantValue<float>(vnCns);
+            float value = vnStore->ConstantValue<float>(vn);
 
-            if (tree->TypeGet() == TYP_INT)
+            if (tree->TypeIs(TYP_INT))
             {
-                // Same sized reinterpretation of bits to integer
-                conValTree = gtNewIconNode(*(reinterpret_cast<int*>(&value)));
+                newTree = gtNewIconNode(jitstd::bit_cast<int32_t>(value));
             }
             else
             {
-                // Implicit assignment conversion to float or double
-                assert(varTypeIsFloating(tree->TypeGet()));
-                conValTree = gtNewDconNode(value, tree->TypeGet());
+                assert(varTypeIsFloating(tree->GetType()));
+                newTree = gtNewDconNode(value, tree->GetType());
             }
             break;
         }
 
         case TYP_DOUBLE:
         {
-            double value = vnStore->ConstantValue<double>(vnCns);
+            double value = vnStore->ConstantValue<double>(vn);
 
-            if (tree->TypeGet() == TYP_LONG)
+            if (tree->TypeIs(TYP_LONG))
             {
-                conValTree = gtNewLconNode(*(reinterpret_cast<INT64*>(&value)));
+                newTree = gtNewLconNode(jitstd::bit_cast<int64_t>(value));
             }
             else
             {
-                // Implicit assignment conversion to float or double
-                assert(varTypeIsFloating(tree->TypeGet()));
-                conValTree = gtNewDconNode(value, tree->TypeGet());
+                assert(varTypeIsFloating(tree->GetType()));
+                newTree = gtNewDconNode(value, tree->GetType());
             }
             break;
         }
 
         case TYP_LONG:
         {
-            INT64 value = vnStore->ConstantValue<INT64>(vnCns);
+            int64_t value = vnStore->ConstantValue<int64_t>(vn);
 
 #ifdef TARGET_64BIT
-            if (vnStore->IsVNHandle(vnCns))
+            if (vnStore->IsVNHandle(vn))
             {
                 // Don't perform constant folding that involves a handle that needs
                 // to be recorded as a relocation with the VM.
                 if (!opts.compReloc)
                 {
-                    conValTree = gtNewIconHandleNode(value, vnStore->GetHandleFlags(vnCns));
+                    newTree = gtNewIconHandleNode(value, vnStore->GetHandleFlags(vn));
                 }
             }
             else
 #endif
             {
-                switch (tree->TypeGet())
+                switch (tree->GetType())
                 {
                     case TYP_INT:
-                        // Implicit assignment conversion to smaller integer
-                        conValTree = gtNewIconNode(static_cast<int>(value));
+                        newTree = gtNewIconNode(static_cast<int32_t>(value));
                         break;
-
                     case TYP_LONG:
-                        // Same type no conversion required
-                        conValTree = gtNewLconNode(value);
+                        newTree = gtNewLconNode(value);
                         break;
-
-                    case TYP_FLOAT:
-                        // No implicit conversions from long to float and value numbering will
-                        // not propagate through memory reinterpretations of different size.
-                        unreached();
-                        break;
-
                     case TYP_DOUBLE:
-                        // Same sized reinterpretation of bits to double
-                        conValTree = gtNewDconNode(*(reinterpret_cast<double*>(&value)));
+                        newTree = gtNewDconNode(jitstd::bit_cast<double>(value));
                         break;
-
+                    case TYP_FLOAT:
+                        unreached();
                     default:
-                        // Do not support such optimization.
                         break;
                 }
             }
@@ -2576,58 +2539,46 @@ GenTree* Compiler::optVNConstantPropOnTree(BasicBlock* block, GenTree* tree)
         break;
 
         case TYP_REF:
-        {
-            assert(vnStore->ConstantValue<size_t>(vnCns) == 0);
-            // Support onle ref(ref(0)), do not support other forms (e.g byref(ref(0)).
-            if (tree->TypeGet() == TYP_REF)
+            assert(vnStore->ConstantValue<size_t>(vn) == 0);
+
+            if (tree->TypeIs(TYP_REF))
             {
-                conValTree = gtNewIconNode(0, TYP_REF);
+                newTree = gtNewIconNode(0, TYP_REF);
             }
-        }
-        break;
+            break;
 
         case TYP_INT:
         {
-            int value = vnStore->ConstantValue<int>(vnCns);
+            int32_t value = vnStore->ConstantValue<int32_t>(vn);
+
 #ifndef TARGET_64BIT
-            if (vnStore->IsVNHandle(vnCns))
+            if (vnStore->IsVNHandle(vn))
             {
                 // Don't perform constant folding that involves a handle that needs
                 // to be recorded as a relocation with the VM.
                 if (!opts.compReloc)
                 {
-                    conValTree = gtNewIconHandleNode(value, vnStore->GetHandleFlags(vnCns));
+                    newTree = gtNewIconHandleNode(value, vnStore->GetHandleFlags(vn));
                 }
             }
             else
 #endif
             {
-                switch (tree->TypeGet())
+                switch (tree->GetType())
                 {
                     case TYP_REF:
                     case TYP_INT:
-                        // Same type no conversion required
-                        conValTree = gtNewIconNode(static_cast<int>(value));
+                        newTree = gtNewIconNode(value);
                         break;
-
                     case TYP_LONG:
-                        // Implicit assignment conversion to larger integer
-                        conValTree = gtNewLconNode(static_cast<int>(value));
+                        newTree = gtNewLconNode(value);
                         break;
-
                     case TYP_FLOAT:
-                        // Same sized reinterpretation of bits to float
-                        conValTree = gtNewDconNode(*(reinterpret_cast<float*>(&value)), TYP_FLOAT);
+                        newTree = gtNewDconNode(jitstd::bit_cast<float>(value), TYP_FLOAT);
                         break;
-
                     case TYP_DOUBLE:
-                        // No implicit conversions from int to double and value numbering will
-                        // not propagate through memory reinterpretations of different size.
                         unreached();
-                        break;
-
                     default:
-                        // Do not support (e.g. bool(const int)).
                         break;
                 }
             }
@@ -2639,33 +2590,27 @@ GenTree* Compiler::optVNConstantPropOnTree(BasicBlock* block, GenTree* tree)
             break;
 
         default:
-            // We do not record constants of other types.
             unreached();
-            break;
     }
 
-    if (conValTree != nullptr)
+    if (newTree == nullptr)
     {
-        // Were able to optimize.
-        conValTree->gtVNPair = vnPair;
-        GenTree* sideEffList = optExtractSideEffListFromConst(tree);
-        if (sideEffList != nullptr)
-        {
-            // Replace as COMMA(side_effects, const value tree);
-            assert((sideEffList->gtFlags & GTF_SIDE_EFFECT) != 0);
-            return gtNewCommaNode(sideEffList, conValTree);
-        }
-        else
-        {
-            // No side effects, replace as const value tree.
-            return conValTree;
-        }
-    }
-    else
-    {
-        // Was not able to optimize.
         return nullptr;
     }
+
+    newTree->SetVNs(vnp);
+
+    GenTree* sideEffects = optExtractSideEffListFromConst(tree);
+
+    if (sideEffects != nullptr)
+    {
+        assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
+
+        // TODO-MIKE-Review: So we bother setting the VN on the constant node but not on the COMMA tree?
+        newTree = gtNewCommaNode(sideEffects, newTree);
+    }
+
+    return newTree;
 }
 
 //------------------------------------------------------------------------------
@@ -5153,7 +5098,7 @@ Compiler::fgWalkResult Compiler::optVNConstantPropTree(BasicBlock* block, Statem
             return WALK_CONTINUE;
     }
 
-    GenTree* newTree = optVNConstantPropOnTree(block, tree);
+    GenTree* newTree = optVNConstantPropTree(block, tree);
 
     if (newTree == nullptr)
     {
