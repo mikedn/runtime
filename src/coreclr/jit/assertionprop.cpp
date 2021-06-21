@@ -5277,26 +5277,22 @@ Compiler::fgWalkResult Compiler::optVNAssertionPropStmtVisitor(GenTree** ppTree,
     return pThis->optVNConstantPropTree(pData->block, pData->stmt, *ppTree);
 }
 
-/*****************************************************************************
- *
- *   Perform VN based i.e., data flow based assertion prop first because
- *   even if we don't gen new control flow assertions, we still propagate
- *   these first.
- *
- *   Returns the skipped next stmt if the current statement or next few
- *   statements got removed, else just returns the incoming stmt.
- */
+// Perform VN based constant and non null propagation on the specified statement.
+// If the statement is removed or if new statements were added before it this
+// returns the next statement to process, otherwise it return null.
 Statement* Compiler::optVNAssertionPropStmt(BasicBlock* block, Statement* stmt)
 {
     // TODO-Review: EH successor/predecessor iteration seems broken.
     // See: SELF_HOST_TESTS_ARM\jit\Directed\ExcepFilters\fault\fault.exe
     if (block->bbCatchTyp == BBCT_FAULT)
     {
-        return stmt;
+        return nullptr;
     }
 
-    // Preserve the prev link before the propagation and morph.
-    Statement* prev = (stmt == block->firstStmt()) ? nullptr : stmt->GetPrevStmt();
+    // Propagation may add statements before `stmt` or remove `stmt`, remember
+    // the previous statment so we know where to continue from. The previous
+    // statement will never be affected by propagation in `stmt`.
+    Statement* prev = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
 
     // Perform VN based assertion prop first, in case we don't find
     // anything in assertion gen.
@@ -5310,10 +5306,8 @@ Statement* Compiler::optVNAssertionPropStmt(BasicBlock* block, Statement* stmt)
         fgMorphBlockStmt(block, stmt DEBUGARG("optVNAssertionPropStmt"));
     }
 
-    // Check if propagation removed statements starting from current stmt.
-    // If so, advance to the next good statement.
-    Statement* nextStmt = (prev == nullptr) ? block->firstStmt() : prev->GetNextStmt();
-    return nextStmt;
+    Statement* next = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
+    return next == stmt ? nullptr : next;
 }
 
 void Compiler::optVNAssertionProp()
@@ -5353,9 +5347,14 @@ void Compiler::optVNAssertionProp()
                 break;
             }
 
-            // Propagation removed the current stmt or next few stmts, so skip them.
-            if (stmt != nextStmt)
+            if (nextStmt != nullptr)
             {
+                // Propagation removed the current stmt or added new ones before it, continue
+                // from the right statement. If new statements were added this means that we
+                // will go back, process those statements and then process this statement again.
+                // This should only happen when side effects are extracted from a JTRUE, then
+                // the statement contains only a small JTRUE(EQ|NE(0, 0)) so this is not a
+                // throughput issue.
                 stmt = nextStmt;
                 continue;
             }
