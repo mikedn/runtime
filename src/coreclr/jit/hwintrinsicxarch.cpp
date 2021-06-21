@@ -710,7 +710,6 @@ GenTree* Compiler::impBaseIntrinsic(
             for (unsigned i = 0; i < sig.paramCount; i++)
             {
                 GenTree* op = impPopStack().val;
-                SetOpLclRelatedToSIMDIntrinsic(op);
                 hwIntrinsic->SetOp(sig.paramCount - 1 - i, op);
                 hwIntrinsic->gtFlags |= op->gtFlags & GTF_ALL_EFFECT;
             }
