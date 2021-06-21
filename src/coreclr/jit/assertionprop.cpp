@@ -5266,29 +5266,21 @@ GenTree* Compiler::optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, 
 //
 void Compiler::optVNNonNullPropTree(BasicBlock* block, Statement* stmt, GenTree* tree)
 {
-    GenTree* newTree = nullptr;
-
     if (GenTreeCall* call = tree->IsCall())
     {
-        newTree = optVNNonNullPropCall(call);
+        optVNNonNullPropCall(call);
     }
     else if (GenTreeIndir* indir = tree->IsIndir())
     {
-        newTree = optVNNonNullPropIndir(indir);
-    }
-
-    if (newTree != nullptr)
-    {
-        assert(newTree == tree);
-        optVNAssertionPropStmtMorphPending = true;
+        optVNNonNullPropIndir(indir);
     }
 }
 
-GenTree* Compiler::optVNNonNullPropCall(GenTreeCall* call)
+void Compiler::optVNNonNullPropCall(GenTreeCall* call)
 {
     if (!call->NeedsNullCheck())
     {
-        return nullptr;
+        return;
     }
 
     GenTree* thisArg = gtGetThisArg(call);
@@ -5301,26 +5293,27 @@ GenTree* Compiler::optVNNonNullPropCall(GenTreeCall* call)
 
     if (!thisArg->OperIs(GT_LCL_VAR))
     {
-        return nullptr;
+        return;
     }
 
     if (!vnStore->IsKnownNonNull(thisArg->gtVNPair.GetConservative()))
     {
-        return nullptr;
+        return;
     }
 
     JITDUMP("\nCall " FMT_TREEID " has non-null this arg, removing GTF_CALL_NULLCHECK and GTF_EXCEPT\n", call->GetID());
 
     call->gtFlags &= ~(GTF_CALL_NULLCHECK | GTF_EXCEPT);
     noway_assert((call->gtFlags & GTF_SIDE_EFFECT) != 0);
-    return call;
+
+    optVNAssertionPropStmtMorphPending = true;
 }
 
-GenTree* Compiler::optVNNonNullPropIndir(GenTreeIndir* indir)
+void Compiler::optVNNonNullPropIndir(GenTreeIndir* indir)
 {
     if ((indir->gtFlags & GTF_EXCEPT) == 0)
     {
-        return nullptr;
+        return;
     }
 
     GenTree* addr = indir->GetAddr();
@@ -5331,18 +5324,18 @@ GenTree* Compiler::optVNNonNullPropIndir(GenTreeIndir* indir)
     }
 
     // TODO-MIKE-Review: This check is likely useless, if the VN is known to be non-null
-    // then it doesn't matter what kind of node the arg is. It's unlikely that VN will be
+    // then it doesn't matter what kind of node the addr is. It's unlikely that VN will be
     // able to prove that anything else other than a LCL_VAR is non-null conservatively,
     // maybe a LCL_FLD?
 
     if (!addr->OperIs(GT_LCL_VAR))
     {
-        return nullptr;
+        return;
     }
 
     if (!vnStore->IsKnownNonNull(addr->gtVNPair.GetConservative()))
     {
-        return nullptr;
+        return;
     }
 
     JITDUMP("\nIndir " FMT_TREEID " has non-null address, removing GTF_EXCEPT\n", indir->GetID());
@@ -5353,10 +5346,10 @@ GenTree* Compiler::optVNNonNullPropIndir(GenTreeIndir* indir)
     // Set this flag to prevent reordering, it may be that we were able to prove that the address
     // is non-null due to a previous indirection or null check that prevent us from getting here
     // with a null address.
-    // TODO-MIKE-Review: Hmm, that's probably only for local assertion propagtion...
+    // TODO-MIKE-Review: Hmm, that's probably only for local assertion propagation...
     indir->gtFlags |= GTF_ORDER_SIDEEFF;
 
-    return indir;
+    optVNAssertionPropStmtMorphPending = true;
 }
 
 //------------------------------------------------------------------------------

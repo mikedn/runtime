@@ -6159,8 +6159,8 @@ protected:
 
 public:
     void optVNNonNullPropTree(BasicBlock* block, Statement* stmt, GenTree* tree);
-    GenTree* optVNNonNullPropCall(GenTreeCall* call);
-    GenTree* optVNNonNullPropIndir(GenTreeIndir* indir);
+    void optVNNonNullPropCall(GenTreeCall* call);
+    void optVNNonNullPropIndir(GenTreeIndir* indir);
     fgWalkResult optVNConstantPropStmt(BasicBlock* block, Statement* stmt, GenTree* tree);
     GenTree* optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, Statement* stmt);
     GenTree* optVNConstantPropOnJTrue(BasicBlock* block, GenTree* test);
