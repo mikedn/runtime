@@ -637,7 +637,7 @@ void Compiler::optPrintAssertion(AssertionDsc* curAssertion, AssertionIndex asse
     }
     else
     {
-        printf("?op1.kind?");
+        printf("?thisArg.kind?");
     }
 
     if (curAssertion->assertionKind == OAK_SUBRANGE)
@@ -5269,9 +5269,9 @@ void Compiler::optVnNonNullPropCurStmt(BasicBlock* block, Statement* stmt, GenTr
     ASSERT_TP empty   = BitVecOps::UninitVal();
     GenTree*  newTree = nullptr;
 
-    if (tree->OperGet() == GT_CALL)
+    if (GenTreeCall* call = tree->IsCall())
     {
-        newTree = optNonNullAssertionProp_Call(empty, tree->AsCall());
+        newTree = optVNNonNullPropCall(call);
     }
     else if (tree->OperIsIndir())
     {
@@ -5283,6 +5283,38 @@ void Compiler::optVnNonNullPropCurStmt(BasicBlock* block, Statement* stmt, GenTr
         assert(newTree == tree);
         optVNAssertionPropStmtMorphPending = true;
     }
+}
+
+GenTree* Compiler::optVNNonNullPropCall(GenTreeCall* call)
+{
+    if (!call->NeedsNullCheck())
+    {
+        return nullptr;
+    }
+
+    GenTree* thisArg = gtGetThisArg(call);
+    noway_assert(thisArg != nullptr);
+
+    // TODO-MIKE-Review: This check is likely useless, if the VN is known to be non-null
+    // then it doesn't matter what kind of node the arg is. It's unlikely that VN will be
+    // able to prove that anything else other than a LCL_VAR is non-null conservatively,
+    // maybe a LCL_FLD?
+
+    if (!thisArg->OperIs(GT_LCL_VAR))
+    {
+        return nullptr;
+    }
+
+    if (!vnStore->IsKnownNonNull(thisArg->gtVNPair.GetConservative()))
+    {
+        return nullptr;
+    }
+
+    JITDUMP("\nCall " FMT_TREEID " has non-null this arg, removing GTF_CALL_NULLCHECK and GTF_EXCEPT\n", call->GetID());
+
+    call->gtFlags &= ~(GTF_CALL_NULLCHECK | GTF_EXCEPT);
+    noway_assert((call->gtFlags & GTF_SIDE_EFFECT) != 0);
+    return call;
 }
 
 //------------------------------------------------------------------------------
