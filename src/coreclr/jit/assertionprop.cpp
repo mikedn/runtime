@@ -5084,29 +5084,10 @@ GenTree* Compiler::optVNConstantPropOnJTrue(BasicBlock* block, GenTree* test)
     return test;
 }
 
-//------------------------------------------------------------------------------
-// optVNConstantPropStmt
-//    Performs constant prop on the current statement's tree nodes.
-//
-// Assumption:
-//    This function is called as part of a pre-order tree walk.
-//
-// Arguments:
-//    tree  - The currently visited tree node.
-//    stmt  - The statement node in which the "tree" is present.
-//    block - The block that contains the statement that contains the tree.
-//
-// Return Value:
-//    Returns the standard visitor walk result.
-//
-// Description:
-//    Checks if a node is an R-value and evaluates to a constant. If the node
-//    evaluates to constant, then the tree is replaced by its side effects and
-//    the constant node.
-//
-Compiler::fgWalkResult Compiler::optVNConstantPropStmt(BasicBlock* block, Statement* stmt, GenTree* tree)
+// Replaces the given tree with a constant node if it has a constant VN.
+Compiler::fgWalkResult Compiler::optVNConstantPropTree(BasicBlock* block, Statement* stmt, GenTree* tree)
 {
-    // Don't perform const prop on expressions marked with GTF_DONT_CSE
+    // GTF_DONT_CSE is also used to block constant propagation, not just CSE.
     if (!tree->CanCSE())
     {
         return WALK_CONTINUE;
@@ -5114,14 +5095,35 @@ Compiler::fgWalkResult Compiler::optVNConstantPropStmt(BasicBlock* block, Statem
 
     // Don't propagate floating-point constants into a TYP_STRUCT LclVar
     // This can occur for HFA return values (see hfa_sf3E_r.exe)
-    if (tree->TypeGet() == TYP_STRUCT)
+    if (tree->TypeIs(TYP_STRUCT))
     {
         return WALK_CONTINUE;
     }
 
-    switch (tree->OperGet())
+    switch (tree->GetOper())
     {
-        // Make sure we have an R-value.
+        case GT_LCL_VAR:
+            if ((tree->gtFlags & GTF_VAR_DEF) != 0)
+            {
+                return WALK_CONTINUE;
+            }
+
+            // Don't undo constant CSEs.
+            if (lclNumIsCSE(tree->AsLclVar()->GetLclNum()))
+            {
+                return WALK_CONTINUE;
+            }
+
+            break;
+
+        case GT_MUL:
+            // Don't transform long multiplies.
+            if ((tree->gtFlags & GTF_MUL_64RSLT) != 0)
+            {
+                // TODO-MIKE-Review: Erm, why skip subtrees?!?
+                return WALK_SKIP_SUBTREES;
+            }
+            FALLTHROUGH;
         case GT_ADD:
         case GT_SUB:
         case GT_DIV:
@@ -5143,51 +5145,18 @@ Compiler::fgWalkResult Compiler::optVNConstantPropStmt(BasicBlock* block, Statem
         case GT_NEG:
         case GT_CAST:
         case GT_INTRINSIC:
-            break;
-
-        case GT_INC_SATURATE:
-        case GT_MULHI:
-#ifdef FEATURE_SIMD
-        case GT_SIMD_UPPER_SPILL:
-        case GT_SIMD_UPPER_UNSPILL:
-#endif
-            assert(false && "Unexpected node encountered before lowering");
-            break;
-
         case GT_JTRUE:
-            break;
-
-        case GT_MUL:
-            // Don't transform long multiplies.
-            if (tree->gtFlags & GTF_MUL_64RSLT)
-            {
-                return WALK_SKIP_SUBTREES;
-            }
-            break;
-
-        case GT_LCL_VAR:
-            // Make sure the local variable is an R-value.
-            if ((tree->gtFlags & (GTF_VAR_DEF | GTF_DONT_CSE)))
-            {
-                return WALK_CONTINUE;
-            }
-            // Let's not conflict with CSE (to save the movw/movt).
-            if (lclNumIsCSE(tree->AsLclVarCommon()->GetLclNum()))
-            {
-                return WALK_CONTINUE;
-            }
+            // TODO-MIKE-Review: Huh, this is missing various opers - ROL, ROR, BITCAST, NOT, BSWAP...
             break;
 
         default:
-            // Unknown node, continue to walk.
             return WALK_CONTINUE;
     }
 
-    // Perform the constant propagation
     GenTree* newTree = optVNConstantPropOnTree(block, tree);
+
     if (newTree == nullptr)
     {
-        // Not propagated, keep going.
         return WALK_CONTINUE;
     }
 
@@ -5197,7 +5166,7 @@ Compiler::fgWalkResult Compiler::optVNConstantPropStmt(BasicBlock* block, Statem
 
     optVNConstantPropStmtUpdate(newTree, tree, stmt);
 
-    JITDUMP("After constant propagation on [%06u]:\n", tree->gtTreeID);
+    JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
     DBEXEC(VERBOSE, gtDispStmt(stmt));
 
     return WALK_SKIP_SUBTREES;
@@ -5358,7 +5327,7 @@ Compiler::fgWalkResult Compiler::optVNAssertionPropStmtVisitor(GenTree** ppTree,
 
     pThis->optVNNonNullPropTree(*ppTree);
 
-    return pThis->optVNConstantPropStmt(pData->block, pData->stmt, *ppTree);
+    return pThis->optVNConstantPropTree(pData->block, pData->stmt, *ppTree);
 }
 
 /*****************************************************************************
