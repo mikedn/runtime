@@ -4198,8 +4198,7 @@ GenTree* Compiler::optAssertionProp_Update(GenTree* newTree, GenTree* tree, Stat
         }
     }
 
-    // Record that we propagated the assertion.
-    optAssertionPropagatedCurrentStmt = true;
+    optVNAssertionPropStmtMorphPending = true;
 
     return newTree;
 }
@@ -5292,12 +5291,12 @@ Statement* Compiler::optVNAssertionPropStmt(BasicBlock* block, Statement* stmt)
 
     // Perform VN based assertion prop first, in case we don't find
     // anything in assertion gen.
-    optAssertionPropagatedCurrentStmt = false;
+    optVNAssertionPropStmtMorphPending = false;
 
     VNAssertionPropVisitorInfo data(this, block, stmt);
     fgWalkTreePre(stmt->GetRootNodePointer(), Compiler::optVNAssertionPropStmtVisitor, &data);
 
-    if (optAssertionPropagatedCurrentStmt)
+    if (optVNAssertionPropStmtMorphPending)
     {
         fgMorphBlockStmt(block, stmt DEBUGARG("optVNAssertionPropStmt"));
     }
@@ -5455,8 +5454,8 @@ void Compiler::optVNAssertionProp()
             // removes the current stmt.
             Statement* prevStmt = (stmt == block->firstStmt()) ? nullptr : stmt->GetPrevStmt();
 
-            optAssertionPropagatedCurrentStmt = false; // set to true if a assertion propagation took place
-                                                       // and thus we must morph, set order, re-link
+            optVNAssertionPropStmtMorphPending = false;
+
             for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
             {
                 JITDUMP("Propagating %s assertions for " FMT_BB ", stmt " FMT_STMT ", tree [%06d], tree -> %d\n",
@@ -5464,9 +5463,9 @@ void Compiler::optVNAssertionProp()
                         tree->GetAssertionInfo().GetAssertionIndex());
 
                 GenTree* newTree = optAssertionProp(assertions, tree, stmt, block);
-                if (newTree)
+                if (newTree != nullptr)
                 {
-                    assert(optAssertionPropagatedCurrentStmt == true);
+                    assert(optVNAssertionPropStmtMorphPending);
                     tree = newTree;
                 }
 
@@ -5479,7 +5478,7 @@ void Compiler::optVNAssertionProp()
                 }
             }
 
-            if (optAssertionPropagatedCurrentStmt)
+            if (optVNAssertionPropStmtMorphPending)
             {
 #ifdef DEBUG
                 if (verbose)
@@ -5498,7 +5497,6 @@ void Compiler::optVNAssertionProp()
             Statement* nextStmt = (prevStmt == nullptr) ? block->firstStmt() : prevStmt->GetNextStmt();
             stmt                = (stmt == nextStmt) ? stmt->GetNextStmt() : nextStmt;
         }
-        optAssertionPropagatedCurrentStmt = false; // clear it back as we are done with stmts.
     }
 
 #ifdef DEBUG

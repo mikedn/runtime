@@ -6146,7 +6146,7 @@ protected:
     GenTree*           optAddCopyAsgnNode;
 
     bool optLocalAssertionProp; // indicates that we are performing local assertion prop
-    bool optAssertionPropagatedCurrentStmt;
+    bool optVNAssertionPropStmtMorphPending;
 #ifdef DEBUG
     GenTree* optAssertionPropCurrentTree;
 #endif
