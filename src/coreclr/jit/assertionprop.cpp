@@ -5245,7 +5245,7 @@ GenTree* Compiler::optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, 
 }
 
 //------------------------------------------------------------------------------
-// optVnNonNullPropCurStmt
+// optVNNonNullPropStmt
 //    Performs VN based non-null propagation on the tree node.
 //
 // Assumption:
@@ -5264,18 +5264,17 @@ GenTree* Compiler::optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, 
 //    indirections. This is different from flow based assertions and helps
 //    unify VN based constant prop and non-null prop in a single pre-order walk.
 //
-void Compiler::optVnNonNullPropCurStmt(BasicBlock* block, Statement* stmt, GenTree* tree)
+void Compiler::optVNNonNullPropTree(BasicBlock* block, Statement* stmt, GenTree* tree)
 {
-    ASSERT_TP empty   = BitVecOps::UninitVal();
-    GenTree*  newTree = nullptr;
+    GenTree* newTree = nullptr;
 
     if (GenTreeCall* call = tree->IsCall())
     {
         newTree = optVNNonNullPropCall(call);
     }
-    else if (tree->OperIsIndir())
+    else if (GenTreeIndir* indir = tree->IsIndir())
     {
-        newTree = optAssertionProp_Ind(empty, tree, stmt);
+        newTree = optVNNonNullPropIndir(indir);
     }
 
     if (newTree != nullptr)
@@ -5317,6 +5316,49 @@ GenTree* Compiler::optVNNonNullPropCall(GenTreeCall* call)
     return call;
 }
 
+GenTree* Compiler::optVNNonNullPropIndir(GenTreeIndir* indir)
+{
+    if ((indir->gtFlags & GTF_EXCEPT) == 0)
+    {
+        return nullptr;
+    }
+
+    GenTree* addr = indir->GetAddr();
+
+    if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
+    {
+        addr = addr->AsOp()->GetOp(0);
+    }
+
+    // TODO-MIKE-Review: This check is likely useless, if the VN is known to be non-null
+    // then it doesn't matter what kind of node the arg is. It's unlikely that VN will be
+    // able to prove that anything else other than a LCL_VAR is non-null conservatively,
+    // maybe a LCL_FLD?
+
+    if (!addr->OperIs(GT_LCL_VAR))
+    {
+        return nullptr;
+    }
+
+    if (!vnStore->IsKnownNonNull(addr->gtVNPair.GetConservative()))
+    {
+        return nullptr;
+    }
+
+    JITDUMP("\nIndir " FMT_TREEID " has non-null address, removing GTF_EXCEPT\n", indir->GetID());
+
+    indir->gtFlags &= ~GTF_EXCEPT;
+    indir->gtFlags |= GTF_IND_NONFAULTING;
+
+    // Set this flag to prevent reordering, it may be that we were able to prove that the address
+    // is non-null due to a previous indirection or null check that prevent us from getting here
+    // with a null address.
+    // TODO-MIKE-Review: Hmm, that's probably only for local assertion propagtion...
+    indir->gtFlags |= GTF_ORDER_SIDEEFF;
+
+    return indir;
+}
+
 //------------------------------------------------------------------------------
 // optVNAssertionPropStmtVisitor
 //    Unified Value Numbering based assertion propagation visitor.
@@ -5338,7 +5380,7 @@ Compiler::fgWalkResult Compiler::optVNAssertionPropStmtVisitor(GenTree** ppTree,
     VNAssertionPropVisitorInfo* pData = (VNAssertionPropVisitorInfo*)data->pCallbackData;
     Compiler*                   pThis = pData->pThis;
 
-    pThis->optVnNonNullPropCurStmt(pData->block, pData->stmt, *ppTree);
+    pThis->optVNNonNullPropTree(pData->block, pData->stmt, *ppTree);
 
     return pThis->optVNConstantPropStmt(pData->block, pData->stmt, *ppTree);
 }
