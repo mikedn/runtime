@@ -2441,12 +2441,7 @@ AssertionIndex Compiler::optAssertionIsSubtype(GenTree* tree, GenTree* methodTab
 // a COMMA node.
 GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
 {
-    if (tree->OperIs(GT_JTRUE))
-    {
-        // Treat JTRUE separately to extract side effects into separate statements
-        // rather than creating COMMA trees.
-        return optVNConstantPropJTrue(block, tree->AsUnOp());
-    }
+    assert(!tree->OperIs(GT_JTRUE));
 
     // If relop is part of JTRUE, this should be optimized as part of the parent JTRUE.
     if (tree->OperIsCompare() && ((tree->gtFlags & GTF_RELOP_JMP_USED) != 0))
@@ -5013,7 +5008,7 @@ GenTree* Compiler::optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue)
 
         // fgMorphBlockStmt could potentially affect stmts after the current one,
         // for example when it decides to fgRemoveRestOfBlock.
-        
+
         // TODO-MIKE-Review: Do we really need to remorph? Seems like simply
         // fgSetStmtSeq should suffice here. Also, this morphs trees before
         // doing constant propagation so we may morph again if they contains
@@ -5094,7 +5089,18 @@ Compiler::fgWalkResult Compiler::optVNConstantPropTree(BasicBlock* block, Statem
             return WALK_CONTINUE;
     }
 
-    GenTree* newTree = optVNConstantPropTree(block, tree);
+    GenTree* newTree;
+
+    if (tree->OperIs(GT_JTRUE))
+    {
+        // Treat JTRUE separately to extract side effects into separate statements
+        // rather than creating COMMA trees.
+        newTree = optVNConstantPropJTrue(block, tree->AsUnOp());
+    }
+    else
+    {
+        newTree = optVNConstantPropTree(block, tree);
+    }
 
     if (newTree == nullptr)
     {
