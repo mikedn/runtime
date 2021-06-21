@@ -7529,6 +7529,25 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
 {
     lvaGetDesc(lclVar)->lvUsedInSIMDIntrinsic = true;
 }
+
+void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
+{
+    // Don't block promotion due to Create/Zero intrinsics, we can promote these.
+    switch (src->GetIntrinsic())
+    {
+#ifdef TARGET_ARM64
+        case NI_Vector64_Create:
+        case NI_Vector64_get_Zero:
+#endif
+        case NI_Vector128_Create:
+        case NI_Vector128_get_Zero:
+            return;
+        default:
+            break;
+    }
+
+    lvaGetDesc(lclVar)->lvUsedInSIMDIntrinsic = true;
+}
 #endif // FEATURE_SIMD
 
 /*****************************************************************************/

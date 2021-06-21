@@ -7083,6 +7083,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
+    void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.

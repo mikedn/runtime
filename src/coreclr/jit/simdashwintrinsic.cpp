@@ -886,9 +886,9 @@ GenTree* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     {
         dest = destAddr->AsUnOp()->GetOp(0);
 
-        if (src->IsHWIntrinsic())
+        if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
         {
-            lvaRecordSimdIntrinsicUse(dest->AsLclVar());
+            lvaRecordSimdIntrinsicDef(dest->AsLclVar(), hwi);
         }
 
         assert(lvaGetDesc(dest->AsLclVar())->GetType() == src->GetType());

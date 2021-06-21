@@ -6124,14 +6124,12 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     }
 
 #ifdef FEATURE_SIMD
-    // If the source is a SIMD typed intrinsic and the destination is a local we need to
-    // prevent the local from getting promoted, fgMorphCopyBlock doesn't handle this case
-    // and the local would end up being dependent promoted.
-
-    if (src->OperIsHWIntrinsic() && varTypeIsSIMD(src->GetType()) && dst->OperIs(GT_LCL_VAR) &&
-        varTypeIsSIMD(dst->GetType()))
+    if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
     {
-        lvaRecordSimdIntrinsicUse(dst->AsLclVar());
+        if (dst->OperIs(GT_LCL_VAR) && varTypeIsSIMD(dst->GetType()))
+        {
+            lvaRecordSimdIntrinsicDef(dst->AsLclVar(), hwi);
+        }
     }
 #endif
 }
