@@ -4876,18 +4876,6 @@ ASSERT_TP* Compiler::optInitAssertionDataflowFlags()
     return jumpDestOut;
 }
 
-// Callback data for the VN based constant prop visitor.
-struct VNAssertionPropVisitorInfo
-{
-    Compiler*   pThis;
-    Statement*  stmt;
-    BasicBlock* block;
-    VNAssertionPropVisitorInfo(Compiler* pThis, BasicBlock* block, Statement* stmt)
-        : pThis(pThis), stmt(stmt), block(block)
-    {
-    }
-};
-
 //------------------------------------------------------------------------------
 // optVNConstantPropExtractSideEffects
 //    Extracts side effects from a tree so it can be replaced with a comma
@@ -5251,32 +5239,6 @@ void Compiler::optVNNonNullPropIndir(GenTreeIndir* indir)
     optVNAssertionPropStmtMorphPending = true;
 }
 
-//------------------------------------------------------------------------------
-// optVNAssertionPropStmtVisitor
-//    Unified Value Numbering based assertion propagation visitor.
-//
-// Assumption:
-//    This function is called as part of a pre-order tree walk.
-//
-// Return Value:
-//    WALK_RESULTs.
-//
-// Description:
-//    An unified value numbering based assertion prop visitor that
-//    performs non-null and constant assertion propagation based on
-//    value numbers.
-//
-/* static */
-Compiler::fgWalkResult Compiler::optVNAssertionPropStmtVisitor(GenTree** ppTree, fgWalkData* data)
-{
-    VNAssertionPropVisitorInfo* pData = (VNAssertionPropVisitorInfo*)data->pCallbackData;
-    Compiler*                   pThis = pData->pThis;
-
-    pThis->optVNNonNullPropTree(*ppTree);
-
-    return pThis->optVNConstantPropTree(pData->block, pData->stmt, *ppTree);
-}
-
 // Perform VN based constant and non null propagation on the specified statement.
 // If the statement is removed or if new statements were added before it this
 // returns the next statement to process, otherwise it return null.
@@ -5294,12 +5256,22 @@ Statement* Compiler::optVNAssertionPropStmt(BasicBlock* block, Statement* stmt)
     // statement will never be affected by propagation in `stmt`.
     Statement* prev = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
 
-    // Perform VN based assertion prop first, in case we don't find
-    // anything in assertion gen.
     optVNAssertionPropStmtMorphPending = false;
 
-    VNAssertionPropVisitorInfo data(this, block, stmt);
-    fgWalkTreePre(stmt->GetRootNodePointer(), Compiler::optVNAssertionPropStmtVisitor, &data);
+    struct WalkData
+    {
+        Compiler*   compiler;
+        Statement*  stmt;
+        BasicBlock* block;
+    } data{this, stmt, block};
+
+    fgWalkTreePre(stmt->GetRootNodePointer(),
+                  [](GenTree** use, fgWalkData* data) {
+                      WalkData* d = static_cast<WalkData*>(data->pCallbackData);
+                      d->compiler->optVNNonNullPropTree(*use);
+                      return d->compiler->optVNConstantPropTree(d->block, d->stmt, *use);
+                  },
+                  &data);
 
     if (optVNAssertionPropStmtMorphPending)
     {
