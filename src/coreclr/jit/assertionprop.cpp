@@ -2436,93 +2436,6 @@ AssertionIndex Compiler::optAssertionIsSubtype(GenTree* tree, GenTree* methodTab
     return NO_ASSERTION_INDEX;
 }
 
-// Replaces a tree that evaluates to a constant with a constant node.
-// If the tree contains side effects then they are preserved using
-// a COMMA node.
-GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
-{
-    assert(!tree->OperIs(GT_JTRUE));
-
-    // If relop is part of JTRUE, this should be optimized as part of the parent JTRUE.
-    if (tree->OperIsCompare() && ((tree->gtFlags & GTF_RELOP_JMP_USED) != 0))
-    {
-        return nullptr;
-    }
-
-    ValueNumPair vnp = tree->gtVNPair;
-    ValueNum     vn  = vnStore->VNConservativeNormalValue(vnp);
-
-    if (!vnStore->IsVNConstant(vn))
-    {
-        return nullptr;
-    }
-
-    var_types vnType  = vnStore->TypeOfVN(vn);
-    GenTree*  newTree = nullptr;
-
-    if (vnStore->IsVNHandle(vn))
-    {
-        // Don't perform constant folding that involves a handle that needs to be recorded
-        // as a relocation with the VM. The VN type should be TYP_I_IMPL but the tree may
-        // sometimes be TYP_BYREF, due to things like Unsafe.As.
-        if (!opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF) && (vnType == TYP_I_IMPL))
-        {
-            newTree = gtNewIconHandleNode(vnStore->ConstantValue<target_ssize_t>(vn), vnStore->GetHandleFlags(vn));
-        }
-    }
-    // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
-    // locals, VN manages to pull out a TYP_LONG 0 constant out of the hat, if the local is
-    // not explictily initialized and .localsinit is used.
-    // TODO-MIKE-Review: Shouldn't this check the actual type of the tree?
-    else if (tree->GetType() == vnType)
-    {
-        switch (vnType)
-        {
-            case TYP_FLOAT:
-                newTree = gtNewDconNode(vnStore->ConstantValue<float>(vn), TYP_FLOAT);
-                break;
-            case TYP_DOUBLE:
-                newTree = gtNewDconNode(vnStore->ConstantValue<double>(vn), TYP_DOUBLE);
-                break;
-            case TYP_INT:
-                newTree = gtNewIconNode(vnStore->ConstantValue<int32_t>(vn));
-                break;
-            case TYP_LONG:
-                newTree = gtNewLconNode(vnStore->ConstantValue<int64_t>(vn));
-                break;
-            case TYP_REF:
-                assert(vnStore->ConstantValue<size_t>(vn) == 0);
-                newTree = gtNewIconNode(0, TYP_REF);
-                break;
-            case TYP_BYREF:
-                // Do not support const byref optimization.
-                break;
-            default:
-                unreached();
-        }
-    }
-
-    if (newTree == nullptr)
-    {
-        return nullptr;
-    }
-
-    newTree->SetVNs(vnp);
-
-    GenTree* sideEffects = optVNConstantPropExtractSideEffects(tree);
-
-    if (sideEffects != nullptr)
-    {
-        assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
-
-        // TODO-MIKE-Review: So we bother setting the VN on the constant node but not on the COMMA tree?
-        // Also, the constant node gets the wrong VN, the one that includes exceptions...
-        newTree = gtNewCommaNode(sideEffects, newTree);
-    }
-
-    return newTree;
-}
-
 //------------------------------------------------------------------------------
 // optConstantAssertionProp: Possibly substitute a constant for a local use
 //
@@ -5020,6 +4933,93 @@ Compiler::fgWalkResult Compiler::optVNConstantPropTree(BasicBlock* block, Statem
     DBEXEC(VERBOSE, gtDispStmt(stmt));
 
     return WALK_SKIP_SUBTREES;
+}
+
+// Replaces a tree that evaluates to a constant with a constant node.
+// If the tree contains side effects then they are preserved using
+// a COMMA node.
+GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
+{
+    assert(!tree->OperIs(GT_JTRUE));
+
+    // If relop is part of JTRUE, this should be optimized as part of the parent JTRUE.
+    if (tree->OperIsCompare() && ((tree->gtFlags & GTF_RELOP_JMP_USED) != 0))
+    {
+        return nullptr;
+    }
+
+    ValueNumPair vnp = tree->gtVNPair;
+    ValueNum     vn  = vnStore->VNConservativeNormalValue(vnp);
+
+    if (!vnStore->IsVNConstant(vn))
+    {
+        return nullptr;
+    }
+
+    var_types vnType  = vnStore->TypeOfVN(vn);
+    GenTree*  newTree = nullptr;
+
+    if (vnStore->IsVNHandle(vn))
+    {
+        // Don't perform constant folding that involves a handle that needs to be recorded
+        // as a relocation with the VM. The VN type should be TYP_I_IMPL but the tree may
+        // sometimes be TYP_BYREF, due to things like Unsafe.As.
+        if (!opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF) && (vnType == TYP_I_IMPL))
+        {
+            newTree = gtNewIconHandleNode(vnStore->ConstantValue<target_ssize_t>(vn), vnStore->GetHandleFlags(vn));
+        }
+    }
+    // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
+    // locals, VN manages to pull out a TYP_LONG 0 constant out of the hat, if the local is
+    // not explictily initialized and .localsinit is used.
+    // TODO-MIKE-Review: Shouldn't this check the actual type of the tree?
+    else if (tree->GetType() == vnType)
+    {
+        switch (vnType)
+        {
+            case TYP_FLOAT:
+                newTree = gtNewDconNode(vnStore->ConstantValue<float>(vn), TYP_FLOAT);
+                break;
+            case TYP_DOUBLE:
+                newTree = gtNewDconNode(vnStore->ConstantValue<double>(vn), TYP_DOUBLE);
+                break;
+            case TYP_INT:
+                newTree = gtNewIconNode(vnStore->ConstantValue<int32_t>(vn));
+                break;
+            case TYP_LONG:
+                newTree = gtNewLconNode(vnStore->ConstantValue<int64_t>(vn));
+                break;
+            case TYP_REF:
+                assert(vnStore->ConstantValue<size_t>(vn) == 0);
+                newTree = gtNewIconNode(0, TYP_REF);
+                break;
+            case TYP_BYREF:
+                // Do not support const byref optimization.
+                break;
+            default:
+                unreached();
+        }
+    }
+
+    if (newTree == nullptr)
+    {
+        return nullptr;
+    }
+
+    newTree->SetVNs(vnp);
+
+    GenTree* sideEffects = optVNConstantPropExtractSideEffects(tree);
+
+    if (sideEffects != nullptr)
+    {
+        assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
+
+        // TODO-MIKE-Review: So we bother setting the VN on the constant node but not on the COMMA tree?
+        // Also, the constant node gets the wrong VN, the one that includes exceptions...
+        newTree = gtNewCommaNode(sideEffects, newTree);
+    }
+
+    return newTree;
 }
 
 GenTree* Compiler::optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, Statement* stmt)
