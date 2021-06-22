@@ -1448,6 +1448,7 @@ class Compiler
     friend class LocalAddressVisitor;
     friend struct GenTree;
     friend class ClassLayout;
+    friend class VNConstPropVisitor;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -6158,9 +6159,6 @@ protected:
     AssertionIndex optMaxAssertionCount;
 
 public:
-    void optVNNonNullPropTree(GenTree* tree);
-    void optVNNonNullPropCall(GenTreeCall* call);
-    void optVNNonNullPropIndir(GenTreeIndir* indir);
     fgWalkResult optVNConstantPropTree(BasicBlock* block, Statement* stmt, GenTree* tree);
     GenTree* optVNConstantPropStmtUpdate(GenTree* newTree, GenTree* tree, Statement* stmt);
     GenTree* optVNConstantPropJTrue(BasicBlock* block, GenTreeUnOp* jtrue);
