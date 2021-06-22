@@ -5154,6 +5154,29 @@ void Compiler::optVNNonNullPropIndir(GenTreeIndir* indir)
     optVNAssertionPropStmtMorphPending = true;
 }
 
+class VNConstPropVisitor final : public GenTreeVisitor<VNConstPropVisitor>
+{
+    BasicBlock* m_block;
+    Statement*  m_stmt;
+
+public:
+    enum
+    {
+        DoPreOrder = true
+    };
+
+    VNConstPropVisitor(Compiler* compiler, BasicBlock* block, Statement* stmt)
+        : GenTreeVisitor(compiler), m_block(block), m_stmt(stmt)
+    {
+    }
+
+    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    {
+        m_compiler->optVNNonNullPropTree(*use);
+        return m_compiler->optVNConstantPropTree(m_block, m_stmt, *use);
+    }
+};
+
 // Perform VN based constant and non null propagation on the specified statement.
 // If the statement is removed or if new statements were added before it this
 // returns the next statement to process, otherwise it return null.
@@ -5173,20 +5196,8 @@ Statement* Compiler::optVNAssertionPropStmt(BasicBlock* block, Statement* stmt)
 
     optVNAssertionPropStmtMorphPending = false;
 
-    struct WalkData
-    {
-        Compiler*   compiler;
-        Statement*  stmt;
-        BasicBlock* block;
-    } data{this, stmt, block};
-
-    fgWalkTreePre(stmt->GetRootNodePointer(),
-                  [](GenTree** use, fgWalkData* data) {
-                      WalkData* d = static_cast<WalkData*>(data->pCallbackData);
-                      d->compiler->optVNNonNullPropTree(*use);
-                      return d->compiler->optVNConstantPropTree(d->block, d->stmt, *use);
-                  },
-                  &data);
+    VNConstPropVisitor visitor(this, block, stmt);
+    visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
 
     if (optVNAssertionPropStmtMorphPending)
     {
