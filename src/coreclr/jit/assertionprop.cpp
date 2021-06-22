@@ -5336,16 +5336,9 @@ void Compiler::optVNAssertionProp()
         compCurBB           = block;
         fgRemoveRestOfBlock = false;
 
-        Statement* stmt = block->GetFirstStatement();
-
-        while (stmt != nullptr)
+        for (Statement* stmt = block->GetFirstStatement(); stmt != nullptr;)
         {
             Statement* nextStmt = optVNAssertionPropStmt(block, stmt);
-
-            if (fgRemoveRestOfBlock)
-            {
-                break;
-            }
 
             if (nextStmt != nullptr)
             {
@@ -5365,16 +5358,6 @@ void Compiler::optVNAssertionProp()
             }
 
             stmt = stmt->GetNextStmt();
-        }
-
-        if (fgRemoveRestOfBlock)
-        {
-            for (stmt = stmt->GetNextStmt(); stmt != nullptr; stmt = stmt->GetNextStmt())
-            {
-                fgRemoveStmt(block, stmt);
-            }
-
-            fgRemoveRestOfBlock = false;
         }
     }
 
