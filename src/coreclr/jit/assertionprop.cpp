@@ -2459,42 +2459,21 @@ GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
 
     GenTree* newTree = nullptr;
 
-    // TODO-MIKE-Review: The code below does some bizarre reinterpretation of constants,
-    // how could VN compute a FLOAT constant for an INT node?!?
-
     switch (vnStore->TypeOfVN(vn))
     {
         case TYP_FLOAT:
-        {
-            float value = vnStore->ConstantValue<float>(vn);
-
-            if (tree->TypeIs(TYP_INT))
+            if (tree->TypeIs(TYP_FLOAT))
             {
-                newTree = gtNewIconNode(jitstd::bit_cast<int32_t>(value));
-            }
-            else
-            {
-                assert(varTypeIsFloating(tree->GetType()));
-                newTree = gtNewDconNode(value, tree->GetType());
+                newTree = gtNewDconNode(vnStore->ConstantValue<float>(vn), TYP_FLOAT);
             }
             break;
-        }
 
         case TYP_DOUBLE:
-        {
-            double value = vnStore->ConstantValue<double>(vn);
-
-            if (tree->TypeIs(TYP_LONG))
+            if (tree->TypeIs(TYP_DOUBLE))
             {
-                newTree = gtNewLconNode(jitstd::bit_cast<int64_t>(value));
-            }
-            else
-            {
-                assert(varTypeIsFloating(tree->GetType()));
-                newTree = gtNewDconNode(value, tree->GetType());
+                newTree = gtNewDconNode(vnStore->ConstantValue<double>(vn), TYP_DOUBLE);
             }
             break;
-        }
 
         case TYP_LONG:
         {
@@ -2512,23 +2491,9 @@ GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
             }
             else
 #endif
+                if (tree->TypeIs(TYP_LONG))
             {
-                switch (tree->GetType())
-                {
-                    case TYP_INT:
-                        newTree = gtNewIconNode(static_cast<int32_t>(value));
-                        break;
-                    case TYP_LONG:
-                        newTree = gtNewLconNode(value);
-                        break;
-                    case TYP_DOUBLE:
-                        newTree = gtNewDconNode(jitstd::bit_cast<double>(value));
-                        break;
-                    case TYP_FLOAT:
-                        unreached();
-                    default:
-                        break;
-                }
+                newTree = gtNewLconNode(value);
             }
         }
         break;
@@ -2558,24 +2523,10 @@ GenTree* Compiler::optVNConstantPropTree(BasicBlock* block, GenTree* tree)
             }
             else
 #endif
+                // TODO-MIKE-Review: Shouldn't this check the actual type of the tree?
+                if (tree->TypeIs(TYP_INT))
             {
-                switch (tree->GetType())
-                {
-                    case TYP_REF:
-                    case TYP_INT:
-                        newTree = gtNewIconNode(value);
-                        break;
-                    case TYP_LONG:
-                        newTree = gtNewLconNode(value);
-                        break;
-                    case TYP_FLOAT:
-                        newTree = gtNewDconNode(jitstd::bit_cast<float>(value), TYP_FLOAT);
-                        break;
-                    case TYP_DOUBLE:
-                        unreached();
-                    default:
-                        break;
-                }
+                newTree = gtNewIconNode(value);
             }
         }
         break;
