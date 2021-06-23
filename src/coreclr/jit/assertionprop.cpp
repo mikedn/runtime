@@ -4844,6 +4844,7 @@ class VNConstPropVisitor final : public GenTreeVisitor<VNConstPropVisitor>
     ValueNumStore* m_vnStore;
     BasicBlock*    m_block;
     Statement*     m_stmt;
+    bool           m_stmtMorphPending;
 
 public:
     enum
@@ -4851,9 +4852,38 @@ public:
         DoPreOrder = true
     };
 
-    VNConstPropVisitor(Compiler* compiler, BasicBlock* block, Statement* stmt)
-        : GenTreeVisitor(compiler), m_vnStore(compiler->vnStore), m_block(block), m_stmt(stmt)
+    VNConstPropVisitor(Compiler* compiler) : GenTreeVisitor(compiler), m_vnStore(compiler->vnStore)
     {
+    }
+
+    Statement* VisitStmt(BasicBlock* block, Statement* stmt)
+    {
+        // TODO-Review: EH successor/predecessor iteration seems broken.
+        // See: SELF_HOST_TESTS_ARM\jit\Directed\ExcepFilters\fault\fault.exe
+        if (block->bbCatchTyp == BBCT_FAULT)
+        {
+            return nullptr;
+        }
+
+        m_block = block;
+
+        // Propagation may add statements before `stmt` or remove `stmt`, remember
+        // the previous statment so we know where to continue from. The previous
+        // statement will never be affected by propagation in `stmt`.
+        Statement* prev = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
+
+        m_stmt             = stmt;
+        m_stmtMorphPending = false;
+
+        WalkTree(stmt->GetRootNodePointer(), nullptr);
+
+        if (m_stmtMorphPending)
+        {
+            m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
+        }
+
+        Statement* next = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
+        return next == stmt ? nullptr : next;
     }
 
     fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
@@ -4906,7 +4936,7 @@ private:
         call->gtFlags &= ~(GTF_CALL_NULLCHECK | GTF_EXCEPT);
         noway_assert((call->gtFlags & GTF_SIDE_EFFECT) != 0);
 
-        m_compiler->optVNAssertionPropStmtMorphPending = true;
+        m_stmtMorphPending = true;
     }
 
     void PropagateNonNullIndirAddress(GenTreeIndir* indir)
@@ -4949,7 +4979,7 @@ private:
         // TODO-MIKE-Review: Hmm, that's probably only for local assertion propagation...
         indir->gtFlags |= GTF_ORDER_SIDEEFF;
 
-        m_compiler->optVNAssertionPropStmtMorphPending = true;
+        m_stmtMorphPending = true;
     }
 
     GenTree* PropagateConstJTrue(GenTreeUnOp* jtrue)
@@ -5230,7 +5260,7 @@ private:
             DEBUG_DESTROY_NODE(tree);
         }
 
-        m_compiler->optVNAssertionPropStmtMorphPending = true;
+        m_stmtMorphPending = true;
 
         return newTree;
     }
@@ -5255,37 +5285,6 @@ private:
         return sideEffects;
     }
 };
-
-// Perform VN based constant and non null propagation on the specified statement.
-// If the statement is removed or if new statements were added before it this
-// returns the next statement to process, otherwise it return null.
-Statement* Compiler::optVNAssertionPropStmt(BasicBlock* block, Statement* stmt)
-{
-    // TODO-Review: EH successor/predecessor iteration seems broken.
-    // See: SELF_HOST_TESTS_ARM\jit\Directed\ExcepFilters\fault\fault.exe
-    if (block->bbCatchTyp == BBCT_FAULT)
-    {
-        return nullptr;
-    }
-
-    // Propagation may add statements before `stmt` or remove `stmt`, remember
-    // the previous statment so we know where to continue from. The previous
-    // statement will never be affected by propagation in `stmt`.
-    Statement* prev = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
-
-    optVNAssertionPropStmtMorphPending = false;
-
-    VNConstPropVisitor visitor(this, block, stmt);
-    visitor.WalkTree(stmt->GetRootNodePointer(), nullptr);
-
-    if (optVNAssertionPropStmtMorphPending)
-    {
-        fgMorphBlockStmt(block, stmt DEBUGARG("optVNAssertionPropStmt"));
-    }
-
-    Statement* next = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
-    return next == stmt ? nullptr : next;
-}
 
 void Compiler::optVNAssertionProp()
 {
@@ -5315,7 +5314,8 @@ void Compiler::optVNAssertionProp()
 
         for (Statement* stmt = block->GetFirstStatement(); stmt != nullptr;)
         {
-            Statement* nextStmt = optVNAssertionPropStmt(block, stmt);
+            VNConstPropVisitor visitor(this);
+            Statement*         nextStmt = visitor.VisitStmt(block, stmt);
 
             if (nextStmt != nullptr)
             {

@@ -6181,8 +6181,7 @@ public:
 #endif
 
     // Assertion prop data flow functions.
-    void       optVNAssertionProp();
-    Statement* optVNAssertionPropStmt(BasicBlock* block, Statement* stmt);
+    void optVNAssertionProp();
     bool optIsTreeKnownIntValue(bool vnBased, GenTree* tree, ssize_t* pConstant, GenTreeFlags* pIconFlags);
     ASSERT_TP* optInitAssertionDataflowFlags();
     ASSERT_TP* optComputeAssertionGen();
