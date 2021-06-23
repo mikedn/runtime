@@ -4966,41 +4966,38 @@ private:
         // relop with a constant when we reach it later in the pre-order walk.
         assert((relop->gtFlags & GTF_RELOP_JMP_USED) != 0);
 
-        ValueNum vnCns = m_vnStore->VNConservativeNormalValue(relop->gtVNPair);
+        ValueNum vn = m_vnStore->VNConservativeNormalValue(relop->gtVNPair);
 
-        if (!m_vnStore->IsVNConstant(vnCns))
+        if (!m_vnStore->IsVNConstant(vn))
         {
             return nullptr;
         }
 
         GenTree* sideEffects = ExtractConstTreeSideEffects(relop);
 
-        // Transform the relop into EQ|NE(0, 0)
-        ValueNum vnZero = m_vnStore->VNZeroForType(TYP_INT);
-        GenTree* op1    = m_compiler->gtNewIconNode(0);
-        op1->SetVNs(ValueNumPair(vnZero, vnZero));
-        relop->AsOp()->SetOp(0, op1);
-        GenTree* op2 = m_compiler->gtNewIconNode(0);
-        op2->SetVNs(ValueNumPair(vnZero, vnZero));
-        relop->AsOp()->SetOp(1, op2);
-        relop->SetOper(m_vnStore->CoercedConstantValue<int64_t>(vnCns) != 0 ? GT_EQ : GT_NE);
-        ValueNum vnLib = m_compiler->vnStore->VNLiberalNormalValue(relop->gtVNPair);
-        relop->SetVNs(ValueNumPair(vnLib, vnCns));
+        relop->ChangeOperConst(GT_CNS_INT);
+        relop->SetType(TYP_INT);
+        int32_t value = m_vnStore->CoercedConstantValue<int64_t>(vn) != 0 ? 1 : 0;
+        relop->AsIntCon()->SetValue(value);
+        vn = m_vnStore->VNForIntCon(value);
+        relop->SetVNs(ValueNumPair(vn, vn));
 
         while (sideEffects != nullptr)
         {
-            Statement* newStmt;
+            GenTree* newTree;
 
             if (sideEffects->OperIs(GT_COMMA))
             {
-                newStmt     = m_compiler->fgNewStmtNearEnd(m_block, sideEffects->AsOp()->GetOp(0));
+                newTree     = sideEffects->AsOp()->GetOp(0);
                 sideEffects = sideEffects->AsOp()->GetOp(1);
             }
             else
             {
-                newStmt     = m_compiler->fgNewStmtNearEnd(m_block, sideEffects);
+                newTree     = sideEffects;
                 sideEffects = nullptr;
             }
+
+            Statement* newStmt = m_compiler->fgNewStmtNearEnd(m_block, newTree);
 
             // fgMorphBlockStmt could potentially affect stmts after the current one,
             // for example when it decides to fgRemoveRestOfBlock.
